@@ -4,7 +4,7 @@
 //! produced by that feature should be automatically boolean-merged into the
 //! host body.  This module provides the detection and execution logic.
 
-use std::collections::HashMap;
+use crate::working_bodies::WorkingBodies;
 
 use popkern_core::history::TrackingContext;
 use popkern_core::naming_resolve::{Resolution, ResolvedEntity, resolve_name};
@@ -72,7 +72,7 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
 pub(crate) fn detect_host_body(
     feature_id: FeatureId,
     features: &SlotMap<FeatureId, FeatureNode>,
-    body_breps: &HashMap<BodyId, BRep>,
+    body_breps: &WorkingBodies,
 ) -> Option<BodyId> {
     // Ascending id: the first body resolving the face wins, so the
     // scan order must not be hash order (PK-525).
@@ -86,7 +86,7 @@ pub(crate) fn detect_host_body(
 /// resolve against when replayed into a fresh body.
 pub(crate) fn host_for_sketch_plane(
     plane: &SketchPlaneDesc,
-    body_breps: &HashMap<BodyId, BRep>,
+    body_breps: &WorkingBodies,
 ) -> Option<BodyId> {
     let face_name = match plane {
         SketchPlaneDesc::OnFace(name) | SketchPlaneDesc::OnFaceOffset(name, _) => name,
@@ -110,7 +110,7 @@ pub(crate) fn host_for_sketch_plane(
 pub(crate) fn host_for_extrude_target(
     feature: &Feature,
     own_body: BodyId,
-    body_breps: &HashMap<BodyId, BRep>,
+    body_breps: &WorkingBodies,
 ) -> Option<BodyId> {
     let Feature::Extrude {
         end_condition,
@@ -198,7 +198,7 @@ pub(crate) fn execute_auto_merge(
     mode: OperationMode,
     tool_body: BodyId,
     host_body: BodyId,
-    body_breps: &mut HashMap<BodyId, BRep>,
+    body_breps: &mut WorkingBodies,
     ctx: &mut TrackingContext,
     tolerance: &Tolerance,
 ) -> Result<(), ReplayError> {

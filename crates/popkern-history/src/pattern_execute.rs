@@ -4,6 +4,7 @@
 //! copy-transform each instance, boolean-merge into the host body, and
 //! collect per-instance outcomes.
 
+use crate::working_bodies::WorkingBodies;
 use std::collections::HashMap;
 
 use popkern_core::history::TrackingContext;
@@ -33,7 +34,7 @@ pub(crate) struct PatternContext<'a> {
     /// Existing instance OperationId assignments.
     pub instance_op_ids: &'a mut HashMap<(u32, u32), OperationId>,
     /// Mutable map of all body BReps.
-    pub body_breps: &'a mut HashMap<BodyId, BRep>,
+    pub body_breps: &'a mut WorkingBodies,
     /// Parameter table for value resolution.
     pub param_table: &'a ParameterTable,
     /// Geometric tolerance.
@@ -265,7 +266,7 @@ fn boolean_into_host(
     tool_body: BodyId,
     host_body: Option<BodyId>,
     bool_op: popkern_bool::BoolOperation,
-    body_breps: &mut HashMap<BodyId, BRep>,
+    body_breps: &mut WorkingBodies,
     op_id: OperationId,
     tolerance: &Tolerance,
     naming_scheme: u32,
@@ -297,7 +298,7 @@ fn try_feature_replay(
     seed_features: &[Feature],
     seed_op_ids: &[OperationId],
     instance_op_ids: &HashMap<(u32, u32), OperationId>,
-    body_breps: &mut HashMap<BodyId, BRep>,
+    body_breps: &mut WorkingBodies,
     param_table: &ParameterTable,
     tolerance: &Tolerance,
     host_body: BodyId,
@@ -377,7 +378,7 @@ fn try_feature_replay(
 fn try_geometry_fallback(
     tool_snapshot: &Option<BRep>,
     transform: &popkern_core::geometry::transform::Transform3,
-    body_breps: &mut HashMap<BodyId, BRep>,
+    body_breps: &mut WorkingBodies,
     host_body: BodyId,
     bool_op: popkern_bool::BoolOperation,
     mut ctx: TrackingContext,

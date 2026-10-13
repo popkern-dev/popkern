@@ -3,17 +3,17 @@
 //! Extracted from `tree_replay.rs` to keep it within the 500-line structural
 //! limit.
 
+use crate::working_bodies::WorkingBodies;
 use std::collections::HashMap;
 
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
 
 use crate::FeatureTree;
 use crate::config::ConfigId;
 use crate::config_eval;
 use crate::error::ReplayError;
 use crate::feature::Feature;
-use crate::node::{BodyId, FeatureId};
+use crate::node::FeatureId;
 use crate::parameter::ParameterId;
 use crate::pattern::PatternResult;
 use crate::unit::{DimensionKind, Unit};
@@ -91,7 +91,7 @@ impl FeatureTree {
     pub(super) fn execute_pattern_feature(
         &mut self,
         id: FeatureId,
-        body_breps: &mut HashMap<BodyId, BRep>,
+        body_breps: &mut WorkingBodies,
         tolerance: &Tolerance,
     ) -> Result<PatternResult, ReplayError> {
         let node = &self.features[id];

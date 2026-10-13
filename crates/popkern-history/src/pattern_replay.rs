@@ -4,6 +4,7 @@
 //! instance, and to replay a chain of seed features against a fresh BRep to
 //! produce a tool body.
 
+use crate::working_bodies::WorkingBodies;
 use std::collections::HashMap;
 
 use popkern_core::history::TrackingContext;
@@ -13,7 +14,6 @@ use popkern_core::topology::BRep;
 
 use crate::error::ReplayError;
 use crate::feature::Feature;
-use crate::node::BodyId;
 use crate::parameter::ParameterTable;
 use crate::replay;
 
@@ -47,7 +47,7 @@ pub(crate) fn replay_seed_chain(
     seed_features: &[(Feature, OperationId)],
     tolerance: &Tolerance,
     param_table: &ParameterTable,
-    body_breps: &mut HashMap<BodyId, BRep>,
+    body_breps: &mut WorkingBodies,
     naming_scheme: u32,
 ) -> Result<BRep, ReplayError> {
     let mut brep = BRep::new(*tolerance);

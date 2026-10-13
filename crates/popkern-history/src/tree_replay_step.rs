@@ -6,6 +6,7 @@
 //! `replay_range` turns each [`StepPublished`] into a report row, a
 //! result, a [`crate::document_state::DocumentState`] and a cache record.
 
+use crate::working_bodies::WorkingBodies;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -77,7 +78,7 @@ impl FeatureTree {
     pub(super) fn replay_step(
         &mut self,
         id: FeatureId,
-        body_breps: &mut HashMap<BodyId, BRep>,
+        body_breps: &mut WorkingBodies,
         carry: &mut RangeCarry,
         tolerance: &Tolerance,
     ) -> Result<StepPublished, ReplayError> {
@@ -361,15 +362,21 @@ impl FeatureTree {
         &mut self,
         id: FeatureId,
         query: &crate::measure_query::MeasureQuery,
-        body_breps: &HashMap<BodyId, BRep>,
+        body_breps: &WorkingBodies,
         carry: &mut RangeCarry,
         tolerance: &Tolerance,
     ) -> StepPublished {
         let timer = popkern_core::time::Stopwatch::start();
         let node = &self.features[id];
         let operation = node.feature.operation_label();
+        // Measure reads only the active body; a Reference step copies
+        // just that one out of the shared working map (PK-812).
+        let active: HashMap<BodyId, BRep> = body_breps
+            .get(&node.body)
+            .map(|brep| HashMap::from([(node.body, brep.clone())]))
+            .unwrap_or_default();
         let ctx = MeasureContext {
-            bodies: body_breps,
+            bodies: &active,
             active_body: node.body,
             tolerance,
         };

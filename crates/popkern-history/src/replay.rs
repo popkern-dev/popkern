@@ -1,12 +1,11 @@
 //! Feature execution engine — dispatches each [`Feature`] variant to the
 //! appropriate popkern operation and records naming history.
 
+use crate::working_bodies::WorkingBodies;
 use popkern_core::geometry::Point3;
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-
-use std::collections::HashMap;
 
 use crate::error::ReplayError;
 use crate::feature::Feature;
@@ -56,7 +55,7 @@ pub(crate) fn execute_feature(
     feature: &Feature,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
-    body_breps: &mut HashMap<BodyId, BRep>,
+    body_breps: &mut WorkingBodies,
     param_table: &ParameterTable,
     exact_profiles: &crate::replay_exact_extrude::ExactProfileSet,
     merge_host: Option<BodyId>,

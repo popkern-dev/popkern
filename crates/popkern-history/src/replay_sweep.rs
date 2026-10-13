@@ -1,11 +1,10 @@
 //! Sweep-family feature execution: sweep, loft, pipe, and helical
 //! sweep arms of [`super::execute_feature`] (split per file-size rule).
 
+use crate::working_bodies::WorkingBodies;
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-
-use std::collections::HashMap;
 
 use super::replay_fns::{extract_edge_curve, extract_face_outer_curve, resolve_param};
 use crate::error::ReplayError;
@@ -26,7 +25,7 @@ pub(super) fn execute_sweep(
     twist: ParameterId,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
-    body_breps: &HashMap<BodyId, BRep>,
+    body_breps: &WorkingBodies,
     param_table: &ParameterTable,
     exact_profile: Option<&crate::replay_exact_extrude::ExactProfileWire>,
 ) -> Result<ExecuteSideEffects, ReplayError> {
@@ -81,7 +80,7 @@ pub(super) fn execute_loft(
     closed: bool,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
-    body_breps: &HashMap<BodyId, BRep>,
+    body_breps: &WorkingBodies,
     exact_profiles: &crate::replay_exact_extrude::ExactProfileSet,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     // Sections are sketch faces, usually one per sketch body
@@ -164,7 +163,7 @@ pub(super) fn execute_pipe(
     radius: ParameterId,
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
-    body_breps: &HashMap<BodyId, BRep>,
+    body_breps: &WorkingBodies,
     param_table: &ParameterTable,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     let r = resolve_param(param_table, radius)?;
@@ -269,7 +268,7 @@ pub(super) fn execute_helical_sweep(
 /// Body BReps in ascending id order: a first-match lookup across bodies
 /// must not depend on hash iteration order (PK-525).
 fn bodies_in_id_order(
-    body_breps: &std::collections::HashMap<crate::node::BodyId, popkern_core::topology::BRep>,
+    body_breps: &crate::working_bodies::WorkingBodies,
 ) -> impl Iterator<Item = &popkern_core::topology::BRep> {
     let mut ids: Vec<&crate::node::BodyId> = body_breps.keys().collect();
     ids.sort_by_key(|id| id.0);

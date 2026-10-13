@@ -8,7 +8,7 @@
 //! produced each body, which is also a stable key for a viewer's mesh
 //! of it.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use popkern_core::topology::BRep;
@@ -88,13 +88,16 @@ impl DocumentState {
         next
     }
 
-    /// The bodies as an owned working map (a replay resumes on copies;
-    /// the cached state stays immutable).
-    pub(crate) fn to_working(&self) -> HashMap<BodyId, BRep> {
-        self.bodies
-            .iter()
-            .map(|(id, brep)| (*id, brep.as_ref().clone()))
-            .collect()
+    /// The bodies as a working map sharing this state's handles; a
+    /// step copies a body only when it takes it out to change it, so
+    /// the cached state stays immutable (PK-812).
+    pub(crate) fn to_working(&self) -> crate::working_bodies::WorkingBodies {
+        crate::working_bodies::WorkingBodies::shared(
+            self.bodies
+                .iter()
+                .map(|(id, brep)| (*id, brep.clone()))
+                .collect(),
+        )
     }
 
     /// The state after `step`: bodies in `touched` (or new to the map)
@@ -103,12 +106,12 @@ impl DocumentState {
     /// a boolean or merge).
     pub(crate) fn advanced(
         &self,
-        working: &HashMap<BodyId, BRep>,
+        working: &crate::working_bodies::WorkingBodies,
         touched: Touched<'_>,
         step: FeatureId,
     ) -> DocumentState {
         let mut next = DocumentState::default();
-        for (&id, brep) in working {
+        for (&id, brep) in working.as_map() {
             let shared = match touched {
                 Touched::All => None,
                 Touched::Bodies(set) if set.contains(&id) => None,
@@ -122,7 +125,9 @@ impl DocumentState {
                     }
                 }
                 None => {
-                    next.bodies.insert(id, Arc::new(brep.clone()));
+                    // Shared with the working map: the next step that
+                    // changes this body copies it (`WorkingBodies::remove`).
+                    next.bodies.insert(id, brep.clone());
                     next.changed_by.insert(id, step);
                 }
             }
