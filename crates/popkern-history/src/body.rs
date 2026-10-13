@@ -17,8 +17,9 @@ use crate::node::{BodyId, FeatureId};
 pub(crate) struct BodyManager {
     /// Features assigned to each body.
     bodies: HashMap<BodyId, Vec<FeatureId>>,
-    /// Current BRep for each body (from most recent replay).
-    body_breps: HashMap<BodyId, BRep>,
+    /// Current BRep for each body (from most recent replay), shared
+    /// with the replay's final document state rather than copied.
+    body_breps: HashMap<BodyId, std::sync::Arc<BRep>>,
     /// Next body id to assign.
     next_id: u32,
 }
@@ -72,12 +73,17 @@ impl BodyManager {
     /// Store the current BRep for a body (called during replay).
     #[allow(dead_code)]
     pub fn set_brep(&mut self, body: BodyId, brep: BRep) {
+        self.body_breps.insert(body, std::sync::Arc::new(brep));
+    }
+
+    /// Store a body's BRep shared with the document state that holds it.
+    pub(crate) fn set_shared_brep(&mut self, body: BodyId, brep: std::sync::Arc<BRep>) {
         self.body_breps.insert(body, brep);
     }
 
     /// Return the current BRep for a body, if one has been stored.
     pub fn get_brep(&self, body: BodyId) -> Option<&BRep> {
-        self.body_breps.get(&body)
+        self.body_breps.get(&body).map(std::sync::Arc::as_ref)
     }
 
     /// Return all known body ids.

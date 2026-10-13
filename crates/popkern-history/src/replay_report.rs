@@ -37,7 +37,6 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use popkern_blend::{BlendContinuityEvidence, ContinuityLevel};
-use popkern_core::topology::BRep;
 use serde::{Deserialize, Serialize};
 
 use crate::error::FeatureResult;
@@ -83,12 +82,11 @@ pub struct ReplayResult {
     pub cached_steps: usize,
 }
 
-/// Per-body BReps, per-feature outcomes, and the report from a replay pass.
+/// The final document, per-feature outcomes, and the report from a
+/// replay pass.
 pub(crate) struct ReplayRangeOutput {
-    /// Final BRep per body.
-    pub bodies: HashMap<crate::node::BodyId, BRep>,
     /// The document after the last executed step (bodies shared with
-    /// the step cache).
+    /// the step cache; the published bodies are its handles).
     pub state: crate::document_state::DocumentState,
     /// Per-feature outcomes.
     pub results: HashMap<FeatureId, FeatureResult>,

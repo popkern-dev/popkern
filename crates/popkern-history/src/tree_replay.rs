@@ -26,7 +26,6 @@ mod helpers;
 mod step;
 
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
 
 use crate::FeatureTree;
 use crate::ReplayRangeOutput;
@@ -42,24 +41,28 @@ use crate::step_key::StepKey;
 use step::{RangeCarry, StepTouched};
 
 impl FeatureTree {
-    /// Persist replay results: update body_manager and current_brep.
-    pub(crate) fn store_body_breps(&mut self, body_breps: &HashMap<BodyId, BRep>) {
+    /// Persist replay results: update body_manager and current_brep
+    /// from the replay's final document state, sharing its bodies
+    /// (PK-805: two deep copies of every body per recorded feature,
+    /// plus dropping the previous two, were a quarter of a slot-disc
+    /// script's non-boolean time).
+    pub(crate) fn store_body_breps(&mut self, state: &DocumentState) {
         // A body absent from this replay's result no longer exists at
         // the end of the timeline (a boolean consumed it, or the
         // rollback bar sits before it); a stale snapshot from an
         // earlier replay must not keep serving it (measured: consumed
         // tool bodies reported alive, PK-385).
         self.body_manager.clear_breps();
-        for (body_id, brep) in body_breps {
-            self.body_manager.set_brep(*body_id, brep.clone());
+        for (body_id, brep) in state.shared_bodies() {
+            self.body_manager.set_shared_brep(body_id, brep.clone());
         }
         // Fallback: the lowest surviving id — never hash order (PK-525).
-        self.current_brep = body_breps.get(&BodyId(0)).cloned().or_else(|| {
-            body_breps
-                .iter()
-                .min_by_key(|(id, _)| id.0)
-                .map(|(_, brep)| brep.clone())
-        });
+        // `shared_bodies` iterates in id order.
+        self.current_brep = state
+            .shared_bodies()
+            .find(|(id, _)| *id == BodyId(0))
+            .or_else(|| state.shared_bodies().next())
+            .map(|(_, brep)| brep.clone());
     }
 
     /// Execute timeline steps `from..to` on `start`, recording every
@@ -120,7 +123,6 @@ impl FeatureTree {
             report.features.push(published.row);
         }
         Ok(ReplayRangeOutput {
-            bodies: body_breps,
             state,
             results,
             report,
@@ -268,7 +270,7 @@ impl FeatureTree {
         };
         let mut out = self.replay_range(state, from, end, &keys, &tolerance)?;
         let mut cached = self.republish_prefix(&keys, from, &mut out.results, prefix_results);
-        self.store_body_breps(&out.bodies);
+        self.store_body_breps(&out.state);
         self.last_report.absorb(cached.clone(), &self.timeline);
         self.last_report.absorb(out.report.clone(), &self.timeline);
         if report_cached {

@@ -51,7 +51,7 @@ impl FeatureTree {
     ///
     /// Returns `None` if the tree has no current BRep (call replay first).
     pub fn validate_references(&self) -> Option<HealthReport> {
-        let brep = self.current_brep.as_ref()?;
+        let brep = self.current_brep.as_deref()?;
 
         let mut issues = Vec::new();
         let mut total = 0;

@@ -33,6 +33,12 @@ impl DocumentState {
         self.bodies.get(&body).map(Arc::as_ref)
     }
 
+    /// The alive bodies in id order, as the shared handles this state
+    /// holds.
+    pub(crate) fn shared_bodies(&self) -> impl Iterator<Item = (BodyId, &Arc<BRep>)> {
+        self.bodies.iter().map(|(id, brep)| (*id, brep))
+    }
+
     /// The alive bodies in id order.
     pub fn bodies(&self) -> impl Iterator<Item = (BodyId, &BRep)> {
         self.bodies.iter().map(|(id, brep)| (*id, brep.as_ref()))

@@ -180,7 +180,7 @@ pub struct FeatureTree {
     ///
     /// Not serialized — call [`replay`](Self::replay) after loading.
     #[serde(skip)]
-    pub(crate) current_brep: Option<BRep>,
+    pub(crate) current_brep: Option<std::sync::Arc<BRep>>,
     /// The most recent report for every feature in the timeline
     /// (session-local; rebuilt by replay).
     #[serde(skip)]
@@ -321,7 +321,7 @@ impl FeatureTree {
 
     /// The current BRep after the last replay.
     pub fn current_brep(&self) -> Option<&BRep> {
-        self.current_brep.as_ref()
+        self.current_brep.as_deref()
     }
 }
 
