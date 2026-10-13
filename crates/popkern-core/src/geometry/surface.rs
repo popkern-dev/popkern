@@ -160,8 +160,35 @@ pub enum SurfaceGeometry {
 pub struct SurfaceOnFace {
     /// The geometric surface.
     pub geometry: SurfaceGeometry,
-    /// True if surface normal agrees with face normal.
+    /// True when the face's outer loop runs counter-clockwise about the
+    /// CHART normal `∂u × ∂v` (`partial_u × partial_v`), the
+    /// winding-honesty contract (`validation::winding_honesty`).
+    ///
+    /// It is not a material side. The chart normal can differ from a
+    /// stored axis (a `Plane` whose `u_axis × v_axis` opposes `normal`;
+    /// the sphere's colatitude chart, whose `∂u × ∂v` points inward),
+    /// and a body's loops may wind either way globally (primitives such
+    /// as [`crate::topology::BRep::unit_cube`] fold every face inward).
+    /// For the out-of-material direction, multiply
+    /// [`SurfaceOnFace::folded_normal`] by the component's
+    /// [`crate::validation::MaterialSense::outward_multiplier`] from
+    /// [`crate::topology::BRep::component_material_sense`] (PK-772).
     pub orientation: bool,
+}
+
+impl SurfaceOnFace {
+    /// The flag-folded chart normal at `(u, v)`: `∂u × ∂v` (unit
+    /// length), negated when [`SurfaceOnFace::orientation`] is false.
+    /// The face's loops wind counter-clockwise about it. `None` where
+    /// the chart is singular (a pole).
+    pub fn folded_normal(&self, u: f64, v: f64) -> Option<crate::geometry::Vec3> {
+        let n = self
+            .geometry
+            .partial_u(u, v)
+            .cross(&self.geometry.partial_v(u, v))
+            .normalized()?;
+        Some(if self.orientation { n } else { n * -1.0 })
+    }
 }
 
 impl SurfaceGeometry {
