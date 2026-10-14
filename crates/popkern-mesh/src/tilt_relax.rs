@@ -19,9 +19,15 @@ use std::collections::{HashMap, HashSet};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 
+use popkern_math::PortableMath;
+
 use crate::crease_flip::{angle_between, key};
 use crate::mesh::FaceMesh;
 use crate::vertex_normal::{chart_singular, limit_normal, singular_without_unique_normal};
+
+/// A candidate move: (leaning facets, worst tilt), chart point, and the
+/// position and normal there.
+type Move = ((usize, f64), (f64, f64), Point3, Vec3);
 
 /// Relaxation rounds.
 const ROUNDS: usize = 3;
@@ -110,55 +116,94 @@ pub(crate) fn relax_leaning_vertices(
             if ring.is_empty() {
                 continue;
             }
-            let uv = ring.iter().fold((0.0, 0.0), |a, &w| {
+            let centroid = ring.iter().fold((0.0, 0.0), |a, &w| {
                 let q = mesh.vertices[w].uv;
                 (a.0 + q.0 / ring.len() as f64, a.1 + q.1 / ring.len() as f64)
             });
-            if chart_singular(surface, uv.0, uv.1) {
-                continue;
-            }
-            let Some(n) = limit_normal(surface, uv.0, uv.1) else {
-                continue;
-            };
-            let (position, normal) = (
-                surface.point_at(uv.0, uv.1),
-                Vec3::new(sign * n.x, sign * n.y, sign * n.z),
-            );
-            let corner = |i: usize| {
-                if i == v {
-                    (position, normal, uv)
-                } else {
-                    let w = &mesh.vertices[i];
-                    (w.position, w.normal, w.uv)
+            // The worst tilt and spread of `v`'s star with `v` at chart
+            // point `uv`, or `None` when a facet would flip its chart
+            // winding, lose its area or face against its normals.
+            let evaluate = |uv: (f64, f64)| -> Option<(f64, f64, usize, Point3, Vec3)> {
+                if chart_singular(surface, uv.0, uv.1) {
+                    return None;
                 }
+                let n = limit_normal(surface, uv.0, uv.1)?;
+                let (position, normal) = (
+                    surface.point_at(uv.0, uv.1),
+                    Vec3::new(sign * n.x, sign * n.y, sign * n.z),
+                );
+                let (mut tilt_max, mut spread_max, mut over) = (0.0f64, 0.0f64, 0usize);
+                for &ti in star {
+                    let t = mesh.triangles[ti];
+                    let old_uv = t.map(|i| mesh.vertices[i].uv);
+                    let new = t.map(|i| {
+                        if i == v {
+                            (position, normal, uv)
+                        } else {
+                            let w = &mesh.vertices[i];
+                            (w.position, w.normal, w.uv)
+                        }
+                    });
+                    let (a_old, a_new) = (chart_area(old_uv), chart_area(new.map(|x| x.2)));
+                    if a_new.signum() != a_old.signum() || a_new.abs() <= 1e-9 * a_old.abs() {
+                        return None;
+                    }
+                    let f = (new[1].0 - new[0].0).cross(&(new[2].0 - new[0].0));
+                    if new.iter().any(|x| f.dot(&x.1) <= 0.0) {
+                        return None;
+                    }
+                    let x = tilt_of(new.map(|x| x.0), new.map(|x| x.1));
+                    tilt_max = tilt_max.max(x);
+                    over += usize::from(x > bound);
+                    spread_max = spread_max.max(spread_of(new.map(|x| x.1)));
+                }
+                Some((tilt_max, spread_max, over, position, normal))
             };
-            let (mut old_tilt, mut old_spread, mut new_tilt, mut new_spread) =
-                (0.0f64, 0.0f64, 0.0f64, 0.0f64);
-            let ok = star.iter().all(|&ti| {
-                let t = mesh.triangles[ti];
-                let old = t.map(|i| {
+            let (old_tilt, old_spread, old_over) =
+                star.iter().fold((0.0f64, 0.0f64, 0usize), |acc, &ti| {
+                    let t = mesh.triangles[ti];
+                    let n = t.map(|i| mesh.vertices[i].normal);
+                    let x = tilt_of(t.map(|i| mesh.vertices[i].position), n);
                     (
-                        mesh.vertices[i].position,
-                        mesh.vertices[i].normal,
-                        mesh.vertices[i].uv,
+                        acc.0.max(x),
+                        acc.1.max(spread_of(n)),
+                        acc.2 + usize::from(x > bound),
                     )
                 });
-                let new = t.map(corner);
-                old_tilt = old_tilt.max(tilt_of(old.map(|x| x.0), old.map(|x| x.1)));
-                old_spread = old_spread.max(spread_of(old.map(|x| x.1)));
-                let (a_old, a_new) = (chart_area(old.map(|x| x.2)), chart_area(new.map(|x| x.2)));
-                if a_new.signum() != a_old.signum() || a_new.abs() <= 1e-9 * a_old.abs() {
-                    return false;
+            // Candidates: the ring centroid, and a pattern of eight moves
+            // at two radii (a quarter and half the ring's mean chart
+            // reach): the centroid is a fixed point where the star's worst
+            // facet is shaped by its boundary samples.
+            let reach = ring
+                .iter()
+                .map(|&w| {
+                    let q = mesh.vertices[w].uv;
+                    ((q.0 - uv0.0).powi(2) + (q.1 - uv0.1).powi(2)).sqrt()
+                })
+                .sum::<f64>()
+                / ring.len() as f64;
+            let mut candidates = vec![centroid];
+            for r in [0.25 * reach, 0.5 * reach] {
+                for k in 0..8 {
+                    let a = std::f64::consts::FRAC_PI_4 * k as f64;
+                    candidates.push((uv0.0 + r * a.pcos(), uv0.1 + r * a.psin()));
                 }
-                let f = (new[1].0 - new[0].0).cross(&(new[2].0 - new[0].0));
-                if new.iter().any(|x| f.dot(&x.1) <= 0.0) {
-                    return false;
+            }
+            // Fewer leaning facets first, then a lower worst tilt; never
+            // more leaning facets than before (a lower worst can still
+            // tip more of the star past the bound).
+            let mut best: Option<Move> = None;
+            for uv in candidates {
+                if let Some((t, sp, over, position, normal)) = evaluate(uv)
+                    && t < old_tilt
+                    && over <= old_over
+                    && sp <= bound.max(old_spread)
+                    && best.is_none_or(|b| (over, t) < b.0)
+                {
+                    best = Some(((over, t), uv, position, normal));
                 }
-                new_tilt = new_tilt.max(tilt_of(new.map(|x| x.0), new.map(|x| x.1)));
-                new_spread = new_spread.max(spread_of(new.map(|x| x.1)));
-                true
-            });
-            if ok && new_tilt < old_tilt && new_spread <= bound.max(old_spread) {
+            }
+            if let Some((_, uv, position, normal)) = best {
                 let w = &mut mesh.vertices[v];
                 (w.position, w.normal, w.uv) = (position, normal, uv);
                 moved_round += 1;
