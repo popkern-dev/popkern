@@ -387,6 +387,35 @@ impl BRep {
         // forward. Otherwise reverse when the pcurve's start maps
         // nearer the half-edge's destination than its origin.
         let reversed = q_start.distance_to(&dest) + 1.0e-12 < q_start.distance_to(&origin);
+        // A straight pcurve (a UV line, or a two-point degree-1 NURBS)
+        // on an APERIODIC chart contributes its chord: interior samples
+        // on it add nothing to the shoelace sum and its length to the
+        // perimeter is the chord's. Its ends alone (PK-804: the
+        // whole-body audit sampled eight points per half-edge of every
+        // face, every boolean). Periodic charts keep the samples: the
+        // unwrap needs steps under half a period (a full-period rim
+        // line's ends alone would read as one branch shift).
+        let (period_u, period_v) = surface.periodicity();
+        let straight = period_u.is_none()
+            && period_v.is_none()
+            && match &pcurve.geometry {
+                crate::geometry::pcurve::PcurveGeometry::Linear { .. } => true,
+                crate::geometry::pcurve::PcurveGeometry::Nurbs(n) => {
+                    n.degree == 1 && n.control_points.len() == 2
+                }
+                _ => false,
+            };
+        if straight {
+            let (a, b) = (pcurve.point_at(t0), pcurve.point_at(t1));
+            if !(a.x.is_finite() && a.y.is_finite() && b.x.is_finite() && b.y.is_finite()) {
+                return Err("non-finite-uv-samples");
+            }
+            return Ok(if reversed {
+                vec![(b.x, b.y), (a.x, a.y)]
+            } else {
+                vec![(a.x, a.y), (b.x, b.y)]
+            });
+        }
         let mut samples = Vec::with_capacity(SAMPLES_PER_HALF_EDGE);
         for k in 0..SAMPLES_PER_HALF_EDGE {
             let frac = k as f64 / (SAMPLES_PER_HALF_EDGE - 1) as f64;

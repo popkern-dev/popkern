@@ -102,110 +102,6 @@ pub(crate) fn propagate_output_tolerances(result: &mut BRep, tolerance: &Toleran
     }
 }
 
-/// Safely remove redundant edges, validating after each removal.
-///
-/// Finds redundant edges and removes them one at a time via KEF.
-/// After each removal, validates the topology. If validation fails,
-/// stops immediately (leaving remaining redundant edges in place).
-pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Tolerance) {
-    use crate::postprocess::redundant_edge::find_redundant_edges;
-
-    let report = find_redundant_edges(result, tolerance);
-
-    if report.redundant_edges.is_empty() {
-        dissolve_redundant_chains(result, tolerance);
-        return;
-    }
-
-    let mut removed = 0;
-    for eh in &report.redundant_edges {
-        // Re-check against the CURRENT topology: the report is
-        // computed once, and earlier KEFs in this loop change both
-        // which edges two faces share (a stale single-share verdict
-        // dissolves one edge of a multi-edge boundary and leaves the
-        // survivor self-twinned) and how far a merged face spans the
-        // chart (a merge that was span-safe at report time can wrap
-        // a period by the time its edge comes up).
-        if !crate::postprocess::redundant_edge::edge_redundant_now(result, *eh, tolerance) {
-            continue;
-        }
-        if !crate::clip::chart_cell::edge_dissolve_keeps_cell_resolvable(result, *eh, tolerance) {
-            continue;
-        }
-        let he = match result.edges.get(*eh) {
-            Some(e) => e.half_edge,
-            None => continue,
-        };
-
-        // Snapshot vertex/edge/face counts before KEF
-        let pre_v = result.vertices.len();
-        let pre_e = result.edges.len();
-        let pre_f = result.faces.len();
-
-        let sides = crate::postprocess::merge_rechart::merge_sides(result, he);
-        if let Ok(kef) = result.kef(he) {
-            crate::postprocess::merge_rechart::rechart_inherited(result, &sides, kef.removed_face);
-            // Validate after removal — if topology is corrupted, stop
-            if result.validate().is_err() {
-                // Revert is impossible, but at least stop making it worse
-                if cfg!(debug_assertions) {
-                    eprintln!(
-                        "[boolean] KEF corrupted topology after removing edge, stopping. \
-                         Before: V={pre_v} E={pre_e} F={pre_f}"
-                    );
-                }
-                break;
-            }
-            removed += 1;
-        }
-    }
-
-    if removed > 0 && cfg!(debug_assertions) {
-        eprintln!("[boolean] post-processing: removed {removed} redundant edge(s)");
-    }
-    dissolve_redundant_chains(result, tolerance);
-}
-
-/// Merge co-surfacial face pairs whose shared boundary is a multi-edge
-/// PATH (PK-379): staged per pair, kept only when the body still
-/// validates. Single-edge pairs were handled above; pairs whose
-/// shared edges are not one path stay split (a ring would need an
-/// inner loop, not a merge).
-fn dissolve_redundant_chains(result: &mut BRep, tolerance: &Tolerance) {
-    use crate::postprocess::redundant_chain::{dissolve_chain, shared_coplanar_chain};
-    let mut merged = 0usize;
-    loop {
-        let mut progressed = false;
-        let edges: Vec<_> = result.edges.keys().collect();
-        for eh in edges {
-            let Some(chain) = shared_coplanar_chain(result, eh, tolerance) else {
-                continue;
-            };
-            if chain.len() < 2 {
-                continue;
-            }
-            if !crate::clip::chart_cell::edge_dissolve_keeps_cell_resolvable(
-                result, chain[0], tolerance,
-            ) {
-                continue;
-            }
-            let mut staged = result.clone();
-            if dissolve_chain(&mut staged, &chain).is_ok() && staged.validate().is_ok() {
-                *result = staged;
-                merged += 1;
-                progressed = true;
-                break;
-            }
-        }
-        if !progressed {
-            break;
-        }
-    }
-    if merged > 0 && cfg!(debug_assertions) {
-        eprintln!("[boolean] post-processing: dissolved {merged} redundant shared chain(s)");
-    }
-}
-
 /// Log post-processing diagnostics: sliver detection and watertightness.
 ///
 /// Runs sliver analysis on each face and watertightness validation on all
@@ -285,6 +181,10 @@ pub(crate) use crate::operation_postprocess_trace::trace_face_census;
 /// face simplification, micro-edge collapse, and tolerance
 /// propagation — each stage census-traced under the boolean trace topic
 /// (sliver removal silently deleted a cylinder wall once, PK-150).
+#[path = "operation_postprocess_redundant.rs"]
+mod redundant;
+use redundant::remove_redundant_edges_safe;
+
 pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // Post-processing: prune stranded half-edges left behind by
     // broken merge loops. The merge phase occasionally tags
@@ -292,12 +192,13 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // this pruning step removes them so the visible topology
     // matches the Euler-Poincaré accounting.
     trace_face_census("pre-postprocess", result);
+    let mut gate = super::postprocess_gate::ValidityGate::new();
     let _ = crate::postprocess::loop_repair::repair_stranded_loops(result);
     trace_face_census("post-stranded", result);
 
     // Post-processing: remove redundant edges if the result topology is valid.
-    if result.validate().is_ok() {
-        remove_redundant_edges_safe(result, tolerance);
+    if gate.valid(result) {
+        gate.edited(remove_redundant_edges_safe(result, tolerance));
     }
     trace_face_census("post-redundant", result);
 
@@ -305,8 +206,9 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // is still valid. The pass merges each sliver into a non-sliver
     // neighbor via KEF, validating after every removal and bailing
     // out on any corruption rather than compounding damage.
-    if result.validate().is_ok() {
-        let _ = crate::postprocess::sliver_removal::remove_slivers(result, tolerance);
+    if gate.valid(result) {
+        let sliver = crate::postprocess::sliver_removal::remove_slivers(result, tolerance);
+        gate.edited(sliver.removed + sliver.failed + usize::from(sliver.aborted_with.is_some()));
     }
     trace_face_census("post-sliver", result);
 
@@ -315,8 +217,10 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // rollback on regression. The previous implementation was
     // disabled because of a stale-edge-handle bug; the iterate-and-
     // recompute pattern fixes that.
-    if result.validate().is_ok() {
-        crate::postprocess::face_simplify::apply_face_simplification(result, tolerance);
+    if gate.valid(result) {
+        gate.edited(
+            crate::postprocess::face_simplify::apply_face_simplification(result, tolerance),
+        );
     }
     trace_face_census("post-simplify", result);
     // Note: fix_zero_thickness_sheets remains disabled — its global
@@ -329,10 +233,11 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // of a physical corner line (the L-union fillet class). Each
     // dissolution is a transactional kve; pcurves cleared by the pass
     // are re-derived immediately below.
-    if result.validate().is_ok() {
+    if gate.valid(result) {
         let dissolved = crate::postprocess::collinear_vertex::dissolve_collinear_valence2_vertices(
             result, tolerance,
         );
+        gate.edited(dissolved);
         if dissolved > 0 {
             // PK-274: each dissolution is a transactional kve that
             // cleared the pcurves it touched — refill exactly those.
@@ -349,7 +254,17 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // Post-processing: collapse micro-edges (position merge).
     let micro_edges = crate::imprint::micro_edge::find_micro_edges(result, tolerance.linear());
     if !micro_edges.is_empty() {
+        // Only ends at distinct positions move (a closed rim's single
+        // vertex is its own midpoint).
+        let moving = micro_edges
+            .iter()
+            .filter(|m| {
+                let p = |v| result.vertices.get(v).map(|v| v.position);
+                p(m.start) != p(m.end)
+            })
+            .count();
         crate::imprint::micro_edge::collapse_micro_edge_positions(result, &micro_edges);
+        gate.edited(moving);
     }
 
     // Post-processing: retire degenerate spur edges (PK-293). Runs
@@ -358,6 +273,11 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // removal is a transactional kev.
     let spur_report =
         crate::postprocess::spur_edge::collapse_degenerate_spur_edges(result, tolerance);
+    gate.edited(
+        spur_report.spurs_removed
+            + spur_report.self_twins_removed
+            + spur_report.ghost_faces_removed,
+    );
     if spur_report.spurs_removed > 0
         && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
     {
@@ -376,8 +296,9 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // the face meshed empty — 159 open edges on a validator-clean
     // serve). Splice such loops into the outer cycle at the pinch
     // vertex; transactional per merge.
-    if result.validate().is_ok() {
+    if gate.valid(result) {
         let keyhole = crate::postprocess::keyhole_loop::merge_pinched_keyhole_loops(result);
+        gate.edited(keyhole.merged + keyhole.declined);
         if keyhole.merged + keyhole.declined > 0
             && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
         {
@@ -395,6 +316,7 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // the tessellator's grid fallback (57 open mesh edges on the
     // rim-filleted-cylinder subtraction's seam-side bulge).
     let slit_report = crate::postprocess::slit_seam::dissolve_slit_seams(result, tolerance);
+    gate.edited(slit_report.dissolved + slit_report.declined);
     if slit_report.dissolved > 0
         && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
     {
@@ -407,8 +329,9 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
 
     // Weld the two masked halves of a collapsed near-tangential gore
     // into one twin pair (PK-309) — postprocess/parallel_weld.rs.
-    if result.validate().is_ok() {
+    if gate.valid(result) {
         let weld = crate::postprocess::parallel_weld::weld_parallel_self_twins(result, tolerance);
+        gate.edited(weld.welded + weld.declined);
         if weld.welded > 0
             && (cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean"))
         {
@@ -425,7 +348,7 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // validates, but STEP-exports as a degenerate closed free wire
     // the OCC oracle rejects. Splice it out; real-extent one-sided
     // survivors stay.
-    if result.validate().is_ok() {
+    if gate.valid(result) {
         let stubs = crate::postprocess::self_twin_stub::remove_self_twin_stubs(result, tolerance);
         if stubs.removed > 0
             && (cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean"))

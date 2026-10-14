@@ -88,13 +88,25 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
                     // Fraction-matched image honesty against the 3-D
                     // edge curve (direction resolved by the endpoint
                     // nearer the half-edge origin).
-                    if let Some(c) = result.edges.get(hd.edge).and_then(|e| e.curve.as_ref())
+                    if let Some(edge) = result.edges.get(hd.edge)
+                        && let Some(c) = edge.curve.as_ref()
                         && let Some(v) = result.vertices.get(hd.origin)
                     {
                         let cs = c.geometry.point_at(c.t_start);
                         let ce = c.geometry.point_at(c.t_end);
-                        let (ta, tb) = if v.position.distance_to(&cs) <= v.position.distance_to(&ce)
-                        {
+                        // A CLOSED edge's ends are both its origin: the
+                        // canonical convention decides (its half-edge
+                        // runs the curve forward, the twin backward).
+                        // Judged by distance, every twin-side rim read
+                        // as reversed — the sweep "repaired" a cylinder
+                        // wall on every boolean (PK-804: image 60 off on
+                        // a 30 mm disc, then a whole-face recompute).
+                        let forward = if cs.distance_to(&ce) <= image_gate {
+                            edge.half_edge == cur
+                        } else {
+                            v.position.distance_to(&cs) <= v.position.distance_to(&ce)
+                        };
+                        let (ta, tb) = if forward {
                             (c.t_start, c.t_end)
                         } else {
                             (c.t_end, c.t_start)

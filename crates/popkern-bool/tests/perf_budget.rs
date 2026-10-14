@@ -262,9 +262,13 @@ fn torus_carrying_cylinder_union_within_budget() {
 /// Then unsplit open edges kept their pcurves (no refit of every
 /// untouched edge), kept-pcurve checks stopped searching, check 9
 /// skipped carried edges, the span registry was indexed and de Boor
-/// scratch shrank: slot 0 ~8.3 ms, slot 63 ~21.5 ms, 2.58-2.59, gate
-/// 3.3. The rest is per-face constants in graph build, assembly and
-/// the serve postprocess (PK-804) and naming lineage (PK-803).
+/// scratch shrank: slot 0 ~8.3 ms, slot 63 ~21.5 ms, 2.58-2.59. The
+/// serve postprocess then kept its validity verdict across passes that
+/// edit nothing, built face adjacency once, skipped straight NURBS in
+/// rim promotion, stopped "repairing" twin-side closed rims, and audits
+/// winding on straight aperiodic pcurves by their ends: slot 63 ~18.2
+/// ms, 2.10-2.16, gate 2.8. The rest is per-face constants in graph
+/// build, assembly and the remaining whole-body passes (PK-804).
 #[test]
 fn slotted_disc_late_cut_stays_near_the_first() {
     if debug_skip("64-slot disc, slot 63 vs slot 0") {
@@ -302,10 +306,10 @@ fn slotted_disc_late_cut_stays_near_the_first() {
     }
     let ratio = last.as_secs_f64() / first.as_secs_f64().max(1e-9);
     eprintln!(
-        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 3.3)"
+        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 2.8)"
     );
     assert!(
-        ratio <= 3.3,
-        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 3.3"
+        ratio <= 2.8,
+        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 2.8"
     );
 }

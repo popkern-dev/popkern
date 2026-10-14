@@ -50,10 +50,25 @@ pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimRep
     let mut report = ExactRimReport::default();
     let edges: Vec<EdgeHandle> = brep.edges.keys().collect();
     for edge in edges {
-        let Some(curve) = brep.edges.get(edge).and_then(|e| e.curve.clone()) else {
+        // Only NURBS edges are candidates, and a two-point degree-1
+        // span is a straight segment the recognizer's sagitta test
+        // rejects anyway — skipped before sampling (and before cloning
+        // every edge's curve: PK-804).
+        let Some(CurveGeometry::Nurbs(n)) = brep
+            .edges
+            .get(edge)
+            .and_then(|e| e.curve.as_ref())
+            .map(|c| &c.geometry)
+        else {
             continue;
         };
-        let CurveGeometry::Nurbs(_) = &curve.geometry else {
+        if n.degree == 1
+            && n.control_points.len() == 2
+            && n.control_points[0] != n.control_points[1]
+        {
+            continue;
+        }
+        let Some(curve) = brep.edges.get(edge).and_then(|e| e.curve.clone()) else {
             continue;
         };
         if !rim_between_analytic_faces(brep, edge) {

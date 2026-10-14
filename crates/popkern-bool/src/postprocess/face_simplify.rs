@@ -46,6 +46,25 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
 
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut visited = std::collections::HashSet::new();
+    // Each face's edge-neighbours (the other side of each of its edges),
+    // in edge order.
+    let mut adjacency: std::collections::HashMap<FaceHandle, Vec<FaceHandle>> =
+        std::collections::HashMap::new();
+    for (_eh, edge) in &brep.edges {
+        let Some(he) = brep.half_edges.get(edge.half_edge) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(twin.loop_)) else {
+            continue;
+        };
+        adjacency.entry(la.face).or_default().push(lb.face);
+        if lb.face != la.face {
+            adjacency.entry(lb.face).or_default().push(la.face);
+        }
+    }
 
     for &fh in &face_handles {
         if visited.contains(&fh) {
@@ -102,34 +121,13 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
         queue.push_back(fh);
 
         while let Some(current) = queue.pop_front() {
-            // Find adjacent faces via shared edges
-            for (_eh, edge) in &brep.edges {
-                let he = match brep.half_edges.get(edge.half_edge) {
-                    Some(h) => h,
-                    None => continue,
-                };
-                let twin = match brep.half_edges.get(he.twin) {
-                    Some(t) => t,
-                    None => continue,
-                };
-
-                let loop_a = match brep.loops.get(he.loop_) {
-                    Some(l) => l,
-                    None => continue,
-                };
-                let loop_b = match brep.loops.get(twin.loop_) {
-                    Some(l) => l,
-                    None => continue,
-                };
-
-                let neighbor = if loop_a.face == current && !visited.contains(&loop_b.face) {
-                    loop_b.face
-                } else if loop_b.face == current && !visited.contains(&loop_a.face) {
-                    loop_a.face
-                } else {
+            // Adjacent faces via shared edges, in edge order (the
+            // adjacency is built once: scanning every edge per visited
+            // face was quadratic in body size — PK-804).
+            for &neighbor in adjacency.get(&current).map(Vec::as_slice).unwrap_or(&[]) {
+                if visited.contains(&neighbor) {
                     continue;
-                };
-
+                }
                 let neighbor_surf = match brep.faces.get(neighbor).and_then(|f| f.surface.as_ref())
                 {
                     Some(s) => s,

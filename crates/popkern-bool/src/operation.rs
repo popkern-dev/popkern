@@ -17,6 +17,8 @@ mod contact;
 mod containment;
 #[path = "operation_postprocess.rs"]
 mod postprocess;
+#[path = "operation_postprocess_gate.rs"]
+mod postprocess_gate;
 #[path = "operation_serve.rs"]
 mod serve;
 
