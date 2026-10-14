@@ -1,7 +1,9 @@
-// The history scrubber (live-projects-and-history.md §6.3, §12): a
-// strip under the viewport with one tick per timeline feature (sketches
-// and references minor, user-labelled features as named marks) and,
-// for a project, one chapter per migration. Moving the playhead shows
+// The history scrubber (live-projects-and-history.md §6.3, §12): the
+// history dock with one card per timeline feature (sketches and
+// references minor, user-labelled features as named marks; drawn by
+// history-strip.js), playback and step controls, and, for a project,
+// one chapter per migration. The script's gutter marks each step's
+// line (a click scrubs there). Moving the playhead shows
 // the document after that step — bodies fetched once per key and
 // cached, untouched bodies never re-sent — with the faces the step
 // created glowing and fading, the step's script line marked in the
@@ -17,13 +19,16 @@
 // migration that inserts one feature after the step on screen (inside
 // `a.edit_part` for an assembly's part).
 
+import { HistoryStrip } from "./history-strip.js";
+import { showSheet } from "./layout.js";
+
 const $ = (id) => document.getElementById(id);
 // Play advances one step this often.
 const PLAY_MS = 650;
-// Operations drawn as minor ticks.
-const MINOR = new Set(["sketch", "reference"]);
-// Auto labels (`extrude-1`, `boolean-3`) are not chapter marks.
-const AUTO_LABEL = /^[a-z_]+-\d+$/;
+// What the dock says while there is no timeline to step through.
+const NO_HISTORY = "The model's history appears here after a build.";
+const PREBUILT = "A pre-built model: build it live to step through its history.";
+const ONE_STEP = "One step: nothing to step through.";
 
 export class Scrubber {
   constructor(page) {
@@ -40,8 +45,23 @@ export class Scrubber {
     // The assembly part whose features are scrubbed (opened in the
     // assembly panel), or null.
     this.part = null;
-    this.strip = $("scrubber-ticks");
+    this.strip = new HistoryStrip((index) => this.go(index));
     $("scrubber-play").addEventListener("click", () => (this.playing ? this.stop() : this.play()));
+    $("scrubber-prev").addEventListener("click", () => this.go(this.at - 1));
+    $("scrubber-next").addEventListener("click", () => this.go(this.at + 1));
+    // The phone's step card jumps to the step's script line.
+    $("step-card-line").addEventListener("click", (e) => {
+      const line = Number(e.currentTarget.dataset.line);
+      if (!line) return;
+      showSheet("code");
+      this.page.editor.goTo(line, 1);
+    });
+    // A feature row in the inspector scrubs to its step.
+    $("report").addEventListener("click", (e) => {
+      const row = e.target.closest("tr[data-feature]");
+      const step = row && this.steps.find((x) => x.label === row.dataset.feature);
+      if (step) this.go(step.index);
+    });
     $("scrubber-range").addEventListener("input", (e) => this.go(Number(e.target.value)));
     $("scrubber").addEventListener("keydown", (e) => {
       if (e.key === "ArrowLeft") this.go(this.at - 1);
@@ -71,7 +91,10 @@ export class Scrubber {
     this.assembly = null;
     this.cache.clear();
     this.visited.clear();
-    $("scrubber").hidden = true;
+    this.page.editor.setStepMarks?.(new Map(), null);
+    this.strip.empty(this.page.lastGood && !this.page.live ? PREBUILT : NO_HISTORY, this.page.lastGood != null && !this.page.live);
+    document.body.classList.remove("scrubbed");
+    $("scrubber-insert").hidden = true;
   }
 
   /** A joint moved occurrences (a placement-only change): the steps
@@ -94,7 +117,7 @@ export class Scrubber {
     this.reset();
     if (!this.page.live) return;
     const reply = await this.page.host.request({ type: "timeline" });
-    if (!reply.ok) return;
+    if (!reply.ok) return this.strip.empty(`No history: ${reply.outcome?.detail ?? "the timeline is unavailable"}`);
     const scoped = envelope.assembly && this.part ? reply.parts?.find((p) => p.part === this.part) : null;
     if (scoped) {
       this.steps = scoped.steps;
@@ -107,9 +130,11 @@ export class Scrubber {
       this.part = null;
       this.steps = reply.parts?.[0]?.steps ?? [];
     }
-    if (this.steps.length < 2) return;
+    if (this.steps.length < 2) {
+      this.steps = [];
+      return this.strip.empty(ONE_STEP);
+    }
     this.render();
-    $("scrubber").hidden = false;
     const target = this.deepLink();
     this.at = this.steps.length;
     this.showLabel();
@@ -155,50 +180,51 @@ export class Scrubber {
   }
 
   render() {
-    const n = this.steps.length;
-    const range = $("scrubber-range");
-    range.min = "1";
-    range.max = String(n);
-    range.value = String(n);
-    this.strip.replaceChildren();
-    for (const s of this.steps) {
-      const tick = document.createElement("span");
-      tick.className = "tick";
-      if (MINOR.has(s.operation)) tick.classList.add("minor");
-      if (s.failed) tick.classList.add("failed");
-      if (s.suppressed) tick.classList.add("suppressed");
-      tick.style.left = `${((s.index - 1) / Math.max(1, n - 1)) * 100}%`;
-      tick.title = `${s.index}. ${s.label} (${s.operation})`;
-      if (this.assembly ? s.kind === "mate" : !AUTO_LABEL.test(s.label) && !MINOR.has(s.operation)) {
-        tick.classList.add("named");
-        tick.dataset.label = this.assembly ? "mate" : s.label;
-      }
-      this.strip.append(tick);
+    this.strip.render(this.steps, {
+      flags: this.flags(),
+      assembly: this.assembly != null,
+      chapters: this.chapters(),
+      goChapter: (c, k) => this.go(c.last, { link: `v=${k + 1}` }),
+    });
+    this.markLines();
+  }
+
+  /** Feature labels the build report flags: "failed" or "warn"
+   *  (warnings, a downgraded blend). */
+  flags() {
+    const out = new Map();
+    for (const f of this.page.lastGood?.envelope?.report?.features ?? []) {
+      const label = f.feature?.label ?? f.label;
+      if (!label) continue;
+      const outcome = typeof f.outcome === "string" ? f.outcome : Object.keys(f.outcome ?? {})[0];
+      if (outcome && outcome !== "Served") out.set(label, "failed");
+      else if (f.blend?.downgraded || (Array.isArray(f.warnings) && f.warnings.length)) out.set(label, "warn");
     }
-    const chapters = this.chapters();
-    const bar = $("scrubber-chapters");
-    bar.replaceChildren();
-    bar.hidden = chapters.length < 2;
-    for (const [k, c] of chapters.entries()) {
-      const chip = document.createElement("button");
-      chip.type = "button";
-      chip.className = "chapter";
-      chip.textContent = c.name;
-      chip.title = `${c.name}: steps ${c.first}–${c.last}`;
-      chip.style.left = `${((c.first - 1) / Math.max(1, n - 1)) * 100}%`;
-      chip.addEventListener("click", () => this.go(c.last, { link: `v=${k + 1}` }));
-      bar.append(chip);
+    return out;
+  }
+
+  /** The open script's line of `step`, or null when it is elsewhere. */
+  lineOf(step) {
+    const open = this.page.projects?.path?.split("/").pop() ?? null;
+    return step?.source && (!open || step.source.script === open) ? step.source.line : null;
+  }
+
+  /** Gutter marks: each line of the open script that records a step
+   *  (its last step, when a loop records several). */
+  markLines() {
+    const marks = new Map();
+    for (const step of this.steps) {
+      const line = this.lineOf(step);
+      if (line != null) marks.set(line, { index: step.index, operation: step.operation, label: step.label });
     }
+    this.page.editor.setStepMarks?.(marks, (index) => this.go(index));
   }
 
   showLabel() {
     const s = this.steps[this.at - 1];
     if (!s) return;
-    const where = s.migration ? ` · ${s.migration}` : "";
-    const what = this.assembly ? s.label : `${s.label} (${s.operation})`;
     const opened = this.assembly && !this.assembly.recorded ? " · opened file: placements only" : "";
-    $("scrubber-label").textContent = `${this.at}/${this.steps.length} · ${what}${where}${opened}`;
-    $("scrubber-range").value = String(this.at);
+    this.strip.paint(this.steps, this.at, { line: this.lineOf(s), note: opened });
     document.body.classList.toggle("scrubbed", this.scrubbed);
     const editable = this.page.projects?.current && !this.page.projects.current.readOnly;
     $("scrubber-insert").hidden = !(this.scrubbed && !this.assembly && editable);
@@ -297,10 +323,7 @@ export class Scrubber {
 
   /** The step's line in the editor and row in the feature tree. */
   markSource(step) {
-    const editor = this.page.editor;
-    const open = this.page.projects?.path?.split("/").pop() ?? null;
-    const line = step?.source && (!open || step.source.script === open) ? step.source.line : null;
-    editor.markStep?.(line);
+    this.page.editor.markStep?.(this.lineOf(step));
     for (const row of document.querySelectorAll("#report tr")) {
       row.classList.toggle("step-current", row.dataset.feature === step?.label);
     }
@@ -315,7 +338,9 @@ export class Scrubber {
   play() {
     if (!this.steps.length) return;
     if (this.at >= this.steps.length) this.go(1);
-    $("scrubber-play").textContent = "pause";
+    const button = $("scrubber-play");
+    button.classList.add("playing");
+    button.setAttribute("aria-label", "Pause");
     this.playing = setInterval(async () => {
       if (this.at >= this.steps.length) return this.stop();
       await this.go(this.at + 1);
@@ -326,7 +351,9 @@ export class Scrubber {
     clearInterval(this.playing);
     this.playing = null;
     const button = $("scrubber-play");
-    if (button) button.textContent = "play";
+    if (!button) return;
+    button.classList.remove("playing");
+    button.setAttribute("aria-label", "Play the history");
   }
 
   /** Back to the end: the live model (edits always build there). */

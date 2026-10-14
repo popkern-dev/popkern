@@ -499,14 +499,15 @@ m
 
 ## 11. Inspecting surface quality
 
-- The **view** selector above the viewport switches between CAD (the default: grey faces with black edges; the face or edge under the mouse is highlighted, and a click names it in the status bar), face colours (one colour per face), zebra, and gaussian / mean curvature. Edges are the faces' true boundaries, so tangent fillet seams are drawn too. Zebra draws reflection-line stripes computed per pixel from the surface normals: a tangency (G1) break kinks the stripes across a seam; a curvature (G2) break kinks how fast they bend while staying connected — orbit the model and watch the stripes flow across fillet seams.
+- The **Shade** buttons in the top bar switch between CAD (the default: grey faces with black edges, or a part's own colour and finish; the face or edge under the mouse is highlighted, and a click names it in the viewport's corner), zebra, and Gauss K / Mean H (gaussian and mean curvature). On CAD shading the **Color** buttons paint one colour per part or per face instead. On a phone the same modes are the chip row under the top bar. Edges are the faces' true boundaries, so tangent fillet seams are drawn too. Zebra draws reflection-line stripes computed per pixel from the surface normals: a tangency (G1) break kinks the stripes across a seam; a curvature (G2) break kinks how fast they bend while staying connected — orbit the model and watch the stripes flow across fillet seams.
 - The curvature views paint analytic per-vertex curvature through a diverging palette: blue negative, white zero, red positive, ranged at the median nonzero magnitude so one spike cannot wash the map out. A constant-radius fillet reads as a uniform band in mean curvature; a value step across a seam is a curvature discontinuity.
 
 ## 12. Budgets, size, speed
 
 - popkern live stops a build at its **time limit**: 24 s by default,
-  set in the toolbar from 10 s up to no limit and remembered in this
-  browser. The status bar counts the seconds while a build runs;
+  set in the Build button's menu from 10 s up to no limit and
+  remembered in this browser. The status line counts the seconds
+  while a build runs;
   **Stop** always cancels. A script that overruns is stopped with
   `BudgetExceeded` and the last good model stays on screen. The
   interpreter's operation budget, a guard against runaway loops,
@@ -518,7 +519,7 @@ m
   visit is kept aside: a notice above the editor restores it).
   Opening one shows the model, its feature tree (continuity already
   certified) and its parameters at once, without waiting for the
-  kernel; the status bar says served (pre-built) and how long it
+  kernel; the status line says served (pre-built) and how long it
   takes to build natively. Editing the script, moving a slider,
   exporting, show-as-code and the zebra view build the model live
   first; a heavy example may then need a longer time limit.

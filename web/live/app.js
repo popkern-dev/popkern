@@ -22,6 +22,7 @@ import { fetchDefaultScript } from "./gallery.js";
 import { adoptPlaygroundKeys } from "./local-store.js";
 import { drawModel, showBake, showPlaced, showServed } from "./model-display.js";
 import { showOutcome } from "./outcome-overlay.js";
+import { renderModelPanel } from "./model-panel.js";
 import { renderParams, wireParamFilter } from "./params-panel.js";
 import { hostMode } from "./host-mode.js";
 import { Projects } from "./projects.js";
@@ -297,6 +298,7 @@ class Page {
     if (!envelope) return;
     this.renderReport(envelope);
     this.renderParams(envelope.params);
+    renderModelPanel(envelope);
   }
 
   renderReport(envelope) {

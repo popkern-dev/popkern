@@ -5,6 +5,9 @@
 // that part's definition (a slider then rebuilds the part once and every
 // instance of it moves with it).
 
+import { iconSvg } from "./icons.js";
+import { paletteCss } from "./shading.js";
+
 const $ = (id) => document.getElementById(id);
 
 export class AssemblyPanel {
@@ -60,13 +63,17 @@ export class AssemblyPanel {
         e.stopPropagation();
         this.toggle(instance.path);
       });
+      // The part's colour in the Parts colouring (one per definition).
+      const dot = document.createElement("span");
+      dot.className = "tree-dot";
+      dot.style.background = paletteCss(instance.definition);
       const name = document.createElement("span");
       name.className = "tree-name";
       name.textContent = instance.name;
       const kind = document.createElement("span");
       kind.className = "tree-kind";
       kind.textContent = definition ? definition.name : "?";
-      row.append(eye, name, kind);
+      row.append(eye, dot, name, kind);
       if (definition?.kind === "part") {
         const open = document.createElement("button");
         open.type = "button";
@@ -126,7 +133,7 @@ export class AssemblyPanel {
       row.classList.toggle("tree-hidden", !this.shown(path));
       row.classList.toggle("tree-selected", path === this.selected);
       const eye = row.querySelector(".tree-eye");
-      eye.textContent = own ? "●" : "○";
+      eye.innerHTML = iconSvg(own ? "eye" : "eye-off");
       eye.setAttribute("aria-pressed", String(own));
       eye.setAttribute("aria-label", `${own ? "Hide" : "Show"} ${path}`);
     }

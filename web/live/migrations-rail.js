@@ -1,7 +1,7 @@
 // The migrations rail (live-projects-and-history.md §12): a project's
-// migration files in order beside the editor, each with the status the
-// last build gave it (built, cached, failed, stale), the open one
-// highlighted. A migration opens in the editor with a click; an
+// migration files in order as the script card's tabs, each with the
+// status the last build gave it (built, cached, failed, stale; the
+// stylesheet shows only failed and stale), the open one highlighted. A migration opens in the editor with a click; an
 // editable project adds, renames, reorders and deletes migrations
 // (renaming and reordering rename files: the number orders them). The
 // rail stays hidden for a one-migration project until a second

@@ -292,14 +292,20 @@ export class Projects {
     return project;
   }
 
-  /** The editor tab: project, migration file, and a mark while unsaved. */
+  /** The project in the top bar (its name, where it is kept) and the
+   *  editor tab: the open file, and the save state beside it. */
   showName() {
     const p = this.current;
     if (!p) return;
     const file = p.path ? p.path.split("/").pop() : "";
-    const mark = p.readOnly ? " (example, read only)" : p.unsaved ? " ●" : "";
-    $("doc-name").textContent = `${p.name} · ${file}${mark}`;
+    $("doc-name").textContent = file;
     const where = p.kind === "folder" ? `saved in the folder ${p.folder}` : p.kind === "server" ? `saved in ${p.path ?? "the server's projects folder"}` : "saved in this browser";
-    $("doc-name").title = p.readOnly ? "make a copy to edit" : p.unsaved ? "saving…" : where;
+    $("doc-name").title = p.readOnly ? "an example: make a copy to edit" : p.unsaved ? "saving…" : where;
+    $("doc-name").closest(".editor-head").dataset.state = p.readOnly ? "readonly" : p.unsaved ? "unsaved" : "saved";
+    $("project-name").textContent = p.name;
+    const chip = $("project-where");
+    chip.hidden = false;
+    chip.textContent = p.readOnly ? "example" : p.kind === "folder" ? "folder" : p.kind === "server" ? "server" : this.store.persistent ? "browser" : "this tab";
+    chip.title = p.readOnly ? "read only: make a copy to edit" : where;
   }
 }

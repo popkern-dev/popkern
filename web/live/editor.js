@@ -1,13 +1,21 @@
 // A dependency-free script editor: a textarea (native keyboard,
 // selection, undo, screen readers) with a highlighted mirror behind
 // it and a gutter of line numbers. Highlighting is the popkern Rhai
-// dialect: keywords, surface verbs, strings, numbers, comments.
+// dialect: keywords, surface verbs, strings, numbers, comments. The
+// gutter also marks each line that records a history step with its
+// operation's icon; a click on a mark asks for that step.
+import { operationIcon } from "./icons.js";
 
 const KEYWORDS = /\b(let|const|fn|if|else|for|in|while|loop|return|break|continue|true|false|try|catch|throw|import|export|switch|do|until)\b/g;
 const VERBS = /\b(model|open|profile|sketch|extrude|revolve|fillet|chamfer|shell|union|subtract|intersect|translate|rotate|edges|faces|named|xy|xz|yz|xy_at|xz_at|yz_at|on_face|blind|through_all|up_to_surface|mid_plane|full_circle|rect|circle|polygon|path|line_to|arc_to|close|tool|param|param_expr|set_param|feature|describe|assert_watertight|label_edge|label_face|print|p|expr|conic|linear|by_stations|equal|two_distance|distance_angle|axis_at|axis|insert_before|insert_after|reorder|suppress|unsuppress|to_rhai)\b(?=\s*\()/g;
 
 function escape(text) {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** `text` escaped for a double-quoted attribute value. */
+function attr(text) {
+  return escape(String(text)).replace(/"/g, "&quot;");
 }
 
 /** Highlight one line of source as HTML. */
@@ -51,6 +59,13 @@ export class Editor {
     this.textarea.setAttribute("autocomplete", "off");
     root.append(this.gutter, this.mirror, this.textarea);
     this.markedLine = null;
+    // History step marks by 1-based line: { index, operation, label }.
+    this.marks = new Map();
+    this.onStepMark = null;
+    this.gutter.addEventListener("click", (e) => {
+      const mark = e.target.closest("[data-step]");
+      if (mark && this.onStepMark) this.onStepMark(Number(mark.dataset.step));
+    });
     this.textarea.addEventListener("input", () => {
       this.refresh();
       this.onChange(this.value);
@@ -101,6 +116,16 @@ export class Editor {
     }
   }
 
+  /** Mark the lines that record history steps: `marks` maps a 1-based
+   *  line to `{ index, operation, label }` (the line's last step);
+   *  `onPick(index)` is called when a mark is clicked. An empty map
+   *  clears them. */
+  setStepMarks(marks, onPick) {
+    this.marks = marks;
+    this.onStepMark = onPick;
+    this.refresh();
+  }
+
   /** Mark a 1-based line (an error position); `null` clears. */
   mark(line) {
     this.markedLine = line;
@@ -122,7 +147,21 @@ export class Editor {
     this.mirror.innerHTML = lines
       .map((l, i) => `<div class="editor-line${this.markedLine === i + 1 ? " editor-line-error" : ""}${this.stepLine === i + 1 ? " editor-line-step" : ""}">${highlight(l)}</div>`)
       .join("");
-    this.gutter.innerHTML = lines.map((_, i) => `<div>${i + 1}</div>`).join("");
+    // The step on screen, for the marks' before / current / after.
+    const at = this.stepLine != null ? this.marks.get(this.stepLine)?.index ?? null : null;
+    this.gutter.innerHTML = lines
+      .map((_, i) => {
+        const line = i + 1;
+        const mark = this.marks.get(line);
+        let button = "";
+        if (mark) {
+          const state = at == null ? "" : mark.index === at ? " current" : mark.index > at ? " after" : "";
+          // Labels come from the script: escaped, never markup.
+          button = `<button type="button" class="gutter-mark${state}" data-step="${mark.index}" title="step ${mark.index}: ${attr(mark.label)} (${attr(mark.operation)})" aria-label="Show step ${mark.index}">${operationIcon(mark.operation)}</button>`;
+        }
+        return `<div class="gutter-line${this.stepLine === line ? " step-line" : ""}">${button}<span class="gutter-number">${line}</span></div>`;
+      })
+      .join("");
     this.sync();
   }
 

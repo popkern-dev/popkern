@@ -46,6 +46,7 @@ export class DocumentTab {
     const edited = this.source != null && this.editor.value !== this.source;
     $("doc-name").textContent = `${this.stem}.rhai${edited ? " ●" : ""}`;
     $("doc-name").title = edited ? "edited: builds live" : "";
+    $("doc-name").closest(".editor-head").dataset.state = edited ? "unsaved" : "saved";
   }
 
   /** The document's file stem, for the tab and downloads. */

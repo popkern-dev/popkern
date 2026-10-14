@@ -1,0 +1,125 @@
+/* Phones and narrow tablets: the model fills the screen between a
+   compact top bar (projects, export, guide, build; the view modes as a
+   chip row) and a bottom sheet with three tabs — History (step cards,
+   the step on screen, playback), Code (the script) and Model (the
+   inspector). The sheet's grabber makes it taller or shorter. */
+@media (max-width: 60rem) {
+  :root { --gap: 8px; --sheet-h: auto; }
+  body[data-sheet="code"], body[data-sheet="model"] { --sheet-h: 50dvh; }
+  body.sheet-tall { --sheet-h: 76dvh; }
+
+  /* Top bar: one row of actions, then the view chips. */
+  .topbar { flex-wrap: wrap; padding: max(var(--gap), env(safe-area-inset-top)) max(var(--gap), env(safe-area-inset-right)) 0.4rem max(var(--gap), env(safe-area-inset-left)); gap: 0.4rem var(--gap); }
+  .bar-document { flex: 1; order: 1; }
+  .bar-build { order: 2; }
+  .bar-view { order: 3; flex: 1 0 100%; padding: 0; background: none; border: 0; gap: 0.35rem; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .bar-view::-webkit-scrollbar { display: none; }
+  .brand { padding: 0 0.15rem 0 0.35rem; }
+  .brand-name { display: none; }
+  .project-button { flex: 1; min-width: 0; max-width: none; justify-content: flex-start; background: transparent; border-color: transparent; padding-left: 0.4rem; }
+  .project-label { flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.2; }
+  .project-kicker { font-size: 0.72rem; font-weight: 400; color: var(--muted); }
+  .project-kicker::after { content: none; }
+  .project-name { font-size: 0.85rem; color: var(--text); max-width: 100%; }
+  #project-where { display: none !important; }
+  #export-menu-button { width: 2.5rem; padding: 0; border-color: var(--line-strong); }
+  #export-menu-button .chevron { display: none; }
+  .bar-text { display: none; }
+  .guide-link .bar-text { display: inline; }
+  .segment { gap: 0.35rem; }
+  .segment + .segment { padding-left: 0; border-left: 0; }
+  .segment-label { display: none; }
+  .mode { flex: none; min-height: 2.25rem; padding: 0.2rem 0.95rem; border-radius: 999px; border-color: var(--line-strong); background: var(--card); color: var(--text); }
+  .mode:disabled { display: none; }
+  /* Stop replaces the build controls while a build runs. */
+  #cancel { display: none; }
+  body.busy #cancel { display: inline-flex; }
+  body.busy .split { display: none; }
+
+  /* The workbench: model, sheet tabs, sheet. */
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto var(--sheet-h);
+    grid-template-areas: "viewer" "tabs" "sheet";
+    gap: 0;
+    padding: 0;
+  }
+  body.editor-collapsed .workbench { grid-template-columns: minmax(0, 1fr); }
+  .editor-rail, #editor-collapse { display: none !important; }
+  .pane-editor, .pane-side, .dock { grid-area: sheet; display: none; border-radius: 0; border-width: 0; box-shadow: none; padding-bottom: env(safe-area-inset-bottom); }
+  body[data-sheet="history"] .dock { display: flex; }
+  body[data-sheet="code"] .pane-editor { display: flex; }
+  body[data-sheet="model"] .pane-side { display: flex; }
+  body.editor-collapsed .pane-editor { display: none; }
+  body.editor-collapsed[data-sheet="code"] .pane-editor { display: flex; }
+  .pane-viewer { margin: 0 var(--gap) var(--gap); }
+  .pane-viewer canvas { border-radius: 0; }
+  .sheet-tabs { grid-area: tabs; display: flex; flex-direction: column; position: relative; padding: 0.55rem 0.75rem 0.35rem; background: var(--card); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35); }
+  .sheet-grabber { align-self: center; width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--line-strong); margin-bottom: 0.5rem; pointer-events: none; }
+  .sheet-size { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 6rem; height: 1.4rem; min-height: 0; padding: 0; background: transparent; border: 0; }
+  .sheet-size:hover { background: transparent; }
+  .sheet-tabs .tabs { padding: 0.25rem; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(10, 16, 32, 0.6); }
+  .sheet-tabs .tab { min-height: 2.4rem; }
+  .pane-editor, .pane-side, .dock { background: var(--card); border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+  .pane-side > .tabs { margin: 0 0.6rem; border: 0; padding: 0.35rem 0 0.25rem; }
+
+  /* Status: a chip over the top of the model. */
+  .dock-status { grid-area: viewer; justify-self: start; align-self: start; max-width: calc(100% - 7.5rem); height: auto; margin: 0.45rem 0 0 calc(var(--gap) + 0.4rem); padding: 0.2rem 0.55rem; border-radius: 999px; background: rgba(10, 16, 32, 0.78); border: 1px solid var(--line); }
+  #privacy-note { display: none; }
+  .view-tools { top: 0.45rem; right: 0.45rem; }
+  .pick { left: 0.45rem; bottom: 0.45rem; font-size: 0.72rem; }
+  .overlay { left: 0.45rem; right: 0.45rem; bottom: 1.9rem; max-height: 60%; }
+
+  /* History: cards, the step on screen, then playback. */
+  .dock { flex-direction: column; align-items: stretch; gap: 0.6rem; padding: 0.6rem 0.75rem calc(0.6rem + env(safe-area-inset-bottom)); }
+  .dock-title { display: none; }
+  body.scrubbed .dock-title, .dock-title:has(#scrubber-insert:not([hidden])) { display: flex; max-width: none; }
+  .dock-title strong, .scrubber-label, .scrubber-chapters { display: none; }
+  .transport { order: 3; justify-content: center; gap: 1.1rem; margin-top: auto; }
+  .dock:has(#scrubber[hidden]) .transport { display: none; }
+  .round { width: 2.75rem; height: 2.75rem; border-radius: 50%; }
+  #scrubber-play { width: 3.4rem; height: 3.4rem; }
+  #scrubber-play .icon { width: 1.15rem; height: 1.15rem; }
+  #scrubber-range { display: none; }
+  .step > button { width: 6.5rem; }
+  .scrubbed-note { top: 2.7rem; }
+  .step.minor > button { width: 5rem; }
+  .step-card { order: 2; display: flex; align-items: center; gap: 0.7rem; padding: 0.55rem 0.7rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised); }
+  .step-card[hidden] { display: none; }
+  .step-card-icon { display: inline-flex; align-items: center; justify-content: center; width: 2.4rem; height: 2.4rem; border-radius: 8px; background: var(--accent); color: var(--accent-ink); flex: none; }
+  .step-card-icon .icon { width: 1.2rem; height: 1.2rem; }
+  .step-card-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .step-card-name { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .step-card-what { color: var(--muted); font-size: 0.85em; }
+  .step-card-line { background: transparent; border-color: transparent; color: var(--accent); font-family: var(--mono); min-height: 2.25rem; }
+  .history-empty { min-height: 4.4rem; flex-wrap: wrap; padding: 0.5rem 0.7rem; }
+
+  /* Dialogs fill the screen. */
+  .dialog { padding: 0; align-items: stretch; }
+  .dialog-box { max-height: none; height: 100%; border-radius: 0; border: 0; }
+  .dialog-small { height: auto; margin: auto var(--gap); border-radius: 12px; border: 1px solid var(--line-strong); }
+  .dialog-head { flex-wrap: wrap; padding-top: max(0.6rem, env(safe-area-inset-top)); }
+  .dialog-head-actions { justify-content: flex-start; }
+  .project-row .project-text .muted { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .menu { position: fixed; top: auto; left: var(--gap); right: var(--gap); bottom: calc(var(--gap) + env(safe-area-inset-bottom)); z-index: 40; padding: 0.5rem; border-radius: 14px; }
+  .menu > button, .menu-field { min-height: 2.75rem; }
+}
+/* Touch: finger-sized targets, and 16px editor text so mobile Safari
+   does not zoom the page when the script gains focus. */
+@media (pointer: coarse) {
+  button, select { min-height: 2.5rem; }
+  .round { min-height: 0; }
+  .gutter-mark, .tree-eye, .sheet-size { min-height: 0; }
+  input[type="checkbox"] { width: 1.25rem; height: 1.25rem; }
+  .editor { font-size: 16px; }
+  .tree-row { min-height: 2.6rem; }
+  .tree-open { opacity: 1; }
+  input[type="number"] { min-height: 2.5rem; font-size: 16px; }
+}
+/* Small phones: the guide keeps its icon and the brand goes (About is
+   in the Projects dialog) so the project name fits. */
+@media (max-width: 28rem) {
+  .brand { display: none; }
+  .guide-link .bar-text { display: none; }
+  .guide-link { width: 2.5rem; padding: 0; justify-content: center; }
+}

@@ -48,10 +48,11 @@ export class Viewer {
     this.mode = "cad";
     // The stencil buffer carries the section caps (section.js); three.js
     // allocates none by default since r163.
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, stencil: true });
+    // A transparent canvas: the model floats over the page's ground.
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, stencil: true });
+    this.renderer.setClearColor(0x000000, 0);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x16181d);
     this.camera = new THREE.PerspectiveCamera(40, 1, 0.01, 1000);
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 0.9));
     const key = new THREE.DirectionalLight(0xffffff, 0.8);

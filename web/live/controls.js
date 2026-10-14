@@ -1,9 +1,11 @@
 // The page's controls wired to the page controller: the top bar
-// (build, time limit, stop, open STEP, downloads, show-as-code; the
-// projects controls are wired in projects-dialog.js), the viewer bar (fit, view mode, edges, explode,
-// clearance), the draft notice and the dialogs.
+// (build, time limit, stop, downloads, show-as-code; the projects
+// controls are wired in projects-dialog.js), open STEP (a button in
+// the projects dialog), the view options (fit, edges, section,
+// explode), clearance, the draft notice and the dialogs. The menus, view modes and tabs are layout.js.
 import { dismissDraft, restoreDraft } from "./drafts.js";
 import { downloadModel, showModelCode } from "./exports.js";
+import { wireLayout } from "./layout.js";
 
 const $ = (id) => document.getElementById(id);
 const DIALOGS = ["about-dialog", "code-dialog", "projects-dialog"];
@@ -18,11 +20,7 @@ export function wireControls(page) {
   $("history").addEventListener("click", async () => {
     if (await page.ensureLive()) $("scrubber").focus();
   });
-  $("view-mode").addEventListener("change", async (e) => {
-    const mode = e.target.value;
-    if (mode === "zebra") await page.ensureAnalysisMesh();
-    page.viewer.setMode(mode);
-  });
+  wireLayout(page);
   $("edges").addEventListener("change", (e) => page.viewer.toggleEdges(e.target.checked));
   $("explode").addEventListener("input", (e) => page.viewer.setExplode(Number(e.target.value)));
   $("section-axis").addEventListener("change", (e) => {
@@ -32,7 +30,10 @@ export function wireControls(page) {
   });
   $("section-at").addEventListener("input", (e) => page.viewer.section.move(Number(e.target.value)));
   $("clearance-check").addEventListener("click", () => page.checkClearance());
-  $("open-step").addEventListener("click", () => $("open-step-file").click());
+  $("open-step").addEventListener("click", () => {
+    $("projects-dialog").hidden = true;
+    $("open-step-file").click();
+  });
   $("open-step-file").addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
     if (file) await page.openStep(file.name, await file.arrayBuffer());
@@ -52,6 +53,11 @@ export function wireControls(page) {
   });
   $("draft-restore").addEventListener("click", () => restoreDraft(page));
   $("about").addEventListener("click", () => ($("about-dialog").hidden = false));
+  // On the smallest phones the brand is hidden: About is in Projects.
+  $("projects-about").addEventListener("click", () => {
+    $("projects-dialog").hidden = true;
+    $("about-dialog").hidden = false;
+  });
   $("about-close").addEventListener("click", () => ($("about-dialog").hidden = true));
   for (const dialog of DIALOGS) {
     // A click on the backdrop (not the box) or Escape closes it.

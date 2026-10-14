@@ -1,4 +1,4 @@
-// The status bar: one line saying what the page is doing or what the
+// The status line: one line saying what the page is doing or what the
 // last build served, and the viewer's pick readout (a face's or edge's
 // stable name). Uncaught page errors land on the status line too.
 
@@ -8,7 +8,10 @@ const $ = (id) => document.getElementById(id);
 export function setStatus(text, failed = false) {
   const el = $("status");
   el.textContent = text;
+  // One line in the dock: the whole text is the tooltip.
+  el.title = text;
   el.classList.toggle("status-failed", failed);
+  document.body.classList.toggle("status-failed", failed);
 }
 
 /** "3 body(ies)" for a part document, "4 part(s), 9 occurrence(s)" for an assembly. */
@@ -25,7 +28,7 @@ export function meshClosure(envelope) {
   return open ? `, ${open} open mesh edges` : ", watertight";
 }
 
-/** The viewer bar's text for a face or edge pick (null: the hint). */
+/** The pick readout's text for a face or edge pick (null: the hint). */
 export function pickText(pick) {
   if (!pick) return "click a face or edge to see its stable name";
   if (pick.instance) {
@@ -47,7 +50,7 @@ export function pickText(pick) {
   return `${body}face ${pick.face}: ${pick.label}`;
 }
 
-/** Show a viewer pick on the status bar. */
+/** Show a viewer pick in the viewport's corner. */
 export function showPick(pick) {
   const el = $("pick");
   el.textContent = pickText(pick);

@@ -4,6 +4,11 @@ import * as THREE from "./vendor/three.module.min.js";
 
 const PALETTE = [0x6c8ebf, 0x8fb56c, 0xd9a25f, 0xb87ab8, 0x66b3b3, 0xc97a7a, 0x9c9c6c, 0x7a8fc9];
 
+/** Palette colour `index` as CSS (the part colour of the tree's dots). */
+export function paletteCss(index) {
+  return `#${PALETTE[index % PALETTE.length].toString(16).padStart(6, "0")}`;
+}
+
 export function faceColor(index) {
   return new THREE.Color(PALETTE[index % PALETTE.length]);
 }

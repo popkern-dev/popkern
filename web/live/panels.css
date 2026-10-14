@@ -1,0 +1,194 @@
+/* The cards' contents: the script card (file tabs, notices, editor),
+   the inspector (tabs: parts, features, params, checks) and the
+   history dock (transport, step cards, status). */
+
+/* Card heads and tabs */
+.pane-editor, .pane-side, .dock { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.card-head { display: flex; align-items: center; gap: 0.35rem; padding: 0.35rem; border-bottom: 1px solid var(--line); flex: none; }
+.head-button { min-height: 1.75rem; padding: 0.1rem 0.5rem; font-size: 0.85em; background: transparent; border-color: var(--line-strong); color: var(--muted); }
+.head-button:hover { color: var(--text); }
+.head-button.icon-only { width: 1.75rem; border-color: transparent; }
+.tabs { display: flex; gap: 0.2rem; padding: 0.3rem; border-bottom: 1px solid var(--line); flex: none; }
+.tab { flex: 1; min-width: 0; min-height: 1.9rem; padding: 0.25rem 0.35rem; background: transparent; border-color: transparent; color: var(--muted); font-weight: 600; }
+.tab:hover { color: var(--text); background: transparent; }
+.tab[aria-selected="true"] { background: var(--raised-hover); border-color: var(--line-strong); color: var(--text); }
+
+/* Script card: file tabs (the open document, or a project's migrations) */
+.file-tabs { flex: 1; display: flex; align-items: center; gap: 0.2rem; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.file-tabs::-webkit-scrollbar { display: none; }
+.file-tab { display: inline-flex; align-items: center; min-height: 1.75rem; padding: 0.1rem 0.6rem; border-radius: var(--radius-small); font: 0.85rem var(--mono); color: var(--muted); white-space: nowrap; }
+.file-tab-open { background: var(--raised-hover); color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.file-tabs:has(#migrations-rail:not([hidden])) #doc-name { display: none; }
+.migrations-rail { display: flex; }
+/* The open file's save state beside the tabs (projects.js sets it). */
+.save-state { flex: none; font: 0.75rem var(--mono); color: var(--muted); white-space: nowrap; }
+.editor-head[data-state="unsaved"] .save-state::before { content: "● unsaved"; color: var(--warn); }
+.migrations-list { list-style: none; margin: 0; padding: 0; display: flex; gap: 0.2rem; }
+.migration { display: flex; align-items: center; border-radius: var(--radius-small); }
+.migration.open { background: var(--raised-hover); }
+.migration-name { min-height: 1.75rem; padding: 0.1rem 0.5rem; background: none; border: 0; font: 0.85rem var(--mono); color: var(--muted); }
+.migration.open .migration-name { color: var(--text); }
+.migration-tool { display: none; min-height: 1.5rem; padding: 0 0.3rem; background: none; border: none; color: var(--faint); }
+.migration.open .migration-tool { display: inline-flex; }
+.migration-tool:hover { color: var(--text); background: none; }
+.badge { font: 0.7rem var(--mono); padding: 0 0.3rem; border-radius: 4px; color: var(--muted); margin-right: 0.15rem; }
+/* A migration that built (or replayed from cache) needs no badge: only
+   the states that ask for attention show. */
+.badge-built, .badge-cached { display: none; }
+.badge-failed { background: rgba(240, 112, 122, 0.16); color: var(--bad); }
+.badge-stale { opacity: 0.55; }
+.notice { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); background: rgba(95, 227, 177, 0.07); flex: none; }
+.notice span { flex: 1; min-width: 10em; }
+.notice.conflict { background: rgba(240, 112, 122, 0.12); }
+.notice.flash { animation: notice-flash 0.6s ease-out 2; }
+@keyframes notice-flash { 50% { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); } }
+
+/* Editor: a textarea over a highlighted mirror, with a gutter of line
+   numbers and feature marks (a click on a mark scrubs to its step). */
+.editor { position: relative; flex: 1; display: grid; grid-template-columns: 4.1rem 1fr; grid-template-rows: minmax(0, 1fr); overflow: hidden; font: 13px/1.6 var(--mono); min-height: 0; }
+.editor-gutter { overflow: hidden; padding: 0.6rem 0 0.6rem 0; color: var(--faint); border-right: 1px solid var(--line); white-space: pre; user-select: none; }
+.gutter-line { display: flex; align-items: center; justify-content: space-between; height: 1.6em; padding: 0 0.5rem 0 0.35rem; }
+.gutter-line.step-line { background: var(--accent-soft); color: var(--accent); }
+.gutter-mark { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; padding: 0; min-height: 0; border-radius: 5px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--muted); }
+.gutter-mark .icon { width: 0.8rem; height: 0.8rem; }
+.gutter-mark:hover { color: var(--accent); border-color: var(--accent-line); }
+.gutter-mark.after { opacity: 0.45; }
+.gutter-mark.current { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); opacity: 1; }
+.gutter-number { margin-left: auto; text-align: right; }
+.editor-mirror, .editor-input { grid-column: 2; grid-row: 1; margin: 0; padding: 0.6rem 0.8rem; white-space: pre; overflow: auto; font: inherit; line-height: inherit; tab-size: 4; }
+.editor-mirror { color: var(--text); pointer-events: none; }
+.editor-input { color: transparent; caret-color: var(--accent); background: transparent; border: 0; resize: none; outline: none; }
+.editor-line { min-height: 1.6em; }
+.editor-line-error { background: rgba(240, 112, 122, 0.16); }
+.editor-line-step { background: var(--accent-soft); }
+.editor-readonly .editor-input { cursor: default; }
+.tk-keyword { color: #c3a6ff; }
+.tk-verb { color: #7fd6f5; }
+.tk-string { color: #b9e88f; }
+.tk-number { color: #f5a97f; }
+.tk-comment { color: #5c6880; font-style: italic; }
+
+/* Inspector */
+.inspector { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.inspect-panel { display: none; flex: 1; min-height: 0; flex-direction: column; overflow: auto; padding: 0.5rem 0.6rem 0.75rem; }
+.inspector[data-inspect="parts"] [data-panel="parts"],
+.inspector[data-inspect="features"] [data-panel="features"],
+.inspector[data-inspect="params"] [data-panel="params"],
+.inspector[data-inspect="checks"] [data-panel="checks"] { display: flex; }
+.inspect-panel p { margin: 0 0 0.5rem; }
+.panel-summary { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; color: var(--muted); font-size: 0.9em; }
+.panel-foot { margin-top: auto; padding-top: 0.6rem; border-top: 1px solid var(--line); }
+.assembly-open { display: flex; align-items: center; justify-content: space-between; gap: 0.5em; margin: 0.5rem 0.6rem 0; padding: 0.3rem 0.3rem 0.3rem 0.6rem; border-radius: var(--radius-small); background: var(--accent-soft); color: var(--accent); flex: none; }
+.assembly-open strong { font-family: var(--mono); }
+.assembly-open button { min-height: 1.6rem; padding: 0 0.5rem; }
+
+/* Trees: the assembly, a part document's bodies, clearance pairs */
+.tree { list-style: none; margin: 0 0 0.6em; padding: 0; }
+.tree-row { display: flex; align-items: center; gap: 0.45em; min-height: 1.85rem; padding: 0.1em 0.3em; border-radius: var(--radius-small); cursor: pointer; white-space: nowrap; font-family: var(--mono); font-size: 0.88rem; }
+.tree-row:hover { background: rgba(127, 150, 200, 0.08); }
+.tree-selected { background: var(--accent-soft); }
+.tree-selected .tree-name { color: var(--accent); }
+.tree-hidden .tree-name, .tree-hidden .tree-kind, .tree-hidden .tree-dot { opacity: 0.4; }
+.tree-eye { border: 0; background: none; padding: 0; min-height: 0; width: 1.3rem; height: 1.3rem; color: var(--muted); }
+.tree-eye:hover { background: none; color: var(--text); }
+.tree-eye .icon { width: 0.9rem; height: 0.9rem; }
+.tree-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; flex: none; background: var(--muted); }
+.tree-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
+.tree-kind { color: var(--muted); font-size: 0.92em; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+.tree-open { min-height: 1.5rem; padding: 0 0.45rem; font-size: 0.8em; background: transparent; color: var(--muted); opacity: 0; }
+.tree-row:hover .tree-open, .tree-row:focus-within .tree-open, .tree-selected .tree-open { opacity: 1; }
+.clearance-row { display: flex; align-items: center; gap: 0.5rem; }
+.clearance-row label { gap: 0.35rem; color: var(--muted); }
+.clearance-row input { width: 5.5em; font-family: var(--mono); }
+.clash .tree-name { color: var(--bad); }
+.contact .tree-name { color: var(--warn); }
+
+/* Feature report: each row a two-line entry (name and time, then the
+   outcome and the operation), so a narrow card never wraps a label
+   mid-word. The table stays a table for the harness and readers. */
+.report, .report tbody { display: block; width: 100%; font-size: 0.86rem; }
+.report thead { display: none; }
+.report tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name time" "outcome op"; gap: 0.1rem 0.6rem; padding: 0.4rem 0.4rem; border-bottom: 1px solid var(--line); border-radius: var(--radius-small); }
+.report td { padding: 0; min-width: 0; }
+.report td:nth-child(1) { grid-area: name; font-family: var(--mono); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.report td:nth-child(2) { grid-area: op; color: var(--faint); font: 0.78rem var(--mono); text-align: right; }
+.report td:nth-child(3) { grid-area: outcome; font-size: 0.82rem; }
+.report td:nth-child(4) { grid-area: time; white-space: nowrap; text-align: right; font: 0.78rem var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
+.report tr.row-warn { display: block; padding-top: 0; }
+.report tr[data-feature] { cursor: pointer; }
+.report tr[data-feature]:hover { background: rgba(127, 150, 200, 0.06); }
+.cell-ok { color: var(--ok); }
+.cell-warn { color: var(--warn); font-weight: 600; }
+.cell-bad { color: var(--bad); }
+.row-warn td { color: var(--warn); font-size: 0.9em; }
+.report tr.step-current { background: var(--accent-soft); }
+
+/* Parameters */
+.params { display: grid; gap: 0.65rem; }
+.params-head { display: flex; justify-content: flex-end; margin-bottom: 0.4rem; }
+.params-filters { display: flex; gap: 0.75rem; font-size: 0.85em; color: var(--muted); }
+.params-filters label { display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+.param-implicit .param-name { color: var(--muted); }
+.param { display: grid; grid-template-columns: 1fr 5.5rem; grid-template-areas: "name value" "slider slider"; gap: 0.15rem 0.5rem; align-items: center; font: 0.86rem var(--mono); }
+.param-name { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.6; }
+.param input[type="range"] { grid-area: slider; width: 100%; margin: 0; }
+.param input[type="number"] { grid-area: value; width: 100%; min-height: 1.7rem; padding: 0.1rem 0.35rem; font-family: var(--mono); }
+
+/* Checks */
+.checks { list-style: none; margin: 0 0 0.75rem; padding: 0; display: grid; gap: 0.35rem; }
+.check-row { display: grid; grid-template-columns: auto 1fr; gap: 0.1rem 0.55rem; align-items: baseline; padding: 0.45rem 0.55rem; border-radius: var(--radius-small); background: var(--raised); border: 1px solid var(--line); }
+.check-mark { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--faint); align-self: center; }
+.check-ok .check-mark { background: var(--ok); }
+.check-warn .check-mark { background: var(--warn); }
+.check-bad .check-mark { background: var(--bad); }
+.check-title { font-weight: 600; }
+.check-detail { grid-column: 2; color: var(--muted); font: 0.8rem var(--mono); overflow-wrap: anywhere; }
+
+/* History dock: transport | title | status, then the step cards */
+.dock { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "transport title" "steps steps"; align-items: center; gap: 0.45rem 0.75rem; padding: 0.5rem 0.6rem 0.6rem; }
+.transport { grid-area: transport; display: flex; gap: 0.3rem; }
+.round { width: 2rem; height: 2rem; min-height: 0; padding: 0; border-radius: var(--radius-small); }
+.round .icon { width: 0.85rem; height: 0.85rem; }
+.icon-pause { display: none; }
+.playing .icon-play { display: none; }
+.playing .icon-pause { display: block; }
+.dock-title { grid-area: title; display: flex; align-items: center; gap: 0.6rem; min-width: 0; max-width: 55%; }
+.dock-title strong { font-weight: 650; }
+.scrubber-label { color: var(--muted); font: 0.82rem var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.scrubber-chapters { display: flex; gap: 0.25rem; overflow-x: auto; scrollbar-width: none; }
+.scrubber-chapters .chapter { min-height: 1.5rem; padding: 0 0.45rem; font: 0.75rem var(--mono); background: transparent; border-color: var(--line-strong); color: var(--muted); }
+.scrubber-chapters .chapter.current { border-color: var(--accent-line); color: var(--accent); }
+#scrubber-insert { flex: none; }
+/* The status sits over the dock's top-right corner (its own grid item
+   in the dock's area, so a phone can move it over the model). */
+.dock-status { grid-area: dock; align-self: start; justify-self: end; z-index: 2; display: flex; align-items: center; gap: 0.45rem; max-width: 40%; min-width: 0; height: 2rem; margin: 0.5rem 0.7rem 0 0; }
+.status { min-width: 0; color: var(--muted); font: 0.8rem var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--ok); flex: none; }
+body.busy .status-dot { background: var(--warn); animation: pulse 1s ease-in-out infinite; }
+body.status-failed .status-dot { background: var(--bad); }
+.status-failed { color: var(--bad); }
+@keyframes pulse { 50% { opacity: 0.3; } }
+.scrubber, .history-empty { grid-area: steps; min-width: 0; }
+.scrubber { display: flex; flex-direction: column; gap: 0.35rem; outline: none; border-radius: var(--radius-small); }
+.step-cards { position: relative; list-style: none; margin: 0; padding: 0 0 0.25rem; display: flex; gap: 0.45rem; overflow-x: auto; scroll-behavior: smooth; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+.step { flex: none; }
+.step > button { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 0.3rem; width: 7.4rem; height: auto; min-height: 4.6rem; padding: 0.4rem 0.5rem; line-height: 1.25; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); text-align: left; font-family: var(--mono); }
+.step > button:hover { border-color: #3d5280; }
+.step-index { font-size: 0.7rem; color: var(--muted); }
+.step-icon .icon { width: 1.15rem; height: 1.15rem; }
+.step-name { width: 100%; font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.step-flag { position: absolute; top: 0.3rem; right: 0.45rem; font-size: 0.7rem; color: var(--warn); }
+.step.failed .step-flag { color: var(--bad); }
+.step.minor > button { width: 5.6rem; }
+.step.minor .step-name { color: var(--muted); }
+.step.after > button { background: transparent; border-color: var(--line); color: var(--faint); }
+.step.after .step-index { color: var(--faint); }
+.step.current > button { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.step.current .step-index { color: var(--accent-ink); opacity: 0.75; }
+.step.current .step-flag { color: var(--accent-ink); }
+.step.suppressed > button { opacity: 0.45; text-decoration: line-through; }
+#scrubber-range { width: 100%; margin: 0; height: 0.9rem; }
+.history-empty { display: flex; align-items: center; gap: 0.75rem; min-height: 4.6rem; padding: 0 0.6rem; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); }
+.step-card { display: none; }
+/* No timeline: no playback to offer. */
+.dock:has(#scrubber[hidden]) .transport { visibility: hidden; }

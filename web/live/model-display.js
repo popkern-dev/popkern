@@ -73,10 +73,11 @@ export function showPlaced(page, placed) {
  *  model is not the one on screen until something rebuilds it). */
 export function showBake(page, bake, source) {
   page.live = false;
-  page.scrubber.reset();
   page.certifyGeneration += 1;
   const { envelope, buffers } = bake;
   page.lastGood = { envelope, buffers, bakedSource: source };
+  // After lastGood: the dock offers the live build of this model.
+  page.scrubber.reset();
   page.assembly.render(envelope.assembly ?? null);
   page.renderInspector();
   page.viewer.setAnalysis(null);

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <!-- Client-side only: scripts, workers and the wasm module come from this
      origin; nothing may connect anywhere else. Blob URLs carry downloads.
      base-uri 'self' (not 'none'): the deployed root page injects a <base>
@@ -10,157 +10,238 @@
      JS glue and wasm from different builds (tools/deploy-live-routes.sh). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0a1020">
 <title>popkern live</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="./style.css">
+<link rel="stylesheet" href="./panels.css">
+<link rel="stylesheet" href="./mobile.css">
 </head>
-<body>
-<header class="titlebar">
-  <a class="brand" href="./index.html" aria-label="popkern live">
-    <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0a0c0f"/><path d="M7 13.5a7 7 0 0 1 7-7h11v11a7 7 0 0 1-7 7H7V13.5Z" fill="none" stroke="#ecedf5" stroke-width="2.4"/><path d="M7 13.5a7 7 0 0 1 7-7" fill="none" stroke="#5c9df7" stroke-width="3.8" stroke-linecap="round"/></svg>
-    <h1 class="brand-name">popkern <strong>live</strong></h1>
-  </a>
-  <div class="toolbar" role="toolbar" aria-label="Document">
-    <div class="tool-group">
-      <button id="run" class="primary" type="button" title="Build the script (Ctrl/Cmd+Enter)"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11l9-5.5z"/></svg>Build</button>
-      <button id="cancel" type="button" title="Stop the build and restart the kernel"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg>Stop</button>
-      <label class="time-limit" title="How long a build may run before it is stopped. Remembered in this browser."><span class="tool-label">limit</span><select id="time-limit" aria-label="Build time limit"></select></label>
+<body data-sheet="history">
+<!-- The top bar: the document (brand, projects, export), the view
+     (shade and colour), and the build. -->
+<header class="topbar">
+  <div class="bar-card bar-document">
+    <button id="about" class="brand" type="button" title="About popkern live">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><path d="M7 13.5a7 7 0 0 1 7-7h11v11a7 7 0 0 1-7 7H7V13.5Z" fill="none" stroke="currentColor" stroke-width="2.6"/><path class="brand-accent" d="M7 13.5a7 7 0 0 1 7-7" fill="none" stroke-width="4" stroke-linecap="round"/></svg>
+      <span class="brand-name">popkern <span>live</span></span>
+    </button>
+    <button id="projects-open" class="bar-button project-button" type="button" title="Your projects, and the examples">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 4.5v8h13v-7H7.5l-1.5-1.5h-4.5z"/></svg>
+      <span class="project-label"><span class="project-kicker">Projects</span><span id="project-name" class="project-name">…</span></span>
+      <span id="project-where" class="chip" hidden></span>
+    </button>
+    <div class="menu-anchor">
+      <button id="export-menu-button" class="bar-button" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu" title="Download the project, the model as STEP or the document">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M2.5 13.5h11"/></svg><span class="bar-text">Export</span><svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg>
+      </button>
+      <div id="export-menu" class="menu" role="menu" hidden>
+        <button id="export-zip" type="button" role="menuitem" title="Download the project folder as a .zip">Project folder <span class="menu-note">.zip</span></button>
+        <button id="download-step" type="button" role="menuitem" title="Download the model as STEP">Model <span class="menu-note">.step</span></button>
+        <button id="download-pkn" type="button" role="menuitem" title="Download the document (.pkn)">Document <span class="menu-note">.pkn</span></button>
+        <hr>
+        <button id="show-code" type="button" role="menuitem" title="The document as canonical Rhai">Show as code</button>
+      </div>
     </div>
-    <div class="tool-group">
-      <button id="projects-open" type="button" title="Your projects in this browser, and the examples">Projects…</button>
-      <button id="export-zip" type="button" title="Download the project folder as a .zip">Export project</button>
-      <button id="open-step" type="button" title="Open a STEP file as a view-only assembly (it stays in this tab)">Open STEP…</button>
-      <input id="open-step-file" type="file" accept=".step,.stp,.STEP,.STP" hidden>
+  </div>
+  <div class="bar-card bar-view" role="toolbar" aria-label="View">
+    <div class="segment" role="group" aria-label="Shade">
+      <span class="segment-label">Shade</span>
+      <button type="button" class="mode" data-shade="cad" aria-pressed="true" title="CAD shading (a part's own colour and finish)">CAD</button>
+      <button type="button" class="mode" data-shade="zebra" aria-pressed="false" title="Zebra stripes: reflection lines show continuity across seams">Zebra</button>
+      <button type="button" class="mode" data-shade="gaussian" aria-pressed="false" title="Gaussian curvature">Gauss K</button>
+      <button type="button" class="mode" data-shade="mean" aria-pressed="false" title="Mean curvature">Mean H</button>
     </div>
-    <div class="tool-group">
-      <button id="show-code" type="button" title="The document as canonical Rhai">Show as code</button>
-      <button id="download-step" type="button" title="Download the model as STEP">Export STEP</button>
-      <button id="download-pkn" type="button" title="Download the document (.pkn)">Export .pkn</button>
+    <div class="segment" role="group" aria-label="Colour">
+      <span class="segment-label">Color</span>
+      <button type="button" class="mode" data-color="parts" aria-pressed="false" title="One colour per part (CAD shading)">Parts</button>
+      <button type="button" class="mode" data-color="faces" aria-pressed="false" title="One colour per face (CAD shading)">Faces</button>
     </div>
-    <div class="tool-group tool-end">
-      <a class="tool-link" href="./guide.html">Guide</a>
-      <button id="about" type="button" title="About popkern live">About</button>
+  </div>
+  <div class="bar-card bar-build">
+    <a class="bar-button guide-link" href="./guide.html" title="The scripting guide">
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h4.5A1.5 1.5 0 0 1 8 4.5V13a1.5 1.5 0 0 0-1.5-1.5H2zM14 3H9.5A1.5 1.5 0 0 0 8 4.5V13a1.5 1.5 0 0 1 1.5-1.5H14z"/></svg><span class="bar-text">Guide</span>
+    </a>
+    <button id="cancel" class="bar-button icon-only" type="button" title="Stop the build and restart the kernel" aria-label="Stop"><svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1"/></svg></button>
+    <div class="split">
+      <button id="run" class="primary" type="button" title="Build the script (Ctrl/Cmd+Enter)"><svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5v11l9-5.5z"/></svg>Build<kbd class="build-key">⌘↵</kbd></button>
+      <div class="menu-anchor">
+        <button id="build-menu-button" class="primary split-more" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="build-menu" title="Build options" aria-label="Build options"><svg class="icon chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg></button>
+        <div id="build-menu" class="menu menu-end" hidden>
+          <label class="menu-field" title="How long a build may run before it is stopped. Remembered in this browser.">Time limit <select id="time-limit" aria-label="Build time limit"></select></label>
+          <p class="menu-hint">Edits rebuild when typing pauses. Ctrl/Cmd+Enter builds now.</p>
+        </div>
+      </div>
     </div>
   </div>
 </header>
 <main class="workbench">
-  <section class="pane pane-editor" aria-label="Script">
-    <div class="pane-head"><span id="doc-name" class="pane-tab">document.rhai</span><button id="migration-add" class="pane-button" type="button" hidden title="Add a migration: a script that starts from previous() and edits the document">+ migration</button><span class="pane-hint">Ctrl/Cmd+Enter builds</span></div>
-    <div id="migrations-rail" class="migrations-rail" hidden aria-label="Migrations"><ul id="migrations-list" class="migrations-list"></ul></div>
-    <div id="draft-notice" class="draft-notice" hidden role="status">
+  <section class="card pane-editor" aria-label="Script">
+    <div class="card-head editor-head">
+      <div class="file-tabs" role="tablist" aria-label="Script files">
+        <span id="doc-name" class="file-tab file-tab-open" role="tab" aria-selected="true">document.rhai</span>
+        <div id="migrations-rail" class="migrations-rail" hidden aria-label="Migrations"><ul id="migrations-list" class="migrations-list"></ul></div>
+      </div>
+      <span class="save-state" aria-hidden="true"></span>
+      <button id="migration-add" class="head-button" type="button" hidden title="Add a migration: a script that starts from previous() and edits the document">+ migration</button>
+      <button id="editor-collapse" class="head-button icon-only" type="button" title="Hide the script" aria-label="Hide the script" aria-expanded="true"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3.5-4.5 4.5 4.5 4.5"/></svg></button>
+    </div>
+    <div id="draft-notice" class="notice" hidden role="status">
       <span>Your Scratch project has edits from last time.</span>
       <button id="draft-restore" type="button" title="Open Scratch and build it">Open it</button>
-      <button id="draft-dismiss" type="button" title="Keep it for later (Projects… opens it)">Later</button>
+      <button id="draft-dismiss" type="button" title="Keep it for later (Projects opens it)">Later</button>
     </div>
-    <div id="readonly-bar" class="draft-notice" hidden role="status">
+    <div id="readonly-bar" class="notice" hidden role="status">
       <span>An example: read only.</span>
-      <button id="copy-to-edit" type="button" title="Copy it into your projects and edit the copy">Make a copy to edit</button>
+      <button id="copy-to-edit" class="primary" type="button" title="Copy it into your projects and edit the copy">Make a copy to edit</button>
     </div>
-    <div id="conflict-bar" class="draft-notice conflict" hidden role="alert">
+    <div id="conflict-bar" class="notice conflict" hidden role="alert">
       <span id="conflict-text">This project changed in another tab.</span>
       <button id="conflict-theirs" type="button" title="Show the other tab's version (your edits here are dropped)">Load theirs</button>
       <button id="conflict-mine" type="button" title="Save this tab's version over the other one">Keep mine</button>
     </div>
     <div id="editor"></div>
   </section>
-  <section class="pane pane-viewer" aria-label="Model">
-    <div class="pane-head">
-      <span class="pane-title">Viewport</span>
-      <div class="pane-tools">
-        <label><span class="tool-label">view</span><select id="view-mode" aria-label="Surface view mode">
-          <option value="cad" selected>CAD</option>
-          <option value="parts">part colours</option>
-          <option value="shaded">face colours</option>
-          <option value="zebra">zebra</option>
-          <option value="gaussian">gaussian curvature</option>
-          <option value="mean">mean curvature</option>
-        </select></label>
-        <label class="check"><input id="edges" type="checkbox" checked> edges</label>
-        <label id="explode-row" class="explode" hidden title="Pull the assembly's parts apart (view only)"><span class="tool-label">explode</span><input id="explode" type="range" min="0" max="1" step="0.01" value="0" aria-label="Explode the assembly"></label>
-        <label class="section" title="Cut the view through the model (view only: the model is not changed)"><span class="tool-label">section</span><select id="section-axis" aria-label="Section plane axis">
-          <option value="" selected>off</option>
-          <option value="x">x</option>
-          <option value="y">y</option>
-          <option value="z">z</option>
-        </select><input id="section-at" type="range" min="0" max="1" step="0.005" value="0.5" aria-label="Section plane position" hidden></label>
-        <button id="history" type="button" title="Step through the model's history (builds it live first)">History</button>
-        <button id="fit" type="button" title="Fit the model to the view">Fit</button>
-      </div>
-    </div>
-    <div class="viewer-wrap">
-      <canvas id="viewer" aria-label="3D view of the model; drag to orbit, wheel to zoom, right-drag or shift-drag to pan, arrow keys to orbit"></canvas>
-      <div id="scrubber" class="scrubber" hidden tabindex="0" aria-label="History: step through the features (arrow keys)">
-        <button id="scrubber-play" type="button" title="Re-watch the model being built">play</button>
-        <div class="scrubber-track">
-          <div id="scrubber-chapters" class="scrubber-chapters" hidden></div>
-          <div id="scrubber-ticks" class="scrubber-ticks"></div>
-          <input id="scrubber-range" type="range" min="1" max="1" value="1" aria-label="History step">
+  <button id="editor-expand" class="card editor-rail" type="button" title="Show the script" aria-label="Show the script" hidden><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg><span>Script</span></button>
+  <section class="pane-viewer" aria-label="Model">
+    <canvas id="viewer" aria-label="3D view of the model; drag to orbit, wheel or pinch to zoom, right-drag, shift-drag or two-finger drag to pan, arrow keys to orbit"></canvas>
+    <div class="view-tools">
+      <button id="fit" class="float-button" type="button" title="Fit the model to the view" aria-label="Fit the model to the view"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
+      <div class="menu-anchor">
+        <button id="view-menu-button" class="float-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="view-menu" title="Edges, section and explode" aria-label="View options"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7"/><circle cx="10.5" cy="4.5" r="1.5"/><circle cx="5.5" cy="11.5" r="1.5"/></svg></button>
+        <div id="view-menu" class="menu menu-end view-menu" hidden>
+          <label class="menu-field menu-check"><input id="edges" type="checkbox" checked> Edges</label>
+          <div class="menu-field section" title="Cut the view through the model (view only: the model is not changed)">
+            <span>Section</span>
+            <select id="section-axis" aria-label="Section plane axis">
+              <option value="" selected>off</option>
+              <option value="x">x</option>
+              <option value="y">y</option>
+              <option value="z">z</option>
+            </select>
+          </div>
+          <input id="section-at" class="menu-range" type="range" min="0" max="1" step="0.005" value="0.5" aria-label="Section plane position" hidden>
+          <label id="explode-row" class="menu-field explode" hidden title="Pull the assembly's parts apart (view only)"><span>Explode</span><input id="explode" type="range" min="0" max="1" step="0.01" value="0" aria-label="Explode the assembly"></label>
         </div>
-        <span id="scrubber-label" class="scrubber-label"></span>
-        <button id="scrubber-insert" type="button" hidden title="Add a migration that inserts one feature after this step">insert a feature here</button>
-      </div>
-      <div id="overlay" class="overlay" hidden role="alert">
-        <div class="overlay-head"><span id="overlay-class" class="overlay-class"></span><button id="overlay-goto" type="button" hidden>go to line</button></div>
-        <pre id="overlay-text"></pre>
       </div>
     </div>
+    <span id="pick" class="pick">click a face or edge to see its stable name</span>
+    <span class="scrubbed-note" aria-hidden="true">history · read only</span>
+    <div id="overlay" class="overlay" hidden role="alert">
+      <div class="overlay-head"><span id="overlay-class" class="overlay-class"></span><button id="overlay-goto" type="button" hidden>go to line</button></div>
+      <pre id="overlay-text"></pre>
+    </div>
   </section>
-  <section class="pane pane-side" aria-label="Inspector">
-    <div class="pane-head"><span class="pane-title">Inspector</span></div>
-    <div class="inspector">
-      <section id="assembly-section" hidden aria-label="Assembly">
-        <h2>Assembly</h2>
-        <p id="assembly-summary" class="muted"></p>
-        <ul id="assembly-tree" class="tree"></ul>
-        <div class="clearance-row"><button id="clearance-check" type="button" title="Measure the distance between every pair of parts within the given clearance, and find overlaps">Check clearance</button><label>within <input id="clearance" type="number" value="0.01" min="0" step="any" aria-label="Clearance to report"></label></div>
-        <p id="clearance-summary" class="muted" hidden></p>
+  <section class="card pane-side" aria-label="Inspector">
+    <div class="tabs" role="tablist" aria-label="Inspector">
+      <button type="button" role="tab" class="tab" data-inspect="parts" aria-selected="true">Parts</button>
+      <button type="button" role="tab" class="tab" data-inspect="features" aria-selected="false">Features</button>
+      <button type="button" role="tab" class="tab" data-inspect="params" aria-selected="false">Params</button>
+      <button type="button" role="tab" class="tab" data-inspect="checks" aria-selected="false">Checks</button>
+    </div>
+    <div class="inspector" data-inspect="parts">
+      <div id="assembly-open" class="assembly-open" hidden><span>Part <strong id="assembly-open-name"></strong></span><button id="assembly-close" type="button" title="Back to the whole assembly">all parts</button></div>
+      <div class="inspect-panel" data-panel="parts">
+        <section id="assembly-section" hidden aria-label="Assembly">
+          <p class="panel-summary"><span id="assembly-summary"></span><span class="chip chip-ok closure-chip" hidden></span></p>
+          <ul id="assembly-tree" class="tree"></ul>
+        </section>
+        <section id="bodies-section" aria-label="Bodies">
+          <p class="panel-summary"><span id="bodies-summary" class="muted">no model yet</span><span class="chip chip-ok closure-chip" hidden></span></p>
+          <ul id="bodies-list" class="tree"></ul>
+        </section>
+        <div id="clearance-row" class="panel-foot clearance-row" hidden><button id="clearance-check" type="button" title="Measure the distance between every pair of parts within the given clearance, and find overlaps">Check clearance</button><label title="Clearance to report">≤ <input id="clearance" type="number" value="0.01" min="0" step="any" aria-label="Clearance to report"></label></div>
+      </div>
+      <div class="inspect-panel" data-panel="features">
+        <p id="report-summary" class="panel-summary muted">no build yet</p>
+        <table class="report"><thead><tr><th>feature</th><th>op</th><th>outcome</th><th>time</th></tr></thead><tbody id="report"></tbody></table>
+      </div>
+      <div class="inspect-panel" data-panel="params">
+        <div class="params-head">
+          <span class="params-filters" role="group" aria-label="Which parameters to show">
+            <label title="Parameters the script declares by name: param(&quot;wall&quot;, …)"><input id="params-show-named" type="checkbox" checked> named</label>
+            <label title="Feature arguments the history exposes without a name in the script (fillet-3.radius)"><input id="params-show-implicit" type="checkbox" checked> implicit</label>
+          </span>
+        </div>
+        <p id="params-empty" class="muted">declared parameters appear here as sliders</p>
+        <div id="params" class="params"></div>
+        <p id="params-hidden" class="muted" hidden></p>
+      </div>
+      <div class="inspect-panel" data-panel="checks">
+        <ul id="checks-list" class="checks"></ul>
+        <p id="clearance-summary" class="panel-summary muted" hidden></p>
         <ul id="clearance-list" class="tree" hidden></ul>
-      </section>
-      <div id="assembly-open" class="assembly-open" hidden><span>Part: <strong id="assembly-open-name"></strong></span><button id="assembly-close" type="button" title="Back to the whole assembly">all parts</button></div>
-      <h2>Feature tree</h2>
-      <p id="report-summary" class="muted">no build yet</p>
-      <table class="report"><thead><tr><th>feature</th><th>op</th><th>outcome</th><th>time</th></tr></thead><tbody id="report"></tbody></table>
-      <div class="params-head">
-        <h2>Parameters</h2>
-        <span class="params-filters" role="group" aria-label="Which parameters to show">
-          <label title="Parameters the script declares by name: param(&quot;wall&quot;, …)"><input id="params-show-named" type="checkbox" checked> named</label>
-          <label title="Feature arguments the history exposes without a name in the script (fillet-3.radius)"><input id="params-show-implicit" type="checkbox" checked> implicit</label>
-        </span>
       </div>
-      <p id="params-empty" class="muted">declared parameters appear here as sliders</p>
-      <div id="params" class="params"></div>
-      <p id="params-hidden" class="muted" hidden></p>
     </div>
   </section>
+  <section id="history-dock" class="card dock" aria-label="History">
+    <div class="transport" role="group" aria-label="History playback">
+      <button id="scrubber-prev" class="round" type="button" title="Previous step" aria-label="Previous step"><svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M11 3v10L4 8z"/></svg></button>
+      <button id="scrubber-play" class="round primary" type="button" title="Re-watch the model being built" aria-label="Play the history"><svg class="icon solid icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10l8-5z"/></svg><svg class="icon solid icon-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3h2.5v10H4.5zM9 3h2.5v10H9z"/></svg></button>
+      <button id="scrubber-next" class="round" type="button" title="Next step" aria-label="Next step"><svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10l7-5z"/></svg></button>
+    </div>
+    <div class="dock-title">
+      <strong>History</strong>
+      <span id="scrubber-label" class="scrubber-label"></span>
+      <div id="scrubber-chapters" class="scrubber-chapters" hidden></div>
+      <button id="scrubber-insert" class="head-button" type="button" hidden title="Add a migration that inserts one feature after this step">+ insert a feature here</button>
+    </div>
+    <div id="scrubber" class="scrubber" hidden tabindex="0" aria-label="History: step through the features (arrow keys)">
+      <ol id="scrubber-ticks" class="step-cards"></ol>
+      <input id="scrubber-range" type="range" min="1" max="1" value="1" aria-label="History step">
+    </div>
+    <div id="history-empty" class="history-empty">
+      <span id="history-empty-text">The model's history appears here after a build.</span>
+      <button id="history" type="button" hidden title="Build the model live to step through its history">Show the history</button>
+    </div>
+    <div id="step-card" class="step-card" hidden>
+      <span class="step-card-icon" aria-hidden="true"></span>
+      <span class="step-card-text"><strong class="step-card-name"></strong><span class="step-card-what"></span></span>
+      <button id="step-card-line" class="step-card-line" type="button" hidden title="Show this line of the script"></button>
+    </div>
+  </section>
+  <!-- The build status: the history dock's corner on a wide screen, a
+     chip over the model on a phone. -->
+  <div class="dock-status">
+    <span class="status-dot" aria-hidden="true"></span>
+    <span id="status" class="status" role="status" aria-live="polite">starting…</span>
+    <span id="storage-note" class="chip chip-warn" hidden title="This browser blocks site storage (a private window?): projects are kept only until the page closes. Export a project to keep it.">not saved</span>
+    <span id="privacy-note" class="chip" title="Everything runs in this tab: your script and your model never leave the browser, nothing is uploaded, and no analytics are loaded.">local only</span>
+  </div>
+  <nav class="sheet-tabs" role="tablist" aria-label="Panels">
+    <span class="sheet-grabber" aria-hidden="true"></span>
+    <button id="sheet-size" class="sheet-size" type="button" aria-label="Taller panel" title="Taller or shorter panel"></button>
+    <div class="tabs">
+      <button type="button" role="tab" class="tab" data-sheet="history" aria-selected="true">History</button>
+      <button type="button" role="tab" class="tab" data-sheet="code" aria-selected="false">Code</button>
+      <button type="button" role="tab" class="tab" data-sheet="model" aria-selected="false">Model</button>
+    </div>
+  </nav>
 </main>
-<footer class="statusbar">
-  <span id="status" class="status" role="status" aria-live="polite">starting…</span>
-  <span id="pick" class="pick">click a face or edge to see its stable name</span>
-  <span id="storage-note" class="status-item" hidden title="This browser blocks site storage (a private window?): projects are kept only until the page closes. Export a project to keep it.">not saved</span>
-  <span id="privacy-note" class="status-item" title="Everything runs in this tab: your script and your model never leave the browser, nothing is uploaded, and no analytics are loaded.">local only</span>
-</footer>
 <div id="code-dialog" class="dialog" hidden role="dialog" aria-label="Document as code">
   <div class="dialog-box">
-    <div class="dialog-head"><strong>document as canonical Rhai</strong><span><button id="code-use" type="button">use as script</button> <button id="code-close" type="button">close</button></span></div>
+    <div class="dialog-head"><strong>Document as canonical Rhai</strong><span class="dialog-head-actions"><button id="code-use" class="primary" type="button">Use as script</button><button id="code-close" type="button">Close</button></span></div>
     <pre id="code-text"></pre>
   </div>
 </div>
 <div id="projects-dialog" class="dialog" hidden role="dialog" aria-label="Projects">
   <div class="dialog-box">
-    <div class="dialog-head"><strong>projects</strong><span class="dialog-head-actions"><button id="project-new" type="button">new project</button><button id="project-import" type="button" title="Import a project folder exported as a .zip">import .zip…</button><button id="project-folder" type="button" title="Open a project folder on this computer and edit it in place (Chrome, Edge)">open folder…</button><button id="projects-close" type="button">close</button></span></div>
+    <div class="dialog-head"><strong>Projects</strong><span class="dialog-head-actions"><button id="project-new" class="primary" type="button">New project</button><button id="project-import" type="button" title="Import a project folder exported as a .zip">Import .zip…</button><button id="project-folder" type="button" title="Open a project folder on this computer and edit it in place (Chrome, Edge)">Open folder…</button><button id="open-step" type="button" title="Open a STEP file as a view-only assembly (it stays in this tab)">Open STEP…</button><button id="projects-close" type="button">Close</button></span></div>
     <input id="project-import-file" type="file" accept=".zip,application/zip" hidden>
+    <input id="open-step-file" type="file" accept=".step,.stp,.STEP,.STP" hidden>
     <div class="dialog-body">
       <h2 id="projects-heading">Your projects</h2>
       <p id="projects-where" class="muted projects-where" hidden></p>
       <ul id="projects-list" class="project-list"></ul>
       <h2>Examples</h2>
       <ul id="examples-list" class="project-list"></ul>
+      <p class="dialog-foot"><button id="projects-about" type="button">About popkern live</button></p>
     </div>
   </div>
 </div>
 <div id="about-dialog" class="dialog" hidden role="dialog" aria-label="About popkern live">
   <div class="dialog-box dialog-small">
-    <div class="dialog-head"><strong>popkern live</strong><button id="about-close" type="button">close</button></div>
+    <div class="dialog-head"><strong>popkern live</strong><button id="about-close" type="button">Close</button></div>
     <div class="dialog-body">
       <p>A code-first CAD workbench on the popkern B-rep kernel: write a model script, build it, inspect the result, export STEP.</p>
       <p>Everything runs in this tab: your script and your model never leave the browser, nothing is uploaded, and no analytics are loaded.</p>

@@ -47,9 +47,12 @@ redirect pages pointing here.
 
 | File | Role |
 |---|---|
-| `index.html`, `style.css` | The page and its CSP (`'self'` for everything; `'wasm-unsafe-eval'` for the module) |
+| `index.html` | The page and its CSP (`'self'` for everything; `'wasm-unsafe-eval'` for the module): top bar, script card, viewport, inspector, history dock, phone sheet tabs |
+| `style.css`, `panels.css`, `mobile.css` | Tokens, controls, top bar, layout, menus and dialogs; the cards' contents (editor, inspector, history); the phone layout (≤ 60rem: chip row, bottom sheet) |
+| `layout.js` | Popover menus, the Shade / Color view modes, inspector tabs, the phone sheet's tabs and size, folding the script card |
+| `icons.js` | Line icons for history operations (an unknown operation gets the generic mark) and interface marks |
 | `app.js` | The page controller (`window.popkernLive`): owns the build lifecycle — run, bake shortcut, cancel, parameter replay — and the state the modules below share |
-| `controls.js` | Wires the top bar, viewer bar, Scratch notice and dialogs to the controller |
+| `controls.js` | Wires the build, export, view-option, clearance and dialog controls and the Scratch notice to the controller |
 | `local-store.js` | Everything kept in `localStorage` behind one guarded accessor: the time limit, the pre-project draft keys (read once to seed Scratch), and the one-time `popkern-playground-*` key adoption |
 | `drafts.js` | Which project a visit opens: Scratch when pre-built, else the pre-built default with a notice offering Scratch back; adopts the pre-project draft without loss |
 | `projects.js` | The open project: autosave with revision-checked writes (a conflict shows both versions), read-only examples and copy-to-edit, Scratch, .zip export/import, open a folder, a folder changed on disk reloaded or shown as a conflict |
@@ -57,16 +60,18 @@ redirect pages pointing here.
 | `folder-store.js` | Project folders on this computer through the File System Access API (Chromium): remembered handles, in-place saves checked against the files on disk (SHA-256 revisions), forget-never-deletes; `RoutedStore` puts them beside the page's own store |
 | `example-store.js` | The examples as read-only projects: one-script entries and project folders from `examples.json` |
 | `projects-dialog.js` | The projects dialog: your projects (open, delete, new, import, open a folder; forget a folder) and the examples |
-| `migrations-rail.js` | A project's migration files beside the editor with their build status; open, add (`previous()` template), rename, reorder (numbers swap), delete, insert a feature at the history playhead |
+| `migrations-rail.js` | A project's migration files as the script card's tabs with their build status; open, add (`previous()` template), rename, reorder (numbers swap), delete, insert a feature at the history playhead |
 | `migration-templates.js` | Migration templates (first, next, insert-after) — the text `popkern_project::scaffold` writes |
-| `scrubber.js` | The history scrubber: ticks per feature (an assembly: per place, move and mate; a part opened in the assembly panel: its own features), migration chapters, step meshes cached by key, created-face (or placed-occurrence) glow, editor line and report row, play, `#step=` / `#v=` links, insert a feature here |
+| `history-strip.js` | The history dock's drawing: one card per step (number, icon, label, failed/warning flag), chapters, the step label, the phone's step card, the empty state |
+| `scrubber.js` | The history scrubber: steps per feature (an assembly: per place, move and mate; a part opened in the assembly panel: its own features), migration chapters, step meshes cached by key, created-face (or placed-occurrence) glow, editor line (and gutter marks) and report row (a row click scrubs to it), play, `#step=` / `#v=` links, insert a feature here |
 | `host-mode.js` | Which deployment the page is in (`host.json`: storage, compute, the projects root and the MCP endpoint) and the `ServerStore` for `popkern serve` (projects are folders on the serving machine; their revisions are polled so edits made on disk or over MCP reload) |
 | `socket-worker.js` | The worker protocol over `popkern serve`'s session socket (same origin only), Worker-shaped, with in-place `cancelRun()` |
 | `zip.js` | Dependency-free STOREd zip writer/reader with CRC-32 for project export/import |
 | `document-tab.js` | The open document: its title, file stem and edited mark; an imported STEP placeholder |
 | `gallery.js` | The default script (`default.rhai`) fetch |
 | `time-limit.js` | The build time-limit presets, the worker budgets they map to, and applying a change |
-| `status-line.js` | The status line, the pick readout, served-model wording, page-error reporting |
+| `status-line.js` | The status line (the dock's corner; a chip over the model on a phone), the pick readout, served-model wording, page-error reporting |
+| `model-panel.js` | A part document's bodies on the Parts tab, the closure chips, and the Checks tab (features served, watertight, blend continuity, certification, warnings) |
 | `outcome-overlay.js` | The viewport overlay for a build that did not serve, with the line jump |
 | `report-table.js` | The feature tree rows (blend continuity measured vs requested) and its summary |
 | `params-panel.js` | Parameter sliders and number boxes, scoped to an opened assembly part; toggles show or hide named (`param("wall", …)`) and implicit (feature-argument) parameters, kept in this browser |

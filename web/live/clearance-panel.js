@@ -3,6 +3,8 @@
 // or clear with its certified distance — worst first, as the worker
 // orders them. A row selects its two occurrences.
 
+import { showInspectorTab } from "./layout.js";
+
 const $ = (id) => document.getElementById(id);
 
 /** A clearance row's verdict. */
@@ -46,7 +48,7 @@ export function renderClearance(reply, clearance, select) {
 }
 
 /** The clearance button: build the live model if needed, run the check
- *  at the clearance the viewer bar names, and list the pairs. Resolves
+ *  at the clearance the Parts tab names, and list the pairs. Resolves
  *  to the worker's reply (null when no live model could be built). */
 export async function checkClearance(page) {
   if (!(await page.ensureLive())) return null;
@@ -54,6 +56,8 @@ export async function checkClearance(page) {
   page.status(`checking clearance within ${clearance}…`);
   const reply = await page.host.interference(clearance);
   const summary = renderClearance(reply, clearance, (paths) => page.viewer.select(paths));
+  // The pairs list on the Checks tab.
+  showInspectorTab("checks");
   if (summary != null) page.status(`clearance checked: ${summary}`);
   return reply;
 }
