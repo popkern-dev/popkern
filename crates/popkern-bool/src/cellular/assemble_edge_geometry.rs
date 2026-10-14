@@ -207,3 +207,39 @@ pub(super) fn span_sample_points(
         });
     ((na, nb), pa, pb, mid)
 }
+
+/// Install `frag`'s pcurve for graph half-edge `ghe` on the wired BRep
+/// half-edge `he`.
+///
+/// Installed: every piece on a NURBS chart (the projection recompute
+/// LOSES exactness there — PK-441 scoping), and every UNSPLIT, OPEN
+/// original piece on any chart (PK-802: the recompute refit every
+/// untouched edge of the body per boolean). Split and record pieces on
+/// analytic charts are left to the recompute's exact Linear/Arc authors
+/// (installing them regressed the chamfered-socket corpus, 898 open
+/// mesh edges). So are CLOSED original rims on analytic charts: their
+/// curve and pcurve starts differ, the sampled orientation picks the
+/// wrong sense (measured: a deep-plunge thread cut stranded 10 record
+/// sides), and installing them as stored wound a bored tube's cap hole
+/// with its rim.
+pub(super) fn install_fragment_pcurve(
+    bld: &mut popkern_core::constructors::builder::BRepBuilder,
+    he: popkern_core::topology::HalfEdgeHandle,
+    graph: &IntersectionGraph,
+    ghe: usize,
+    frag: &crate::merge::walk::Fragment,
+    surface: Option<&popkern_core::geometry::surface::SurfaceGeometry>,
+) {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let gh = &graph.half_edges[ghe];
+    let open_original =
+        gh.source.is_unsplit_original() && gh.origin != graph.half_edges[gh.twin].origin;
+    let nurbs_chart = matches!(surface, Some(SurfaceGeometry::Nurbs(_)));
+    let Some(surface) = surface.filter(|_| nurbs_chart || open_original) else {
+        return; // analytic chart — the recompute authors exact pcurves
+    };
+    if let Some(pc) = pcurve_for_face(graph, ghe, &frag.face) {
+        let pc = orient_pcurve_to_half_edge(bld.brep(), he, pc, Some(surface));
+        bld.set_half_edge_pcurve(he, pc);
+    }
+}

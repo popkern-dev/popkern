@@ -62,17 +62,21 @@ pub enum CanonicalForwardState {
     Indeterminate(&'static str),
 }
 
+/// Per-face winding-honesty verdicts, audited on first need.
+type WindingCache =
+    std::cell::OnceCell<std::collections::HashMap<crate::topology::FaceHandle, Option<bool>>>;
+
 impl BRep {
     /// Audit the canonical-forward convention on every CLOSED,
     /// non-seam edge. Seam edges (both half-edges on one face) keep
     /// their chart-branch handling and are exempt, matching the
     /// merge's closed-edge witness exemption.
     pub fn audit_canonical_forward(&self) -> Vec<CanonicalForwardVerdict> {
-        let winding: std::collections::HashMap<crate::topology::FaceHandle, Option<bool>> = self
-            .audit_winding_honesty()
-            .into_iter()
-            .map(|v| (v.face, v.honest))
-            .collect();
+        // The whole-body winding audit is only consulted when a closed
+        // edge's twin claims agree (one pcurve lies) — computed on that
+        // first need, not per call (PK-802: two audits per boolean,
+        // ~1.5 ms on a 255-face body, for verdicts no edge read).
+        let winding = WindingCache::new();
         let mut out = Vec::new();
         for (eh, edge) in &self.edges {
             let Some(he) = self.half_edges.get(edge.half_edge) else {
@@ -185,7 +189,7 @@ impl BRep {
         &self,
         canonical: HalfEdgeHandle,
         twin: HalfEdgeHandle,
-        winding: &std::collections::HashMap<crate::topology::FaceHandle, Option<bool>>,
+        winding: &WindingCache,
     ) -> CanonicalForwardState {
         use CanonicalForwardState as S;
         let claim_can = self.pcurve_traversal_claim(canonical);
@@ -217,7 +221,16 @@ impl BRep {
                 // the liar; otherwise the chain decides.
                 let honest_face = |heh: HalfEdgeHandle| {
                     let face = self.loops.get(self.half_edges.get(heh)?.loop_)?.face;
-                    winding.get(&face).copied().flatten()
+                    winding
+                        .get_or_init(|| {
+                            self.audit_winding_honesty()
+                                .into_iter()
+                                .map(|v| (v.face, v.honest))
+                                .collect()
+                        })
+                        .get(&face)
+                        .copied()
+                        .flatten()
                 };
                 let (cont_can, cont_twin) = match (honest_face(canonical), honest_face(twin)) {
                     (Some(false), Some(true)) => (Some(false), Some(true)),

@@ -69,6 +69,14 @@ pub(crate) enum EdgeSource {
     },
 }
 
+impl EdgeSource {
+    /// A copy of an operand edge no split has touched (same curve, same
+    /// span as in the operand).
+    pub fn is_unsplit_original(&self) -> bool {
+        matches!(self, Self::OriginalA(_) | Self::OriginalB(_))
+    }
+}
+
 /// A node (vertex) in the intersection graph.
 #[derive(Debug)]
 pub(crate) struct GraphNode {

@@ -132,7 +132,7 @@ pub(crate) fn walk_all_fragments_ext(
     let mut identities: Vec<Fragment> = Vec::new();
 
     // Opposite-operand face AABBs (PK-438 exterior-disjoint promotion).
-    let opposite_aabbs = hole_nesting::OppositeAabbs::new(brep_a, brep_b);
+    let opposite_aabbs = hole_nesting::OppositeAabbs::new(brep_a, brep_b, identity);
 
     let mut ctx = FaceWalk {
         graph,

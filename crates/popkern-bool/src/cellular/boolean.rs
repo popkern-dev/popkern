@@ -39,13 +39,23 @@ use crate::merge::walk::walk_all_fragments_ext;
 ///
 /// This is order-independent because the classification depends only on
 /// geometry (point-in-solid), not on iteration order.
+///
+/// Returns the body and its CARRIED edges — those built from unsplit
+/// operand edges, whose curve-surface agreement the operand already
+/// had (the post-check measures the rest).
 pub(crate) fn cellular_graph_merge(
     original_a: &BRep,
     original_b: &BRep,
     intersection_result: &IntersectionResult,
     op: BoolOperation,
     tolerance: &Tolerance,
-) -> Result<BRep, BoolDiagnostics> {
+) -> Result<
+    (
+        BRep,
+        std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    ),
+    BoolDiagnostics,
+> {
     let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
 
@@ -187,6 +197,8 @@ pub(crate) fn cellular_graph_merge(
         Some(&crate::merge::walk::OperandHalfEdgeMaps {
             a: &hemap_a,
             b: &hemap_b,
+            boxes_a: &intersection_result.aabbs_a,
+            boxes_b: &intersection_result.aabbs_b,
         }),
         tolerance,
     );
@@ -204,6 +216,7 @@ pub(crate) fn cellular_graph_merge(
         op,
         tolerance,
         &intersection_result.coincidence.face_overlaps,
+        (&intersection_result.aabbs_a, &intersection_result.aabbs_b),
     )?;
 
     // Order-independent assembly from selected fragments.
@@ -211,6 +224,7 @@ pub(crate) fn cellular_graph_merge(
         .filter(|&i| selections[i].keep)
         .collect();
 
+    let mut carried = std::collections::BTreeSet::new();
     let result = super::assemble::cellular_assemble(
         &graph,
         &fragments,
@@ -218,6 +232,7 @@ pub(crate) fn cellular_graph_merge(
         original_a,
         original_b,
         *tolerance,
+        &mut carried,
     )
     .map_err(|mut diag| {
         // ChartSubdivisionReport promotion (PK-106): a failed cellular
@@ -244,5 +259,5 @@ pub(crate) fn cellular_graph_merge(
     let _provenance =
         super::assemble_cleanup::build_face_provenance(&result, &kept, &fragments, &selections);
 
-    Ok(result)
+    Ok((result, carried))
 }

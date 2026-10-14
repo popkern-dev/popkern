@@ -74,7 +74,13 @@ pub fn post_check(
     tolerance: &Tolerance,
     check_self_intersection: bool,
 ) -> PostCheckReport {
-    post_check_scoped(result, tolerance, check_self_intersection, true)
+    post_check_scoped(
+        result,
+        tolerance,
+        check_self_intersection,
+        true,
+        &Default::default(),
+    )
 }
 
 /// [`post_check`]'s GATES only: every Error/Critical check, none of the
@@ -84,9 +90,18 @@ pub fn post_check(
 /// sampled every edge of the result per boolean, so a body carrying
 /// earlier tapped holes paid for re-measuring all of them on every
 /// later boolean (PK-731: +43 ms per earlier tap, per boolean).
-/// The gating findings are exactly [`post_check`]'s.
-pub(crate) fn post_check_gates(result: &BRep, tolerance: &Tolerance) -> PostCheckReport {
-    post_check_scoped(result, tolerance, false, false)
+/// The gating findings are exactly [`post_check`]'s, except that
+/// `carried` edges — built from unsplit operand edges, so carrying the
+/// operand's own curve and face surfaces — skip the curve-surface
+/// check (check 9): it re-measured every far edge of the body on every
+/// boolean (PK-802). Serving boundaries (`validate_all`) still measure
+/// every edge.
+pub(crate) fn post_check_gates(
+    result: &BRep,
+    tolerance: &Tolerance,
+    carried: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+) -> PostCheckReport {
+    post_check_scoped(result, tolerance, false, false, carried)
 }
 
 fn post_check_scoped(
@@ -94,6 +109,7 @@ fn post_check_scoped(
     tolerance: &Tolerance,
     check_self_intersection: bool,
     diagnostics: bool,
+    carried: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
 ) -> PostCheckReport {
     let mut report = PostCheckReport {
         face_count: result.faces.len(),
@@ -201,7 +217,24 @@ fn post_check_scoped(
             measured_value: None,
         });
     }
-    if let Err(e) = result.validate_curve_surface() {
+    let curve_surface = if carried.is_empty() {
+        result.validate_curve_surface()
+    } else {
+        let scoped: Vec<_> = result
+            .edges
+            .keys()
+            .filter(|e| !carried.contains(e))
+            .collect();
+        match result
+            .validate_curve_surface_edges(&scoped)
+            .into_iter()
+            .next()
+        {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    };
+    if let Err(e) = curve_surface {
         report.findings.push(PostCheckFinding {
             severity: Severity::Error,
             message: format!("Edge curve deviates from face surface: {e}"),

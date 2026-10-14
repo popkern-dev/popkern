@@ -16,7 +16,7 @@ use popkern_core::{
 use super::assemble_cleanup::cleanup_unwired;
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::merge::fragment_classify::FragmentSelection;
-use crate::merge::graph::{IntersectionGraph, Operand};
+use crate::merge::graph::{EdgeSource, IntersectionGraph, Operand};
 use crate::merge::walk::Fragment;
 
 /// Assemble a BRep from selected fragments using order-independent edge creation.
@@ -26,6 +26,7 @@ use crate::merge::walk::Fragment;
 /// 3. Create all vertices and edges upfront
 /// 4. Wire fragment loops using the pre-created edges
 /// 5. Attach surface geometry
+/// `carried` receives result edges built from UNSPLIT original edges.
 #[path = "assemble_material_audit.rs"]
 mod assemble_material_audit;
 
@@ -36,6 +37,7 @@ pub(crate) fn cellular_assemble(
     brep_a: &BRep,
     brep_b: &BRep,
     tolerance: Tolerance,
+    carried: &mut std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
 ) -> Result<BRep, BoolDiagnostics> {
     let mut builder = BRepBuilder::new(tolerance);
     let solid = builder.add_solid();
@@ -185,6 +187,9 @@ pub(crate) fn cellular_assemble(
         let vh_a = node_to_vertex[&na];
         let vh_b = node_to_vertex[&nb];
         let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_a, vh_b);
+        if graph.half_edges[key].source.is_unsplit_original() {
+            carried.insert(edge_h);
+        }
 
         edge_he_map.insert(key, (he_fwd, he_twin));
         if popkern_core::trace::trace_enabled("boolean") {
@@ -192,7 +197,7 @@ pub(crate) fn cellular_assemble(
                 "  [assemble] edge key {key}: nodes ({na},{nb}) shared={} curve={}",
                 matches!(
                     graph.half_edges[sample_ghe].source,
-                    crate::merge::graph::EdgeSource::Shared { .. }
+                    EdgeSource::Shared { .. }
                 ),
                 graph.half_edges[sample_ghe].curve.is_some()
                     || graph.half_edges[graph.half_edges[sample_ghe].twin]
@@ -250,13 +255,7 @@ pub(crate) fn cellular_assemble(
         .faces
         .get(frag.face.face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.clone())
-        .filter(|g| {
-            matches!(
-                g,
-                popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
-            )
-        });
+        .map(|s| s.geometry.clone());
 
         // Resolve all graph half-edges to BRep half-edges upfront,
         // before calling builder methods that borrow mutably.
@@ -371,27 +370,17 @@ pub(crate) fn cellular_assemble(
                 // double edges correctly.
                 let brep_he = if ghe == key { he_fwd } else { he_twin };
 
-                // The wired half-edge carries THIS fragment's chart
-                // (per-face UV correction, as in graph-merge's
-                // assembly), oriented to the brep pcurve convention by
-                // sampled comparison. Without the install the whole
-                // output re-projects — exact borders come back as
-                // fitted approximations (see `pcurve_for_face`).
+                // The wired half-edge carries THIS fragment's chart (see
+                // `assemble_edge_geometry::install_fragment_pcurve`).
                 let install_pcurve = |bld: &mut BRepBuilder, he: HalfEdgeHandle| {
-                    let Some(surface) = frag_surface.as_ref() else {
-                        return; // non-NURBS chart — recompute authors exact pcurves
-                    };
-                    if let Some(pc) =
-                        super::assemble_edge_geometry::pcurve_for_face(graph, ghe, &frag.face)
-                    {
-                        let pc = super::assemble_edge_geometry::orient_pcurve_to_half_edge(
-                            bld.brep(),
-                            he,
-                            pc,
-                            Some(surface),
-                        );
-                        bld.set_half_edge_pcurve(he, pc);
-                    }
+                    super::assemble_edge_geometry::install_fragment_pcurve(
+                        bld,
+                        he,
+                        graph,
+                        ghe,
+                        frag,
+                        frag_surface.as_ref(),
+                    );
                 };
                 if !used_hes.contains(&brep_he) {
                     used_hes.insert(brep_he);
@@ -467,9 +456,8 @@ pub(crate) fn cellular_assemble(
                                         None => "nomap".into(),
                                     };
                                     let src = match &graph.half_edges[og].source {
-                                        crate::merge::graph::EdgeSource::Shared { .. } => "S",
-                                        crate::merge::graph::EdgeSource::OriginalA(_)
-                                        | crate::merge::graph::EdgeSource::SplitA { .. } => "A",
+                                        EdgeSource::Shared { .. } => "S",
+                                        EdgeSource::OriginalA(_) | EdgeSource::SplitA { .. } => "A",
                                         _ => "B",
                                     };
                                     row.push_str(&format!("{og}{src}[{status}] "));

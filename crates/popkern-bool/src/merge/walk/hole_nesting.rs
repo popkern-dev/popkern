@@ -219,13 +219,25 @@ pub(super) struct OppositeAabbs<'a> {
 }
 
 impl<'a> OppositeAabbs<'a> {
-    /// Precompute both operands' face AABBs.
-    pub(super) fn new(brep_a: &'a BRep, brep_b: &'a BRep) -> Self {
+    /// Both operands' face AABBs: the precomputed ones `known` carries,
+    /// else computed here.
+    pub(super) fn new(
+        brep_a: &'a BRep,
+        brep_b: &'a BRep,
+        known: Option<&super::OperandHalfEdgeMaps<'_>>,
+    ) -> Self {
+        let (a, b) = match known {
+            Some(k) => (k.boxes_a.to_vec(), k.boxes_b.to_vec()),
+            None => (
+                crate::intersect::compute_face_aabbs(brep_a),
+                crate::intersect::compute_face_aabbs(brep_b),
+            ),
+        };
         Self {
             brep_a,
             brep_b,
-            a: crate::intersect::compute_face_aabbs(brep_a),
-            b: crate::intersect::compute_face_aabbs(brep_b),
+            a,
+            b,
         }
     }
 

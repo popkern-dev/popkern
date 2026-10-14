@@ -28,18 +28,25 @@
 
 use std::collections::HashMap;
 
+use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::super::graph::{EdgeSource, FaceRef, IntersectionGraph, Operand};
 use super::Fragment;
 
 /// Original-half-edge → graph-half-edge maps of both operands, as
-/// `insert_operand_topology` returned them.
+/// `insert_operand_topology` returned them, with the operands' face
+/// boxes the intersection stage already computed (the walk's
+/// opposite-operand tests reuse them instead of re-boxing both bodies).
 pub(crate) struct OperandHalfEdgeMaps<'a> {
     /// Operand A's map.
     pub a: &'a HashMap<HalfEdgeHandle, usize>,
     /// Operand B's map.
     pub b: &'a HashMap<HalfEdgeHandle, usize>,
+    /// Operand A's face boxes (`compute_face_aabbs`).
+    pub boxes_a: &'a [(FaceHandle, Aabb)],
+    /// Operand B's face boxes.
+    pub boxes_b: &'a [(FaceHandle, Aabb)],
 }
 
 /// The graph half-edges of one stored loop, in loop order; `None` when

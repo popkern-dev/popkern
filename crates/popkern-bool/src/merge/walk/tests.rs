@@ -144,7 +144,7 @@ fn exterior_disjoint_promotion_separates_protrusion_from_kept_holes() {
     )
     .expect("cube");
     let empty_a = BRep::new(Tolerance::default());
-    let opposite = hole_nesting::OppositeAabbs::new(&empty_a, &cube);
+    let opposite = hole_nesting::OppositeAabbs::new(&empty_a, &cube, None);
 
     // Outer wall INSIDE the cube (z = 2.4) — the kept-wall configuration.
     let outer_inside = tri(

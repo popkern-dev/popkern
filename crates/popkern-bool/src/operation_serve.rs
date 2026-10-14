@@ -65,7 +65,7 @@ pub(super) fn select_and_serve(
             op,
             tolerance,
         ) {
-            Ok(r) => match r.validate() {
+            Ok((r, carried)) => match r.validate() {
                 // Pcurve completeness is part of the acceptance
                 // (PK-463): the cellular assembly leaves record-use
                 // pcurves to the recompute, and a recompute skip
@@ -79,7 +79,7 @@ pub(super) fn select_and_serve(
                     let mut r = r;
                     let _ = r.recompute_pcurves_where_missing();
                     match super::first_missing_pcurve_face(&r) {
-                        None => Some(r),
+                        None => Some((r, carried)),
                         Some(fh) => {
                             crate::merge_fallback::record_merge_fallback(
                                 op,
@@ -123,13 +123,13 @@ pub(super) fn select_and_serve(
             .map_err(|diag| diag.into_error())
     };
     let from_cellular = cellular_result.is_some();
-    let result = match cellular_result {
+    let (result, carried) = match cellular_result {
         Some(r) => r,
-        None => graph()?,
+        None => (graph()?, std::collections::BTreeSet::new()),
     };
     let merged = (result, t_merge.elapsed());
     let served = serve(
-        merged, op, tolerance, original_a, original_b, metrics, progress,
+        merged, &carried, op, tolerance, original_a, original_b, metrics, progress,
     )?;
     let open = free_half_edges(&served);
     if !closed_operands || open == 0 {
@@ -146,7 +146,14 @@ pub(super) fn select_and_serve(
         let retried = graph()?;
         let merged = (retried, t_retry.elapsed());
         let served = serve(
-            merged, op, tolerance, original_a, original_b, metrics, progress,
+            merged,
+            &std::collections::BTreeSet::new(),
+            op,
+            tolerance,
+            original_a,
+            original_b,
+            metrics,
+            progress,
         )?;
         let open = free_half_edges(&served);
         if open == 0 {
@@ -166,8 +173,10 @@ fn unclosed(open: usize) -> BoolError {
 
 /// The post-merge tail on a selected body: pcurve recompute,
 /// post-validation, post-processing and stub repair.
+#[allow(clippy::too_many_arguments)]
 fn serve(
     (result, elapsed_merge): (BRep, Option<std::time::Duration>),
+    carried: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
     op: BoolOperation,
     tolerance: &Tolerance,
     original_a: &BRep,
@@ -212,7 +221,7 @@ fn serve(
     // change regresses, fail loudly.
     let t_validate = popkern_core::time::Stopwatch::start();
     let pc_errors: Vec<String> =
-        super::helpers::validate_with_junction_reconcile_retry(&mut result, tolerance);
+        super::helpers::validate_with_junction_reconcile_retry(&mut result, tolerance, carried);
     let elapsed_validate = t_validate.elapsed();
     let count_validate = result.faces.len();
     metrics.push(PhaseMetric {

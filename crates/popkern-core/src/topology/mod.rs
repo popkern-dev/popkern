@@ -60,6 +60,7 @@ pub use brep_nonmanifold_policy::{
 
 mod loop_chart_continuity;
 mod pcurve_end_snap;
+mod pcurve_image_check;
 mod pcurve_loop_winding_repair;
 mod pcurve_period_branch;
 /// Pcurve recomputation for BRep faces.

@@ -402,10 +402,12 @@ pub(super) fn pre_check_retire_and_empty_gate(
 /// failing validate re-runs after the bounded geometry repairs in
 /// [`crate::postprocess::junction_reconcile`]; a first-time-green
 /// result is untouched (bit-identical serves), and a reconciliation
-/// that cannot reach the gates declines exactly as before.
+/// that cannot reach the gates declines exactly as before. `carried`
+/// edges skip the curve-surface check (see `post_check_gates`).
 pub(super) fn validate_with_junction_reconcile_retry(
     result: &mut popkern_core::topology::BRep,
     tolerance: &popkern_core::tolerance::Tolerance,
+    carried: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
 ) -> Vec<String> {
     let collect_errors = |report: &crate::validate::post_check::PostCheckReport| -> Vec<String> {
         report
@@ -420,13 +422,13 @@ pub(super) fn validate_with_junction_reconcile_retry(
             .map(|f| f.message.clone())
             .collect()
     };
-    let pc_report = crate::validate::post_check::post_check_gates(result, tolerance);
+    let pc_report = crate::validate::post_check::post_check_gates(result, tolerance, carried);
     let pc_errors = collect_errors(&pc_report);
     if pc_errors.is_empty() {
         return pc_errors;
     }
     crate::postprocess::junction_reconcile::reconcile_junction_cluster_geometry(result, tolerance);
-    let retry = crate::validate::post_check::post_check_gates(result, tolerance);
+    let retry = crate::validate::post_check::post_check_gates(result, tolerance, carried);
     let retry_errors = collect_errors(&retry);
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(

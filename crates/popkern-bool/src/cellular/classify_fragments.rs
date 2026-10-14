@@ -6,6 +6,10 @@
 //! O(components + audits) on multi-wrap workpiece faces.
 
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::intersection::surface_subdivision::Aabb;
+
+/// A face and its bounding box.
+type FaceBox = (popkern_core::topology::FaceHandle, Aabb);
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -84,11 +88,11 @@ pub(super) fn classify_fragments_cellular(
     op: BoolOperation,
     tolerance: &Tolerance,
     face_overlaps: &[crate::coincidence::types::FaceOverlap],
+    (aabbs_a, aabbs_b): (&[FaceBox], &[FaceBox]),
 ) -> Result<Vec<FragmentSelection>, BoolDiagnostics> {
-    use crate::intersect::compute_face_aabbs;
-
-    let aabbs_a = compute_face_aabbs(brep_a);
-    let aabbs_b = compute_face_aabbs(brep_b);
+    // The operands' face boxes, as the intersection stage computed them
+    // (the classifier re-boxed both whole bodies on every boolean).
+    let (aabbs_a, aabbs_b) = (aabbs_a.to_vec(), aabbs_b.to_vec());
 
     // Faces participating in a COINCIDENT overlap pair: fragments of
     // these lie in the other body's boundary plane, so a raw sample

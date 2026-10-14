@@ -265,7 +265,7 @@ impl BRep {
         // pcurve-consistency census, grooved cylinder grow).
         if !is_periodic {
             let gate = self.tolerance.linear().max(1.0e-9) * 10.0;
-            if self.pcurve_image_off_edge(heh, existing, surface) <= gate {
+            if self.pcurve_image_within(heh, existing, surface, gate) {
                 return true;
             }
             if trace {
@@ -312,62 +312,6 @@ impl BRep {
         }
         self.half_edges[heh].pcurve = None;
         false
-    }
-}
-
-impl BRep {
-    /// Worst distance from the surface images of `pcurve` (three
-    /// interior stations) to `heh`'s edge curve: the nearest of 256
-    /// edge samples, refined by golden section on its neighbourhood.
-    /// 0 when the edge has no curve.
-    fn pcurve_image_off_edge(
-        &self,
-        heh: crate::topology::HalfEdgeHandle,
-        pcurve: &crate::geometry::pcurve::Pcurve,
-        surface: &crate::geometry::surface::SurfaceGeometry,
-    ) -> f64 {
-        use crate::geometry::curve::CurveEval;
-        use crate::geometry::surface::SurfaceEval;
-        const SAMPLES: usize = 256;
-        let Some(curve) = self
-            .half_edges
-            .get(heh)
-            .and_then(|h| self.edges.get(h.edge))
-            .and_then(|e| e.curve.as_ref())
-        else {
-            return 0.0;
-        };
-        let (c0, c1) = (curve.t_start, curve.t_end);
-        let at = |k: f64| c0 + (c1 - c0) * k;
-        let (p0, p1) = pcurve.parameter_range();
-        [0.25, 0.5, 0.75]
-            .iter()
-            .map(|f| {
-                let q = pcurve.point_at(p0 + (p1 - p0) * f);
-                let image = surface.point_at(q.x, q.y);
-                let dist = |k: f64| curve.geometry.point_at(at(k)).distance_to(&image);
-                let best = (0..=SAMPLES)
-                    .min_by(|a, b| {
-                        dist(*a as f64 / SAMPLES as f64)
-                            .total_cmp(&dist(*b as f64 / SAMPLES as f64))
-                    })
-                    .unwrap_or(0);
-                let (mut lo, mut hi) = (
-                    (best as f64 - 1.0).max(0.0) / SAMPLES as f64,
-                    (best as f64 + 1.0).min(SAMPLES as f64) / SAMPLES as f64,
-                );
-                for _ in 0..40 {
-                    let m1 = lo + (hi - lo) * 0.382;
-                    let m2 = lo + (hi - lo) * 0.618;
-                    if dist(m1) <= dist(m2) {
-                        hi = m2;
-                    } else {
-                        lo = m1;
-                    }
-                }
-                dist(0.5 * (lo + hi))
-            })
-            .fold(0.0, f64::max)
     }
 }
 

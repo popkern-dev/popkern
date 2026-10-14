@@ -45,6 +45,12 @@ use crate::merge::graph_duplicates::closest_on_piece;
 pub(super) struct SpanRegistry {
     exact: HashMap<(usize, usize, i64, i64, i64), usize>,
     spans: Vec<(Point3, Point3, Point3, usize)>,
+    /// Span indices by the grid cell (side 4·`gate`) of their first
+    /// end: a span matching a query has that end within `gate` of one
+    /// of the query's ends, so it sits in a cell that end's `gate` box
+    /// overlaps. The scan over every span was quadratic in edge count
+    /// (PK-802).
+    cells: HashMap<(i64, i64, i64), Vec<usize>>,
     gate: f64,
     coincide: f64,
 }
@@ -58,6 +64,7 @@ impl SpanRegistry {
         Self {
             exact: HashMap::new(),
             spans: Vec::new(),
+            cells: HashMap::new(),
             gate,
             coincide,
         }
@@ -81,8 +88,27 @@ impl SpanRegistry {
             return Some(prior);
         }
         let (g, on) = (self.gate, self.coincide);
-        self.spans
-            .iter()
+        let mut candidates: Vec<usize> = Vec::new();
+        for end in [a, b] {
+            // The cells `end ± gate` overlaps (1-2 per axis).
+            let lo = self.cell(&Point3::new(end.x - g, end.y - g, end.z - g));
+            let hi = self.cell(&Point3::new(end.x + g, end.y + g, end.z + g));
+            for x in lo.0..=hi.0 {
+                for y in lo.1..=hi.1 {
+                    for z in lo.2..=hi.2 {
+                        if let Some(ids) = self.cells.get(&(x, y, z)) {
+                            candidates.extend_from_slice(ids);
+                        }
+                    }
+                }
+            }
+        }
+        // Registration order, as the full scan visited them.
+        candidates.sort_unstable();
+        candidates.dedup();
+        candidates
+            .into_iter()
+            .map(|i| &self.spans[i])
             .find(|(pa, pb, pm, prior)| {
                 let same_ends = (pa.distance_to(&a) <= g && pb.distance_to(&b) <= g)
                     || (pa.distance_to(&b) <= g && pb.distance_to(&a) <= g);
@@ -104,7 +130,20 @@ impl SpanRegistry {
         key: usize,
     ) {
         self.exact.insert(Self::exact_key(nodes, mid), key);
+        let cell = self.cell(&a);
+        self.cells.entry(cell).or_default().push(self.spans.len());
         self.spans.push((a, b, mid, key));
+    }
+
+    /// The grid cell (side 4·`gate`) holding `p` (a non-positive gate
+    /// collapses every point into one cell — the full scan).
+    fn cell(&self, p: &Point3) -> (i64, i64, i64) {
+        if self.gate.is_nan() || self.gate <= 0.0 {
+            return (0, 0, 0);
+        }
+        let side = 4.0 * self.gate;
+        let q = |v: f64| (v / side).floor() as i64;
+        (q(p.x), q(p.y), q(p.z))
     }
 }
 

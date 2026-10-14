@@ -119,32 +119,9 @@ pub(crate) fn de_boor_1d(
     let n = homogeneous_points.len();
     let k = find_span(degree, knots, n, t);
 
-    // Stack scratch for the active degree+1 control points.
-    let mut d = [Homogeneous {
-        wx: 0.0,
-        wy: 0.0,
-        wz: 0.0,
-        w: 0.0,
-    }; MAX_DE_BOOR_DEGREE];
-    for j in 0..=degree {
-        d[j] = homogeneous_points[k - degree + j];
-    }
-
-    // De Boor recursion (in-place on the first degree+1 slots).
-    for r in 1..=degree {
-        for j in (r..=degree).rev() {
-            let idx = k - degree + j;
-            let denom = knots[idx + degree - r + 1] - knots[idx];
-            let alpha = if denom.abs() < 1e-30 {
-                0.0
-            } else {
-                (t - knots[idx]) / denom
-            };
-            d[j] = Homogeneous::lerp(&d[j - 1], &d[j], alpha);
-        }
-    }
-
-    d[degree]
+    de_boor_scratch(degree, knots, k - degree, t, |j| {
+        homogeneous_points[k - degree + j]
+    })
 }
 
 /// 1D de Boor evaluation over a pre-gathered local control window.
@@ -174,28 +151,7 @@ pub(crate) fn de_boor_1d_local(
         degree + 1,
         "de_boor_1d_local: window must hold exactly degree + 1 points"
     );
-    let mut d = [Homogeneous {
-        wx: 0.0,
-        wy: 0.0,
-        wz: 0.0,
-        w: 0.0,
-    }; MAX_DE_BOOR_DEGREE];
-    d[..=degree].copy_from_slice(local);
-
-    for r in 1..=degree {
-        for j in (r..=degree).rev() {
-            let idx = span - degree + j;
-            let denom = knots[idx + degree - r + 1] - knots[idx];
-            let alpha = if denom.abs() < 1e-30 {
-                0.0
-            } else {
-                (t - knots[idx]) / denom
-            };
-            d[j] = Homogeneous::lerp(&d[j - 1], &d[j], alpha);
-        }
-    }
-
-    d[degree]
+    de_boor_scratch(degree, knots, span - degree, t, |j| local[j])
 }
 
 /// 1D de Boor evaluation directly from Cartesian control points
@@ -224,20 +180,54 @@ pub(crate) fn de_boor_1d_points(
     let n = control_points.len();
     let k = find_span(degree, knots, n, t);
 
+    de_boor_scratch(degree, knots, k - degree, t, |j| {
+        Homogeneous::from_point_weight(&control_points[k - degree + j], weights[k - degree + j])
+    })
+}
+
+/// Scratch slots for the common low-degree evaluation: zero-filling the
+/// full [`MAX_DE_BOOR_DEGREE`] buffer (1 KiB) on every evaluation was a
+/// measurable share of curve evaluation on degree-1..5 curves.
+const SMALL_DE_BOOR_SLOTS: usize = 8;
+
+/// The de Boor recursion over the `degree + 1` window points `point(j)`
+/// (global index `base + j`), in a stack scratch sized for `degree`.
+/// One arithmetic sequence for every caller, so results are bit-equal
+/// whichever scratch size runs.
+fn de_boor_scratch(
+    degree: usize,
+    knots: &[f64],
+    base: usize,
+    t: f64,
+    point: impl Fn(usize) -> Homogeneous,
+) -> Homogeneous {
+    if degree < SMALL_DE_BOOR_SLOTS {
+        de_boor_window::<SMALL_DE_BOOR_SLOTS>(degree, knots, base, t, point)
+    } else {
+        de_boor_window::<MAX_DE_BOOR_DEGREE>(degree, knots, base, t, point)
+    }
+}
+
+/// [`de_boor_scratch`] with an `N`-slot scratch (`degree < N`).
+fn de_boor_window<const N: usize>(
+    degree: usize,
+    knots: &[f64],
+    base: usize,
+    t: f64,
+    point: impl Fn(usize) -> Homogeneous,
+) -> Homogeneous {
     let mut d = [Homogeneous {
         wx: 0.0,
         wy: 0.0,
         wz: 0.0,
         w: 0.0,
-    }; MAX_DE_BOOR_DEGREE];
+    }; N];
     for (j, slot) in d.iter_mut().take(degree + 1).enumerate() {
-        let idx = k - degree + j;
-        *slot = Homogeneous::from_point_weight(&control_points[idx], weights[idx]);
+        *slot = point(j);
     }
-
     for r in 1..=degree {
         for j in (r..=degree).rev() {
-            let idx = k - degree + j;
+            let idx = base + j;
             let denom = knots[idx + degree - r + 1] - knots[idx];
             let alpha = if denom.abs() < 1e-30 {
                 0.0
@@ -247,7 +237,6 @@ pub(crate) fn de_boor_1d_points(
             d[j] = Homogeneous::lerp(&d[j - 1], &d[j], alpha);
         }
     }
-
     d[degree]
 }
 
