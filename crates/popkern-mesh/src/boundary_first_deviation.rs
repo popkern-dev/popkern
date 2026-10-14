@@ -180,9 +180,18 @@ fn steiner_candidates(
         }
         let usable =
             |p: (f64, f64)| chart.ring_index.inside(p) && !chart.ring_index.within_clearance(p);
+        // The clearance band keeps lattice points from slivering against
+        // the boundary, but a facet past the chord height whose chords all
+        // sag within it bulges in its interior: its centroid may sit in
+        // the band, never outside the trim. PK-569: two coil facets at the
+        // seam by the ground cut sagged 5.06e-3 and 5.29e-3 against the
+        // 5e-3 chord with their centroids in the band.
         let cuv = match worst.1 {
             Some(m) if usable(m) => m,
             _ if usable(cuv) => cuv,
+            // No chord sags past the height: the bulge is inside the
+            // facet, and only its centroid cures it.
+            None if chart.ring_index.inside(cuv) => cuv,
             _ => continue,
         };
         let spacing = 0.25
