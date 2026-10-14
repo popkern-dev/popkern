@@ -312,9 +312,12 @@ pub fn assert_scrubber(out: &serde_json::Value) {
     );
     assert_eq!(s["middle"]["row"], "boss_sketch", "{s}");
     assert_eq!(s["middle"]["hash"], "#step=3", "{s}");
-    assert!(
-        s["revisit_ms"].as_f64().is_some_and(|ms| ms <= 50.0),
-        "a visited step redraws from cache within 50 ms: {s}"
+    // Served from the cache, not re-requested (PK-828: a 50 ms wall-clock
+    // gate failed under suite load while the redraw was a cache hit).
+    assert!(s["revisit_ms"].as_f64().is_some(), "{s}");
+    assert_eq!(
+        s["revisit_requests"], 0,
+        "a visited step redraws from cache, without a kernel request: {s}"
     );
     assert_eq!(s["last"]["bodies"], 1, "{s}");
     assert_eq!(s["last"]["scrubbed"], false, "{s}");

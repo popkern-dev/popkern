@@ -169,14 +169,11 @@ async function evaluate(expression) {
   if (reply.result?.exceptionDetails) throw new Error(reply.result.exceptionDetails.exception?.description ?? "evaluate failed");
   return reply.result?.result?.value;
 }
-async function waitFor(expression, timeoutMs, label) {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const value = await evaluate(expression);
-    if (value) return value;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`timed out waiting for ${label}`);
+// `stallMs` is how long the page may show the same status before the
+// wait fails (PK-828): suite load slows a run, it does not stop the
+// status advancing, so no fixed wall-clock cap is load-proof.
+async function waitFor(expression, stallMs, label) {
+  return waitForProgress(expression, `document.getElementById("status")?.textContent ?? ""`, stallMs, 900000, label);
 }
 // A wait that tolerates load but not a stall (PK-784): it keeps
 // waiting while `progress` (an expression read each poll) keeps
@@ -273,7 +270,18 @@ try {
   out.scrubber = await evaluate(`(async () => {
     const page = window.popkernLive;
     const s = page.scrubber;
-    for (let i = 0; i < 100 && s.steps.length === 0; i++) await new Promise((r) => setTimeout(r, 50));
+    // Load-proof polls (PK-828): wait while the watched value advances,
+    // fail only when it stalls.
+    const until = async (done, progress, stallMs = 60000) => {
+      let last = progress(), changed = performance.now();
+      while (!done()) {
+        await new Promise((r) => setTimeout(r, 50));
+        const now = progress();
+        if (now !== last) { last = now; changed = performance.now(); }
+        else if (performance.now() - changed > stallMs) throw new Error("scrubber stalled at " + JSON.stringify(now));
+      }
+    };
+    await until(() => s.steps.length > 0, () => s.steps.length);
     const camera = () => page.viewer.camera.position.toArray().map((v) => v.toFixed(6)).join(",");
     const before = camera();
     const ticks = document.querySelectorAll("#scrubber-ticks .tick").length;
@@ -283,17 +291,23 @@ try {
     await s.go(3);
     const middle = { bodies: page.viewer.bodies.length, glows: page.viewer.glows.length, row: document.querySelector("#report tr.step-current")?.dataset.feature ?? null, hash: location.hash };
     await s.go(5);
+    // A visited step redraws from the cache: no kernel request (the
+    // redraw time is reported, not gated — load can stretch it).
+    const request = page.host.request;
+    let revisit_requests = 0;
+    page.host.request = (...args) => { revisit_requests += 1; return request.apply(page.host, args); };
     const revisit = await s.go(3);
+    page.host.request = request;
     await s.go(s.steps.length);
     const last = { bodies: page.viewer.bodies.length, scrubbed: s.scrubbed, hash: location.hash };
     s.play();
-    for (let i = 0; i < 200 && s.playing; i++) await new Promise((r) => setTimeout(r, 50));
+    await until(() => !s.playing, () => s.at);
     const played = { at: s.at, playing: Boolean(s.playing) };
     location.hash = "step=2";
     await s.load(page.lastGood.envelope);
     const linked = s.at;
     await s.go(s.steps.length);
-    return { visible, ticks, first, middle, revisit_ms: revisit, last, played, linked, camera_kept: camera() === before };
+    return { visible, ticks, first, middle, revisit_ms: revisit, revisit_requests, last, played, linked, camera_kept: camera() === before };
   })()`);
 
   // A parameter edit through the page's own path.
