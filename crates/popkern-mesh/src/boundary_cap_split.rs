@@ -36,6 +36,9 @@ use repair::{MeshTopology, NEW, flip_leaning_caps, plan_apex_collapse};
 /// requested chord once.
 const ROUNDS: usize = 12;
 
+/// Tilt a leaning cap's split halves may gain (radians, 2 deg).
+const STEP_SLACK: f64 = 2.0 * std::f64::consts::PI / 180.0;
+
 type PosKey = [u64; 3];
 type EdgeKey = (PosKey, PosKey);
 
@@ -258,7 +261,7 @@ pub(crate) fn split_leaning_boundary_caps(
     for _ in 0..ROUNDS {
         // Every boundary edge copy, keyed by its end positions.
         let mut copies: HashMap<EdgeKey, Vec<(usize, usize, usize, usize)>> = HashMap::new();
-        let mut requests: Vec<EdgeKey> = Vec::new();
+        let mut requests: Vec<(f64, EdgeKey)> = Vec::new();
         let mut leaning: Vec<usize> = Vec::new();
         for (mi, fm) in meshes.iter().enumerate() {
             let Some(surface) = brep
@@ -270,26 +273,28 @@ pub(crate) fn split_leaning_boundary_caps(
                 continue;
             };
             let edges = boundary_edges(fm);
-            let mut per_triangle: HashMap<usize, (f64, EdgeKey)> = HashMap::new();
+            // Every boundary edge of a leaning facet is a candidate,
+            // longest first: a facet whose longest chord cannot split
+            // (its halves would lean more, the hex bolt's runout corner)
+            // may split along its other boundary edge.
+            let mut any_leaning = false;
             for &(a, b, ti) in &edges {
                 let (pa, pb) = (fm.vertices[a].position, fm.vertices[b].position);
                 let key = edge_key(pa, pb);
                 copies.entry(key).or_default().push((mi, ti, a, b));
                 if triangle_tilt(fm, surface, fm.triangles[ti]).is_some_and(|t| t > bound) {
-                    let len = pa.distance_to(&pb);
-                    let e = per_triangle.entry(ti).or_insert((len, key));
-                    if len > e.0 {
-                        *e = (len, key);
-                    }
+                    requests.push((pa.distance_to(&pb), key));
+                    any_leaning = true;
                 }
             }
-            if !per_triangle.is_empty() {
+            if any_leaning {
                 leaning.push(mi);
             }
-            requests.extend(per_triangle.into_values().map(|(_, k)| k));
         }
-        requests.sort_unstable();
-        requests.dedup();
+        requests.sort_by(|x, y| y.0.total_cmp(&x.0).then(x.1.cmp(&y.1)));
+        let mut requests: Vec<EdgeKey> = requests.into_iter().map(|(_, k)| k).collect();
+        let mut seen = std::collections::HashSet::new();
+        requests.retain(|k| seen.insert(*k));
         if requests.is_empty() {
             break;
         }
@@ -388,7 +393,13 @@ pub(crate) fn split_leaning_boundary_caps(
                     normal: n,
                     uv,
                 };
-                let collapse = if worst > old.max(bound) {
+                // A chord whose sagitta tilts its cap may need two halvings:
+                // the first may leave the halves slightly worse (a cusp tip
+                // on a cylinder rim, 12.8 -> 13.7 deg), the next one cures
+                // them (sagitta falls with the square). A leaning cap's
+                // split may lean up to STEP_SLACK more; the rounds bound it.
+                let allowance = if old > bound { old + STEP_SLACK } else { bound };
+                let collapse = if worst > allowance {
                     // The apex sits in the chord's cap zone: both halves
                     // keep leaning toward it. Remove it instead.
                     let mut topo = topology.borrow_mut();
