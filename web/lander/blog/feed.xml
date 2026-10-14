@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>popkern</title>
+    <link>https://popkern.dev/blog/</link>
+    <atom:link href="https://popkern.dev/blog/feed.xml" rel="self" type="application/rss+xml"/>
+    <description>Notes from building popkern, an open boundary-representation CAD kernel in Rust.</description>
+    <language>en</language>
+    <item>
+      <title>Announcing popkern</title>
+      <link>https://popkern.dev/blog/announcing-popkern.html</link>
+      <guid isPermaLink="true">https://popkern.dev/blog/announcing-popkern.html</guid>
+      <pubDate>Fri, 30 Oct 2026 09:00:00 +0000</pubDate>
+      <description>A CAD kernel in Rust, written entirely by agents and free for everyone. Why it exists, what the blend research buys you, and what works today.</description>
+    </item>
+  </channel>
+</rss>

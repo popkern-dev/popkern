@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Announcing popkern - popkern blog</title>
+<meta name="description" content="popkern is an open boundary-representation CAD kernel written in Rust, built entirely by AI agents, and licensed so that your scripts and your models stay yours.">
+<link rel="icon" href="../assets/img/favicon.svg?v=3c8cd3cc" type="image/svg+xml">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Announcing popkern">
+<meta property="og:description" content="A boundary-representation CAD kernel in Rust, written entirely by agents, and free for everyone.">
+<meta property="og:image" content="https://popkern.dev/assets/img/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="../assets/css/site.css?v=236e4c76">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .5C5.73.5.66 5.58.66 11.85c0 5.01 3.25 9.26 7.75 10.76.57.1.78-.25.78-.55l-.02-1.94c-3.15.69-3.82-1.52-3.82-1.52-.52-1.32-1.26-1.67-1.26-1.67-1.03-.7.08-.69.08-.69 1.14.08 1.74 1.17 1.74 1.17 1.01 1.74 2.66 1.24 3.31.95.1-.74.4-1.24.72-1.53-2.52-.29-5.16-1.26-5.16-5.6 0-1.24.44-2.25 1.17-3.04-.12-.29-.51-1.44.11-3 0 0 .95-.31 3.12 1.16a10.8 10.8 0 0 1 5.68 0c2.17-1.47 3.12-1.16 3.12-1.16.62 1.56.23 2.71.11 3 .73.79 1.17 1.8 1.17 3.04 0 4.35-2.65 5.31-5.17 5.59.41.35.77 1.05.77 2.12l-.01 3.14c0 .3.2.66.79.55 4.5-1.5 7.74-5.75 7.74-10.76C23.34 5.58 18.27.5 12 .5Z"/></symbol>
+</svg>
+
+<header class="nav">
+  <div class="container nav-inner">
+    <a class="brand" href="../">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <path d="M4 12a8 8 0 0 1 8-8h16v16a8 8 0 0 1-8 8H4V12Z" fill="none" stroke="currentColor" stroke-width="2.2"/>
+        <path d="M4 12a8 8 0 0 1 8-8" fill="none" stroke="#f5a524" stroke-width="3.6" stroke-linecap="round"/>
+      </svg>
+      popkern
+    </a>
+    <nav class="nav-links" aria-label="Main">
+      <a href="../install/">Install</a>
+      <a href="../support/">Support</a>
+      <a href="./">Blog</a>
+      <span class="nav-icons">
+        <a class="icon-link" href="https://github.com/graemedouglas/popkern" aria-label="popkern on GitHub"><svg><use href="#i-github"/></svg></a>
+      </span>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+<section>
+  <div class="container">
+    <article class="article">
+      <a class="back-link" href="./">← All posts</a>
+
+      <header class="article-head">
+        <h1>Announcing popkern</h1>
+        <p class="article-meta">30 October 2026 · Graeme Douglas</p>
+      </header>
+
+      <div class="article-body">
+        <section class="support" aria-labelledby="help">
+          <h2 class="support-title" id="help">How to help</h2>
+          <p>All of it matters. None of it has to be money.</p>
+          <ul>
+            <li><b><a href="https://github.com/graemedouglas/popkern">Star the repo.</a></b> Help bring attention to popkern!</li>
+            <li><b><a href="../live/">Use it.</a></b> Build a part, then tell people it exists.</li>
+            <li><b>Break it.</b> If popkern can't do it, we'll fix it!</li>
+            <li><b><a href="../support/">Chip in.</a></b> Help me cover my costs.</li>
+            <li><b>Pass it on.</b> To anyone who makes things.</li>
+          </ul>
+        </section>
+
+        <p>
+          At the end of 2023, I lost somebody I loved to cancer, somebody who
+          lived to think and create and play and invent. The world was always a
+          little brighter when she made things, and my grief has clarified how
+          personally important it is to empower people to make others' lives
+          easier, more joyous, and more colorful through the awesome power of
+          creation.
+        </p>
+
+        <p>
+          I believe everyone who wants to make something should have access to
+          the best possible tools for making it, and for free. So today I am
+          announcing popkern, and I intend to make it the best CAD engine on the
+          planet.
+        </p>
+
+        <h2>Introducing popkern</h2>
+
+        <p>
+          popkern is an <strong>open-source parametric boundary representation CAD kernel
+          written in Rust</strong>: the math that builds and edits precise solid
+          models, with a tool for creating them on top. It is AGPL-3.0 licensed,
+          with an exception that leaves your creations yours. It is public and
+          available as of today.
+        </p>
+
+        <h2>Why another kernel</h2>
+
+        <p>
+          Every CAD application sits on a geometry kernel, which is the layer
+          that knows what a solid is, and can be trusted to intersect two of
+          them, or round their edges, and hand back something valid. Commercial
+          solutions such as <a href="https://www.siemens.com/en-us/products/plm-components/parasolid/">Parasolid</a> or <a href="https://www.spatial.com/solutions/3d-modeling/3d-acis-modeler">ACIS</a> are available through many paid
+          products.
+        </p>
+
+        <p>
+          On the open side, <a href="https://occt3d.com/">OpenCASCADE (OCCT)</a> has carried an enormous load for
+          a long time. <a href="https://www.freecad.org/">FreeCAD</a>, <a href="https://github.com/CadQuery/cadquery">CadQuery</a>, <a href="https://github.com/gumyr/build123d">build123d</a>, and a long list of research
+          tools depend on it. Similar kernels, such as the more modern <a href="https://github.com/ricosjp/truck">Truck</a>
+          kernel, also exist. <a href="https://openscad.org/">OpenSCAD</a> is another popular free engine, where one
+          programmatically creates and manipulates meshes instead of
+          orchestrating parameterized solids with BReps.
+        </p>
+
+        <p>
+          I have used many of these tools, both open source and commercial, in
+          various capacities and am forever thankful for all of them, no matter
+          how they came to exist. They have been crafted by skilled people over decades
+          of unfathomably difficult work. The open source options have been
+          provided through generosity I cannot possibly fully appreciate. However, there
+          are well-known differences in capabilities between the best free kernels
+          and the premier commercial offerings.
+        </p>
+
+        <p>
+          popkern started as an experiment to test whether it is now possible to
+          help bridge this capability gap, and my goals have since evolved. I now aim
+          to create a commercial-grade CAD kernel that is fully open source,
+          built from the best available research alone. In my view, because of
+          the huge amount of labor involved, this endeavor wasn't feasible
+          until very recently. The goal is not yet met, but I believe sufficient
+          progress has been made to warrant continued effort.
+        </p>
+
+        <p>
+          If you wonder why I didn't choose to contribute to an existing kernel,
+          I confess that I have no good answers to offer. Honestly, the primary
+          reason was that I didn't want to conform to another project's
+          standards. I wanted to make changes to what I built without
+          permission, to have the freedom to be messy and whimsical.
+          Perhaps more importantly, I wanted to ensure that, even
+          if I delivered something suboptimal or overwhelmingly undesirable, any
+          value I did manage to create belonged to the people it was meant to
+          empower, forever. From my perspective, no existing candidate project I
+          could contribute to, rewrite, or fork from was licensed appropriately for my
+          goals.
+        </p>
+
+        <h2>The hardest part is the corners</h2>
+
+        <p>
+          There are many hard problems geometry engines must solve. Two of the hardest
+          are boolean operations and fillet corners. The latter was of
+          particular interest to me, since it is where many open source kernels
+          have reasonably made compromises.
+        </p>
+
+        <p>
+          Rounding a single edge is well understood. What separates kernels is
+          what happens where three or more rounded edges meet at a corner.
+          There, the surface has to bend smoothly in every direction at once,
+          without a visible crease or bump. Those corners are where much of the
+          research effort has gone, and they are why the best CAD kernels could
+          only be built as commercial endeavors for so long. Implementing the math is just incredibly difficult and tedious.
+        </p>
+
+        <p>
+          popkern builds those corners from the best of that research. For the
+          curious: the main construction is Kar&ccaron;iauskas and Peters' G&sup2;
+          vertex-blend macro cap from 2020, built on a small region carved back
+          from the corner (a &ldquo;setback&rdquo;) so the cap has room to
+          blend smoothly into each fillet. Underneath sit their earlier bi-6
+          polar caps and bi-5 macro patches, Chiyokura and Kimura's rectangular
+          Gregory patches from 1983, Shirman and S&eacute;quin's vertex
+          enclosure extended to G&sup2;, and Stam's exact Catmull-Clark
+          evaluation.
+        </p>
+
+        <p>
+          When that cap can't be built cleanly, popkern doesn't quietly settle
+          for something worse. It falls back to a variational fit: a spline
+          patch over the same corner, pinned to meet every fillet smoothly and
+          then pulled as fair as it will go by minimizing bending and
+          curvature variation. That draws on Loop and Schaefer's G&sup2; splines
+          over extraordinary vertices, the variational surface design of Welch
+          and Witkin and of Greiner, and Schneider and Kobbelt's
+          curvature-variation fairing. If you just prefer how the fitted corner
+          looks, you can ask for it directly. Below that sit the classic corner
+          constructions, and if nothing works, the fillet declines and tells
+          you why.
+        </p>
+
+        <p>
+          Smoothness is certified, not eyeballed. A certifier computes rigorous
+          bounds along the whole of each seam rather than at a handful of
+          sample points, so a crease can't hide between samples. Corner patches
+          also have to be fair on the inside, so a cap that meets its
+          neighbors perfectly but ripples in the middle doesn't pass. A full
+          map from publications to implementations is available in the
+          <a href="https://github.com/graemedouglas/popkern/blob/main/docs/reference/citations.md">project repo</a>.
+        </p>
+
+        <h2>On agentic AI</h2>
+
+        <p>
+          Some may wonder how popkern managed to implement these algorithms if they
+          are so hard to write.
+        </p>
+
+        <p>
+          Every line of popkern was guided by me, but written by AI agents.
+          I don't believe that is a detail to be left to a footnote.
+          It is the reason a project of this ambition can exist at all, alongside the hours
+          I have spent curating research, evaluating different methods, reviewing failures,
+          and choosing which experiments to pursue towards this project's goals.
+          Nothing an agent writes is trusted on its own: every change has to pass
+          a suite of thousands of automated tests, and results are checked
+          against OpenCASCADE wherever the two can be compared.
+        </p>
+
+        <p>
+          Turning a CAGD paper into tested code is long, careful, and unglamorous work. Reparameterizations, coefficient tables, and boundary conditions, followed by weeks of mentally taxing debugging. There
+          is a lot of it, and that cost is much of why so few kernels exist,
+          and why commercial kernels with a long lineage are the best available.
+        </p>
+
+        <p>
+          I understand not everybody is on board with the use of generative models,
+          and that discussion is worth making plenty of space for. My intention with popkern is to demonstrate
+          good stewardship through community-first principles. I hope to create the fully capable, fully open source kernel I could only dream of for years.
+          If it can be achieved, I know it will have a great positive impact on makers of all experience levels.
+          And the fact of the matter is that such an ambition has only become possible with the recent emergence of highly capable agentic AI.
+        </p>
+
+        <h2>What works today</h2>
+
+        <p>
+          Quite a lot, actually! Booleans work on exact solids, and they're
+          transactional, so an operation either works completely or fails
+          cleanly without leaving you a half-broken part. Fillets and chamfers
+          work, chains of them too, and corners where three or more fillets
+          meet get smooth patches (G&sup2; where the geometry allows it) or
+          mitres. You can sweep, revolve, and loft, shell and offset a body, and
+          thicken an open sheet into a solid. There's a 2D constraint solver
+          for sketches, and a solved sketch can be turned straight into a body.
+          Tessellation is watertight, and STEP and IGES go in and out, checked
+          against OpenCASCADE in testing. On top of all that sits a full
+          feature tree: roll back, suppress and reorder features, undo and
+          redo, and your selections keep pointing at the right faces and edges
+          after a rebuild.
+        </p>
+
+        <p>
+          Every render in the <a href="../#gallery">gallery</a> comes out of the
+          test suite. They have to pass kernel validation, a watertight tessellation check, and a STEP round-trip before they count.
+        </p>
+
+        <h2>What does not work yet</h2>
+
+        <p>
+          Plenty. popkern first had to satisfy my own internal skepticism
+          about whether this was even possible. Consider this maximally early
+          test software, where hardening has only just begun, poor
+          architecture choices have been allowed to persist, unoptimized code
+          is abundant, etc. Loads of features that you might expect to exist
+          probably don't. I promise I am constantly working on it!
+        </p>
+
+        <p>
+          Specifically: modeling is script-only for now, with no point-and-click
+          editing. Complex parts can be slow to build. Some shapes still fail:
+          certain arrangements of holes cut through a part, fillets that run
+          into other fillets at awkward corners, and curved surfaces that nearly
+          touch can all trip up the kernel. That list is
+          certainly not exhaustive; suffice it to say much work is left to do. Where
+          the kernel declines, it is supposed to decline loudly and tell you the
+          numbers. If it ever fails quietly, that is a bug and I want to hear
+          about it!
+        </p>
+
+        <h2>Using popkern</h2>
+
+        <p>
+          While popkern is predominantly the core math for building solids,
+          it also comes with popkern live, a tool for creating models. You can
+          try it entirely in your browser at <a href="../live/">the live page</a>,
+          or install it on your preferred OS (an install guide is coming soon).
+          The kernel itself is a set of Rust crates, if you would rather build
+          on it directly.
+        </p>
+
+        <p>
+          Models are built by writing scripts, either one-offs or collections of scripts that
+          iteratively update parts and assemblies in sequence. Example projects and a scripting
+          guide are available. If you install popkern directly on your computer or self-host popkern,
+          an MCP server is available, and popkern can make full use of available compute.
+        </p>
+
+        <h2>Ownership of creations</h2>
+
+        <p>
+          The kernel is AGPL-3.0-only with an additional permission for user
+          scripts and produced geometry. Everything you make with it is yours alone:
+          your part scripts and <code>.pkn</code> documents are covered by the exception, as
+          are all models, meshes, and STEP files you produce with popkern.
+          The AGPL applies to the kernel itself: if you modify it, or build
+          software on top of it, and then share that software or run it for
+          other people over a network, you have to offer those people its
+          source under the same license. That keeps improvements to the kernel
+          open, and they can always find their way back.
+        </p>
+
+        <h2>Come and break it</h2>
+
+        <p>
+          Early is the useful time to arrive! The most valuable thing anyone can
+          do right now is throw a part at popkern that it cannot build and open
+          an issue.
+        </p>
+
+        <p>
+          <a class="btn btn-primary" href="https://github.com/graemedouglas/popkern">
+            <svg style="width:17px;height:17px;fill:currentColor"><use href="#i-github"/></svg>
+            popkern on GitHub
+          </a>
+        </p>
+      </div>
+    </article>
+  </div>
+</section>
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom" style="margin-top:0;border-top:0;padding-top:0">
+      <span>© <span data-year>2026</span> popkern contributors · AGPL-3.0-only with a user-script exception</span>
+      <span class="spacer"></span>
+      <a href="../">popkern.dev</a>
+    </div>
+  </div>
+</footer>
+
+<script src="../assets/js/site.js?v=255e14a8"></script>
+</body>
+</html>
