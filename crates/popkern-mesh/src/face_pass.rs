@@ -144,31 +144,12 @@ pub(crate) fn tessellate_face_pass(
                     // `tessellate_face_with_samples`).
                     if let Some(max_angle) = options.angular_bound() {
                         crate::angular_refine::refine_face_mesh(&mut fm, &sof.geometry, max_angle);
-                        // Delaunay in 3D: a centre-metric chart Delaunay
-                        // is obtuse in 3D where the metric varies, and an
-                        // obtuse facet leans off its vertex normals.
-                        crate::surface_delaunay_flip::delaunay_flips_3d(
+                        crate::tilt_refine::finish_tilt(
                             &mut fm,
                             &sof.geometry,
                             options.chord_height,
                             max_angle,
                         );
-                        // Obtuse facets the spread guard keeps from
-                        // flipping: bisect their longest edge.
-                        if !crate::tilt_refine::bisect_leaning_facets(
-                            &mut fm,
-                            &sof.geometry,
-                            max_angle,
-                        )
-                        .is_empty()
-                        {
-                            crate::surface_delaunay_flip::delaunay_flips_3d(
-                                &mut fm,
-                                &sof.geometry,
-                                options.chord_height,
-                                max_angle,
-                            );
-                        }
                         // Crease flips (see `crease_flip`): a first pass
                         // free of the spread bound, refinement to restore
                         // it, then a pass that keeps it. A face the first
@@ -190,6 +171,9 @@ pub(crate) fn tessellate_face_pass(
                                 &mut fm, geometry, chord, max_angle, max_angle,
                             );
                         }
+                        // The facet-tilt passes run again last: the crease
+                        // flips judge creases, not lean, and can undo them.
+                        crate::tilt_refine::finish_tilt(&mut fm, geometry, chord, max_angle);
                     }
                 }
                 return FacePassOutcome::BoundaryFirst(fm);

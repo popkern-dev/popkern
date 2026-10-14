@@ -47,13 +47,16 @@ fn angle_at(mesh: &FaceMesh, a: usize, b: usize, c: usize) -> f64 {
 }
 
 /// Flip interior edges of `mesh` to the 3D Delaunay triangulation of
-/// its vertices, under the guards in the module docs. Returns the
-/// number of flips.
-pub(crate) fn delaunay_flips_3d(
+/// its vertices, under the guards in the module docs, starting from the
+/// edges of the triangles `seeds` (`None`: every interior edge; after a
+/// local change only its neighbourhood can have lost the property).
+/// Returns the number of flips.
+pub(crate) fn delaunay_flips_3d_from(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
     chord_height: f64,
     spread_bound: f64,
+    seeds: Option<&[usize]>,
 ) -> usize {
     if mesh.triangles.len() < 2 || matches!(surface, SurfaceGeometry::Plane { .. }) {
         return 0;
@@ -72,11 +75,23 @@ pub(crate) fn delaunay_flips_3d(
                 .push(ti);
         }
     }
-    let mut queue: Vec<EdgeKey> = edge_tris
-        .iter()
-        .filter(|(_, ts)| ts.len() == 2)
-        .map(|(&e, _)| e)
-        .collect();
+    let mut queue: Vec<EdgeKey> = match seeds {
+        None => edge_tris
+            .iter()
+            .filter(|(_, ts)| ts.len() == 2)
+            .map(|(&e, _)| e)
+            .collect(),
+        Some(seeds) => seeds
+            .iter()
+            .filter(|&&t| t < mesh.triangles.len())
+            .flat_map(|&t| {
+                let tri = mesh.triangles[t];
+                (0..3).map(move |k| key(tri[k], tri[(k + 1) % 3]))
+            })
+            .filter(|e| edge_tris.get(e).is_some_and(|ts| ts.len() == 2))
+            .collect(),
+    };
+    queue.dedup();
     queue.sort_unstable();
     let mut budget = mesh.triangles.len() * BUDGET_PER_TRIANGLE;
     let mut flips = 0usize;

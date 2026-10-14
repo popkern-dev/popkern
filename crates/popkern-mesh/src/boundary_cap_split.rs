@@ -18,7 +18,6 @@
 
 use std::collections::HashMap;
 
-use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
@@ -27,6 +26,9 @@ use popkern_math::PortableMath;
 
 use crate::mesh::{FaceMesh, MeshVertex};
 
+#[path = "boundary_cap_curve.rs"]
+mod curve;
+use curve::{CurveSamples, edge_curve_midpoint};
 #[path = "boundary_cap_repair.rs"]
 mod repair;
 use crate::vertex_normal::{limit_normal, singular_without_unique_normal};
@@ -114,118 +116,6 @@ fn boundary_edges(mesh: &FaceMesh) -> Vec<(usize, usize, usize)> {
         }
     }
     out
-}
-
-/// Samples of each B-rep edge curve, with their bounding box, kept for
-/// the whole pass (the B-rep does not change under it).
-type CurveSamples = HashMap<popkern_core::topology::EdgeHandle, (Vec<Point3>, Point3, Point3)>;
-
-/// Samples per edge curve for the nearest-parameter search.
-const CURVE_SAMPLES: usize = 256;
-
-/// The B-rep edge curve point halfway (in curve parameter) between `a`
-/// and `b`, searched over the edges of `faces`; `None` when no edge
-/// curve passes through both within `gate`.
-fn edge_curve_midpoint(
-    brep: &BRep,
-    faces: &[FaceHandle],
-    a: Point3,
-    b: Point3,
-    gate: f64,
-    cache: &mut CurveSamples,
-) -> Option<Point3> {
-    let chord = a.distance_to(&b);
-    let mut best: Option<(f64, Point3)> = None;
-    for &face in faces {
-        let Some(f) = brep.faces.get(face) else {
-            continue;
-        };
-        for lh in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
-            let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
-                continue;
-            };
-            let mut cur = start;
-            for _ in 0..=brep.half_edges.len() {
-                let Some(he) = brep.half_edges.get(cur) else {
-                    break;
-                };
-                if let Some(c) = brep.edges.get(he.edge).and_then(|e| e.curve.as_ref()) {
-                    let at = |s: f64| c.t_start + (c.t_end - c.t_start) * s;
-                    let (samples, lo, hi) = cache.entry(he.edge).or_insert_with(|| {
-                        let pts: Vec<Point3> = (0..=CURVE_SAMPLES)
-                            .map(|k| c.geometry.point_at(at(k as f64 / CURVE_SAMPLES as f64)))
-                            .collect();
-                        let lo = pts
-                            .iter()
-                            .fold(Point3::new(f64::MAX, f64::MAX, f64::MAX), |m, p| {
-                                Point3::new(m.x.min(p.x), m.y.min(p.y), m.z.min(p.z))
-                            });
-                        let hi = pts
-                            .iter()
-                            .fold(Point3::new(f64::MIN, f64::MIN, f64::MIN), |m, p| {
-                                Point3::new(m.x.max(p.x), m.y.max(p.y), m.z.max(p.z))
-                            });
-                        (pts, lo, hi)
-                    });
-                    // Sample boxes under-cover a curve by its sample sag;
-                    // pad by the sample spacing's scale.
-                    let pad = gate
-                        + (hi.x - lo.x).max(hi.y - lo.y).max(hi.z - lo.z) / CURVE_SAMPLES as f64;
-                    let outside = |p: Point3| {
-                        p.x < lo.x - pad
-                            || p.x > hi.x + pad
-                            || p.y < lo.y - pad
-                            || p.y > hi.y + pad
-                            || p.z < lo.z - pad
-                            || p.z > hi.z + pad
-                    };
-                    if !(outside(a) || outside(b)) {
-                        let nearest = |p: Point3| -> (f64, f64) {
-                            let d = |s: f64| c.geometry.point_at(at(s)).distance_to(&p);
-                            let k = (0..samples.len())
-                                .min_by(|x, y| {
-                                    samples[*x]
-                                        .distance_to(&p)
-                                        .total_cmp(&samples[*y].distance_to(&p))
-                                })
-                                .unwrap_or(0);
-                            let (mut lo, mut hi) = (
-                                (k as f64 - 1.0).max(0.0) / CURVE_SAMPLES as f64,
-                                (k as f64 + 1.0).min(CURVE_SAMPLES as f64) / CURVE_SAMPLES as f64,
-                            );
-                            for _ in 0..48 {
-                                let (m1, m2) = (lo + (hi - lo) * 0.382, lo + (hi - lo) * 0.618);
-                                if d(m1) <= d(m2) { hi = m2 } else { lo = m1 }
-                            }
-                            let s = 0.5 * (lo + hi);
-                            (s, d(s))
-                        };
-                        let ((sa, da), (sb, db)) = (nearest(a), nearest(b));
-                        if da.max(db) <= gate {
-                            let m = c.geometry.point_at(at(0.5 * (sa + sb)));
-                            // The parameter midpoint must sit over the chord
-                            // (a closed curve's wrap picks the other half).
-                            let mid = Point3::new(
-                                0.5 * (a.x + b.x),
-                                0.5 * (a.y + b.y),
-                                0.5 * (a.z + b.z),
-                            );
-                            if m.distance_to(&mid) <= 0.5 * chord
-                                && best.is_none_or(|(e, _)| da.max(db) < e)
-                            {
-                                best = Some((da.max(db), m));
-                            }
-                        }
-                    }
-                }
-                cur = he.next;
-                if cur == start {
-                    break;
-                }
-            }
-        }
-    }
-    best.map(|(_, m)| m)
 }
 
 /// Signed chart area of triangle `t` (its uv winding).
@@ -336,94 +226,120 @@ pub(crate) fn split_leaning_boundary_caps(
                 meshes[m0].vertices[b0].position,
             );
             let faces: Vec<FaceHandle> = list.iter().map(|&(mi, ..)| meshes[mi].face).collect();
-            let Some(m) = edge_curve_midpoint(brep, &faces, pa, pb, gate, &mut curve_cache) else {
+            // The apex of the copy leaning most: the split may go at its
+            // foot when the chord's midpoint does not hold.
+            let apex = list
+                .iter()
+                .filter_map(|&(mi, ti, a, b)| {
+                    let fm = &meshes[mi];
+                    let t = fm.triangles[ti];
+                    let surface = brep.faces.get(fm.face).and_then(|f| f.surface.as_ref())?;
+                    let tilt = triangle_tilt(fm, &surface.geometry, t)?;
+                    let c = t.iter().copied().find(|&v| v != a && v != b)?;
+                    Some((tilt, fm.vertices[c].position))
+                })
+                .max_by(|x, y| x.0.total_cmp(&y.0))
+                .map(|(_, p)| p);
+            let mut landed: Option<Vec<Copy>> = None;
+            for toward in [None, apex] {
+                let Some(m) =
+                    edge_curve_midpoint(brep, &faces, pa, pb, gate, &mut curve_cache, toward)
+                else {
+                    continue;
+                };
+                // Plan every copy; land the split only if all of them hold.
+                let mut plan: Vec<Copy> = Vec::new();
+                let ok = list.iter().all(|&(mi, ti, a, b)| {
+                    let fm = &meshes[mi];
+                    let Some(surface) = brep
+                        .faces
+                        .get(fm.face)
+                        .and_then(|f| f.surface.as_ref())
+                        .map(|s| &s.geometry)
+                    else {
+                        return false;
+                    };
+                    let (va, vb) = (&fm.vertices[a], &fm.vertices[b]);
+                    let hint = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
+                    let Some(uv) = popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                        surface, &m, hint.0, hint.1,
+                    ) else {
+                        return false;
+                    };
+                    if surface.point_at(uv.0, uv.1).distance_to(&m) > gate
+                        || singular_without_unique_normal(surface, uv.0, uv.1)
+                    {
+                        return false;
+                    }
+                    let Some(n) = limit_normal(surface, uv.0, uv.1) else {
+                        return false;
+                    };
+                    let facing = va.normal + vb.normal;
+                    let n = if n.dot(&facing) < 0.0 { -n } else { n };
+                    let t = fm.triangles[ti];
+                    let Some(r) = (0..3).find(|&k| t[k] == a && t[(k + 1) % 3] == b) else {
+                        return false;
+                    };
+                    let c = t[(r + 2) % 3];
+                    let vc = &fm.vertices[c];
+                    let old = triangle_tilt(fm, surface, t).unwrap_or(f64::INFINITY);
+                    let new = [
+                        tilt_of([va.position, m, vc.position], [va.normal, n, vc.normal]),
+                        tilt_of([m, vb.position, vc.position], [n, vb.normal, vc.normal]),
+                    ];
+                    let mut worst = new
+                        .iter()
+                        .map(|x| x.unwrap_or(f64::INFINITY))
+                        .fold(0.0, f64::max);
+                    let halves_spread = spread_of([va.normal, n, vc.normal])
+                        .max(spread_of([n, vb.normal, vc.normal]));
+                    if halves_spread > bound.max(triangle_spread(fm, t)) {
+                        worst = f64::INFINITY; // the plain split may not land
+                    }
+                    let vertex = MeshVertex {
+                        position: m,
+                        normal: n,
+                        uv,
+                    };
+                    // A chord whose sagitta tilts its cap may need two halvings:
+                    // the first may leave the halves slightly worse (a cusp tip
+                    // on a cylinder rim, 12.8 -> 13.7 deg), the next one cures
+                    // them (sagitta falls with the square). A leaning cap's
+                    // split may lean up to STEP_SLACK more; the rounds bound it.
+                    // A copy that does not lean may cross the bound by as much:
+                    // its face takes the tilt finish after this pass (the
+                    // propeller's hub copy of a blade-edge chord: 5.5 -> 12.5).
+                    let allowance = old.max(bound) + STEP_SLACK;
+                    let collapse = if worst > allowance {
+                        // The apex sits in the chord's cap zone: both halves
+                        // keep leaning toward it. Remove it instead.
+                        let mut topo = topology.borrow_mut();
+                        let topo = topo.entry(mi).or_insert_with(|| MeshTopology::of(fm));
+                        Some(plan_apex_collapse(fm, surface, ti, c, &vertex, topo, bound))
+                    } else {
+                        None
+                    };
+                    if collapse.as_ref().is_some_and(Option::is_none) {
+                        return false;
+                    }
+                    plan.push(Copy {
+                        mesh: mi,
+                        triangle: ti,
+                        a,
+                        b,
+                        vertex,
+                        collapse: collapse.flatten(),
+                    });
+                    true
+                });
+                if ok && !plan.is_empty() {
+                    landed = Some(plan);
+                    break;
+                }
+            }
+            let Some(plan) = landed else {
                 continue;
             };
-            // Plan every copy; land the split only if all of them hold.
-            let mut plan: Vec<Copy> = Vec::new();
-            let ok = list.iter().all(|&(mi, ti, a, b)| {
-                let fm = &meshes[mi];
-                let Some(surface) = brep
-                    .faces
-                    .get(fm.face)
-                    .and_then(|f| f.surface.as_ref())
-                    .map(|s| &s.geometry)
-                else {
-                    return false;
-                };
-                let (va, vb) = (&fm.vertices[a], &fm.vertices[b]);
-                let hint = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
-                let Some(uv) = popkern_core::geometry::uv_projection::project_point_to_uv_near(
-                    surface, &m, hint.0, hint.1,
-                ) else {
-                    return false;
-                };
-                if surface.point_at(uv.0, uv.1).distance_to(&m) > gate
-                    || singular_without_unique_normal(surface, uv.0, uv.1)
-                {
-                    return false;
-                }
-                let Some(n) = limit_normal(surface, uv.0, uv.1) else {
-                    return false;
-                };
-                let facing = va.normal + vb.normal;
-                let n = if n.dot(&facing) < 0.0 { -n } else { n };
-                let t = fm.triangles[ti];
-                let Some(r) = (0..3).find(|&k| t[k] == a && t[(k + 1) % 3] == b) else {
-                    return false;
-                };
-                let c = t[(r + 2) % 3];
-                let vc = &fm.vertices[c];
-                let old = triangle_tilt(fm, surface, t).unwrap_or(f64::INFINITY);
-                let new = [
-                    tilt_of([va.position, m, vc.position], [va.normal, n, vc.normal]),
-                    tilt_of([m, vb.position, vc.position], [n, vb.normal, vc.normal]),
-                ];
-                let mut worst = new
-                    .iter()
-                    .map(|x| x.unwrap_or(f64::INFINITY))
-                    .fold(0.0, f64::max);
-                let halves_spread =
-                    spread_of([va.normal, n, vc.normal]).max(spread_of([n, vb.normal, vc.normal]));
-                if halves_spread > bound.max(triangle_spread(fm, t)) {
-                    worst = f64::INFINITY; // the plain split may not land
-                }
-                let vertex = MeshVertex {
-                    position: m,
-                    normal: n,
-                    uv,
-                };
-                // A chord whose sagitta tilts its cap may need two halvings:
-                // the first may leave the halves slightly worse (a cusp tip
-                // on a cylinder rim, 12.8 -> 13.7 deg), the next one cures
-                // them (sagitta falls with the square). A leaning cap's
-                // split may lean up to STEP_SLACK more; the rounds bound it.
-                let allowance = if old > bound { old + STEP_SLACK } else { bound };
-                let collapse = if worst > allowance {
-                    // The apex sits in the chord's cap zone: both halves
-                    // keep leaning toward it. Remove it instead.
-                    let mut topo = topology.borrow_mut();
-                    let topo = topo.entry(mi).or_insert_with(|| MeshTopology::of(fm));
-                    Some(plan_apex_collapse(fm, surface, ti, c, &vertex, topo, bound))
-                } else {
-                    None
-                };
-                if collapse.as_ref().is_some_and(Option::is_none) {
-                    return false;
-                }
-                plan.push(Copy {
-                    mesh: mi,
-                    triangle: ti,
-                    a,
-                    b,
-                    vertex,
-                    collapse: collapse.flatten(),
-                });
-                true
-            });
-            if !ok || plan.is_empty() {
-                continue;
-            }
             for cp in plan {
                 let fm = &mut meshes[cp.mesh];
                 let t = fm.triangles[cp.triangle];

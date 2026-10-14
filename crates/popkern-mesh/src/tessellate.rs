@@ -840,8 +840,28 @@ fn tessellate_brep_reusing(
         && let Some(bound) = options.angular_bound()
     {
         let t0 = popkern_core::time::Stopwatch::start();
+        let vertex_counts: Vec<usize> = face_meshes.iter().map(|fm| fm.vertices.len()).collect();
         let changed =
             crate::boundary_cap_split::split_leaning_boundary_caps(brep, &mut face_meshes, bound);
+        // The splits and apex collapses reshape triangles around their new
+        // vertices: those take the tilt finish again (interior edges only,
+        // so the weld holds).
+        for &mi in &changed {
+            let fm = &mut face_meshes[mi];
+            let fresh = vertex_counts.get(mi).copied().unwrap_or(0);
+            let seeds: Vec<usize> = (0..fm.triangles.len())
+                .filter(|&t| fm.triangles[t].iter().any(|&v| v >= fresh))
+                .collect();
+            if let Some(sof) = brep.faces.get(fm.face).and_then(|f| f.surface.as_ref()) {
+                crate::tilt_refine::finish_tilt_from(
+                    fm,
+                    &sof.geometry,
+                    options.chord_height,
+                    bound,
+                    Some(&seeds),
+                );
+            }
+        }
         tracker.finish_stage("tessellate.boundary_caps", t0, changed.len());
     }
     stage_gate!();

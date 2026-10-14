@@ -23,6 +23,7 @@ pub mod point_query;
 mod surface_delaunay_flip;
 mod tessellate;
 mod tilt_refine;
+mod tilt_relax;
 mod trim;
 mod trim_canonical;
 mod trim_clip;
