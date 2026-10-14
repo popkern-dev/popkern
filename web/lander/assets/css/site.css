@@ -149,12 +149,16 @@ section { padding-block: clamp(64px, 9vw, 116px); }
 .lede a { white-space: nowrap; }
 
 /* ---- Nav --------------------------------------------------------------- */
+/* The bar is always dark, in light mode too, so its colours are fixed rather
+   than taken from the theme tokens. */
 .nav {
   position: sticky; top: 0; z-index: 50;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  background: rgba(10, 12, 15, .94);
   backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid #1f242b;
+  color-scheme: dark;
 }
+.nav .brand, .nav .brand:hover { color: #e6ecf5; }
 .nav-inner { display: flex; align-items: center; gap: 26px; height: 62px; }
 
 .brand {
@@ -167,23 +171,31 @@ section { padding-block: clamp(64px, 9vw, 116px); }
 
 .nav-links { display: flex; align-items: center; gap: 22px; margin-left: auto; }
 .nav-links a {
-  color: var(--text-dim); text-decoration: none; font-size: .93rem; font-weight: 500;
+  color: #a3aebd; text-decoration: none; font-size: .93rem; font-weight: 500;
   transition: color .15s ease;
 }
-.nav-links a:hover { color: var(--text); }
+.nav-links a:hover { color: #fff; }
+.nav-links a[aria-current="page"] { color: #e6ecf5; }
+
+.nav-links a.nav-cta {
+  background: var(--amber); color: var(--amber-ink); font-weight: 620;
+  padding: 7px 14px; border-radius: 9px; white-space: nowrap;
+  transition: background .15s ease;
+}
+.nav-links a.nav-cta:hover { background: var(--amber-hi); color: var(--amber-ink); }
 
 .nav-soon {
   font-family: var(--mono); font-size: .6rem; letter-spacing: .09em; text-transform: uppercase;
-  color: var(--text-faint); border: 1px solid var(--border-strong);
+  color: #6d7885; border: 1px solid #39404a;
   border-radius: 999px; padding: 1px 6px; margin-left: 6px; vertical-align: 1px;
 }
 
-.nav-icons { display: flex; align-items: center; gap: 4px; padding-left: 6px; border-left: 1px solid var(--border); }
+.nav-icons { display: flex; align-items: center; gap: 4px; padding-left: 6px; border-left: 1px solid #262c33; }
 .icon-link {
   display: grid; place-items: center; width: 34px; height: 34px;
-  border-radius: 8px; color: var(--text-dim); transition: background .15s ease, color .15s ease;
+  border-radius: 8px; color: #a3aebd; transition: background .15s ease, color .15s ease;
 }
-.icon-link:hover { background: var(--surface-2); color: var(--text); }
+.icon-link:hover { background: #1b1f25; color: #fff; }
 .icon-link svg { width: 18px; height: 18px; fill: currentColor; }
 
 @media (max-width: 860px) {
@@ -192,6 +204,9 @@ section { padding-block: clamp(64px, 9vw, 116px); }
 @media (max-width: 620px) {
   .nav-links { gap: 14px; }
   .nav-icons { display: none; }
+}
+@media (max-width: 480px) {
+  .nav-links a[data-wide] { display: none; }
 }
 
 /* ---- Buttons ----------------------------------------------------------- */

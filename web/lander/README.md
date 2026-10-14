@@ -1,6 +1,6 @@
 # popkern.dev landing site
 
-The marketing site for [popkern](https://github.com/graemedouglas/popkern), an
+The marketing site for [popkern](https://github.com/popkern-dev/popkern), an
 open boundary-representation CAD kernel written in Rust.
 
 Plain static HTML, CSS, and one small JS file. **No build step, no dependencies,

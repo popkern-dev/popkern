@@ -78,7 +78,7 @@ d.text((80 * SS, 462 * SS), "Booleans, fillets, sweeps, shells, STEP and IGES.",
 d.line([(80 * SS, 540 * SS), (1120 * SS, 540 * SS)], fill=(38, 44, 51), width=SS)
 mf = mono(19)
 d.text((80 * SS, 574 * SS), "AGPL-3.0  ·  Rhai scripts  ·  built by agents", font=mf, fill=FAINT, anchor="lm")
-d.text((1120 * SS, 574 * SS), "github.com/graemedouglas/popkern", font=mf, fill=FAINT, anchor="rm")
+d.text((1120 * SS, 574 * SS), "github.com/popkern-dev/popkern", font=mf, fill=FAINT, anchor="rm")
 
 img.resize((W, H), Image.LANCZOS).save(out, optimize=True)
 print("wrote", out)
