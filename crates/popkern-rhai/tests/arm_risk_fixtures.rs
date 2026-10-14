@@ -11,9 +11,11 @@
 //!   per polygon side, its volume the analytic one.
 //!
 //! R1 (tees) lives in `cylinder_tee_unions` and `fillet_tangent_chains`,
-//! R3 (finned housing) in `finned_housing`; R5 (tapped holes) was timed
-//! at 59.8 s against its 20 s budget and the arm uses tap-drill bores
-//! until PK-744 lands.
+//! R3 (finned housing) in `finned_housing`; R5 (tapped holes) is timed
+//! by popkern-part's `tapped_housing_taps_cost_what_the_first_did`
+//! (twelve M5 taps ~13 s, 2026-10-14, against its 20 s budget). The arm
+//! threads its tool flange's ISO M6 holes and keeps tap-drill bores on
+//! its ~150 bolt-circle holes (PK-801, design §6).
 
 use popkern_core::geometry::curve::CurveEval as _;
 use popkern_rhai::ScriptHost;

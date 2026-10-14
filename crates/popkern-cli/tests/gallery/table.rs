@@ -265,7 +265,7 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
          flange and a parallel gripper, bolted together with real M5/M6 screws. \
          Six joint sliders move the arm without rebuilding a part, the tube \
          lengths rebuild their links, and the grip opens the jaws.",
-        1334,
+        1326,
         "revolute joints on sub-assembly axes, two-root links mated at a driven \
          length, assembly-parameter drives, swing to first contact, \
          interference, fasteners, part appearance",

@@ -17,9 +17,10 @@
 // b/4: the flanks are exact cylinders and the backlash dominates the
 // fit error. A backlash below the fit throws before anything is built.
 //
-// Fallback boundary (design §6, E1): the bolt circles are tap-drill
-// bores labelled `tapped_M5` / `tapped_M4`. Real helical threads cost
-// ~5 s per hole today (PK-744); a joint module has 24 of them. The
+// Fallback boundary (design §6, E1, PK-801): the bolt circles are
+// tap-drill bores labelled `tapped_M5` / `tapped_M4`. A real helical
+// thread costs ~1 s per hole (2026-10-14); a joint module has 24 and
+// the arm ~150, past its 60 s cold-build budget. The
 // encoder disc's 64 windows open at the rim (a slotted wheel): one
 // sketch, no booleans.
 let a = assembly("cycloidal_joint");

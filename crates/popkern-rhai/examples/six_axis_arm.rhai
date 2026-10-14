@@ -25,9 +25,11 @@
 // Fasteners: socket cap screws (real threads, fastener family) in
 // counterbored holes. Each mount ring clamps a housing's lip; each foot
 // bolts to a joint's output flange. Fallback boundary (design §6,
-// E1): the threads they engage are tap-drill bores labelled tapped_M4
-// / tapped_M5 / tapped_M6 (PK-744), so a screw and its bore overlap by
-// the thread depth.
+// PK-801): the tool flange's four ISO M6 holes are real tapped threads
+// (the arm's customer interface, ~1 s each); the ~150 bolt-circle holes
+// the arm's own screws engage stay tap-drill bores labelled tapped_M4 /
+// tapped_M5 (a screw and its bore overlap by the thread depth) — real
+// threads there would add ~150 s against the 60 s cold-build budget.
 //
 let a = assembly("six_axis_arm");
 let pi = 3.141592653589793;
@@ -704,19 +706,17 @@ fn wrist_2_body(m, m5, m6, pi) {
     body = body.subtract(m.tool(|t| foot_holes(t, m5, 10.0, pi)), #{ label: "j5_foot" });
     body.subtract(m.tool(|t| ring_holes(t, m6, 30.0, pi)), #{ label: "j6_mount" })
 }
-// Tool flange, ISO 9409-1-50-4-M6: 4 M6 tapped holes (tap-drill
-// bores, E1 fallback) and a Ø6 dowel hole on PCD 50, a Ø31.5 centring
+// Tool flange, ISO 9409-1-50-4-M6: 4 REAL M6 tapped holes (the tool
+// interface, PK-801) and a Ø6 dowel hole on PCD 50, a Ø31.5 centring
 // bore; its own bolts sit in counterbores from the flange face.
-fn iso_holes(t, md, face, pi) {
+fn iso_taps(body, md, face, pi) {
     let d = m_dir(md.M, [0.0, 0.0, -1.0]);
-    let all = ();
     for k in 0..4 {
         let ang = pi / 8.0 + pi * k / 2.0;
-        let h = rod_at(t, m_point(md.M, [25.0 * cos(ang), 25.0 * sin(ang), face + 1.0]), d, 2.5, 11.0,
-            "tap_" + k);
-        all = if k == 0 { h } else { all.union(h) };
+        body = body.tapped_hole(axis_at(m_point(md.M, [25.0 * cos(ang), 25.0 * sin(ang), face]), d),
+            "M6", blind(10.0), #{ label: "tapped_M6_" + k });
     }
-    all
+    body
 }
 fn tool_flange_body(m, m6, pi) {
     let face = m6.g.len + 29.0;
@@ -725,7 +725,7 @@ fn tool_flange_body(m, m6, pi) {
         #{ label: "spigot" });
     body = body.subtract(m.tool(|t| axial_disc(t, m6, face - 6.0, face + 1.0, 15.75, "centring")),
         #{ label: "centring_bore" });
-    body = body.subtract(m.tool(|t| iso_holes(t, m6, face, pi)), #{ label: "tapped_M6" });
+    body = iso_taps(body, m6, face, pi);
     let dowel = 3.0 * pi / 8.0;
     body = body.subtract(m.tool(|t| rod_at(t, m_point(m6.M, [25.0 * cos(dowel), 25.0 * sin(dowel), face + 1.0]),
         m_dir(m6.M, [0.0, 0.0, -1.0]), 3.0, 9.0, "dowel")), #{ label: "dowel" });
