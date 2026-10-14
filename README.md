@@ -91,8 +91,18 @@ transform is: sample the modal corner colour, alpha out anything within ~26 of
 it with a 14-wide soft ramp, crop to the alpha bbox with 8px padding, cap width
 at 1100px.
 
-`assets/img/og.png` (1200x630 social card) is generated, not hand-drawn. It
-composites the torus cutout over a blue glow with the wordmark and tagline.
+`assets/img/og.png` (1200x630 social card) is generated, not hand-drawn, by
+`tools/make-og.py`: the torus cutout over a teal glow, the brand mark with its
+amber arc, and the homepage tagline. It needs Pillow plus the Inter and
+JetBrains Mono TTFs (from their GitHub releases):
+
+```sh
+uv run --with pillow python tools/make-og.py . <fonts-dir> assets/img/og.png
+```
+
+`<fonts-dir>` holds `inter/extras/ttf/Inter-{Bold,Regular}.ttf` and
+`jb/fonts/ttf/JetBrainsMono-Regular.ttf`. Re-run it whenever the tagline or
+palette changes.
 
 ## Cache busting
 
@@ -120,9 +130,10 @@ throwaway query (`/routes/popkern/?v=2`).
   no build step and four pages, a copy is cheaper than a templating dependency.
   If a fifth page appears, reconsider.
 - `assets/css/site.css` is token-driven. The palette lives in `:root`, with a
-  full light-mode override under `prefers-color-scheme: light`. Change
-  `--brand` and `--brand-ink` in those two blocks and the whole page follows.
-  The brand blue is also hardcoded in three non-CSS places: the inline
+  full light-mode override under `prefers-color-scheme: light`: teal
+  `--brand`/`--brand-ink` is the main colour, `--blue` the far end of the
+  headline gradient, and amber `--amber` the logo arc and primary buttons.
+  The amber logo arc is also hardcoded in three non-CSS places: the inline
   `brand-mark` SVG in each page's nav and footer, `assets/img/favicon.svg`, and
   the generated OG card.
 - Fonts are Inter and JetBrains Mono from Google Fonts, with system fallbacks
