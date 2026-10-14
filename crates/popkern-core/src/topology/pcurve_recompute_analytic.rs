@@ -20,6 +20,30 @@ pub(super) fn exact_plane_pcurve(
     crate::geometry::chart_pcurve::exact_plane_pcurve(surface, curve, t_lo, t_hi)
 }
 
+/// A placeholder candidate for an edge whose exact plane pcurve exists:
+/// `install_pcurve_with_survival` replaces any candidate with that exact
+/// pcurve, so the dense projection fit the recompute would otherwise
+/// build is thrown away (PK-804: every planar rim circle was refit from
+/// 64 samples on every boolean). The placeholder is the UV chord between
+/// `ends`; it never survives the install.
+pub(super) fn exact_plane_placeholder(
+    surface: &SurfaceGeometry,
+    curve: &crate::geometry::curve::CurveOnEdge,
+    (t_lo, t_hi): (f64, f64),
+    ends: [(f64, f64); 2],
+) -> Option<crate::geometry::NurbsCurve> {
+    exact_plane_pcurve(surface, &curve.geometry, t_lo, t_hi)?;
+    Some(crate::geometry::NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: ends
+            .iter()
+            .map(|&(u, v)| crate::geometry::Point3::new(u, v, 0.0))
+            .collect(),
+        weights: vec![1.0, 1.0],
+    })
+}
+
 /// Whether the edge's 3-D curve is straight (chord test at 8 interior
 /// samples). The plane fast path in `recompute_face_pcurves` is only
 /// valid for straight edges: a curved edge lying IN a plane (fillet

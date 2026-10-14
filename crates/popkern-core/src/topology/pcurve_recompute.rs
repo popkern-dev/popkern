@@ -380,18 +380,18 @@ impl BRep {
                         ],
                         weights: vec![1.0, 1.0],
                     }
+                } else if let Some(p) = super::pcurve_recompute_analytic::exact_plane_placeholder(
+                    &surface,
+                    curve_on_edge,
+                    (t_lo, t_hi),
+                    [(u_s, v_s), (u_e, v_e)],
+                ) {
+                    p
                 } else {
-                    // UV path is curved — dense sampling.
-                    // OCCT-style pcurve computation (per ShapeConstruct_
-                    // ProjectCurveOnSurface): sample the 3D curve,
-                    // project by CONTINUATION (endpoint- and midpoint-
-                    // anchored walks race and the smaller measured
-                    // deviation wins — see pcurve_projection_walk),
-                    // unwrap seam crossings, then INTERPOLATE (not fit).
-                    // Samples at curve fractions, interpolated piecewise
-                    // between the edge curve's parametric breakpoints and
-                    // refined until the image follows the edge
-                    // (pcurve_projection_fit, PK-555).
+                    // Curved UV path, OCCT-style: project by continuation
+                    // (anchored walks race: pcurve_projection_walk), unwrap
+                    // seams, INTERPOLATE piecewise between the curve's
+                    // breakpoints, refine until the image follows (PK-555).
                     let sample = |fractions: &[f64]| {
                         super::pcurve_projection_walk::anchored_uv_samples(
                             &surface,

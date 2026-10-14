@@ -267,8 +267,12 @@ fn torus_carrying_cylinder_union_within_budget() {
 /// edit nothing, built face adjacency once, skipped straight NURBS in
 /// rim promotion, stopped "repairing" twin-side closed rims, and audits
 /// winding on straight aperiodic pcurves by their ends: slot 63 ~18.2
-/// ms, 2.10-2.16, gate 2.8. The rest is per-face constants in graph
-/// build, assembly and the remaining whole-body passes (PK-804).
+/// ms, 2.10-2.16. Then the pcurve recompute stopped fitting planar rims
+/// whose exact pcurve replaces the fit — a CONSTANT every boolean paid,
+/// so the ratio rose while both cuts sped up: slot 0 ~4.9 ms, slot 63
+/// ~15.5 ms, 3.17-3.24, gate 3.9 (the body-proportional excess, ~10.5
+/// ms at 252 extra faces, is what PK-802/804 track). The rest is
+/// per-face constants in graph build, assembly and whole-body passes.
 #[test]
 fn slotted_disc_late_cut_stays_near_the_first() {
     if debug_skip("64-slot disc, slot 63 vs slot 0") {
@@ -306,10 +310,10 @@ fn slotted_disc_late_cut_stays_near_the_first() {
     }
     let ratio = last.as_secs_f64() / first.as_secs_f64().max(1e-9);
     eprintln!(
-        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 2.8)"
+        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 3.9)"
     );
     assert!(
-        ratio <= 2.8,
-        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 2.8"
+        ratio <= 3.9,
+        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 3.9"
     );
 }
