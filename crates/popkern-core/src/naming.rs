@@ -35,7 +35,11 @@ use crate::naming_store::ChunkedVec;
 ///   operand's pool, so the target's names keep their ids (scheme 2
 ///   rebuilt the result pool by importing every operand name, which
 ///   renumbered them and cost the whole history per boolean).
-pub const NAMING_SCHEME_VERSION: u32 = 3;
+/// - **4** (PK-803): a boolean's CARRIED entities — the target's
+///   faces, edges and vertices it leaves unchanged and clear of the
+///   tool — keep the target's names and lineage instead of minting a
+///   `Modified` name and re-flattening their ancestry each operation.
+pub const NAMING_SCHEME_VERSION: u32 = 4;
 
 /// The oldest naming scheme this kernel still replays.
 pub const OLDEST_NAMING_SCHEME: u32 = 1;
@@ -160,7 +164,7 @@ pub struct NamePool {
     /// (shorter in documents written before it existed: missing entries
     /// are empty). See [`NamePool::add_lineage`].
     #[serde(default)]
-    pub(crate) lineage: ChunkedVec<Vec<EntityName>>,
+    pub(crate) lineage: ChunkedVec<crate::naming_lineage::LineageEntry>,
     /// Reverse index: name hash → the first id with that hash. Rebuilt
     /// after deserialization.
     #[serde(skip)]
@@ -247,7 +251,7 @@ impl NamePool {
     /// lineage existed carry a shorter list).
     fn pad_lineage(&mut self) {
         while self.lineage.len() < self.names.len() {
-            self.lineage.push(Vec::new());
+            self.lineage.push(Default::default());
         }
     }
 
@@ -364,7 +368,7 @@ impl NamePool {
         let mut remap: HashMap<NameId, NameId> = HashMap::new();
         let mut new_names: Vec<EntityName> = Vec::new();
         let mut new_criteria: Vec<Option<GeometricCriteria>> = Vec::new();
-        let mut new_lineage: Vec<Vec<EntityName>> = Vec::new();
+        let mut new_lineage: Vec<crate::naming_lineage::LineageEntry> = Vec::new();
 
         for (old_id, name) in self.names() {
             if !referenced.contains(&old_id) {

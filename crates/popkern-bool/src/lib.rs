@@ -47,8 +47,10 @@ pub mod coincidence;
 pub mod csg;
 mod curve_projection;
 mod entity_lineage;
+mod entity_lineage_carry;
 mod entity_naming;
 mod entity_naming_edges;
+mod entity_naming_index;
 pub mod error;
 mod error_remediation;
 mod face_box;
@@ -239,18 +241,31 @@ pub fn boolean(
                 }
             }
         }
-        entity_naming::assign_boolean_names(&mut result, &input_a_faces, &input_b_faces, ctx, &tol);
+        // Naming scheme 4 (PK-803): entities carried unchanged and clear
+        // of the tool keep `a`'s names and lineage.
+        let carry = (seeded && ctx.naming_scheme >= 4)
+            .then(|| entity_lineage_carry::CarryIndex::new(&a, &b, 10.0 * tol.linear()));
+        let carry_a = carry.as_ref().map(|c| (c, &a));
+        entity_naming::assign_boolean_names(
+            &mut result,
+            &input_a_faces,
+            &input_b_faces,
+            ctx,
+            &tol,
+            carry_a,
+        );
         // Lineage beside the names (PK-633): which input faces each
         // output face is a piece of, so labels follow trimmed faces.
-        entity_lineage::record_face_lineage(&mut result, &a, &b, &tol);
+        entity_lineage::record_face_lineage(&mut result, &a, &b, &tol, carry.as_ref());
         entity_naming_edges::assign_boolean_edge_vertex_names(
             &mut result,
             &input_edges,
             &input_vertices,
             ctx,
             &tol,
+            carry_a,
         );
-        entity_lineage::record_edge_lineage(&mut result, &a, &b, &tol);
+        entity_lineage::record_edge_lineage(&mut result, &a, &b, &tol, carry.as_ref());
         popkern_core::naming_lineage::prune_unreadable_lineage(&mut result);
     }
     Ok(result)

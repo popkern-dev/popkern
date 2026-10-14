@@ -80,6 +80,7 @@ pub(crate) fn assign_boolean_names(
     input_b_faces: &[(EntityName, Point3, Vec3)],
     ctx: &mut TrackingContext,
     tol: &Tolerance,
+    carry: Option<(&crate::entity_lineage_carry::CarryIndex, &BRep)>,
 ) {
     use popkern_core::naming::{EntityRole, RoleCategory};
     use popkern_core::naming_criteria::{GeometricCriteria, capture_face};
@@ -88,8 +89,17 @@ pub(crate) fn assign_boolean_names(
         input_a_faces.iter().chain(input_b_faces.iter()).collect();
 
     let face_handles: Vec<_> = brep.faces.keys().collect();
-    let mut gen_idx: u32 = 0;
-    let mut mod_idx: u32 = 0;
+    let start = |category| match carry {
+        Some((_, a)) => crate::entity_lineage_carry::CarryIndex::first_free_index(
+            a,
+            crate::entity_lineage_carry::EntityKind::Face,
+            ctx.operation,
+            category,
+        ),
+        None => 0,
+    };
+    let mut gen_idx: u32 = start(RoleCategory::Generated);
+    let mut mod_idx: u32 = start(RoleCategory::Modified);
 
     for fh in &face_handles {
         let Some(fc) = capture_face(brep, *fh) else {
@@ -113,8 +123,19 @@ pub(crate) fn assign_boolean_names(
             });
 
         if let Some((input_name, _, _)) = best_match {
-            // Modified: this face descended from an input face.
             let ancestor_id = brep.name_pool.intern(input_name.clone(), None);
+            // Carried (scheme 4): `a`'s face, unchanged and clear of the
+            // tool, keeps its name (see `entity_lineage_carry`).
+            if let Some((carry, a)) = carry
+                && crate::entity_lineage_carry::CarryIndex::keeps_a_name(brep, a, ancestor_id)
+                && carry
+                    .a_face(ancestor_id)
+                    .is_some_and(|af| carry.face_is_carried(brep, *fh, a, af))
+            {
+                brep.faces[*fh].name = Some(ancestor_id);
+                continue;
+            }
+            // Modified: this face descended from an input face.
             let new_name = EntityName {
                 operation: ctx.operation,
                 role: EntityRole {

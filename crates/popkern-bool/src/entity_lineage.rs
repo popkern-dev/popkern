@@ -118,16 +118,27 @@ fn lies_on(input: &BRep, face: FaceHandle, p: &Point3, n: &Vec3, tol: f64) -> bo
 
 /// Record, beside every face of `result`, the input faces of `a` and
 /// `b` it is a piece of (their names and ancestry, as values).
-pub(crate) fn record_face_lineage(result: &mut BRep, a: &BRep, b: &BRep, tol: &Tolerance) {
+pub(crate) fn record_face_lineage(
+    result: &mut BRep,
+    a: &BRep,
+    b: &BRep,
+    tol: &Tolerance,
+    carry: Option<&crate::entity_lineage_carry::CarryIndex>,
+) {
     // The names' own match tolerance: the boolean's, widened for the
     // projection round-off on curved inputs.
     let on = 10.0 * tol.linear();
+    // `a`'s boxes come from the carry index when it has them.
+    let boxes_of = |brep: &BRep| match carry {
+        Some(c) if std::ptr::eq(brep, a) => c.a_face_boxes().to_vec(),
+        _ => crate::intersect::compute_face_aabbs(brep),
+    };
     let inputs: Vec<(&BRep, Vec<(FaceHandle, Aabb)>)> = [a, b]
         .into_iter()
         .map(|brep| {
             (
                 brep,
-                crate::intersect::compute_face_aabbs(brep)
+                boxes_of(brep)
                     .into_iter()
                     .map(|(f, bb)| (f, padded(&bb, on)))
                     .collect(),
@@ -139,6 +150,12 @@ pub(crate) fn record_face_lineage(result: &mut BRep, a: &BRep, b: &BRep, tol: &T
         let Some(name_id) = result.faces.get(face).and_then(|f| f.name) else {
             continue;
         };
+        // A carried face keeps `a`'s name and its lineage (scheme 4).
+        if carry.is_some()
+            && crate::entity_lineage_carry::CarryIndex::keeps_a_name(result, a, name_id)
+        {
+            continue;
+        }
         let Some((point, normal)) = interior_point(result, face) else {
             continue;
         };
@@ -186,11 +203,63 @@ fn in_range(
     }
 }
 
+/// The parameter of `point`'s foot on `curve`, as the lineage test reads
+/// it (distance, range and tangent are checked by the caller). Lines,
+/// straight two-point NURBS and circles/arcs are projected exactly —
+/// the multi-start Newton search ran 5 starts per box-accepted input
+/// edge for every result edge, and a slotted disc's rim circles accept
+/// every edge (PK-803). Newton on a line lands on the same unclamped
+/// projection in one step; a circle's angle is measured in the curve's
+/// own frame (its points at 0 and pi/2), and the range test unwraps it.
+fn foot(curve: &popkern_core::geometry::curve::CurveGeometry, point: &Point3) -> Option<f64> {
+    use popkern_core::geometry::PortableMath;
+    use popkern_core::geometry::curve::{CurveEval, CurveGeometry, closest_point_on_curve};
+    match curve {
+        CurveGeometry::Line { .. } => curve.closest_point(point),
+        CurveGeometry::Circle { center, radius, .. }
+        | CurveGeometry::Arc { center, radius, .. }
+            if *radius > 0.0 =>
+        {
+            let u = curve.point_at(0.0) - *center;
+            let v = curve.point_at(std::f64::consts::FRAC_PI_2) - *center;
+            let w = *point - *center;
+            let (x, y) = (w.dot(&u), w.dot(&v));
+            let floor = f64::EPSILON * radius * radius;
+            if x * x + y * y <= floor * floor {
+                return closest_point_on_curve(curve, point);
+            }
+            Some(y.patan2(x))
+        }
+        CurveGeometry::Nurbs(n)
+            if n.degree == 1
+                && n.control_points.len() == 2
+                && n.knots.len() == 4
+                && n.weights.iter().all(|w| *w == n.weights[0]) =>
+        {
+            let (p0, p1) = (n.control_points[0], n.control_points[1]);
+            let d = p1 - p0;
+            let len2 = d.dot(&d);
+            if len2 <= 0.0 {
+                return closest_point_on_curve(curve, point);
+            }
+            let s = (*point - p0).dot(&d) / len2;
+            Some(n.knots[1] + s * (n.knots[2] - n.knots[1]))
+        }
+        _ => closest_point_on_curve(curve, point),
+    }
+}
+
 /// Record, beside every edge of `result`, the input edges of `a` and
 /// `b` it is a piece of: its curve midpoint lies on the input edge's
 /// curve, inside its range, tangents parallel.
-pub(crate) fn record_edge_lineage(result: &mut BRep, a: &BRep, b: &BRep, tol: &Tolerance) {
-    use popkern_core::geometry::curve::{CurveEval, closest_point_on_curve};
+pub(crate) fn record_edge_lineage(
+    result: &mut BRep,
+    a: &BRep,
+    b: &BRep,
+    tol: &Tolerance,
+    carry: Option<&crate::entity_lineage_carry::CarryIndex>,
+) {
+    use popkern_core::geometry::curve::CurveEval;
     let on = 10.0 * tol.linear();
     let midpoint = |brep: &BRep, edge: popkern_core::topology::EdgeHandle| {
         let curve = brep.edges.get(edge)?.curve.as_ref()?;
@@ -225,6 +294,12 @@ pub(crate) fn record_edge_lineage(result: &mut BRep, a: &BRep, b: &BRep, tol: &T
         let Some(name_id) = result.edges.get(edge).and_then(|e| e.name) else {
             continue;
         };
+        // A carried edge keeps `a`'s name and its lineage (scheme 4).
+        if carry.is_some()
+            && crate::entity_lineage_carry::CarryIndex::keeps_a_name(result, a, name_id)
+        {
+            continue;
+        }
         let Some((point, tangent)) = midpoint(result, edge) else {
             continue;
         };
@@ -238,7 +313,7 @@ pub(crate) fn record_edge_lineage(result: &mut BRep, a: &BRep, b: &BRep, tol: &T
                     continue;
                 };
                 let Some(id) = data.name else { continue };
-                let Some(t) = closest_point_on_curve(&curve.geometry, &point) else {
+                let Some(t) = foot(&curve.geometry, &point) else {
                     continue;
                 };
                 if (curve.geometry.point_at(t) - point).length() > on

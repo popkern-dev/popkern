@@ -1,7 +1,8 @@
 //! PK-633: labels and spelled names follow an entity through later
-//! booleans — a face the boolean leaves whole (renamed `Modified`), a
-//! tool face the boolean trims (minted `Generated`), and the same after
-//! a second boolean — while no stable name changes.
+//! booleans — a face the boolean leaves whole and clear of the tool
+//! (carried: it keeps its name under naming scheme 4, PK-803), a tool
+//! face the boolean trims (minted `Generated`), and the same after a
+//! second boolean — while no stable name changes.
 
 use popkern_rhai::ScriptHost;
 
@@ -35,10 +36,11 @@ fn labels_follow_faces_through_two_unions() {
         .expect("labels resolve");
     let lines = outcome.printed;
     assert_eq!(lines.len(), 3, "{lines:?}");
-    // The plate side survived both unions as one face; the pin's trimmed
-    // cylinder is one face; the spelling resolves to the side.
+    // The plate side survived both unions as one face, clear of both
+    // pins: it keeps the extrusion's name; the pin's trimmed cylinder is
+    // one face; the spelling resolves to the side.
     assert!(
-        lines[0].starts_with("plate_side -> boolean-2/Modified/"),
+        lines[0].starts_with("plate_side -> extrude-1/Lateral/"),
         "{lines:?}"
     );
     assert!(lines[1].starts_with("pin_0 -> boolean-"), "{lines:?}");

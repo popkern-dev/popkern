@@ -12,16 +12,49 @@
 //! naming-scheme change; saved references keep resolving).
 
 use std::collections::HashSet;
+use std::sync::Arc;
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::naming::{EntityName, NameId, NamePool};
 use crate::topology::BRep;
+
+/// One name's recorded lineage, shared by reference: the pool's chunks
+/// are copy-on-write, and a chunk copy (any write into a chunk a cloned
+/// pool still shares) deep-copied 256 lineage lists — every boolean's
+/// prune and lineage record paid it (PK-803). Serialized as the plain
+/// list it holds.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct LineageEntry(Arc<Vec<EntityName>>);
+
+impl LineageEntry {
+    fn as_slice(&self) -> &[EntityName] {
+        self.0.as_slice()
+    }
+
+    fn push(&mut self, name: EntityName) {
+        Arc::make_mut(&mut self.0).push(name);
+    }
+}
+
+impl Serialize for LineageEntry {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.0.as_ref().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for LineageEntry {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Vec::<EntityName>::deserialize(deserializer).map(|v| Self(Arc::new(v)))
+    }
+}
 
 impl NamePool {
     /// The recorded lineage of `id` (empty when none).
     pub fn lineage(&self, id: NameId) -> &[EntityName] {
         self.lineage
             .get(id.0 as usize)
-            .map(Vec::as_slice)
+            .map(LineageEntry::as_slice)
             .unwrap_or(&[])
     }
 
@@ -40,7 +73,7 @@ impl NamePool {
         }
         if let Some(entry) = self.lineage.get_mut(i) {
             for name in fresh {
-                if !entry.contains(&name) {
+                if !entry.as_slice().contains(&name) {
                     entry.push(name);
                 }
             }
@@ -77,8 +110,8 @@ impl NamePool {
     /// names themselves stay: ids and stable names never change).
     pub fn retain_lineage(&mut self, keep: &HashSet<NameId>) {
         self.lineage.edit_where(
-            |i, entry| !entry.is_empty() && !keep.contains(&NameId(i as u32)),
-            |_, entry| *entry = Vec::new(),
+            |i, entry| !entry.as_slice().is_empty() && !keep.contains(&NameId(i as u32)),
+            |_, entry| *entry = LineageEntry::default(),
         );
     }
 

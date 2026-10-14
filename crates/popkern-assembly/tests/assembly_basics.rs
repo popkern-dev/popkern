@@ -220,7 +220,7 @@ fn the_document_round_trips_through_pkn_version_5() {
     let bytes = asm.to_pkn_bytes().expect("save");
     assert!(
         String::from_utf8_lossy(&bytes)
-            .starts_with("{\"version\":5,\"naming_scheme\":3,\"assembly\"")
+            .starts_with("{\"version\":5,\"naming_scheme\":4,\"assembly\"")
     );
     assert!(matches!(
         popkern_history::FeatureTree::load(&bytes),

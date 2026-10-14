@@ -15,7 +15,7 @@ use popkern_core::history::TrackingContext;
 use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
 use popkern_core::naming_criteria::{GeometricCriteria, capture_edge, capture_vertex};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, EdgeHandle};
 
 /// An operand edge: its name (or a placeholder for unnamed input),
 /// midpoint and tangent.
@@ -34,18 +34,29 @@ fn placeholder(category: RoleCategory, index: usize) -> EntityName {
     }
 }
 
+/// An edge's mid-parameter point and tangent, exactly as
+/// [`capture_edge`] records them — without its arc-length quadrature,
+/// which matching never reads (PK-803: every input and output edge paid
+/// it per boolean).
+fn edge_mid_tangent(brep: &BRep, edge: EdgeHandle) -> Option<(Point3, Vec3)> {
+    use popkern_core::geometry::curve::CurveEval;
+    let c = brep.edges.get(edge)?.curve.as_ref()?;
+    let t_mid = (c.t_start + c.t_end) * 0.5;
+    Some((c.geometry.point_at(t_mid), c.geometry.tangent_at(t_mid)))
+}
+
 /// Snapshot every edge of an operand before the boolean consumes it.
 pub(crate) fn collect_edge_data(brep: &BRep) -> Vec<EdgeSnapshot> {
     let mut out = Vec::new();
     for (i, (eh, edge)) in brep.edges.iter().enumerate() {
-        let Some(ec) = capture_edge(brep, eh) else {
+        let Some((midpoint, tangent)) = edge_mid_tangent(brep, eh) else {
             continue;
         };
         let name = edge
             .name
             .and_then(|nid| brep.name_pool.get(nid).cloned())
             .unwrap_or_else(|| placeholder(RoleCategory::Lateral, i));
-        out.push((name, ec.midpoint, ec.tangent));
+        out.push((name, midpoint, tangent));
     }
     out
 }
@@ -73,29 +84,60 @@ pub(crate) fn assign_boolean_edge_vertex_names(
     input_vertices: &[VertexSnapshot],
     ctx: &mut TrackingContext,
     tol: &Tolerance,
+    carry: Option<(&crate::entity_lineage_carry::CarryIndex, &BRep)>,
 ) {
     let band = tol.linear() * 100.0;
-    let (mut mod_e, mut gen_e, mut mod_v, mut gen_v) = (0u32, 0u32, 0u32, 0u32);
+    // Carried entities keep their names: mint past them (scheme 4).
+    let start = |kind, category| match carry {
+        Some((_, a)) => crate::entity_lineage_carry::CarryIndex::first_free_index(
+            a,
+            kind,
+            ctx.operation,
+            category,
+        ),
+        None => 0,
+    };
+    use crate::entity_lineage_carry::EntityKind;
+    let (mut mod_e, mut gen_e, mut mod_v, mut gen_v) = (
+        start(EntityKind::Edge, RoleCategory::Modified),
+        start(EntityKind::Edge, RoleCategory::Intersection),
+        start(EntityKind::Vertex, RoleCategory::Modified),
+        start(EntityKind::Vertex, RoleCategory::Junction),
+    );
 
+    let edge_index =
+        crate::entity_naming_index::NearIndex::new(input_edges.iter().map(|e| e.1), band);
     let edge_handles: Vec<_> = brep.edges.keys().collect();
     for eh in edge_handles {
-        let Some(ec) = capture_edge(brep, eh) else {
+        let Some((midpoint, tangent)) = edge_mid_tangent(brep, eh) else {
             continue;
         };
-        let best = input_edges
-            .iter()
+        let best = edge_index
+            .near(&midpoint)
+            .into_iter()
+            .map(|i| &input_edges[i])
             .filter(|(_, mid, tan)| {
-                ec.midpoint.distance_to(mid) < band && ec.tangent.dot(tan).abs() > 0.9
+                midpoint.distance_to(mid) < band && tangent.dot(tan).abs() > 0.9
             })
             .min_by(|a, b| {
-                ec.midpoint
+                midpoint
                     .distance_to(&a.1)
-                    .partial_cmp(&ec.midpoint.distance_to(&b.1))
+                    .partial_cmp(&midpoint.distance_to(&b.1))
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
         let new_name = match best {
             Some((input_name, _, _)) => {
                 let ancestor = brep.name_pool.intern(input_name.clone(), None);
+                // Carried (scheme 4): keeps `a`'s name.
+                if let Some((carry, a)) = carry
+                    && crate::entity_lineage_carry::CarryIndex::keeps_a_name(brep, a, ancestor)
+                    && carry
+                        .a_edge(ancestor)
+                        .is_some_and(|ae| carry.edge_is_carried(brep, eh, a, ae))
+                {
+                    brep.edges[eh].name = Some(ancestor);
+                    continue;
+                }
                 let name = EntityName {
                     operation: ctx.operation,
                     role: EntityRole {
@@ -122,19 +164,24 @@ pub(crate) fn assign_boolean_edge_vertex_names(
                 name
             }
         };
-        let id = brep
-            .name_pool
-            .intern(new_name, Some(GeometricCriteria::Edge(ec)));
+        let id = brep.name_pool.intern(
+            new_name,
+            capture_edge(brep, eh).map(GeometricCriteria::Edge),
+        );
         brep.edges[eh].name = Some(id);
     }
 
+    let vertex_index =
+        crate::entity_naming_index::NearIndex::new(input_vertices.iter().map(|v| v.1), band);
     let vertex_handles: Vec<_> = brep.vertices.keys().collect();
     for vh in vertex_handles {
         let Some(vc) = capture_vertex(brep, vh) else {
             continue;
         };
-        let best = input_vertices
-            .iter()
+        let best = vertex_index
+            .near(&vc.position)
+            .into_iter()
+            .map(|i| &input_vertices[i])
             .filter(|(_, p)| vc.position.distance_to(p) < band)
             .min_by(|a, b| {
                 vc.position
@@ -145,6 +192,15 @@ pub(crate) fn assign_boolean_edge_vertex_names(
         let new_name = match best {
             Some((input_name, _)) => {
                 let ancestor = brep.name_pool.intern(input_name.clone(), None);
+                if let Some((carry, a)) = carry
+                    && crate::entity_lineage_carry::CarryIndex::keeps_a_name(brep, a, ancestor)
+                    && carry
+                        .a_vertex(ancestor)
+                        .is_some_and(|av| carry.vertex_is_carried(brep, vh, a, av))
+                {
+                    brep.vertices[vh].name = Some(ancestor);
+                    continue;
+                }
                 let name = EntityName {
                     operation: ctx.operation,
                     role: EntityRole {

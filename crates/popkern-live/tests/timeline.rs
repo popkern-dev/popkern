@@ -231,7 +231,10 @@ fn patterned_document() -> Vec<u8> {
         vec![sk, boss],
         Vec3Desc::Literal([1.0, 0.0, 0.0]),
         3.0,
-        0.8,
+        // Pitch is in display millimetres: 0.8 m apart. (0.8 placed the
+        // instances 0.8 mm off the seed — one merged boss — which the
+        // per-boolean renaming of every face hid until naming scheme 4.)
+        800.0,
         "bosses",
     )
     .expect("pattern");
