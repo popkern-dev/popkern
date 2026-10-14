@@ -23,25 +23,29 @@ Every URL in the page is relative and the CSP lives in meta tags, so
 the page is subpath-agnostic — it serves identically from `/` and
 from a mounted prefix.
 
-## Sandbox deploy (`/routes/`)
+## Deploy (`/routes/`)
 
 ```
-tools/deploy-live-routes.sh              # build, bake, copy, verify
-tools/deploy-live-routes.sh --no-build   # redeploy the built bundle
+tools/deploy-site-routes.sh              # build, bake, copy, verify
+tools/deploy-site-routes.sh --no-build   # redeploy the built bundle
 ```
 
-One command builds the bundle, copies the runtime assets (not the
-harnesses or npm metadata) to `~/code/.routes/static/popkern-live/`,
-and verifies the served copy: content types by `curl`, then the
+popkern live ships as `live/` inside the popkern.dev site, beside the
+lander (`web/lander/`), where the lander's "Try it now" links point.
+One command builds the bundle, copies the lander and live's runtime
+assets (not the harnesses or npm metadata) to
+`~/code/.routes/static/popkern/` (live under `live/`, in versioned
+`live/v/<stamp>/` directories), and verifies the served copy: the
+lander's pages and its `live/` link, content types by `curl`, then the
 `test/browser.mjs` harness pointed at the deployed URL via
 `POPKERN_PAGE_ORIGIN` — a real kernel run, request accounting, and
 recorded load numbers in `docs/reports/live/routes-deploy.json`.
-The sandbox's Caddy serves the tree at `/routes/popkern-live/`
-(locally on port 7681 and on the tunnel hostname); the script's
-header documents the `conf.d` reverse-proxy variant a live
-`popkern-daemon` session will use instead. The former route,
-`/routes/popkern-live/`, is rewritten on every deploy to
-redirect pages pointing here.
+The routes server serves the tree at `/routes/popkern/` (locally on
+port 7681 and on the tunnel hostname); the script's header documents
+the `conf.d` reverse-proxy variant a live `popkern-daemon` session
+will use instead. The former routes, `/routes/popkern-live/` and
+`/routes/popkern-playground/`, are rewritten on every deploy to
+redirect to `/routes/popkern/live/`.
 
 ## Files
 

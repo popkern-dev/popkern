@@ -4,8 +4,12 @@ The marketing site for [popkern](https://github.com/popkern-dev/popkern), an
 open boundary-representation CAD kernel written in Rust.
 
 Plain static HTML, CSS, and one small JS file. **No build step, no dependencies,
-no framework.** What is in this repo is exactly what gets served, which is what
-makes it deployable to GitHub Pages or Cloudflare Pages without a toolchain.
+no framework.** What is in this folder is exactly what gets served.
+
+It lives in the popkern repository as `web/lander/` (since 2026-10-14; its
+history before that is the `popkernlander` repo's, merged in). The site it
+publishes is this folder at the root with popkern live (`web/live/`) under
+`live/`, which is where every "Try it now" link points.
 
 ```
 index.html                  the landing page
@@ -20,8 +24,8 @@ assets/css/site.css         the whole design system, one file
 assets/js/site.js           copy buttons + footer year, nothing else
 assets/img/                 gallery cutouts, OG card, favicon
 _headers                    Cloudflare Pages cache/security headers
-.github/workflows/pages.yml GitHub Pages deploy
-.nojekyll                   stops Pages running Jekyll over the tree
+.nojekyll                   stops GitHub Pages running Jekyll over the tree
+tools/                      logo, social-card and asset-stamp generators (not deployed)
 ```
 
 ## Before announcing
@@ -40,39 +44,40 @@ _headers                    Cloudflare Pages cache/security headers
    the post, the blog index, and the feed.
 4. **Fill in the sponsor links** on `support/index.html`
    (`#TODO-sponsor-monthly`, `#TODO-sponsor-once`).
-5. **Ship `live/`, `install.sh` and `install.ps1`.** The homepage, install
-   page, support page and launch post all link to them.
+5. **Ship `install.sh` and `install.ps1`.** The homepage, install page,
+   support page and launch post link to them. (`live/` ships with the site:
+   see Deploying.)
 
 ## Deploying
 
-**Cloudflare Pages**: connect the repo; framework preset *None*; build command
-empty; build output directory `/`. `_headers` is picked up automatically.
+`tools/deploy-site-routes.sh` (repo root) builds popkern live, copies this
+folder to the site root and live to `live/`, and verifies the served copy. It
+publishes to `~/code/.routes/static/popkern/`, which the routes server serves
+at **`/routes/popkern/`** (locally on port 7681, and on the tunnel hostname).
+The README, `tools/` and editor swap files stay behind.
 
-**GitHub Pages**: Settings, then Pages, then Source: **GitHub Actions**. The included
-workflow uploads the repo root on every push to `main`.
+```sh
+tools/deploy-site-routes.sh --no-build   # lander edits only: reuse the built live bundle
+```
 
-> If you deploy to a *project* page (`<user>.github.io/<repo>/`) rather than a
-> custom domain, note that `404.html` is the one file using root-absolute paths
-> (`/assets/…`), because a 404 can be served from any depth. Every other page
-> uses relative paths and works at any prefix. On a project page, either use a
-> custom domain or change those three paths in `404.html`.
+A public host (GitHub Pages, Cloudflare Pages) needs the same assembled tree,
+so its build has to run `tools/build-live.sh --web` and `tools/bake-live.sh`
+first; this folder on its own is no longer the whole site.
+
+> `404.html` is the one file using root-absolute paths (`/assets/…`), because
+> a 404 can be served from any depth. Every other page uses relative paths and
+> works at any prefix. On a project page (`<user>.github.io/<repo>/`), either
+> use a custom domain or change those three paths in `404.html`.
 
 ## Local preview
 
-Served in this sandbox at **`/routes/popkern/`** by
-`~/code/.routes/conf.d/popkern.caddy`, which points straight at this directory
-and sends `Cache-Control: no-cache` so a stale stylesheet never survives a
-design pass. Edits are live on the next request; a change to the snippet itself
-needs `caddy reload --config ~/Caddyfile`.
-
-(A symlink at `~/code/.routes/static/popkern` also exists and would work on its
-own via the generic static fallback, but that path caches.)
-
-Anywhere else, any static server works:
+Any static server works for the lander alone:
 
 ```sh
-python3 -m http.server 8000
+cd web/lander && python3 -m http.server 8000
 ```
+
+The `live/` links 404 there; the deployed site has them.
 
 ## Where the images come from
 

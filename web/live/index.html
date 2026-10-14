@@ -7,7 +7,7 @@
      origin; nothing may connect anywhere else. Blob URLs carry downloads.
      base-uri 'self' (not 'none'): the deployed root page injects a <base>
      into an immutable per-build version directory so a cache can never mix
-     JS glue and wasm from different builds (tools/deploy-live-routes.sh). -->
+     JS glue and wasm from different builds (tools/deploy-site-routes.sh). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#0a1020">

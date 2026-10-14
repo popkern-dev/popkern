@@ -1,20 +1,26 @@
 #!/usr/bin/env bash
-# Deploy popkern live (the browser workbench) to the sandbox's /routes/ web server
-# (PK-426, design §10 phase 6e).
+# Deploy the popkern.dev site — the lander (web/lander) with popkern live
+# (web/live, the browser workbench) under live/ — to the /routes/ web
+# server (PK-426, design §10 phase 6e; the lander joined 2026-10-14).
 #
-#   tools/deploy-live-routes.sh              # build, bake, rsync, verify
-#   tools/deploy-live-routes.sh --no-build   # redeploy the existing bundle
-#   tools/deploy-live-routes.sh --no-verify  # skip the headless-Chrome pass
+#   tools/deploy-site-routes.sh              # build, bake, copy, verify
+#   tools/deploy-site-routes.sh --no-build   # redeploy the existing bundle
+#   tools/deploy-site-routes.sh --no-verify  # skip the headless-Chrome pass
 #
-# The sandbox's Caddy (see ~/Caddyfile) serves ~/code/.routes/static/<name>/
-# at https://<host>/routes/<name>/ — nginx fronts it on port 7681 and the
-# Cloudflare tunnel points at that port, so the deployed page is reachable
-# from any browser that can reach the tunnel hostname. The static tree
-# persists across container rebuilds; no Caddy reload is needed for it.
+# The routes server serves ~/code/.routes/static/<name>/ at
+# /routes/<name>/ on port 7681 (on the host since 2026-10-14:
+# codeportal's server.py; earlier the ccvm sandbox's Caddy behind nginx),
+# and the Cloudflare tunnel points at that port, so the deployed site is
+# reachable from any browser that can reach the tunnel hostname. No
+# server reload is needed for a deploy.
 #
-# Only the page's runtime assets are deployed: the node test harness, the
-# wasm-bindgen .d.ts files and npm packaging metadata stay behind. The page
-# uses only relative URLs and meta-tag CSP, so it is subpath-agnostic.
+# The site is one tree: the lander's pages at the root, and live/ holding
+# popkern live, exactly where the lander's "Try it now" links point
+# (live/ from the root, ../live/ from its sub-pages). Only runtime assets
+# are deployed: the lander's README, generators and CI files, and live's
+# node test harness, wasm-bindgen .d.ts files and npm packaging metadata
+# stay behind. Both use only relative URLs (the lander's 404.html is
+# root-absolute by design), so the site is subpath-agnostic.
 #
 # Daemon variant (phase 6b+): a live popkern-daemon session is wired with a
 # reverse-proxy snippet instead of a static copy — drop
@@ -40,17 +46,20 @@ for arg in "$@"; do
   esac
 done
 
-ROUTE_NAME="${POPKERN_ROUTE_NAME:-popkern-live}"
-# Earlier name of the route (the page was "popkern playground" until
-# 2026-10-03): it keeps answering, as a redirect to the current one.
-LEGACY_ROUTE_NAMES=(popkern-playground)
+ROUTE_NAME="${POPKERN_ROUTE_NAME:-popkern}"
+# Routes popkern live had of its own (popkern-playground until
+# 2026-10-03, popkern-live until 2026-10-14): they keep answering, as
+# redirects to live/ in the site.
+LEGACY_ROUTE_NAMES=(popkern-live popkern-playground)
 ROUTES_DIR="${ROUTES_DIR:-$HOME/code/.routes}"
-DEST="$ROUTES_DIR/static/$ROUTE_NAME"
+SITE="$ROUTES_DIR/static/$ROUTE_NAME"
+DEST="$SITE/live"
 LOCAL_BASE="${POPKERN_ROUTES_BASE:-http://127.0.0.1:7681}"
-URL="$LOCAL_BASE/routes/$ROUTE_NAME"
+SITE_URL="$LOCAL_BASE/routes/$ROUTE_NAME"
+URL="$SITE_URL/live"
 
 if [[ ! -d "$ROUTES_DIR/static" ]]; then
-  echo "no sandbox routes tree at $ROUTES_DIR/static — is this the ccvm sandbox?" >&2
+  echo "no routes tree at $ROUTES_DIR/static" >&2
   exit 1
 fi
 
@@ -78,8 +87,34 @@ fi
 # wasm: a CSS/JS/HTML-only change must land in a new directory too, or
 # the "immutable" tree would change under an unchanged name.
 
-# tar pipe (the sandbox has no rsync) into a fresh tree, then swap it
-# in whole — a half-copied deploy is never what Caddy serves.
+# ---- The lander, at the site root ----
+# Before 2026-10-14 the route was a symlink to a separate popkernlander
+# checkout; the site is a real directory now. (rm on the link itself,
+# never a trailing slash: the checkout it points at is left alone.)
+if [[ -L "$SITE" ]]; then
+  rm "$SITE"
+fi
+mkdir -p "$SITE"
+LANDER_STAGE="$SITE/.lander-stage-$$"
+rm -rf "$LANDER_STAGE"
+mkdir -p "$LANDER_STAGE"
+tar -C web/lander \
+  --exclude './README.md' \
+  --exclude './tools' \
+  --exclude './.github' \
+  --exclude './.gitignore' \
+  --exclude '*.swp' --exclude '*.swo' --exclude '*~' \
+  -cf - . | tar -C "$LANDER_STAGE" -xf -
+# Replace the root's lander entries (never live/ or the stage itself),
+# then move the staged ones in: each entry swaps by rename.
+find "$SITE" -mindepth 1 -maxdepth 1 ! -name live ! -name "$(basename "$LANDER_STAGE")" \
+  -exec rm -rf {} +
+find "$LANDER_STAGE" -mindepth 1 -maxdepth 1 -exec mv -t "$SITE" {} +
+rmdir "$LANDER_STAGE"
+
+# ---- popkern live, under live/ ----
+# tar pipe (no rsync on every host) into a fresh tree, then swap it in
+# whole — a half-copied deploy is never what the server serves.
 mkdir -p "$DEST/v"
 STAGE="$DEST/v/.stage-$$"
 rm -rf "$STAGE"
@@ -118,17 +153,18 @@ find "$DEST" -mindepth 1 -maxdepth 1 ! -name v ! -name index.html ! -name guide.
   -exec rm -rf {} +
 ls -dt "$DEST"/v/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf
 
-# Legacy routes: entry pages that redirect here (meta refresh: the CSP
-# allows no script), and no app of their own, so an old bookmark lands
-# on the current build instead of a stale one.
+# Legacy routes: entry pages that redirect to live/ in the site (meta
+# refresh: the CSP allows no script), and no app of their own, so an old
+# bookmark lands on the current build instead of a stale one.
 for legacy in "${LEGACY_ROUTE_NAMES[@]}"; do
   [[ "$legacy" == "$ROUTE_NAME" ]] && continue
   LEGACY_DEST="$ROUTES_DIR/static/$legacy"
+  [[ -L "$LEGACY_DEST" ]] && rm "$LEGACY_DEST"
   mkdir -p "$LEGACY_DEST"
   find "$LEGACY_DEST" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
   for page in index.html guide.html; do
-    target="../$ROUTE_NAME/"
-    [[ $page == guide.html ]] && target="../$ROUTE_NAME/guide.html"
+    target="../$ROUTE_NAME/live/"
+    [[ $page == guide.html ]] && target="../$ROUTE_NAME/live/guide.html"
     cat > "$LEGACY_DEST/$page" <<HTML
 <!doctype html>
 <html lang="en">
@@ -138,14 +174,14 @@ for legacy in "${LEGACY_ROUTE_NAMES[@]}"; do
 <meta http-equiv="refresh" content="0; url=$target">
 <title>popkern live</title>
 </head>
-<body><p>popkern playground is now <a href="$target">popkern live</a>.</p></body>
+<body><p>popkern live is now part of <a href="$target">popkern.dev</a>.</p></body>
 </html>
 HTML
   done
 done
 
-echo "deployed $STAMP to $VDIR"
-echo "served at $URL/  (and at /routes/$ROUTE_NAME/ on the tunnel hostname)"
+echo "deployed the lander to $SITE and popkern live $STAMP to $VDIR"
+echo "served at $SITE_URL/ and $URL/  (and at /routes/$ROUTE_NAME/ on the tunnel hostname)"
 
 # ---- Served-URL checks: reachable, typed, and self-contained ----
 check() { # path expected-type
@@ -157,6 +193,33 @@ check() { # path expected-type
   fi
   echo "  ok $1 ($type)"
 }
+# The lander: its pages and assets, and its "Try it now" target.
+site_check() { # path expected-type
+  local code type
+  read -r code type < <(curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$SITE_URL/$1")
+  if [[ "$code" != 200 || "$type" != "$2"* ]]; then
+    echo "FAIL $SITE_URL/$1 -> $code $type (wanted 200 $2)" >&2
+    return 1
+  fi
+  echo "  ok site/$1 ($type)"
+}
+site_check "" "text/html"
+site_check "install/" "text/html"
+site_check "blog/" "text/html"
+site_check "assets/css/site.css" "text/css"
+if ! curl -s "$SITE_URL/" | grep -q 'href="live/"'; then
+  echo "FAIL $SITE_URL/ no longer links to live/: the lander and the deploy disagree" >&2
+  exit 1
+fi
+echo "  ok the lander links to live/"
+for legacy in "${LEGACY_ROUTE_NAMES[@]}"; do
+  if ! curl -s "$LOCAL_BASE/routes/$legacy/" | grep -q "url=../$ROUTE_NAME/live/"; then
+    echo "FAIL /routes/$legacy/ does not redirect to the site's live/" >&2
+    exit 1
+  fi
+done
+echo "  ok legacy routes redirect to live/"
+
 check "" "text/html"
 check "guide.html" "text/html"
 check "v/$STAMP/pkg/popkern_live_bg.wasm" "application/wasm"
@@ -179,12 +242,12 @@ echo "  ok root pages point at v/$STAMP"
 # tell browsers to revalidate them. Without Cache-Control: no-cache,
 # heuristic caching (10% of Last-Modified age) showed a days-stale
 # example manifest after a redeploy (2026-09-06). The header lives in
-# ~/Caddyfile's /routes/ handler; fail loudly if this sandbox's server
-# lost it. (Everything under v/ is immutable, so caching it is safe.)
+# the routes server's /routes/ handler; fail loudly if the server lost
+# it. (Everything under v/ is immutable, so caching it is safe.)
 if ! curl -sI "$URL/" | grep -qi '^cache-control: *no-cache'; then
   echo "FAIL $URL/ served without Cache-Control: no-cache —" >&2
   echo "     browsers will cache a stale entry page; add the header to the" >&2
-  echo "     static /routes/ handler in ~/Caddyfile and caddy reload" >&2
+  echo "     routes server's static /routes/ handler" >&2
   exit 1
 fi
 echo "  ok root page (Cache-Control: no-cache)"
