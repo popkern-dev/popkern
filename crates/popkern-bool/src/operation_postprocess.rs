@@ -15,17 +15,22 @@ use crate::error::BoolOperation;
 /// operation — this is purely diagnostic to surface topological problems early.
 /// Catches panics from validation on corrupted topology.
 ///
-/// Debug/the `boolean` trace topic-only (PK-272): `validate_all()` includes the
-/// O(n²) surface-surface self-intersection sweep, and running it on
-/// every release boolean purely to print stderr was measurable
-/// overhead the caller can't act on. The correctness gate for boolean
+/// Only under the `boolean` trace topic (`POPKERN_TRACE=boolean`):
+/// `validate_all()` includes the O(n²) surface-surface self-intersection
+/// sweep, and running it on every boolean purely to print stderr is
+/// overhead no caller can act on. PK-272 took it out of release builds.
+/// Debug-assertion builds (the test profile) kept it until 2026-10-14,
+/// when the six-axis arm build measured 432 s and 16.5 GB resident with
+/// it against 40 s and 0.86 GB without: the sweep runs on rayon's
+/// long-lived workers, and each kept ~1 GB. Test harnesses capture
+/// stderr, so nothing read the output. The correctness gate for boolean
 /// results is `validate::post_check` in `operation.rs`, which runs
 /// unconditionally either way. On the main pipeline this is called
 /// after `run_output_postprocess` (so it describes the served result,
 /// not a transient pre-reconcile state); the no-intersection paths
 /// serve their result directly and log it as-is.
 pub(crate) fn log_validation_issues(result: &BRep, op: BoolOperation) {
-    if !(cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean")) {
+    if !popkern_core::trace::trace_enabled("boolean") {
         return;
     }
     let op_name = match op {

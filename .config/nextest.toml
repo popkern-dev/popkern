@@ -30,6 +30,28 @@ test-threads = 12
 # 2026-08-16 Graeme chose per-push coverage over the saved minutes,
 # so the carve-out and the nightly kp20-battery job were removed.
 
+# Tests that build the whole six-axis arm (or a full cycloidal joint
+# module, or every gallery script) are the suite's heaviest: each
+# drives rayon's full pool for a minute or more. On 2026-10-14 each
+# held 13.5-16.5 GB (a debug-only validate_all after every boolean,
+# since gated to POPKERN_TRACE=boolean; arm_build_memory gates the
+# peak now), and an arm-filtered sweep ran nine at once (~125 GB),
+# exhausted RAM and swap and hung the host for 3.5 h. Containment for
+# the next such regression: at most two run concurrently; everything
+# else still uses the 12 threads around them.
+[[profile.default.overrides]]
+filter = """
+    binary(/^six_axis_arm/)
+    | binary(arm_build_memory)
+    | binary(arm_target_posing)
+    | binary(cycloidal_joint)
+    | (package(popkern-cli) & binary(gallery))
+"""
+test-group = "whole-arm"
+
+[test-groups]
+whole-arm = { max-threads = 2 }
+
 [profile.ci]
 # CI wants the complete failure picture in one run.
 fail-fast = false
