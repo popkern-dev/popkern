@@ -279,7 +279,7 @@ section { padding-block: clamp(64px, 9vw, 116px); }
 
 .hero-art { position: relative; display: grid; place-items: center; min-height: 300px; }
 .hero-art img {
-  width: 100%; max-width: 520px;
+  width: 100%; height: auto; max-width: 620px;
   filter: drop-shadow(0 34px 60px rgba(0, 0, 0, .5));
 }
 @media (prefers-color-scheme: light) {
@@ -400,14 +400,16 @@ p code, li code, td code {
   display: flex; flex-direction: column; height: 100%;
 }
 .shot-img {
-  aspect-ratio: 4 / 3; display: grid; place-items: center;
+  position: relative; aspect-ratio: 4 / 3;
   overflow: hidden; min-height: 0;
   background:
     radial-gradient(70% 70% at 50% 42%, color-mix(in srgb, var(--brand) 12%, transparent), transparent 72%),
     var(--bg-soft);
   border-radius: var(--radius-sm); padding: 14px; margin-bottom: 15px;
 }
-.shot-img img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+/* Pinned to the padded box: a percentage max-height inside an auto grid
+   row has nothing to resolve against, so a tall render overflowed. */
+.shot-img img { position: absolute; inset: 14px; width: calc(100% - 28px); height: calc(100% - 28px); object-fit: contain; }
 .shot figcaption { font-size: .88rem; color: var(--text-dim); }
 .shot figcaption b { display: block; color: var(--text); font-weight: 560; margin-bottom: 3px; font-size: .93rem; }
 

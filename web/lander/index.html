@@ -30,7 +30,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="assets/css/site.css?v=4ed66eee">
+<link rel="stylesheet" href="assets/css/site.css?v=f511bd3d">
 </head>
 <body>
 
@@ -94,8 +94,9 @@
     </div>
 
     <figure class="hero-art">
-      <img src="assets/img/torus-boolean.png?v=587cf372" width="674" height="540"
-           alt="Two interlocking tori rendered as one solid, the result of a boolean intersection between two torus bodies.">
+      <img src="assets/img/six-axis-arm.png?v=592ca7e6" width="1400" height="1200"
+           alt="A six-axis robot arm: a white base and shoulder, grey tube links, finned cycloidal joint housings at every axis, and an orange-jawed gripper on the tool flange.">
+      <figcaption>A six-axis arm in popkern live: 1,326 features, 57 parts</figcaption>
     </figure>
   </div>
 </section>
@@ -106,41 +107,43 @@
     <div class="section-head">
       <h2>Made with popkern</h2>
       <p>
-        Every one of these comes straight out of the test suite, and had to
-        pass validation, a watertight mesh check, and a STEP round-trip to get
-        here. The colors show which faces each operation made.
+        Every one of these is an example in popkern live, rendered there:
+        open one and the same script builds the same model in your browser.
+        Each had to serve watertight to ship. The colors are the page's own
+        views: a part's own finish, one color per part, or zebra stripes
+        that show how smoothly surfaces meet.
       </p>
     </div>
 
     <div class="gallery">
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/fillet-corners.png?v=9dc993cb" alt="A cube with every edge filleted; the fillet strips are blue and the corner patches green." loading="lazy" width="481" height="485"></div>
-        <figcaption><b>Every edge rounded</b>The green bits are the hard part: smooth corners where three fillets meet.</figcaption>
+        <div class="shot-img"><img src="assets/img/cycloidal-joints.png?v=12725cf0" alt="Three cycloidal joint modules of decreasing size, each a finned grey housing with a blue output flange." loading="lazy" width="900" height="668"></div>
+        <figcaption><b>Cycloidal joints</b>The arm's three joint sizes, each a motor driving a cycloidal reducer: discs, ring pins, output pins and a cross-roller bearing.</figcaption>
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/boolean-bores.png?v=b5229ed8" alt="A cube penetrated by three cylindrical bores on different axes." loading="lazy" width="351" height="303"></div>
-        <figcaption><b>Three holes, three axes</b>Drilled through from every side, meeting in the middle.</figcaption>
+        <div class="shot-img"><img src="assets/img/planetary-gearbox.png?v=d53933f9" alt="A planetary gear set seen from above: an orange ring gear, green planets, a blue sun and a purple carrier." loading="lazy" width="900" height="784"></div>
+        <figcaption><b>Planetary gearbox</b>A 4:1 set as an assembly, one color per part. Every involute tooth is computed in the script.</figcaption>
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/flagship-part.png?v=c2d239e6" alt="A plate with a cylindrical boss and a filleted edge chain running along one side." loading="lazy" width="754" height="469"></div>
-        <figcaption><b>Boss plate</b>A plate, a boss, and a fillet chain running around the rim.</figcaption>
+        <div class="shot-img"><img src="assets/img/fastener-kit.png?v=a7d31b74" alt="A hex bolt and its nut, a socket-head cap screw and a countersunk screw, each in its own color, all with modeled threads." loading="lazy" width="900" height="762"></div>
+        <figcaption><b>Real threads</b>An M6 bolt and nut, a cap screw and a countersunk screw: modeled ISO threads, not textures.</figcaption>
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/fillet-inside.png?v=3bbecbd9" alt="Looking down into an open box whose interior edges carry blue fillets." loading="lazy" width="595" height="582"></div>
-        <figcaption><b>Fillets on the inside</b>Where the rolling ball runs out of room first.</figcaption>
+        <div class="shot-img"><img src="assets/img/impeller.png?v=db273e83" alt="A centrifugal impeller: seven curved blades inside a round shroud, around a central bore." loading="lazy" width="900" height="743"></div>
+        <figcaption><b>Centrifugal impeller</b>Seven backswept blades carved by one star-shaped cut whose spiral walls the script computes.</figcaption>
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/shelled-torus.png?v=af2865be" alt="A torus hollowed out with an opening cut through its top surface." loading="lazy" width="516" height="330"></div>
-        <figcaption><b>Hollow donut</b>A torus shelled to a wall thickness and opened up on top.</figcaption>
+        <div class="shot-img"><img src="assets/img/zebra-corner.png?v=65353874" alt="A rounded block corner in black and white zebra stripes that bend smoothly through the corner." loading="lazy" width="900" height="893"></div>
+        <figcaption><b>Smooth where rounds meet</b>Three different radii closing on one corner, in zebra view: the stripes flow through unbroken, certified curvature-continuous.</figcaption>
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/smooth-mesh.png?v=5621da6e" alt="A smoothly rounded blob-like solid produced by subdividing a truncated corner." loading="lazy" width="397" height="377"></div>
-        <figcaption><b>Smooth all over</b>A subdivision surface over a cut-off corner.</figcaption>
+        <div class="shot-img"><img src="assets/img/coil-springs.png?v=6e11e4bc" alt="Three coil springs: a compression spring, a tapered spring and a left-hand spring." loading="lazy" width="900" height="1053"></div>
+        <figcaption><b>Three springs, one verb</b>Compression, tapered and left-hand springs, each swept along an exact helix.</figcaption>
       </figure>
     </div>
   </div>

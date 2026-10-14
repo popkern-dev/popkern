@@ -24,11 +24,11 @@ def glow(cx, cy, rx, ry, color, alpha):
 glow(930, 320, 330, 280, TEAL, 0.17)
 # (no amber glow: teal + amber mix to olive)
 
-# Torus cutout (the same render the hero uses).
-torus = Image.open(f"{site}/assets/img/torus-boolean.png").convert("RGBA")
-tw = 470
-torus = torus.resize((tw * SS, int(torus.height * tw / torus.width) * SS), Image.LANCZOS)
-img.paste(torus, ((W - tw - 40) * SS, (H - torus.height // SS) // 2 * SS - 20 * SS), torus)
+# The six-axis arm cutout (the same popkern live render the hero uses).
+hero = Image.open(f"{site}/assets/img/six-axis-arm.png").convert("RGBA")
+tw = 500
+hero = hero.resize((tw * SS, int(hero.height * tw / hero.width) * SS), Image.LANCZOS)
+img.paste(hero, ((W - tw - 30) * SS, (H - hero.height // SS) // 2 * SS - 30 * SS), hero)
 
 d = ImageDraw.Draw(img)
 

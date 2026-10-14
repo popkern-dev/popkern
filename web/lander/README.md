@@ -81,23 +81,26 @@ The `live/` links 404 there; the deployed site has them.
 
 ## Where the images come from
 
-The gallery images are the kernel's own debug renders from
-`popkern/examples/output/`, run through a small script that keys out the flat
-grey background, crops to the subject, and rescales. The originals are produced
-by `popkern-viz`'s headless CPU renderer as part of the example runs, so the
-colours mean something: they mark face provenance, not decoration.
+The hero and gallery images are popkern live's own renders of its gallery
+examples, so each one is a model anyone can open on the live page.
+`tools/render-gallery.mjs` opens every example in `tools/gallery-jobs.json`
+pre-built in headless Chrome, sets its view (Shade and Color, as on the page)
+and camera, hides every card so only the transparent canvas is left, and
+screenshots it at 2x. `tools/cutout.py` crops each to its subject and
+downscales it (1400 px wide for the hero, 900 for the gallery) into
+`assets/img/`. Then run `tools/stamp-assets.py` for fresh `?v=` hashes.
 
-Two of them (`torus-boolean`, `shelled-torus`) were lilac in the source render
-and got re-hued to the site blue. Only saturated pixels move, so the grey
-bodies and the thin construction lines are untouched.
+```sh
+tools/build-live.sh --web && tools/bake-live.sh          # repo root
+node web/lander/tools/render-gallery.mjs /tmp/renders "$POPKERN_CHROME"
+python3 web/lander/tools/cutout.py /tmp/renders/arm.png web/lander/assets/img/six-axis-arm.png 1400
+```
 
-To refresh or swap one, re-run the cutout step against a different render. The
-transform is: sample the modal corner colour, alpha out anything within ~26 of
-it with a 14-wide soft ramp, crop to the alpha bbox with 8px padding, cap width
-at 1100px.
+The colors mean what they mean on the page: a part's own finish (CAD), one
+color per part (Parts), or zebra reflection lines across surface seams.
 
 `assets/img/og.png` (1200x630 social card) is generated, not hand-drawn, by
-`tools/make-og.py`: the torus cutout over a teal glow, the brand mark with its
+`tools/make-og.py`: the six-axis arm cutout over a teal glow, the brand mark with its
 amber arc, and the homepage tagline. It needs Pillow plus the Inter and
 JetBrains Mono TTFs (from their GitHub releases):
 

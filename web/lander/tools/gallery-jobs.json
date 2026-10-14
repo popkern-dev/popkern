@@ -1,0 +1,63 @@
+[
+ {
+  "name": "arm",
+  "out": "six-axis-arm",
+  "width": 1400,
+  "file": "six_axis_arm.rhai",
+  "theta": 2.3,
+  "phi": 1.2,
+  "settle": 3000
+ },
+ {
+  "name": "cyclo",
+  "out": "cycloidal-joints",
+  "width": 900,
+  "file": "cycloidal_joint.rhai",
+  "theta": 0.9,
+  "phi": 0.95,
+  "settle": 2500
+ },
+ {
+  "name": "planet",
+  "out": "planetary-gearbox",
+  "width": 900,
+  "file": "planetary_gearbox.rhai",
+  "color": "parts",
+  "theta": 0.6,
+  "phi": 0.75
+ },
+ {
+  "name": "fasteners",
+  "out": "fastener-kit",
+  "width": 900,
+  "file": "fastener_kit.rhai",
+  "color": "parts",
+  "theta": 0.5,
+  "phi": 1.05
+ },
+ {
+  "name": "impeller",
+  "out": "impeller",
+  "width": 900,
+  "file": "centrifugal_impeller.rhai",
+  "theta": 0.6,
+  "phi": 0.8
+ },
+ {
+  "name": "zebra",
+  "out": "zebra-corner",
+  "width": 900,
+  "file": "mixed_radius_corner.rhai",
+  "shade": "zebra",
+  "live": true,
+  "settle": 2500
+ },
+ {
+  "name": "springs",
+  "out": "coil-springs",
+  "width": 900,
+  "file": "coil_spring.rhai",
+  "theta": 0.4,
+  "phi": 1.2
+ }
+]
