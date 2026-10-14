@@ -229,6 +229,14 @@ impl<'a> OppositeAabbs<'a> {
         }
     }
 
+    /// The box of the whole operand OPPOSITE `operand` (the union of
+    /// its face boxes); `None` when it has no boxed face.
+    pub(super) fn body_box(&self, operand: super::super::graph::Operand) -> Option<Aabb> {
+        let (_, boxes) = self.opposite(operand);
+        let corners: Vec<Point3> = boxes.iter().flat_map(|(_, b)| [b.min, b.max]).collect();
+        Aabb::from_points(&corners)
+    }
+
     /// The solid and AABBs OPPOSITE the given face's operand — the
     /// membership target for a face-piece of `operand` (an A-face is
     /// tested against B, a B-face against A).

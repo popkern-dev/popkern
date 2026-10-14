@@ -339,6 +339,9 @@ fn point_in_solid_impl(
     tolerance: &Tolerance,
     skip_hole_hits: bool,
 ) -> Result<(PointClassification, bool), BoolError> {
+    if crate::face_box::outside_closed_body(point, solid, face_aabbs, tolerance) {
+        return Ok((PointClassification::Outside, false));
+    }
     let mut inside_votes = 0u32;
     let mut outside_votes = 0u32;
 

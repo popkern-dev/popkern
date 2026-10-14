@@ -247,3 +247,45 @@ pub(crate) fn conic_arc_extent(
         }
     }
 }
+
+/// `point` lies outside a CLOSED solid's body box (the union of its
+/// face boxes) by more than 100× the linear tolerance — so it is
+/// outside the solid, and every ray from it crosses the boundary an
+/// even number of times. Ray classification of such points cost
+/// ~100 µs per ray against a 255-face body, for a verdict the boxes
+/// already decide (PK-802: a slot tool's fragments above a slotted
+/// disc). Open bodies (a free half-edge) keep the rays: a sheet's
+/// parity from outside its box can be odd.
+pub(crate) fn outside_closed_body(
+    point: &popkern_core::geometry::Point3,
+    solid: &BRep,
+    face_aabbs: &[(FaceHandle, Aabb)],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    let pad = 100.0 * tolerance.linear();
+    let probe = Aabb {
+        min: *point,
+        max: *point,
+    };
+    if face_aabbs.is_empty() || face_aabbs.iter().any(|(_, b)| b.overlaps(&probe, pad)) {
+        return false;
+    }
+    let mut lo = [f64::INFINITY; 3];
+    let mut hi = [f64::NEG_INFINITY; 3];
+    for (_, b) in face_aabbs {
+        for (i, (l, h)) in [(b.min.x, b.max.x), (b.min.y, b.max.y), (b.min.z, b.max.z)]
+            .into_iter()
+            .enumerate()
+        {
+            lo[i] = lo[i].min(l);
+            hi[i] = hi[i].max(h);
+        }
+    }
+    let p = [point.x, point.y, point.z];
+    let outside = (0..3).any(|i| p[i] < lo[i] - pad || p[i] > hi[i] + pad);
+    // Every face must be boxed, and the shell closed, for the body box
+    // to bound the solid.
+    outside
+        && face_aabbs.len() == solid.faces.len()
+        && solid.half_edges.iter().all(|(h, he)| he.twin != h)
+}

@@ -119,6 +119,22 @@ pub(crate) struct IntersectionGraph {
     /// favour, so the chart treats them as that face's seam copies
     /// (PK-750; see `graph_duplicates`).
     pub seam_substitutes: std::collections::BTreeSet<(FaceRef, usize)>,
+    /// Node indices keyed by their x coordinate (order-preserving bit
+    /// key), so `find_node` scans a slab instead of every node: graph
+    /// build looked up every operand vertex against every node before
+    /// it, quadratic in body size (PK-802). Positions are never moved
+    /// after `add_node`.
+    node_index: BTreeMap<u64, Vec<usize>>,
+}
+
+/// Order-preserving key of an `f64` (total order: −0 < +0, NaN last).
+fn order_key(x: f64) -> u64 {
+    let bits = x.to_bits();
+    if bits >> 63 == 1 {
+        !bits
+    } else {
+        bits | (1 << 63)
+    }
 }
 
 impl IntersectionGraph {
@@ -129,6 +145,7 @@ impl IntersectionGraph {
             half_edges: Vec::new(),
             face_edges: BTreeMap::new(),
             seam_substitutes: std::collections::BTreeSet::new(),
+            node_index: BTreeMap::new(),
         }
     }
 
@@ -136,6 +153,10 @@ impl IntersectionGraph {
     /// Returns the index of the new node.
     pub fn add_node(&mut self, position: Point3, source: NodeSource) -> usize {
         let idx = self.nodes.len();
+        self.node_index
+            .entry(order_key(position.x))
+            .or_default()
+            .push(idx);
         self.nodes.push(GraphNode {
             position,
             uv_coords: HashMap::new(),
@@ -212,17 +233,38 @@ impl IntersectionGraph {
     pub fn find_node(&self, position: &Point3, tolerance: f64) -> Option<usize> {
         let threshold_sq = tolerance * tolerance;
         let p = (position.x, position.y, position.z);
-        self.nodes
-            .iter()
-            .enumerate()
-            .find(|(_, n)| {
+        // The slab is widened past the predicate's reach (relative
+        // and absolute slack), so every node the exact distance test
+        // accepts is in it; the lowest accepted index is the linear
+        // scan's answer.
+        let reach = tolerance.abs() * (1.0 + 1e-6) + position.x.abs() * 1e-12 + 1e-300;
+        let (lo, hi) = (order_key(position.x - reach), order_key(position.x + reach));
+        if !(lo <= hi) || !tolerance.is_finite() {
+            return self.find_node_linear(p, threshold_sq);
+        }
+        self.node_index
+            .range(lo..=hi)
+            .flat_map(|(_, ids)| ids.iter().copied())
+            .filter(|&i| {
+                let n = &self.nodes[i];
                 popkern_core::adaptive_precision::adaptive_dist_sq_lt(
                     (n.position.x, n.position.y, n.position.z),
                     p,
                     threshold_sq,
                 )
             })
-            .map(|(i, _)| i)
+            .min()
+    }
+
+    /// `find_node` by scanning every node (non-finite queries).
+    fn find_node_linear(&self, p: (f64, f64, f64), threshold_sq: f64) -> Option<usize> {
+        self.nodes.iter().position(|n| {
+            popkern_core::adaptive_precision::adaptive_dist_sq_lt(
+                (n.position.x, n.position.y, n.position.z),
+                p,
+                threshold_sq,
+            )
+        })
     }
 
     /// Assign a face to a half-edge and update the `face_edges` index.
@@ -327,6 +369,38 @@ mod tests {
         // Outgoing lists
         assert!(g.nodes[n0].outgoing.contains(&fwd));
         assert!(g.nodes[n1].outgoing.contains(&twin));
+    }
+
+    /// The x-slab index answers exactly as the linear scan (lowest
+    /// accepted index), including clustered, signed-zero and
+    /// tolerance-edge queries.
+    #[test]
+    fn find_node_index_matches_linear_scan() {
+        let mut g = IntersectionGraph::new();
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for i in 0..400 {
+            // Clusters within 1e-6 of each other and of ±0.
+            let c = (i % 7) as f64 - 3.0;
+            let p = Point3::new(c * 1e-7 * next(), c + next(), 2.0 * next());
+            g.add_node(p, NodeSource::Intersection);
+            if i % 5 == 0 {
+                g.add_node(Point3::new(-0.0, p.y, p.z), NodeSource::Intersection);
+            }
+        }
+        let positions: Vec<Point3> = g.nodes.iter().map(|n| n.position).collect();
+        for (k, p) in positions.iter().enumerate() {
+            for tol in [0.0, 1e-9, 1e-6, 1e-3, 0.3, 5.0] {
+                let q = Point3::new(p.x + tol * 0.999 * (k % 3) as f64 - tol, p.y, p.z);
+                let linear = g.find_node_linear((q.x, q.y, q.z), tol * tol);
+                assert_eq!(g.find_node(&q, tol), linear, "query {q:?} tol {tol}");
+            }
+        }
     }
 
     #[test]

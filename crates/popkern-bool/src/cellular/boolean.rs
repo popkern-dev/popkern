@@ -50,8 +50,8 @@ pub(crate) fn cellular_graph_merge(
     let mut graph = IntersectionGraph::new();
 
     // Insert original topology from both operands.
-    let (_vmap_a, _hemap_a) = insert_operand_topology(&mut graph, original_a, Operand::A, snap_tol);
-    let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
+    let (_vmap_a, hemap_a) = insert_operand_topology(&mut graph, original_a, Operand::A, snap_tol);
+    let (_vmap_b, hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
     // Process edge-face hits.
     if popkern_core::trace::trace_enabled("boolean") {
@@ -184,6 +184,10 @@ pub(crate) fn cellular_graph_merge(
         true,
         &overlap_pairs,
         &mut walk_fallbacks,
+        Some(&crate::merge::walk::OperandHalfEdgeMaps {
+            a: &hemap_a,
+            b: &hemap_b,
+        }),
         tolerance,
     );
 

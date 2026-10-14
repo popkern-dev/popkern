@@ -254,9 +254,13 @@ fn torus_carrying_cylinder_union_within_budget() {
 /// 3.76-3.81 interleaved (slot 0 ~20 ms, slot 63 74-78 ms); with either
 /// contour prescreen off 6.9-7.6 on a quiet machine. Heavy contention
 /// compresses the ratio (a control read 4.06 at load 30), so the gate
-/// sits at 4.6: it can pass under load, never fail because of it.
-/// The rest of the growth is attributed in PK-743's follow-ups (the
-/// walk's untouched faces, naming lineage, post-validation passes).
+/// sat at 4.6: it can pass under load, never fail because of it.
+/// PK-802 then took the walk off untouched faces (identity fragments),
+/// off a cap's far slot holes (peeled holes), the quadratic node
+/// lookup out of graph build, and rays out of points beyond the
+/// closed body's box: 2.97-3.05 (slot 0 ~9.9 ms, slot 63 ~30 ms), gate
+/// 3.6. The rest is the serve postprocess and post-check over the
+/// whole body (PK-804) and naming lineage (PK-803).
 #[test]
 fn slotted_disc_late_cut_stays_near_the_first() {
     if debug_skip("64-slot disc, slot 63 vs slot 0") {
@@ -294,10 +298,10 @@ fn slotted_disc_late_cut_stays_near_the_first() {
     }
     let ratio = last.as_secs_f64() / first.as_secs_f64().max(1e-9);
     eprintln!(
-        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 4.6)"
+        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 3.6)"
     );
     assert!(
-        ratio <= 4.6,
-        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 4.6"
+        ratio <= 3.6,
+        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 3.6"
     );
 }
