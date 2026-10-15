@@ -92,6 +92,9 @@
 .tree-eye { border: 0; background: none; padding: 0; min-height: 0; width: 1.3rem; height: 1.3rem; color: var(--muted); }
 .tree-eye:hover { background: none; color: var(--text); }
 .tree-eye .icon { width: 0.9rem; height: 0.9rem; }
+.tree-cut { border: 0; background: none; padding: 0; min-height: 0; width: 1.3rem; height: 1.3rem; color: var(--muted); }
+.tree-cut:hover { background: none; color: var(--text); }
+.tree-cut .icon { width: 0.85rem; height: 0.85rem; }
 .tree-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; flex: none; background: var(--muted); }
 .tree-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; }
 .tree-kind { color: var(--muted); font-size: 0.92em; overflow: hidden; text-overflow: ellipsis; flex: 1; }

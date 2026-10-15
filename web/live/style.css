@@ -125,6 +125,11 @@ body.busy #cancel { color: var(--bad); border-color: rgba(240, 112, 122, 0.5); }
 .menu-range { margin: 0 0.45rem 0.3rem; }
 .view-menu { min-width: 14rem; }
 .view-menu input[type="range"] { width: 7.5rem; }
+.section-tools { display: flex; flex-direction: column; gap: 0.2rem; padding: 0 0.45rem 0.3rem; }
+.section-planes, .section-buttons { display: flex; gap: 0.3rem; }
+.section-planes button, .section-buttons button { min-height: 1.6rem; padding: 0 0.55rem; font-size: 0.85em; }
+.section-planes button[aria-pressed="true"] { border-color: var(--accent, #3b82f6); color: var(--text); }
+.section-tools .menu-field { padding-left: 0; padding-right: 0; }
 
 /* Workbench: script | model | inspector over the history dock */
 .workbench {

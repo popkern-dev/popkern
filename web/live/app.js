@@ -71,6 +71,8 @@ class Page {
     this.assembly = new AssemblyPanel({
       select: (path) => this.viewer.select(path),
       visible: (path, visible) => this.viewer.setVisible(path, visible),
+      cut: (path) => !this.viewer.section.exclude.has(path),
+      setCut: (path, cut) => this.viewer.section.setExcluded(path, !cut),
       open: (part) => {
         this.renderInspector();
         this.scrubber.scopePart(part);

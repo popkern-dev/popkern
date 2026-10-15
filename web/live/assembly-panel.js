@@ -11,7 +11,8 @@ import { paletteCss } from "./shading.js";
 const $ = (id) => document.getElementById(id);
 
 export class AssemblyPanel {
-  /** `on.select(path)`, `on.visible(path, visible)`, `on.open(partName | null)`. */
+  /** `on.select(path)`, `on.visible(path, visible)`, `on.open(partName | null)`,
+   *  `on.cut(path)` (is the occurrence sectioned?) and `on.setCut(path, cut)`. */
   constructor(on) {
     this.on = on;
     this.view = null;
@@ -73,7 +74,18 @@ export class AssemblyPanel {
       const kind = document.createElement("span");
       kind.className = "tree-kind";
       kind.textContent = definition ? definition.name : "?";
-      row.append(eye, dot, name, kind);
+      // While a section is shown: keep this occurrence whole (a screw
+      // inside a sectioned housing).
+      const cut = document.createElement("button");
+      cut.type = "button";
+      cut.className = "tree-cut";
+      cut.hidden = !this.sectionShown;
+      cut.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.on.setCut?.(instance.path, !(this.on.cut?.(instance.path) ?? true));
+        this.paint();
+      });
+      row.append(eye, cut, dot, name, kind);
       if (definition?.kind === "part") {
         const open = document.createElement("button");
         open.type = "button";
@@ -126,6 +138,12 @@ export class AssemblyPanel {
     $("assembly-open-name").textContent = partName ?? "";
   }
 
+  /** Show the per-occurrence section toggles while a section is shown. */
+  paintSection(shown) {
+    this.sectionShown = shown;
+    this.paint();
+  }
+
   paint() {
     for (const row of $("assembly-tree").children) {
       const path = row.dataset.path;
@@ -136,6 +154,13 @@ export class AssemblyPanel {
       eye.innerHTML = iconSvg(own ? "eye" : "eye-off");
       eye.setAttribute("aria-pressed", String(own));
       eye.setAttribute("aria-label", `${own ? "Hide" : "Show"} ${path}`);
+      const cut = row.querySelector(".tree-cut");
+      const sectioned = this.on.cut?.(path) ?? true;
+      cut.hidden = !this.sectionShown;
+      cut.innerHTML = iconSvg(sectioned ? "section" : "section-off");
+      cut.setAttribute("aria-pressed", String(sectioned));
+      cut.title = sectioned ? "Sectioned: click to keep it whole" : "Kept whole: click to section it";
+      cut.setAttribute("aria-label", `${sectioned ? "Keep whole" : "Section"} ${path}`);
     }
   }
 }

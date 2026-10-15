@@ -3,6 +3,7 @@
 // controls are wired in projects-dialog.js), open STEP (a button in
 // the projects dialog), the view options (fit, edges, section,
 // explode), clearance, the draft notice and the dialogs. The menus, view modes and tabs are layout.js.
+import { wireSection } from "./section-controls.js";
 import { dismissDraft, restoreDraft } from "./drafts.js";
 import { downloadModel, showModelCode } from "./exports.js";
 import { wireLayout } from "./layout.js";
@@ -23,12 +24,7 @@ export function wireControls(page) {
   wireLayout(page);
   $("edges").addEventListener("change", (e) => page.viewer.toggleEdges(e.target.checked));
   $("explode").addEventListener("input", (e) => page.viewer.setExplode(Number(e.target.value)));
-  $("section-axis").addEventListener("change", (e) => {
-    const axis = e.target.value || null;
-    $("section-at").hidden = !axis;
-    page.viewer.section.set(axis, Number($("section-at").value));
-  });
-  $("section-at").addEventListener("input", (e) => page.viewer.section.move(Number(e.target.value)));
+  wireSection(page);
   $("clearance-check").addEventListener("click", () => page.checkClearance());
   $("open-step").addEventListener("click", () => {
     $("projects-dialog").hidden = true;

@@ -161,7 +161,7 @@ export class Viewer {
       if (sheet) mesh.material.side = THREE.FrontSide;
       const ghost = ghosts?.has(draw.index) ?? false;
       if (ghost) Object.assign(mesh.material, { transparent: true, opacity: GHOST_OPACITY, depthWrite: false });
-      mesh.userData = { body: bodies[draw.index], faceIds, index: draw.index, instance: draw.instance, sheet };
+      mesh.userData = { body: bodies[draw.index], faceIds, index: draw.index, instance: draw.instance, sheet, ghost };
       if (draw.matrix) placeAt(mesh, draw.matrix);
       mesh.userData.base = mesh.matrix.clone();
       mesh.visible = draw.visible;
@@ -245,6 +245,7 @@ export class Viewer {
     }
     this.group.updateMatrixWorld(true);
     if (this.highlight && this.hovered) this.setHover(null);
+    if (this.section.active) this.section.update();
     this.render();
   }
 
@@ -255,6 +256,7 @@ export class Viewer {
       if (instance === path || instance?.startsWith(`${path}/`)) object.visible = visible;
     }
     if (this.hovered && !this.hovered.mesh.visible) this.setHover(null);
+    if (this.section.active) this.section.apply();
     this.render();
   }
 
@@ -407,7 +409,9 @@ export class Viewer {
     const rect = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
-    const faceHit = this.raycaster.intersectObjects(this.bodies.filter((m) => m.visible), false)[0];
+    // The section removes what it clips: a hit there is not on screen.
+    const shown = (hit, mesh) => !this.section.active || this.section.excluded(mesh) || this.section.keepsPoint(hit.point.toArray());
+    const faceHit = this.raycaster.intersectObjects(this.bodies.filter((m) => m.visible), false).find((h) => shown(h, h.object));
     // World size of the pixel slack at the depth of the hit (or of the
     // orbit target when the ray misses every face).
     const depth = faceHit ? faceHit.distance : this.camera.position.distanceTo(this.orbit.target);
@@ -415,7 +419,9 @@ export class Viewer {
     const slack = EDGE_PICK_PX * perPixel;
     this.raycaster.params.Line.threshold = slack;
     const lines = this.edgeLines.filter((l) => l.visible);
-    const edgeHit = lines.length ? this.raycaster.intersectObjects(lines, false)[0] : null;
+    const edgeHit = lines.length
+      ? this.raycaster.intersectObjects(lines, false).find((h) => shown(h, this.bodies.find((m) => m.userData.lines === h.object) ?? h.object))
+      : null;
     if (edgeHit && (!faceHit || edgeHit.distance <= faceHit.distance + 2 * slack)) {
       const { edges } = edgeHit.object.userData;
       const edge = edges.segmentEdge[Math.floor(edgeHit.index / 2)];
@@ -424,7 +430,9 @@ export class Viewer {
     }
     if (!faceHit) return null;
     const face = faceHit.object.userData.faceIds[faceHit.faceIndex];
-    return { kind: "face", mesh: faceHit.object, face, point: faceHit.point.toArray() };
+    // The hit triangle's world normal (the section's "on a face" preset).
+    const normal = faceHit.face ? faceHit.face.normal.clone().transformDirection(faceHit.object.matrixWorld).toArray() : null;
+    return { kind: "face", mesh: faceHit.object, face, point: faceHit.point.toArray(), normal };
   }
 
   /** Pre-highlight the hovered face or edge (null clears it). */
@@ -484,6 +492,7 @@ export class Viewer {
         polygonOffsetFactor: HOVER_OFFSET,
         polygonOffsetUnits: HOVER_OFFSET,
       });
+      this.section.clipMaterial(material);
       const glow = new THREE.Mesh(geometry, material);
       if (mesh.userData.sheet) glow.renderOrder = 10;
       if (!mesh.matrixAutoUpdate) placeAt(glow, mesh.matrix);
@@ -523,6 +532,7 @@ export class Viewer {
       polygonOffsetFactor: HOVER_OFFSET,
       polygonOffsetUnits: HOVER_OFFSET,
     });
+    this.section.clipMaterial(material);
     const highlight = new THREE.Mesh(geometry, material);
     if (!mesh.matrixAutoUpdate) placeAt(highlight, mesh.matrix);
     return highlight;
@@ -546,6 +556,14 @@ export class Viewer {
 
   pick(event) {
     const hit = this.hitTest(event.clientX, event.clientY);
+    // A one-shot pick hook (the section's "on a face" preset) takes the
+    // next face click instead of the stable-name readout.
+    if (this.pickHook && hit?.kind === "face") {
+      const hook = this.pickHook;
+      this.pickHook = null;
+      hook(hit);
+      return;
+    }
     if (!hit) {
       this.onPick(null);
       return;
@@ -571,6 +589,8 @@ export class Viewer {
     }
     const viewport = this.highlight?.material.uniforms?.viewport;
     if (viewport) this.renderer.getDrawingBufferSize(viewport.value);
+    for (const line of this.section.overlays()) this.renderer.getDrawingBufferSize(line.material.uniforms.viewport.value);
+    this.section.gizmo.resize();
     this.renderer.render(this.scene, this.camera);
   }
 }

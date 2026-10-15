@@ -113,14 +113,34 @@
           <label class="menu-field menu-check"><input id="edges" type="checkbox" checked> Edges</label>
           <div class="menu-field section" title="Cut the view through the model (view only: the model is not changed)">
             <span>Section</span>
-            <select id="section-axis" aria-label="Section plane axis">
+            <select id="section-axis" aria-label="Section plane">
               <option value="" selected>off</option>
               <option value="x">x</option>
               <option value="y">y</option>
               <option value="z">z</option>
+              <option value="view">facing me</option>
+              <option value="face">on a face…</option>
+              <option value="custom" hidden>tilted</option>
             </select>
           </div>
           <input id="section-at" class="menu-range" type="range" min="0" max="1" step="0.005" value="0.5" aria-label="Section plane position" hidden>
+          <div id="section-tools" class="section-tools" hidden>
+            <div id="section-planes" class="section-planes" role="group" aria-label="Section planes"></div>
+            <div class="section-buttons">
+              <button id="section-flip" type="button" title="Remove the other side of this plane">flip</button>
+              <button id="section-add" type="button" title="Add another plane (up to three)">+ plane</button>
+              <button id="section-remove" type="button" title="Remove this plane">remove</button>
+            </div>
+            <label id="section-combine-row" class="menu-field" hidden title="With several planes: remove beyond any plane, or only the corner where every plane removes">
+              <span>Cut away</span>
+              <select id="section-combine" aria-label="How several planes combine">
+                <option value="any">beyond any plane</option>
+                <option value="all">the corner only</option>
+              </select>
+            </label>
+            <label class="menu-field menu-check"><input id="section-handles" type="checkbox" checked> Handles</label>
+            <p id="section-hint" class="menu-hint" hidden>Click a face to put the plane on it.</p>
+          </div>
           <label id="explode-row" class="menu-field explode" hidden title="Pull the assembly's parts apart (view only)"><span>Explode</span><input id="explode" type="range" min="0" max="1" step="0.01" value="0" aria-label="Explode the assembly"></label>
         </div>
       </div>

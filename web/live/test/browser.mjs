@@ -594,10 +594,23 @@ a`)};
       return buf;
     };
     const visible = viewer.bodies.filter((m) => m.visible).length;
+    const crossed = (viewer, plane) => viewer.bodies.filter((m) => {
+      if (!m.visible) return false;
+      const [lo, hi] = m.userData.body.bounds;
+      const box = new viewer.camera.position.constructor(0, 0, 0);
+      let min = Infinity, max = -Infinity;
+      for (let k = 0; k < 8; k++) {
+        box.set(k & 1 ? hi[0] : lo[0], k & 2 ? hi[1] : lo[1], k & 4 ? hi[2] : lo[2]).applyMatrix4(m.matrixWorld);
+        const d = box.x * plane.normal[0] + box.y * plane.normal[1] + box.z * plane.normal[2];
+        min = Math.min(min, d); max = Math.max(max, d);
+      }
+      return min < plane.offset && plane.offset < max;
+    }).length;
     const result = {
       slider_shown: !document.getElementById("section-at").hidden,
       caps: viewer.section.caps.children.length,
       visible,
+      crossed: crossed(viewer, viewer.section.planes[0]),
       clipped: viewer.bodies.every((m) => (m.material.clippingPlanes ?? []).length === 1),
     };
     // Look at the cut face: from the removed (+x) side.
@@ -626,6 +639,189 @@ a`)};
     select.value = "";
     select.dispatchEvent(new Event("change"));
     result.cleared = viewer.section.caps.children.length === 0 && viewer.bodies.every((m) => !(m.material.clippingPlanes ?? []).length);
+    return result;
+  })()`);
+
+  // The clipping view (docs/architecture/clipping-view.md §9): a tilted
+  // plane clips and caps, flip changes what is drawn, two planes in
+  // "all" remove only their corner, an excluded occurrence stays whole,
+  // the gizmo's arrow drag slides the plane without orbiting, the link
+  // restores the cut, and clear restores every material.
+  out.clipping = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const viewer = page.viewer;
+    const section = viewer.section;
+    const gl = viewer.renderer.getContext();
+    const pixels = () => {
+      viewer.renderer.render(viewer.scene, viewer.camera);
+      const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+      const buf = new Uint8Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      return buf;
+    };
+    const differ = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 3] !== b[i + 3]) n++; return n; };
+    const [lo, hi] = viewer.visibleBounds();
+    const centre = lo.map((v, i) => (v + hi[i]) / 2);
+    const span = Math.hypot(...hi.map((v, i) => v - lo[i]));
+    const housing = viewer.bodies.find((m) => m.userData.instance?.startsWith("housing"));
+    const plain = viewer.bodies.find((m) => m.userData.instance?.startsWith("plain"));
+    const [hlo, hhi] = housing.userData.body.bounds;
+    const hc = hlo.map((v, i) => (v + hhi[i]) / 2);
+    const look = (dir) => {
+      viewer.camera.up.set(0, 0, 1);
+      viewer.camera.position.set(hc[0] + 3 * span * dir[0], hc[1] + 3 * span * dir[1], hc[2] + 3 * span * dir[2]);
+      viewer.camera.lookAt(...hc);
+      viewer.camera.updateMatrixWorld();
+    };
+    const saved = viewer.camera.position.clone();
+    const savedUp = viewer.camera.up.clone();
+    const result = {};
+    // A tilted plane through the housing's centre.
+    const n = [0.6, 0, 0.8];
+    section.setPlanes([{ normal: n, offset: n[0] * hc[0] + n[1] * hc[1] + n[2] * hc[2] }]);
+    const visible = viewer.bodies.filter((m) => m.visible).length;
+    const crossed = (viewer, plane) => viewer.bodies.filter((m) => {
+      if (!m.visible) return false;
+      const [lo, hi] = m.userData.body.bounds;
+      const box = new viewer.camera.position.constructor(0, 0, 0);
+      let min = Infinity, max = -Infinity;
+      for (let k = 0; k < 8; k++) {
+        box.set(k & 1 ? hi[0] : lo[0], k & 2 ? hi[1] : lo[1], k & 4 ? hi[2] : lo[2]).applyMatrix4(m.matrixWorld);
+        const d = box.x * plane.normal[0] + box.y * plane.normal[1] + box.z * plane.normal[2];
+        min = Math.min(min, d); max = Math.max(max, d);
+      }
+      return min < plane.offset && plane.offset < max;
+    }).length;
+    result.tilted = {
+      clipped: viewer.bodies.every((m) => (m.material.clippingPlanes ?? []).length === 1),
+      caps: section.caps.children.length,
+      visible,
+      crossed: crossed(viewer, section.planes[0]),
+      outline_segments: section.describe().outline_segments,
+    };
+    look([0.6, -0.3, 0.8]);
+    const before = pixels();
+    section.flip();
+    const after = pixels();
+    result.flip_pixels = differ(before, after);
+    // Two planes through the housing's axis: x > cx and y > cy.
+    section.setPlanes([
+      { normal: [1, 0, 0], offset: hc[0] },
+      { normal: [0, 1, 0], offset: hc[1] },
+    ], { combine: "any" });
+    const r = (hhi[0] - hlo[0]) / 2;
+    // A surface point in the x > cx, y < cy quadrant: removed by "any",
+    // kept by "all".
+    const probe = [hc[0] + r * Math.SQRT1_2, hc[1] - r * Math.SQRT1_2, hc[2]];
+    look([0.7, -0.7, 0.15]);
+    const screen = (p) => {
+      const v = new viewer.camera.position.constructor(...p).project(viewer.camera);
+      const rect = viewer.canvas.getBoundingClientRect();
+      return [rect.left + ((v.x + 1) / 2) * rect.width, rect.top + ((1 - v.y) / 2) * rect.height];
+    };
+    const hitNear = () => {
+      const [x, y] = screen(probe);
+      const hit = viewer.hitTest(x, y);
+      if (!hit) return false;
+      return Math.hypot(...hit.point.map((c, i) => c - probe[i])) < 0.05 * span;
+    };
+    result.any_keeps_probe = hitNear();
+    section.setCombine("all");
+    result.all_keeps_probe = hitNear();
+    result.all_caps = section.caps.children.length;
+    // Exclude the plain part: no clipping, no caps on it.
+    // Through the plain part's own centre, so the cut crosses it.
+    const [plo, phi] = plain.userData.body.bounds;
+    const pc = new viewer.camera.position.constructor((plo[0] + phi[0]) / 2, (plo[1] + phi[1]) / 2, (plo[2] + phi[2]) / 2).applyMatrix4(plain.matrixWorld);
+    section.setPlanes([{ normal: [1, 0, 0], offset: pc.x }], { combine: "any" });
+    const capsBefore = section.caps.children.length;
+    const crossedBefore = crossed(viewer, section.planes[0]);
+    section.setExcluded(plain.userData.instance, true);
+    result.excluded = {
+      plain_unclipped: !(plain.material.clippingPlanes ?? []).length,
+      housing_clipped: (housing.material.clippingPlanes ?? []).length === 1,
+      caps_before: capsBefore,
+      crossed_before: crossedBefore,
+      caps_after: section.caps.children.length,
+      link: section.describe().link,
+      toggle_shown: document.querySelectorAll(".tree-cut:not([hidden])").length,
+    };
+    section.setExcluded(plain.userData.instance, false);
+    // The gizmo: drag the arrow tip along the normal on screen.
+    look([0.3, -1, 0.4]);
+    viewer.render();
+    const g = section.gizmo;
+    g.group.updateMatrixWorld(true);
+    const tipWorld = g.arrow.children[1].getWorldPosition(new viewer.camera.position.constructor()).toArray();
+    const base = g.group.position.toArray();
+    const [tx, ty] = screen(tipWorld);
+    const [bx, by] = screen(base);
+    const len = Math.hypot(tx - bx, ty - by);
+    const ux = (tx - bx) / len, uy = (ty - by) / len;
+    const offset0 = section.planes[0].offset;
+    const camera0 = viewer.camera.position.toArray();
+    const fire = (type, x, y) => viewer.canvas.dispatchEvent(new PointerEvent(type, { pointerId: 7, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: x, clientY: y, bubbles: true }));
+    fire("pointerdown", tx, ty);
+    const grabbed = !!g.dragging;
+    fire("pointermove", tx + ux * 20, ty + uy * 20);
+    fire("pointermove", tx + ux * 40, ty + uy * 40);
+    fire("pointerup", tx + ux * 40, ty + uy * 40);
+    // 40 px along the arrow is 40 / (pixels per unit) world units.
+    const tipDistance = Math.hypot(...tipWorld.map((c, i) => c - base[i]));
+    const perUnit = len / tipDistance;
+    result.gizmo = {
+      grabbed,
+      moved: section.planes[0].offset - offset0,
+      expected: 40 / perUnit,
+      orbited: viewer.camera.position.toArray().some((c, i) => Math.abs(c - camera0[i]) > 1e-9),
+    };
+    // A plane facing the viewer: the arrow is a dot, so the square
+    // slides it — dragging up pushes it away from the camera.
+    section.setPlanes([]);
+    section.addPlane("view");
+    viewer.render();
+    g.group.updateMatrixWorld(true);
+    const sq = g.group.position.toArray();
+    const [qx, qy] = screen(sq);
+    const camDistance = () => {
+      const p = section.planes[0];
+      const c = viewer.camera.position;
+      return Math.abs(p.normal[0] * c.x + p.normal[1] * c.y + p.normal[2] * c.z - p.offset);
+    };
+    const d0 = camDistance();
+    const fireAt = (type, x, y) => viewer.canvas.dispatchEvent(new PointerEvent(type, { pointerId: 8, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: x, clientY: y, bubbles: true }));
+    // Off-centre on the square, clear of the arrow and the rings' hit tubes.
+    fireAt("pointerdown", qx + 15, qy + 15);
+    const squareGrabbed = !!g.dragging;
+    fireAt("pointermove", qx + 15, qy - 15);
+    fireAt("pointerup", qx + 15, qy - 15);
+    result.facing = { grabbed: squareGrabbed, away: camDistance() - d0 };
+
+    // The link restores the cut.
+    section.setPlanes([{ normal: [0, 0.6, 0.8], offset: 0.1 }, { normal: [1, 0, 0], offset: hc[0] }], { combine: "all" });
+    const link = new URLSearchParams(location.hash.slice(1)).get("section");
+    section.clear();
+    const clearedLink = new URLSearchParams(location.hash.slice(1)).get("section");
+    section.pendingLink = link;
+    section.apply();
+    result.link = {
+      written: link,
+      cleared_link: clearedLink,
+      restored: section.planes.length,
+      combine: section.combine,
+      normal: section.planes[0]?.normal,
+    };
+    // Outline cost on this scene, one plane.
+    section.setPlanes([{ normal: n, offset: n[0] * hc[0] + n[2] * hc[2] }]);
+    const t0 = performance.now();
+    for (let k = 0; k < 10; k++) section.outlineNow();
+    result.outline_ms = (performance.now() - t0) / 10;
+    section.clear();
+    result.cleared = section.caps.children.length === 0 && section.outlines.children.length === 0 &&
+      viewer.bodies.every((m) => !(m.material.clippingPlanes ?? []).length) && !section.gizmo.group.visible;
+    viewer.camera.position.copy(saved);
+    viewer.camera.up.copy(savedUp);
+    viewer.orbit.update();
     return result;
   })()`);
 
