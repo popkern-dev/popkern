@@ -17,9 +17,10 @@ pub struct BlendRepairReport {
     /// (gates the stale-vertex settle — it must not touch bodies the
     /// region machinery never shaped).
     pub region_resolved_trims: usize,
-    /// PK-378: valence-3 corners where all three chamfers met and the
-    /// per-edge cluster was rebuilt as an exact mitre apex.
-    pub trihedral_mitre_corners: usize,
+    /// PK-378/PK-841: corners (valence ≥ 3) where every incident edge
+    /// was chamfered with concurrent planar bevels and the per-edge
+    /// cluster was rebuilt as an exact mitre apex.
+    pub mitre_apex_corners: usize,
     /// Whole-blend support-face seam relocation diagnostics.
     pub support_seam_relocation: SupportSeamRelocationReport,
     /// Straight edge curves reauthored to terminate at their owning topology
