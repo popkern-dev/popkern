@@ -212,13 +212,25 @@ pub(super) fn face_interior_hint(
             c.x /= k;
             c.y /= k;
             c.z /= k;
-            let toward = c - mid_station;
             let candidate = n.cross(&d);
-            let s_sign = if candidate.dot(&toward) >= 0.0 {
-                1.0
-            } else {
-                -1.0
-            };
+            // The face's own trim decides first: a short step off the
+            // midpoint station lands on material on exactly one side.
+            // The centroid is only a proxy for that side, and a wrong
+            // one on a HOLE rim whose midpoint faces away from the
+            // face's middle (the project box lid's x < 0 holes: the
+            // centroid lay across the hole, every station offset INTO
+            // it, and the countersink cone was built inverted, capping
+            // the hole down to a 0.01 pinhole).
+            let s_sign =
+                material_side(brep, face, &surf.geometry, mid_station, candidate, &samples)
+                    .unwrap_or_else(|| {
+                        let toward = c - mid_station;
+                        if candidate.dot(&toward) >= 0.0 {
+                            1.0
+                        } else {
+                            -1.0
+                        }
+                    });
             return Some(InteriorHint::PlanarNewell(n * s_sign));
         }
         return n.cross(&he_dir).normalized().map(InteriorHint::Constant);
@@ -242,6 +254,52 @@ pub(super) fn face_interior_hint(
         cy / n,
         cz / n,
     )))
+}
+
+/// Fractions of the face's boundary-sample extent tried as the step
+/// off an edge station: the largest step that is still decisive wins
+/// over a nearby feature, the smallest resolves a thin face.
+const MATERIAL_STEPS: [f64; 3] = [1e-3, 1e-4, 1e-5];
+
+/// `+1` when a short step from `station` along `candidate` lands
+/// inside `face`'s trim and the opposite step outside, `-1` for the
+/// reverse, `None` when no step size separates the two sides (a step
+/// lands on the boundary, both or neither side is inside, or a point
+/// does not project).
+fn material_side(
+    brep: &popkern_core::topology::BRep,
+    face: popkern_core::topology::FaceHandle,
+    surface: &SurfaceGeometry,
+    station: Point3,
+    candidate: Vec3,
+    samples: &[Point3],
+) -> Option<f64> {
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    use popkern_core::validation::FaceUvContainment;
+    let dir = candidate.normalized()?;
+    let extent = samples
+        .iter()
+        .map(|p| p.distance_to(&station))
+        .fold(0.0_f64, f64::max);
+    let inside = |p: Point3| {
+        let (u, v) = project_point_to_uv(surface, &p)?;
+        brep.face_uv_trim_containment(face, surface, u, v)
+    };
+    for step in MATERIAL_STEPS {
+        let h = step * extent;
+        let ahead = inside(station + dir * h);
+        let behind = inside(station + dir * -h);
+        match (ahead, behind) {
+            (Some(FaceUvContainment::Interior), Some(FaceUvContainment::Outside)) => {
+                return Some(1.0);
+            }
+            (Some(FaceUvContainment::Outside), Some(FaceUvContainment::Interior)) => {
+                return Some(-1.0);
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 pub(super) fn compute_offset_points(
