@@ -21,11 +21,10 @@
 # Output: target/dist/v<version>/{<archives>, SHA256SUMS}. The bucket
 # holds the same tree, plus `latest` (the version install.sh installs by
 # default). Uploading needs wrangler, logged in to the account that owns
-# the popkern-releases bucket.
+# the popkern-releases bucket (tools/dist-publish.sh).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-BUCKET=popkern-releases
 VERSION=$(awk -F'"' '/^version = /{print $2; exit}' crates/popkern-cli/Cargo.toml)
 TARGETS=()
 PAGE_BUILD=1; UPLOAD=0; LATEST=0
@@ -103,16 +102,7 @@ done
 cat "$OUT/SHA256SUMS"
 
 [[ $UPLOAD == 0 ]] && exit 0
-put() { # <key> <file> <content-type> <cache-control>
-  wrangler r2 object put "$BUCKET/$1" --remote --file "$2" \
-    --content-type "$3" --cache-control "$4" >/dev/null
-  echo "uploaded https://dl.popkern.dev/$1"
-}
-for file in "$OUT"/*.tar.gz; do
-  put "v$VERSION/$(basename "$file")" "$file" application/gzip "public, max-age=31536000, immutable"
-done
-put "v$VERSION/SHA256SUMS" "$OUT/SHA256SUMS" "text/plain; charset=utf-8" "public, max-age=31536000, immutable"
-if [[ $LATEST == 1 ]]; then
-  printf '%s\n' "$VERSION" > "$OUT/latest"
-  put latest "$OUT/latest" "text/plain; charset=utf-8" "public, max-age=60"
-fi
+# Merges into the release's SHA256SUMS, so the Windows archives
+# (tools/dist-windows.sh) published from another machine stay listed.
+source tools/dist-publish.sh
+dist_publish_release "$OUT" "$VERSION" "$LATEST" "$OUT"/*.tar.gz

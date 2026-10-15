@@ -66,3 +66,6 @@ target-wt/
 # Built wasm bundle of popkern live (tools/build-live.sh)
 web/live/pkg/
 web/live/bakes/
+
+# wrangler's per-project cache (tools/dist-*.sh --upload run it from the root)
+.wrangler/
