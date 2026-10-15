@@ -5,30 +5,35 @@
 // and the matching flat-head screw shown alongside (PK-460).
 let m = model();
 
-// Wedge: rectangular base, inclined top from z=14 down to z=6.
+// Wedge: rectangular base, inclined top from z=14 down to z=6. The xz
+// sketch plane's normal is -y, so the wedge spans y from -16 to 0 and
+// its mid-width is y = -8 (the holes sat at y = +8, outside the part,
+// and cut nothing while serving).
 let bracket = m.profile(xz())
     .path(0.0, 0.0).line_to(24.0, 0.0).line_to(24.0, 6.0).line_to(0.0, 14.0).close()
     .sketch("wedge")
     .extrude(blind(16.0));
 
 // Tap perpendicular to the inclined face (slope (24, -8) in xz →
-// inward normal (-8, 0, -24)/25.3), printed-fit clearance.
+// inward normal (-8, 0, -24)/|…|, computed exactly: the rounded
+// (-0.316, 0, -0.949) sits 0.013° off the normal), printed-fit clearance.
+let n_len = sqrt(8.0 * 8.0 + 24.0 * 24.0);
 bracket = bracket.tapped_hole(
-    axis_at([12.0, 8.0, 10.0], [-0.316, 0.0, -0.949]),
+    axis_at([12.0, -8.0, 10.0], [-8.0 / n_len, 0.0, -24.0 / n_len]),
     "M6",
     blind(6.0),
     #{ clearance: 0.2, label: "angled_tap" });
 
 // A countersunk clearance hole down through the thick end of the base.
 bracket = bracket.clearance_hole(
-    axis_at([4.0, 8.0, 12.6], [0.0, 0.0, -1.0]),
+    axis_at([4.0, -8.0, 12.6], [0.0, 0.0, -1.0]),
     "M5",
     through_all(),
     #{ countersink: 0.2, label: "flush_hole" });
 
 // The screw that fits it, standing next to the bracket.
 let screw = m.bolt("M5", 12.0, #{ head: "countersunk", thread_length: 7.0, label: "screw" });
-screw = screw.translate(32.0, 8.0, 0.0);
+screw = screw.translate(32.0, -8.0, 0.0);
 
 m.assert_watertight();
 m
