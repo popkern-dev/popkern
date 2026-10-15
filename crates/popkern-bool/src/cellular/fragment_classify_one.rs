@@ -19,6 +19,11 @@ use super::fragment_sample_helpers::{
 };
 use crate::adaptive_precision::robust_point_in_solid_final;
 use crate::error::PointClassification;
+
+/// How near (in fine-probe lengths) the other body's edges a sample must
+/// sit before its offset-pair verdict may be grazing them: the band the
+/// sampler's hazard checks use.
+const GRAZE_BAND_PER_PROBE: f64 = 10.0;
 use crate::merge::graph::{IntersectionGraph, Operand};
 use crate::merge::walk::Fragment;
 
@@ -415,34 +420,25 @@ pub(super) fn sample_and_classify(
                     }
                     (v_plus, v_minus)
                 };
-                // Probe at the tuned offset AND at 16× it: 1 µm
-                // probes graze corner-adjacent faces when the
-                // sample sits on the other body's edge or corner
-                // fold, and the ray parity inverts the verdict
-                // (measured: a flush cutter's flank fragment read
-                // anti-oriented at its corner sample and the
-                // relief-mouth membrane was kept). When the two
-                // scales disagree, a THIRD pair at 4× breaks the
-                // tie by majority: blindly trusting the coarser
-                // scale mis-served coarse-tolerance bodies whose
-                // sample clearance to the other body sits between
-                // the two offsets — at linear 1e-3 the 16× probe
-                // reached 0.09, PAST the sphere face 0.053 away,
-                // and the straddling verdict dropped every cube
-                // annulus (measured: centered-sphere subtraction,
-                // six half-claimed rim edges). All-distinct keeps
-                // the coarse verdict (prior behavior).
-                let (c_plus_f, c_minus_f) = pair_at(eps);
-                let (c_plus, c_minus) = {
-                    let fine = (c_plus_f, c_minus_f);
-                    let coarse = pair_at(probe_eps_coarse);
-                    if fine == coarse {
-                        fine
-                    } else {
-                        let mid = pair_at(probe_eps_coarse.sqrt() * eps.sqrt());
-                        if mid == fine { fine } else { coarse }
-                    }
-                };
+                // The fine/coarse/tie-break ladder, bounded by the
+                // sample's clearance to the other body
+                // (`probe_clearance::ladder_verdict`).
+                let (c_plus, c_minus) = super::probe_clearance::ladder_verdict(
+                    &pair_at,
+                    eps,
+                    probe_eps_coarse,
+                    point_near_any_edge(other_for_edges, &sample, eps * GRAZE_BAND_PER_PROBE),
+                    || {
+                        super::probe_clearance::axis_clearance(
+                            other_brep,
+                            other_aabbs,
+                            &sample,
+                            &n,
+                            probe_eps_coarse * 2.0,
+                            tolerance,
+                        )
+                    },
+                );
                 if popkern_core::trace::trace_enabled("face-selection") {
                     eprintln!(
                         "      [pair] {:?} outer={} n=({:.2},{:.2},{:.2}) calibrated={} eps={eps:.2e} c_plus={c_plus:?} c_minus={c_minus:?}",
