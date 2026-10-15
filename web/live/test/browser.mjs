@@ -797,6 +797,17 @@ a`)};
     fireAt("pointerup", qx + 15, qy - 15);
     result.facing = { grabbed: squareGrabbed, away: camDistance() - d0 };
 
+    // A plane exactly on a face (the housing's top) removes nothing: the
+    // face draws the same pixels as with no cut (it shimmered when its
+    // fragments sat at a distance of ±0 from the clip plane).
+    look([0.4, -0.5, 0.8]);
+    section.setPlanes([]);
+    const uncut = pixels();
+    section.setPlanes([{ normal: [0, 0, 1], offset: hhi[2] }]);
+    section.gizmo.setEnabled(false);
+    result.on_face_pixels = differ(uncut, pixels());
+    section.gizmo.setEnabled(true);
+
     // The link restores the cut.
     section.setPlanes([{ normal: [0, 0.6, 0.8], offset: 0.1 }, { normal: [1, 0, 0], offset: hc[0] }], { combine: "all" });
     const link = new URLSearchParams(location.hash.slice(1)).get("section");

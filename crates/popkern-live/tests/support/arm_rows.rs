@@ -95,6 +95,10 @@ pub fn assert_clipping(out: &Value) {
         f["away"].as_f64().unwrap_or(0.0) > 0.0,
         "dragging up pushes it away: {c}"
     );
+    assert!(
+        c["on_face_pixels"].as_u64().unwrap_or(u64::MAX) < 20,
+        "a plane on a face leaves it drawn whole: {c}"
+    );
     let l = &c["link"];
     assert!(l["written"].as_str().unwrap_or("").contains("~all"), "{c}");
     assert!(l["cleared_link"].is_null(), "clear drops #section: {c}");

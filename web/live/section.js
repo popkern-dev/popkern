@@ -59,11 +59,18 @@ function worldBox(mesh) {
 }
 
 /** three.js clips points with n·p + c < 0; a section plane removes
- *  normal·p > offset, so its three.js plane is (−normal, offset). */
-function threePlane(plane, target = new THREE.Plane()) {
+ *  normal·p > offset, so its three.js plane is (−normal, offset) —
+ *  moved `bias` onto the removed side, so a face lying exactly on the
+ *  cut stays drawn: at a distance of ±0 in float32 its pixels were
+ *  clipped at random and the face shimmered (a film's section held at
+ *  the boss plate's end face before it started moving). */
+function threePlane(plane, target = new THREE.Plane(), bias = 0) {
   const [x, y, z] = plane.normal;
-  return target.set(new THREE.Vector3(-x, -y, -z), plane.offset);
+  return target.set(new THREE.Vector3(-x, -y, -z), plane.offset + bias);
 }
+
+/** The clip bias: a millionth-scale fraction of the model's size. */
+const CLIP_BIAS = 1e-5;
 
 export class Section {
   constructor(viewer) {
@@ -292,7 +299,12 @@ export class Section {
     }
     const viewer = this.viewer;
     this.clearCaps();
-    this.three = this.planes.map((p) => threePlane(p));
+    const span = (() => {
+      const b = viewer.visibleBounds() ?? this.extent;
+      return b ? Math.hypot(b[1][0] - b[0][0], b[1][1] - b[0][1], b[1][2] - b[0][2]) : 0;
+    })();
+    this.bias = CLIP_BIAS * span;
+    this.three = this.planes.map((p) => threePlane(p, undefined, this.bias));
     const intersect = this.combine === "all";
     for (const object of [...viewer.bodies, ...viewer.edgeLines]) {
       const mesh = object.isLineSegments ? viewer.bodies.find((m) => m.userData.lines === object) : object;
@@ -333,7 +345,7 @@ export class Section {
     const pairs = this.capPairs();
     const key = pairs.map((p) => `${p.mesh.id}:${p.plane}`).join(",");
     if (key !== this.pairKey) return this.apply();
-    this.planes.forEach((p, i) => threePlane(p, this.three[i]));
+    this.planes.forEach((p, i) => threePlane(p, this.three[i], this.bias ?? 0));
     for (const cap of this.caps.children) {
       // Negated copies (combine "all") follow their source plane.
       for (const [i, plane] of cap.userData.negated ?? []) plane.copy(this.three[i]).negate();
