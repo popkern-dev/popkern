@@ -236,7 +236,7 @@ impl Model {
                             });
                         }
                         if let Some(sel) = sel {
-                            let snap = resolve_edges(&before, sel, &labels)?;
+                            let snap = resolve_edges(&before, sel, &labels, m.unit)?;
                             *edges = snap.names.clone();
                             records.retain(|r| r.role != "edges");
                             records.push(popkern_history::SelectionRecord {
@@ -248,7 +248,7 @@ impl Model {
                         }
                     }
                     (Feature::Chamfer { edges, .. }, Some(sel), _) => {
-                        let snap = resolve_edges(&before, sel, &labels)?;
+                        let snap = resolve_edges(&before, sel, &labels, m.unit)?;
                         *edges = snap.names.clone();
                         records.retain(|r| r.role != "edges");
                         records.push(popkern_history::SelectionRecord {
@@ -265,7 +265,7 @@ impl Model {
                         _,
                         Some(sel),
                     ) => {
-                        let snap = resolve_faces(&before, sel, &labels)?;
+                        let snap = resolve_faces(&before, sel, &labels, m.unit)?;
                         *faces_to_remove = snap.names.clone();
                         records.retain(|r| r.role != "faces_to_remove");
                         records.push(popkern_history::SelectionRecord {

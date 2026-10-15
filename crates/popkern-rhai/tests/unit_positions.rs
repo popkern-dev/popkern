@@ -1,6 +1,7 @@
 //! Positions are lengths in the model's unit, wherever a script gives
-//! them: a `plane_at` origin and an `axis_at` origin scale like an
-//! `xy_at` offset or a `translate`. They were stored raw, so a mm model
+//! them: a `plane_at` origin, an `axis_at` origin (revolves, hinge
+//! seams) and a selector's heights scale like an `xy_at` offset or a
+//! `translate`. They were stored raw, so a mm model
 //! sketched `plane_at([0, 0, 5], …)` 5 m up while `xy_at(5.0)` sat at
 //! 5 mm, and revolved about `axis_at([10, 0, 0], …)` 10 m out.
 
@@ -75,4 +76,45 @@ fn an_axis_at_origin_is_in_the_model_unit() {
         ((volume - expected) / expected).abs() < 1e-6,
         "volume {volume} m^3, expected {expected}"
     );
+}
+
+/// Each body's volume of the hinged box example authored in `unit`, in
+/// that unit cubed.
+fn hinged_box_volumes(unit: &str) -> Vec<f64> {
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/hinged_box.rhai"),
+    )
+    .expect("example");
+    let source = source.replacen(
+        "let m = model();",
+        &format!("let m = model(#{{ unit: \"{unit}\" }});"),
+        1,
+    );
+    let mut host = ScriptHost::new();
+    let mut outcome = host
+        .run(&source, "hinged_box.rhai")
+        .unwrap_or_else(|e| panic!("{unit}: {}", e.render()));
+    let model = outcome.model.as_mut().expect("model");
+    let per_unit3 = if unit == "mm" { 1e-9 } else { 1.0 };
+    model
+        .to_parts_all()
+        .expect("parts")
+        .iter()
+        .map(|p| {
+            popkern_measure::body_volume(p.brep(), &p.brep().tolerance).expect("volume") / per_unit3
+        })
+        .collect()
+}
+
+#[test]
+fn a_millimetre_hinged_box_is_the_metre_one_scaled() {
+    // The example's face selectors (`at_height(30)`) and its seam hinge's
+    // `axis_at` origin are positions in the model's unit: in a mm model
+    // they matched nothing / placed the seam 1000x out.
+    let metre = hinged_box_volumes("m");
+    let milli = hinged_box_volumes("mm");
+    assert_eq!(metre.len(), milli.len());
+    for (a, b) in metre.iter().zip(&milli) {
+        assert!(((a - b) / a).abs() < 1e-6, "volume {b} (mm) vs {a} (m)");
+    }
 }

@@ -106,8 +106,12 @@ fn hinge_bodies(
             let length = length.ok_or_else(|| {
                 argument_error("length", "a seam given by axis_at(...) needs length: …")
             })?;
+            // A position in the model's unit; the seam meets the
+            // body's (metre) geometry.
+            let unit = m.borrow_mut().length_unit();
+            let o = origin.map(|c| unit.to_si(c));
             (
-                Point3::new(origin[0], origin[1], origin[2]),
+                Point3::new(o[0], o[1], o[2]),
                 Vec3::new(direction[0], direction[1], direction[2]),
                 length,
             )
@@ -202,8 +206,10 @@ fn seam_owned(
             ));
         }
     };
+    // The seam origin is a position in the model's unit (stored in metres).
+    let unit = model.borrow_mut().length_unit();
     let seam = SeamDesc {
-        origin,
+        origin: origin.map(|c| unit.to_si(c)),
         axis: direction,
         outward,
         up,

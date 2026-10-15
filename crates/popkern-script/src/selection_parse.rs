@@ -327,7 +327,7 @@ impl Model {
         selector: &EdgeSelector,
     ) -> Result<SelectionSnapshot, ScriptError> {
         let resolve = |r: EntityRef| self.resolve_entity_ref(r);
-        crate::selection::resolve_edges(brep, selector, &resolve)
+        crate::selection::resolve_edges(brep, selector, &resolve, self.unit)
     }
 
     /// Resolve a face query against an explicit body.
@@ -337,7 +337,7 @@ impl Model {
         selector: &FaceSelector,
     ) -> Result<SelectionSnapshot, ScriptError> {
         let resolve = |r: EntityRef| self.resolve_entity_ref(r);
-        crate::selection::resolve_faces(brep, selector, &resolve)
+        crate::selection::resolve_faces(brep, selector, &resolve, self.unit)
     }
 
     /// `body` as it stood before the feature at `index` ran, read from

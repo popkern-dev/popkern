@@ -157,7 +157,7 @@ impl Body {
     ) -> Result<crate::selection::SelectionSnapshot, ScriptError> {
         let brep = self.brep(model)?;
         let labels = |r: EntityRef| model.resolve_entity_ref(r);
-        resolve_edges(&brep, selector, &labels)
+        resolve_edges(&brep, selector, &labels, model.unit)
     }
 
     pub(crate) fn faces(
@@ -167,7 +167,7 @@ impl Body {
     ) -> Result<crate::selection::SelectionSnapshot, ScriptError> {
         let brep = self.brep(model)?;
         let labels = |r: EntityRef| model.resolve_entity_ref(r);
-        resolve_faces(&brep, selector, &labels)
+        resolve_faces(&brep, selector, &labels, model.unit)
     }
 
     pub(crate) fn bind(

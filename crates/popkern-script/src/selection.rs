@@ -4,6 +4,7 @@
 
 use popkern_core::naming::EntityName;
 use popkern_core::topology::BRep;
+use popkern_history::unit::Unit;
 use popkern_part::{CurveKind, Dir, EdgeInfo, EdgeQuery, FaceInfo, FaceQuery, SurfaceKind};
 
 use crate::error::ScriptError;
@@ -271,11 +272,15 @@ impl EdgeSelector {
     /// a name selects the edges it names on `brep`, or, when a later
     /// operation split or reshaped it, every piece that descends from
     /// it (PK-633: `naming_resolve::resolve_lineage`).
+    /// `unit` is the model's length unit: heights, points and chord
+    /// lengths are written in it and compared with metre geometry.
     pub(crate) fn to_query(
         &self,
         brep: &BRep,
         resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
+        unit: Unit,
     ) -> Result<EdgeQuery, ScriptError> {
+        let si = |v: f64| unit.to_si(v);
         let mut query: Option<EdgeQuery> = None;
         for branch in &self.branches {
             let mut q = EdgeQuery::new();
@@ -290,12 +295,14 @@ impl EdgeSelector {
                         q.filter(|e: &EdgeInfo| e.curve == Some(CurveKind::Nurbs))
                     }
                     EdgePredicate::Between(a, b) => q.between(*a, *b),
-                    EdgePredicate::AtHeight(z) => q.at_height(*z),
+                    EdgePredicate::AtHeight(z) => q.at_height(si(*z)),
                     EdgePredicate::Direction(d) => q.direction(*d),
                     EdgePredicate::AtVertex([x, y, z]) => {
-                        q.at_vertex(popkern_core::geometry::Point3::new(*x, *y, *z))
+                        q.at_vertex(popkern_core::geometry::Point3::new(si(*x), si(*y), si(*z)))
                     }
-                    EdgePredicate::ChordLengthBetween(a, b) => q.chord_length_between(*a, *b),
+                    EdgePredicate::ChordLengthBetween(a, b) => {
+                        q.chord_length_between(si(*a), si(*b))
+                    }
                     EdgePredicate::NotSeam => q.not_seam(),
                     EdgePredicate::Labeled(l) => {
                         let set = edges_named(brep, &resolve(EntityRef::Label(l))?);
@@ -396,10 +403,12 @@ impl FaceSelector {
     }
     /// Compile to the `popkern-part` query used for resolution against
     /// `brep` (names follow lineage, as for edges).
+    /// `unit` as for [`EdgeSelector::to_query`].
     pub(crate) fn to_query(
         &self,
         brep: &BRep,
         resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
+        unit: Unit,
     ) -> Result<FaceQuery, ScriptError> {
         let mut q = FaceQuery::new();
         for p in &self.predicates {
@@ -407,7 +416,7 @@ impl FaceSelector {
                 FacePredicate::Kind(k) => q.kind(*k),
                 FacePredicate::Facing(d) => q.facing(*d),
                 FacePredicate::FacingNeg(d) => q.facing_neg(*d),
-                FacePredicate::AtHeight(z) => q.at_height(*z),
+                FacePredicate::AtHeight(z) => q.at_height(unit.to_si(*z)),
                 FacePredicate::Labeled(l) => {
                     let set = faces_named(brep, &resolve(EntityRef::Label(l))?);
                     q.filter(move |f: &FaceInfo| set.contains(&f.handle))

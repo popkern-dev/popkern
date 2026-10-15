@@ -103,7 +103,7 @@ impl Model {
         let brep = self.body_brep(body.id)?;
         let labels = |r: EntityRef| self.resolve_entity_ref(r);
         exactly_one(
-            resolve_edges(&brep, selection, &labels)?,
+            resolve_edges(&brep, selection, &labels, self.unit)?,
             SelectionKind::Edges,
         )
     }
@@ -115,7 +115,7 @@ impl Model {
         let brep = self.body_brep(body.id)?;
         let labels = |r: EntityRef| self.resolve_entity_ref(r);
         exactly_one(
-            resolve_faces(&brep, selection, &labels)?,
+            resolve_faces(&brep, selection, &labels, self.unit)?,
             SelectionKind::Faces,
         )
     }

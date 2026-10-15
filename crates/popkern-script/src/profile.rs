@@ -222,7 +222,7 @@ fn resolve_plane(
             let body = model.active()?;
             let brep = model.body_brep(body.id)?;
             let labels = |r: EntityRef| model.resolve_entity_ref(r);
-            let snapshot = resolve_faces(&brep, sel, &labels)?;
+            let snapshot = resolve_faces(&brep, sel, &labels, unit)?;
             records.push(Body::selection_record("plane", &snapshot));
             let face = exactly_one(snapshot, crate::error::SelectionKind::Faces)?;
             match plane {
