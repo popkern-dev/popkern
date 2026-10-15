@@ -29,7 +29,7 @@ use popkern_core::validation::FaceUvContainment;
 
 /// A point strictly inside `face` (inside its own trim) and the
 /// surface normal there, with the face's orientation applied.
-fn interior_point(brep: &BRep, face: FaceHandle) -> Option<(Point3, Vec3)> {
+pub(crate) fn interior_point(brep: &BRep, face: FaceHandle) -> Option<(Point3, Vec3)> {
     let surface = brep.faces.get(face)?.surface.as_ref()?;
     let geometry = &surface.geometry;
     let samples = brep.face_outer_loop_sample_positions(face, 4);

@@ -5,7 +5,8 @@
 //! The cycloid module's output pin stands on its flange: the
 //! intersection served the pin's two coincident end discs as a 301 mm³
 //! "overlap", and the interference check reported the pin colliding
-//! with its own flange.
+//! with its own flange. A hub in a race's bore, their bottoms on one
+//! plane, adds a cooriented coincidence that only abuts.
 
 use popkern_core::topology::BRep;
 use popkern_rhai::ScriptHost;
@@ -55,6 +56,19 @@ fn cases() -> Vec<(&'static str, &'static str, f64, f64)> {
             "t.profile(xy_at(2.0)).rect(6.0, 6.0).sketch(\"block\").extrude(blind(4.0))",
             4000.0 - 16.0 * 16.0 * 8.0,
             144.0,
+        ),
+        // A hub (r 27..29) in a bearing race's bore (r 29..34), their
+        // bottom annuli on one plane: a cooriented coincidence that only
+        // abuts at r 29 (the cycloid M module's flange and inner race,
+        // served as a 16587 mm³ two-face "overlap" before the contact
+        // test set abutting pairs aside).
+        (
+            "m.profile(xz()).path(27.0, 0.0).line_to(29.0, 0.0).line_to(29.0, 20.0).line_to(27.0, 20.0).close()\
+             .sketch(\"hub\").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle())",
+            "t.profile(xz()).path(29.0, 0.0).line_to(34.0, 0.0).line_to(34.0, 9.0).line_to(29.0, 9.0).close()\
+             .sketch(\"race\").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle())",
+            pi * (29.0 * 29.0 - 27.0 * 27.0) * 20.0,
+            pi * (34.0 * 34.0 - 29.0 * 29.0) * 9.0,
         ),
     ]
 }

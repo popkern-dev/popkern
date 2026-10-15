@@ -16,12 +16,26 @@
 //! served the two coincident end discs as a 301 mm³ "overlap" that the
 //! interference check reported as a collision.
 //!
+//! Coincidence detection pairs faces by SURFACE, not by region, so two
+//! cooriented faces that only abut on a shared plane also arrive as an
+//! overlap: the cycloid M module's flange hub (bottom annulus r 27.03 to
+//! 29.03) beside its bearing's inner race (bottom annulus r 29.03 to
+//! 33.9) on one plane. Such a pair shares no area, so it says nothing
+//! about the interiors and is set aside; the opposite contact (hub wall
+//! on race bore) still decides. Without that, the full pipeline built
+//! the contact cylinder as a two-face "overlap" of 16587 mm³.
+//!
 //! The union of touching bodies merges their contact faces, so it keeps
 //! the full pipeline.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+
+use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::geometry::uv_projection::project_point_to_uv;
+use popkern_core::topology::FaceHandle;
+use popkern_core::validation::FaceUvContainment;
 
 use crate::coincidence::types::CoincidenceOrientation;
 use crate::error::BoolOperation;
@@ -32,8 +46,9 @@ const LENGTH_SAMPLES: usize = 8;
 
 /// The result when `a` and `b` only touch (see the module docs):
 /// `Some` for an intersection (empty) or a subtraction (`a`), `None`
-/// otherwise — a record crossing anywhere but a contact face's rim, any
-/// cooriented coincidence, no coincidence at all, or a union.
+/// otherwise — a record crossing anywhere but a contact face's rim, a
+/// cooriented coincidence that shares area, no opposite contact at
+/// all, or a union.
 pub(crate) fn touching_only(
     op: BoolOperation,
     a: &BRep,
@@ -44,12 +59,26 @@ pub(crate) fn touching_only(
     if matches!(op, BoolOperation::Union) {
         return None;
     }
-    let overlaps = &intersection.coincidence.face_overlaps;
-    if overlaps.is_empty()
-        || overlaps
-            .iter()
-            .any(|o| o.orientation != CoincidenceOrientation::Opposite)
-    {
+    if intersection.coincidence.face_overlaps.is_empty() {
+        return None;
+    }
+    // Cooriented pairs that only abut are no contact (module docs); any
+    // other cooriented pair shares area, and the bodies may overlap.
+    let mut overlaps = Vec::new();
+    for o in &intersection.coincidence.face_overlaps {
+        if o.orientation == CoincidenceOrientation::Opposite {
+            overlaps.push(o);
+        } else if !abutting(a, o.face_a, b, o.face_b) {
+            trace_decline(&format!(
+                "cooriented A:{:?} B:{:?} shares area",
+                o.face_a, o.face_b
+            ));
+            return None;
+        }
+    }
+    // An opposite contact is what rules containment out.
+    if overlaps.is_empty() {
+        trace_decline("no opposite contact");
         return None;
     }
     // Every record must be a point or run along the rim of a contact
@@ -80,6 +109,7 @@ pub(crate) fn touching_only(
         length <= near || samples.iter().all(on_rim)
     });
     if !contact_only {
+        trace_decline("a record crosses off the contact rims");
         return None;
     }
     if popkern_core::trace::trace_enabled("boolean") {
@@ -94,6 +124,94 @@ pub(crate) fn touching_only(
         BoolOperation::Subtraction => Some(a.clone()),
         BoolOperation::Union => None,
     }
+}
+
+fn trace_decline(why: &str) {
+    if popkern_core::trace::trace_enabled("boolean") {
+        eprintln!("  [exec] touching-only declined: {why}");
+    }
+}
+
+/// Whether coincident faces `fa` of `a` and `fb` of `b` share no area:
+/// neither has an interior point inside the other's trim. Exact when
+/// their boundaries do not cross, which `touching_only` establishes
+/// before the verdict is used (every record lies on a contact rim);
+/// then the regions are disjoint, nested, or equal, and a nested or
+/// equal pair puts an interior point of one inside the other. No
+/// interior point or no projection counts as sharing (decline).
+fn abutting(a: &BRep, fa: FaceHandle, b: &BRep, fb: FaceHandle) -> bool {
+    !reaches_into(a, fa, b, fb) && !reaches_into(b, fb, a, fa)
+}
+
+/// Whether an interior point of `fx` lies on `fy`'s region (inside or
+/// on its trim boundary), or no verdict could be reached.
+fn reaches_into(x: &BRep, fx: FaceHandle, y: &BRep, fy: FaceHandle) -> bool {
+    let Some(p) = face_interior_point(x, fx) else {
+        return true;
+    };
+    let Some(surface) = y.faces.get(fy).and_then(|f| f.surface.as_ref()) else {
+        return true;
+    };
+    let Some((u, v)) = project_point_to_uv(&surface.geometry, &p) else {
+        return true;
+    };
+    y.face_uv_trim_containment(fy, &surface.geometry, u, v) != Some(FaceUvContainment::Outside)
+}
+
+/// Steps inward from the outer loop, as fractions of the face's uv
+/// extent: thin faces (a 2 mm annulus on a 58 mm disc) need the small
+/// ones, which the lineage sampler's centroid-and-grid search misses.
+const INWARD_STEPS: [f64; 3] = [1e-2, 1e-3, 1e-4];
+
+/// A point strictly inside `face`'s trim: the lineage sampler's pick,
+/// else a point just inside the outer loop, beside the midpoint of a
+/// sampled boundary chord.
+fn face_interior_point(brep: &BRep, face: FaceHandle) -> Option<popkern_core::geometry::Point3> {
+    if let Some((p, _)) = crate::entity_lineage::interior_point(brep, face) {
+        return Some(p);
+    }
+    let geometry = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+    let uvs: Vec<(f64, f64)> = brep
+        .face_outer_loop_sample_positions(face, 8)
+        .iter()
+        .filter_map(|p| project_point_to_uv(geometry, p))
+        .collect();
+    let (mut lo, mut hi) = (
+        (f64::INFINITY, f64::INFINITY),
+        (f64::NEG_INFINITY, f64::NEG_INFINITY),
+    );
+    for &(u, v) in &uvs {
+        lo = (lo.0.min(u), lo.1.min(v));
+        hi = (hi.0.max(u), hi.1.max(v));
+    }
+    let extent = (hi.0 - lo.0).max(hi.1 - lo.1);
+    if extent.is_nan() || extent <= 0.0 {
+        return None;
+    }
+    for step in INWARD_STEPS {
+        for w in uvs.windows(2) {
+            let ((u0, v0), (u1, v1)) = (w[0], w[1]);
+            let (du, dv) = (u1 - u0, v1 - v0);
+            let len = (du * du + dv * dv).sqrt();
+            if len.is_nan() || len <= 0.0 {
+                continue;
+            }
+            let (mu, mv) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
+            // The interior is on one side of the chord; try both.
+            for side in [1.0, -1.0] {
+                let (u, v) = (
+                    mu - side * dv / len * step * extent,
+                    mv + side * du / len * step * extent,
+                );
+                if brep.face_uv_trim_containment(face, geometry, u, v)
+                    == Some(FaceUvContainment::Interior)
+                {
+                    return Some(geometry.point_at(u, v));
+                }
+            }
+        }
+    }
+    None
 }
 
 /// The edge curves bounding `face` (every loop).
