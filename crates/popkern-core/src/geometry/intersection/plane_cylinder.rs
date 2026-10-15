@@ -88,7 +88,14 @@ fn intersect_impl(
     swapped: bool,
 ) -> Vec<SurfaceSurfaceIntersection> {
     let cos_alpha = pn.dot(&ca).abs();
-    if cos_alpha > 1.0 - tol.angular() {
+    // The circle is the cylinder's cross-section, so it sits off the
+    // plane by up to r·sin α at a tilt α: snap only while that stays
+    // within the linear tolerance. The angular test alone accepted tilts
+    // to ~0.8°: a bore 0.013° off an inclined face's normal came out a
+    // circle 6e-4 off the face, and the tapped hole declined on curve-
+    // surface validation (the angled fitting example).
+    let sin_alpha = (1.0 - cos_alpha * cos_alpha).max(0.0).sqrt();
+    if cos_alpha > 1.0 - tol.angular() && cr * sin_alpha <= tol.linear() {
         case_perpendicular(po, pn, pu, pv, co, ca, cr, tol, swapped)
     } else if cos_alpha < tol.angular() {
         case_parallel(po, pn, pu, pv, co, ca, cr, _cvr, tol, swapped)

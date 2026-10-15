@@ -435,3 +435,51 @@ fn oblique_samples_on_both_surfaces_general() {
         panic!("expected Curve intersection");
     }
 }
+
+#[test]
+fn a_nearly_perpendicular_plane_cuts_a_curve_on_the_plane() {
+    // A plane 2.25e-4 rad off perpendicular to an r = 2.5 cylinder: the
+    // default angular tolerance (1 - cos within 1e-4) once snapped it to
+    // the cross-section circle, 5.6e-4 off the plane. The curve must lie
+    // on both surfaces within the linear tolerance.
+    let tilt: f64 = 2.25e-4;
+    let normal = Vec3::new(tilt.sin(), 0.0, tilt.cos());
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 3.0),
+        normal,
+        u_axis: Vec3::new(tilt.cos(), 0.0, -tilt.sin()),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let cyl = z_axis_cylinder(2.5);
+    let tol = Tolerance::default();
+    let intersections = must_some(
+        try_plane_cylinder(
+            &plane,
+            (-5.0, 5.0),
+            (-5.0, 5.0),
+            &cyl,
+            (0.0, TAU),
+            (-10.0, 10.0),
+            &tol,
+        ),
+        "should match plane-cylinder pair",
+    );
+    assert_eq!(intersections.len(), 1);
+    let SurfaceSurfaceIntersection::Curve(ref cos) = intersections[0] else {
+        panic!("expected Curve intersection");
+    };
+    let (t_min, t_max) = (
+        cos.curve_3d.knots[0],
+        cos.curve_3d.knots[cos.curve_3d.knots.len() - 1],
+    );
+    for i in 0..16 {
+        let pt = eval_nurbs(&cos.curve_3d, t_min + (t_max - t_min) * f64::from(i) / 16.0);
+        let off_plane = (pt - Point3::new(0.0, 0.0, 3.0)).dot(&normal).abs();
+        let radial = (pt.x * pt.x + pt.y * pt.y).sqrt();
+        assert!(off_plane < 1e-6, "{pt:?} is {off_plane:e} off the plane");
+        assert!(
+            (radial - 2.5).abs() < 1e-6,
+            "{pt:?} is off the cylinder: {radial}"
+        );
+    }
+}
