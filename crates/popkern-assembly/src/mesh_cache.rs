@@ -28,6 +28,9 @@ const CAPACITY: usize = 512;
 
 type Key = (u64, u64, usize, usize, u64);
 
+/// One key's mesh, built once (`None`: the tessellation failed).
+type MeshCell = OnceLock<Option<Arc<LocalMesh>>>;
+
 /// Tessellations by body content and mesh settings. Shared by the
 /// interference check's worker threads.
 #[derive(Debug, Default)]
@@ -35,7 +38,7 @@ pub(crate) struct MeshCache {
     /// One cell per key: the first worker to ask builds the mesh, the
     /// others asking for it meanwhile wait for that build (`None`: the
     /// tessellation failed).
-    meshes: Mutex<HashMap<Key, Arc<OnceLock<Option<Arc<LocalMesh>>>>>>,
+    meshes: Mutex<HashMap<Key, Arc<MeshCell>>>,
     /// Placed meshes by occurrence path and body, with the local mesh
     /// and placement they were built from: an occurrence that has not
     /// moved since the last check (half a swing's) reuses its BVH.
