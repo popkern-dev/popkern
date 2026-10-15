@@ -38,7 +38,7 @@ pub(crate) const MAX_LEVELS: u32 = 3;
 
 impl Assembly {
     /// Re-check pair (`a`, `b`) on finer meshes until it is decided;
-    /// the overlap boolean runs only at the finest level. `None` when
+    /// the overlap boolean runs at the first and the finest level. `None` when
     /// a finer mesh could not be built (the caller decides at the base
     /// level, boolean included); `Some(report)` otherwise — the first
     /// decided one, or the finest level's.
@@ -100,7 +100,16 @@ impl Assembly {
             let (Some(fa), Some(fb)) = (finer_occurrence(a), finer_occurrence(b)) else {
                 return None;
             };
-            let check = self.check_pair(&fa, &fb, &local, options, tolerance, level == MAX_LEVELS);
+            // The exact boolean also runs at the first level: a flush
+            // contact (a screw head on its seat) crosses the meshes at
+            // every level, and without it the pair descended to the
+            // finest whole-body meshes (chord/512) before the boolean
+            // and a true-face distance settled it as touching — 94 s per
+            // arm-base screw. A gap fit still reads unsettled here (its
+            // refined gap is above the tolerance with a loose bound) and
+            // refines on.
+            let run_boolean = level == 1 || level == MAX_LEVELS;
+            let check = self.check_pair(&fa, &fb, &local, options, tolerance, run_boolean);
             if check.settled {
                 return Some(check.report);
             }

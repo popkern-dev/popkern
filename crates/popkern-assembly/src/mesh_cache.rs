@@ -15,7 +15,7 @@
 //! tessellation never reads.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use popkern_core::topology::BRep;
 
@@ -32,7 +32,10 @@ type Key = (u64, u64, usize, usize, u64);
 /// interference check's worker threads.
 #[derive(Debug, Default)]
 pub(crate) struct MeshCache {
-    meshes: Mutex<HashMap<Key, Arc<LocalMesh>>>,
+    /// One cell per key: the first worker to ask builds the mesh, the
+    /// others asking for it meanwhile wait for that build (`None`: the
+    /// tessellation failed).
+    meshes: Mutex<HashMap<Key, Arc<OnceLock<Option<Arc<LocalMesh>>>>>>,
     /// Placed meshes by occurrence path and body, with the local mesh
     /// and placement they were built from: an occurrence that has not
     /// moved since the last check (half a swing's) reuses its BVH.
@@ -78,20 +81,26 @@ impl MeshCache {
             options.min_subdivisions,
             options.max_facet_angle.to_bits(),
         );
-        if let Some(mesh) = self.meshes.lock().ok().and_then(|m| m.get(&key).cloned()) {
-            return Ok(mesh);
-        }
-        // Built outside the lock: two workers may build the same mesh
-        // once each; the second insert is a no-op in effect.
-        let mesh = popkern_mesh::tessellate(brep, options)?;
-        let local = Arc::new(LocalMesh::new(brep, &mesh));
-        if let Ok(mut meshes) = self.meshes.lock() {
-            if meshes.len() >= CAPACITY {
-                meshes.clear();
+        let build =
+            || popkern_mesh::tessellate(brep, options).map(|m| Arc::new(LocalMesh::new(brep, &m)));
+        // Built outside the map's lock but once per key: concurrent
+        // workers certifying pairs against one body used to build its
+        // (fine, certification-level) mesh once each, a dozen copies of
+        // the arm base's at once (PK-847: 100-170 s per base pair).
+        let cell = match self.meshes.lock() {
+            Ok(mut meshes) => {
+                if meshes.len() >= CAPACITY && !meshes.contains_key(&key) {
+                    meshes.clear();
+                }
+                meshes.entry(key).or_default().clone()
             }
-            meshes.insert(key, local.clone());
+            Err(_) => return build(),
+        };
+        match cell.get_or_init(|| build().ok()) {
+            Some(mesh) => Ok(mesh.clone()),
+            // The tessellation failed: run it again for its error.
+            None => build(),
         }
-        Ok(local)
     }
 }
 

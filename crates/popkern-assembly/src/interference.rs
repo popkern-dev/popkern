@@ -99,7 +99,16 @@ impl Assembly {
             .filter(|r| r.is_part && selected(&r.path.to_string()))
             .map(|r| r.definition)
             .collect();
+        let phase = popkern_core::time::Stopwatch::start();
+        let trace_phase = |what: &str| {
+            if popkern_core::trace::trace_enabled("interference")
+                && let Some(d) = phase.elapsed()
+            {
+                eprintln!("[interference] {what} done at {:.2} s", d.as_secs_f64());
+            }
+        };
         let parts = self.cached_parts(&wanted)?;
+        trace_phase("parts");
         // One tessellation per definition body, kept across checks by
         // content (a sweep moves placements, not geometry).
         let mut local: HashMap<(DefinitionId, usize), Arc<LocalMesh>> = HashMap::new();
@@ -138,6 +147,7 @@ impl Assembly {
                 local.insert((*id, i), mesh);
             }
         }
+        trace_phase("definition meshes");
         // Broad phase on world bounds; only the occurrences of candidate
         // pairs are placed (`interference_occurrences`).
         let candidates_all = self.interference_candidates(&selected, &local);
@@ -172,29 +182,49 @@ impl Assembly {
             .iter()
             .map(|(i, j)| (placed[i], placed[j]))
             .collect();
+        trace_phase("candidates placed");
         let mut pairs = Vec::new();
         // Finer world meshes per occurrence body and level, shared by
         // every pair that occurrence certifies against.
         let worlds: crate::interference_certify::WorldMeshes = Default::default();
         let candidates = candidate_pairs.len();
         let this: &Self = self;
+        let trace = popkern_core::trace::trace_enabled("interference");
         let check = |&(i, j): &(usize, usize)| -> Option<PairReport> {
             let (a, b) = (&occurrences[i], &occurrences[j]);
+            let started = trace.then(popkern_core::time::Stopwatch::start);
             let first = this.check_pair(a, b, &local, options, tolerance, false);
             if first.settled {
                 return first.report;
             }
-            this.certify_pair(a, b, &parts, &worlds, options, tolerance)
+            let coarse = started
+                .as_ref()
+                .and_then(popkern_core::time::Stopwatch::elapsed);
+            let report = this
+                .certify_pair(a, b, &parts, &worlds, options, tolerance)
                 .unwrap_or_else(|| {
                     this.check_pair(a, b, &local, options, tolerance, true)
                         .report
-                })
+                });
+            if let (Some(s), Some(coarse)) = (&started, coarse)
+                && let Some(total) = s.elapsed()
+            {
+                eprintln!(
+                    "[interference] {} x {}: coarse {:.3} s, certified {:.3} s",
+                    a.path,
+                    b.path,
+                    coarse.as_secs_f64(),
+                    total.as_secs_f64()
+                );
+            }
+            report
         };
         pairs.extend(
             crate::parallel_map::ordered(&candidate_pairs, check)
                 .into_iter()
                 .flatten(),
         );
+        trace_phase("pairs checked");
         pairs.sort_by(|x, y| {
             crate::interference_refine::rank(&x.status)
                 .total_cmp(&crate::interference_refine::rank(&y.status))
