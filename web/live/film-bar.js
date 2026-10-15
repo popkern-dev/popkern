@@ -34,11 +34,21 @@ export function wireFilmBar(page) {
     if (!player.active) return;
     player.seek((Number(range.value) / RANGE_STEPS) * player.film.duration);
   });
-  $("film-close").addEventListener("click", () => {
+  const closeFilm = () => {
     // Back to the geometry: open the last migration.
     const migrations = Object.keys(page.projects.current?.files ?? {}).filter((p) => p.startsWith("migrations/")).sort();
-    if (migrations.length) page.projects.select(migrations.at(-1));
-    else player.close();
+    if (page.projects.filmOpen && migrations.length) page.projects.select(migrations.at(-1));
+    // However the film was opened, it closes.
+    player.close();
+  };
+  $("film-close").addEventListener("click", closeFilm);
+  // Escape closes the film (not while typing in the editor or a field).
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !player.active) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName) || t.closest?.("#editor"))) return;
+    e.preventDefault();
+    closeFilm();
   });
   let controller = null;
   $("film-export").addEventListener("click", async () => {

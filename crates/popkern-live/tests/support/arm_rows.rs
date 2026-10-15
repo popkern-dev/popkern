@@ -99,6 +99,11 @@ pub fn assert_clipping(out: &Value) {
         c["on_face_pixels"].as_u64().unwrap_or(u64::MAX) < 20,
         "a plane on a face leaves it drawn whole: {c}"
     );
+    let t = &c["toggle"];
+    assert_eq!(t["on"], true, "the section button cuts: {c}");
+    assert_eq!(t["pressed"], "true", "{c}");
+    assert_eq!(t["handles"], true, "with handles: {c}");
+    assert_eq!(t["off"], true, "a second click clears: {c}");
     let l = &c["link"];
     assert!(l["written"].as_str().unwrap_or("").contains("~all"), "{c}");
     assert!(l["cleared_link"].is_null(), "clear drops #section: {c}");
@@ -160,6 +165,7 @@ pub fn assert_film(out: &Value) {
         "the decline names the film's line: {f}"
     );
     assert_eq!(f["broken"]["still_open"], true, "{f}");
+    assert_eq!(f["escape_closed"], true, "Escape closes the film: {f}");
     assert_eq!(f["closed"]["active"], false, "{f}");
     assert_eq!(f["closed"]["bar_hidden"], true, "{f}");
     assert_eq!(

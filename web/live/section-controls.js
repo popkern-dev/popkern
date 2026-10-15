@@ -38,6 +38,18 @@ export function wireSection(page) {
     };
   };
 
+  // The viewport's section button: a cut facing the viewer with its
+  // handles, or none.
+  $("section-toggle").addEventListener("click", () => {
+    if (section.active) {
+      section.clear();
+      return;
+    }
+    section.gizmo.setEnabled(true);
+    $("section-handles").checked = true;
+    section.addPlane("view");
+  });
+
   select.addEventListener("change", () => {
     const value = select.value;
     page.viewer.pickHook = null;
@@ -62,6 +74,7 @@ export function wireSection(page) {
   const paint = () => {
     const planes = section.planes;
     const active = planes.length > 0;
+    $("section-toggle").setAttribute("aria-pressed", String(active));
     slider.hidden = !active;
     $("section-tools").hidden = !active && $("section-hint").hidden;
     if (!active) {

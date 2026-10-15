@@ -107,6 +107,7 @@
   <section class="pane-viewer" aria-label="Model">
     <canvas id="viewer" aria-label="3D view of the model; drag to orbit, wheel or pinch to zoom, right-drag, shift-drag or two-finger drag to pan, arrow keys to orbit"></canvas>
     <div class="view-tools">
+      <button id="section-toggle" class="float-button" type="button" aria-pressed="false" title="Section view: cut through the model (drag the handles to move and tilt the cut; more options in the view menu)" aria-label="Section view"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v11h-11zM2.5 13.5 13.5 2.5M5.5 13.5l8-8M2.5 10.5l8-8"/></svg></button>
       <button id="fit" class="float-button" type="button" title="Fit the model to the view" aria-label="Fit the model to the view"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
       <div class="menu-anchor">
         <button id="view-menu-button" class="float-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="view-menu" title="Edges, section and explode" aria-label="View options"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7"/><circle cx="10.5" cy="4.5" r="1.5"/><circle cx="5.5" cy="11.5" r="1.5"/></svg></button>
@@ -214,6 +215,7 @@
       <input id="scrubber-range" type="range" min="1" max="1" value="1" aria-label="History step">
     </div>
     <div id="film-bar" class="film-bar" hidden role="group" aria-label="Film">
+      <button id="film-close" class="film-close" type="button" title="Close the film and go back to the model (Esc)" aria-label="Close the film">✕ Close film</button>
       <button id="film-play" class="round primary" type="button" title="Play or pause the film (space)" aria-label="Play the film"><svg class="icon solid icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10l8-5z"/></svg><svg class="icon solid icon-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3h2.5v10H4.5zM9 3h2.5v10H9z"/></svg></button>
       <strong id="film-name" class="film-name"></strong>
       <span id="film-time" class="film-time">0.0 / 0.0 s</span>
@@ -224,7 +226,6 @@
       <select id="film-preset" aria-label="Export format"></select>
       <button id="film-export" type="button" title="Render the film to a file">Export</button>
       <span id="film-export-state" class="film-export-state" aria-live="polite"></span>
-      <button id="film-close" class="head-button" type="button" title="Close the film and show the model's script">close</button>
     </div>
     <div id="history-empty" class="history-empty">
       <span id="history-empty-text">The model's history appears here after a build.</span>

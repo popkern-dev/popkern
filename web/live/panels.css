@@ -223,3 +223,6 @@ body.film-playing .film-bar .icon-pause { display: inline; }
 .film-caption span { opacity: 0.8; }
 .film-caption-dark { color: #111318; }
 .migration-film .migration-name::before { content: "▶ "; color: var(--accent); }
+.film-close { min-height: 2rem; padding: 0 0.8rem; font-weight: 600; border-color: var(--line-strong); }
+.film-close:hover { border-color: var(--accent); color: var(--text); }
+#section-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }

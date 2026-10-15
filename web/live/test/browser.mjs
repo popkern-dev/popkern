@@ -808,6 +808,14 @@ a`)};
     result.on_face_pixels = differ(uncut, pixels());
     section.gizmo.setEnabled(true);
 
+    // The viewport's section button: on (a cut facing the viewer, with
+    // handles), then off.
+    section.setPlanes([]);
+    document.getElementById("section-toggle").click();
+    result.toggle = { on: section.active, pressed: document.getElementById("section-toggle").getAttribute("aria-pressed"), handles: section.gizmo.group.visible };
+    document.getElementById("section-toggle").click();
+    result.toggle.off = !section.active;
+
     // The link restores the cut.
     section.setPlanes([{ normal: [0, 0.6, 0.8], offset: 0.1 }, { normal: [1, 0, 0], offset: hc[0] }], { combine: "all" });
     const link = new URLSearchParams(location.hash.slice(1)).get("section");
@@ -890,6 +898,10 @@ film`)};
     // A broken film reports at its line and leaves the open one alone.
     const broken = await film.run(${JSON.stringify('let film = storyboard();\nfilm.step("a", 1.0, |s| { s.move("lid", #{ to: [0.0, 0.0, 1.0] }); });\nfilm')}, "films/broken.rhai");
     result.broken = { ok: broken.ok, kind: broken.outcome?.kind ?? null, rendered: broken.outcome?.rendered ?? null, still_open: film.active };
+    // Escape closes the film (the page's own key binding).
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    result.escape_closed = !film.active;
     film.close();
     result.closed = { active: film.active, mode: viewer.mode, bar_hidden: document.getElementById("film-bar").hidden, lifted_back: Math.abs(z() - z0) < 1e-9 };
     return result;
