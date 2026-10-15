@@ -357,6 +357,10 @@ pub(crate) fn face_polygon_is_reflex(
         ny += (p.z - q.z) * (p.x + q.x);
         nz += (p.x - q.x) * (p.y + q.y);
     }
+    let n_len = (nx * nx + ny * ny + nz * nz).sqrt();
+    if n_len.is_nan() || n_len <= 0.0 {
+        return false;
+    }
     let mut sign = 0.0_f64;
     for i in 0..n {
         let a = &pts[i];
@@ -365,7 +369,17 @@ pub(crate) fn face_polygon_is_reflex(
         let e1 = *b - *a;
         let e2 = *c - *b;
         let cross = e1.cross(&e2);
-        let s = cross.x * nx + cross.y * ny + cross.z * nz;
+        // The sine of the turn at b, signed by the face normal: scale-
+        // free. The raw product (cross · unnormalised Newell) goes as
+        // size^4 and fell under an absolute 1e-9 for every turn of a
+        // 5 mm glyph outline, so the "4" read convex, Cyrus–Beck
+        // clipped its counter's walls away, and the counter was never
+        // cut (polyhedral dice). Below 1e-9 the turn is collinear.
+        let scale = e1.length() * e2.length() * n_len;
+        if scale.is_nan() || scale <= 0.0 {
+            continue;
+        }
+        let s = (cross.x * nx + cross.y * ny + cross.z * nz) / scale;
         if s.abs() > 1e-9 {
             if sign == 0.0 {
                 sign = s.signum();
