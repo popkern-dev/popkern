@@ -202,6 +202,8 @@ fn engrave(m, ctx, die, tag, n, at, up, text, h) {
     if laid.width * s > ctx.width * h { s = ctx.width * h / laid.width; }
     let w = sub(up, at);
     w = norm(sub(w, scale(n, dot(w, n))));
+    // Reading direction across the face, seen from outside (n toward
+    // the viewer, w up: right = w x n).
     let right = cross(w, n);
     // Sketch planes face into the die so the cut runs inward.
     let inward = scale(n, -1.0);

@@ -24,9 +24,11 @@ bracket = bracket.tapped_hole(
     blind(6.0),
     #{ clearance: 0.2, label: "angled_tap" });
 
-// A countersunk clearance hole down through the thick end of the base.
+// A countersunk clearance hole up through the thick end of the base,
+// countersunk in the flat underside (a countersink wants a flat face:
+// on the sloped top at x = 4 the ~10.4 mm cone bit the end edge).
 bracket = bracket.clearance_hole(
-    axis_at([4.0, -8.0, 12.6], [0.0, 0.0, -1.0]),
+    axis_at([6.0, -8.0, 0.0], [0.0, 0.0, 1.0]),
     "M5",
     through_all(),
     #{ countersink: 0.2, label: "flush_hole" });
