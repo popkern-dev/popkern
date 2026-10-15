@@ -187,11 +187,12 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
     (
         "angled_fitting",
         "Angled fitting",
-        "A wedge bracket tapped normal to its inclined face, a countersunk \
-         clearance hole through the base, and the flat-head screw that fits it.",
-        6,
-        "tapped_hole and clearance_hole on arbitrary axes, axis_at placement, \
-         countersinks, thread fit classes",
+        "A wedge bracket with an M6 cap screw and washer threaded in normal to \
+         its inclined face, screwed down by two flat-head screws flush in \
+         countersunk holes through its flange.",
+        12,
+        "tapped_hole and clearance_hole on arbitrary axes, placing fasteners on \
+         hole axes (frame), thread phase, countersinks, assemblies",
     ),
     (
         "door_hinge",

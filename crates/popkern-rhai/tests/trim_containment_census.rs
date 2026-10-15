@@ -16,15 +16,26 @@ fn outside_counts(script: &str) -> Vec<(String, usize, usize)> {
     let path = format!("{}/examples/{script}.rhai", env!("CARGO_MANIFEST_DIR"));
     let source = std::fs::read_to_string(&path).expect("script");
     let mut host = popkern_rhai::ScriptHost::with_options(Default::default());
-    let mut model = host
-        .run(&source, script)
-        .expect("runs")
-        .model
-        .expect("model");
-    let parts = model.to_parts_all().expect("parts");
+    let run = host.run(&source, script).expect("runs");
+    // A model's bodies in body order, an assembly's occurrences in
+    // placement order (world frame).
+    let bodies: Vec<popkern_core::topology::BRep> = match (run.model, run.assembly) {
+        (Some(mut model), _) => model
+            .to_parts_all()
+            .expect("parts")
+            .into_iter()
+            .map(|p| p.brep().clone())
+            .collect(),
+        (None, Some(mut assembly)) => assembly
+            .flatten()
+            .expect("flatten")
+            .into_iter()
+            .map(|o| o.brep)
+            .collect(),
+        (None, None) => panic!("{script}: returns a model or an assembly"),
+    };
     let mut rows = Vec::new();
-    for (pi, part) in parts.iter().enumerate() {
-        let brep = part.brep();
+    for (pi, brep) in bodies.iter().enumerate() {
         let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::display())
             .expect("mesh");
         for fm in &mesh.face_meshes {

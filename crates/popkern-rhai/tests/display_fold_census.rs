@@ -19,7 +19,11 @@ const CEILINGS: &[(&str, usize, usize, f64)] = &[
     // E1 (cross-face boundary caps) then E4 steps (3D Delaunay flips,
     // shear-aware chart Delaunay, obtuse-facet bisection): from the
     // 2026-10-13 baseline 0/1/2/1/188/48/124/502/10/19.
-    ("angled_fitting", 1, 0, 11.5),
+    // angled_fitting became an assembly (2026-10-15): bracket, washer,
+    // cap screw, then the flat-head screws (body 1 was the loose screw).
+    ("angled_fitting", 0, 7, 12.4),
+    ("angled_fitting", 2, 0, 12.0),
+    ("angled_fitting", 3, 0, 11.5),
     ("countersunk_joint", 1, 0, 12.0),
     ("hex_bolt", 0, 0, 12.0),
     ("threaded_stud", 0, 0, 12.0),
@@ -166,6 +170,29 @@ fn in_face_folds(mesh: &popkern_mesh::TriMesh) -> (usize, f64) {
     (over, worst)
 }
 
+/// A gallery script's bodies: a model's in body order, an assembly's
+/// occurrences in placement order (world frame).
+fn script_bodies(
+    model: Option<popkern_script::Model>,
+    assembly: Option<popkern_assembly::Assembly>,
+) -> Vec<popkern_core::topology::BRep> {
+    match (model, assembly) {
+        (Some(mut model), _) => model
+            .to_parts_all()
+            .expect("parts")
+            .into_iter()
+            .map(|p| p.brep().clone())
+            .collect(),
+        (None, Some(mut assembly)) => assembly
+            .flatten()
+            .expect("flatten")
+            .into_iter()
+            .map(|o| o.brep)
+            .collect(),
+        (None, None) => panic!("script returns a model or an assembly"),
+    }
+}
+
 #[test]
 fn gallery_display_facet_tilts_stay_under_their_ceilings() {
     let root = format!("{}/examples", env!("CARGO_MANIFEST_DIR"));
@@ -176,16 +203,15 @@ fn gallery_display_facet_tilts_stay_under_their_ceilings() {
         let source = std::fs::read_to_string(format!("{root}/{stem}.rhai")).expect("script");
         let mut host = popkern_rhai::ScriptHost::with_options(Default::default());
         let run = host.run(&source, stem).expect("script runs");
-        let mut model = run.model.expect("script returns a model");
-        let parts = model.to_parts_all().expect("parts");
+        let bodies = script_bodies(run.model, run.assembly);
         for &(_, body, max_over, max_worst) in CEILINGS.iter().filter(|c| c.0 == stem) {
             let mesh = popkern_mesh::tessellate(
-                parts[body].brep(),
+                &bodies[body],
                 &popkern_mesh::TessellationOptions::display(),
             )
             .expect("display mesh");
             let (folds, worst_fold) = in_face_folds(&mesh);
-            let (over, worst) = facet_tilts(parts[body].brep(), &mesh);
+            let (over, worst) = facet_tilts(&bodies[body], &mesh);
             eprintln!(
                 "{stem}#{body}: facets tilted over 12° {over} worst {worst:.1}° (folds over 12.5° {folds}, worst {worst_fold:.1}°)"
             );
