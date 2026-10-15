@@ -3,107 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Playground - popkern</title>
-<meta name="description" content="The popkern WebAssembly playground: write a part in the browser, watch the kernel build it, download the STEP. In development.">
+<!-- The playground shipped as popkern live: this address forwards there. -->
+<meta http-equiv="refresh" content="0; url=../live/">
+<link rel="canonical" href="https://popkern.dev/live/">
 <meta name="robots" content="noindex">
-<link rel="icon" href="../assets/img/favicon.svg?v=3c8cd3cc" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="../assets/css/site.css?v=f511bd3d">
+<title>popkern live</title>
 </head>
 <body>
-<a class="skip" href="#main">Skip to content</a>
-
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
-  <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .5C5.73.5.66 5.58.66 11.85c0 5.01 3.25 9.26 7.75 10.76.57.1.78-.25.78-.55l-.02-1.94c-3.15.69-3.82-1.52-3.82-1.52-.52-1.32-1.26-1.67-1.26-1.67-1.03-.7.08-.69.08-.69 1.14.08 1.74 1.17 1.74 1.17 1.01 1.74 2.66 1.24 3.31.95.1-.74.4-1.24.72-1.53-2.52-.29-5.16-1.26-5.16-5.6 0-1.24.44-2.25 1.17-3.04-.12-.29-.51-1.44.11-3 0 0 .95-.31 3.12 1.16a10.8 10.8 0 0 1 5.68 0c2.17-1.47 3.12-1.16 3.12-1.16.62 1.56.23 2.71.11 3 .73.79 1.17 1.8 1.17 3.04 0 4.35-2.65 5.31-5.17 5.59.41.35.77 1.05.77 2.12l-.01 3.14c0 .3.2.66.79.55 4.5-1.5 7.74-5.75 7.74-10.76C23.34 5.58 18.27.5 12 .5Z"/></symbol>
-  <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
-</svg>
-
-<header class="nav">
-  <div class="container nav-inner">
-    <a class="brand" href="../">
-      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
-        <path d="M4 12a8 8 0 0 1 8-8h16v16a8 8 0 0 1-8 8H4V12Z" fill="none" stroke="currentColor" stroke-width="2.2"/>
-        <path d="M4 12a8 8 0 0 1 8-8" fill="none" stroke="#f5a524" stroke-width="3.6" stroke-linecap="round"/>
-      </svg>
-      popkern
-    </a>
-    <nav class="nav-links" aria-label="Main">
-      <a href="../install/">Install</a>
-      <a href="../support/" data-wide>Support</a>
-      <a href="../blog/" data-wide>Blog</a>
-      <span class="nav-icons">
-        <a class="icon-link" href="https://github.com/popkern-dev/popkern" aria-label="popkern on GitHub"><svg><use href="#i-github"/></svg></a>
-      </span>
-      <a class="nav-cta" href="../live/">Try it now!</a>
-    </nav>
-  </div>
-</header>
-
-<main id="main">
-<section>
-  <div class="container">
-    <a class="back-link" href="../">← Back to popkern</a>
-
-    <div class="pg" style="text-align:left">
-      <p class="eyebrow">In development</p>
-      <h2 style="margin-bottom:16px">The playground isn't live yet.</h2>
-      <p style="margin-left:0">
-        popkern is Rust, so it compiles to WebAssembly and can run the whole kernel inside
-        a browser tab, with no server doing the geometry and nothing to install. That is what
-        this page will become.
-      </p>
-
-      <div class="two-col" style="margin-top:36px">
-        <div>
-          <h3 style="font-size:1.05rem;margin-bottom:16px">What it will do</h3>
-          <ul class="ledger">
-            <li><svg><use href="#i-check"/></svg><span>Write a part with the <code>popkern-part</code> API and build it as you type.</span></li>
-            <li><svg><use href="#i-check"/></svg><span>Orbit the result in the browser, with the same provenance colouring the debug renders use.</span></li>
-            <li><svg><use href="#i-check"/></svg><span>Read the kernel's real diagnostics when an operation declines, with values and limits.</span></li>
-            <li><svg><use href="#i-check"/></svg><span>Download the STEP, or a mesh, straight from the page.</span></li>
-            <li><svg><use href="#i-check"/></svg><span>Share a link that reproduces exactly what you built.</span></li>
-          </ul>
-        </div>
-        <div>
-          <h3 style="font-size:1.05rem;margin-bottom:16px">Until then</h3>
-          <div class="prose">
-            <p>
-              Everything the playground will run is already in the repository, and the
-              examples build the same parts from the command line:
-            </p>
-          </div>
-          <div class="code-wrap" style="margin-top:18px">
-            <div class="code-head">
-              <span class="fname">shell</span>
-              <button class="copy-btn" type="button">copy</button>
-            </div>
-<pre><code>git clone https://github.com/popkern-dev/popkern
-cd popkern
-cargo run --bin boolean_showcase</code></pre>
-          </div>
-          <p style="margin-top:22px">
-            <a class="btn btn-ghost" href="../blog/">Follow along on the blog <svg><use href="#i-arrow"/></svg></a>
-          </p>
-        </div>
-      </div>
-    </div>
-  </div>
-</section>
-</main>
-
-<footer class="footer">
-  <div class="container">
-    <div class="footer-bottom" style="margin-top:0;border-top:0;padding-top:0">
-      <span>© <span data-year>2026</span> popkern contributors · AGPL-3.0-only with a user-script exception</span>
-      <span class="spacer"></span>
-      <a href="../">popkern.dev</a>
-    </div>
-  </div>
-</footer>
-
-<script src="../assets/js/site.js?v=255e14a8"></script>
+<p>The playground is now <a href="../live/">popkern live</a>.</p>
 </body>
 </html>

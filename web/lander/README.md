@@ -18,7 +18,7 @@ support/index.html          ways to support popkern
 blog/index.html             post index
 blog/announcing-popkern.html  launch post
 blog/feed.xml               RSS (hand-maintained)
-playground/index.html       "coming soon" page for the wasm playground
+playground/index.html       redirect to live/ (the playground shipped as popkern live)
 404.html
 assets/css/site.css         the whole design system, one file
 assets/js/site.js           copy buttons + footer year, nothing else

@@ -12,7 +12,7 @@ import hashlib, pathlib, re, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PAGES = ["index.html", "404.html", "blog/index.html",
-         "blog/announcing-popkern.html", "playground/index.html",
+         "blog/announcing-popkern.html",
          "install/index.html", "support/index.html"]
 ASSET_RE = re.compile(r"((?:href|src)=\")(/?(?:\.\./)*assets/[^\"?]+)(?:\?v=[0-9a-f]+)?(\")")
 

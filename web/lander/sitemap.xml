@@ -5,5 +5,5 @@
   <url><loc>https://popkern.dev/support/</loc><priority>0.7</priority></url>
   <url><loc>https://popkern.dev/blog/</loc><priority>0.8</priority></url>
   <url><loc>https://popkern.dev/blog/announcing-popkern.html</loc><priority>0.8</priority></url>
-  <url><loc>https://popkern.dev/playground/</loc><priority>0.5</priority></url>
+  <url><loc>https://popkern.dev/live/</loc><priority>0.8</priority></url>
 </urlset>
