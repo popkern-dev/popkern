@@ -8,6 +8,7 @@ use serde_json::Value;
 pub fn assert_arm_rows(out: &Value) {
     assert_section(out);
     assert_clipping(out);
+    assert_film(out);
     assert_joint(out);
     assert_large_fit(out);
 }
@@ -104,6 +105,67 @@ pub fn assert_clipping(out: &Value) {
         "the outline fits a frame: {c}"
     );
     assert_eq!(c["cleared"], true, "{c}");
+}
+
+/// Presentation films (presentation-films.md §10).
+pub fn assert_film(out: &Value) {
+    let f = &out["film"];
+    assert_eq!(f["ok"], true, "the film runs: {f}");
+    assert_eq!(f["active"], true, "{f}");
+    assert_eq!(f["bar_shown"], true, "{f}");
+    assert_eq!(f["mode"], "toon", "the presentation look: {f}");
+    assert!(
+        f["run_ms"].as_f64().unwrap_or(f64::MAX) < 2000.0,
+        "a film runs without a rebuild: {f}"
+    );
+    assert!(
+        (f["duration"].as_f64().unwrap_or(0.0) - 1.5).abs() < 1e-9,
+        "{f}"
+    );
+    assert!(
+        (f["lifted"].as_f64().unwrap_or(0.0) - 0.6).abs() < 1e-6,
+        "the move lands its offset: {f}"
+    );
+    assert!(
+        (f["housing_opacity"].as_f64().unwrap_or(0.0) - 0.4).abs() < 1e-6,
+        "{f}"
+    );
+    assert_eq!(f["caption"]["title"], "Colours", "{f}");
+    // The video presets keep the film's 10 fps; the GIF runs at 15.
+    for (key, magic, frames) in [
+        ("mp4-720p", "ftyp", 15),
+        ("webm", "\u{1a}E\u{df}\u{a3}", 15),
+        ("gif", "GIF89a", 23),
+    ] {
+        let e = &f[key];
+        assert!(e["error"].is_null(), "{key}: {f}");
+        assert_eq!(e["frames"], frames, "{key}: 1.5 s: {f}");
+        assert!(
+            e["head"].as_str().unwrap_or("").contains(magic),
+            "{key} header: {f}"
+        );
+    }
+    assert_eq!(f["gif"]["gif_frames"], 23, "GIF at 15 fps: {f}");
+    assert_eq!(f["broken"]["ok"], false, "{f}");
+    assert_eq!(f["broken"]["kind"], "ArgumentError", "{f}");
+    assert!(
+        f["broken"]["rendered"]
+            .as_str()
+            .unwrap_or("")
+            .contains("broken.rhai:2:"),
+        "the decline names the film's line: {f}"
+    );
+    assert_eq!(f["broken"]["still_open"], true, "{f}");
+    assert_eq!(f["closed"]["active"], false, "{f}");
+    assert_eq!(f["closed"]["bar_hidden"], true, "{f}");
+    assert_eq!(
+        f["closed"]["lifted_back"], true,
+        "closing restores the placements: {f}"
+    );
+    assert_ne!(
+        f["closed"]["mode"], "toon",
+        "closing restores the view: {f}"
+    );
 }
 
 /// A joint slider (§9.8, PK-725): an assembly parameter that drives no

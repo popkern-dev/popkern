@@ -825,6 +825,65 @@ a`)};
     return result;
   })()`);
 
+  // Presentation films (docs/architecture/presentation-films.md §10): a
+  // film script runs against the document on screen (no rebuild), its
+  // state moves an occurrence, the look and caption apply, and the
+  // export writes MP4, WebM and GIF with the film's frame count.
+  out.film = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const viewer = page.viewer;
+    const film = page.film;
+    const source = ${JSON.stringify(`let doc = document();
+let film = storyboard(#{ size: [320, 180], fps: 10 });
+film.title("Colours", "a housing and a plain part", 0.5, |s| { s.orbit(20.0); });
+film.step("Lift", "the plain part rises", 1.0, |s| {
+    s.move("plain_1", #{ to: [0.0, 0.0, 0.6] });
+    s.fade("housing_1", 1.0, 0.4);
+});
+film`)};
+    const result = {};
+    const t0 = performance.now();
+    const reply = await film.run(source, "films/lift.rhai");
+    result.run_ms = performance.now() - t0;
+    result.ok = reply.ok;
+    result.active = film.active;
+    result.duration = film.film?.duration ?? null;
+    result.bar_shown = !document.getElementById("film-bar").hidden;
+    result.mode = viewer.mode;
+    const plain = viewer.bodies.find((m) => m.userData.instance?.startsWith("plain"));
+    const housing = viewer.bodies.find((m) => m.userData.instance?.startsWith("housing"));
+    const z = () => new viewer.camera.position.constructor().setFromMatrixPosition(plain.matrixWorld).z;
+    await film.seek(0);
+    const z0 = z();
+    await film.seek(1.5);
+    result.lifted = z() - z0;
+    result.housing_opacity = housing.material.opacity;
+    await film.seek(0.25);
+    result.caption = film.caption ? { title: film.caption.title, opacity: film.caption.opacity } : null;
+    const { exportFilm } = await import("./film-export.js");
+    const header = (bytes, n) => Array.from(bytes.slice(0, n)).map((b) => String.fromCharCode(b)).join("");
+    for (const key of ["mp4-720p", "webm", "gif"]) {
+      try {
+        const e0 = performance.now();
+        const o = await exportFilm(page, key);
+        result[key] = { bytes: o.bytes.length, frames: o.frames, head: header(o.bytes, 12), ms: performance.now() - e0 };
+        if (key === "gif") {
+          let n = 0;
+          for (let i = 0; i + 2 < o.bytes.length; i++) if (o.bytes[i] === 0x21 && o.bytes[i + 1] === 0xf9 && o.bytes[i + 2] === 0x04) n++;
+          result[key].gif_frames = n;
+        }
+      } catch (e) {
+        result[key] = { error: String(e) };
+      }
+    }
+    // A broken film reports at its line and leaves the open one alone.
+    const broken = await film.run(${JSON.stringify('let film = storyboard();\nfilm.step("a", 1.0, |s| { s.move("lid", #{ to: [0.0, 0.0, 1.0] }); });\nfilm')}, "films/broken.rhai");
+    result.broken = { ok: broken.ok, kind: broken.outcome?.kind ?? null, rendered: broken.outcome?.rendered ?? null, still_open: film.active };
+    film.close();
+    result.closed = { active: film.active, mode: viewer.mode, bar_hidden: document.getElementById("film-bar").hidden, lifted_back: Math.abs(z() - z0) < 1e-9 };
+    return result;
+  })()`);
+
   // A joint slider (six-axis-arm §9.8, PK-725): an assembly parameter
   // that drives no part re-places the occurrences — the page keeps its
   // geometries (the same objects), the link and its follower move, the

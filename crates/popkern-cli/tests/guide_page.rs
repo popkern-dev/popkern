@@ -209,11 +209,17 @@ fn the_guide_page_is_the_rendered_guide() {
         markdown.lines().filter(|l| l.starts_with("## ")).count(),
         html.matches("<h2>").count()
     );
-    assert_eq!(
-        markdown
-            .lines()
-            .filter(|l| l.starts_with("```rhai"))
-            .count(),
-        html.matches("<pre class=\"lang-rhai\">").count()
-    );
+    // Each fenced language renders as its own class (`rhai`, and the
+    // films' `rhai-film`).
+    for lang in ["rhai", "rhai-film"] {
+        assert_eq!(
+            markdown
+                .lines()
+                .filter(|l| l.trim() == format!("```{lang}"))
+                .count(),
+            html.matches(&format!("<pre class=\"lang-{lang}\">"))
+                .count(),
+            "{lang} blocks"
+        );
+    }
 }

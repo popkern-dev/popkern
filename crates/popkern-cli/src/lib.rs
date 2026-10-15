@@ -16,6 +16,8 @@
 #![forbid(unsafe_code)]
 
 pub mod args;
+pub mod film;
+mod film_browser;
 pub mod project;
 pub mod render;
 pub mod report;
@@ -75,6 +77,7 @@ pub fn main_with(args: &[String]) -> ExitCode {
         Command::Build => ExitCode::from(project::build_command(&cli)),
         Command::New => ExitCode::from(project::new_command(&cli)),
         Command::Serve => ExitCode::from(serve_command(&cli)),
+        Command::Film => ExitCode::from(film::film_command(&cli)),
         Command::Run => {
             if cli.watch {
                 return watch::watch_loop(&cli);

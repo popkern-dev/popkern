@@ -17,6 +17,10 @@ popkern-rhai = { path = "../popkern-rhai" }
 popkern-assembly = { path = "../popkern-assembly" }
 popkern-project = { path = "../popkern-project" }
 popkern-server = { path = "../popkern-server" }
+popkern-live = { path = "../popkern-live" }
+# `popkern film --out` drives headless Chrome over the DevTools
+# protocol (the client popkern-server already depends on).
+tungstenite = "0.24"
 # CPU software renderer only: no GPU or window stack behind the CLI.
 popkern-viz = { path = "../popkern-viz", default-features = false }
 # Zebra renders pick their analysis mesh's facet bound.
@@ -33,6 +37,3 @@ thiserror = { workspace = true }
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
-# Host parity gate: the browser engine and the command share one class
-# partition (crates/popkern-cli/tests/live_parity.rs).
-popkern-live = { path = "../popkern-live" }

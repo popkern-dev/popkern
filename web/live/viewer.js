@@ -10,6 +10,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { boundaryEdges, enclosesNoVolume, fatLines } from "./edges.js";
 import { drawList, explodePlan, placeAt } from "./instances.js";
 import { Orbit } from "./orbit.js";
+import { toonMaterial } from "./film-look.js";
 import { Section } from "./section.js";
 import { ZEBRA_FRAGMENT, ZEBRA_VERTEX, divergingColor, faceColor, robustHalfRange } from "./shading.js";
 
@@ -185,6 +186,8 @@ export class Viewer {
     this.explodePlan = assembly ? explodePlan(this.bodies) : null;
     if (this.explode && this.explodePlan) this.setExplode(this.explode);
     if (this.section.active) this.section.apply();
+    // A film re-captures the placements it animates from (film-player.js).
+    this.onShown?.();
     if (!this.fitted) {
       const box = this.visibleBounds();
       if (box) {
@@ -336,6 +339,14 @@ export class Viewer {
         });
       }
       return new THREE.MeshStandardMaterial({ color: CAD_FACE, metalness: 0.05, roughness: 0.55, side: THREE.DoubleSide, ...offset });
+    }
+    if (this.mode === "toon") {
+      // A film's presentation look (film-look.js): flat tones in the
+      // part's own colour, else its palette colour.
+      const color = appearance
+        ? new THREE.Color().setRGB(...appearance.color, THREE.SRGBColorSpace)
+        : new THREE.Color(faceColor(colorKey).getHex());
+      return toonMaterial(color, offset);
     }
     if (this.mode === "parts") {
       // One colour per part definition (per body for a part document).

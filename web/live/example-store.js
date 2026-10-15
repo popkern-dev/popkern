@@ -62,6 +62,11 @@ export class ExampleStore {
     } else {
       files = singleScriptProject(entry.title, stemOf(entry.file), await text(await fetch(`./examples/${entry.file}`), entry.file));
     }
+    // A single script's films (`stem.<name>.film.rhai` beside it) open
+    // as the project's `films/<name>.rhai`.
+    for (const film of entry.films ?? []) {
+      files[`films/${film.name}.rhai`] = await text(await fetch(`./examples/${film.file}`), film.file);
+    }
     return { id, name: entry.title, files, revision: 0, readOnly: true, file: entry.file ?? null };
   }
 }

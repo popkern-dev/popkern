@@ -276,6 +276,18 @@ impl Protocol {
             }
             "stats" => Reply::plain(json!({ "id": id, "ok": true, "wasm_memory_bytes": null,
                 "body_count": self.last_bodies })),
+            "film" => match session.film(
+                &text("source", ""),
+                &text("name", "film.rhai"),
+                message
+                    .get("context")
+                    .and_then(|c| serde_json::from_value(c.clone()).ok()),
+            ) {
+                Ok(reply) => Reply::plain(json!({
+                    "id": id, "ok": true, "film": reply.film, "printed": reply.printed, "context": reply.context,
+                })),
+                Err(outcome) => failed(outcome),
+            },
             "timeline" => match session
                 .timeline()
                 .and_then(|parts| Ok((parts, session.assembly_timeline()?)))

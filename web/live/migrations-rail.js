@@ -8,6 +8,7 @@
 // migration is added, so a single script looks as it always did.
 import { NEXT_MIGRATION, insertAfterMigration, insertAfterName, insertAfterPartMigration } from "./migration-templates.js";
 import { migrationPaths } from "./project-store.js";
+import { NEW_FILM, filmName, filmPath } from "./film-files.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -33,6 +34,7 @@ export class MigrationsRail {
     this.page = page;
     this.versions = new Map();
     $("migration-add").addEventListener("click", () => this.add());
+    $("film-add").addEventListener("click", () => this.addFilm());
   }
 
   /** Statuses from a project build's envelope (`project.versions`). */
@@ -46,9 +48,14 @@ export class MigrationsRail {
     const list = $("migrations-list");
     list.replaceChildren();
     const paths = p ? migrationPaths(p.files) : [];
-    $("migrations-rail").hidden = !p || paths.length < 2;
+    const films = p ? this.page.projects.filmPaths() : [];
+    // The rail shows for several migrations, or for any film (then the
+    // one migration shows too, to get back to the model).
+    const shown = p && (paths.length >= 2 || films.length > 0);
+    $("migrations-rail").hidden = !shown;
     $("migration-add").hidden = !p || p.readOnly;
-    if (!p || paths.length < 2) return;
+    $("film-add").hidden = !p || p.readOnly;
+    if (!shown) return;
     paths.forEach((path, i) => {
       const parsed = parseMigration(path);
       const stem = path.split("/").pop().replace(/\.rhai$/, "");
@@ -89,6 +96,69 @@ export class MigrationsRail {
       }
       list.append(li);
     });
+    for (const path of films) {
+      const li = document.createElement("li");
+      li.className = "migration migration-film";
+      li.dataset.path = path;
+      if (path === p.path) li.classList.add("open");
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "migration-name";
+      open.textContent = filmName(path);
+      open.title = `play the film ${filmName(path)} (films/${filmName(path)}.rhai)`;
+      open.addEventListener("click", () => this.open(path));
+      li.append(open);
+      if (!p.readOnly) {
+        for (const [label, title, act] of [
+          ["✎", "rename", () => this.renameFilm(path)],
+          ["×", "delete this film", () => this.removeFilm(path)],
+        ]) {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "migration-tool";
+          b.textContent = label;
+          b.title = title;
+          b.addEventListener("click", act);
+          li.append(b);
+        }
+      }
+      list.append(li);
+    }
+  }
+
+  /** Add a film (films/<name>.rhai from a starter) and open it. */
+  async addFilm() {
+    const p = this.page.projects.current;
+    if (!p || p.readOnly) return;
+    const name = window.prompt("Name of the new film", "turntable");
+    if (name == null) return;
+    const path = filmPath(name);
+    if (path in p.files) return this.page.status(`a film named ${path} exists`, true);
+    await this.page.projects.replaceFiles({ ...p.files, [path]: NEW_FILM }, path);
+    this.render();
+  }
+
+  async renameFilm(path) {
+    const p = this.page.projects.current;
+    const name = window.prompt("New name of the film", filmName(path));
+    if (name == null) return;
+    const target = filmPath(name);
+    if (target === path) return;
+    if (target in p.files) return this.page.status(`a film named ${target} exists`, true);
+    const files = { ...p.files, [target]: p.files[path] };
+    delete files[path];
+    await this.page.projects.replaceFiles(files, p.path === path ? target : p.path);
+    this.render();
+  }
+
+  async removeFilm(path) {
+    const p = this.page.projects.current;
+    if (!window.confirm(`Delete the film ${filmName(path)}?`)) return;
+    const files = { ...p.files };
+    delete files[path];
+    if (p.path === path) this.page.film.close();
+    await this.page.projects.replaceFiles(files, p.path === path ? migrationPaths(files).at(-1) : p.path);
+    this.render();
   }
 
   /** Show migration `path` in the editor (no build: the project as a

@@ -416,7 +416,45 @@ a
 <li>The <code>part colours</code> view tints each part.</li>
 </ul>
 <p>Instance and part names cannot contain <code>/</code> or <code>:</code> (the instance path and entity separators). Placing a sub-assembly inside itself, a duplicate sibling name, or a part whose closure built no solid each raise an <code>AssemblyError</code> naming the instance, the part and the reason. An error inside a part's closure is that operation's own error, with the closure's line and <code>in part '…'</code>.</p>
-<h2>14. Cheat-sheet</h2>
+<h2>14. Films: presentation videos of a part or an assembly</h2>
+<p>A <strong>film</strong> is a script that animates the built document into a short presentation video: captioned steps, the camera turning and moving, parts sliding and turning into place, joints sweeping, a section sweeping through. It reads the document and never changes it, so a film reruns in a moment and never rebuilds the geometry. A project keeps any number of them as <code>films/&lt;name&gt;.rhai</code> beside <code>migrations/</code> (a single script <code>stem.rhai</code> takes <code>stem.&lt;name&gt;.film.rhai</code> beside it); in popkern live, <strong>+ film</strong> adds one and its tab plays it, and Export writes MP4 (Slides, Discord, social), vertical MP4, WebM, GIF or a PNG. <code>popkern film &lt;project | script&gt; --out guide.mp4</code> renders one from the command line.</p>
+<p>The film below plays on the pins assembly above: <code>document()</code> is the built document, <code>storyboard()</code> the film, and each step's closure adds what moves during it.</p>
+<pre class="lang-rhai-film"><code>let doc = document();
+let film = storyboard(#{ look: "toon", camera: #{ azimuth: -40.0, elevation: 25.0 } });
+film.title("Pins", "four pins and a pair", 2.0, |s| { s.orbit(30.0); });
+film.step("The pair drops in", "from 2 units up", 3.0, |s| {
+    s.move("pair_1", #{ from: [0.0, 0.0, 2.0], duration: 2.0 });
+    s.highlight("pair_1/high", #{ at: 2.0, duration: 1.0 });
+});
+film.step("One pin turns", "", 2.0, |s| {
+    s.turn("pin_3", axis_at([1.5, 0.0, 0.0], [0.0, 0.0, 1.0]), 0.0, 180.0);
+    s.camera(#{ zoom: 1.4, target: "pin_3" });
+});
+film.step("Inside", "a section across the row", 2.5, |s| {
+    s.section(#{ from: "y", from_at: 1.0, to_at: 0.5 });
+    s.fade("pair_1", 1.0, 0.3);
+});
+film
+</code></pre>
+<p>Every action takes <code>#{ at, duration, ease }</code>: <code>at</code> seconds into its step (default 0), <code>duration</code> (default: to the step's end), <code>ease</code> (<code>"inout"</code> default, <code>"in"</code>, <code>"out"</code>, <code>"linear"</code>). Before an action starts it holds its first value; after it ends, its last, so moves that come <code>from</code> an offset end on the real assembly.</p>
+<table>
+<tr><th>Call</th><th>What it does</th></tr>
+<tr><td><code>storyboard(#{ size, fps, look, background, camera })</code></td><td>the film; <code>size: [1920, 1080]</code>, <code>fps: 30</code>, <code>look: "toon"</code> (flat colours, outlines, ground shadow), <code>"studio"</code> or <code>"cad"</code>; <code>background: "#ffffff"</code>; <code>camera: #{ azimuth, elevation, zoom, target }</code></td></tr>
+<tr><td><code>film.step(title, subtitle, seconds, body)</code></td><td>a captioned step; <code>body</code> is the closure the step's actions go in (<code>film.step(title, seconds, body)</code> without a subtitle)</td></tr>
+<tr><td><code>film.title(title, subtitle, seconds, body)</code></td><td>a step with a large caption</td></tr>
+<tr><td><code>film.hold(seconds)</code></td><td>a pause with no caption</td></tr>
+<tr><td><code>s.orbit(degrees)</code></td><td>turn the camera about its target</td></tr>
+<tr><td><code>s.camera(#{ azimuth, elevation, zoom, target })</code></td><td>move the camera; unset fields keep their value; <code>target</code> an occurrence or <code>"all"</code></td></tr>
+<tr><td><code>s.move(target, #{ from: [x, y, z] })</code> / <code>#{ to: … }</code></td><td>slide from an offset into place, or out to an offset (document units)</td></tr>
+<tr><td><code>s.turn(target, axis_at(p, d), from, to)</code></td><td>rotate about an axis, degrees</td></tr>
+<tr><td><code>s.joint(name, from, to)</code></td><td>sweep an assembly parameter that only moves occurrences (a revolute's angle, a mate's distance)</td></tr>
+<tr><td><code>s.explode(from, to)</code></td><td>the explode factor</td></tr>
+<tr><td><code>s.section(#{ from, to, from_at, to_at, combine })</code></td><td>a section plane: <code>"x"</code>, <code>"y"</code>, <code>"z"</code> at 0..1 across the model, <code>#{ normal, offset }</code>, or <code>"off"</code></td></tr>
+<tr><td><code>s.fade(target, from, to)</code> / <code>s.show(target, visible)</code> / <code>s.highlight(target)</code></td><td>opacity, visibility, emphasis</td></tr>
+<tr><td><code>doc.instances()</code>, <code>doc.joints()</code>, <code>doc.value(name)</code>, <code>doc.bodies</code>, <code>doc.kind</code></td><td>what the document holds</td></tr>
+</table>
+<p>A target is an occurrence path (<code>"pair_1"</code> moves everything under it, <code>"pair_1/high"</code> one pin), <code>"body N"</code> in a part document, or <code>"all"</code>. A name the document does not have is an <code>ArgumentError</code> at its line that lists the names it does have.</p>
+<h2>15. Cheat-sheet</h2>
 <pre class="lang-text"><code>model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
 m.profile(PLANE).rect|circle|polygon|path…close().at(cx, cy).sketch(label)
 PLANE: xy() xz() yz() xy_at(z) xz_at(y) yz_at(x) on_face(F) on_face_offset(F, d) plane_at(o, n)

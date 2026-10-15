@@ -57,6 +57,7 @@ pub mod engine;
 pub mod error;
 pub mod fastener_api;
 mod feature_api;
+pub mod film;
 pub mod hinge_api;
 pub mod host;
 pub mod migration_api;

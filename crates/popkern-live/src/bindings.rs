@@ -170,6 +170,19 @@ impl LiveSession {
             .to_string()
     }
 
+    /// Run a film script against the built document
+    /// (docs/architecture/presentation-films.md): `{film, printed,
+    /// context}` as JSON, or `{"outcome": …}`.
+    /// `context`: the envelope's `film_context` JSON (or empty), used
+    /// when the session holds no live document.
+    pub fn film(&mut self, source: &str, name: &str, context: &str) -> String {
+        let fallback = serde_json::from_str(context).ok();
+        match self.session.film(source, name, fallback) {
+            Ok(reply) => serde_json::to_string(&reply).unwrap_or_default(),
+            Err(outcome) => serde_json::json!({ "outcome": outcome }).to_string(),
+        }
+    }
+
     /// The document as canonical Rhai, or the outcome JSON as the error.
     pub fn to_rhai(&mut self) -> Result<String, JsValue> {
         self.session

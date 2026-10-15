@@ -48,7 +48,41 @@ fn project_files(dir: &Path) -> Vec<String> {
         .collect();
     migrations.sort();
     out.extend(migrations);
+    // Films (presentation-films.md §2) travel with the project.
+    if let Ok(entries) = std::fs::read_dir(dir.join("films")) {
+        let mut films: Vec<String> = entries
+            .filter_map(|e| e.ok()?.file_name().to_str().map(|n| format!("films/{n}")))
+            .filter(|p| p.ends_with(".rhai"))
+            .collect();
+        films.sort();
+        out.extend(films);
+    }
     out
+}
+
+/// A gallery script's films: `(name, file)` for every
+/// `stem.<name>.film.rhai` (or `stem.film.rhai`) beside it.
+fn script_films(stem: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = std::fs::read_dir(examples_dir())
+        .expect("examples")
+        .filter_map(|e| e.ok()?.file_name().to_str().map(str::to_string))
+        .filter(|f| {
+            f.ends_with(".film.rhai")
+                && (f == &format!("{stem}.film.rhai") || f.starts_with(&format!("{stem}.")))
+        })
+        .map(|f| (popkern_rhai::film::film_name(&f), f))
+        .collect();
+    out.sort();
+    out
+}
+
+/// Every film plays against the session's built document.
+fn assert_films_run(label: &str, session: &mut Session, films: &[(String, String)]) {
+    for (name, source) in films {
+        if let Err(outcome) = session.film(source, name, None) {
+            panic!("[{label}] film {name}: {outcome:?}");
+        }
+    }
 }
 
 /// Build every project example; its manifest entry.
@@ -70,6 +104,12 @@ fn project_entries() -> Vec<Value> {
             "[{dir}] {:?}",
             envelope.outcome
         );
+        let films: Vec<(String, String)> = files
+            .iter()
+            .filter(|(p, _)| p.starts_with("films/"))
+            .map(|(p, b)| (p.clone(), String::from_utf8_lossy(b).into_owned()))
+            .collect();
+        assert_films_run(dir, &mut session, &films);
         assert_eq!(envelope.features, *features, "[{dir}] feature count");
         assert!(
             envelope.bodies.iter().all(|b| b.open_edges == 0),
@@ -182,6 +222,17 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
             "[{stem}] no script leans on a downgrade"
         );
         assert!(!envelope.bodies.is_empty(), "[{stem}] a body on screen");
+        let films = script_films(stem);
+        let film_sources: Vec<(String, String)> = films
+            .iter()
+            .map(|(_, file)| {
+                (
+                    file.clone(),
+                    std::fs::read_to_string(examples_dir().join(file)).expect("film"),
+                )
+            })
+            .collect();
+        assert_films_run(stem, &mut session, &film_sources);
         for body in &envelope.bodies {
             assert_eq!(body.open_edges, 0, "[{stem}] watertight mesh");
             let worst = worst_facet_spread(&body.normals, &body.indices);
@@ -224,14 +275,21 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
             Some(passed) => assert!(passed, "[{stem}] OCC oracle rejected the STEP"),
             None => eprintln!("[pk412] {stem}: OCC oracle absent"),
         }
-        entries.push(json!({
+        let mut entry = json!({
             "file": format!("{stem}.rhai"),
             "title": title,
             "blurb": blurb,
             "features": features,
             "demonstrates": demonstrates,
             "thumbnail": format!("examples/{stem}.png"),
-        }));
+        });
+        if !films.is_empty() {
+            entry["films"] = films
+                .iter()
+                .map(|(name, file)| json!({ "name": name, "file": file }))
+                .collect();
+        }
+        entries.push(entry);
     }
     entries.extend(project_entries());
     // The manifest and the script copies the page serves.
@@ -251,6 +309,9 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
                 copies.join(format!("{stem}.rhai")),
             )
             .expect("copy");
+            for (_, file) in script_films(stem) {
+                std::fs::copy(examples_dir().join(&file), copies.join(&file)).expect("copy film");
+            }
         }
         for (dir, ..) in GALLERY_PROJECTS {
             for path in project_files(&project_gallery_dir().join(dir)) {
@@ -279,6 +340,14 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
             copies.join(format!("{stem}.png")).exists(),
             "[{stem}] thumbnail missing: run with POPKERN_UPDATE_GALLERY=1"
         );
+        for (_, file) in script_films(stem) {
+            let source = std::fs::read(examples_dir().join(&file)).expect("read");
+            let copy = std::fs::read(copies.join(&file)).unwrap_or_default();
+            assert_eq!(
+                source, copy,
+                "[{file}] web/live/examples copy drifted: run with POPKERN_UPDATE_GALLERY=1"
+            );
+        }
     }
     for (dir, ..) in GALLERY_PROJECTS {
         for path in project_files(&project_gallery_dir().join(dir)) {

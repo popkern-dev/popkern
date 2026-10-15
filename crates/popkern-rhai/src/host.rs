@@ -98,6 +98,19 @@ impl std::fmt::Display for ScriptRunError {
 }
 
 impl ScriptRunError {
+    /// An `ArgumentError` with no script position (a whole-script
+    /// contract, such as a film script returning no storyboard).
+    pub(crate) fn argument(script: &str, message: &str) -> ScriptRunError {
+        ScriptRunError {
+            kind: "ArgumentError".into(),
+            message: message.into(),
+            script: script.into(),
+            line: None,
+            column: None,
+            payload: Box::new(serde_json::json!({ "kind": "ArgumentError", "message": message })),
+        }
+    }
+
     /// Human rendering for a terminal: the `Display` line followed by
     /// one remediation line per hint the payload carries.
     pub fn render(&self) -> String {
@@ -109,7 +122,7 @@ impl ScriptRunError {
         text
     }
 
-    fn from_eval(error: &EvalAltResult, script: &str) -> ScriptRunError {
+    pub(crate) fn from_eval(error: &EvalAltResult, script: &str) -> ScriptRunError {
         // A failure inside a closure or a script `fn` arrives wrapped in
         // function-call frames: report the call that failed (its class,
         // payload and line), not the frame (PK-634).

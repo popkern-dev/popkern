@@ -12,6 +12,8 @@ usage: popkern run <script.rhai> [options]
        popkern new <project-dir> [--name <text>]
        popkern serve <projects-dir> [--page <dir>] [--port <n>] [--bind <addr>]
                      [--compute native|browser]
+       popkern film <project-dir | script.rhai> [--film <name>] [--json]
+                     [--out <file> [--preset <name>] [--at <s>] [--chrome <path>] [--page <dir>]]
        popkern --version
 
 popkern build runs a project's migrations (migrations/NNN_name.rhai) in
@@ -51,6 +53,12 @@ run options:
   --stripes <n>        zebra stripe count (default 16)
   --facet-angle <deg>  zebra mesh facet bound (default 12, the display bound)
 
+popkern film runs a project's films (films/<name>.rhai) or a script's
+(stem.<name>.film.rhai beside it) against the built document: --json
+prints the storyboards. --out renders one film to a file with headless
+Chrome (--chrome or POPKERN_CHROME): presets mp4-1080p (default),
+mp4-vertical, mp4-720p, webm, gif, png (one frame, at --at seconds).
+
 exit codes: 0 served, 2 script error, 3 kernel decline, 4 gate or export failure,
             5 project structure error, 6 diverged history under --strict";
 
@@ -65,6 +73,8 @@ pub enum Command {
     New,
     /// `popkern serve <dir>`.
     Serve,
+    /// `popkern film <dir | script>`.
+    Film,
     /// `popkern help` / `--help`.
     Help,
     /// `popkern --version` / `version`.
@@ -122,6 +132,17 @@ pub struct Cli {
     pub bind: String,
     /// `serve`: where the kernel runs (`native` or `browser`).
     pub compute: String,
+    /// `popkern film --film`: the film to run (default: every film, or
+    /// the only one for `--out`).
+    pub film: Option<String>,
+    /// `popkern film --out`: the file to render the film to.
+    pub out: Option<PathBuf>,
+    /// `popkern film --preset`: the export preset.
+    pub preset: String,
+    /// `popkern film --chrome`: the headless Chrome binary.
+    pub chrome: Option<PathBuf>,
+    /// `popkern film --at`: the time of a `png` frame, seconds.
+    pub at: f64,
 }
 
 impl Default for Cli {
@@ -151,6 +172,11 @@ impl Default for Cli {
             port: 7690,
             bind: "127.0.0.1".into(),
             compute: "native".into(),
+            film: None,
+            out: None,
+            preset: "mp4-1080p".into(),
+            chrome: None,
+            at: 0.0,
         }
     }
 }
@@ -182,6 +208,7 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
         Some("build") => cli.command = Command::Build,
         Some("new") => cli.command = Command::New,
         Some("serve") => cli.command = Command::Serve,
+        Some("film") => cli.command = Command::Film,
         Some("help") | Some("--help") | Some("-h") => {
             cli.command = Command::Help;
             return Ok(cli);
@@ -215,6 +242,11 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
                 }
                 cli.compute = v.clone();
             }
+            "--film" => cli.film = Some(value(arg, &mut iter)?.clone()),
+            "--out" => cli.out = Some(PathBuf::from(value(arg, &mut iter)?)),
+            "--preset" => cli.preset = value(arg, &mut iter)?.clone(),
+            "--chrome" => cli.chrome = Some(PathBuf::from(value(arg, &mut iter)?)),
+            "--at" => cli.at = number(arg, value(arg, &mut iter)?)?,
             "--watch" => cli.watch = true,
             "--no-edges" => cli.edges = false,
             "--param" => {
@@ -250,6 +282,7 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
     let what = match cli.command {
         Command::Build | Command::New => "missing project folder",
         Command::Serve => "missing projects folder",
+        Command::Film => "missing project folder or script",
         _ => "missing script path",
     };
     cli.script = script.ok_or_else(|| UsageError(what.into()))?;

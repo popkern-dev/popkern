@@ -27,6 +27,8 @@ import { renderParams, wireParamFilter } from "./params-panel.js";
 import { hostMode } from "./host-mode.js";
 import { Projects } from "./projects.js";
 import { SocketWorker } from "./socket-worker.js";
+import { FilmPlayer } from "./film-player.js";
+import { wireFilmBar } from "./film-bar.js";
 import { Scrubber } from "./scrubber.js";
 import { MigrationsRail } from "./migrations-rail.js";
 import { wireProjects } from "./projects-dialog.js";
@@ -95,9 +97,13 @@ class Page {
     this.certifyGeneration = 0;
     // The history scrubber under the viewport (live models only).
     this.scrubber = new Scrubber(this);
+    // A film open in the editor plays here (film-player.js).
+    this.film = new FilmPlayer(this);
+    this.viewer.onShown = () => this.film.rebound();
     // A project's migration files beside the editor.
     this.rail = new MigrationsRail(this);
     wireControls(this);
+    wireFilmBar(this);
     wireProjects(this);
     wireParamFilter();
     renderTimeLimitOptions($("time-limit"), this.timeLimit);
@@ -148,7 +154,13 @@ class Page {
    *  (unless `live`), else a kernel run. */
   async run({ live = false } = {}) {
     clearTimeout(this.idleTimer);
-    const source = this.editor.value;
+    // A film open in the editor plays on the project's geometry: build
+    // that (or show its bake) only when it changed, then run the film.
+    const filmOpen = this.projects.filmOpen;
+    const source = filmOpen ? this.projects.geometrySource() : this.editor.value;
+    if (filmOpen && !live && this.lastGood && this.geometryKey === source && !this.running) {
+      return this.film.run(this.editor.value, this.projects.path);
+    }
     // An imported STEP document has no script to build: keep it.
     if (this.tab.isImported(source)) {
       this.status("an imported STEP assembly is view only: pick an example or write a script to build");
@@ -160,6 +172,8 @@ class Page {
       if (token !== this.viewToken) return null;
       if (bake) {
         if (this.lastGood?.bakedSource !== source || this.live) this.showBake(bake, source);
+        this.geometryKey = this.projects.geometrySource();
+        if (filmOpen) return this.film.run(this.editor.value, this.projects.path);
         return { ok: true, baked: true };
       }
     }
@@ -199,6 +213,7 @@ class Page {
       // previous model, so `live` stands.
       if (reply.ok && reply.envelope?.report) this.live = reply.envelope.outcome === "served";
       await this.receive(reply);
+      if (reply.ok && reply.envelope?.outcome === "served") this.geometryKey = this.projects.geometrySource();
     } else {
       // Superseded (by an edit queued as a rerun, or a pre-built
       // example now on screen): its model is in the worker but not on
@@ -206,7 +221,10 @@ class Page {
       this.live = false;
     }
     finished();
-    if (this.rerun) this.run();
+    if (this.rerun) return this.run();
+    if (filmOpen && token === this.viewToken && reply.ok && reply.envelope?.outcome === "served") {
+      return this.film.run(this.editor.value, this.projects.path);
+    }
     return reply;
   }
 

@@ -215,3 +215,48 @@ fn every_code_block_in_the_guide_runs_as_the_prose_says() {
         }
     }
 }
+
+/// The guide's films (`rhai-film` blocks, §14) play on its first
+/// assembly example (the pins), as the prose says.
+#[test]
+fn every_film_block_in_the_guide_plays_on_the_pins() {
+    let guide = guide();
+    let blocks: Vec<(usize, String)> = {
+        let mut out = Vec::new();
+        let mut lines = guide.lines().enumerate();
+        while let Some((n, line)) = lines.next() {
+            if line.trim() != "```rhai-film" {
+                continue;
+            }
+            let mut body = String::new();
+            for (_, l) in lines.by_ref() {
+                if l.trim() == "```" {
+                    break;
+                }
+                body.push_str(l);
+                body.push('\n');
+            }
+            out.push((n + 1, body));
+        }
+        out
+    };
+    assert!(!blocks.is_empty(), "the guide shows a film");
+    let pins = blocks_of_guide_assembly(&guide, "let a = assembly(\"pins\");");
+    let run = ScriptHost::new().run(&pins, "pins.rhai").expect("pins");
+    let mut document =
+        popkern_assembly::Document::Assembly(Box::new(run.assembly.expect("assembly")));
+    for (line, body) in blocks {
+        let context = popkern_rhai::film::FilmContext::from_document(&mut document);
+        let film = popkern_rhai::film::FilmHost::new(HostOptions::default())
+            .run(&body, &format!("guide:{line}"), "guide", context)
+            .unwrap_or_else(|e| panic!("film block at line {line}: {}", e.render()));
+        assert!(!film.film.steps.is_empty(), "film block at line {line}");
+    }
+}
+
+/// The ```rhai block of the guide that starts with `first`.
+fn blocks_of_guide_assembly(guide: &str, first: &str) -> String {
+    let start = guide.find(first).expect("the pins example");
+    let end = guide[start..].find("```").expect("block end");
+    guide[start..start + end].to_string()
+}

@@ -5,6 +5,7 @@
 // "make a copy to edit", the Scratch project a visitor types into, and
 // project export/import as a .zip of the folder.
 import { ExampleStore } from "./example-store.js";
+import { isFilmPath } from "./film-files.js";
 import { FolderStore, RoutedStore } from "./folder-store.js";
 import { ServerStore } from "./host-mode.js";
 import { BrowserStore, ConflictError, manifestName, manifestText, migrationPaths, singleScriptProject } from "./project-store.js";
@@ -62,12 +63,37 @@ export class Projects {
     return this.current?.path ?? null;
   }
 
+  /** Whether the open file is a film (`films/<name>.rhai`). */
+  get filmOpen() {
+    return isFilmPath(this.current?.path);
+  }
+
+  /** The open project's films' paths, by name. */
+  filmPaths() {
+    return Object.keys(this.current?.files ?? {}).filter(isFilmPath).sort();
+  }
+
+  /** The geometry a film plays: the migrations' text (the editor may be
+   *  showing a film), as the key a film rerun checks before rebuilding. */
+  geometrySource() {
+    const p = this.current;
+    const migrations = migrationPaths(p?.files ?? {});
+    if (!migrations.length) return "";
+    if (migrations.length === 1) return p.files[migrations[0]];
+    return JSON.stringify(migrations.map((m) => [m, p.files[m]]));
+  }
+
   /** What to build: one script, or the whole project with the open
-   *  migration as `source` (the editor's text is always what builds). */
+   *  migration as `source` (the editor's text is always what builds);
+   *  with a film open, the project's own migrations. */
   buildRequest(source) {
     const p = this.current;
     if (!p?.path) return null;
     const migrations = migrationPaths(p.files);
+    if (this.filmOpen) {
+      if (migrations.length > 1) return { kind: "project", files: { ...p.files, [p.path]: source } };
+      return migrations.length ? { kind: "script", source: p.files[migrations[0]], name: migrations[0].split("/").pop() } : null;
+    }
     if (migrations.length > 1) return { kind: "project", files: { ...p.files, [p.path]: source } };
     return { kind: "script", source, name: p.path.split("/").pop() };
   }
@@ -76,6 +102,8 @@ export class Projects {
    *  Pending edits of the project being left are saved first. */
   async open(project, { build = true, path: keep = null } = {}) {
     await this.flush();
+    // A film plays on the project it came from.
+    this.page.film?.close();
     const migrations = migrationPaths(project.files);
     const path = keep && keep in project.files ? keep : migrations.at(-1) ?? null;
     this.current = { ...project, path, readOnly: Boolean(project.readOnly), unsaved: false };
@@ -95,10 +123,14 @@ export class Projects {
   select(path) {
     const p = this.current;
     if (!p || !(path in p.files)) return;
+    const wasFilm = this.filmOpen;
     p.path = path;
     this.page.tab.open(p.name, p.files[path]);
     this.showName();
     this.page.rail?.render();
+    // Opening a film plays it on the model; leaving one closes it.
+    if (this.filmOpen) this.page.run();
+    else if (wasFilm) this.page.film.close();
   }
 
   /** Replace the open project's files (migrations added, renamed,

@@ -110,3 +110,40 @@ fn times_are_rfc3339() {
     let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_759_622_400);
     assert_eq!(rfc3339(t), "2025-10-05T00:00:00Z");
 }
+
+/// Films (presentation-films.md §2) are project files: saved under
+/// `films/`, read back, and removed with the project's other files.
+#[test]
+fn films_round_trip_beside_the_migrations() {
+    let dir = std::env::temp_dir().join(format!("popkern-store-films-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("root");
+    let root = ProjectsRoot::new(&dir);
+    let mut files = BTreeMap::new();
+    files.insert("popkern.toml".to_string(), "name = \"jig\"\n".to_string());
+    files.insert(
+        "migrations/001_base.rhai".to_string(),
+        "let m = model(); m".to_string(),
+    );
+    files.insert(
+        "films/guide.rhai".to_string(),
+        "let film = storyboard(); film".to_string(),
+    );
+    let made = root.create("jig", &files).expect("create");
+    assert!(dir.join(&made.id).join("films/guide.rhai").is_file());
+    let back = root.get(&made.id).expect("get");
+    assert_eq!(
+        back.files.get("films/guide.rhai").map(String::as_str),
+        Some("let film = storyboard(); film")
+    );
+    files.remove("films/guide.rhai");
+    root.save(&made.id, &files, &back.revision).expect("save");
+    assert!(!dir.join(&made.id).join("films/guide.rhai").exists());
+    let mut bad = files.clone();
+    bad.insert("films/sub/x.rhai".to_string(), String::new());
+    assert!(matches!(
+        root.save(&made.id, &bad, &root.get(&made.id).expect("get").revision),
+        Err(StoreError::BadPath(_))
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}

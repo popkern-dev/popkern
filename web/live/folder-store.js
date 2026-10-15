@@ -22,6 +22,7 @@ const STORE = "folders";
 /** Ids of folder projects start with this. */
 export const FOLDER_PREFIX = "folder:";
 const MIGRATION = /^\d+_[A-Za-z0-9_-]+\.rhai$/;
+const FILM = /^[A-Za-z0-9_-]+\.rhai$/;
 
 function promise(request) {
   return new Promise((resolve, reject) => {
@@ -45,7 +46,8 @@ export async function revisionOf(files) {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** The project files in `dir`: the manifest and the migrations. */
+/** The project files in `dir`: the manifest, the migrations and the
+ *  films (docs/architecture/presentation-films.md §2). */
 async function readFolder(dir) {
   const files = {};
   for await (const [name, entry] of dir.entries()) {
@@ -54,6 +56,10 @@ async function readFolder(dir) {
     } else if (entry.kind === "directory" && name === "migrations") {
       for await (const [file, handle] of entry.entries()) {
         if (handle.kind === "file" && MIGRATION.test(file)) files[`migrations/${file}`] = await (await handle.getFile()).text();
+      }
+    } else if (entry.kind === "directory" && name === "films") {
+      for await (const [file, handle] of entry.entries()) {
+        if (handle.kind === "file" && FILM.test(file)) files[`films/${file}`] = await (await handle.getFile()).text();
       }
     }
   }

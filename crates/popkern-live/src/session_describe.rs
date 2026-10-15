@@ -101,6 +101,7 @@ impl Session {
         let report = document_report_value(document);
         let features = document_feature_count(document);
         let params = document_params(document);
+        let film_context = Some(popkern_rhai::film::FilmContext::from_document(document));
         if outcome.is_served()
             && let Some(view) = &assembly
         {
@@ -122,6 +123,7 @@ impl Session {
             bodies_unchanged: false,
             assembly,
             project: None,
+            film_context,
         }
     }
 
@@ -168,6 +170,7 @@ impl Session {
                 instances: assembly.tree().iter().map(instance_view).collect(),
             }),
             project: None,
+            film_context: None,
         }
     }
 }

@@ -227,6 +227,10 @@ check "v/$STAMP/pkg/popkern_live.js" "text/javascript"
 check "v/$STAMP/examples.json" "application/json"
 check "v/$STAMP/examples/boss_plate.rhai" ""
 check "v/$STAMP/examples/boss_plate_in_steps/migrations/001_plate.rhai" ""
+# Films (presentation-films.md): the export's vendored muxer and an
+# example film travel with the bundle.
+check "v/$STAMP/vendor/mp4-muxer.js" "text/javascript"
+check "v/$STAMP/examples/angled_fitting.guide.film.rhai" ""
 check "v/$STAMP/guide.html" "text/html"
 
 # The root entry pages must reference the version that was just deployed.

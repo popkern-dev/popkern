@@ -20,8 +20,8 @@ export async function exportDocument(host, kind, name, envelope, hidden) {
 }
 
 /** Hand `bytes` to the browser as a download named `fileName`. */
-export function saveBytes(bytes, fileName) {
-  const blob = new Blob([bytes], { type: "application/octet-stream" });
+export function saveBytes(bytes, fileName, mime = "application/octet-stream") {
+  const blob = new Blob([bytes], { type: mime });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

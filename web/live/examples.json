@@ -109,6 +109,12 @@
       "demonstrates": "plane_at custom sketch planes, polygon profiles, engraving with counters, computed face normals and vertices, spherical dimple cuts, mitre-apex chamfers, multi-body sets",
       "features": 704,
       "file": "polyhedral_dice.rhai",
+      "films": [
+        {
+          "file": "polyhedral_dice.turntable.film.rhai",
+          "name": "turntable"
+        }
+      ],
       "thumbnail": "examples/polyhedral_dice.png",
       "title": "Dice set"
     },
@@ -181,6 +187,12 @@
       "demonstrates": "tapped_hole and clearance_hole on arbitrary axes, placing fasteners on hole axes (frame), thread phase, countersinks, assemblies",
       "features": 12,
       "file": "angled_fitting.rhai",
+      "films": [
+        {
+          "file": "angled_fitting.guide.film.rhai",
+          "name": "guide"
+        }
+      ],
       "thumbnail": "examples/angled_fitting.png",
       "title": "Angled fitting"
     },
@@ -245,6 +257,12 @@
       "demonstrates": "revolute joints on sub-assembly axes, two-root links mated at a driven length, assembly-parameter drives, swing to first contact, interference, fasteners, part appearance",
       "features": 1326,
       "file": "six_axis_arm.rhai",
+      "films": [
+        {
+          "file": "six_axis_arm.joints.film.rhai",
+          "name": "joints"
+        }
+      ],
       "thumbnail": "examples/six_axis_arm.png",
       "title": "Six-axis arm"
     },
@@ -256,7 +274,8 @@
         "popkern.toml",
         "migrations/001_plate.rhai",
         "migrations/002_boss.rhai",
-        "migrations/003_rounds.rhai"
+        "migrations/003_rounds.rhai",
+        "films/section_sweep.rhai"
       ],
       "project": "boss_plate_in_steps",
       "title": "Boss plate in three steps"

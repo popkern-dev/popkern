@@ -137,6 +137,11 @@ pub struct Envelope {
     /// The project build, when the envelope answers a project run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<crate::session_project::ProjectView>,
+    /// What a film may name in this document (presentation-films.md
+    /// §3): sent back with a `film` request when the worker holds no
+    /// live document (a pre-built example on screen).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub film_context: Option<popkern_rhai::film::FilmContext>,
 }
 
 /// An assembly as the page's tree and instanced renderer see it
@@ -199,6 +204,7 @@ impl Envelope {
             bodies_unchanged: false,
             assembly: None,
             project: None,
+            film_context: None,
         }
     }
 

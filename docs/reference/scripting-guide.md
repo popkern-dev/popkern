@@ -650,7 +650,71 @@ raise an `AssemblyError` naming the instance, the part and the
 reason. An error inside a part's closure is that operation's own
 error, with the closure's line and `in part '…'`.
 
-## 14. Cheat-sheet
+## 14. Films: presentation videos of a part or an assembly
+
+A **film** is a script that animates the built document into a short
+presentation video: captioned steps, the camera turning and moving,
+parts sliding and turning into place, joints sweeping, a section
+sweeping through. It reads the document and never changes it, so a
+film reruns in a moment and never rebuilds the geometry. A project
+keeps any number of them as `films/<name>.rhai` beside `migrations/`
+(a single script `stem.rhai` takes `stem.<name>.film.rhai` beside it);
+in popkern live, **+ film** adds one and its tab plays it, and Export
+writes MP4 (Slides, Discord, social), vertical MP4, WebM, GIF or a PNG.
+`popkern film <project | script> --out guide.mp4` renders one from the
+command line.
+
+The film below plays on the pins assembly above: `document()` is the
+built document, `storyboard()` the film, and each step's closure adds
+what moves during it.
+
+```rhai-film
+let doc = document();
+let film = storyboard(#{ look: "toon", camera: #{ azimuth: -40.0, elevation: 25.0 } });
+film.title("Pins", "four pins and a pair", 2.0, |s| { s.orbit(30.0); });
+film.step("The pair drops in", "from 2 units up", 3.0, |s| {
+    s.move("pair_1", #{ from: [0.0, 0.0, 2.0], duration: 2.0 });
+    s.highlight("pair_1/high", #{ at: 2.0, duration: 1.0 });
+});
+film.step("One pin turns", "", 2.0, |s| {
+    s.turn("pin_3", axis_at([1.5, 0.0, 0.0], [0.0, 0.0, 1.0]), 0.0, 180.0);
+    s.camera(#{ zoom: 1.4, target: "pin_3" });
+});
+film.step("Inside", "a section across the row", 2.5, |s| {
+    s.section(#{ from: "y", from_at: 1.0, to_at: 0.5 });
+    s.fade("pair_1", 1.0, 0.3);
+});
+film
+```
+
+Every action takes `#{ at, duration, ease }`: `at` seconds into its
+step (default 0), `duration` (default: to the step's end), `ease`
+(`"inout"` default, `"in"`, `"out"`, `"linear"`). Before an action
+starts it holds its first value; after it ends, its last, so moves
+that come `from` an offset end on the real assembly.
+
+| Call | What it does |
+|---|---|
+| `storyboard(#{ size, fps, look, background, camera })` | the film; `size: [1920, 1080]`, `fps: 30`, `look: "toon"` (flat colours, outlines, ground shadow), `"studio"` or `"cad"`; `background: "#ffffff"`; `camera: #{ azimuth, elevation, zoom, target }` |
+| `film.step(title, subtitle, seconds, body)` | a captioned step; `body` is the closure the step's actions go in (`film.step(title, seconds, body)` without a subtitle) |
+| `film.title(title, subtitle, seconds, body)` | a step with a large caption |
+| `film.hold(seconds)` | a pause with no caption |
+| `s.orbit(degrees)` | turn the camera about its target |
+| `s.camera(#{ azimuth, elevation, zoom, target })` | move the camera; unset fields keep their value; `target` an occurrence or `"all"` |
+| `s.move(target, #{ from: [x, y, z] })` / `#{ to: … }` | slide from an offset into place, or out to an offset (document units) |
+| `s.turn(target, axis_at(p, d), from, to)` | rotate about an axis, degrees |
+| `s.joint(name, from, to)` | sweep an assembly parameter that only moves occurrences (a revolute's angle, a mate's distance) |
+| `s.explode(from, to)` | the explode factor |
+| `s.section(#{ from, to, from_at, to_at, combine })` | a section plane: `"x"`, `"y"`, `"z"` at 0..1 across the model, `#{ normal, offset }`, or `"off"` |
+| `s.fade(target, from, to)` / `s.show(target, visible)` / `s.highlight(target)` | opacity, visibility, emphasis |
+| `doc.instances()`, `doc.joints()`, `doc.value(name)`, `doc.bodies`, `doc.kind` | what the document holds |
+
+A target is an occurrence path (`"pair_1"` moves everything under it,
+`"pair_1/high"` one pin), `"body N"` in a part document, or `"all"`.
+A name the document does not have is an `ArgumentError` at its line
+that lists the names it does have.
+
+## 15. Cheat-sheet
 
 ```text
 model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()

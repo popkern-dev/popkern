@@ -40,7 +40,9 @@ pub enum StoreError {
     #[error("the project changed since it was opened")]
     Conflict(Box<StoredProject>),
     /// A path is not a project file the page may write.
-    #[error("{0} is not a project file (popkern.toml or migrations/NNN_name.rhai)")]
+    #[error(
+        "{0} is not a project file (popkern.toml, migrations/NNN_name.rhai or films/name.rhai)"
+    )]
     BadPath(String),
     /// Reading or writing failed.
     #[error("{0}")]
@@ -51,12 +53,16 @@ fn io(e: std::io::Error) -> StoreError {
     StoreError::Io(e.to_string())
 }
 
-/// Whether `path` is a file the page exchanges.
+/// Folder of a project's films (docs/architecture/presentation-films.md §2).
+const FILMS: &str = "films";
+
+/// Whether `path` is a file the page exchanges: the manifest, a
+/// migration or a film.
 fn exchanged(path: &str) -> bool {
+    let script = |f: &str| !f.contains('/') && f.ends_with(".rhai") && !f.starts_with('.');
     path == MANIFEST
-        || path
-            .strip_prefix("migrations/")
-            .is_some_and(|f| !f.contains('/') && f.ends_with(".rhai") && !f.starts_with('.'))
+        || path.strip_prefix("migrations/").is_some_and(script)
+        || path.strip_prefix("films/").is_some_and(script)
 }
 
 /// A safe folder name for a project called `name`.
@@ -150,10 +156,13 @@ impl ProjectsRoot {
         let mut newest = std::fs::metadata(folder.join(MANIFEST))
             .and_then(|m| m.modified())
             .map_err(io)?;
-        if let Ok(entries) = std::fs::read_dir(folder.join(MIGRATIONS)) {
+        for dir in [MIGRATIONS, FILMS] {
+            let Ok(entries) = std::fs::read_dir(folder.join(dir)) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                let path = format!("{MIGRATIONS}/{name}");
+                let path = format!("{dir}/{name}");
                 if exchanged(&path) {
                     files.insert(path, std::fs::read_to_string(entry.path()).map_err(io)?);
                     if let Ok(t) = entry.metadata().and_then(|m| m.modified()) {
@@ -251,6 +260,9 @@ fn write_files(folder: &Path, files: &BTreeMap<String, String>) -> Result<(), St
     }
     for (path, text) in files {
         let target = folder.join(path);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent).map_err(io)?;
+        }
         let temp = target.with_extension("tmp-popkern");
         std::fs::write(&temp, text).map_err(io)?;
         std::fs::rename(&temp, &target).map_err(io)?;

@@ -157,6 +157,12 @@ export function createHandler(pkg, loadModule) {
           // A project (live-projects-and-history.md): text files by
           // path in `files`, binary ones base64 in `base64`.
           return envelopeReply(id, session.run_project(JSON.stringify({ files: message.files ?? {}, base64: message.base64 ?? {} })));
+        case "film": {
+          // A film script against the built document (no rebuild).
+          const reply = JSON.parse(session.film(String(message.source ?? ""), String(message.name ?? "film.rhai"), message.context ? JSON.stringify(message.context) : ""));
+          if (reply.outcome) return { reply: { id, ok: false, outcome: reply.outcome }, transfer: [] };
+          return { reply: { id, ok: true, ...reply }, transfer: [] };
+        }
         case "timeline": {
           const parts = JSON.parse(session.timeline());
           if (!Array.isArray(parts)) return { reply: { id, ok: false, outcome: parts.outcome }, transfer: [] };
