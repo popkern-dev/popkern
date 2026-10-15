@@ -349,14 +349,44 @@ impl Part {
         popkern_mesh::tessellate(&self.brep, options).map_err(|source| PartError::Mesh { source })
     }
 
-    /// Count of open (single-use) edges in the welded default-quality
-    /// mesh — 0 means watertight.
+    /// The tessellation the gates and mesh exports use: the default
+    /// options with the chord height bounded by the part's own size.
+    /// The default chord is an absolute 0.005 (5 mm): a millimetre part
+    /// meshed at it is chorded coarser than its features (a die's 2.1 mm
+    /// pip dimples took the minimum subdivisions and the welded mesh
+    /// opened 64 edges; the same die in metres was watertight).
+    pub fn gate_tessellation(&self) -> popkern_mesh::TessellationOptions {
+        let default = popkern_mesh::TessellationOptions::default();
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        for (_, v) in self.brep.vertices.iter() {
+            for (k, c) in [v.position.x, v.position.y, v.position.z]
+                .into_iter()
+                .enumerate()
+            {
+                lo[k] = lo[k].min(c);
+                hi[k] = hi[k].max(c);
+            }
+        }
+        let diagonal =
+            ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt();
+        if !diagonal.is_finite() || diagonal <= 0.0 {
+            return default;
+        }
+        popkern_mesh::TessellationOptions {
+            chord_height: default.chord_height.min(GATE_CHORD_PER_SIZE * diagonal),
+            ..default
+        }
+    }
+
+    /// Count of open (single-use) edges in the welded gate mesh
+    /// ([`Part::gate_tessellation`]) — 0 means watertight.
     ///
     /// # Errors
     ///
     /// [`PartError::Mesh`] when tessellation fails.
     pub fn open_edge_count(&self) -> Result<usize, PartError> {
-        let mesh = self.mesh(&popkern_mesh::TessellationOptions::default())?;
+        let mesh = self.mesh(&self.gate_tessellation())?;
         Ok(popkern_mesh::welded_open_edges(&mesh))
     }
 
@@ -382,7 +412,7 @@ impl Part {
     /// on write failure.
     pub fn export_obj(&self, path: impl AsRef<std::path::Path>) -> Result<(), PartError> {
         let path = path.as_ref();
-        let mesh = self.mesh(&popkern_mesh::TessellationOptions::default())?;
+        let mesh = self.mesh(&self.gate_tessellation())?;
         let file = std::fs::File::create(path).map_err(|e| {
             PartError::NotApplicable(format!("cannot create '{}': {e}", path.display()))
         })?;
@@ -397,10 +427,15 @@ impl Part {
     /// [`PartError::Mesh`] on tessellation or write failure.
     pub fn export_stl(&self, path: impl AsRef<std::path::Path>) -> Result<(), PartError> {
         let path = path.as_ref();
-        let mesh = self.mesh(&popkern_mesh::TessellationOptions::default())?;
+        let mesh = self.mesh(&self.gate_tessellation())?;
         popkern_mesh::export_stl(&mesh, path, true).map_err(|source| PartError::Mesh { source })
     }
 }
+
+/// The gate mesh's chord height as a fraction of the part's diagonal
+/// (see [`Part::gate_tessellation`]): parts 2.5 m across and larger keep
+/// the default 0.005.
+const GATE_CHORD_PER_SIZE: f64 = 2.0e-3;
 
 /// The finer (smaller linear value) of two tolerances.
 fn finer(a: Tolerance, b: Tolerance) -> Tolerance {
