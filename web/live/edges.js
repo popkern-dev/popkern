@@ -1,6 +1,10 @@
 // Face-boundary edges from a body's display buffers: the mesh edges
-// whose two triangles belong to different BRep faces (or that only one
-// triangle uses). These are the model's topological edges, tangent
+// that bound some BRep face, i.e. that one face's triangles use an odd
+// number of times (once on its boundary; an interior edge of a face is
+// used twice by that face). Counting per face, not "two different
+// faces meet", matters for sheets: a sketch region is a lamina whose
+// front and back faces share every triangle edge, and the old rule
+// drew its whole triangulation. These are the model's topological edges, tangent
 // fillet seams included, where a dihedral-angle crease filter draws
 // only the sharp ones. Segments are grouped by the face pair they
 // separate, so a hover or pick can name the edge by its two faces.
@@ -45,8 +49,8 @@ export function boundaryEdges(b) {
   const weld = weldVertices(b.positions, diagonal * 1e-6);
   let welded = 0;
   for (const id of weld) welded = Math.max(welded, id + 1);
-  // Welded edge key -> one of its mesh edges, the first face that uses
-  // it, a different face that also does (-1 if none), and its use count.
+  // Welded edge key -> one of its mesh edges and how often each face
+  // uses it.
   const uses = new Map();
   const triangles = b.indices.length / 3;
   for (let t = 0; t < triangles; t++) {
@@ -59,11 +63,8 @@ export function boundaryEdges(b) {
       if (a === c) continue;
       const key = a < c ? a * welded + c : c * welded + a;
       const use = uses.get(key);
-      if (!use) uses.set(key, { p, q, face, other: -1, count: 1 });
-      else {
-        use.count++;
-        if (face !== use.face) use.other = face;
-      }
+      if (!use) uses.set(key, { p, q, faces: new Map([[face, 1]]) });
+      else use.faces.set(face, (use.faces.get(face) ?? 0) + 1);
     }
   }
   const edgeOf = new Map();
@@ -71,10 +72,14 @@ export function boundaryEdges(b) {
   const points = [];
   const segmentEdge = [];
   for (const use of uses.values()) {
-    const open = use.count === 1;
-    if (!open && use.other < 0) continue;
-    const a = Math.min(use.face, use.other < 0 ? use.face : use.other);
-    const c = open ? null : Math.max(use.face, use.other);
+    const bounding = [];
+    for (const [face, count] of use.faces) if (count % 2 === 1) bounding.push(face);
+    if (!bounding.length) continue;
+    bounding.sort((x, y) => x - y);
+    // One bounding face: an open boundary (a sheet's free edge seen
+    // from one side, or a body with a gap).
+    const a = bounding[0];
+    const c = bounding.length > 1 ? bounding[1] : null;
     const key = `${a}:${c}`;
     let edge = edgeOf.get(key);
     if (edge === undefined) {
@@ -86,6 +91,36 @@ export function boundaryEdges(b) {
     segmentEdge.push(edge);
   }
   return { positions: new Float32Array(points), segmentEdge: Uint32Array.from(segmentEdge), edges };
+}
+
+/** Whether buffers `b` of a closed mesh enclose no volume: a sheet (a
+ *  sketch region's lamina), whose front and back faces lie on top of
+ *  each other. Drawn double-sided, the two depth-fight; drawn
+ *  front-sided, each shows from its own side. The signed volume of a
+ *  solid is a sizeable fraction of its bounding box; a lamina's front
+ *  and back cancel to rounding. */
+export function enclosesNoVolume(b) {
+  if (!b.indices.length) return false;
+  const p = b.positions;
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < p.length; i++) {
+    lo[i % 3] = Math.min(lo[i % 3], p[i]);
+    hi[i % 3] = Math.max(hi[i % 3], p[i]);
+  }
+  const diagonal = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  if (!(diagonal > 0)) return false;
+  // About the box centre, so the sum does not cancel large offsets.
+  const c = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
+  let six = 0;
+  for (let t = 0; t < b.indices.length; t += 3) {
+    const [i, j, k] = [b.indices[t] * 3, b.indices[t + 1] * 3, b.indices[t + 2] * 3];
+    const ax = p[i] - c[0], ay = p[i + 1] - c[1], az = p[i + 2] - c[2];
+    const bx = p[j] - c[0], by = p[j + 1] - c[1], bz = p[j + 2] - c[2];
+    const cx = p[k] - c[0], cy = p[k + 1] - c[1], cz = p[k + 2] - c[2];
+    six += ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
+  }
+  return Math.abs(six / 6) < 1e-6 * diagonal ** 3;
 }
 
 // Fat lines: each segment is a quad widened in screen space, since

@@ -7,7 +7,7 @@
 // docs/architecture/assemblies.md §6.4): GPU memory scales with
 // definitions, not instances.
 import * as THREE from "./vendor/three.module.min.js";
-import { boundaryEdges, fatLines } from "./edges.js";
+import { boundaryEdges, enclosesNoVolume, fatLines } from "./edges.js";
 import { drawList, explodePlan, placeAt } from "./instances.js";
 import { Orbit } from "./orbit.js";
 import { Section } from "./section.js";
@@ -21,6 +21,9 @@ const HOVER = 0x3b82f6;
 // History scrubber: the faces a step created glow, then settle.
 const GLOW = 0xf59e0b;
 const GLOW_MS = 1200;
+// A history step's tool bodies (consumed by a later step) are drawn
+// see-through, so a slab or cutter does not hide the part it shapes.
+const GHOST_OPACITY = 0.3;
 // Pointer slack for edge hover and pick, and the hovered edge's
 // width, in CSS pixels.
 const EDGE_PICK_PX = 5;
@@ -117,8 +120,10 @@ export class Viewer {
    *  `assembly` (the envelope's assembly view, or null) places shared
    *  definition meshes per occurrence. The zebra view draws the
    *  analysis mesh when one is loaded. */
-  show(bodies, displayBuffers, assembly = null) {
-    this.lastShown = { bodies, buffers: displayBuffers, assembly };
+  /** `ghosts`: indices of bodies drawn see-through (a history step's
+   *  tool bodies, which a later step consumes). */
+  show(bodies, displayBuffers, assembly = null, ghosts = null) {
+    this.lastShown = { bodies, buffers: displayBuffers, assembly, ghosts };
     const buffers =
       this.mode === "zebra" && this.analysis?.length === bodies.length ? this.analysis : displayBuffers;
     this.group.clear();
@@ -151,14 +156,22 @@ export class Viewer {
     for (const draw of drawList(bodies, assembly)) {
       const { geometry, lineGeometry, edges, faceIds } = shared[draw.index];
       const mesh = new THREE.Mesh(geometry, this.material(draw.colorKey, bodies[draw.index].appearance));
-      mesh.userData = { body: bodies[draw.index], faceIds, index: draw.index, instance: draw.instance };
+      // A sketch's lamina: each of its coincident faces from its own side.
+      const sheet = bodies[draw.index].open_edges === 0 && enclosesNoVolume(buffers[draw.index]);
+      if (sheet) mesh.material.side = THREE.FrontSide;
+      const ghost = ghosts?.has(draw.index) ?? false;
+      if (ghost) Object.assign(mesh.material, { transparent: true, opacity: GHOST_OPACITY, depthWrite: false });
+      mesh.userData = { body: bodies[draw.index], faceIds, index: draw.index, instance: draw.instance, sheet };
       if (draw.matrix) placeAt(mesh, draw.matrix);
       mesh.userData.base = mesh.matrix.clone();
       mesh.visible = draw.visible;
       this.group.add(mesh);
       if (lineGeometry) {
         const color = this.mode === "cad" || this.mode === "parts" ? CAD_EDGE : 0x0f1115;
-        const lines = new THREE.LineSegments(lineGeometry, new THREE.LineBasicMaterial({ color }));
+        const lines = new THREE.LineSegments(
+          lineGeometry,
+          new THREE.LineBasicMaterial(ghost ? { color, transparent: true, opacity: GHOST_OPACITY } : { color }),
+        );
         lines.userData = { edges, index: draw.index, instance: draw.instance };
         if (draw.matrix) placeAt(lines, draw.matrix);
         lines.userData.base = lines.matrix.clone();
@@ -370,7 +383,7 @@ export class Viewer {
   redraw() {
     if (!this.lastShown) return;
     const hidden = new Set(this.bodies.filter((m) => !m.visible && m.userData.instance).map((m) => m.userData.instance));
-    this.show(this.lastShown.bodies, this.lastShown.buffers, this.lastShown.assembly);
+    this.show(this.lastShown.bodies, this.lastShown.buffers, this.lastShown.assembly, this.lastShown.ghosts);
     for (const object of [...this.bodies, ...this.edgeLines]) {
       if (hidden.has(object.userData.instance)) object.visible = false;
     }
@@ -463,7 +476,7 @@ export class Viewer {
         emissiveIntensity: 0.35,
         transparent: true,
         opacity: 0.85,
-        side: THREE.DoubleSide,
+        side: mesh.userData.sheet ? THREE.FrontSide : THREE.DoubleSide,
         polygonOffset: true,
         polygonOffsetFactor: HOVER_OFFSET,
         polygonOffsetUnits: HOVER_OFFSET,

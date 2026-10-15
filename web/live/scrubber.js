@@ -255,7 +255,14 @@ export class Scrubber {
       this.page.viewer.setAnalysis(null);
       const bodies = rows.map((r) => this.cache.get(r.key).mesh);
       const buffers = rows.map((r) => this.cache.get(r.key).buffers);
-      this.page.viewer.show(bodies, buffers, null);
+      // Bodies the finished model no longer has are tools a later step
+      // consumes (a boolean's cutter, a carving slab): see-through.
+      const kept = new Set((live?.envelope.bodies ?? []).map((b) => b.id));
+      const ghosts = new Set();
+      rows.forEach((r, i) => {
+        if (kept.size && !kept.has(r.body)) ghosts.add(i);
+      });
+      this.page.viewer.show(bodies, buffers, null, ghosts);
     }
     const created = new Map();
     rows.forEach((r, i) => {
