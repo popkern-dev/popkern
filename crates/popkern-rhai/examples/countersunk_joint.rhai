@@ -20,7 +20,9 @@ let screw = m.bolt("M5", 10.0, #{
     thread_length: 5.0,
     tip_chamfer: false,
     label: "screw" });
-screw = screw.translate(14.0, 0.0, 0.0);
+// Beside the plate (x to 10) with clearance for the 9.2 mm head: at
+// x = 14 the head overlapped the plate's edge by 0.6 mm.
+screw = screw.translate(18.0, 0.0, 0.0);
 
 m.assert_watertight();
 m
