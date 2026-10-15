@@ -326,7 +326,7 @@ impl Model {
         let body = self.active()?;
         let brep = self.body_brep(body.id)?;
         let labels = |r: EntityRef| self.resolve_entity_ref(r);
-        let snapshot = crate::selection::resolve_edges(&brep, selection, &labels)?;
+        let snapshot = crate::selection::resolve_edges(&brep, selection, &labels, self.unit)?;
         let entity = crate::selection::exactly_one(snapshot, crate::error::SelectionKind::Edges)?;
         self.tree.label_entity(name, entity.clone())?;
         Ok(entity)
@@ -341,7 +341,7 @@ impl Model {
         let body = self.active()?;
         let brep = self.body_brep(body.id)?;
         let labels = |r: EntityRef| self.resolve_entity_ref(r);
-        let snapshot = crate::selection::resolve_faces(&brep, selection, &labels)?;
+        let snapshot = crate::selection::resolve_faces(&brep, selection, &labels, self.unit)?;
         let entity = crate::selection::exactly_one(snapshot, crate::error::SelectionKind::Faces)?;
         self.tree.label_entity(name, entity.clone())?;
         Ok(entity)
