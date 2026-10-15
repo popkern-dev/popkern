@@ -172,7 +172,7 @@ impl<'m> ProfileBuilder<'m> {
         let center = [bind("center_x", &center[0])?, bind("center_y", &center[1])?];
         let profile = AnalyticProfile { shape, center };
         let mut records = Vec::new();
-        let plane = match plane.simple_desc() {
+        let plane = match plane.simple_desc(unit) {
             Some(desc) => desc,
             None => resolve_plane(model, &plane, &mut records)?,
         };
@@ -239,9 +239,11 @@ fn resolve_plane(
                 _ => Ok(SketchPlaneDesc::OnFace(face)),
             }
         }
-        _ => plane.simple_desc().ok_or_else(|| ScriptError::Argument {
-            argument: "plane".into(),
-            reason: "unsupported plane".into(),
-        }),
+        _ => plane
+            .simple_desc(unit)
+            .ok_or_else(|| ScriptError::Argument {
+                argument: "plane".into(),
+                reason: "unsupported plane".into(),
+            }),
     }
 }

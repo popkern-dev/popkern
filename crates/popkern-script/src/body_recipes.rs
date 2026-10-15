@@ -352,7 +352,12 @@ impl Body {
         records: &mut Vec<popkern_history::SelectionRecord>,
     ) -> Result<AxisDesc, ScriptError> {
         Ok(match axis {
-            AxisSpec::Literal { origin, direction } => AxisDesc::Literal { origin, direction },
+            // The origin is a position in the model's unit; the tree
+            // stores metres, as every bound length is.
+            AxisSpec::Literal { origin, direction } => AxisDesc::Literal {
+                origin: origin.map(|c| model.unit.to_si(c)),
+                direction,
+            },
             AxisSpec::Edge(selection) => {
                 AxisDesc::Edge(self.one_edge_recorded(model, "axis", &selection, records)?)
             }

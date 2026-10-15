@@ -3,6 +3,7 @@
 //! and selections that the profile builder resolves at record time.
 
 use popkern_history::feature::{BasePlane, SketchPlaneDesc};
+use popkern_history::unit::Unit;
 
 use crate::scalar::Scalar;
 use crate::selection::FaceSelector;
@@ -56,14 +57,16 @@ impl Plane {
     pub fn custom(origin: [f64; 3], normal: [f64; 3]) -> Plane {
         Plane::Custom { origin, normal }
     }
-    /// The descriptor for the base planes that need no resolution.
-    pub(crate) fn simple_desc(&self) -> Option<SketchPlaneDesc> {
+    /// The descriptor for the base planes that need no resolution. A
+    /// custom plane's origin is a position in the model's `unit`; the
+    /// descriptor stores it in metres, as every bound length is.
+    pub(crate) fn simple_desc(&self, unit: Unit) -> Option<SketchPlaneDesc> {
         match self {
             Plane::XY => Some(SketchPlaneDesc::XY),
             Plane::XZ => Some(SketchPlaneDesc::XZ),
             Plane::YZ => Some(SketchPlaneDesc::YZ),
             Plane::Custom { origin, normal } => Some(SketchPlaneDesc::Custom {
-                origin: *origin,
+                origin: origin.map(|c| unit.to_si(c)),
                 normal: *normal,
             }),
             _ => None,
