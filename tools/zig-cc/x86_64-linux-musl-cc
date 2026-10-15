@@ -1,0 +1,9 @@
+#!/bin/sh
+# C compiler for the x86_64 musl release build (tools/dist-linux.sh). cc-rs
+# adds a rustc-style --target=…-unknown-linux-musl, which zig's target
+# parser rejects; the -target here already says it.
+for arg in "$@"; do
+  shift
+  case "$arg" in --target=*) ;; *) set -- "$@" "$arg" ;; esac
+done
+exec zig cc -target x86_64-linux-musl "$@"

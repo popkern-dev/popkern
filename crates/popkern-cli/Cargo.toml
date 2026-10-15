@@ -26,6 +26,12 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
+# musl's allocator ran the six-axis arm 2.25x slower than glibc's
+# (71.6 s vs 31.8 s, 2026-10-14); the static release builds use
+# mimalloc instead. glibc builds keep the system allocator.
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = { version = "0.1", default-features = false }
+
 [dev-dependencies]
 # Host parity gate: the browser engine and the command share one class
 # partition (crates/popkern-cli/tests/live_parity.rs).

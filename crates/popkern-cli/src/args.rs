@@ -12,6 +12,7 @@ usage: popkern run <script.rhai> [options]
        popkern new <project-dir> [--name <text>]
        popkern serve <projects-dir> [--page <dir>] [--port <n>] [--bind <addr>]
                      [--compute native|browser]
+       popkern --version
 
 popkern build runs a project's migrations (migrations/NNN_name.rhai) in
 order into one document. With --pkn naming an existing document, only
@@ -21,8 +22,9 @@ differs from the folder is rebuilt (--strict: refused, exit 6).
 
 popkern serve runs popkern live self-hosted: projects are the folders
 under <projects-dir>, and the kernel runs natively (--compute browser
-keeps it in the page). --page names the page folder (default web/live,
-built with tools/build-live.sh). Local only: --bind must be a loopback
+keeps it in the page). --page names the page folder (default: the
+installed page, share/popkern/live beside the binary's bin/ folder, else
+web/live built with tools/build-live.sh). Local only: --bind must be a loopback
 address (default 127.0.0.1, port 7690). The same server answers MCP at
 /mcp (JSON-RPC over HTTP): agents list, edit, build and export the same
 projects, e.g.  claude mcp add --transport http popkern http://127.0.0.1:7690/mcp
@@ -65,6 +67,8 @@ pub enum Command {
     Serve,
     /// `popkern help` / `--help`.
     Help,
+    /// `popkern --version` / `version`.
+    Version,
 }
 
 /// Parsed arguments.
@@ -180,6 +184,10 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
         Some("serve") => cli.command = Command::Serve,
         Some("help") | Some("--help") | Some("-h") => {
             cli.command = Command::Help;
+            return Ok(cli);
+        }
+        Some("version") | Some("--version") | Some("-V") => {
+            cli.command = Command::Version;
             return Ok(cli);
         }
         Some(other) => return Err(UsageError(format!("unknown command '{other}'"))),

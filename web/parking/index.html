@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>popkern</title>
+<meta name="description" content="popkern: a CAD kernel for everyone who makes things. Coming soon.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
+<style>
+  :root { --bg: #0a0c0f; --text: #e6ecf5; --dim: #97a3b3; --teal: #2ec4b6; --blue: #5c9df7; --amber: #f5a524; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    background-image: radial-gradient(60rem 40rem at 70% 40%, rgba(46, 196, 182, 0.10), transparent 70%);
+    color: var(--text);
+    font-family: Inter, system-ui, sans-serif;
+    display: grid; place-items: center; padding: 16px;
+  }
+  main { max-width: 36rem; }
+  .brand { display: flex; align-items: center; gap: 0.75rem; font-weight: 700; font-size: 1.5rem; margin-bottom: 2.5rem; }
+  .brand svg { width: 2.5rem; height: 2.5rem; }
+  h1 { font-size: clamp(2.2rem, 7vw, 3.4rem); line-height: 1.1; margin: 0 0 1.25rem; letter-spacing: -0.02em; }
+  h1 span { background: linear-gradient(90deg, var(--teal), var(--blue)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  p { color: var(--dim); font-size: 1.15rem; line-height: 1.6; margin: 0 0 1rem; }
+  .soon { display: inline-block; margin-top: 1.5rem; padding: 0.45rem 0.9rem; border: 1px solid rgba(245, 165, 36, 0.45); border-radius: 999px; color: var(--amber); font-weight: 600; font-size: 0.95rem; }
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M7 13.5a7 7 0 0 1 7-7h11v11a7 7 0 0 1-7 7H7V13.5Z" fill="none" stroke="#ecedf5" stroke-width="2.4"/>
+      <path d="M7 13.5a7 7 0 0 1 7-7" fill="none" stroke="#f5a524" stroke-width="3.8" stroke-linecap="round"/>
+    </svg>
+    popkern
+  </div>
+  <h1>A CAD kernel for <span>everyone who makes things.</span></h1>
+  <p>Free and open source, written in Rust.</p>
+  <span class="soon">Coming soon</span>
+</main>
+</body>
+</html>

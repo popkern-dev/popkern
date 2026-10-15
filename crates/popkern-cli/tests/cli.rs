@@ -165,6 +165,37 @@ m"#,
 }
 
 #[test]
+fn version_and_installed_page_layout() {
+    assert_eq!(
+        parsed(&["--version"]).command,
+        popkern_cli::Command::Version
+    );
+    assert_eq!(parsed(&["version"]).command, popkern_cli::Command::Version);
+    assert!(!popkern_cli::VERSION.is_empty());
+
+    // <prefix>/bin/popkern finds <prefix>/share/popkern/live, also
+    // through a symlink elsewhere (install.sh links ~/.local/bin).
+    let prefix = tmp("installed_prefix");
+    let _ = std::fs::remove_dir_all(&prefix);
+    let page = prefix.join("share/popkern/live");
+    std::fs::create_dir_all(prefix.join("bin")).expect("bin");
+    std::fs::create_dir_all(&page).expect("page");
+    let exe = prefix.join("bin/popkern");
+    std::fs::write(&exe, b"").expect("exe");
+    assert_eq!(popkern_cli::installed_page(&exe), None, "no index.html yet");
+    std::fs::write(page.join("index.html"), b"<!doctype html>").expect("index");
+    let found = popkern_cli::installed_page(&exe).expect("installed page");
+    assert_eq!(found, page.canonicalize().expect("canonical"));
+    #[cfg(unix)]
+    {
+        let link = prefix.join("popkern-link");
+        let _ = std::fs::remove_file(&link);
+        std::os::unix::fs::symlink(&exe, &link).expect("symlink");
+        assert_eq!(popkern_cli::installed_page(&link), Some(found));
+    }
+}
+
+#[test]
 fn runaway_scripts_stop_within_their_budgets() {
     let spin = write_script(
         "spin.rhai",

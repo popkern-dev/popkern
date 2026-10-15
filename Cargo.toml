@@ -30,6 +30,13 @@ debug = "line-tables-only"
 [profile.dev]
 debug = "line-tables-only"
 
+# The Linux release binaries (tools/dist-linux.sh): static musl builds,
+# thin LTO, symbols stripped.
+[profile.dist]
+inherits = "release"
+lto = "thin"
+strip = true
+
 # The popkern live bundle (tools/build-live.sh): release
 # codegen with whole-program LTO and one codegen unit, which is where
 # wasm size and speed both come from; symbols stripped (the page

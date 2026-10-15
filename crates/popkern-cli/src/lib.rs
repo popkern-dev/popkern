@@ -29,6 +29,31 @@ pub use watch::Watcher;
 
 use std::process::ExitCode;
 
+/// The release this binary was built as: `POPKERN_VERSION` at build time
+/// (tools/dist-linux.sh stamps release candidates), else the crate version.
+pub const VERSION: &str = match option_env!("POPKERN_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
+/// The page `popkern serve` uses without `--page`: an installed layout's
+/// `<prefix>/share/popkern/live` (the binary in `<prefix>/bin`), else the
+/// checkout's `web/live`.
+pub fn default_page() -> std::path::PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| installed_page(&exe))
+        .unwrap_or_else(|| "web/live".into())
+}
+
+/// The installed page for the binary at `exe` (symlinks resolved):
+/// `<prefix>/share/popkern/live` when it holds an `index.html`.
+pub fn installed_page(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let exe = std::fs::canonicalize(exe).ok()?;
+    let page = exe.parent()?.parent()?.join("share/popkern/live");
+    page.join("index.html").is_file().then_some(page)
+}
+
 /// The whole command: parse, execute (or watch), print, exit.
 pub fn main_with(args: &[String]) -> ExitCode {
     let cli = match parse_args(args) {
@@ -41,6 +66,10 @@ pub fn main_with(args: &[String]) -> ExitCode {
     match cli.command {
         Command::Help => {
             println!("{}", args::USAGE);
+            ExitCode::SUCCESS
+        }
+        Command::Version => {
+            println!("popkern {VERSION}");
             ExitCode::SUCCESS
         }
         Command::Build => ExitCode::from(project::build_command(&cli)),
@@ -71,7 +100,7 @@ fn serve_command(cli: &Cli) -> u8 {
     };
     let options = popkern_server::ServeOptions {
         root: cli.script.clone(),
-        page: cli.page.clone().unwrap_or_else(|| "web/live".into()),
+        page: cli.page.clone().unwrap_or_else(default_page),
         bind,
         compute: if cli.compute == "browser" {
             popkern_server::Compute::Browser
