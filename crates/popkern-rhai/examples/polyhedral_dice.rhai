@@ -2,14 +2,16 @@
 // and d20 — with engraved numerals, plus a pipped d6. Each die is
 // carved from a block by one slab per pair of opposite faces (the d4's
 // faces have no opposites, so its slabs reach from far below), its
-// edges optionally rounded, and its numbers cut in.
+// edges bevelled or rounded, and its numbers cut in.
 //
-//   ROUNDED       true rounds every die edge with an edge_round
-//                 fillet (the slider). It is off by default: rounding
-//                 the polyhedral dice costs ~9 minutes (each corner of a
-//                 d12 or d20 is a fitted patch, ~5 s apiece, where an
-//                 exact rolling-ball sphere would do). The pipped d6 is
-//                 always rounded: a cube's corners take a second.
+//   EDGES         how the die edges are broken: "chamfer" (the
+//                 default) bevels every edge by edge_chamfer, a
+//                 fraction of a second per die; "round" rounds them
+//                 with an edge_round fillet, which costs ~9 minutes
+//                 (each corner of a d12 or d20 is a fitted patch, ~5 s
+//                 apiece, where an exact rolling-ball sphere would do);
+//                 "sharp" leaves them. The pipped d6 is always rounded:
+//                 a cube's corners take a second.
 //   depth         how deep the numerals are cut
 //
 // Numbering follows real dice: opposite faces sum to n + 1 (the d10 to
@@ -21,9 +23,10 @@
 // numerals are one tool body whose counters (the holes in 0, 4, 6, 8,
 // 9) are cut out of it, so the counters stay standing in the face.
 let m = model(#{ unit: "mm" });
+m.param("edge_chamfer", 0.5, "mm");
 m.param("edge_round", 0.7, "mm");
 m.param("depth", 0.5, "mm");
-let ROUNDED = false;
+let EDGES = "chamfer";
 let pi = 3.141592653589793;
 let phi = (1.0 + sqrt(5.0)) / 2.0;
 
@@ -112,7 +115,9 @@ fn carve(m, ctx, tag, normals, r, paired, big) {
         die = die.intersect(slab, #{ label: tag + "_cut_" + i });
         i += 1;
     }
-    if ctx.rounded {
+    if ctx.edges == "chamfer" {
+        die = die.chamfer(edges(), p("edge_chamfer"), #{ label: tag + "_bevels" });
+    } else if ctx.edges == "round" {
         die = die.fillet(edges(), p("edge_round"), #{ label: tag + "_rounds" });
     }
     die
@@ -317,7 +322,7 @@ fn d10_normals(tilt) {
 }
 
 // ---- The set ----
-let ctx = #{ glyphs: GLYPHS, mark: false, width: 1.3, rounded: ROUNDED };
+let ctx = #{ glyphs: GLYPHS, mark: false, width: 1.3, edges: EDGES };
 let marked = ctx;
 marked.mark = true;
 

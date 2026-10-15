@@ -105,11 +105,11 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "The classic seven tabletop dice — d4, d6, d8, d10, d%, d12, d20 — with \
          engraved Inter numerals (6 and 9 underlined, the d4 read at its corners), \
          plus a rounded pipped d6. Every die is carved from a block by one plane \
-         cut per face pair.",
-        697,
+         cut per face pair and its edges chamfered.",
+        704,
         "plane_at custom sketch planes, polygon profiles, engraving with \
          counters, computed face normals and vertices, spherical dimple cuts, \
-         multi-body sets",
+         mitre-apex chamfers, multi-body sets",
     ),
     (
         "coil_spring",

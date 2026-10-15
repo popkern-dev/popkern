@@ -105,9 +105,9 @@
       "title": "Centrifugal impeller"
     },
     {
-      "blurb": "The classic seven tabletop dice — d4, d6, d8, d10, d%, d12, d20 — with engraved Inter numerals (6 and 9 underlined, the d4 read at its corners), plus a rounded pipped d6. Every die is carved from a block by one plane cut per face pair.",
-      "demonstrates": "plane_at custom sketch planes, polygon profiles, engraving with counters, computed face normals and vertices, spherical dimple cuts, multi-body sets",
-      "features": 697,
+      "blurb": "The classic seven tabletop dice — d4, d6, d8, d10, d%, d12, d20 — with engraved Inter numerals (6 and 9 underlined, the d4 read at its corners), plus a rounded pipped d6. Every die is carved from a block by one plane cut per face pair and its edges chamfered.",
+      "demonstrates": "plane_at custom sketch planes, polygon profiles, engraving with counters, computed face normals and vertices, spherical dimple cuts, mitre-apex chamfers, multi-body sets",
+      "features": 704,
       "file": "polyhedral_dice.rhai",
       "thumbnail": "examples/polyhedral_dice.png",
       "title": "Dice set"
