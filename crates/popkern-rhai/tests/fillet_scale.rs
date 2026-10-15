@@ -9,11 +9,14 @@
 //! r ≈ 0.024 the outlier hid inside the window, the corner kept its
 //! wrong surface and the fillet declined (cubes 0.008 to 0.25 failed,
 //! 0.3 and up served; a 0.7 mm round on a 16 mm die failed outright).
+//! It also achieves the G1 it asks for at every scale.
 
 use popkern_core::topology::BRep;
 use popkern_rhai::ScriptHost;
 
-fn rounded_cube(unit: &str, s: f64, r: f64) -> BRep {
+/// The rounded cube and how many blends delivered less continuity than
+/// they asked for.
+fn rounded_cube(unit: &str, s: f64, r: f64) -> (BRep, usize) {
     let source = format!(
         "let m = model(#{{ unit: \"{unit}\" }});\n\
          let h = {s} / 2.0;\n\
@@ -25,11 +28,13 @@ fn rounded_cube(unit: &str, s: f64, r: f64) -> BRep {
         .run(&source, "rounded_cube.rhai")
         .unwrap_or_else(|e| panic!("s {s} {unit}: {}", e.render()));
     let model = outcome.model.as_mut().expect("model");
-    model
+    let downgraded = model.report().downgraded_blends().count();
+    let brep = model
         .to_part()
         .unwrap_or_else(|e| panic!("s {s} {unit}: {e}"))
         .brep()
-        .clone()
+        .clone();
+    (brep, downgraded)
 }
 
 /// The exact volume of a cube of side `s` with every edge rounded `r`:
@@ -43,8 +48,15 @@ fn exact_volume(s: f64, r: f64) -> f64 {
 
 fn check(unit: &str, metres_per_unit: f64, s: f64) {
     let r = 0.04375 * s;
-    let brep = rounded_cube(unit, s, r);
+    let (brep, downgraded) = rounded_cube(unit, s, r);
     assert!(brep.validate().is_ok(), "s {s} {unit}: invalid");
+    // The seam normals are read scale-free: a 0.7 mm corner sphere's
+    // finite-difference normal fell under f64::EPSILON and the G1
+    // fillet reported itself downgraded to G0.
+    assert_eq!(
+        downgraded, 0,
+        "s {s} {unit}: the G1 fillet reads as downgraded"
+    );
     let volume = popkern_measure::body_volume(&brep, &brep.tolerance).expect("volume");
     let expected = exact_volume(s * metres_per_unit, r * metres_per_unit);
     assert!(

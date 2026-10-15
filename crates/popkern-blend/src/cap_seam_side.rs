@@ -230,9 +230,19 @@ const SINGULAR_SINE: f64 = 1.0e-6;
 /// every sample of pentagon5_variable's small-radius rims, whose strip
 /// chart is merely anisotropic (PK-579), leaving two seams unmeasured.
 fn chart_normal(su: Vec3, sv: Vec3) -> Option<Vec3> {
-    let n = su.cross(&sv);
-    let scale = su.length() * sv.length();
-    if scale.is_nan() || scale <= 1e-300 || n.length() < SINGULAR_SINE * scale {
+    // Unit partials first: the cross product of raw partials scales
+    // with the patch size squared, and on the finite-difference path
+    // (step 1e-6) a 0.7 mm corner sphere's came to ~2e-18, under
+    // `normalized`'s f64::EPSILON floor. Every seam of a mm cube's
+    // corners then read no normal, counted no samples, and the G1
+    // fillet reported itself downgraded to G0 (the same cube in metres
+    // read G1).
+    let (lu, lv) = (su.length(), sv.length());
+    if !(lu.is_finite() && lv.is_finite()) || lu <= 1e-300 || lv <= 1e-300 {
+        return None;
+    }
+    let n = (su * (1.0 / lu)).cross(&(sv * (1.0 / lv)));
+    if n.length() < SINGULAR_SINE {
         return None;
     }
     n.normalized()
