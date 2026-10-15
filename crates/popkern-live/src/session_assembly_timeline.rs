@@ -104,8 +104,11 @@ impl Session {
     }
 
     /// The occurrences after the first `index` construction steps, in
-    /// the run's tree order and definition indices (an occurrence not
-    /// yet placed is absent).
+    /// the run's tree order and definition indices: the placed ones,
+    /// and what is placed so far inside each sub-assembly occurrence
+    /// not placed yet, at its final placement
+    /// ([`Assembly::construction_tree_after`]). An occurrence placed
+    /// nowhere yet is absent.
     pub fn assembly_step(&self, index: usize) -> Result<Vec<InstanceView>, Outcome> {
         let Some(Document::Assembly(assembly)) = self.document.as_ref() else {
             return Err(Outcome::GateFailure {
@@ -115,7 +118,7 @@ impl Session {
             });
         };
         Ok(assembly
-            .tree_after(index)
+            .construction_tree_after(index)
             .iter()
             .map(crate::session_document::instance_view)
             .collect())

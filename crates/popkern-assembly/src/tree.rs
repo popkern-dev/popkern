@@ -64,6 +64,53 @@ impl Assembly {
         self.expand_root(&|at, _| placed.get(&at).copied())
     }
 
+    /// The construction view after the first `count` steps: the
+    /// [`Assembly::tree_after`] rows, plus the contents placed so far
+    /// in every sub-assembly occurrence that is not placed yet, drawn at
+    /// that occurrence's final world placement. Sub-assemblies are
+    /// usually filled before they are placed (the six-axis arm fills
+    /// its joint modules for ~570 steps before placing a link), and
+    /// `tree_after` alone shows nothing until then (PK-831). Rows keep
+    /// their final occurrence paths, so a step's own occurrences
+    /// (the timeline's `instances`) name rows on screen.
+    pub fn construction_tree_after(&self, count: usize) -> Vec<TreeRow> {
+        let placed: HashMap<InstanceRef, Placement> =
+            self.placements_after(count).into_iter().collect();
+        let placement_of = |at: InstanceRef, _: &Instance| placed.get(&at).copied();
+        let mut rows = self.expand_root(&placement_of);
+        let mut shown: std::collections::HashSet<String> =
+            rows.iter().map(|row| row.path.to_string()).collect();
+        // Final rows come depth-first, parents before children, so an
+        // unplaced occurrence inside another unplaced one is reached
+        // after its parent's placed contents are already shown.
+        for occurrence in self.tree() {
+            if occurrence.is_part || shown.contains(&occurrence.path.to_string()) {
+                continue;
+            }
+            let Ok(definition) = self.definition(occurrence.definition) else {
+                continue;
+            };
+            let DefinitionContent::Assembly(children) = &definition.content else {
+                continue;
+            };
+            let frame = Frame {
+                parent: Parent::Definition(occurrence.definition),
+                prefix: occurrence.path.clone(),
+                world: occurrence.world,
+                visible: occurrence.visible,
+            };
+            let mut inner = Vec::new();
+            self.expand(children, &frame, &placement_of, &mut inner);
+            shown.insert(occurrence.path.to_string());
+            for row in inner {
+                if shown.insert(row.path.to_string()) {
+                    rows.push(row);
+                }
+            }
+        }
+        rows
+    }
+
     fn expand_root(&self, placement_of: &PlacementOf) -> Vec<TreeRow> {
         let mut rows = Vec::new();
         let top = Frame {

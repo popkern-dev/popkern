@@ -189,3 +189,43 @@ fn sub_assembly_placements_are_steps_and_replay_exactly() {
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[1].path.to_string(), "s/a");
 }
+
+#[test]
+fn the_construction_view_shows_a_sub_assembly_filling_before_it_is_placed() {
+    // PK-831: stage is filled (step 1) before s places it (step 2); the
+    // construction view shows stage's contents at s's final placement.
+    let mut asm = Assembly::new("nested");
+    let d = asm.add_part("block", block()).expect("part");
+    let stage = asm.add_subassembly("stage").expect("stage");
+    asm.place(
+        Parent::Definition(stage),
+        d,
+        Some("a"),
+        Placement::translation(1.0, 0.0, 0.0),
+    )
+    .expect("a");
+    asm.place(
+        Parent::Root,
+        stage,
+        Some("s"),
+        Placement::translation(0.0, 5.0, 0.0),
+    )
+    .expect("s");
+    let none = asm.construction_tree_after(0);
+    assert!(none.is_empty(), "nothing placed before step 1");
+    let filling = asm.construction_tree_after(1);
+    assert_eq!(filling.len(), 1, "a only: s itself is not placed yet");
+    assert_eq!(filling[0].path.to_string(), "s/a");
+    assert!(filling[0].is_part);
+    let final_rows = asm.tree();
+    let final_a = final_rows
+        .iter()
+        .find(|r| r.path.to_string() == "s/a")
+        .expect("final s/a");
+    assert_eq!(filling[0].world, final_a.world, "at its final place");
+    assert_eq!(
+        asm.construction_tree_after(2).len(),
+        asm.tree_after(2).len(),
+        "once s is placed the views agree"
+    );
+}
