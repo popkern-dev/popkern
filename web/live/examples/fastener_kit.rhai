@@ -21,8 +21,13 @@ a.place(screw, "hex_bolt")
     .rotate(axis_at([0.0, 0.0, 0.0], [0.0, 1.0, 0.0]), 90.0)
     .translate(-9.0, -10.0, 5.0);
 
-// Its nut.
-a.place(nut).translate(9.0, -10.0, 0.0);
+// Its nut, threaded on: the bolt's own frame, 7 mm (seven whole
+// M6 leads) up the shank, so the internal thread mates the external
+// one at the nut's clearance (PK-476's phase convention). It stood
+// beside the bolt before, and the bolt's tip ran into its hexagon.
+a.place(nut)
+    .rotate(axis_at([0.0, 0.0, 0.0], [0.0, 1.0, 0.0]), 90.0)
+    .translate(-2.0, -10.0, 5.0);
 
 // A socket-head cap screw standing on its head.
 a.place(screw.variant(#{ size: "M4", length: 10.0, head: "socket", thread_length: 6.0 }), "cap_screw")

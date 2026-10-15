@@ -10,9 +10,11 @@ let bolt = m.bolt("M6", 14.0, #{ thread_length: 8.0, label: "hex_bolt" });
 bolt = bolt.rotate(axis_at([0.0, 0.0, 0.0], [0.0, 1.0, 0.0]), 90.0);
 bolt = bolt.translate(-9.0, -10.0, 5.0);
 
-// Its nut, printed-fit clearance on the internal thread.
+// Its nut, printed-fit clearance on the internal thread, threaded on
+// 7 mm (seven whole M6 leads) up the bolt's shank, as the gallery kit.
 let nut = m.nut("M6", #{ clearance: 0.2, label: "nut" });
-nut = nut.translate(9.0, -10.0, 0.0);
+nut = nut.rotate(axis_at([0.0, 0.0, 0.0], [0.0, 1.0, 0.0]), 90.0);
+nut = nut.translate(-2.0, -10.0, 5.0);
 
 // A socket-head cap screw standing on its head.
 let cap = m.bolt("M4", 10.0, #{ head: "socket", thread_length: 6.0, label: "cap_screw" });
