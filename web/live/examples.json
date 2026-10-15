@@ -105,12 +105,12 @@
       "title": "Centrifugal impeller"
     },
     {
-      "blurb": "The five Platonic solids as a dice set — face normals computed from the golden ratio, each die carved from a block by one exact plane cut per face pair, and a filleted d6 dimpled with 21 spherical pips.",
-      "demonstrates": "plane_at custom sketch planes, intersect, computed face normals, spherical dimple cuts, multi-body sets",
-      "features": 176,
+      "blurb": "The classic seven tabletop dice — d4, d6, d8, d10, d%, d12, d20 — with engraved Inter numerals (6 and 9 underlined, the d4 read at its corners), plus a rounded pipped d6. Every die is carved from a block by one plane cut per face pair.",
+      "demonstrates": "plane_at custom sketch planes, polygon profiles, engraving with counters, computed face normals and vertices, spherical dimple cuts, multi-body sets",
+      "features": 697,
       "file": "polyhedral_dice.rhai",
       "thumbnail": "examples/polyhedral_dice.png",
-      "title": "Polyhedral dice"
+      "title": "Dice set"
     },
     {
       "blurb": "Three springs from one verb: a ground-end compression spring, a tapered valve spring, and a left-hand spring phased a quarter turn — every path an exact rational helix.",

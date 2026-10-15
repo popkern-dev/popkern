@@ -101,13 +101,15 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
     ),
     (
         "polyhedral_dice",
-        "Polyhedral dice",
-        "The five Platonic solids as a dice set — face normals computed from the \
-         golden ratio, each die carved from a block by one exact plane cut per \
-         face pair, and a filleted d6 dimpled with 21 spherical pips.",
-        176,
-        "plane_at custom sketch planes, intersect, computed face normals, \
-         spherical dimple cuts, multi-body sets",
+        "Dice set",
+        "The classic seven tabletop dice — d4, d6, d8, d10, d%, d12, d20 — with \
+         engraved Inter numerals (6 and 9 underlined, the d4 read at its corners), \
+         plus a rounded pipped d6. Every die is carved from a block by one plane \
+         cut per face pair.",
+        697,
+        "plane_at custom sketch planes, polygon profiles, engraving with \
+         counters, computed face normals and vertices, spherical dimple cuts, \
+         multi-body sets",
     ),
     (
         "coil_spring",
