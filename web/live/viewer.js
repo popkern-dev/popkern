@@ -477,11 +477,15 @@ export class Viewer {
         transparent: true,
         opacity: 0.85,
         side: mesh.userData.sheet ? THREE.FrontSide : THREE.DoubleSide,
+        // A sketch's lamina often lies inside the solid it will cut (a
+        // boss sketched within its plate): its glow draws through.
+        depthTest: !mesh.userData.sheet,
         polygonOffset: true,
         polygonOffsetFactor: HOVER_OFFSET,
         polygonOffsetUnits: HOVER_OFFSET,
       });
       const glow = new THREE.Mesh(geometry, material);
+      if (mesh.userData.sheet) glow.renderOrder = 10;
       if (!mesh.matrixAutoUpdate) placeAt(glow, mesh.matrix);
       this.group.add(glow);
       this.glows.push(glow);
