@@ -97,19 +97,55 @@ fn sample_cylinder_against_cylinder(
     samples: &mut Vec<Point3>,
 ) {
     const GRID: usize = 17;
-    for i in 0..GRID {
-        let alpha = i as f64 / (GRID - 1) as f64;
-        for j in 0..GRID {
-            let beta = j as f64 / (GRID - 1) as f64;
-            let u = u_range.0 + (u_range.1 - u_range.0) * alpha;
-            let v = v_range.0 + (v_range.1 - v_range.0) * beta;
-            let p = sampled_surface.point_at(u, v);
-            let distance = distance_to_cylinder(p, other.origin, other.axis, other.radius);
-            if distance <= threshold {
-                samples.push(p);
+    let uv = |i: usize, j: usize| {
+        (
+            u_range.0 + (u_range.1 - u_range.0) * i as f64 / (GRID - 1) as f64,
+            v_range.0 + (v_range.1 - v_range.0) * j as f64 / (GRID - 1) as f64,
+        )
+    };
+    let signed =
+        |(u, v): (f64, f64)| signed_distance_to_cylinder(sampled_surface.point_at(u, v), other);
+    let mut grid = [[0.0_f64; GRID]; GRID];
+    for (i, row) in grid.iter_mut().enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
+            *cell = signed(uv(i, j));
+            if cell.abs() <= threshold {
+                let (u, v) = uv(i, j);
+                samples.push(sampled_surface.point_at(u, v));
             }
         }
     }
+    // A transverse crossing between grid nodes changes the sign of
+    // the distance to the other sheet: bisect each such grid segment
+    // onto the crossing. The threshold test alone only sees a crossing
+    // a grid node happens to land within 10 tolerances of — at unit
+    // scale on a 1/16 grid, never (PK-866).
+    for i in 0..GRID {
+        for j in 0..GRID {
+            for (k, l) in [(i + 1, j), (i, j + 1)] {
+                if k >= GRID || l >= GRID || grid[i][j].signum() == grid[k][l].signum() {
+                    continue;
+                }
+                let (mut lo, mut hi) = (uv(i, j), uv(k, l));
+                let lo_sign = grid[i][j].signum();
+                for _ in 0..60 {
+                    let mid = (0.5 * (lo.0 + hi.0), 0.5 * (lo.1 + hi.1));
+                    if signed(mid).signum() == lo_sign {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                samples.push(sampled_surface.point_at(0.5 * (lo.0 + hi.0), 0.5 * (lo.1 + hi.1)));
+            }
+        }
+    }
+}
+
+fn signed_distance_to_cylinder(point: Point3, cylinder: CylinderDistanceTarget) -> f64 {
+    let offset = point - cylinder.origin;
+    let radial = offset - cylinder.axis * offset.dot(&cylinder.axis);
+    radial.length() - cylinder.radius
 }
 
 fn distance_to_cylinder(

@@ -236,9 +236,8 @@ pub(crate) fn validate_fillet_request(
 /// geometry the kernel can tell apart. This was a 250x containment
 /// (PK-860) while the corner carve's anchor band (100 tolerances)
 /// swallowed the rail crossings below r/tol = 241; with that band
-/// capped at 0.2 r a 1.6 mm cube rounds exactly at r/tol = 2, 3.5, 70
-/// and 700 (at 10 validate_all reports one self-intersection on an
-/// exact-volume body: PK-866).
+/// capped at 0.2 r a 1.6 mm cube rounds exactly and validates clean
+/// from r/tol = 2 to 700 (PK-866 fixed a false self-intersection at 10).
 const CORNER_RADIUS_RESOLUTION: f64 = 1.0;
 
 /// Refuse a fillet whose corners (vertices two or more filleted edges

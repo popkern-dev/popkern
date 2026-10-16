@@ -160,3 +160,33 @@ fn a_tiny_rounded_cube_at_a_fine_tolerance_serves_exact() {
         "volume {volume} vs {expected}"
     );
 }
+
+/// The same 70 um rounds at coarse tolerances, down to two tolerances
+/// across, serve exact and clean. At ten tolerances validate_all
+/// reported the two strips meeting the corner ball as crossing: the
+/// cylinder pair check counted grid points within ten tolerances of
+/// the other strip (a full radius here) as contacts (PK-866).
+#[test]
+fn a_tiny_rounded_cube_serves_at_coarse_tolerances() {
+    let (s, r) = (0.0016, 0.04375 * 0.0016);
+    for tolerance in [7e-6, 2e-5, 3.5e-5] {
+        let source = format!(
+            "let m = model(#{{ tolerance: {tolerance} }});\n\
+             let h = {s} / 2.0;\n\
+             let die = m.profile(xy_at(-h)).rect({s}, {s}).sketch(\"block\").extrude(blind({s}));\n\
+             die = die.fillet(edges(), {r}, #{{ label: \"rounds\" }});\nm"
+        );
+        let mut run = ScriptHost::new()
+            .run(&source, "tiny_coarse.rhai")
+            .unwrap_or_else(|e| panic!("tol {tolerance}: {}", e.render()));
+        let brep = run.model.take().expect("model").to_brep().expect("brep");
+        let issues = brep.validate_all();
+        assert!(issues.is_empty(), "tol {tolerance}: {issues:?}");
+        let volume = popkern_measure::body_volume(&brep, &brep.tolerance).expect("volume");
+        let expected = exact_volume(s, r);
+        assert!(
+            ((volume - expected) / expected).abs() < 1e-6,
+            "tol {tolerance}: volume {volume} vs {expected}"
+        );
+    }
+}

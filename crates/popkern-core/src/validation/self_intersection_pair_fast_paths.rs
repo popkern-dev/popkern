@@ -59,11 +59,62 @@ impl BRep {
         let samples = cylinder_cylinder_near_samples(
             surface_a, u_range_a, v_range_a, surface_b, u_range_b, v_range_b, linear_tol,
         )?;
-        if samples.is_empty() {
+        // The grid keeps points within 10 tolerances of the other
+        // cylinder: near the crossing, not on it. Classified raw, a
+        // point inside one strip and in the other's boundary band read
+        // as an overlap though it sits up to 10 tolerances off the
+        // other surface — a full radius on a corner whose r is 10
+        // tolerances, where two strips meet only at the ball's vertex
+        // (PK-866). Each sample moves onto both surfaces first; one
+        // with no crossing within the tolerance is a near miss.
+        let crossings: Vec<_> = samples
+            .iter()
+            .filter_map(|p| cylinder_pair_crossing_near(surface_a, surface_b, *p, linear_tol))
+            .collect();
+        if crossings.is_empty() {
             return Some(false);
         }
         Some(self.sampled_points_overlap_faces(
-            face_a, surface_a, face_b, surface_b, &samples, linear_tol,
+            face_a, surface_a, face_b, surface_b, &crossings, linear_tol,
         ))
     }
+}
+
+/// The point of both cylinders nearest `start`, by alternating exact
+/// projections, or `None` when the sheets do not meet within
+/// `linear_tol` there (a near miss; tangent sheets converge slowly but
+/// within the iteration cap at tolerance scale).
+pub(super) fn cylinder_pair_crossing_near(
+    surface_a: &crate::geometry::surface::SurfaceGeometry,
+    surface_b: &crate::geometry::surface::SurfaceGeometry,
+    start: crate::geometry::Point3,
+    linear_tol: f64,
+) -> Option<crate::geometry::Point3> {
+    use crate::geometry::surface::SurfaceGeometry;
+    let project = |surface: &SurfaceGeometry, p: crate::geometry::Point3| match surface {
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } => {
+            let offset = p - *origin;
+            let along = *origin + *axis * offset.dot(axis);
+            let radial = p - along;
+            let length = radial.length();
+            (length > 0.0).then(|| along + radial * (*radius / length))
+        }
+        _ => None,
+    };
+    let mut p = start;
+    for _ in 0..64 {
+        let on_a = project(surface_a, p)?;
+        let on_b = project(surface_b, on_a)?;
+        let gap = on_a.distance_to(&on_b);
+        p = on_b;
+        if gap <= 0.1 * linear_tol {
+            return Some(p);
+        }
+    }
+    let gap = project(surface_a, p)?.distance_to(&p);
+    (gap <= linear_tol).then_some(p)
 }

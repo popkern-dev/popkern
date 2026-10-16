@@ -130,3 +130,7 @@ mod order_tests;
 #[cfg(test)]
 #[path = "self_intersection_grazing_tests.rs"]
 mod grazing_tests;
+
+#[cfg(test)]
+#[path = "self_intersection_cylinder_pair_tests.rs"]
+mod cylinder_pair_tests;
