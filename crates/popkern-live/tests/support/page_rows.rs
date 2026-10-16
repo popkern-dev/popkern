@@ -8,7 +8,7 @@ mod arm_rows;
 pub use arm_rows::assert_arm_rows;
 #[path = "view_rows.rs"]
 mod view_rows;
-pub use view_rows::assert_view_rows;
+pub use view_rows::{assert_storage_owned, assert_view_rows};
 
 /// The time limit: presets up to "no limit", default 24 s (20 s kernel
 /// budget + the page's grace), "no limit" lifts both budgets. Pre-built

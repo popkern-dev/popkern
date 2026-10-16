@@ -17,6 +17,8 @@ const $ = (id) => document.getElementById(id);
 
 /** The fixed id of the project a visitor types into. */
 export const SCRATCH = "scratch";
+/** Where the default model's film lives in Scratch. */
+export const DEFAULT_FILM_PATH = "films/tour.rhai";
 // An edit is saved once typing pauses this long.
 const SAVE_MS = 400;
 // How often the open server project's revision is checked.
@@ -53,9 +55,11 @@ export class Projects {
   }
 
   /** The Scratch project, created from `seed` (the legacy draft or the
-   *  default script) the first time. */
-  async scratch(seed) {
-    return (await this.store.get(SCRATCH)) ?? this.store.create("Scratch", singleScriptProject("Scratch", "scratch", seed), SCRATCH);
+   *  default script) the first time, with the default model's `film`
+   *  (`films/tour.rhai`) when one is given. */
+  async scratch(seed, film = null) {
+    const files = { ...singleScriptProject("Scratch", "scratch", seed), ...(film ? { [DEFAULT_FILM_PATH]: film } : {}) };
+    return (await this.store.get(SCRATCH)) ?? this.store.create("Scratch", files, SCRATCH);
   }
 
   /** The open migration's path (the last one: where a project grows). */
@@ -115,6 +119,8 @@ export class Projects {
     this.showName();
     this.page.rail?.setVersions(null);
     this.page.viewer.fitted = false;
+    // The model on screen is the previous project's until this one builds.
+    this.page.geometryKey = null;
     if (build) this.page.run();
   }
 
@@ -294,6 +300,20 @@ export class Projects {
   async remove(id) {
     if (this.current?.id === id) this.current = null;
     await this.store.remove(id);
+  }
+
+  /** Delete project `id`; when it was the open one, open the most
+   *  recent remaining project, or a fresh Scratch from `seed` (the
+   *  default script, with its `film`) when none is left. A deleted Scratch is never
+   *  recreated behind the person's back otherwise: the next visit
+   *  starts a fresh one (openFirstScript). */
+  async removeAndReopen(id, seed, film = null) {
+    const wasOpen = this.current?.id === id;
+    await this.remove(id);
+    if (!wasOpen) return;
+    const rest = (await this.store.list()).filter((p) => p.kind !== "folder");
+    if (rest.length) await this.openStored(rest[0].id);
+    else await this.open(await this.scratch(seed, film));
   }
 
   /** Download the open project as `<name>.zip`. */

@@ -8,6 +8,7 @@ import { dismissDraft, restoreDraft } from "./drafts.js";
 import { downloadModel, showModelCode } from "./exports.js";
 import { wireLayout } from "./layout.js";
 import { wireViewOrient } from "./view-orient.js";
+import { wireTheme } from "./theme.js";
 
 const $ = (id) => document.getElementById(id);
 const DIALOGS = ["about-dialog", "code-dialog", "projects-dialog"];
@@ -19,6 +20,7 @@ export function wireControls(page) {
   $("cancel").addEventListener("click", () => page.cancel("cancelled by the user"));
   $("fit").addEventListener("click", () => page.viewer.fitAgain());
   wireViewOrient(page);
+  wireTheme();
   // History needs the live model: a pre-built one is rebuilt first.
   $("history").addEventListener("click", async () => {
     if (await page.ensureLive()) $("scrubber").focus();

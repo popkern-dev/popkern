@@ -1,4 +1,6 @@
-// What the page keeps in localStorage: the build time limit, and the
+// What the page keeps in localStorage: the build time limit, the
+// colour theme (theme.js; read before the first paint by
+// theme-boot.js, the one other reader), and the
 // draft keys pages used before projects existed (read once to seed the
 // Scratch project; projects themselves live in IndexedDB,
 // project-store.js). Everything lives in `localStorage` on this origin (design §7:
@@ -11,6 +13,18 @@ const DRAFT_KEY = "popkern-live-draft";
 // opens on the pre-built default (restore puts it back).
 const SAVED_DRAFT_KEY = "popkern-live-saved-draft";
 const TIME_LIMIT_KEY = "popkern-live-time-limit";
+/** The colour theme's key (theme-boot.js reads the same one). */
+export const THEME_KEY = "popkern.theme";
+
+/** The remembered colour theme id, or null. */
+export function readTheme() {
+  return storage((s) => s.getItem(THEME_KEY));
+}
+
+/** Remember colour theme `id` (forgotten when storage is blocked). */
+export function writeTheme(id) {
+  storage((s) => s.setItem(THEME_KEY, id));
+}
 
 /** Run `action` against `localStorage`; null when storage is blocked
  *  or the action throws. */

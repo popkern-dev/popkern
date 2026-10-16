@@ -35,11 +35,11 @@
 /* A migration that built (or replayed from cache) needs no badge: only
    the states that ask for attention show. */
 .badge-built, .badge-cached { display: none; }
-.badge-failed { background: rgba(240, 112, 122, 0.16); color: var(--bad); }
+.badge-failed { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
 .badge-stale { opacity: 0.55; }
-.notice { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); background: rgba(95, 227, 177, 0.07); flex: none; }
+.notice { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 7%, transparent); flex: none; }
 .notice span { flex: 1; min-width: 10em; }
-.notice.conflict { background: rgba(240, 112, 122, 0.12); }
+.notice.conflict { background: color-mix(in srgb, var(--bad) 12%, transparent); }
 .notice.flash { animation: notice-flash 0.6s ease-out 2; }
 @keyframes notice-flash { 50% { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); } }
 
@@ -59,14 +59,14 @@
 .editor-mirror { color: var(--text); pointer-events: none; }
 .editor-input { color: transparent; caret-color: var(--accent); background: transparent; border: 0; resize: none; outline: none; }
 .editor-line { min-height: 1.6em; }
-.editor-line-error { background: rgba(240, 112, 122, 0.16); }
+.editor-line-error { background: color-mix(in srgb, var(--bad) 16%, transparent); }
 .editor-line-step { background: var(--accent-soft); }
 .editor-readonly .editor-input { cursor: default; }
-.tk-keyword { color: #c3a6ff; }
-.tk-verb { color: #7fd6f5; }
-.tk-string { color: #b9e88f; }
-.tk-number { color: #f5a97f; }
-.tk-comment { color: #5c6880; font-style: italic; }
+.tk-keyword { color: var(--tk-keyword); }
+.tk-verb { color: var(--tk-verb); }
+.tk-string { color: var(--tk-string); }
+.tk-number { color: var(--tk-number); }
+.tk-comment { color: var(--tk-comment); font-style: italic; }
 
 /* Inspector */
 .inspector { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -85,7 +85,7 @@
 /* Trees: the assembly, a part document's bodies, clearance pairs */
 .tree { list-style: none; margin: 0 0 0.6em; padding: 0; }
 .tree-row { display: flex; align-items: center; gap: 0.45em; min-height: 1.85rem; padding: 0.1em 0.3em; border-radius: var(--radius-small); cursor: pointer; white-space: nowrap; font-family: var(--mono); font-size: 0.88rem; }
-.tree-row:hover { background: rgba(127, 150, 200, 0.08); }
+.tree-row:hover { background: var(--wash); }
 .tree-selected { background: var(--accent-soft); }
 .tree-selected .tree-name { color: var(--accent); }
 .tree-hidden .tree-name, .tree-hidden .tree-kind, .tree-hidden .tree-dot { opacity: 0.4; }
@@ -119,7 +119,7 @@
 .report td:nth-child(4) { grid-area: time; white-space: nowrap; text-align: right; font: 0.78rem var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
 .report tr.row-warn { display: block; padding-top: 0; }
 .report tr[data-feature] { cursor: pointer; }
-.report tr[data-feature]:hover { background: rgba(127, 150, 200, 0.06); }
+.report tr[data-feature]:hover { background: var(--wash); }
 .cell-ok { color: var(--ok); }
 .cell-warn { color: var(--warn); font-weight: 600; }
 .cell-bad { color: var(--bad); }
@@ -176,7 +176,7 @@ body.status-failed .status-dot { background: var(--bad); }
 .step-cards { position: relative; list-style: none; margin: 0; padding: 0 0 0.25rem; display: flex; gap: 0.45rem; overflow-x: auto; scroll-behavior: smooth; overscroll-behavior-x: contain; scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
 .step { flex: none; }
 .step > button { position: relative; display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 0.3rem; width: 7.4rem; height: auto; min-height: 4.6rem; padding: 0.4rem 0.5rem; line-height: 1.25; background: var(--raised); border: 1px solid var(--line-strong); border-radius: 8px; color: var(--text); text-align: left; font-family: var(--mono); }
-.step > button:hover { border-color: #3d5280; }
+.step > button:hover { border-color: var(--hover-line); }
 .step-index { font-size: 0.7rem; color: var(--muted); }
 .step-icon .icon { width: 1.15rem; height: 1.15rem; }
 .step-name { width: 100%; font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

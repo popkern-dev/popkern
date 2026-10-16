@@ -5,6 +5,12 @@
       "demonstrates": "extrude, tool bodies, union, fillet with selectors, assert_watertight",
       "features": 6,
       "file": "boss_plate.rhai",
+      "films": [
+        {
+          "file": "boss_plate.tour.film.rhai",
+          "name": "tour"
+        }
+      ],
       "thumbnail": "examples/boss_plate.png",
       "title": "Boss plate"
     },
@@ -111,6 +117,10 @@
       "file": "polyhedral_dice.rhai",
       "films": [
         {
+          "file": "polyhedral_dice.roll.film.rhai",
+          "name": "roll"
+        },
+        {
           "file": "polyhedral_dice.turntable.film.rhai",
           "name": "turntable"
         }
@@ -147,6 +157,12 @@
       "demonstrates": "computed involute teeth, internal ring gears, meshing-assembly phasing, the (Zs+Zr)%N constraint, single-polygon spiders, assemblies (one part placed many times with rotate then translate)",
       "features": 35,
       "file": "planetary_gearbox.rhai",
+      "films": [
+        {
+          "file": "planetary_gearbox.drive.film.rhai",
+          "name": "drive"
+        }
+      ],
       "thumbnail": "examples/planetary_gearbox.png",
       "title": "Planetary gearbox"
     },
@@ -163,6 +179,12 @@
       "demonstrates": "bolt generator, thread_length, tip_chamfer option",
       "features": 1,
       "file": "hex_bolt.rhai",
+      "films": [
+        {
+          "file": "hex_bolt.drive.film.rhai",
+          "name": "drive"
+        }
+      ],
       "thumbnail": "examples/hex_bolt.png",
       "title": "Hex bolt"
     },
@@ -171,6 +193,12 @@
       "demonstrates": "clearance_hole with countersink, countersunk head bolts, axis_at placement",
       "features": 5,
       "file": "countersunk_joint.rhai",
+      "films": [
+        {
+          "file": "countersunk_joint.drive.film.rhai",
+          "name": "drive"
+        }
+      ],
       "thumbnail": "examples/countersunk_joint.png",
       "title": "Countersunk joint"
     },
@@ -179,6 +207,12 @@
       "demonstrates": "bolt and nut generators, ISO thread designations, head styles, printed-fit clearance, part families (one parametric part, several sizes)",
       "features": 4,
       "file": "fastener_kit.rhai",
+      "films": [
+        {
+          "file": "fastener_kit.nut.film.rhai",
+          "name": "nut"
+        }
+      ],
       "thumbnail": "examples/fastener_kit.png",
       "title": "Fastener kit"
     },
@@ -201,6 +235,12 @@
       "demonstrates": "hinge generators (butt), screw holes from a designation, sizes that follow the length, the open angle",
       "features": 3,
       "file": "door_hinge.rhai",
+      "films": [
+        {
+          "file": "door_hinge.swing.film.rhai",
+          "name": "swing"
+        }
+      ],
       "thumbnail": "examples/door_hinge.png",
       "title": "Door hinge"
     },
@@ -209,6 +249,12 @@
       "demonstrates": "hinge generators at high knuckle counts",
       "features": 3,
       "file": "piano_hinge.rhai",
+      "films": [
+        {
+          "file": "piano_hinge.fold.film.rhai",
+          "name": "fold"
+        }
+      ],
       "thumbnail": "examples/piano_hinge.png",
       "title": "Piano hinge"
     },
@@ -217,6 +263,12 @@
       "demonstrates": "living_hinge styles, single-profile construction",
       "features": 3,
       "file": "living_hinges.rhai",
+      "films": [
+        {
+          "file": "living_hinges.flex.film.rhai",
+          "name": "flex"
+        }
+      ],
       "thumbnail": "examples/living_hinges.png",
       "title": "Living hinges"
     },
@@ -225,6 +277,12 @@
       "demonstrates": "hinge_bodies on existing bodies, print-in-place pins, shells",
       "features": 9,
       "file": "hinged_box.rhai",
+      "films": [
+        {
+          "file": "hinged_box.lid.film.rhai",
+          "name": "lid"
+        }
+      ],
       "thumbnail": "examples/hinged_box.png",
       "title": "Hinged box"
     },
@@ -233,6 +291,12 @@
       "demonstrates": "assembly hinges, mates driven by a parameter, limits, swing",
       "features": 2,
       "file": "hinge_assembly.rhai",
+      "films": [
+        {
+          "file": "hinge_assembly.swing.film.rhai",
+          "name": "swing"
+        }
+      ],
       "thumbnail": "examples/hinge_assembly.png",
       "title": "Hinge assembly"
     },
@@ -241,6 +305,12 @@
       "demonstrates": "assembly seam hinges (a.hinge_bodies), mates on a literal axis, a driven open angle, swing",
       "features": 9,
       "file": "hinged_case.rhai",
+      "films": [
+        {
+          "file": "hinged_case.lid.film.rhai",
+          "name": "lid"
+        }
+      ],
       "thumbnail": "examples/hinged_case.png",
       "title": "Hinged case"
     },

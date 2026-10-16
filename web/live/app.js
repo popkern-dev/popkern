@@ -18,7 +18,7 @@ import { DocumentTab } from "./document-tab.js";
 import * as drafts from "./drafts.js";
 import { Editor } from "./editor.js";
 import { downloadModel, showModelCode } from "./exports.js";
-import { fetchDefaultScript } from "./gallery.js";
+import { fetchDefaultFilm, fetchDefaultScript } from "./gallery.js";
 import { adoptPlaygroundKeys } from "./local-store.js";
 import { drawModel, showBake, showPlaced, showServed } from "./model-display.js";
 import { showOutcome } from "./outcome-overlay.js";
@@ -137,6 +137,12 @@ class Page {
     return this.defaultText;
   }
 
+  /** The default model's film, fetched once (null when unavailable). */
+  defaultFilm() {
+    this.defaultFilmText ??= fetchDefaultFilm();
+    return this.defaultFilmText;
+  }
+
   status(text, failed = false) {
     setStatus(text, failed);
   }
@@ -160,6 +166,10 @@ class Page {
     const filmOpen = this.projects.filmOpen;
     if (filmOpen && !forFilm) return this.film.prepare(this.projects.path, { live });
     const source = filmOpen ? this.projects.geometrySource() : this.editor.value;
+    // The geometry this run shows, read now: a project opened while it
+    // builds must not inherit this model (a film then played on the
+    // previous example's document).
+    const geometry = this.projects.geometrySource();
     // An imported STEP document has no script to build: keep it.
     if (this.tab.isImported(source)) {
       this.status("an imported STEP assembly is view only: pick an example or write a script to build");
@@ -171,7 +181,7 @@ class Page {
       if (token !== this.viewToken) return null;
       if (bake) {
         if (this.lastGood?.bakedSource !== source || this.live) this.showBake(bake, source);
-        this.geometryKey = this.projects.geometrySource();
+        this.geometryKey = geometry;
         return { ok: true, baked: true };
       }
     }
@@ -211,7 +221,7 @@ class Page {
       // previous model, so `live` stands.
       if (reply.ok && reply.envelope?.report) this.live = reply.envelope.outcome === "served";
       await this.receive(reply);
-      if (reply.ok && reply.envelope?.outcome === "served") this.geometryKey = this.projects.geometrySource();
+      if (reply.ok && reply.envelope?.outcome === "served") this.geometryKey = geometry;
     } else {
       // Superseded (by an edit queued as a rerun, or a pre-built
       // example now on screen): its model is in the worker but not on

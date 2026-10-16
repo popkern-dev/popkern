@@ -430,17 +430,8 @@ fn page_scripts_reach_the_network_only_for_same_origin_assets() {
             "script tag not same-origin: {line}"
         );
     }
-    // Drafts persist only under try/catch and only locally: one module
-    // owns `localStorage`, behind a guarded accessor.
-    let store = read(page().join("local-store.js"));
-    assert!(store.contains("localStorage"));
-    assert!(store.contains("function storage(action) {\n  try {"));
-    for file in own.iter().filter(|f| *f != "local-store.js") {
-        assert!(
-            !read(page().join(file)).contains("localStorage"),
-            "{file} reaches localStorage outside local-store.js"
-        );
-    }
+    // Drafts persist only under try/catch and only locally.
+    page_rows::assert_storage_owned(&own, |file| read(page().join(file)));
 }
 
 #[test]

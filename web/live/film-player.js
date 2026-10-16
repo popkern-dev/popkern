@@ -179,12 +179,17 @@ export class FilmPlayer {
     this.look.castShadows();
     this.objects = [...viewer.bodies, ...viewer.edgeLines].map((object) => ({
       object,
+      // The film owns the matrix while it plays: an auto-updating one
+      // (a pre-built part's meshes) is rebuilt from position/rotation
+      // at every render, which silently dropped every move and turn.
+      autoUpdate: (object.userData.filmAutoUpdate ??= object.matrixAutoUpdate),
       mesh: object.isLineSegments ? viewer.bodies.find((m) => m.userData.lines === object) : object,
       base: (object.userData.base ?? object.matrix).clone(),
       // The viewer's own visibility, recorded once: a frame the film
       // already applied hides parts it has not shown yet.
       visible: (object.userData.filmVisible ??= object.visible),
     }));
+    for (const { object } of this.objects) object.matrixAutoUpdate = false;
     this.selectors = [...new Set(viewer.bodies.map(selectorOf))];
     this.bounds = viewer.visibleBounds();
     this.targetBounds = new Map();
@@ -212,8 +217,10 @@ export class FilmPlayer {
     if (!this.active) return;
     this.pause();
     const viewer = this.page.viewer;
-    for (const { object, base, visible } of this.objects) {
+    for (const { object, base, visible, autoUpdate } of this.objects) {
       object.matrix.copy(base);
+      object.matrixAutoUpdate = autoUpdate;
+      delete object.userData.filmAutoUpdate;
       object.matrixWorldNeedsUpdate = true;
       object.visible = visible;
       delete object.userData.filmVisible;

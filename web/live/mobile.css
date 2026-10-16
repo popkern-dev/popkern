@@ -37,7 +37,9 @@
   /* The workbench: model, sheet tabs, sheet. */
   .workbench {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) auto var(--sheet-h);
+    /* The model keeps at least 12rem: a tall sheet takes what is left
+       (it hid the model and the grabber under the model's overlays). */
+    grid-template-rows: minmax(12rem, 1fr) auto minmax(0, var(--sheet-h));
     grid-template-areas: "viewer" "tabs" "sheet";
     gap: 0;
     padding: 0;
@@ -50,20 +52,21 @@
   body[data-sheet="model"] .pane-side { display: flex; }
   body.editor-collapsed .pane-editor { display: none; }
   body.editor-collapsed[data-sheet="code"] .pane-editor { display: flex; }
-  .pane-viewer { margin: 0 var(--gap) var(--gap); }
+  .pane-viewer { margin: 0 var(--gap) var(--gap); overflow: hidden; }
+  body.sheet-tall .view-orient, body.sheet-tall .pick { display: none; }
   .pane-viewer canvas { border-radius: 0; }
-  .sheet-tabs { grid-area: tabs; display: flex; flex-direction: column; position: relative; padding: 0.55rem 0.75rem 0.35rem; background: var(--card); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.35); }
+  .sheet-tabs { grid-area: tabs; display: flex; flex-direction: column; position: relative; z-index: 7; padding: 0.55rem 0.75rem 0.35rem; background: var(--card); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -10px 30px var(--shadow); }
   .sheet-grabber { align-self: center; width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--line-strong); margin-bottom: 0.5rem; pointer-events: none; }
   .sheet-size { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 6rem; height: 1.4rem; min-height: 0; padding: 0; background: transparent; border: 0; }
   .sheet-size:hover { background: transparent; }
-  .sheet-tabs .tabs { padding: 0.25rem; border: 1px solid var(--line); border-radius: var(--radius); background: rgba(10, 16, 32, 0.6); }
+  .sheet-tabs .tabs { padding: 0.25rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised); }
   .sheet-tabs .tab { min-height: 2.4rem; }
   .pane-editor, .pane-side, .dock { background: var(--card); border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
   .pane-side > .tabs { margin: 0 0.6rem; border: 0; padding: 0.35rem 0 0.25rem; }
 
   /* Status: a chip over the top of the model, clear of the corner's
      tool row (three tools, two gaps, the corner inset, its own inset). */
-  .dock-status { grid-area: viewer; justify-self: start; align-self: start; max-width: calc(100% - 3 * var(--tool) - 0.7rem - 0.4rem - 2 * var(--gap) - 0.8rem); height: auto; margin: 0.45rem 0 0 calc(var(--gap) + 0.4rem); padding: 0.2rem 0.55rem; border-radius: 999px; background: rgba(10, 16, 32, 0.78); border: 1px solid var(--line); }
+  .dock-status { grid-area: viewer; justify-self: start; align-self: start; max-width: calc(100% - 3 * var(--tool) - 0.7rem - 0.4rem - 2 * var(--gap) - 0.8rem); height: auto; margin: 0.45rem 0 0 calc(var(--gap) + 0.4rem); padding: 0.2rem 0.55rem; border-radius: 999px; background: var(--glass); border: 1px solid var(--line); }
   #privacy-note { display: none; }
   .pick { left: 0.45rem; bottom: 0.45rem; font-size: 0.72rem; }
   /* Films on a phone: the History sheet lists them (the rail is on

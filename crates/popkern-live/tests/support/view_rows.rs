@@ -7,6 +7,7 @@ use serde_json::Value;
 pub fn assert_view_rows(out: &Value) {
     assert_standard_views(out);
     assert_phone(out);
+    assert_projects_ui(out);
 }
 
 /// Each standard view looks along its axis (Z up; the front looks
@@ -107,4 +108,66 @@ pub fn assert_phone(out: &Value) {
     assert_eq!(p["status_clear_of_tools"], true, "{p}");
     assert_eq!(p["modes_clustered"], true, "{p}");
     assert_eq!(p["orient_shown"], true, "{p}");
+}
+
+/// Themes switch and are remembered, Scratch carries the default
+/// model's film, the open Scratch deletes (another project opens), and
+/// a film selected the moment its example opens plays on that example
+/// (PK-869: it played on the previous example's model, whose targets
+/// the new film's script could not name).
+pub fn assert_projects_ui(out: &Value) {
+    let p = &out["projects_ui"];
+    let t = &p["themes"];
+    assert_eq!(t["options"], 3, "{p}");
+    assert_eq!(t["stored"], "light", "{p}");
+    assert_ne!(
+        t["light"], t["default"],
+        "the light theme changes the ground: {p}"
+    );
+    assert_eq!(t["back"], true, "{p}");
+    assert_eq!(p["scratch_film"], true, "{p}");
+    assert_eq!(p["deleted"]["scratch_gone"], true, "{p}");
+    assert_eq!(p["deleted"]["reopened"], true, "{p}");
+    assert_eq!(p["deleted"]["fresh_film"], true, "{p}");
+    let race = p["race"].as_array().expect("race rows");
+    assert_eq!(race.len(), 2, "{p}");
+    for row in race {
+        assert_eq!(row["active"], true, "{p}");
+        assert!(row["overlay"].is_null(), "{p}");
+    }
+    assert_eq!(
+        race[1]["kind"], "part",
+        "the door hinge's own document: {p}"
+    );
+    assert_eq!(race[1]["bodies"], 3, "{p}");
+    // The door hinge's leaf turns by t = 4 (the section sweep moves no
+    // body): a seek moves bodies on screen.
+    assert_eq!(
+        race[1]["moved"], true,
+        "a seek moves the film's bodies: {p}"
+    );
+}
+
+/// One module owns `localStorage`, behind a guarded accessor; the only
+/// other reader is the pre-paint theme script (a classic script cannot
+/// import a module), which reads the theme key inside a try and never
+/// writes.
+pub fn assert_storage_owned<S: AsRef<str>>(own: &[S], read: impl Fn(&str) -> String) {
+    let store = read("local-store.js");
+    assert!(store.contains("localStorage"));
+    assert!(store.contains("function storage(action) {\n  try {"));
+    let boot = read("theme-boot.js");
+    assert!(
+        boot.contains("try {") && !boot.contains("setItem"),
+        "{boot}"
+    );
+    for file in own.iter().map(AsRef::as_ref) {
+        if file == "local-store.js" || file == "theme-boot.js" {
+            continue;
+        }
+        assert!(
+            !read(file).contains("localStorage"),
+            "{file} reaches localStorage outside local-store.js"
+        );
+    }
 }

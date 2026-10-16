@@ -10,8 +10,8 @@ body.film-open .pane-viewer canvas { height: calc(100% - var(--film-strip)); bor
 body.film-stage .view-corner, body.film-stage .pick, body.film-stage .scrubbed-note { display: none; }
 
 /* One way out. */
-.film-exit { position: absolute; top: 0.6rem; right: 0.6rem; z-index: 6; display: inline-flex; gap: 0.4rem; min-height: 2.1rem; padding: 0 0.8rem 0 0.6rem; font-weight: 600; background: rgba(12, 18, 32, 0.85); border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); }
-.film-exit:hover { border-color: var(--accent); background: rgba(12, 18, 32, 0.95); }
+.film-exit { position: absolute; top: 0.6rem; right: 0.6rem; z-index: 6; display: inline-flex; gap: 0.4rem; min-height: 2.1rem; padding: 0 0.8rem 0 0.6rem; font-weight: 600; background: var(--glass); border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); }
+.film-exit:hover { border-color: var(--accent); background: var(--glass-strong); }
 .film-exit .icon { width: 0.85rem; height: 0.85rem; }
 
 /* The frame: it covers the canvas and clips its hole's shade. */
@@ -25,7 +25,7 @@ body.film-stage .view-corner, body.film-stage .pick, body.film-stage .scrubbed-n
 
 /* Preparing: a card in the middle of the view (quiet, top centre, when
    an open film is only updating after an edit). */
-.film-loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5; display: flex; align-items: center; gap: 0.8rem; padding: 0.85rem 1.1rem; width: max-content; max-width: calc(100% - 2rem); white-space: nowrap; background: rgba(12, 18, 32, 0.92); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4); }
+.film-loading { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 5; display: flex; align-items: center; gap: 0.8rem; padding: 0.85rem 1.1rem; width: max-content; max-width: calc(100% - 2rem); white-space: nowrap; background: var(--glass-strong); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 12px 30px var(--shadow); }
 .film-loading-text { display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
 .film-loading-text strong { font-weight: 650; }
 #film-loading-stage { color: var(--muted); font: 0.85rem var(--mono); }
@@ -58,11 +58,11 @@ body.film-playing .film-play .icon-pause { display: block; }
    playhead; a tall hit area around thin bars. */
 .film-timeline { position: relative; flex: 1 1 10rem; min-width: 6rem; height: 2rem; display: flex; align-items: center; cursor: pointer; touch-action: none; outline-offset: 2px; border-radius: 4px; }
 .film-chapters { display: flex; gap: 3px; width: 100%; align-items: center; }
-.film-chapter { position: relative; flex-basis: 0; min-width: 4px; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.16); overflow: hidden; transition: height 0.12s ease; }
+.film-chapter { position: relative; flex-basis: 0; min-width: 4px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 16%, transparent); overflow: hidden; transition: height 0.12s ease; }
 .film-chapter i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--accent); }
-.film-chapter-title { background: rgba(255, 255, 255, 0.26); }
+.film-chapter-title { background: color-mix(in srgb, var(--text) 26%, transparent); }
 .film-timeline:hover .film-chapter, .film-timeline-drag .film-chapter, .film-timeline:focus-visible .film-chapter { height: 8px; }
-.film-playhead { position: absolute; left: 0; top: 50%; width: 0.85rem; height: 0.85rem; margin: -0.425rem 0 0 -0.425rem; border-radius: 50%; background: #f5f7fa; box-shadow: 0 0 0 3px rgba(95, 227, 177, 0.35), 0 1px 4px rgba(0, 0, 0, 0.5); pointer-events: none; }
+.film-playhead { position: absolute; left: 0; top: 50%; width: 0.85rem; height: 0.85rem; margin: -0.425rem 0 0 -0.425rem; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent), 0 1px 4px rgba(0, 0, 0, 0.5); pointer-events: none; }
 
 /* The History sheet's film list is a phone's (mobile.css); a wide
    screen has the script card's rail. */

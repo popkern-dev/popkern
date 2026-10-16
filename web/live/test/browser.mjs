@@ -1365,6 +1365,50 @@ m`)};
   })()`);
   await send("Emulation.clearDeviceMetricsOverride");
 
+  // Themes, Scratch's film, deleting projects, and a film opened the
+  // moment its example opens (PK-869): it must play on that example's
+  // model, never the previous one's.
+  out.projects_ui = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const theme = await import("./theme.js");
+    const bg = () => getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+    const before = bg();
+    theme.setTheme("light");
+    const themes = { default: before, light: bg(), stored: localStorage.getItem("popkern.theme"), options: document.querySelectorAll("#theme option").length };
+    theme.setTheme("cad");
+    themes.back = bg() === before;
+    const scratch = await page.projects.store.get("scratch");
+    const scratch_film = Boolean(scratch?.files?.["films/tour.rhai"]);
+    // Delete the open Scratch: another project opens; Scratch is gone.
+    await page.projects.openStored("scratch");
+    await page.runDone;
+    await page.projects.removeAndReopen("scratch", await page.defaultScript(), await page.defaultFilm());
+    const deleted = { scratch_gone: (await page.projects.store.get("scratch")) == null, reopened: page.projects.current != null && page.projects.current.id !== "scratch" };
+    // A fresh Scratch, with the default film, comes back when asked for.
+    const fresh = await page.projects.scratch(await page.defaultScript(), await page.defaultFilm());
+    deleted.fresh_film = Boolean(fresh.files["films/tour.rhai"]);
+    // A film selected the moment its example opens, twice in a row.
+    const race = [];
+    for (const [id, film] of [["example:boss_plate_in_steps", "films/section_sweep.rhai"], ["example:door_hinge.rhai", "films/swing.rhai"]]) {
+      await page.projects.openExample(id);
+      page.projects.select(film);
+      const t0 = performance.now();
+      while (!page.film.active && performance.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 100));
+      // A seek moves the film's bodies on screen: three.js rebuilt an
+      // auto-updating mesh's matrix at every render, dropping them.
+      // (from the start: the player keeps its time across films)
+      await page.film.seek(0);
+      page.viewer.render();
+      const before = page.viewer.bodies.map((m) => m.matrixWorld.elements.join());
+      await page.film.seek(4.0);
+      page.viewer.render();
+      const moved = page.viewer.bodies.some((m, i) => m.matrixWorld.elements.join() !== before[i]);
+      race.push({ id, active: page.film.active, moved, overlay: document.getElementById("overlay").hidden ? null : document.getElementById("overlay-text").textContent.slice(0, 200), bodies: page.film.context?.bodies ?? null, kind: page.film.context?.kind ?? null });
+      document.getElementById("film-exit").click();
+    }
+    return { themes, scratch_film, deleted, race };
+  })()`);
+
   if (process.env.POPKERN_LAUNCH === "1") {
     out.launch = await launchRows();
   }

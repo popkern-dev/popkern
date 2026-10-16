@@ -364,3 +364,15 @@ fn every_gallery_script_serves_clean_watertight_and_step_valid() {
         Some(GALLERY.len() + GALLERY_PROJECTS.len())
     );
 }
+
+/// The page's default model ships with the gallery boss plate's tour
+/// (a fresh Scratch's `films/tour.rhai`): the two copies never drift.
+#[test]
+fn the_default_film_is_the_boss_plate_tour() {
+    let gallery = std::fs::read(examples_dir().join("boss_plate.tour.film.rhai")).expect("tour");
+    let page = std::fs::read(page_dir().join("default.film.rhai")).expect("default film");
+    assert_eq!(
+        gallery, page,
+        "web/live/default.film.rhai drifted from the boss plate's tour"
+    );
+}

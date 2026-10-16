@@ -262,3 +262,39 @@ fn byte_exports_match_the_path_forms_and_reopen() {
         eprintln!("[pk410] OCC oracle absent; STEP bytes checked by popkern only");
     }
 }
+
+/// A film runs against the context of the model the page shows when
+/// it sends one, not the session's last live build (PK-869): a
+/// pre-built example is not in the session, and its film read the
+/// previous live model's targets.
+#[test]
+fn a_film_reads_the_shown_model_not_the_last_live_build() {
+    let mut session = Session::new(HostOptions::default());
+    // The session holds a live assembly with occurrences `box` and `lid`.
+    let live = "let a = assembly(\"case\");\n\
+        let b = a.part(\"box\", |m| { m.profile(xy()).rect(2.0, 2.0).sketch(\"s\").extrude(blind(1.0)); });\n\
+        let l = a.part(\"lid\", |m| { m.profile(xy_at(1.0)).rect(2.0, 2.0).sketch(\"t\").extrude(blind(0.2)); });\n\
+        a.place(b, \"box\");\n\
+        a.place(l, \"lid\");\n\
+        a";
+    assert!(session.run(live, "case.rhai").outcome.is_served());
+    // The page shows a pre-built two-body part: its film names bodies.
+    let shown = popkern_rhai::film::FilmContext {
+        kind: "part".into(),
+        name: "part".into(),
+        unit_scale: 1.0,
+        paths: Vec::new(),
+        bodies: 2,
+        joints: Vec::new(),
+        params: Vec::new(),
+        values: Default::default(),
+    };
+    let film = "let film = storyboard();\nfilm.step(\"lift\", \"\", 1.0, |s| { s.move(\"body 1\", #{ to: [0.0, 0.0, 1.0] }); });\nfilm";
+    let reply = session
+        .film(film, "films/lift.rhai", Some(shown))
+        .unwrap_or_else(|outcome| panic!("the film read the live build: {outcome:?}"));
+    assert_eq!(reply.context.bodies, 2);
+    // With no context sent, the session's own document is the one.
+    let outcome = session.film(film, "films/lift.rhai", None).err();
+    assert!(outcome.is_some(), "the live assembly has no 'body 1'");
+}

@@ -10,9 +10,11 @@
      JS glue and wasm from different builds (tools/deploy-site-routes.sh). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
-<meta name="theme-color" content="#0a1020">
+<meta name="theme-color" content="#1b1e22">
 <title>popkern live</title>
 <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+<script src="./theme-boot.js"></script>
+<link rel="stylesheet" href="./themes.css">
 <link rel="stylesheet" href="./style.css">
 <link rel="stylesheet" href="./panels.css">
 <link rel="stylesheet" href="./film.css">
@@ -114,6 +116,7 @@
       <div class="menu-anchor">
         <button id="view-menu-button" class="float-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="view-menu" title="Edges, section and explode" aria-label="View options"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4.5h7M12 4.5h2M2 11.5h2M7 11.5h7"/><circle cx="10.5" cy="4.5" r="1.5"/><circle cx="5.5" cy="11.5" r="1.5"/></svg></button>
         <div id="view-menu" class="menu menu-end view-menu" hidden>
+          <label class="menu-field" title="The page's colours (remembered in this browser)">Theme <select id="theme" aria-label="Colour theme"></select></label>
           <label class="menu-field menu-check"><input id="edges" type="checkbox" checked> Edges</label>
           <div class="menu-field section" title="Cut the view through the model (view only: the model is not changed)">
             <span>Section</span>

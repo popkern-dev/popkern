@@ -22,18 +22,22 @@ pub struct FilmReply {
 
 impl Session {
     /// Run the film script `source` (file `name`: `films/guide.rhai`)
-    /// against the built document, or against `fallback` (the context
-    /// a pre-built envelope carried) when the session holds none.
+    /// against `shown` — the context of the model the page shows (a
+    /// pre-built envelope's, or a live one's) — or, when the page sends
+    /// none, the session's built document. The page's context wins: a
+    /// pre-built model is not in the session, which still holds the
+    /// last model built live, and a film read that one's targets (a
+    /// hinged box's film saw the hinged case's `box` and `lid`; PK-869).
     pub fn film(
         &mut self,
         source: &str,
         name: &str,
-        fallback: Option<FilmContext>,
+        shown: Option<FilmContext>,
     ) -> Result<FilmReply, Outcome> {
         let options = self.options();
-        let context = match (self.document_mut(), fallback) {
-            (Some(document), _) => FilmContext::from_document(document),
-            (None, Some(context)) => context,
+        let context = match (shown, self.document_mut()) {
+            (Some(context), _) => context,
+            (None, Some(document)) => FilmContext::from_document(document),
             (None, None) => {
                 return Err(Outcome::GateFailure {
                     step: "film".into(),

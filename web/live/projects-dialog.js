@@ -68,15 +68,18 @@ export async function showProjects(page) {
           await showProjects(page);
         },
       ]);
-    } else if (p.id !== SCRATCH) {
+    } else {
+      // Every project deletes, Scratch too: a fresh Scratch (the
+      // default model) comes back whenever the page needs one.
       actions.push([
         "delete",
         async () => {
+          const fresh = p.id === SCRATCH ? " A fresh Scratch with the default model takes its place." : "";
           const question = p.kind === "server"
-            ? `Move "${p.name}" out of the projects folder? Its folder goes to ${root ?? "the root"}/.trash, from where it can be moved back.`
-            : `Delete "${p.name}" from this browser? This cannot be undone (export it first to keep a copy).`;
+            ? `Move "${p.name}" out of the projects folder? Its folder goes to ${root ?? "the root"}/.trash, from where it can be moved back.${fresh}`
+            : `Delete "${p.name}" from this browser? This cannot be undone (export it first to keep a copy).${fresh}`;
           if (!window.confirm(question)) return;
-          await projects.remove(p.id);
+          await projects.removeAndReopen(p.id, await page.defaultScript(), await page.defaultFilm());
           await showProjects(page);
         },
         "danger",

@@ -1,0 +1,112 @@
+/* popkern live's colour themes: every colour the page draws is a token
+   here. CAD (the default) is a neutral graphite with a CAD blue accent;
+   Midnight is the original navy with a mint accent; Light is a paper
+   theme. theme-boot.js puts the remembered one on <html data-theme>
+   before the page paints; the view menu's Theme field switches it
+   (theme.js). The model view's ground is a CAD viewport's vertical
+   grade in every theme. */
+:root, :root[data-theme="cad"] {
+  color-scheme: dark;
+  --bg: #1b1e22;
+  --card: rgba(39, 43, 49, 0.97);
+  --raised: #31363d;
+  --raised-hover: #3a4048;
+  --hover-line: #59616c;
+  --line: #363b42;
+  --line-strong: #4a515a;
+  --text: #e6e9ed;
+  --muted: #a3aab4;
+  --faint: #7b838d;
+  --accent: #3d8bea;
+  --accent-hover: #5c9ff0;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(61, 139, 234, 0.16);
+  --accent-line: rgba(61, 139, 234, 0.5);
+  --ok: #4fbf7f;
+  --warn: #e3a83e;
+  --bad: #ec6670;
+  --menu-bg: #2b2f35;
+  --dialog-bg: #262a2f;
+  --glass: rgba(30, 33, 38, 0.88);
+  --glass-strong: rgba(30, 33, 38, 0.95);
+  --scrim: rgba(8, 10, 12, 0.66);
+  --wash: rgba(160, 175, 195, 0.08);
+  --shadow: rgba(0, 0, 0, 0.38);
+  --viewport-top: #74849b;
+  --viewport-bottom: #e2e6eb;
+  --tk-keyword: #c792ea;
+  --tk-verb: #82aaff;
+  --tk-string: #a5d6a7;
+  --tk-number: #f2a875;
+  --tk-comment: #6f7782;
+}
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+  --bg: #0a1020;
+  --card: rgba(13, 20, 35, 0.94);
+  --raised: #141e33;
+  --raised-hover: #1a2640;
+  --hover-line: #36486d;
+  --line: #1e2a42;
+  --line-strong: #2a3a5b;
+  --text: #dbe3f0;
+  --muted: #7d8aa4;
+  --faint: #56627b;
+  --accent: #5fe3b1;
+  --accent-hover: #7cecc2;
+  --accent-ink: #052a1c;
+  --accent-soft: rgba(95, 227, 177, 0.13);
+  --accent-line: rgba(95, 227, 177, 0.45);
+  --ok: #5fe3b1;
+  --warn: #e9b44c;
+  --bad: #f0707a;
+  --menu-bg: #111a2d;
+  --dialog-bg: #0f1729;
+  --glass: rgba(12, 18, 32, 0.85);
+  --glass-strong: rgba(12, 18, 32, 0.95);
+  --scrim: rgba(3, 6, 14, 0.7);
+  --wash: rgba(127, 150, 200, 0.08);
+  --shadow: rgba(0, 0, 0, 0.35);
+  --viewport-top: #6f7f98;
+  --viewport-bottom: #dfe4ea;
+  --tk-keyword: #c3a6ff;
+  --tk-verb: #7fd6f5;
+  --tk-string: #b9e88f;
+  --tk-number: #f5a97f;
+  --tk-comment: #5c6880;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #e7eaee;
+  --card: rgba(255, 255, 255, 0.98);
+  --raised: #f2f4f7;
+  --raised-hover: #e6eaf0;
+  --hover-line: #a9b3c0;
+  --line: #d6dbe2;
+  --line-strong: #c0c8d2;
+  --text: #1c2330;
+  --muted: #5a6473;
+  --faint: #8b94a1;
+  --accent: #2563eb;
+  --accent-hover: #1d4fd6;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(37, 99, 235, 0.1);
+  --accent-line: rgba(37, 99, 235, 0.4);
+  --ok: #15803d;
+  --warn: #b26b00;
+  --bad: #cf3341;
+  --menu-bg: #ffffff;
+  --dialog-bg: #ffffff;
+  --glass: rgba(255, 255, 255, 0.9);
+  --glass-strong: rgba(255, 255, 255, 0.97);
+  --scrim: rgba(30, 38, 52, 0.4);
+  --wash: rgba(37, 99, 235, 0.06);
+  --shadow: rgba(30, 40, 60, 0.14);
+  --viewport-top: #c3ccd8;
+  --viewport-bottom: #fbfcfd;
+  --tk-keyword: #7c3aed;
+  --tk-verb: #0b6bb5;
+  --tk-string: #23803a;
+  --tk-number: #c2410c;
+  --tk-comment: #8b94a1;
+}

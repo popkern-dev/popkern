@@ -8,16 +8,16 @@
 import { DEFAULT_TITLE } from "./document-tab.js";
 import { clearLegacyDrafts, readLegacyDraft } from "./local-store.js";
 import { migrationPaths, singleScriptProject } from "./project-store.js";
-import { SCRATCH } from "./projects.js";
+import { DEFAULT_FILM_PATH, SCRATCH } from "./projects.js";
 
 const $ = (id) => document.getElementById(id);
 
-/** The default script as a read-only project. */
-function defaultProject(source) {
+/** The default script (and its film) as a read-only project. */
+function defaultProject(source, film) {
   return {
     id: "example:default",
     name: DEFAULT_TITLE,
-    files: singleScriptProject(DEFAULT_TITLE, "boss_plate", source),
+    files: { ...singleScriptProject(DEFAULT_TITLE, "boss_plate", source), ...(film ? { [DEFAULT_FILM_PATH]: film } : {}) },
     revision: 0,
     readOnly: true,
   };
@@ -27,8 +27,17 @@ function defaultProject(source) {
 export async function openFirstScript(page) {
   const projects = await page.projectsReady;
   const fallback = await page.defaultScript();
+  const film = await page.defaultFilm();
   const legacy = readLegacyDraft();
-  let scratch = await projects.scratch(legacy ?? fallback);
+  let scratch = await projects.scratch(legacy ?? fallback, film);
+  // A Scratch from before the default model had a film, still the
+  // untouched default with no films, gains it (an edited one is the
+  // person's: left alone).
+  const only = migrationPaths(scratch.files);
+  const hasFilm = Object.keys(scratch.files).some((path) => path.startsWith("films/"));
+  if (film && !hasFilm && only.length === 1 && scratch.files[only[0]] === fallback) {
+    scratch = await projects.store.save(SCRATCH, { ...scratch.files, [DEFAULT_FILM_PATH]: film }, scratch.revision);
+  }
   if (legacy != null) {
     // The pre-project draft fills an unedited Scratch, else becomes a
     // project of its own — never silently dropped.
@@ -49,7 +58,7 @@ export async function openFirstScript(page) {
     return;
   }
   $("draft-notice").hidden = false;
-  await projects.open(defaultProject(fallback));
+  await projects.open(defaultProject(fallback, film));
 }
 
 /** Show the notice while Scratch waits to be reopened. */
