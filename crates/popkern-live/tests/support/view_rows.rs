@@ -49,29 +49,61 @@ pub fn assert_standard_views(out: &Value) {
     }
 }
 
-/// On a phone a project's film is listed on the History sheet; opening
-/// it brings that sheet up, shows the viewport's own play button (which
-/// plays), keeps the frame's shade inside the model view; closing it
-/// lists it again. The status chip clears the corner's tools and the
+/// On a phone (PK-867, PK-868) a project's film is listed on the
+/// History sheet. A film opens as a stage over the model view and the
+/// sheet stays where it was; the stage has exactly one Close and one
+/// Play, a bar inside the model view under the film's frame, one
+/// chapter per step, a timeline that seeks where it is clicked, and the
+/// corner tools step aside. Preparing shows what it waits on, and a
+/// film opened while a build runs says so, waits, then plays. Closing
+/// lists it again; the status chip clears the corner's tools and the
 /// view modes keep their clustered card.
 pub fn assert_phone(out: &Value) {
     let p = &out["phone"];
     let open = &p["open"];
     assert_eq!(open["active"], true, "{p}");
     assert_eq!(
-        open["sheet"], "history",
-        "a film opening shows its controls: {p}"
+        open["sheet"], "code",
+        "the stage leaves the sheet alone: {p}"
     );
     assert_eq!(open["bar_shown"], true, "{p}");
-    assert_eq!(open["play_view_shown"], true, "{p}");
-    assert_eq!(open["played"], true, "the viewport play button plays: {p}");
-    assert_eq!(open["list_hidden"], true, "{p}");
+    assert_eq!(open["bar_in_pane"], true, "{p}");
+    assert_eq!(open["frame_above_bar"], true, "{p}");
+    assert_eq!(open["closes"], 1, "one way out: {p}");
+    assert_eq!(open["plays"], 1, "one play button: {p}");
+    assert_eq!(open["chapters"], open["steps"], "{p}");
+    assert_eq!(open["corner_hidden"], true, "{p}");
+    assert_eq!(open["played"], true, "{p}");
+    let seek = open["seek_fraction"].as_f64().unwrap_or(-1.0);
+    assert!(
+        (seek - 0.75).abs() < 0.08,
+        "a timeline click seeks there: {p}"
+    );
     assert_eq!(open["clipped"], true, "{p}");
     assert_eq!(open["frame_in_pane"], true, "{p}");
     assert_eq!(open["hole_in_pane"], true, "{p}");
+    let named = |row: &Value, stage: &str| {
+        row["stages"].as_array().is_some_and(|a| {
+            a.iter()
+                .any(|s| s.as_str().is_some_and(|s| s.starts_with(stage)))
+        })
+    };
+    assert!(
+        named(open, "Running the film script"),
+        "preparing names its stage: {p}"
+    );
     assert_eq!(p["closed"]["active"], false, "{p}");
+    assert_eq!(p["closed"]["stage_gone"], true, "{p}");
     assert_eq!(p["closed"]["list_shown"], true, "{p}");
     assert_eq!(p["closed"]["list_items"], 1, "{p}");
+    assert_eq!(
+        p["during_build"]["active"], true,
+        "a film opened mid-build plays: {p}"
+    );
+    assert!(
+        named(&p["during_build"], "Building the model"),
+        "it says it waits on the build: {p}"
+    );
     assert_eq!(p["status_clear_of_tools"], true, "{p}");
     assert_eq!(p["modes_clustered"], true, "{p}");
     assert_eq!(p["orient_shown"], true, "{p}");

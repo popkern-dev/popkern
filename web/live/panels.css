@@ -196,43 +196,5 @@ body.status-failed .status-dot { background: var(--bad); }
 /* No timeline: no playback to offer. */
 .dock:has(#scrubber[hidden]) .transport { visibility: hidden; }
 
-/* Films (film-bar.js): the bar takes the history dock's place. */
-body.film-open #history-dock .transport,
-body.film-open #history-dock .dock-title,
-body.film-open #scrubber,
-body.film-open #history-empty,
-body.film-open #step-card,
-body.film-open .dock-status { display: none !important; }
-.film-bar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; padding: 0.35rem 0.5rem; grid-column: 1 / -1; }
-.film-bar .icon-pause { display: none; }
-body.film-playing .film-bar .icon-play { display: none; }
-body.film-playing .film-bar .icon-pause { display: inline; }
-.film-name { white-space: nowrap; }
-.film-time { font: 0.85em var(--mono); color: var(--muted); min-width: 7.5em; }
-.film-track { position: relative; flex: 1 1 14rem; min-width: 10rem; }
-.film-track input { width: 100%; }
-.film-marks { position: absolute; left: 0; right: 0; top: -0.45rem; height: 0.5rem; pointer-events: none; }
-.film-mark { position: absolute; width: 0.5rem; height: 0.5rem; min-height: 0; padding: 0; border-radius: 50%; transform: translateX(-50%); background: var(--accent); border: 0; pointer-events: auto; cursor: pointer; }
-.film-mark-hold { background: var(--muted); }
-.film-mark-title { background: var(--text); }
-.film-export-state { font-size: 0.85em; color: var(--muted); }
-/* The frame covers the model view and clips its hole's shade, so the
-   dimming outside the film's frame never spills over the page. */
-.film-frame { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; z-index: 2; }
-.film-hole { position: absolute; box-shadow: 0 0 0 100vmax rgba(8, 12, 20, 0.55); outline: 1px dashed rgba(255, 255, 255, 0.35); }
-/* The viewport's play button and the History sheet's film list are a
-   phone's (mobile.css); a wide screen has the film bar and the rail. */
-.film-play-view, .film-list { display: none; }
-.film-caption { position: absolute; z-index: 3; pointer-events: none; display: flex; flex-direction: column; gap: 0.35em; color: #f5f7fa; transition: opacity 0.1s linear; max-width: 70%; }
-.film-caption strong { font-size: 1.6em; font-weight: 600; }
-.film-caption-title strong { font-size: 2.1em; }
-.film-caption span { opacity: 0.8; }
-.film-caption-dark { color: #111318; }
 .migration-film .migration-name::before { content: "▶ "; color: var(--accent); }
-.film-close { min-height: 2rem; padding: 0 0.8rem; font-weight: 600; border-color: var(--line-strong); }
-.film-close:hover { border-color: var(--accent); color: var(--text); }
 #section-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
-/* The viewport's own way out of a film: always on screen, whichever
-   sheet a phone shows. */
-.film-exit { position: absolute; top: 0.6rem; left: 0.6rem; z-index: 4; min-height: 2.25rem; padding: 0 0.85rem; font-weight: 600; background: rgba(12, 18, 32, 0.85); border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); }
-.film-exit:hover { border-color: var(--accent); }

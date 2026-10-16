@@ -28,6 +28,10 @@ export class FilmPlayer {
     this.jointsApplied = {};
     this.jointQueue = Promise.resolve();
     this.listeners = new Set();
+    // Opening a film (prepare): what it waits on, for the stage to show
+    // (`{ stage, started, quiet }`), and the request it belongs to.
+    this.preparing = null;
+    this.ticket = 0;
   }
 
   get active() {
@@ -40,6 +44,71 @@ export class FilmPlayer {
 
   notify() {
     for (const listener of this.listeners) listener();
+  }
+
+  /** Open the project's film `path` from wherever the page is: the
+   *  stage shows at once with what it waits on — the kernel loading,
+   *  the model building (live when the shown model cannot carry a film),
+   *  the film script running — and each wait is retried until the film
+   *  opens, the build fails (its outcome shows like any build's), or
+   *  another request (an edit, another film, closing) supersedes it.
+   *  A film already open (an edit to its script) keeps playing on
+   *  screen meanwhile. Resolves to the film reply, or `{ ok: false }`. */
+  async prepare(path, { live = false } = {}) {
+    const page = this.page;
+    const ticket = ++this.ticket;
+    const current = () => ticket === this.ticket && page.projects.filmOpen && page.projects.path === path;
+    const superseded = { ok: false, superseded: true };
+    const started = performance.now();
+    const stage = (text) => {
+      if (!current()) return;
+      this.preparing = { stage: text, started, quiet: this.active };
+      this.notify();
+    };
+    const pause = () => new Promise((r) => setTimeout(r, 120));
+    try {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        if (!page.host.info) {
+          stage("Loading the kernel");
+          while (!page.host.info) {
+            await pause();
+            if (!current()) return superseded;
+          }
+        }
+        if (page.running) {
+          stage("Building the model");
+          await page.runDone;
+          if (!current()) return superseded;
+          continue;
+        }
+        const geometry = page.projects.geometrySource();
+        const context = page.lastGood?.envelope?.film_context;
+        const ready = !live && page.lastGood && page.geometryKey === geometry && (page.live || context);
+        if (!ready) {
+          stage("Building the model");
+          // A pre-built model from before films carries no film context:
+          // build it live.
+          const built = await page.run({ live: live || (page.geometryKey === geometry && !context), forFilm: true });
+          if (!current()) return superseded;
+          // Not run (the kernel was loading, or another build superseded
+          // this one): go round.
+          if (built == null) continue;
+          live = false;
+          if (!built.ok || (!built.baked && built.envelope?.outcome !== "served")) return { ok: false, outcome: built.outcome ?? null };
+          continue;
+        }
+        stage("Running the film script");
+        const reply = await this.run(page.editor.value, path);
+        return current() ? reply : superseded;
+      }
+      page.status("the film could not start: the model kept changing while it was prepared", true);
+      return { ok: false };
+    } finally {
+      if (ticket === this.ticket) {
+        this.preparing = null;
+        this.notify();
+      }
+    }
   }
 
   /** Run the film script `source` (project file `path`) and open it.
@@ -134,6 +203,12 @@ export class FilmPlayer {
 
   /** Close the film and put the viewer back as it was. */
   close() {
+    // A film still being prepared stops too.
+    this.ticket += 1;
+    if (this.preparing) {
+      this.preparing = null;
+      this.notify();
+    }
     if (!this.active) return;
     this.pause();
     const viewer = this.page.viewer;

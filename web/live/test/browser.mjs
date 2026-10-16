@@ -1276,42 +1276,79 @@ m`)};
     return { look, pad_buttons: document.querySelectorAll("#view-orient [data-view]").length };
   })()`);
 
-  // A phone (PK-867): a project's films are listed on the History
-  // sheet, a film opening brings that sheet up with its controls, the
-  // model view carries its own play button, the film frame's shade
-  // stays inside the model view, the status chip clears the corner's
-  // tools, and the view modes keep their clustered card.
+  // A phone (PK-867, PK-868): a project's films are listed on the
+  // History sheet; a film opens as a stage over the model view (the
+  // sheet stays where it was) with exactly one Close and one Play, a
+  // timeline of one chapter per step, and while it is prepared a card
+  // naming what it waits on — also when a build is still running as it
+  // opens (it waits, then plays). The film frame's shade stays in the
+  // model view, the status chip clears the corner's tools, and the view
+  // modes keep their clustered card.
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await new Promise((r) => setTimeout(r, 400));
   out.phone = await evaluate(`(async () => {
     const page = window.popkernLive;
     const rect = (el) => el.getBoundingClientRect();
-    const shown = (el) => el && getComputedStyle(el).display !== "none" && !el.hidden;
+    const shown = (el) => el && getComputedStyle(el).display !== "none" && !el.hidden && el.getClientRects().length > 0;
+    const stages = [];
+    const loading = document.getElementById("film-loading");
+    new MutationObserver(() => { if (!loading.hidden) stages.push(document.getElementById("film-loading-stage").textContent.replace(/[.…].*$/, "")); })
+      .observe(loading, { attributes: true, childList: true, subtree: true, characterData: true });
+    const waitActive = async () => {
+      const t0 = performance.now();
+      while (!page.film.active && performance.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 250));
+    };
     window.prompt = () => "spin";
     document.querySelector(".sheet-tabs [data-sheet=code]").click();
     await page.rail.addFilm();
-    const t0 = performance.now();
-    while (!page.film.active && performance.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 100));
-    await new Promise((r) => setTimeout(r, 200));
+    await waitActive();
     const pane = rect(document.querySelector(".pane-viewer"));
     const hole = rect(document.querySelector("#film-frame .film-hole"));
     const frame = rect(document.getElementById("film-frame"));
+    const bar = rect(document.getElementById("film-bar"));
+    const visible = (selector) => [...document.querySelectorAll(selector)].filter(shown).length;
     const open = {
       active: page.film.active,
       sheet: document.body.dataset.sheet,
       bar_shown: shown(document.getElementById("film-bar")),
-      play_view_shown: shown(document.getElementById("film-play-view")),
-      list_hidden: !shown(document.getElementById("film-list")),
+      bar_in_pane: bar.left >= pane.left - 1 && bar.right <= pane.right + 1 && bar.bottom <= pane.bottom + 1,
+      frame_above_bar: frame.bottom <= bar.top + 1,
+      closes: [...document.querySelectorAll("button")].filter((b) => shown(b) && /close film/i.test(b.textContent + (b.getAttribute("aria-label") ?? ""))).length,
+      plays: [...document.querySelectorAll("button")].filter((b) => shown(b) && /play the film|pause the film/i.test(b.getAttribute("aria-label") ?? "")).length,
+      chapters: document.querySelectorAll("#film-chapters .film-chapter").length,
+      steps: page.film.film.steps.length,
+      corner_hidden: visible(".view-corner") === 0,
       frame_in_pane: frame.left >= pane.left - 1 && frame.right <= pane.right + 1 && frame.top >= pane.top - 1 && frame.bottom <= pane.bottom + 1,
       hole_in_pane: hole.left >= pane.left - 1 && hole.right <= pane.right + 1 && hole.top >= pane.top - 1 && hole.bottom <= pane.bottom + 1,
       clipped: getComputedStyle(document.getElementById("film-frame")).overflow === "hidden",
+      stages: [...new Set(stages)],
     };
-    document.getElementById("film-play-view").click();
+    document.getElementById("film-play").click();
     await new Promise((r) => setTimeout(r, 300));
     open.played = page.film.playing;
     page.film.pause();
+    // Seek on the timeline: a click three quarters along.
+    const line = rect(document.getElementById("film-timeline"));
+    const at = line.left + line.width * 0.75;
+    document.getElementById("film-timeline").dispatchEvent(new PointerEvent("pointerdown", { clientX: at, clientY: line.top + line.height / 2, pointerId: 7, bubbles: true }));
+    document.getElementById("film-timeline").dispatchEvent(new PointerEvent("pointerup", { clientX: at, pointerId: 7, bubbles: true }));
+    await new Promise((r) => setTimeout(r, 100));
+    open.seek_fraction = page.film.time / page.film.film.duration;
     document.getElementById("film-exit").click();
     await new Promise((r) => setTimeout(r, 200));
+    const closed = { active: page.film.active, stage_gone: !document.body.classList.contains("film-stage") };
+    // Opening a film while a build runs: the stage waits for the build
+    // (saying so), then plays.
+    stages.length = 0;
+    const building = page.run({ live: true });
+    page.projects.select("films/spin.rhai");
+    await building;
+    await waitActive();
+    const during_build = { active: page.film.active, stages: [...new Set(stages)] };
+    document.getElementById("film-exit").click();
+    await new Promise((r) => setTimeout(r, 200));
+    document.querySelector(".sheet-tabs [data-sheet=history]").click();
     const list = document.getElementById("film-list");
     const status = rect(document.querySelector(".dock-status"));
     const tools = rect(document.querySelector(".view-tools"));
@@ -1319,7 +1356,8 @@ m`)};
     const mode = document.querySelector(".bar-view .mode");
     return {
       open,
-      closed: { active: page.film.active, list_shown: shown(list), list_items: list.querySelectorAll(".film-list-item").length },
+      closed: { ...closed, list_shown: shown(list), list_items: list.querySelectorAll(".film-list-item").length },
+      during_build,
       status_clear_of_tools: status.right <= tools.left + 0.5 || status.bottom <= tools.top,
       modes_clustered: getComputedStyle(view).backgroundColor !== "rgba(0, 0, 0, 0)" && parseFloat(getComputedStyle(mode).borderTopLeftRadius) < 20,
       orient_shown: shown(document.getElementById("view-orient")),

@@ -151,16 +151,15 @@ class Page {
   }
 
   /** Show the editor's script: its pre-built bake when one exists
-   *  (unless `live`), else a kernel run. */
-  async run({ live = false } = {}) {
+   *  (unless `live`), else a kernel run. A film open in the editor is
+   *  prepared instead (film-player.js `prepare`: it builds the
+   *  project's geometry through here with `forFilm`, then runs the
+   *  film). */
+  async run({ live = false, forFilm = false } = {}) {
     clearTimeout(this.idleTimer);
-    // A film open in the editor plays on the project's geometry: build
-    // that (or show its bake) only when it changed, then run the film.
     const filmOpen = this.projects.filmOpen;
+    if (filmOpen && !forFilm) return this.film.prepare(this.projects.path, { live });
     const source = filmOpen ? this.projects.geometrySource() : this.editor.value;
-    if (filmOpen && !live && this.lastGood && this.geometryKey === source && !this.running) {
-      return this.film.run(this.editor.value, this.projects.path);
-    }
     // An imported STEP document has no script to build: keep it.
     if (this.tab.isImported(source)) {
       this.status("an imported STEP assembly is view only: pick an example or write a script to build");
@@ -173,7 +172,6 @@ class Page {
       if (bake) {
         if (this.lastGood?.bakedSource !== source || this.live) this.showBake(bake, source);
         this.geometryKey = this.projects.geometrySource();
-        if (filmOpen) return this.film.run(this.editor.value, this.projects.path);
         return { ok: true, baked: true };
       }
     }
@@ -221,11 +219,9 @@ class Page {
       this.live = false;
     }
     finished();
-    if (this.rerun) return this.run();
-    if (filmOpen && token === this.viewToken && reply.ok && reply.envelope?.outcome === "served") {
-      return this.film.run(this.editor.value, this.projects.path);
-    }
-    return reply;
+    if (this.rerun) return this.run({ forFilm });
+    // A superseded build was not shown: say so to a waiting film.
+    return token === this.viewToken ? reply : null;
   }
 
   /** A build is (not) in progress: the build controls lock meanwhile. */
@@ -250,7 +246,8 @@ class Page {
       this.status("the kernel is still loading", true);
       return false;
     }
-    await this.run({ live: true });
+    // A build, never a film's preparation (a film calls this).
+    await this.run({ live: true, forFilm: true });
     return this.live;
   }
 

@@ -11,6 +11,7 @@ const MENUS = [
   ["export-menu-button", "export-menu"],
   ["build-menu-button", "build-menu"],
   ["view-menu-button", "view-menu"],
+  ["film-export-menu-button", "film-export-menu"],
 ];
 
 /** Close every open menu (but `keep`). */

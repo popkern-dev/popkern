@@ -168,7 +168,6 @@ body.editor-collapsed .pane-editor { display: none; }
 .view-orient { display: grid; grid-template-columns: repeat(3, auto); gap: 2px; padding: 3px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-small); }
 .view-orient button { min-height: 1.6rem; min-width: 2.6rem; padding: 0 0.35rem; font: 600 0.7rem/1 var(--ui); color: var(--muted); background: transparent; border-color: transparent; border-radius: 5px; }
 .view-orient button:hover { color: var(--text); background: var(--raised-hover); border-color: var(--line-strong); }
-body.film-open .view-orient { display: none; }
 .pick { position: absolute; left: 0.4rem; bottom: 0.4rem; max-width: calc(100% - 0.5rem); padding: 0.15rem 0.5rem; border-radius: var(--radius-small); background: rgba(10, 16, 32, 0.7); color: var(--muted); font: 0.8rem/1.5 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
 .scrubbed-note { display: none; position: absolute; top: 0.4rem; left: 50%; transform: translateX(-50%); padding: 0.1rem 0.6rem; border-radius: 999px; background: rgba(233, 180, 76, 0.14); color: var(--warn); font: 0.78rem/1.5 var(--mono); pointer-events: none; }
 body.scrubbed .scrubbed-note { display: block; }

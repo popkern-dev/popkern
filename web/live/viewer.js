@@ -96,14 +96,19 @@ export class Viewer {
     canvas.addEventListener("pointerdown", () => this.setHover(null));
     this.resize();
     // The container, not the window, sets the canvas size: the narrow
-    // layout resizes it on rotation and when mobile toolbars collapse.
-    if (typeof ResizeObserver === "function") new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
-    else window.addEventListener("resize", () => this.resize());
+    // layout resizes it on rotation and when mobile toolbars collapse,
+    // and a film's stage gives its control bar a strip under the canvas.
+    if (typeof ResizeObserver === "function") {
+      const observer = new ResizeObserver(() => this.resize());
+      observer.observe(canvas.parentElement);
+      observer.observe(canvas);
+    } else window.addEventListener("resize", () => this.resize());
     this.orbit.update();
   }
 
   resize() {
-    const rect = this.canvas.parentElement.getBoundingClientRect();
+    // The canvas's own box (its style, not its drawing buffer, sizes it).
+    const rect = this.canvas.getBoundingClientRect();
     const width = Math.max(1, Math.floor(rect.width));
     const height = Math.max(1, Math.floor(rect.height));
     this.renderer.setSize(width, height, false);
