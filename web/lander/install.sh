@@ -4,8 +4,9 @@
 #   curl -fsSL https://popkern.dev/install.sh | sh
 #
 # What it does, in order:
-#   1. picks the build for this machine (Linux x86_64 or aarch64; static,
-#      so any distribution and any libc);
+#   1. picks the build for this machine (Linux x86_64 or aarch64, static
+#      so any distribution and any libc; or macOS 11+, one universal
+#      binary for Intel and Apple silicon);
 #   2. downloads it and the release's SHA256SUMS, and refuses to install
 #      anything whose checksum does not match;
 #   3. unpacks it to $POPKERN_HOME/<version> (default ~/.local/share/popkern),
@@ -35,14 +36,23 @@ fail() { printf 'popkern: %s\n' "$*" >&2; exit 1; }
 # short mid-pipe cannot run half an installer.
 main() {
   case "$(uname -s)" in
-    Linux) ;;
-    Darwin) fail "macOS builds are coming soon. For now, try popkern live in your browser: https://popkern.dev/live/" ;;
+    Linux)
+      case "$(uname -m)" in
+        x86_64 | amd64) target=x86_64-unknown-linux-musl ;;
+        aarch64 | arm64) target=aarch64-unknown-linux-musl ;;
+        *) fail "no Linux build for $(uname -m) yet" ;;
+      esac
+      ;;
+    Darwin)
+      # One universal binary (x86_64 + arm64) for every Mac. curl and
+      # wget set no quarantine attribute, so Gatekeeper does not hold up
+      # the (ad-hoc signed, not notarized) binary.
+      case "$(uname -m)" in
+        x86_64 | arm64) target=universal-apple-darwin ;;
+        *) fail "no macOS build for $(uname -m)" ;;
+      esac
+      ;;
     *) fail "no build for $(uname -s) yet. Try popkern live in your browser: https://popkern.dev/live/" ;;
-  esac
-  case "$(uname -m)" in
-    x86_64 | amd64) target=x86_64-unknown-linux-musl ;;
-    aarch64 | arm64) target=aarch64-unknown-linux-musl ;;
-    *) fail "no Linux build for $(uname -m) yet" ;;
   esac
 
   if command -v curl >/dev/null 2>&1; then

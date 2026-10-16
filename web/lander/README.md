@@ -14,7 +14,7 @@ publishes is this folder at the root with popkern live (`web/live/`) under
 ```
 index.html                  the landing page
 install/index.html          install instructions (install.sh / install.ps1)
-install.sh                  Linux installer (curl ... | sh)
+install.sh                  Linux and macOS installer (curl ... | sh)
 install.ps1                 Windows installer (irm ... | iex)
 support/index.html          ways to support popkern
 blog/index.html             post index
@@ -50,7 +50,7 @@ tools/                      logo, social-card and asset-stamp generators (not de
    support page and launch post link to them. Both are in this folder and
    `tools/deploy-pages.sh` already serves them (as `text/plain`, which `irm`
    needs to hand `iex` a string). They install the archives
-   `tools/dist-linux.sh` and `tools/dist-windows.sh` publish to
+   `tools/dist-linux.sh`, `tools/dist-windows.sh` and `tools/dist-macos.sh` publish to
    `https://dl.popkern.dev`. (`live/` ships with the site: see Deploying.)
 
 ## Deploying

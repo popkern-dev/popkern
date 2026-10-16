@@ -102,7 +102,8 @@ done
 cat "$OUT/SHA256SUMS"
 
 [[ $UPLOAD == 0 ]] && exit 0
-# Merges into the release's SHA256SUMS, so the Windows archives
-# (tools/dist-windows.sh) published from another machine stay listed.
+# Merges into the release's SHA256SUMS, so the Windows and macOS archives
+# (tools/dist-windows.sh, tools/dist-macos.sh) published from other
+# machines stay listed.
 source tools/dist-publish.sh
 dist_publish_release "$OUT" "$VERSION" "$LATEST" "$OUT"/*.tar.gz

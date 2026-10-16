@@ -86,7 +86,7 @@ fi
 
 report() { # file
   local raw gz
-  raw=$(stat -c %s "$1")
+  raw=$(wc -c <"$1" | tr -d " ") # stat -c is GNU-only; BSD (macOS) has -f
   gz=$(gzip -9 -c "$1" | wc -c)
   awk -v f="$1" -v raw="$raw" -v gz="$gz" \
     'BEGIN { printf "%s: %d bytes raw, %d bytes gzip (%.2f MB / %.2f MB)\n", f, raw, gz, raw/1048576, gz/1048576 }'

@@ -1,5 +1,5 @@
-# Release-bucket upload helpers shared by tools/dist-linux.sh and
-# tools/dist-windows.sh. Source it; it runs nothing by itself.
+# Release-bucket upload helpers shared by tools/dist-linux.sh,
+# tools/dist-windows.sh and tools/dist-macos.sh. Source it; it runs nothing by itself.
 #
 # Each platform builds on its own machine and publishes into the same
 # v<version>/ folder of the popkern-releases R2 bucket, served at

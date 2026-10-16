@@ -10,8 +10,8 @@
 # belongs to another account; popkern.dev is not attached yet). Release
 # archives are not here: install.sh fetches them from
 # https://dl.popkern.dev (the popkern-releases R2 bucket,
-# tools/dist-linux.sh and tools/dist-windows.sh --upload). The full
-# lander + live deploy is PK-832.
+# tools/dist-linux.sh, tools/dist-windows.sh and tools/dist-macos.sh
+# --upload). The full lander + live deploy is PK-832.
 #
 # Needs wrangler, logged in to the account that owns the project.
 set -euo pipefail
