@@ -116,8 +116,12 @@ pub(crate) fn relax_leaning_vertices(
             if ring.is_empty() {
                 continue;
             }
+            // The star in one lift around `v`: across a periodic seam a
+            // ring vertex can be stored a period away (tilt_refine::lift).
+            let periods = surface.periodicity();
+            let lifted = |w: usize| crate::tilt_refine::lift(mesh.vertices[w].uv, uv0, periods);
             let centroid = ring.iter().fold((0.0, 0.0), |a, &w| {
-                let q = mesh.vertices[w].uv;
+                let q = lifted(w);
                 (a.0 + q.0 / ring.len() as f64, a.1 + q.1 / ring.len() as f64)
             });
             // The worst tilt and spread of `v`'s star with `v` at chart
@@ -135,13 +139,13 @@ pub(crate) fn relax_leaning_vertices(
                 let (mut tilt_max, mut spread_max, mut over) = (0.0f64, 0.0f64, 0usize);
                 for &ti in star {
                     let t = mesh.triangles[ti];
-                    let old_uv = t.map(|i| mesh.vertices[i].uv);
+                    let old_uv = t.map(lifted);
                     let new = t.map(|i| {
                         if i == v {
                             (position, normal, uv)
                         } else {
                             let w = &mesh.vertices[i];
-                            (w.position, w.normal, w.uv)
+                            (w.position, w.normal, lifted(i))
                         }
                     });
                     let (a_old, a_new) = (chart_area(old_uv), chart_area(new.map(|x| x.2)));
@@ -177,7 +181,7 @@ pub(crate) fn relax_leaning_vertices(
             let reach = ring
                 .iter()
                 .map(|&w| {
-                    let q = mesh.vertices[w].uv;
+                    let q = lifted(w);
                     ((q.0 - uv0.0).powi(2) + (q.1 - uv0.1).powi(2)).sqrt()
                 })
                 .sum::<f64>()

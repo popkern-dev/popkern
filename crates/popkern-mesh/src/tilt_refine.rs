@@ -27,6 +27,27 @@ use crate::vertex_normal::{chart_singular, limit_normal, singular_without_unique
 /// once.
 const ROUNDS: usize = 4;
 
+/// `uv` moved by whole periods to lie within half a period of `near`:
+/// a seam vertex is stored once at one end of the face's window, so a
+/// facet across the seam mixes corners a period apart (measured: an
+/// arm bolt's cylinder facet at u 0.89 / 7.13 / 7.19, whose chart
+/// midpoints landed on the far side of the tube and every split was
+/// refused, leaving it leaning 15 deg).
+pub(crate) fn lift(
+    uv: (f64, f64),
+    near: (f64, f64),
+    periods: (Option<f64>, Option<f64>),
+) -> (f64, f64) {
+    let shift = |x: f64, c: f64, p: Option<f64>| match p {
+        Some(p) => x - p * ((x - c) / p).round(),
+        None => x,
+    };
+    (
+        shift(uv.0, near.0, periods.0),
+        shift(uv.1, near.1, periods.1),
+    )
+}
+
 fn tilt_of(p: [Point3; 3], n: [Vec3; 3]) -> f64 {
     let f = (p[1] - p[0]).cross(&(p[2] - p[0]));
     n.iter().map(|&v| angle_between(f, v)).fold(0.0, f64::max)
@@ -137,8 +158,10 @@ fn plan_fan(
         old_tilt = old_tilt.max(tilt(mesh, tri));
         old_spread = old_spread.max(spread(mesh, tri));
         old_over += usize::from(tilt(mesh, tri) > bound);
+        let periods = surface.periodicity();
         let sense = {
-            let p = tri.map(|i| mesh.vertices[i].uv);
+            let p0 = mesh.vertices[tri[0]].uv;
+            let p = tri.map(|i| lift(mesh.vertices[i].uv, p0, periods));
             ((p[1].0 - p[0].0) * (p[2].1 - p[0].1) - (p[2].0 - p[0].0) * (p[1].1 - p[0].1)).signum()
         };
         for h in [[pp, usize::MAX, cc], [usize::MAX, qq, cc]] {
@@ -147,7 +170,7 @@ fn plan_fan(
                     (m.position, m.normal, m.uv)
                 } else {
                     let v = &mesh.vertices[i];
-                    (v.position, v.normal, v.uv)
+                    (v.position, v.normal, lift(v.uv, m.uv, periods))
                 }
             };
             let c = h.map(corner);
@@ -198,6 +221,7 @@ pub(crate) fn bisect_leaning_facets_from(
             (d.abs() > 1e-6).then_some(if d > 0.0 { 1.0 } else { -1.0 })
         })
         .unwrap_or(1.0);
+    let periods = surface.periodicity();
     let mut touched = Vec::new();
     let mut next_scope: Option<Vec<usize>> = seeds.map(<[usize]>::to_vec);
     for _ in 0..ROUNDS {
@@ -260,7 +284,17 @@ pub(crate) fn bisect_leaning_facets_from(
                 if done.contains(&tn) || singular(mesh, d) {
                     continue;
                 }
-                let (pa, pb, pc, pd) = (uv_of(a), uv_of(b), uv_of(c), uv_of(d));
+                // The quad in one lift: the representation most of its
+                // corners already share, so the new vertex sits with them.
+                let raw = [uv_of(a), uv_of(b), uv_of(c), uv_of(d)];
+                let near =
+                    |p: (f64, f64)| raw.iter().filter(|&&q| lift(q, p, periods) == q).count();
+                let reference = raw
+                    .iter()
+                    .copied()
+                    .max_by_key(|&p| near(p))
+                    .unwrap_or(raw[0]);
+                let [pa, pb, pc, pd] = raw.map(|q| lift(q, reference, periods));
                 let centre = (
                     0.25 * (pa.0 + pb.0 + pc.0 + pd.0),
                     0.25 * (pa.1 + pb.1 + pc.1 + pd.1),
