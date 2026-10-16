@@ -29,6 +29,8 @@ use crate::mesh::{FaceMesh, MeshVertex};
 #[path = "boundary_cap_curve.rs"]
 mod curve;
 use curve::{CurveSamples, edge_curve_midpoint};
+#[path = "boundary_cap_pair.rs"]
+mod pair;
 #[path = "boundary_cap_repair.rs"]
 mod repair;
 use crate::vertex_normal::{limit_normal, singular_without_unique_normal};
@@ -391,7 +393,22 @@ pub(crate) fn split_leaning_boundary_caps(
                 .retain(|t| t[0] != t[1] && t[1] != t[2] && t[0] != t[2]);
         }
         if !split_any {
-            break;
+            // Nothing split plainly (nor flipped): a narrow strip's caps
+            // need both trims' chords halved together. The round's copies
+            // still hold: nothing changed since they were collected.
+            let paired = pair::split_leaning_pairs(
+                brep,
+                meshes,
+                &leaning,
+                &copies,
+                bound,
+                gate,
+                &mut curve_cache,
+            );
+            if paired.is_empty() {
+                break;
+            }
+            changed.extend(paired);
         }
     }
     changed.sort_unstable();
