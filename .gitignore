@@ -69,3 +69,11 @@ web/live/bakes/
 
 # wrangler's per-project cache (tools/dist-*.sh --upload run it from the root)
 .wrangler/
+
+# Local video source material (not committed, like docs/images/input/)
+docs/videos/
+
+# Scratch diagnostic probes (project rule: probes are removed or promoted
+# before commit, never committed as they stand)
+**/tests/**/zz_probe*
+**/tests/zz_probe*
