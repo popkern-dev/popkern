@@ -175,6 +175,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: r,
+            axis: crate::geometry::Vec3::Z,
         };
         let exact_k = 1.0 / (r * r);
 
@@ -229,6 +230,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: r,
+            axis: crate::geometry::Vec3::Z,
         };
 
         let coarse = guaranteed_curvature_bounds(
@@ -376,6 +378,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: crate::geometry::Vec3::Z,
         };
         let pole = crate::geometry::surface::SurfaceEval::parameter_range(&sphere).1;
         let bounds =

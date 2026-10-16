@@ -317,6 +317,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: popkern_core::geometry::Vec3::Z,
         };
         // The standalone Sphere parametrization's normal points toward
         // the center, so the radius-GROWING (always-safe) direction is
@@ -375,6 +376,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 5.0,
+            axis: popkern_core::geometry::Vec3::Z,
         };
         // Radius-shrinking direction for the sphere parametrization is
         // along +n (inward=false; its stored normal points center-ward).

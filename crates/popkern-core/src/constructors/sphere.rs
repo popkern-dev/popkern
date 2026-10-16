@@ -152,6 +152,7 @@ impl BRep {
             geometry: SurfaceGeometry::Sphere {
                 center: Point3::new(0.0, 0.0, 0.0),
                 radius,
+                axis: crate::geometry::Vec3::Z,
             },
             orientation: true,
         });

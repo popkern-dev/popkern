@@ -32,6 +32,7 @@ fn unit_sphere_at_origin() -> SurfaceGeometry {
     SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     }
 }
 
@@ -39,6 +40,7 @@ fn unit_sphere_at(cx: f64, cy: f64, cz: f64) -> SurfaceGeometry {
     SurfaceGeometry::Sphere {
         center: Point3::new(cx, cy, cz),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     }
 }
 

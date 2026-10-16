@@ -27,6 +27,7 @@ fn preview_quality_caps_iterations() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 1.0),
         radius: 2.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 0.0),

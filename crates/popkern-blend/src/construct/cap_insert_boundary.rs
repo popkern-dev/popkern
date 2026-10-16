@@ -208,7 +208,7 @@ pub(super) fn author_cap_boundary(
                 rim_line(brep, stub, cap_face, &cap_surface, a, b, tolerance)?;
             }
         }
-        (CapKind::Rounded, SurfaceGeometry::Sphere { center, radius }) => {
+        (CapKind::Rounded, SurfaceGeometry::Sphere { center, radius, .. }) => {
             let pole = *center + normal * *radius;
             if let Some(v) = brep.vertices.get_mut(corner) {
                 v.position = pole;

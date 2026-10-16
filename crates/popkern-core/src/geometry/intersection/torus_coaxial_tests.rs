@@ -78,7 +78,7 @@ fn implicit_residual(surface: &SurfaceGeometry, p: &Point3) -> f64 {
             let rho = (d - *axis * h).length();
             (rho - half_angle.tan().abs() * h.abs()).abs() * half_angle.cos()
         }
-        SurfaceGeometry::Sphere { center, radius } => ((*p - *center).length() - radius).abs(),
+        SurfaceGeometry::Sphere { center, radius, .. } => ((*p - *center).length() - radius).abs(),
         SurfaceGeometry::Plane { origin, normal, .. } => (*p - *origin).dot(normal).abs(),
         _ => f64::INFINITY,
     }
@@ -226,6 +226,7 @@ fn axis_centred_sphere_meets_torus_in_two_circles() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.3),
         radius: 2.3,
+        axis: crate::geometry::Vec3::Z,
     };
     let out = try_torus_coaxial(
         &torus,

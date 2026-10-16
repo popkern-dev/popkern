@@ -76,13 +76,17 @@ pub(super) fn dispatch(
         ),
 
         (
-            SurfaceGeometry::Sphere { center, radius },
+            SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis,
+            },
             CurveGeometry::Line {
                 origin: lo,
                 direction,
             },
         ) => line_sphere::intersect_line_sphere(
-            lo, direction, t_range, center, *radius, u_range, v_range, tolerance,
+            lo, direction, t_range, center, *radius, axis, u_range, v_range, tolerance,
         ),
 
         (

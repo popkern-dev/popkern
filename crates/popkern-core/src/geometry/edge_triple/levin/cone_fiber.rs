@@ -408,8 +408,12 @@ fn invert_uv_on_surface(surf: &SurfaceGeometry, p: Point3) -> Option<(f64, f64)>
             let u = perp.dot(&perp2).patan2(perp.dot(&perp1));
             Some((u, v))
         }
-        Sphere { center, radius } => {
-            let d = p - *center;
+        Sphere {
+            center,
+            radius,
+            axis,
+        } => {
+            let d = crate::geometry::analytic_surfaces::sphere_to_local(axis, p - *center);
             let u = d.y.patan2(d.x);
             let v = (d.z / radius).clamp(-1.0, 1.0).pacos();
             Some((u, v))

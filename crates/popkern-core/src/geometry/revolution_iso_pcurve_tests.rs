@@ -35,6 +35,7 @@ fn sphere_latitude_circles_are_u_lines() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(0.5, 0.5, 0.5),
         radius: 0.6,
+        axis: crate::geometry::Vec3::Z,
     };
     let polar = 0.8_f64;
     let center = Point3::new(0.5, 0.5, 0.5 + 0.6 * polar.cos());
@@ -49,6 +50,7 @@ fn sphere_meridian_arcs_are_v_lines_until_they_cross_a_pole() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // A great circle in the xz-plane: normal along y. Where its own
     // parameter reaches the north pole depends on the arc's basis, so

@@ -201,7 +201,7 @@ fn build_planned_edge_triple(
     end: Point3,
 ) -> Result<AuthoredSeam, String> {
     if let (
-        SurfaceGeometry::Sphere { center, radius },
+        SurfaceGeometry::Sphere { center, radius, .. },
         SurfaceGeometry::Plane { origin, normal, .. },
     ) = (cap_surface, other_surface)
         && matches!(segment, BoundarySegment::FaceEdge { .. })

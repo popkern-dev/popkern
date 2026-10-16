@@ -54,6 +54,7 @@ fn sphere_quadric_symmetric_and_vanishing() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 2.0, 3.0),
         radius: 5.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let q = surface_to_quadric(&sphere).unwrap();
     assert!(q.symmetry_residual() < TOL);

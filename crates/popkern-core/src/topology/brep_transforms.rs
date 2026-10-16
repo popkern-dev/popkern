@@ -79,9 +79,14 @@ pub(crate) fn transform_surface(
             axis: unit_direction(t, axis),
             half_angle: *half_angle,
         },
-        SurfaceGeometry::Sphere { center, radius } => SurfaceGeometry::Sphere {
+        SurfaceGeometry::Sphere {
+            center,
+            radius,
+            axis,
+        } => SurfaceGeometry::Sphere {
             center: t.apply_point(center),
             radius: *radius * scale,
+            axis: unit_direction(t, axis),
         },
         SurfaceGeometry::Torus {
             center,
@@ -342,6 +347,7 @@ impl crate::topology::BRep {
             let axis_old = match &sof.geometry {
                 SurfaceGeometry::Cylinder { axis, .. }
                 | SurfaceGeometry::Cone { axis, .. }
+                | SurfaceGeometry::Sphere { axis, .. }
                 | SurfaceGeometry::Torus { axis, .. } => *axis,
                 _ => continue,
             };

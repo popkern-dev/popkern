@@ -34,6 +34,7 @@ pub(super) fn spherical_ngon(n: usize, theta: f64) -> Vec<VariationalCapSide> {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let corner = |k: usize| {
         let a = 2.0 * std::f64::consts::PI * k as f64 / n as f64;
@@ -333,6 +334,7 @@ pub(super) fn spherical_polygon(angles: &[f64], theta: f64) -> Vec<VariationalCa
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let n = angles.len();
     let corner = |k: usize| {

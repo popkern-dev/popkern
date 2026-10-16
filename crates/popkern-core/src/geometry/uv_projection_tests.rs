@@ -78,6 +78,7 @@ fn sphere_north_pole_projects_to_v_zero() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // North pole is (0, 0, r) -> colatitude = 0.
     let (_, v) =
@@ -90,6 +91,7 @@ fn sphere_center_projects_safely() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 2.0, 3.0),
         radius: 5.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let result = project_point_to_uv(&surface, &Point3::new(1.0, 2.0, 3.0));
     assert!(result.is_some(), "center should not panic");
@@ -167,6 +169,7 @@ fn bounded_range_sphere_returns_own_range() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let vertices = vec![Point3::new(1.0, 0.0, 0.0)];
     let ((u0, u1), (v0, v1)) = bounded_parameter_range(&vertices, &surface);

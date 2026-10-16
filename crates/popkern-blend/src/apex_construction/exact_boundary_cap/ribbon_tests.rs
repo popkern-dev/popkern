@@ -128,6 +128,7 @@ fn sphere_cone_and_nurbs_support_samples_are_tangent() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     assert_support_sample_is_tangent(
         &sphere,
@@ -175,6 +176,7 @@ fn periodic_and_high_curvature_support_samples_remain_stable() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 0.08,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let sample = support_sample(
         &sphere,

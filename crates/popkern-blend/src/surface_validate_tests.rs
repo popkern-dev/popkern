@@ -86,6 +86,7 @@ fn sphere_passes_validation() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     assert!(validate_fillet_surface(&sphere, (0.0, TAU), (0.0, PI), &unit_tol()).is_ok());
 }

@@ -407,10 +407,12 @@ pub(super) fn surfaces_equal(
             SurfaceGeometry::Sphere {
                 center: ca,
                 radius: ra,
+                ..
             },
             SurfaceGeometry::Sphere {
                 center: cb,
                 radius: rb,
+                ..
             },
         ) => point_close(ca, cb) && (ra - rb).abs() < tol,
         (

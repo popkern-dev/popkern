@@ -201,8 +201,12 @@ pub(super) fn project_to_uv_clamped(surf: &SurfaceGeometry, p: Point3) -> (f64, 
             let _ = radius;
             (u, v)
         }
-        Sphere { center, radius } => {
-            let d = p - *center;
+        Sphere {
+            center,
+            radius,
+            axis,
+        } => {
+            let d = crate::geometry::analytic_surfaces::sphere_to_local(axis, p - *center);
             let v = (d.z / *radius).clamp(-1.0, 1.0).pasin();
             let u = d.y.patan2(d.x);
             let two_pi = std::f64::consts::TAU;

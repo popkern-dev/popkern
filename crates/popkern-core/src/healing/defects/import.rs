@@ -157,11 +157,12 @@ pub fn check_lost_singularity_topology(brep: &BRep, report: &mut HealingReport) 
 
         // Identify pole locations based on surface type.
         let poles: Vec<crate::geometry::Point3> = match &surface_on_face.geometry {
-            SurfaceGeometry::Sphere { center, radius } => {
-                // Sphere poles at top (v=PI) and bottom (v=0) along Z axis.
+            sphere @ SurfaceGeometry::Sphere { .. } => {
+                // The chart poles at v = 0 and v = π (along its axis).
+                use crate::geometry::surface::SurfaceEval;
                 vec![
-                    crate::geometry::Point3::new(center.x, center.y, center.z - radius),
-                    crate::geometry::Point3::new(center.x, center.y, center.z + radius),
+                    sphere.point_at(0.0, std::f64::consts::PI),
+                    sphere.point_at(0.0, 0.0),
                 ]
             }
             SurfaceGeometry::Cone { apex, .. } => {

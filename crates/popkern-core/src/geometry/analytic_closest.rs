@@ -73,8 +73,12 @@ pub(crate) fn analytic_closest_point(surface: &SurfaceGeometry, p: &Point3) -> O
             let radial = d - *axis * v;
             Some((angle_about(*axis, radial, *radius), v))
         }
-        SurfaceGeometry::Sphere { center, radius } => {
-            let d = *p - *center;
+        SurfaceGeometry::Sphere {
+            center,
+            radius,
+            axis,
+        } => {
+            let d = crate::geometry::analytic_surfaces::sphere_to_local(axis, *p - *center);
             let len = d.length();
             if len <= DEGENERATE * radius.max(1.0) {
                 return Some((0.0, 0.0));

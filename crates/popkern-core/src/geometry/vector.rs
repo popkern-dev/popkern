@@ -16,6 +16,13 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
+    /// The unit vector along world +Z.
+    pub const Z: Vec3 = Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 1.0,
+    };
+
     /// Creates a new vector.
     pub fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }

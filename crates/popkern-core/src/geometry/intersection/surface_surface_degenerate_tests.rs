@@ -236,6 +236,7 @@ fn sphere_tangent_to_plane_no_curve() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let result = intersect_surfaces(
         &plane,
@@ -340,6 +341,7 @@ fn plane_sphere_offset_circle_radius() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let result = intersect_surfaces(
         &plane,
@@ -381,6 +383,7 @@ fn sphere_no_intersection_when_plane_too_far() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let result = intersect_surfaces(
         &plane,
@@ -402,6 +405,7 @@ fn coincident_spheres_return_region() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let result = intersect_surfaces(
         &sphere,

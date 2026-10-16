@@ -74,13 +74,14 @@ pub fn iso_circle_pcurve(
         SurfaceGeometry::Sphere {
             center: sc,
             radius: sr,
+            axis,
         } => {
-            let axial = Vec3::new(0.0, 0.0, 1.0);
+            let axial = *axis;
             let d = *center - *sc;
             let polar = (d.dot(&axial) / sr).clamp(-1.0, 1.0).pacos();
             let chart_radius = sr * polar.psin();
             arc.latitude(curve, range, *sc, axial, polar, chart_radius)
-                .or_else(|| arc.sphere_meridian(curve, range, surface, *sc, *sr))
+                .or_else(|| arc.sphere_meridian(curve, range, surface, *sc, *sr, axial))
         }
         SurfaceGeometry::Torus {
             center: tc,
@@ -171,15 +172,17 @@ impl ArcClass {
         surface: &SurfaceGeometry,
         center: Point3,
         radius: f64,
+        pole: Vec3,
     ) -> Option<Pcurve> {
+        use crate::geometry::analytic_surfaces::sphere_to_local;
         let concentric = (self.center - center).length() <= self.gate;
         let great = (self.radius - radius).abs() <= self.gate;
-        let through_poles = self.normal.z.abs() <= GATE;
+        let through_poles = self.normal.dot(&pole).abs() <= GATE;
         if !(concentric && great && through_poles) {
             return None;
         }
         let polar = |t: f64| {
-            ((curve.point_at(t) - center).z / radius)
+            (sphere_to_local(&pole, curve.point_at(t) - center).z / radius)
                 .clamp(-1.0, 1.0)
                 .pacos()
         };
@@ -188,7 +191,7 @@ impl ArcClass {
         if (vm - 0.5 * (v0 + v1)).abs() > GATE {
             return None; // crosses a pole: v folds
         }
-        let m = curve.point_at(mid) - center;
+        let m = sphere_to_local(&pole, curve.point_at(mid) - center);
         let u = azimuth(m.y.patan2(m.x));
         let sense = sense_along_v(curve, mid, surface, u, vm)?;
         Some(linear(

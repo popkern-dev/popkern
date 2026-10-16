@@ -16,6 +16,7 @@ fn sphere() -> SurfaceGeometry {
     SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: R,
+        axis: crate::geometry::Vec3::Z,
     }
 }
 

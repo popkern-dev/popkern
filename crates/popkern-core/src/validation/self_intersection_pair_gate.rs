@@ -205,18 +205,20 @@ pub(super) fn analytic_separation_lower_bound(
             SG::Sphere {
                 center: c1,
                 radius: r1,
+                ..
             },
             SG::Sphere {
                 center: c2,
                 radius: r2,
+                ..
             },
         ) => Some(radial_gap(c1.distance_to(c2), *r1, *r2)),
-        (SG::Sphere { center, radius }, SG::Plane { origin, normal, .. })
-        | (SG::Plane { origin, normal, .. }, SG::Sphere { center, radius }) => {
+        (SG::Sphere { center, radius, .. }, SG::Plane { origin, normal, .. })
+        | (SG::Plane { origin, normal, .. }, SG::Sphere { center, radius, .. }) => {
             Some((*center - *origin).dot(normal).abs() - radius)
         }
         (
-            SG::Sphere { center, radius },
+            SG::Sphere { center, radius, .. },
             SG::Cylinder {
                 origin,
                 axis,
@@ -229,7 +231,7 @@ pub(super) fn analytic_separation_lower_bound(
                 axis,
                 radius: rc,
             },
-            SG::Sphere { center, radius },
+            SG::Sphere { center, radius, .. },
         ) => {
             let d_axis = point_line_distance(center, origin, axis);
             Some(interval_abs_gap(
@@ -239,7 +241,7 @@ pub(super) fn analytic_separation_lower_bound(
             ))
         }
         (
-            SG::Sphere { center, radius },
+            SG::Sphere { center, radius, .. },
             SG::Cone {
                 apex,
                 axis,
@@ -252,7 +254,7 @@ pub(super) fn analytic_separation_lower_bound(
                 axis,
                 half_angle,
             },
-            SG::Sphere { center, radius },
+            SG::Sphere { center, radius, .. },
         ) => {
             // The kernel cone evaluates BOTH nappes (negative v mirrors
             // through the apex), so bound against the union of the two

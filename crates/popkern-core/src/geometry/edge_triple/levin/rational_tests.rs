@@ -64,6 +64,7 @@ fn surface_to_quadric_sphere_at_unit_origin() {
     let s = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let q = surface_to_quadric_rat(&s).unwrap();
     let expected: [[BigRational; 4]; 4] = [
@@ -101,10 +102,12 @@ fn char_poly_concentric_unit_and_double_spheres() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let a = surface_to_quadric_rat(&s1).unwrap();
     let b = surface_to_quadric_rat(&s2).unwrap();
@@ -131,10 +134,12 @@ fn find_rational_degenerate_fiber_concentric_spheres() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let a = surface_to_quadric_rat(&s1).unwrap();
     let b = surface_to_quadric_rat(&s2).unwrap();
@@ -194,10 +199,12 @@ fn coincident_unit_spheres_detected_exactly() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // The strict CAD-coincidence relation A = c·B holds (c = 1).
     assert_eq!(surfaces_are_coincident(&s1, &s2), Some(true));
@@ -249,10 +256,12 @@ fn distinct_concentric_spheres_not_coincident() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     assert_eq!(surfaces_are_coincident(&s1, &s2), Some(false));
 }

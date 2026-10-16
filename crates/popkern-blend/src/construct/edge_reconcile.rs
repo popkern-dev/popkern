@@ -284,7 +284,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
                     let along = d.dot(axis);
                     Some(((d - *axis * along).length() - radius).abs())
                 }
-                SurfaceGeometry::Sphere { center, radius } => {
+                SurfaceGeometry::Sphere { center, radius, .. } => {
                     Some(((*p - *center).length() - radius).abs())
                 }
                 _ => None,

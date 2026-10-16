@@ -7,6 +7,7 @@ fn sphere() -> SurfaceGeometry {
     SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.05),
         radius: 0.05,
+        axis: popkern_core::geometry::Vec3::Z,
     }
 }
 

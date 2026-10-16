@@ -21,6 +21,7 @@ pub(crate) fn intersect_line_sphere(
     t_range: (f64, f64),
     sphere_center: &Point3,
     sphere_radius: f64,
+    sphere_axis: &Vec3,
     u_range: (f64, f64),
     v_range: (f64, f64),
     tolerance: &Tolerance,
@@ -62,7 +63,11 @@ pub(crate) fn intersect_line_sphere(
         }
 
         let point = *line_origin + d * t;
-        let q: Vec3 = point - *sphere_center;
+        // In the sphere's chart frame (identity for a +Z pole).
+        let q: Vec3 = crate::geometry::analytic_surfaces::sphere_to_local(
+            sphere_axis,
+            point - *sphere_center,
+        );
 
         // Colatitude v = acos(q.z / R), clamped to handle floating-point noise
         let cos_v = (q.z / r).clamp(-1.0, 1.0);
@@ -144,6 +149,7 @@ mod tests {
             (-10.0, 10.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, PI),
             &default_tol(),
@@ -178,6 +184,7 @@ mod tests {
             (-10.0, 10.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, PI),
             &default_tol(),
@@ -209,6 +216,7 @@ mod tests {
             (-10.0, 10.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, PI),
             &default_tol(),
@@ -233,11 +241,16 @@ mod tests {
             (-10.0, 10.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, PI),
             &default_tol(),
         );
-        let sphere = SurfaceGeometry::Sphere { center, radius };
+        let sphere = SurfaceGeometry::Sphere {
+            center,
+            radius,
+            axis: crate::geometry::Vec3::Z,
+        };
         assert!(!results.is_empty(), "expected intersections");
         for r in &results {
             if let SurfaceCurveIntersection::Point { point, u, v, .. } = r {
@@ -266,6 +279,7 @@ mod tests {
             (-10.0, 10.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, PI),
             &default_tol(),
@@ -305,6 +319,7 @@ mod tests {
             (0.0, 20.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, PI),
             &default_tol(),
@@ -336,6 +351,7 @@ mod tests {
             (-10.0, 10.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, PI),
             &default_tol(),
@@ -353,6 +369,7 @@ mod tests {
             (5.0, 10.0), // intersections at t=2 and t=4, but range starts at 5
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, PI),
             &default_tol(),
@@ -371,6 +388,7 @@ mod tests {
             (-10.0, 10.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.0, TAU),
             (0.0, 0.1), // v_range excludes most of sphere
             &default_tol(),
@@ -390,6 +408,7 @@ mod tests {
             (-10.0, 10.0),
             &center,
             radius,
+            &Vec3::Z,
             (0.5, 2.5), // restricted u_range, excludes u=0 and u=PI
             (0.0, PI),
             &default_tol(),

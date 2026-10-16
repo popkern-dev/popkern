@@ -256,6 +256,7 @@ fn item6_sphere_plane_plane_supports_bridge_stays_on_sphere() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
 
     // Two off-pole, off-seam points — keep well inside the
@@ -334,6 +335,7 @@ fn item6_all_curved_corner_bridges_track_each_surface() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(3.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let torus = SurfaceGeometry::Torus {
         center: Point3::new(0.0, 3.0, 0.0),

@@ -44,6 +44,29 @@ pub fn orthonormal_basis(axis: Vec3) -> (Vec3, Vec3) {
     (perp1, perp2)
 }
 
+/// A sphere chart's local vector (`x`, `y` along the first and second
+/// vectors of `orthonormal_basis(axis)`, `z` along the pole `axis`)
+/// in world coordinates. The world-+Z chart maps by identity, so
+/// spheres stored before the axis existed evaluate bit-identically.
+pub fn sphere_to_world(axis: &Vec3, local: Vec3) -> Vec3 {
+    if *axis == Vec3::Z {
+        return local;
+    }
+    let (e1, e2) = orthonormal_basis(*axis);
+    e1 * local.x + e2 * local.y + *axis * local.z
+}
+
+/// A world vector in a sphere chart's local frame (the inverse of
+/// [`sphere_to_world`]): the frame is orthonormal, so its components
+/// are dot products.
+pub fn sphere_to_local(axis: &Vec3, world: Vec3) -> Vec3 {
+    if *axis == Vec3::Z {
+        return world;
+    }
+    let (e1, e2) = orthonormal_basis(*axis);
+    Vec3::new(world.dot(&e1), world.dot(&e2), world.dot(axis))
+}
+
 impl SurfaceEval for SurfaceGeometry {
     fn point_at(&self, u: f64, v: f64) -> Point3 {
         match self {
@@ -72,13 +95,17 @@ impl SurfaceEval for SurfaceGeometry {
                 let radial = perp1 * (r * u.pcos()) + perp2 * (r * u.psin());
                 *apex + *axis * v + radial
             }
-            SurfaceGeometry::Sphere { center, radius } => {
-                // Standard spherical: u = longitude [0, 2π), v = colatitude [0, π]
-                // (0,0,1) is north pole at v=0
+            SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis,
+            } => {
+                // Standard spherical in the chart frame: u = longitude
+                // [0, 2π), v = colatitude [0, π], the pole `axis` at v = 0.
                 let x = radius * v.psin() * u.pcos();
                 let y = radius * v.psin() * u.psin();
                 let z = radius * v.pcos();
-                *center + Vec3::new(x, y, z)
+                *center + sphere_to_world(axis, Vec3::new(x, y, z))
             }
             SurfaceGeometry::Torus {
                 center,
@@ -113,12 +140,15 @@ impl SurfaceEval for SurfaceGeometry {
                 let r = v * half_angle.ptan();
                 perp1 * (-r * u.psin()) + perp2 * (r * u.pcos())
             }
-            SurfaceGeometry::Sphere { radius, .. } => {
+            SurfaceGeometry::Sphere { radius, axis, .. } => {
                 // d/du: (-sin(u)*sin(v), cos(u)*sin(v), 0)
-                Vec3::new(
-                    -radius * v.psin() * u.psin(),
-                    radius * v.psin() * u.pcos(),
-                    0.0,
+                sphere_to_world(
+                    axis,
+                    Vec3::new(
+                        -radius * v.psin() * u.psin(),
+                        radius * v.psin() * u.pcos(),
+                        0.0,
+                    ),
                 )
             }
             SurfaceGeometry::Torus {
@@ -151,12 +181,15 @@ impl SurfaceEval for SurfaceGeometry {
                 let tan_ha = half_angle.ptan();
                 perp1 * (tan_ha * u.pcos()) + perp2 * (tan_ha * u.psin()) + *axis
             }
-            SurfaceGeometry::Sphere { radius, .. } => {
+            SurfaceGeometry::Sphere { radius, axis, .. } => {
                 // d/dv: (cos(u)*cos(v), sin(u)*cos(v), -sin(v))
-                Vec3::new(
-                    radius * u.pcos() * v.pcos(),
-                    radius * u.psin() * v.pcos(),
-                    -radius * v.psin(),
+                sphere_to_world(
+                    axis,
+                    Vec3::new(
+                        radius * u.pcos() * v.pcos(),
+                        radius * u.psin() * v.pcos(),
+                        -radius * v.psin(),
+                    ),
                 )
             }
             SurfaceGeometry::Torus {
@@ -235,10 +268,13 @@ impl SurfaceEval for SurfaceGeometry {
                 let r = v * half_angle.ptan();
                 perp1 * (-r * u.pcos()) + perp2 * (-r * u.psin())
             }
-            SurfaceGeometry::Sphere { radius, .. } => Vec3::new(
-                -radius * v.psin() * u.pcos(),
-                -radius * v.psin() * u.psin(),
-                0.0,
+            SurfaceGeometry::Sphere { radius, axis, .. } => sphere_to_world(
+                axis,
+                Vec3::new(
+                    -radius * v.psin() * u.pcos(),
+                    -radius * v.psin() * u.psin(),
+                    0.0,
+                ),
             ),
             SurfaceGeometry::Torus {
                 axis,
@@ -281,10 +317,13 @@ impl SurfaceEval for SurfaceGeometry {
                 let tan_ha = half_angle.ptan();
                 perp1 * (-tan_ha * u.psin()) + perp2 * (tan_ha * u.pcos())
             }
-            SurfaceGeometry::Sphere { radius, .. } => Vec3::new(
-                -radius * u.psin() * v.pcos(),
-                radius * u.pcos() * v.pcos(),
-                0.0,
+            SurfaceGeometry::Sphere { radius, axis, .. } => sphere_to_world(
+                axis,
+                Vec3::new(
+                    -radius * u.psin() * v.pcos(),
+                    radius * u.pcos() * v.pcos(),
+                    0.0,
+                ),
             ),
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
@@ -307,10 +346,13 @@ impl SurfaceEval for SurfaceGeometry {
             SurfaceGeometry::Plane { .. } => Vec3::zero(),
             SurfaceGeometry::Cylinder { .. } => Vec3::zero(),
             SurfaceGeometry::Cone { .. } => Vec3::zero(),
-            SurfaceGeometry::Sphere { radius, .. } => Vec3::new(
-                -radius * u.pcos() * v.psin(),
-                -radius * u.psin() * v.psin(),
-                -radius * v.pcos(),
+            SurfaceGeometry::Sphere { radius, axis, .. } => sphere_to_world(
+                axis,
+                Vec3::new(
+                    -radius * u.pcos() * v.psin(),
+                    -radius * u.psin() * v.psin(),
+                    -radius * v.pcos(),
+                ),
             ),
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
@@ -376,7 +418,7 @@ pub fn analytic_signed_distance(surface: &SurfaceGeometry, p: &Point3) -> Option
             let radial = d - *axis * along;
             Some(radial.length() - radius)
         }
-        SurfaceGeometry::Sphere { center, radius } => Some(p.distance_to(center) - radius),
+        SurfaceGeometry::Sphere { center, radius, .. } => Some(p.distance_to(center) - radius),
         SurfaceGeometry::Cone {
             apex,
             axis,

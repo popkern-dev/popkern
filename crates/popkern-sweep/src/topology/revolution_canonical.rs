@@ -229,23 +229,25 @@ pub(crate) fn recognize_revolved_span(
     if let Some((center, _normal, radius)) = recognize_arc(span) {
         let (z_c, r_c) = axial_radial(&center, axis_origin, &axis);
         if r_c < gate {
-            // Sphere: the chart is fixed to world z, so only an axis
-            // along z keeps the seam a meridian.
-            if axis.cross(&Vec3::new(0.0, 0.0, 1.0)).length() > 1.0e-9 {
-                return None;
-            }
-            let geometry = SurfaceGeometry::Sphere { center, radius };
+            // Sphere: its chart's pole is the revolve axis, so the
+            // seam stays a meridian for any axis (the sense is folded
+            // so an axis along -z keeps the world-z chart).
+            let pole = if axis.z < 0.0 { -axis } else { axis };
+            let geometry = SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis: pole,
+            };
             if !surface_agrees(nurbs, &geometry, gate) {
                 return None;
             }
             let polar = |p: &Point3| {
                 let d = *p - center;
-                (d.z / radius).clamp(-1.0, 1.0).pacos()
+                (d.dot(&pole) / radius).clamp(-1.0, 1.0).pacos()
             };
-            let world_z = Vec3::new(0.0, 0.0, 1.0);
-            let basis = (Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0));
-            let phi0 = azimuth(&nurbs.point_at(0.5, 0.0), &center, &world_z, basis);
-            let sense = azimuth_sense(nurbs, &center, &world_z, basis);
+            let basis = orthonormal_basis(pole);
+            let phi0 = azimuth(&nurbs.point_at(0.5, 0.0), &center, &pole, basis);
+            let sense = azimuth_sense(nurbs, &center, &pole, basis);
             return Some(RevolvedSurface {
                 geometry,
                 chart: RevolutionChart::Angular {

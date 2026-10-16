@@ -181,6 +181,7 @@ pub fn build_rounded_cap(endpoint: &CapEndpoint) -> CapGeometry {
     let sphere = SurfaceGeometry::Sphere {
         center: endpoint.center,
         radius: endpoint.radius,
+        axis: popkern_core::geometry::Vec3::Z,
     };
 
     let boundary_points = sample_spherical_arc(

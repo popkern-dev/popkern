@@ -384,7 +384,7 @@ fn main() {
         use popkern_core::geometry::curve::CurveEval;
         use popkern_core::geometry::surface::SurfaceEval;
         for (fh, f) in result.brep.faces.iter() {
-            let Some(popkern_core::geometry::SurfaceGeometry::Sphere { center, radius }) =
+            let Some(popkern_core::geometry::SurfaceGeometry::Sphere { center, radius, .. }) =
                 f.surface.as_ref().map(|s| &s.geometry)
             else {
                 continue;
@@ -513,7 +513,7 @@ fn main() {
                     "  surf {fh:?} Torus c=({:.6},{:.6},{:.6}) a=({:.3},{:.3},{:.3}) R={major_radius:.6} r={minor_radius:.6}",
                     center.x, center.y, center.z, axis.x, axis.y, axis.z
                 ),
-                Some(SGD::Sphere { center, radius }) => eprintln!(
+                Some(SGD::Sphere { center, radius, .. }) => eprintln!(
                     "  surf {fh:?} Sphere c=({:.6},{:.6},{:.6}) r={radius:.6}",
                     center.x, center.y, center.z
                 ),
@@ -566,10 +566,9 @@ fn main() {
                         };
                         let mut sphere_note = String::new();
                         for (_, f) in result.brep.faces.iter() {
-                            if let Some(popkern_core::geometry::SurfaceGeometry::Sphere {
-                                center,
-                                radius,
-                            }) = f.surface.as_ref().map(|s| &s.geometry)
+                            use popkern_core::geometry::SurfaceGeometry as Sg;
+                            if let Some(Sg::Sphere { center, radius, .. }) =
+                                f.surface.as_ref().map(|s| &s.geometry)
                             {
                                 let da = ends.0.distance_to(center);
                                 let db = ends.1.distance_to(center);

@@ -115,7 +115,7 @@ fn revolution_profile(
                 },
             })
         }
-        SurfaceGeometry::Sphere { center, radius } => Some(RevolutionProfile {
+        SurfaceGeometry::Sphere { center, radius, .. } => Some(RevolutionProfile {
             t_ref: on_axis(center)?,
             kind: ProfileKind::Sphere { radius: *radius },
         }),

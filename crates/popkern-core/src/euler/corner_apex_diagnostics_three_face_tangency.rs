@@ -48,7 +48,7 @@ impl TangencySupport {
                 let normal = radial.normalized()?;
                 Some((radial.length() - radius, normal))
             }
-            SurfaceGeometry::Sphere { center, radius } => {
+            SurfaceGeometry::Sphere { center, radius, .. } => {
                 let radial = point - center;
                 let normal = radial.normalized()?;
                 Some((radial.length() - radius, normal))
@@ -327,7 +327,7 @@ impl TangencySupport {
     }
 
     fn sphere(&self) -> Option<(Point3, f64)> {
-        let SurfaceGeometry::Sphere { center, radius } = self.surface else {
+        let SurfaceGeometry::Sphere { center, radius, .. } = self.surface else {
             return None;
         };
         Some((center, radius))

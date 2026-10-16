@@ -164,6 +164,7 @@ fn plane_and_sphere() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let result = intersect_surfaces(
         &plane,

@@ -162,6 +162,7 @@ fn intersect_impl(
         SurfaceGeometry::Sphere {
             center: sc,
             radius: sr,
+            ..
         } => {
             let extent = major_radius.abs() + minor_radius + sr.abs();
             coaxial_gates(*center, axis_n, *sc, None, extent, tolerance)?;

@@ -146,10 +146,12 @@ pub(super) fn try_sphere_sphere_general(
     let surf_a = SurfaceGeometry::Sphere {
         center: center_a,
         radius: radius_a,
+        axis: crate::geometry::Vec3::Z,
     };
     let surf_b = SurfaceGeometry::Sphere {
         center: center_b,
         radius: radius_b,
+        axis: crate::geometry::Vec3::Z,
     };
 
     let triple = EdgeTriple {

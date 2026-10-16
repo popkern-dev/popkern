@@ -88,6 +88,7 @@ fn sphere_offset_follows_stored_normal() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 3.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     assert_eq!(radial_normal_sign(&sphere), Some(-1.0));
     match offset_analytic(&sphere, 1.0, false).unwrap() {

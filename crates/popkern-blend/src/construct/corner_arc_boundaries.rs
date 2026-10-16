@@ -35,7 +35,7 @@ pub(super) fn arcify_corner_cap_boundaries(
         let Some(sof) = face.surface.as_ref() else {
             continue;
         };
-        let SurfaceGeometry::Sphere { center, radius } = sof.geometry else {
+        let SurfaceGeometry::Sphere { center, radius, .. } = sof.geometry else {
             continue;
         };
         let start_he = brep.loops[face.outer_loop].half_edge;
@@ -191,7 +191,7 @@ pub(super) fn collapse_corner_anchor_chords(
         let Some(sof) = face.surface.as_ref() else {
             continue;
         };
-        let SurfaceGeometry::Sphere { center, radius } = sof.geometry else {
+        let SurfaceGeometry::Sphere { center, radius, .. } = sof.geometry else {
             continue;
         };
         let on_sphere = |p: Point3| (p.distance_to(&center) - radius).abs() < 1.0e-3;

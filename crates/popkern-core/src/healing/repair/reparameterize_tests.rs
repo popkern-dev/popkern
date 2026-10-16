@@ -28,6 +28,7 @@ fn measure_distortion_sphere_non_uniform() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // u in [0, 2*pi], v in [0.1, pi-0.1] (avoid exact poles).
     let ratio = measure_distortion(

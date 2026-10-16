@@ -31,6 +31,7 @@ fn live_three_face_tangency_rejects_singular_analytic_normals() {
         .geometry = SurfaceGeometry::Sphere {
         center: cube.vertices[vertex].position,
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
 
     let report = cube.diagnose_corner_apex(request(vertex, &incident_edges(&cube, vertex)));
@@ -53,6 +54,7 @@ fn live_three_face_tangency_rejects_impossible_offsets() {
         .geometry = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     cube.faces[faces[1]]
         .surface
@@ -61,6 +63,7 @@ fn live_three_face_tangency_rejects_impossible_offsets() {
         .geometry = SurfaceGeometry::Sphere {
         center: Point3::new(3.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     cube.faces[faces[2]]
         .surface
@@ -86,6 +89,7 @@ fn live_three_face_tangency_rejects_multiple_solution_ambiguity() {
             .geometry = SurfaceGeometry::Sphere {
             center: Point3::new((index + 1) as f64, 0.0, 0.0),
             radius: 1.0,
+            axis: crate::geometry::Vec3::Z,
         };
     }
 
@@ -110,6 +114,7 @@ fn live_three_face_tangency_rejects_residual_limit_failure() {
         .geometry = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     cube.faces[faces[1]]
         .surface
@@ -118,6 +123,7 @@ fn live_three_face_tangency_rejects_residual_limit_failure() {
         .geometry = SurfaceGeometry::Sphere {
         center: Point3::new(3.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     cube.faces[faces[2]]
         .surface

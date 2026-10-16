@@ -345,7 +345,7 @@ pub(super) fn trace_pre_call_state(brep: &BRep, vertex: popkern_core::topology::
                         radius,
                         ..
                     } => format!("Cylinder(origin={origin:?}, axis={axis:?}, r={radius:.3e})"),
-                    SurfaceGeometry::Sphere { center, radius } => {
+                    SurfaceGeometry::Sphere { center, radius, .. } => {
                         format!("Sphere(center={center:?}, r={radius:.3e})")
                     }
                     SurfaceGeometry::Torus { .. } => "Torus".to_string(),

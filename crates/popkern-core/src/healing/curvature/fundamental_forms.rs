@@ -230,6 +230,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: r,
+            axis: crate::geometry::Vec3::Z,
         };
         // Evaluate away from poles (u=1.0, v=pi/2 is equator)
         let so = shape_operator(&sphere, 1.0, std::f64::consts::FRAC_PI_2);

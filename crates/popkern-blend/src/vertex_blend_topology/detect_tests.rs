@@ -226,7 +226,7 @@ fn probe_cube_uniform_cap_surface_kind() {
         SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     };
     assert_eq!(kind, "Sphere", "cube_uniform cap should be a Sphere");
-    if let SurfaceGeometry::Sphere { center, radius } = &surf {
+    if let SurfaceGeometry::Sphere { center, radius, .. } = &surf {
         // Post-fix: cap centre should be at (+r, +r, +r) inside
         // the cube body for apex (0,0,0) with r=0.1. Pre-fix it
         // was at (-r, -r, -r) (outside the solid) due to the

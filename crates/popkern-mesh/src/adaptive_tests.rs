@@ -24,6 +24,7 @@ fn chord_height_sphere_positive() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let cell = UvCell {
         u_min: 0.0,
@@ -51,6 +52,7 @@ fn adaptive_sphere_refines() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let cells = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 64, 0.01);
     assert!(cells.len() > 4);
@@ -61,6 +63,7 @@ fn tighter_tolerance_more_cells() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let coarse = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 64, 0.1);
     let fine = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 64, 0.001);
@@ -72,6 +75,7 @@ fn max_subdivisions_respected() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     // Very tight tolerance with low max — should hit the cap.
     // max_subdivisions=4, min_subdivisions=2 => ratio=2 => max_depth=1
@@ -98,6 +102,7 @@ fn equal_min_max_no_refinement() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     // max == min => max_depth = 0, so no refinement possible.
     let cells = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 4, 4, 0.0001);
@@ -129,6 +134,7 @@ fn cells_do_not_overlap() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let cells = adaptive_subdivide(&sphere, (0.0, TAU), (0.0, PI), 2, 8, 0.05);
     // No two leaf cells should overlap (their interiors should be disjoint).
@@ -172,10 +178,12 @@ fn large_radius_sphere_less_refinement_than_small() {
     let large = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 100.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let small = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 0.5,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     // Same angular range but different radii => different chord heights.
     // For the same tolerance, a larger sphere needs more cells (larger absolute error).

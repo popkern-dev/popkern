@@ -133,7 +133,7 @@ pub(crate) fn line_meets_quadric_surface(
             let cc = q_a * q_a - cos2 * q_q;
             solve_quadratic_real_roots(aa, bb, cc)
         }
-        SurfaceGeometry::Sphere { center, radius } => {
+        SurfaceGeometry::Sphere { center, radius, .. } => {
             // |p − c|² = r²
             let q = origin - *center;
             let aa = dir.dot(&dir);

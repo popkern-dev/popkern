@@ -1,9 +1,8 @@
-use super::dispatch::{
-    classify_branch_kind, derive_linear_affine_b, intersect_plane_with_target, provenance_kind,
-};
+use super::dispatch::{classify_branch_kind, derive_linear_affine_b, intersect_plane_with_target};
 use crate::geometry::Point3;
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::EdgeAnchors;
+use crate::geometry::edge_triple::types::AnalyticPair;
 use crate::geometry::edge_triple::types::{
     BranchSelector, EdgeTriple, EdgeTripleProvenance, EdgeTripleQuality, ParameterMap,
 };
@@ -100,4 +99,37 @@ fn normalise_plane(p: [f64; 4]) -> Option<[f64; 4]> {
 
 fn plane_distance(p: &[f64; 4], q: Point3) -> f64 {
     (p[0] * q.x + p[1] * q.y + p[2] * q.z + p[3]).abs()
+}
+
+pub(super) fn matrix_max_abs(m: &[[f64; 4]; 4]) -> f64 {
+    let mut max = 0.0_f64;
+    for row in m.iter() {
+        for &v in row {
+            max = max.max(v.abs());
+        }
+    }
+    max
+}
+
+pub(super) fn provenance_kind(a: &SurfaceGeometry, b: &SurfaceGeometry) -> AnalyticPair {
+    use SurfaceGeometry::*;
+    match (a, b) {
+        (Cylinder { .. }, Cylinder { .. }) => AnalyticPair::CylinderCylinder,
+        (Cone { .. }, Cone { .. }) => AnalyticPair::ConeCone,
+        (Cylinder { .. }, Cone { .. }) | (Cone { .. }, Cylinder { .. }) => {
+            AnalyticPair::CylinderCone
+        }
+        (Cylinder { .. }, Sphere { .. }) | (Sphere { .. }, Cylinder { .. }) => {
+            AnalyticPair::CylinderSphere
+        }
+        (Cone { .. }, Sphere { .. }) | (Sphere { .. }, Cone { .. }) => AnalyticPair::SphereCone,
+        (Sphere { .. }, Sphere { .. }) => AnalyticPair::SphereSphere,
+        (Plane { .. }, Cylinder { .. }) | (Cylinder { .. }, Plane { .. }) => {
+            AnalyticPair::PlaneCylinder
+        }
+        (Plane { .. }, Sphere { .. }) | (Sphere { .. }, Plane { .. }) => AnalyticPair::PlaneSphere,
+        (Plane { .. }, Cone { .. }) | (Cone { .. }, Plane { .. }) => AnalyticPair::PlaneCone,
+        (Plane { .. }, Plane { .. }) => AnalyticPair::PlanePlane,
+        _ => AnalyticPair::CylinderCylinder, // shouldn't reach for non-quadric inputs
+    }
 }

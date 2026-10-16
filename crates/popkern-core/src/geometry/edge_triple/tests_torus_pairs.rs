@@ -84,6 +84,7 @@ fn sphere_torus_axial_analytic_circle() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 26.0_f64.sqrt(),
+        axis: crate::geometry::Vec3::Z,
     };
     let tol = Tolerance::default();
     let opts = EdgeTripleOptions::default();

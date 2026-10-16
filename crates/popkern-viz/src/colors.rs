@@ -62,6 +62,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: popkern_core::geometry::Vec3::Z,
         };
         let c = surface_color(&sphere);
         assert!((c[1] - 0.8).abs() < f32::EPSILON);

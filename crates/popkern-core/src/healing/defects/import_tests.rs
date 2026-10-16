@@ -31,6 +31,7 @@ fn orientation_inconsistency_detected() {
         geometry: SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 0.0,
+            axis: crate::geometry::Vec3::Z,
         },
         orientation: true,
     });
@@ -255,6 +256,7 @@ fn lost_singularity_topology_on_sphere_face() {
         geometry: SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: crate::geometry::Vec3::Z,
         },
         orientation: true,
     });

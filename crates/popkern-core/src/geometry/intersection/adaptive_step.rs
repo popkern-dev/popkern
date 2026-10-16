@@ -154,6 +154,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 2.0,
+            axis: crate::geometry::Vec3::Z,
         };
         // At equator, away from poles
         let k = max_normal_curvature(&sphere, 0.5, std::f64::consts::FRAC_PI_2);

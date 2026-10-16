@@ -50,6 +50,7 @@ fn sphere_and_cone_full_candidates_report_structured_support_status() {
         SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: popkern_core::geometry::Vec3::Z,
         },
         SurfaceGeometry::Cone {
             apex: Point3::new(0.0, 0.0, 0.0),

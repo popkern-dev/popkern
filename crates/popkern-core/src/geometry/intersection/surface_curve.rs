@@ -171,6 +171,7 @@ mod extra_tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: crate::geometry::Vec3::Z,
         };
         let line = CurveGeometry::Line {
             origin: Point3::new(2.0, 0.0, 0.0),

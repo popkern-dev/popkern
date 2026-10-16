@@ -89,7 +89,11 @@ pub fn detect_analytical_form(
     }
 
     if let Some((center, radius, dev)) = try_detect_sphere(&points, &normals, tolerance) {
-        let geom = SurfaceGeometry::Sphere { center, radius };
+        let geom = SurfaceGeometry::Sphere {
+            center,
+            radius,
+            axis: crate::geometry::Vec3::Z,
+        };
         return Some((AnalyticalKind::Sphere, geom, dev));
     }
 

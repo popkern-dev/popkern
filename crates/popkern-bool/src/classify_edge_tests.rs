@@ -95,6 +95,7 @@ fn pick_sample_point_face_with_sphere_surface_uses_finite_range() {
             geometry: SurfaceGeometry::Sphere {
                 center: Point3::new(0.0, 0.0, 0.0),
                 radius: 1.0,
+                axis: popkern_core::geometry::Vec3::Z,
             },
             orientation: true,
         }),

@@ -66,6 +66,7 @@ fn sphere_torus_cone_and_plane_feet_are_exact() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.5, 0.5, -1.0),
         radius: 3.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let torus = SurfaceGeometry::Torus {
         center: Point3::new(0.0, 0.0, 0.0),
@@ -106,6 +107,7 @@ fn degenerate_points_have_defined_parameters() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // The north pole direction: longitude 0, colatitude 0.
     assert_eq!(foot(&sphere, Point3::new(0.0, 0.0, 5.0)).0, 0.0);

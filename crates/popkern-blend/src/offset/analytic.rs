@@ -163,7 +163,11 @@ pub fn offset_analytic_classified(
             }))
         }
 
-        SurfaceGeometry::Sphere { center, radius } => {
+        SurfaceGeometry::Sphere {
+            center,
+            radius,
+            axis,
+        } => {
             let radial = radial_normal_sign(surface)
                 .ok_or(OffsetError::DegenerateGeometry { class: "sphere" })?;
             let new_radius = radius + sign * radial * distance;
@@ -177,6 +181,7 @@ pub fn offset_analytic_classified(
             Ok(AnalyticOffset::Exact(SurfaceGeometry::Sphere {
                 center: *center,
                 radius: new_radius,
+                axis: *axis,
             }))
         }
 

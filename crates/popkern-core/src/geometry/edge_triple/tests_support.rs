@@ -36,6 +36,7 @@ pub(super) fn unit_sphere_at(c: Point3) -> SurfaceGeometry {
     SurfaceGeometry::Sphere {
         center: c,
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     }
 }
 

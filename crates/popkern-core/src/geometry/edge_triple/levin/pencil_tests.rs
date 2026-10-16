@@ -59,10 +59,12 @@ fn char_poly_recovers_known_polynomial() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let a = surface_to_quadric(&s1).unwrap();
     let b = surface_to_quadric(&s2).unwrap();
@@ -86,10 +88,12 @@ fn degenerate_fiber_concentric_spheres() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let a = surface_to_quadric(&s1).unwrap();
     let b = surface_to_quadric(&s2).unwrap();
@@ -105,10 +109,12 @@ fn degenerate_fiber_disjoint_spheres() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(3.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let a = surface_to_quadric(&s1).unwrap();
     let b = surface_to_quadric(&s2).unwrap();
@@ -152,6 +158,7 @@ fn degenerate_input_a_returned_as_fiber() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let a = surface_to_quadric(&plane).unwrap();
     let b = surface_to_quadric(&sphere).unwrap();

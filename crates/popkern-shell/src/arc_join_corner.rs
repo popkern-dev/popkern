@@ -198,6 +198,7 @@ pub(crate) fn construct_corner(
     let sphere = SurfaceGeometry::Sphere {
         center: p_orig,
         radius: mean_r,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let orientation = cap_orientation(skin, cap_face, &sphere).unwrap_or(true);
     skin.faces[cap_face].surface = Some(SurfaceOnFace {

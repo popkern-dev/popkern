@@ -201,6 +201,7 @@ pub(super) fn try_spherical_blend(
     let surface = SurfaceGeometry::Sphere {
         center,
         radius: avg_radius,
+        axis: popkern_core::geometry::Vec3::Z,
     };
 
     Some(BlendSurfaceResult {

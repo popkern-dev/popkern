@@ -368,6 +368,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 SurfaceGeometry::Sphere {
                     center: chosen.0,
                     radius: chosen.1,
+                    axis: popkern_core::geometry::Vec3::Z,
                 }
             } else {
                 SurfaceGeometry::Gregory(sub_patch.clone())

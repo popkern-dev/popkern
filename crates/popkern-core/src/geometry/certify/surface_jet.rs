@@ -148,7 +148,7 @@ impl SurfaceJetSource {
                 frame: frame_of(*axis),
                 half_angle: *half_angle,
             }),
-            SurfaceGeometry::Sphere { center, radius } => {
+            SurfaceGeometry::Sphere { center, radius, .. } => {
                 SurfaceJetSource::Analytic(AnalyticJetSource::Sphere {
                     center: *center,
                     radius: *radius,

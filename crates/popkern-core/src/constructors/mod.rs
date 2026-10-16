@@ -227,9 +227,24 @@ impl BRep {
                     });
                 if let Some(n3d) = curved_nurbs {
                     use crate::geometry::curve::CurveEval;
-                    let p_first = n3d.point_at(n3d.parameter_range().0);
-                    let forward =
-                        p_first.distance_to(&origin_pos) <= p_first.distance_to(&dest_pos);
+                    // A closed edge (one vertex at both ends) cannot
+                    // take its sense from the endpoints, which tie:
+                    // its canonical half traverses the curve forward
+                    // and the twin backward (the closed-edge
+                    // convention, PK-478). Measured: a full-circle
+                    // base disc turned with its dome re-derived its
+                    // pcurve forward on the twin half, so the loop
+                    // wound against its orientation flag.
+                    let edge_handle = self.half_edges[heh].edge;
+                    let closed = self.half_edges[heh].origin == self.half_edges[next_heh].origin;
+                    let forward = if closed {
+                        self.edges
+                            .get(edge_handle)
+                            .is_none_or(|e| e.half_edge == heh)
+                    } else {
+                        let p_first = n3d.point_at(n3d.parameter_range().0);
+                        p_first.distance_to(&origin_pos) <= p_first.distance_to(&dest_pos)
+                    };
                     let mut pc = NurbsCurve {
                         degree: n3d.degree,
                         knots: n3d.knots.clone(),

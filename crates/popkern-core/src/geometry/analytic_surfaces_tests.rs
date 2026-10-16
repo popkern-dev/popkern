@@ -46,6 +46,7 @@ fn sphere_point_at_north_pole() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let p = sphere.point_at(0.0, 0.0);
     let dist = ((p.x).powi(2) + (p.y).powi(2) + (p.z).powi(2)).sqrt();
@@ -57,6 +58,7 @@ fn sphere_all_points_on_sphere() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 2.0, 3.0),
         radius: 5.0,
+        axis: crate::geometry::Vec3::Z,
     };
     for u in [0.0, 1.0, PI, 5.0] {
         for v in [0.0, 0.5, FRAC_PI_2, PI] {
@@ -154,6 +156,7 @@ fn sphere_partials_normal_range() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     assert!(sphere.partial_u(0.0, FRAC_PI_2).length() > 1e-10);
     assert!(sphere.partial_v(0.0, FRAC_PI_2).length() > 1e-10);

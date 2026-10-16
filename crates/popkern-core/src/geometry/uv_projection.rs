@@ -65,8 +65,8 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             let v = d.dot(axis);
             Some((u, v))
         }
-        SurfaceGeometry::Sphere { center, radius } => {
-            let d = *point - *center;
+        SurfaceGeometry::Sphere { center, axis, .. } => {
+            let d = crate::geometry::analytic_surfaces::sphere_to_local(axis, *point - *center);
             let r = d.length();
             // Avoid division by zero at the centre.
             if r < 1e-15 {
@@ -79,7 +79,6 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             if u < 0.0 {
                 u += TAU;
             }
-            let _ = radius; // used only for the forward map
             Some((u, v))
         }
         SurfaceGeometry::Torus {

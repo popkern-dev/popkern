@@ -56,6 +56,7 @@ pub(crate) fn try_cylinder_sphere(
             SurfaceGeometry::Sphere {
                 center,
                 radius: sphere_radius,
+                ..
             },
         ) => intersect_impl(
             *origin,
@@ -73,6 +74,7 @@ pub(crate) fn try_cylinder_sphere(
             SurfaceGeometry::Sphere {
                 center,
                 radius: sphere_radius,
+                ..
             },
             SurfaceGeometry::Cylinder {
                 origin,
@@ -128,7 +130,11 @@ fn intersect_impl(
     }
     // Transversal circles need the sphere chart's pole axis along the
     // cylinder axis for an exact constant-v image.
-    if axis_n.cross(&Vec3::new(0.0, 0.0, 1.0)).length() > tolerance.angular() {
+    let pole = match sphere_surface {
+        SurfaceGeometry::Sphere { axis, .. } => *axis,
+        _ => return None,
+    };
+    if axis_n.cross(&pole).length() > tolerance.angular() {
         return None;
     }
     let h = (rs * rs - rc * rc).sqrt();

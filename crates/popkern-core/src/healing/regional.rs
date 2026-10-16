@@ -315,6 +315,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: r,
+            axis: crate::geometry::Vec3::Z,
         };
         let expected_k = 1.0 / (r * r);
 
@@ -384,6 +385,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: crate::geometry::Vec3::Z,
         };
         // Sphere over a wide parameter range is definitely not planar.
         let (is_planar, deviation) = detect_planarity(
@@ -430,6 +432,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 2.0,
+            axis: crate::geometry::Vec3::Z,
         };
         let result = analyze_region(
             &sphere,

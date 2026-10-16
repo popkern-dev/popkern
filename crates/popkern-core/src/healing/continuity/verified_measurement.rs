@@ -284,6 +284,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: r,
+            axis: crate::geometry::Vec3::Z,
         };
         let samples: Vec<BoundarySample> = (0..20)
             .map(|i| {

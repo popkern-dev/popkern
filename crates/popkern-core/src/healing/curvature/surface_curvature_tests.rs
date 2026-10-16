@@ -8,6 +8,7 @@ fn sphere_gaussian_curvature() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: r,
+        axis: crate::geometry::Vec3::Z,
     };
     // Evaluate away from poles: u=1.0, v=pi/2 (equator)
     let k = gaussian_curvature(&sphere, 1.0, std::f64::consts::FRAC_PI_2);
@@ -25,6 +26,7 @@ fn sphere_mean_curvature() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: r,
+        axis: crate::geometry::Vec3::Z,
     };
     let h = mean_curvature(&sphere, 1.0, std::f64::consts::FRAC_PI_2);
     let expected = 1.0 / r;
@@ -42,6 +44,7 @@ fn sphere_surface_curvature_at() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 2.0, 3.0),
         radius: r,
+        axis: crate::geometry::Vec3::Z,
     };
     let sc = surface_curvature_at(&sphere, 0.5, std::f64::consts::FRAC_PI_2);
     let c = sc.expect("sphere curvature should be defined at equator");
@@ -125,6 +128,7 @@ fn principal_curvatures_sphere() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: r,
+        axis: crate::geometry::Vec3::Z,
     };
     let (k1, k2) = principal_curvatures(&sphere, 1.0, std::f64::consts::FRAC_PI_2)
         .expect("should be defined at equator");
@@ -154,6 +158,7 @@ fn curvature_agrees_with_finite_difference_o_h2() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: r,
+        axis: crate::geometry::Vec3::Z,
     };
     let exact_k = 1.0 / (r * r);
 
@@ -192,6 +197,7 @@ fn curvature_finite_difference_convergence_rate() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: r,
+        axis: crate::geometry::Vec3::Z,
     };
 
     // Evaluate curvature at multiple points away from poles.

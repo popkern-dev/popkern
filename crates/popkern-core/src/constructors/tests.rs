@@ -284,7 +284,7 @@ fn sphere_faces_have_surface_geometry() {
             .as_ref()
             .expect("sphere face should have surface geometry");
         match &surface.geometry {
-            SurfaceGeometry::Sphere { center, radius } => {
+            SurfaceGeometry::Sphere { center, radius, .. } => {
                 assert!(
                     center.x.abs() < 1e-10 && center.y.abs() < 1e-10 && center.z.abs() < 1e-10,
                     "sphere center should be at origin"

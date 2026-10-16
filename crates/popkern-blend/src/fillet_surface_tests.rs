@@ -111,6 +111,7 @@ fn fillet_surface_general() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 5.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 0.0),

@@ -37,6 +37,7 @@ fn sphere_is_periodic_in_u_only() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     assert_eq!(sphere.is_periodic(), (true, false));
 }
@@ -148,6 +149,7 @@ fn sphere_to_nurbs_approximate() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let nurbs = sphere.to_nurbs_in_range((0.5, 2.5), (0.5, 2.5));
     for u in [0.6_f64, 1.0, 1.5, 2.0, 2.4] {
@@ -167,6 +169,7 @@ fn sphere_to_nurbs_default_range() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let nurbs = sphere.to_nurbs();
     let p = nurbs.point_at(std::f64::consts::FRAC_PI_2, std::f64::consts::FRAC_PI_2);

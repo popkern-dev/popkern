@@ -296,6 +296,7 @@ fn limit_normal_recovers_sphere_pole_normal() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     // Pole: v = 0. Exact normal is degenerate.
     let exact = sphere.normal_at(0.0, 0.0);
@@ -358,6 +359,7 @@ fn degenerate_support_normal_recovered_via_limit_at_sphere_pole() {
     analysis.surface_1 = SurfaceGeometry::Sphere {
         center: sphere_centre,
         radius,
+        axis: popkern_core::geometry::Vec3::Z,
     };
 
     // Sanity: the exact normal at the sphere pole is degenerate.

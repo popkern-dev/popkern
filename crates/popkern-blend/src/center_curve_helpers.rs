@@ -305,6 +305,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: popkern_core::geometry::Vec3::Z,
         };
         let pt = Point3::new(3.0, 0.0, 0.0);
         let proj = project_onto_surface(

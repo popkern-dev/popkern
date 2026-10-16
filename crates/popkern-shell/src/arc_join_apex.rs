@@ -292,6 +292,7 @@ fn construct_one_apex_cap(
     let sphere = SurfaceGeometry::Sphere {
         center: *orig_apex,
         radius: d,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let orientation = cap_orientation(skin, tip_face, &sphere).unwrap_or(true);
     skin.faces[tip_face].surface = Some(SurfaceOnFace {

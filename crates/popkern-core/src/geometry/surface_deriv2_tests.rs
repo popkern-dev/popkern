@@ -29,6 +29,7 @@ fn sphere_second_partial_uu_at_equator() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let suu = sphere.second_partial_uu(0.0, FRAC_PI_2);
     assert!((suu.x - (-1.0)).abs() < 1e-8, "suu.x = {}", suu.x);
@@ -43,6 +44,7 @@ fn sphere_second_partial_vv_at_equator() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let svv = sphere.second_partial_vv(0.0, FRAC_PI_2);
     assert!((svv.x - (-1.0)).abs() < 1e-8, "svv.x = {}", svv.x);
@@ -57,6 +59,7 @@ fn sphere_second_partial_uv_at_equator() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let suv = sphere.second_partial_uv(0.0, FRAC_PI_2);
     assert!(
@@ -137,6 +140,7 @@ fn sphere_closest_point() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // Point in +x +y +z octant: well-conditioned (away from poles)
     let pt = Point3::new(3.0, 3.0, 3.0);
@@ -200,6 +204,7 @@ fn sphere_bounding_box_quadrant() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // First octant of sphere: u in [0, PI/2], v in [0, PI/2]
     let bbox = sphere.bounding_box((0.0, FRAC_PI_2), (0.0, FRAC_PI_2));

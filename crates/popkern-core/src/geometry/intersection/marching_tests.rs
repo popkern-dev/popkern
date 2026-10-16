@@ -238,6 +238,7 @@ fn estimate_normal_at_sphere_pole() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // At v=0 (north pole) the exact normal is degenerate; sample slightly off-pole.
     let n = super::estimate_normal_near_singularity(&sphere, 0.0, 0.01, 0.1);
@@ -259,6 +260,7 @@ fn sphere_plane_through_pole() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.5, 0.0, 0.0),
@@ -303,10 +305,12 @@ fn tangent_spheres_detected() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(2.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let tol = Tolerance::default().with_linear(1e-3);
 
@@ -379,6 +383,7 @@ fn find_tangent_march_direction_returns_unit_vec() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     // Plane with normal (1, 0, 0) — tangent to the sphere at (1, 0, 0).
     let plane = SurfaceGeometry::Plane {

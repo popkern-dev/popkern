@@ -21,7 +21,11 @@ fn z_cylinder(radius: f64) -> SurfaceGeometry {
 }
 
 fn sphere(center: Point3, radius: f64) -> SurfaceGeometry {
-    SurfaceGeometry::Sphere { center, radius }
+    SurfaceGeometry::Sphere {
+        center,
+        radius,
+        axis: crate::geometry::Vec3::Z,
+    }
 }
 
 fn must_some<T>(opt: Option<T>, msg: &str) -> T {

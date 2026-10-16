@@ -184,6 +184,7 @@ fn non_planar_face_is_skipped_during_split() {
         geometry: SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: popkern_core::geometry::Vec3::Z,
         },
         orientation: true,
     });

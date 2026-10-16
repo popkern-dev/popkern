@@ -138,7 +138,7 @@ fn a_cone_semi_angle_reads_in_the_file_angle_unit() {
 #[test]
 fn resolve_spherical_surface() {
     match resolve_surf("SPHERICAL_SURFACE", vec![s(""), er(4), r(10.0)]) {
-        SurfaceGeometry::Sphere { center, radius } => {
+        SurfaceGeometry::Sphere { center, radius, .. } => {
             assert!((center.x - 1.0).abs() < 1e-10);
             assert!((radius - 10.0).abs() < 1e-10);
         }

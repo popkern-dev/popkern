@@ -44,6 +44,13 @@ pub(super) fn try_dispatch_trig(
     tol: &Tolerance,
 ) -> Option<Result<EdgeTriple, EdgeTripleError>> {
     use SurfaceGeometry::*;
+    if !(sphere_chart_is_world(surf_a) && sphere_chart_is_world(surf_b)) {
+        // The trig-pair sphere solvers write pcurves in the world-+Z
+        // chart; a sphere whose pole turned with its material falls
+        // through to the NURBS-via-intersect_surfaces path, which
+        // reads the chart through the surface evaluators.
+        return None;
+    }
     match (surf_a, surf_b) {
         (
             Plane {
@@ -78,10 +85,10 @@ pub(super) fn try_dispatch_trig(
                 u_axis: pu,
                 v_axis: pv,
             },
-            Sphere { center, radius },
+            Sphere { center, radius, .. },
         ) => try_plane_sphere_pair(*po, *pn, *pu, *pv, false, *center, *radius, anchors, tol),
         (
-            Sphere { center, radius },
+            Sphere { center, radius, .. },
             Plane {
                 origin: po,
                 normal: pn,
@@ -141,10 +148,12 @@ pub(super) fn try_dispatch_trig(
             Sphere {
                 center: ca,
                 radius: ra,
+                ..
             },
             Sphere {
                 center: cb,
                 radius: rb,
+                ..
             },
         ) => try_sphere_sphere_polar(*ca, *ra, *cb, *rb, anchors, tol)
             .or_else(|| try_sphere_sphere_general(*ca, *ra, *cb, *rb, anchors, tol)),
@@ -154,11 +163,11 @@ pub(super) fn try_dispatch_trig(
                 axis: ca,
                 radius: cr,
             },
-            Sphere { center, radius },
+            Sphere { center, radius, .. },
         ) => try_cyl_sphere_axial(*co, *ca, *cr, false, *center, *radius, anchors, hint, tol)
             .or_else(|| try_tangent_pair(surf_a, surf_b, anchors, tol)),
         (
-            Sphere { center, radius },
+            Sphere { center, radius, .. },
             Cylinder {
                 origin: co,
                 axis: ca,
@@ -274,7 +283,7 @@ pub(super) fn try_dispatch_trig(
             .or_else(|| try_levin_pair_nested(surf_a, surf_b, anchors, tol))
             .or_else(|| try_rank3_cone_fiber(surf_a, surf_b, anchors, tol)),
         (
-            Sphere { center, radius },
+            Sphere { center, radius, .. },
             Cone {
                 apex,
                 axis,
@@ -308,7 +317,7 @@ pub(super) fn try_dispatch_trig(
                 axis,
                 half_angle,
             },
-            Sphere { center, radius },
+            Sphere { center, radius, .. },
         ) => try_sphere_cone_axial(
             *center,
             *radius,
@@ -348,7 +357,7 @@ pub(super) fn try_dispatch_trig(
             .or_else(|| try_levin_pair_nested(surf_a, surf_b, anchors, tol))
             .or_else(|| try_rank3_cone_fiber(surf_a, surf_b, anchors, tol)),
         (
-            Sphere { center, radius },
+            Sphere { center, radius, .. },
             Torus {
                 center: tc,
                 axis: ta,
@@ -365,7 +374,7 @@ pub(super) fn try_dispatch_trig(
                 major_radius: tor_big,
                 minor_radius: tor_small,
             },
-            Sphere { center, radius },
+            Sphere { center, radius, .. },
         ) => try_sphere_torus_pair(
             *center, *radius, true, *tc, *ta, *tor_big, *tor_small, anchors, tol,
         ),
@@ -464,5 +473,14 @@ pub(super) fn try_dispatch_trig(
             *ca_t, *aa_t, *big_a, *small_a, *cb_t, *ab_t, *big_b, *small_b, anchors, tol,
         ),
         _ => None,
+    }
+}
+
+/// Whether `surface` is not a sphere, or a sphere whose chart pole is
+/// world +Z (the frame the trig-pair sphere solvers write pcurves in).
+pub(super) fn sphere_chart_is_world(surface: &SurfaceGeometry) -> bool {
+    match surface {
+        SurfaceGeometry::Sphere { axis, .. } => *axis == crate::geometry::Vec3::Z,
+        _ => true,
     }
 }

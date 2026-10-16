@@ -79,6 +79,11 @@ pub use super::surface_helpers::{
 };
 use super::surface_helpers::{crop_nurbs_surface_to_range, sample_to_nurbs};
 
+/// The pole direction of a sphere stored without one (world +Z).
+fn sphere_default_axis() -> Vec3 {
+    Vec3::Z
+}
+
 /// Geometric surface types.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SurfaceGeometry {
@@ -112,11 +117,23 @@ pub enum SurfaceGeometry {
         half_angle: f64,
     },
     /// A sphere.
+    ///
+    /// Chart: u is longitude about `axis` from the first vector of
+    /// `orthonormal_basis(axis)`, v is colatitude from `axis` (the
+    /// pole at v = 0 is `center + axis * radius`). The axis lets the
+    /// chart turn with the material, as cylinder, cone and torus
+    /// charts do: a world-fixed chart put a rotated dome's poles on
+    /// its trims or inside its faces (open display meshes, pcurves
+    /// no continuous chart curve can follow).
     Sphere {
         /// Center of the sphere.
         center: Point3,
         /// Radius of the sphere.
         radius: f64,
+        /// Unit pole direction of the chart; documents written
+        /// before the field existed read as world +Z.
+        #[serde(default = "sphere_default_axis")]
+        axis: Vec3,
     },
     /// A torus.
     Torus {

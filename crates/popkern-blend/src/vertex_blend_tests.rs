@@ -175,7 +175,7 @@ fn vertex_blend_3d_sphere_centre_at_rolling_ball_position() {
         .faces
         .values()
         .find_map(|f| match f.surface.as_ref().map(|s| &s.geometry) {
-            Some(SurfaceGeometry::Sphere { center, radius }) => Some((*center, *radius)),
+            Some(SurfaceGeometry::Sphere { center, radius, .. }) => Some((*center, *radius)),
             _ => None,
         })
         .expect("no sphere face found");

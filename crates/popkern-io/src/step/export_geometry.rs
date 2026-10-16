@@ -232,10 +232,13 @@ impl ExportContext {
                     ],
                 )
             }
-            SurfaceGeometry::Sphere { center, radius } => {
-                let z = Vec3::new(0.0, 0.0, 1.0);
-                let x = Vec3::new(1.0, 0.0, 0.0);
-                let placement = self.export_placement(center, &z, &x);
+            SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis,
+            } => {
+                // ref_direction = the chart's u origin, as for tori.
+                let placement = self.export_placement(center, axis, &compute_perpendicular(axis));
                 self.emit(
                     "SPHERICAL_SURFACE",
                     vec![str_param(""), ref_(placement), real(*radius)],
@@ -351,6 +354,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: popkern_core::geometry::Vec3::Z,
         };
         let nurbs = NurbsCurve {
             degree: 1,
@@ -484,6 +488,7 @@ mod tests {
             geometry: SurfaceGeometry::Sphere {
                 center: Point3::new(1.0, 2.0, 3.0),
                 radius: 4.0,
+                axis: popkern_core::geometry::Vec3::Z,
             },
             orientation: true,
         };

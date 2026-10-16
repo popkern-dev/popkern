@@ -119,6 +119,7 @@ fn live_three_face_tangency_accepts_analytic_sphere_support() {
     cube.faces[face].surface.as_mut().expect("surface").geometry = SurfaceGeometry::Sphere {
         center,
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     assert_three_face_ready(&cube, vertex, 10_000_000);
 }
@@ -209,6 +210,7 @@ fn live_three_face_tangency_accepts_sphere_cylinder_plane_supports() {
         .geometry = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     cube.faces[faces[1]]
         .surface
@@ -239,6 +241,7 @@ fn live_three_face_tangency_accepts_sphere_cone_plane_supports() {
         .geometry = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     cube.faces[faces[1]]
         .surface
@@ -294,6 +297,7 @@ fn live_three_face_tangency_accepts_sphere_cylinder_cone_supports() {
         .geometry = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     cube.faces[faces[1]]
         .surface

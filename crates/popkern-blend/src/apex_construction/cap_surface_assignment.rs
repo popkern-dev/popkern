@@ -55,7 +55,11 @@ pub(super) fn assign_sphere_cap_surface(
             if popkern_core::trace::trace_enabled("sphere-fit") {
                 eprintln!("[corner-method] apex-sphere r={radius:.3}");
             }
-            SurfaceGeometry::Sphere { center, radius }
+            SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis: popkern_core::geometry::Vec3::Z,
+            }
         },
         orientation: true,
     });

@@ -264,6 +264,7 @@ mod tests {
             geometry: SurfaceGeometry::Sphere {
                 center: Point3::new(0.5, 0.5, 0.5),
                 radius: 1.0,
+                axis: crate::geometry::Vec3::Z,
             },
             orientation: true,
         });
@@ -320,6 +321,7 @@ mod tests {
             geometry: SurfaceGeometry::Sphere {
                 center: Point3::new(0.0, 0.0, 0.0),
                 radius: 1.0,
+                axis: crate::geometry::Vec3::Z,
             },
             orientation: true,
         });

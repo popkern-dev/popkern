@@ -126,6 +126,7 @@ fn sphere_has_no_internal_discontinuities_with_wide_tolerance() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let tol = Tolerance::default().with_angular(1.0);
     let records = internal_discontinuities(&sphere, ContinuityLevel::G1, &tol, 20);

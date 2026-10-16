@@ -128,6 +128,7 @@ fn newton_plane_sphere_converges_outside() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 1.0),
         radius: 2.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 0.0),
@@ -172,6 +173,7 @@ fn newton_plane_sphere_converges_inside_cap() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 1.0),
         radius: 2.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 0.0),

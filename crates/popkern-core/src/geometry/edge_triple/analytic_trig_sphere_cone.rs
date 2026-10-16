@@ -165,6 +165,7 @@ pub(super) fn try_sphere_cone_axial(
     let sphere_surf = SurfaceGeometry::Sphere {
         center: sphere_center,
         radius: sphere_radius,
+        axis: crate::geometry::Vec3::Z,
     };
     let cone_surf = SurfaceGeometry::Cone {
         apex: cone_apex,

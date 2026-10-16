@@ -82,7 +82,7 @@ fn rounded_cap_produces_sphere_at_ball_center() {
     assert_eq!(cap.kind, CapKind::Rounded);
 
     match cap.surface.as_ref().unwrap() {
-        SurfaceGeometry::Sphere { center, radius } => {
+        SurfaceGeometry::Sphere { center, radius, .. } => {
             // Centre == rolling-ball centre.
             assert!((center.x - r).abs() < 1e-12);
             assert!((center.y - 0.5).abs() < 1e-12);

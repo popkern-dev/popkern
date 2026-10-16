@@ -58,7 +58,7 @@ pub(crate) fn project_to_analytic_surface(surface: &SurfaceGeometry, p: &Point3)
             }
             Some(*apex + a * (s * cos_a) + radial_n * (s * sin_a))
         }
-        SurfaceGeometry::Sphere { center, radius } => {
+        SurfaceGeometry::Sphere { center, radius, .. } => {
             let rel_n = (*p - *center).normalized()?;
             Some(*center + rel_n * *radius)
         }
@@ -119,7 +119,7 @@ pub(crate) fn analytic_residual(surface: &SurfaceGeometry, p: &Point3) -> Option
                 Some((r * cos_a - t * sin_a).abs())
             }
         }
-        SurfaceGeometry::Sphere { center, radius } => {
+        SurfaceGeometry::Sphere { center, radius, .. } => {
             Some(((*p - *center).length() - radius).abs())
         }
         SurfaceGeometry::Torus {

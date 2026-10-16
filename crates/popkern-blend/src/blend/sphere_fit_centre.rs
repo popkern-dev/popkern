@@ -333,6 +333,7 @@ mod tests {
         let sph = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 0.1,
+            axis: popkern_core::geometry::Vec3::Z,
         };
         assert_eq!(fillet_nominal_radius(&sph), None);
     }

@@ -160,6 +160,7 @@ fn extract_radius_matches_cylinder_torus_sphere() {
     let sph = fs_with(SurfaceGeometry::Sphere {
         center: pt(0.0, 0.0, 0.0),
         radius: 0.7,
+        axis: popkern_core::geometry::Vec3::Z,
     });
     assert!((extract_fillet_radius(&sph).unwrap() - 0.7).abs() < 1e-15);
 }

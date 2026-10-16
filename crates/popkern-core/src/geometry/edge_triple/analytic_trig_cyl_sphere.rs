@@ -161,6 +161,7 @@ pub(super) fn try_cyl_sphere_axial(
     let sphere_surf = SurfaceGeometry::Sphere {
         center: sphere_center,
         radius: sphere_radius,
+        axis: crate::geometry::Vec3::Z,
     };
 
     let (pcurve_a, pcurve_b, surf_a, surf_b) = if sphere_is_a {

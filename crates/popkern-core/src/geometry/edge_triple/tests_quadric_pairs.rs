@@ -172,6 +172,7 @@ fn sphere_cone_non_axial_quartic_curve() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 0.0, 0.0),
         radius: 2.0_f64.sqrt(),
+        axis: crate::geometry::Vec3::Z,
     };
     let tol = Tolerance::default();
     let opts = EdgeTripleOptions::default();
@@ -288,6 +289,7 @@ fn cyl_sphere_axial_analytic_circle() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0_f64.sqrt(),
+        axis: crate::geometry::Vec3::Z,
     };
     let tol = Tolerance::default();
     let opts = EdgeTripleOptions::default();

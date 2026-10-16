@@ -229,6 +229,7 @@ pub(super) fn try_sphere_torus_axial(
     let sphere_surf = SurfaceGeometry::Sphere {
         center: sphere_center,
         radius: sphere_radius,
+        axis: crate::geometry::Vec3::Z,
     };
     let torus_surf = SurfaceGeometry::Torus {
         center: torus_center,

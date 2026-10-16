@@ -16,6 +16,7 @@ fn unit_sphere() -> SurfaceGeometry {
     SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     }
 }
 
@@ -234,6 +235,7 @@ fn plane_sphere_samples_on_both_surfaces() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let tol = test_tolerance();
 

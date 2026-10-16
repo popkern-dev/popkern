@@ -277,6 +277,7 @@ pub(crate) fn try_circular_center_torus(
                 SurfaceGeometry::Sphere {
                     center: sphere_center,
                     radius: r_sphere,
+                    ..
                 } => {
                     let h = (*sphere_center - q).dot(&plane_normal_n);
                     let rr = r_sphere + s_curved * radius;

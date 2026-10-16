@@ -109,10 +109,13 @@ impl<'a> GeometryCache<'a> {
                 return None;
             }
         };
-        let (origin, _axis, _x) = self.resolve_placement(sph.position, log)?;
+        // The placement's axis is the chart pole: dropping it put a
+        // tilted sphere's poles on or inside its trimmed faces.
+        let (origin, axis, _x) = self.resolve_placement(sph.position, log)?;
         Some(SurfaceGeometry::Sphere {
             center: origin,
             radius: sph.radius,
+            axis,
         })
     }
 

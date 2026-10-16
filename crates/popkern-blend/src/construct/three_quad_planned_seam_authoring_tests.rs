@@ -7,6 +7,7 @@ fn sphere_plane_intersection_triple_validates_for_non_tangent_plane() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 0.0),
@@ -41,6 +42,7 @@ fn sphere_plane_intersection_triple_declines_tangent_plane() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let plane = SurfaceGeometry::Plane {
         origin: Point3::new(0.0, 0.0, 1.0),

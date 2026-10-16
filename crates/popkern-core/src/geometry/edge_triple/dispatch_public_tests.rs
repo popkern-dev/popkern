@@ -143,6 +143,7 @@ fn coincident_unit_spheres_short_circuit() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let anchors = EdgeAnchors::Open {
         start: Point3::new(1.0, 0.0, 0.0),
@@ -163,6 +164,7 @@ fn cyl_inscribed_sphere_returns_unit_equator_circle() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let anchors = EdgeAnchors::Open {
         start: Point3::new(1.0, 0.0, 0.0),
@@ -227,6 +229,7 @@ fn all_branches_returns_single_element_vec_on_tangent() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let anchors = EdgeAnchors::Open {
         start: Point3::new(1.0, 0.0, 0.0),

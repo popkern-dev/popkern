@@ -18,6 +18,7 @@
 //! is deferred to stage 2b.35.
 
 use super::decompose::{DegenerateShape, classify_degenerate, plane_to_surface};
+pub(super) use super::dispatch_nested::{matrix_max_abs, provenance_kind};
 use super::pencil::find_degenerate_fiber;
 use super::quadric::surface_to_quadric;
 use crate::geometry::Point3;
@@ -33,7 +34,7 @@ use crate::geometry::edge_triple::analytic_trig_plane_sphere_general::try_plane_
 use crate::geometry::edge_triple::error::EdgeTripleError;
 use crate::geometry::edge_triple::inputs::EdgeAnchors;
 use crate::geometry::edge_triple::types::{
-    AnalyticPair, BranchSelector, EdgeTriple, EdgeTripleProvenance, EdgeTripleQuality, ParameterMap,
+    BranchSelector, EdgeTriple, EdgeTripleProvenance, EdgeTripleQuality, ParameterMap,
 };
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
@@ -238,7 +239,13 @@ pub(super) fn intersect_plane_with_target(
                 p_o, p_n, p_u, p_v, true, *origin, *axis, *radius, anchors, tol,
             )
         }),
-        SurfaceGeometry::Sphere { center, radius } => {
+        SurfaceGeometry::Sphere {
+            center,
+            radius,
+            axis,
+        } if *axis == crate::geometry::Vec3::Z => {
+            // World-pole charts only: the plane × sphere solvers
+            // write their pcurves in the world-+Z chart.
             try_plane_sphere_polar(p_o, p_n, p_u, p_v, true, *center, *radius, anchors, tol)
                 .or_else(|| {
                     try_plane_sphere_general(
@@ -463,37 +470,4 @@ pub(super) fn classify_branch_kind(
     Some(crate::geometry::edge_triple::types::BranchKind::from_curve(
         &triple.curve_3d,
     ))
-}
-
-pub(super) fn matrix_max_abs(m: &[[f64; 4]; 4]) -> f64 {
-    let mut max = 0.0_f64;
-    for row in m.iter() {
-        for &v in row {
-            max = max.max(v.abs());
-        }
-    }
-    max
-}
-
-pub(super) fn provenance_kind(a: &SurfaceGeometry, b: &SurfaceGeometry) -> AnalyticPair {
-    use SurfaceGeometry::*;
-    match (a, b) {
-        (Cylinder { .. }, Cylinder { .. }) => AnalyticPair::CylinderCylinder,
-        (Cone { .. }, Cone { .. }) => AnalyticPair::ConeCone,
-        (Cylinder { .. }, Cone { .. }) | (Cone { .. }, Cylinder { .. }) => {
-            AnalyticPair::CylinderCone
-        }
-        (Cylinder { .. }, Sphere { .. }) | (Sphere { .. }, Cylinder { .. }) => {
-            AnalyticPair::CylinderSphere
-        }
-        (Cone { .. }, Sphere { .. }) | (Sphere { .. }, Cone { .. }) => AnalyticPair::SphereCone,
-        (Sphere { .. }, Sphere { .. }) => AnalyticPair::SphereSphere,
-        (Plane { .. }, Cylinder { .. }) | (Cylinder { .. }, Plane { .. }) => {
-            AnalyticPair::PlaneCylinder
-        }
-        (Plane { .. }, Sphere { .. }) | (Sphere { .. }, Plane { .. }) => AnalyticPair::PlaneSphere,
-        (Plane { .. }, Cone { .. }) | (Cone { .. }, Plane { .. }) => AnalyticPair::PlaneCone,
-        (Plane { .. }, Plane { .. }) => AnalyticPair::PlanePlane,
-        _ => AnalyticPair::CylinderCylinder, // shouldn't reach for non-quadric inputs
-    }
 }

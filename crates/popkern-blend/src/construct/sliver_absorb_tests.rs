@@ -271,10 +271,12 @@ fn surfaces_equal_recognises_identical_spheres() {
     let s1 = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 2.0, 3.0),
         radius: 0.5,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let s2 = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 2.0, 3.0),
         radius: 0.5,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     assert!(surfaces_equal(&s1, &s2, &tol()));
 }
@@ -290,6 +292,7 @@ fn surfaces_equal_rejects_mismatched_surface_types() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     assert!(!surfaces_equal(&plane, &sphere, &tol()));
 }

@@ -67,6 +67,7 @@ fn sphere_south_pole_projects_to_v_pi() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let (_, v) =
         project_point_to_uv(&surface, &Point3::new(0.0, 0.0, -1.0)).expect("sphere should project");
@@ -78,6 +79,7 @@ fn sphere_equator_x_positive() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let (u, v) =
         project_point_to_uv(&surface, &Point3::new(1.0, 0.0, 0.0)).expect("sphere should project");
@@ -90,6 +92,7 @@ fn sphere_near_pole_does_not_panic() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let (_, v) = project_point_to_uv(&surface, &Point3::new(1e-14, 1e-14, 1.0))
         .expect("near-pole should project");
@@ -222,6 +225,7 @@ fn tight_bounded_range_sphere_tighter_than_native() {
     let surface = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let vertices = vec![
         Point3::new(1.0, 0.0, 0.0),

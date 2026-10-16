@@ -77,6 +77,7 @@ fn isophotes_on_sphere_produces_crossings() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let light = Vec3::new(0.0, 0.0, 1.0);
     let levels = vec![0.0, 0.5];
@@ -142,6 +143,7 @@ fn zebra_stripes_on_sphere_have_variation() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let view_dir = Vec3::new(0.0, 0.0, 1.0);
     let stripe_dir = Vec3::new(1.0, 0.0, 0.0);
@@ -215,6 +217,7 @@ fn reflection_lines_on_sphere_produces_lines() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let view_dir = Vec3::new(0.0, 0.0, 1.0);
     let stripe_dir = Vec3::new(1.0, 0.0, 0.0);
@@ -243,6 +246,7 @@ fn highlight_lines_on_sphere_produces_contours() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let light = Vec3::new(0.0, 0.0, 1.0);
     let view = Vec3::new(0.0, 0.0, 1.0);

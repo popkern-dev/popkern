@@ -199,6 +199,7 @@ fn weingarten_on_unit_sphere_radial() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: popkern_core::geometry::Vec3::Z,
     };
     let u = 1.0;
     let v = PI / 3.0;

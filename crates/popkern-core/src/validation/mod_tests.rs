@@ -144,6 +144,7 @@ fn validate_all_hits_all_check_branches() {
         geometry: SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 0.0,
+            axis: crate::geometry::Vec3::Z,
         },
         orientation: true,
     });
@@ -304,6 +305,7 @@ fn validate_all_collects_degenerate_surface_error() {
         geometry: SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 0.0,
+            axis: crate::geometry::Vec3::Z,
         },
         orientation: true,
     });

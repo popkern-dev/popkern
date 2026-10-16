@@ -35,6 +35,7 @@ fn sphere_at_origin(radius: f64) -> SurfaceGeometry {
     SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius,
+        axis: popkern_core::geometry::Vec3::Z,
     }
 }
 

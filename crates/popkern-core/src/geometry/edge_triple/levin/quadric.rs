@@ -74,7 +74,7 @@ pub(crate) fn surface_to_quadric(surf: &SurfaceGeometry) -> Option<Mat4Sym> {
             u_axis: _,
             v_axis: _,
         } => Some(plane_quadric(*origin, *normal)),
-        SurfaceGeometry::Sphere { center, radius } => Some(sphere_quadric(*center, *radius)),
+        SurfaceGeometry::Sphere { center, radius, .. } => Some(sphere_quadric(*center, *radius)),
         SurfaceGeometry::Cylinder {
             origin,
             axis,

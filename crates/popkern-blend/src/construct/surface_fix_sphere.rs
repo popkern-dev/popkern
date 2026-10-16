@@ -163,6 +163,7 @@ pub(super) fn try_sphere_for_corner(
         geometry: SurfaceGeometry::Sphere {
             center: popkern_core::geometry::Point3::new(sx, sy, sz),
             radius: avg_radius,
+            axis: popkern_core::geometry::Vec3::Z,
         },
         orientation: true,
     })

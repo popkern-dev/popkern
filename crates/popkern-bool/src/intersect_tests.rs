@@ -170,6 +170,7 @@ fn face_aabb_sphere_surface_samples_grid() {
             geometry: SurfaceGeometry::Sphere {
                 center: Point3::new(0.0, 0.0, 0.0),
                 radius: 1.0,
+                axis: popkern_core::geometry::Vec3::Z,
             },
             orientation: true,
         }),

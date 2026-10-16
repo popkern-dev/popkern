@@ -69,6 +69,7 @@ fn detect_sphere_from_analytical() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 3.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let result = detect_analytical_form(&sphere, ((0.2, 2.0), (0.5, 2.5)), 1e-6);
     assert!(result.is_some(), "should detect sphere");
@@ -91,6 +92,7 @@ fn detect_sphere_from_nurbs() {
     let sphere = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 2.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let nurbs = SurfaceGeometry::Nurbs(sphere.to_nurbs_in_range((0.2, 2.0), (0.5, 2.5)));
     let param_range = nurbs.parameter_range();

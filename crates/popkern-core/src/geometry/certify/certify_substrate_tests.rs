@@ -189,6 +189,7 @@ fn test_surfaces() -> Vec<SurfaceCase> {
             SurfaceGeometry::Sphere {
                 center: Point3::new(1.0, 1.0, 1.0),
                 radius: 1.7,
+                axis: crate::geometry::Vec3::Z,
             },
             (-3.0, 3.0),
             (0.1, 3.0),

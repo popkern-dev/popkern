@@ -12,7 +12,9 @@ use super::rational::{Mat4SymRat, Rat};
 pub(crate) fn surface_to_quadric_rat(surf: &SurfaceGeometry) -> Option<Mat4SymRat> {
     match surf {
         SurfaceGeometry::Plane { origin, normal, .. } => Some(plane_quadric_rat(*origin, *normal)?),
-        SurfaceGeometry::Sphere { center, radius } => Some(sphere_quadric_rat(*center, *radius)?),
+        SurfaceGeometry::Sphere { center, radius, .. } => {
+            Some(sphere_quadric_rat(*center, *radius)?)
+        }
         SurfaceGeometry::Cylinder {
             origin,
             axis,

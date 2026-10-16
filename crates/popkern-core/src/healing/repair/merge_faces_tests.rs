@@ -273,10 +273,12 @@ fn surface_types_compatible_all_same_types() {
     let sphere_a = SurfaceGeometry::Sphere {
         center: Point3::new(0.0, 0.0, 0.0),
         radius: 1.0,
+        axis: crate::geometry::Vec3::Z,
     };
     let sphere_b = SurfaceGeometry::Sphere {
         center: Point3::new(1.0, 0.0, 0.0),
         radius: 2.0,
+        axis: crate::geometry::Vec3::Z,
     };
     assert!(surface_types_compatible(&sphere_a, &sphere_b));
 

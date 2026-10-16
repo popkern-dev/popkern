@@ -41,13 +41,30 @@ pub(crate) fn try_plane_sphere(
                 u_axis,
                 v_axis,
             },
-            SurfaceGeometry::Sphere { center, radius },
+            SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis,
+            },
         ) => Some(intersect_plane_sphere(
-            *origin, *normal, *u_axis, *v_axis, u1_range, v1_range, *center, *radius, u2_range,
-            v2_range, tolerance, false,
+            *origin,
+            *normal,
+            *u_axis,
+            *v_axis,
+            u1_range,
+            v1_range,
+            (*center, *radius, *axis),
+            u2_range,
+            v2_range,
+            tolerance,
+            false,
         )),
         (
-            SurfaceGeometry::Sphere { center, radius },
+            SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis,
+            },
             SurfaceGeometry::Plane {
                 origin,
                 normal,
@@ -55,8 +72,17 @@ pub(crate) fn try_plane_sphere(
                 v_axis,
             },
         ) => Some(intersect_plane_sphere(
-            *origin, *normal, *u_axis, *v_axis, u2_range, v2_range, *center, *radius, u1_range,
-            v1_range, tolerance, true,
+            *origin,
+            *normal,
+            *u_axis,
+            *v_axis,
+            u2_range,
+            v2_range,
+            (*center, *radius, *axis),
+            u1_range,
+            v1_range,
+            tolerance,
+            true,
         )),
         _ => None,
     }
@@ -74,8 +100,7 @@ fn intersect_plane_sphere(
     plane_v: Vec3,
     plane_u_range: (f64, f64),
     plane_v_range: (f64, f64),
-    sphere_center: Point3,
-    sphere_radius: f64,
+    (sphere_center, sphere_radius, sphere_axis): (Point3, f64, Vec3),
     sphere_u_range: (f64, f64),
     sphere_v_range: (f64, f64),
     tolerance: &Tolerance,
@@ -124,7 +149,11 @@ fn intersect_plane_sphere(
     // co-parameterized even when perpendicular — it only survived
     // because downstream chart embeddings 3D-verify pcurves and fall
     // back to projection.)
-    let curve_uv_sphere = fit_sphere_uv_curve(&curve_3d, sphere_center, sphere_radius, tolerance);
+    let curve_uv_sphere = fit_sphere_uv_curve(
+        &curve_3d,
+        (sphere_center, sphere_radius, sphere_axis),
+        tolerance,
+    );
 
     // Respect the UV ranges — if the circle centre is outside the plane's
     // parameter box, the intersection may not be relevant, but we still
@@ -197,16 +226,16 @@ fn nurbs_ellipse_3d(center: Point3, axis1: Vec3, axis2: Vec3, ra: f64, rb: f64) 
 /// value evaluates back to the pole).
 fn fit_sphere_uv_curve(
     curve_3d: &NurbsCurve,
-    sphere_center: Point3,
-    sphere_radius: f64,
+    (sphere_center, sphere_radius, sphere_axis): (Point3, f64, Vec3),
     tolerance: &Tolerance,
 ) -> NurbsCurve {
+    use crate::geometry::analytic_surfaces::{sphere_to_local, sphere_to_world};
     use crate::geometry::curve::CurveEval;
     use std::f64::consts::TAU;
 
     let gate = tolerance.linear().max(1.0e-9);
     let chart = |p: Point3, prev_u: Option<f64>| -> (f64, f64) {
-        let d = (p - sphere_center) * (1.0 / sphere_radius);
+        let d = sphere_to_local(&sphere_axis, p - sphere_center) * (1.0 / sphere_radius);
         let v = d.z.clamp(-1.0, 1.0).pacos();
         let planar = (d.x * d.x + d.y * d.y).sqrt();
         let mut u = if planar < 1.0e-12 {
@@ -244,10 +273,13 @@ fn fit_sphere_uv_curve(
                 0.5 * (uvs[i].1 + uvs[i + 1].1),
             );
             let on_sphere = sphere_center
-                + Vec3::new(
-                    sphere_radius * v.psin() * u.pcos(),
-                    sphere_radius * v.psin() * u.psin(),
-                    sphere_radius * v.pcos(),
+                + sphere_to_world(
+                    &sphere_axis,
+                    Vec3::new(
+                        sphere_radius * v.psin() * u.pcos(),
+                        sphere_radius * v.psin() * u.psin(),
+                        sphere_radius * v.pcos(),
+                    ),
                 );
             worst = worst.max(on_sphere.distance_to(&curve_3d.point_at(t_mid)));
         }

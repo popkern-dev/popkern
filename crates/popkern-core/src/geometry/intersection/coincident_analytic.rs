@@ -101,10 +101,12 @@ pub fn are_surfaces_coincident_analytic(
             SurfaceGeometry::Sphere {
                 center: c1,
                 radius: r1,
+                ..
             },
             SurfaceGeometry::Sphere {
                 center: c2,
                 radius: r2,
+                ..
             },
         ) => {
             let same_center = c1.distance_to(c2) < tolerance.linear();
@@ -335,6 +337,7 @@ mod tests {
         let sphere = SurfaceGeometry::Sphere {
             center: Point3::new(1.0, 2.0, 3.0),
             radius: 4.0,
+            axis: crate::geometry::Vec3::Z,
         };
         assert!(are_surfaces_coincident_analytic(
             &sphere,
@@ -348,10 +351,12 @@ mod tests {
         let s1 = SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
             radius: 1.0,
+            axis: crate::geometry::Vec3::Z,
         };
         let s2 = SurfaceGeometry::Sphere {
             center: Point3::new(1.0, 0.0, 0.0),
             radius: 1.0,
+            axis: crate::geometry::Vec3::Z,
         };
         assert!(!are_surfaces_coincident_analytic(
             &s1,

@@ -29,6 +29,7 @@ pub(super) fn assign_cap_surface(
                 geometry: SurfaceGeometry::Sphere {
                     center: *center,
                     radius: *radius,
+                    axis: popkern_core::geometry::Vec3::Z,
                 },
                 orientation: true,
             });
