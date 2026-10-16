@@ -98,12 +98,16 @@ fn a_rounded_dodecahedron_takes_rolling_ball_corners() {
         + 3.0 * (25.0 + 10.0 * s5).sqrt() * a * a * RADIUS
         + 30.0 * a * (std::f64::consts::PI - dihedral) / 2.0 * RADIUS * RADIUS
         + 4.0 / 3.0 * std::f64::consts::PI * RADIUS.powi(3);
-    check(
-        &rounded(&normals, "rolling_ball"),
-        20,
-        steiner,
-        "dodecahedron",
+    // PK-864: the carve takes the ball directly (4.7 s here; the KP20
+    // cap it once fitted and threw away took the corner to 15-25 s).
+    let watch = std::time::Instant::now();
+    let brep = rounded(&normals, "rolling_ball");
+    let took = watch.elapsed().as_secs_f64();
+    assert!(
+        took < 10.0,
+        "dodecahedron rolling-ball fillet took {took:.1} s"
     );
+    check(&brep, 20, steiner, "dodecahedron");
 }
 
 /// Cube corners are already the exact ball on every path: the opt-in

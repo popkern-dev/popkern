@@ -26,7 +26,7 @@
 //! the preference is strict.
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFace};
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
@@ -34,11 +34,18 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::types::{BlendResult, ContinuityLevel, CornerMethod, CornerPatchInfo};
 
+#[path = "rolling_ball_rims.rs"]
+mod rims;
+pub(crate) use rims::exact_ball_rims;
+#[path = "rolling_ball_surface.rs"]
+mod surface;
+pub(crate) use surface::{round_sense, set_ball_surface};
+
 /// One corner's ball: centre, radius, the round faces around it.
-struct Ball {
-    center: Point3,
-    radius: f64,
-    rounds: usize,
+pub(crate) struct Ball {
+    pub(crate) center: Point3,
+    pub(crate) radius: f64,
+    pub(crate) rounds: usize,
 }
 
 fn loop_half_edges(brep: &BRep, face: FaceHandle) -> Vec<HalfEdgeHandle> {
@@ -113,8 +120,78 @@ fn axis_distance(p: &Point3, (o, a): &(Point3, Vec3)) -> f64 {
     (d - a * d.dot(&a)).length()
 }
 
+/// Whether the rounds meeting at a corner, `surfaces` (their fillet
+/// surfaces before any corner work), can carry the rolling ball: at
+/// least three round cylinders of one radius whose axes meet at one
+/// centre. The setback rung then carves the corner for the ball and
+/// skips the KP20 cap it would throw away (PK-864); [`corner_ball`]
+/// still checks the carved region before the ball is committed.
+pub(crate) fn rounds_carry_a_ball<'a>(
+    surfaces: impl IntoIterator<Item = &'a SurfaceGeometry>,
+    tol: f64,
+) -> bool {
+    let mut axes = Vec::new();
+    let mut radii = Vec::new();
+    for s in surfaces {
+        let SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } = s
+        else {
+            return false;
+        };
+        axes.push((*origin, *axis));
+        radii.push(*radius);
+    }
+    if axes.len() < 3 {
+        return false;
+    }
+    let radius = radii.iter().sum::<f64>() / radii.len() as f64;
+    let gate = tol.max(1e-7 * radius);
+    if radii.iter().any(|r| (r - radius).abs() > gate) {
+        return false;
+    }
+    nearest_to_axes(&axes).is_some_and(|c| axes.iter().all(|a| axis_distance(&c, a) <= gate))
+}
+
+/// The ball the rounds around `face` (a carved corner) carry: the
+/// centre their axes meet at and their common radius, or `None` when
+/// they are not rounds of one radius with concurrent axes.
+pub(crate) fn rounds_ball(brep: &BRep, face: FaceHandle, tol: f64) -> Option<(Point3, f64)> {
+    let mut seen = BTreeSet::new();
+    let mut surfaces = Vec::new();
+    for he in loop_half_edges(brep, face) {
+        let other = face_of(brep, brep.half_edges.get(he)?.twin)?;
+        if seen.insert(other) {
+            surfaces.push(&brep.faces.get(other)?.surface.as_ref()?.geometry);
+        }
+    }
+    if !rounds_carry_a_ball(surfaces.iter().copied(), tol) {
+        return None;
+    }
+    let mut axes = Vec::new();
+    let mut radius = 0.0;
+    for s in &surfaces {
+        if let SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius: r,
+        } = s
+        {
+            axes.push((*origin, *axis));
+            radius += r / surfaces.len() as f64;
+        }
+    }
+    Some((nearest_to_axes(&axes)?, radius))
+}
+
 /// The ball of a corner whose cap is `cap`, or why there is none.
-fn corner_ball(brep: &BRep, cap: &BTreeSet<FaceHandle>, tol: f64) -> Result<Ball, String> {
+pub(crate) fn corner_ball(
+    brep: &BRep,
+    cap: &BTreeSet<FaceHandle>,
+    tol: f64,
+) -> Result<Ball, String> {
     let mut rounds: BTreeMap<FaceHandle, (Point3, Vec3, f64)> = BTreeMap::new();
     let mut boundary = Vec::new();
     for &face in cap {
@@ -307,26 +384,7 @@ pub(crate) fn settle_rolling_ball_corners(
         };
         let mut staged = result.brep.clone();
         let face = merge_cap(&mut staged, &cap).map_err(|why| (vertex, why))?;
-        let sphere = SurfaceGeometry::Sphere {
-            center: ball.center,
-            radius: ball.radius,
-            axis: Vec3::Z,
-        };
-        let chart_outward = sphere
-            .closest_point(&probe)
-            .map(|(u, v)| sphere.normal_at(u, v).dot(&(probe - ball.center)) > 0.0)
-            .unwrap_or(true);
-        staged.faces[face].surface = Some(SurfaceOnFace {
-            geometry: sphere,
-            orientation: chart_outward == outward_from_center,
-        });
-        for he in loop_half_edges(&staged, face) {
-            if let Some(h) = staged.half_edges.get_mut(he) {
-                h.pcurve = None;
-            }
-        }
-        staged.face_use_pcurves.retain(|key, _| key.face != face);
-        staged.recompute_pcurves_for_lenient(&[face]);
+        set_ball_surface(&mut staged, face, &ball, probe, outward_from_center);
         if let Err(e) = staged.validate() {
             if strict {
                 return Err((vertex, format!("the ball corner fails validation: {e}")));

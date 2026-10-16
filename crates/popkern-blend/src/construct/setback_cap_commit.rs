@@ -62,6 +62,41 @@ pub(super) fn commit_cap(
             }
             Err(CapCommitError::from(first))
         }
+        SetbackCapStrategy::RollingBall => {
+            // The carved region must be the ball's triangle: rounds of one
+            // radius around it, its boundary on the ball (the same check
+            // the after-the-fact replacement makes on a served cap).
+            let cap: std::collections::BTreeSet<FaceHandle> = [blend_face].into_iter().collect();
+            let tol = tolerance.linear().max(1e-9);
+            let (center, radius) = crate::rolling_ball_corner::rounds_ball(brep, blend_face, tol)
+                .ok_or_else(|| {
+                CapCommitError::from("the carved corner's rounds carry no ball".to_string())
+            })?;
+            // The carve's rims are coarse cubics: the exact cross-section
+            // arcs replace them, then the ball check runs on the result.
+            let touched = crate::rolling_ball_corner::exact_ball_rims(
+                brep,
+                blend_face,
+                center,
+                radius,
+                (100.0 * tol).max(1e-5 * radius),
+            )
+            .map_err(|why| {
+                CapCommitError::from(format!("the carved corner is not the rolling ball: {why}"))
+            })?;
+            let ball = crate::rolling_ball_corner::corner_ball(brep, &cap, tol).map_err(|why| {
+                CapCommitError::from(format!("the carved corner is not the rolling ball: {why}"))
+            })?;
+            // The ball bulges where the rounds do: outward from its centre
+            // when the round faces point away from their axes.
+            let (probe, outward) = crate::rolling_ball_corner::round_sense(brep, blend_face)
+                .ok_or_else(|| {
+                    CapCommitError::from("the carved corner has no round neighbour".to_string())
+                })?;
+            crate::rolling_ball_corner::set_ball_surface(brep, blend_face, &ball, probe, outward);
+            brep.recompute_pcurves_for_lenient(&touched);
+            Ok((vec![blend_face], None))
+        }
         SetbackCapStrategy::VariationalFit {
             mode,
             r_min,

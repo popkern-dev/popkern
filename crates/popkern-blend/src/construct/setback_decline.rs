@@ -119,6 +119,10 @@ pub(crate) enum SetbackCapStrategy {
     /// The KP20 fan. Its seam-G2 verdict is read by the rung after the
     /// commit (`setback_fan_commit::fan_seam_g2_failure`).
     Kp20,
+    /// The exact rolling ball (PK-864): the carved region, verified to be
+    /// the ball's spherical triangle, takes the sphere directly — no KP20
+    /// cap is fitted only to be replaced.
+    RollingBall,
     /// The variational fit in `mode`; `r_min` (the corner's smallest
     /// fillet radius) scales the fairness bound its layout refit keys on.
     VariationalFit {

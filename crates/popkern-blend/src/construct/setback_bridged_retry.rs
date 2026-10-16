@@ -80,7 +80,10 @@ pub(super) fn with_bridged_retry(
             result => return result,
         }
     };
-    if strategy == SetbackCapStrategy::Kp20 {
+    if matches!(
+        strategy,
+        SetbackCapStrategy::Kp20 | SetbackCapStrategy::RollingBall
+    ) {
         return Err(bridged_decline(
             overrun,
             SetbackDecline {

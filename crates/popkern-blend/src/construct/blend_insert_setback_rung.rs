@@ -29,6 +29,9 @@ use crate::construct::blend_insert_setback_user as user;
 /// or hard-errored), `None` to fall through to the vertex-blend corner
 /// machinery; `diagnostics` carry the variational-fit record whenever
 /// the fit ran, served or not.
+#[path = "blend_insert_setback_ball.rs"]
+mod ball;
+
 pub(super) type SetbackRungOutcome = (
     Option<Result<InsertVertexBlendOutput, String>>,
     Vec<ApexConstructionDiagnostic>,
@@ -137,6 +140,10 @@ pub(super) fn try_setback_rung(
         r_min,
         stations: user.map_or(&[], |u| u.stations.as_slice()),
     };
+    // PK-864: the rolling ball, without the KP20 cap it would replace.
+    if let Some(served) = rung.ball_if_carried(brep, corner_cap, user.is_some()) {
+        return (Some(Ok(served)), Vec::new());
+    }
     let strict = corner_cap.declines_when_unavailable() || user.is_some();
     let fitted_first = corner_cap.construction == CornerConstruction::Fitted || user.is_some();
     let try_kp20 = !(strict && fitted_first);
