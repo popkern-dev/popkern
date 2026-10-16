@@ -136,6 +136,12 @@ pub enum CornerConstruction {
     /// Skip the setback rung: the classic vertex-blend paths (direct
     /// apex, boundary ring, exact-boundary ring, Gregory, mitre).
     Classic,
+    /// The exact rolling-ball sphere (G1 to every round) where three
+    /// rounds of one radius meet on planar supports: the setback cap
+    /// is built, then replaced by the ball's spherical triangle
+    /// (PK-861). Other corners keep the setback cap, or decline when
+    /// strict.
+    RollingBall,
 }
 
 /// The corner construction preference of a fillet (PK-603).
@@ -151,13 +157,15 @@ pub struct CornerCapPreference {
 }
 
 impl CornerConstruction {
-    /// The scripting spelling: `auto`, `setback`, `fitted`, `classic`.
+    /// The scripting spelling: `auto`, `setback`, `fitted`, `classic`,
+    /// `rolling_ball`.
     pub fn spelling(self) -> &'static str {
         match self {
             Self::Auto => "auto",
             Self::Setback => "setback",
             Self::Fitted => "fitted",
             Self::Classic => "classic",
+            Self::RollingBall => "rolling_ball",
         }
     }
 }
@@ -169,7 +177,9 @@ impl CornerCapPreference {
     pub fn names_setback_rung(&self) -> bool {
         matches!(
             self.construction,
-            CornerConstruction::Setback | CornerConstruction::Fitted
+            CornerConstruction::Setback
+                | CornerConstruction::Fitted
+                | CornerConstruction::RollingBall
         )
     }
 

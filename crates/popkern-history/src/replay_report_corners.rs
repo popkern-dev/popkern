@@ -57,6 +57,10 @@ fn served_corner(result: &BlendResult, patches: &[&CornerPatchInfo]) -> CornerEv
     });
     let construction = if fitted {
         "fitted".to_string()
+    } else if patches.iter().any(|p| {
+        p.method == popkern_blend::CornerMethod::RollingBallSphere && p.cap_sphere.is_some()
+    }) {
+        "rolling_ball".to_string()
     } else if patches.iter().any(|p| p.setback_cap) {
         "setback".to_string()
     } else if patches.iter().any(|p| p.exact_boundary_cap) {

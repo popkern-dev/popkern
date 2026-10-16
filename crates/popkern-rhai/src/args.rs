@@ -190,7 +190,7 @@ pub fn corner(argument: &str, value: &Dynamic) -> Result<CornerModeDesc, Box<Eva
     )
 }
 
-/// `auto | setback | fitted | classic` (PK-603).
+/// `auto | setback | fitted | classic | rolling_ball` (PK-603, PK-861).
 pub fn corner_cap(
     argument: &str,
     value: &Dynamic,
@@ -203,6 +203,7 @@ pub fn corner_cap(
             ("setback", CornerConstructionDesc::Setback),
             ("fitted", CornerConstructionDesc::Fitted),
             ("classic", CornerConstructionDesc::Classic),
+            ("rolling_ball", CornerConstructionDesc::RollingBall),
         ],
     )
 }

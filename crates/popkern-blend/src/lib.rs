@@ -180,6 +180,7 @@ mod fillet_pipeline;
 mod fillet_pipeline_pcurve_backstop;
 mod fillet_serving_footprint_repair;
 mod fillet_serving_retry;
+mod rolling_ball_corner;
 pub(crate) use fillet_serving_retry::fillet_edges_internal;
 #[path = "lib_chamfer.rs"]
 mod lib_chamfer;

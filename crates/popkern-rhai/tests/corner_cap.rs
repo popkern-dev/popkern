@@ -82,7 +82,10 @@ fn a_mitred_corner_has_no_cap_to_choose() {
 #[test]
 fn strictness_needs_a_construction_that_can_decline() {
     let message = refused(&mixed_corner(", corner_cap_strict: true"));
-    assert!(message.contains("\"setback\" or \"fitted\""), "{message}");
+    assert!(
+        message.contains("\"setback\", \"fitted\" or \"rolling_ball\""),
+        "{message}"
+    );
 }
 
 #[test]

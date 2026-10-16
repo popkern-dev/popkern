@@ -109,6 +109,9 @@ pub enum CornerConstructionDesc {
     Fitted,
     /// The classic vertex-blend paths; the setback rung is skipped.
     Classic,
+    /// The exact rolling-ball sphere where three equal rounds meet on
+    /// planar supports (PK-861).
+    RollingBall,
 }
 
 impl CornerCapDesc {
@@ -126,6 +129,7 @@ impl CornerCapDesc {
                 CornerConstructionDesc::Setback => C::Setback,
                 CornerConstructionDesc::Fitted => C::Fitted,
                 CornerConstructionDesc::Classic => C::Classic,
+                CornerConstructionDesc::RollingBall => C::RollingBall,
             },
             strict: self.strict,
         }
@@ -343,7 +347,8 @@ impl FilletRecipeDesc {
 
     /// Why the recipe's corner-cap preference cannot apply, if it
     /// cannot: a mitred corner has no cap to choose, and strictness
-    /// needs a construction that can decline (`setback`, `fitted`).
+    /// needs a construction that can decline (`setback`, `fitted`,
+    /// `rolling_ball`).
     pub fn corner_cap_conflict(&self) -> Option<&'static str> {
         let stated = !self.corner_cap.is_auto();
         if stated && self.corner == CornerModeDesc::Mitre {
@@ -353,10 +358,12 @@ impl FilletRecipeDesc {
         }
         let names_rung = matches!(
             self.corner_cap.construction,
-            CornerConstructionDesc::Setback | CornerConstructionDesc::Fitted
+            CornerConstructionDesc::Setback
+                | CornerConstructionDesc::Fitted
+                | CornerConstructionDesc::RollingBall
         );
         (self.corner_cap.strict && !names_rung).then_some(
-            "corner_cap_strict needs corner_cap \"setback\" or \"fitted\"; the auto and classic ladders have nothing to refuse",
+            "corner_cap_strict needs corner_cap \"setback\", \"fitted\" or \"rolling_ball\"; the auto and classic ladders have nothing to refuse",
         )
     }
 

@@ -86,6 +86,7 @@ fn fillet_options(
         CornerConstructionDesc::Setback => pairs.push(("corner_cap", quoted("setback"))),
         CornerConstructionDesc::Fitted => pairs.push(("corner_cap", quoted("fitted"))),
         CornerConstructionDesc::Classic => pairs.push(("corner_cap", quoted("classic"))),
+        CornerConstructionDesc::RollingBall => pairs.push(("corner_cap", quoted("rolling_ball"))),
     }
     if recipe.corner_cap.strict {
         pairs.push(("corner_cap_strict", "true".to_string()));

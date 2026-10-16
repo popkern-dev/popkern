@@ -394,6 +394,30 @@ pub(crate) fn fillet_edges_internal(
         .validate(brep, &filleted, &options.vertex_mode, options.corner_cap)?;
     let mut result =
         fillet_edges_serving(brep, specs, options, tolerance, tracking, cancel, reporter)?;
+    if options.corner_cap.construction == crate::CornerConstruction::RollingBall {
+        // PK-861: eligible corners trade their setback cap for the ball.
+        crate::rolling_ball_corner::settle_rolling_ball_corners(
+            &mut result,
+            &tolerance,
+            options.corner_cap.strict,
+        )
+        .map_err(|(vertex, reason)| {
+            let edge = specs.first().map(|s| s.edge).unwrap_or_default();
+            BlendError::partial_failure(
+                specs.len(),
+                brep.clone(),
+                vec![(
+                    edge,
+                    crate::error::BlendFailure::CornerCapUnavailable {
+                        vertex,
+                        construction: crate::CornerConstruction::RollingBall,
+                        reason,
+                        location: brep.vertices.get(vertex).map(|v| v.position),
+                    },
+                )],
+            )
+        })?;
+    }
     let caps: Vec<_> = result
         .corner_patches
         .iter()
