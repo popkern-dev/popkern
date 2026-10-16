@@ -33,3 +33,27 @@ fn film_state_checks_pass() {
     let row: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
     assert!(row["checks"].as_u64().unwrap_or(0) >= 9, "{row}");
 }
+
+/// Screen-space detail for film export (`web/live/film-lod.js`, PK-853):
+/// clustered levels stay on the surface within a cell, carry their
+/// attributes and keep creases.
+#[test]
+fn film_detail_checks_pass() {
+    let output = match Command::new("node")
+        .arg(root().join("web/live/test/film-lod.test.mjs"))
+        .output()
+    {
+        Ok(output) => output,
+        Err(_) => {
+            eprintln!("[page_film] SKIP: node is not installed");
+            return;
+        }
+    };
+    assert!(
+        output.status.success(),
+        "film-lod.test.mjs failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let row: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
+    assert_eq!(row["checks"].as_u64(), Some(5), "{row}");
+}

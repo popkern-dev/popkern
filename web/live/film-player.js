@@ -188,7 +188,7 @@ export class FilmPlayer {
     const viewer = this.page.viewer;
     this.time = Math.max(0, Math.min(film.duration, t));
     const state = stateAt(film, this.time, this.selectors);
-    await this.applyJoints(state.joints);
+    await this.applyJoints(state.joints, render);
     const explodeDirections = viewer.explodePlan?.directions;
     const m = new THREE.Matrix4();
     const turn = new THREE.Matrix4();
@@ -225,7 +225,7 @@ export class FilmPlayer {
 
   /** Joints (placement-only assembly parameters) in the worker; each
    *  value is asked for once, and the occurrences' placements re-read. */
-  async applyJoints(joints) {
+  async applyJoints(joints, render = true) {
     const names = Object.keys(joints).filter((n) => Math.abs((this.jointsApplied[n] ?? NaN) - joints[n]) > 1e-9 || !(n in this.jointsApplied));
     if (!names.length) return;
     for (const name of names) {
@@ -233,7 +233,7 @@ export class FilmPlayer {
       this.jointsApplied[name] = joints[name];
       const assembly = reply.ok ? reply.envelope?.assembly : null;
       if (assembly) {
-        this.page.viewer.place(assembly);
+        this.page.viewer.place(assembly, { render });
         // The placements moved under the film: re-read its bases.
         for (const entry of this.objects) entry.base.copy(entry.object.userData.base ?? entry.object.matrix);
       }

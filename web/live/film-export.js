@@ -8,6 +8,7 @@ import * as THREE from "./vendor/three.module.min.js";
 import { ArrayBufferTarget as Mp4Target, Muxer as Mp4Muxer } from "./vendor/mp4-muxer.js";
 import { ArrayBufferTarget as WebmTarget, Muxer as WebmMuxer } from "./vendor/webm-muxer.js";
 import { GIFEncoder, applyPalette, quantize } from "./vendor/gifenc.esm.js";
+import { FilmDetail } from "./film-lod.js";
 import { frameTimes } from "./film-state.js";
 
 /** The export menu (the design's preset table). */
@@ -95,6 +96,9 @@ export async function exportFilm(page, presetKey, { progress = () => {}, signal 
   frame.width = width;
   frame.height = height;
   const ctx = frame.getContext("2d", { willReadFrequently: preset.format === "gif" });
+  // Screen-space detail: each frame draws every part at the triangle
+  // density its size on screen needs (film-lod.js).
+  const detail = new FilmDetail(viewer);
   const startTime = player.time;
   const wasPlaying = player.playing;
   player.pause();
@@ -106,6 +110,7 @@ export async function exportFilm(page, presetKey, { progress = () => {}, signal 
     // Fat lines (section outlines) measure their width in this
     // renderer's pixels; the gizmo stays off.
     for (const line of viewer.section.overlays()) renderer.getDrawingBufferSize(line.material.uniforms.viewport.value);
+    detail.apply(camera, height);
     renderer.render(viewer.scene, camera);
     ctx.drawImage(canvas, 0, 0);
     drawCaption(ctx, player.caption, width, height, film.background);
@@ -121,6 +126,7 @@ export async function exportFilm(page, presetKey, { progress = () => {}, signal 
     if (preset.format === "gif") return await encodeGif(times, fps, draw, ctx, width, height, progress, signal);
     return await encodeVideo(preset, times, fps, draw, frame, width, height, progress, signal);
   } finally {
+    detail.restore();
     renderer.dispose();
     for (const line of viewer.section.overlays()) viewer.renderer.getDrawingBufferSize(line.material.uniforms.viewport.value);
     await player.apply(startTime);

@@ -200,8 +200,10 @@ export class Viewer {
 
   /** Re-place the meshes on screen at `assembly`'s occurrence
    *  matrices (a joint moved: the same bodies at new placements).
-   *  Nothing rebuilds; hidden occurrences stay hidden. */
-  place(assembly) {
+   *  Nothing rebuilds; hidden occurrences stay hidden. `render: false`
+   *  leaves the redraw to the caller (a film export draws its own
+   *  frame: redrawing the viewer too doubled its cost). */
+  place(assembly, { render = true } = {}) {
     const instances = new Map(assembly.instances.map((i) => [i.path, i]));
     for (const object of [...this.bodies, ...this.edgeLines]) {
       const instance = instances.get(object.userData.instance);
@@ -214,7 +216,7 @@ export class Viewer {
     if (this.explode && this.explodePlan) this.setExplode(this.explode);
     if (this.section.active) this.section.apply();
     if (this.highlight && this.hovered) this.setHover(null);
-    this.render();
+    if (render) this.render();
   }
 
   /** World bounds of the drawn (visible) meshes, or null. */
