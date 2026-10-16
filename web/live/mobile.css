@@ -32,7 +32,7 @@
   /* Stop replaces the build controls while a build runs. */
   #cancel { display: none; }
   body.busy #cancel { display: inline-flex; }
-  body.busy .split { display: none; }
+  body.busy #run { display: none; }
 
   /* The workbench: model, sheet tabs, sheet. */
   .workbench {
@@ -120,7 +120,18 @@
   .dialog-head { flex-wrap: wrap; padding-top: max(0.6rem, env(safe-area-inset-top)); }
   .dialog-head-actions { justify-content: flex-start; }
   .project-row .project-text .muted { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
-  .menu { position: fixed; top: auto; left: var(--gap); right: var(--gap); bottom: calc(var(--gap) + env(safe-area-inset-bottom)); z-index: 40; padding: 0.5rem; border-radius: 14px; }
+  /* A menu is a sheet over a scrim, above the sheet tabs and the model's
+     overlays (they covered it), rising from the bottom. */
+  .menu { position: fixed; top: auto; left: var(--gap); right: var(--gap); bottom: calc(var(--gap) + env(safe-area-inset-bottom)); z-index: 60; padding: 0.6rem; border-radius: 16px; max-height: 80dvh; overflow-y: auto; }
+  .menu:not([hidden]) { animation: sheet-in 0.16s ease-out; }
+  @keyframes sheet-in { from { opacity: 0; transform: translateY(12px); } }
+  body.menu-open::after { content: ""; position: fixed; inset: 0; z-index: 55; background: var(--scrim); animation: scrim-in 0.16s ease-out; }
+  @keyframes scrim-in { from { opacity: 0; } }
+  .menu-title { padding: 0.2rem 0.2rem 0.5rem 0.5rem; font-size: 1.05rem; }
+  /* The section panel and the standard views share the corner: the
+     panel wins while a section is on. */
+  body.section-open .view-orient { display: none; }
+  .section-panel { min-width: 0; width: min(16rem, calc(100vw - 2rem)); }
   .menu > button, .menu-field { min-height: 2.75rem; }
 }
 /* Touch: finger-sized targets, and 16px editor text so mobile Safari

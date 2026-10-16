@@ -148,6 +148,9 @@ export class FilmPlayer {
   open(film, context) {
     const viewer = this.page.viewer;
     const reopening = this.active;
+    // An edit to the open film keeps its place; any film opened anew
+    // starts at zero (the time carried over from the last film).
+    const sameFilm = reopening && this.film?.name === film.name;
     this.pause();
     this.film = film;
     this.context = context;
@@ -165,7 +168,7 @@ export class FilmPlayer {
     this.look.apply(film, viewer.visibleBounds());
     this.capture();
     this.jointsApplied = {};
-    this.time = Math.min(this.time, film.duration);
+    this.time = sameFilm ? Math.min(this.time, film.duration) : 0;
     document.body.classList.add("film-open");
     this.apply(this.time);
     this.notify();

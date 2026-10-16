@@ -1,5 +1,5 @@
-// The page's layout controls: popover menus (export, build options,
-// view options), the view-mode segments (a shade, and on CAD shading a
+// The page's layout controls: popover menus (export, settings, the
+// film's export), the view-mode segments (a shade, and on CAD shading a
 // colouring), the inspector's tabs, the phone layout's bottom-sheet
 // tabs and size, and hiding the script card. All of it is view state:
 // nothing here builds, saves or changes the document.
@@ -9,8 +9,7 @@ const $ = (id) => document.getElementById(id);
 // Popover menus: button id -> menu id.
 const MENUS = [
   ["export-menu-button", "export-menu"],
-  ["build-menu-button", "build-menu"],
-  ["view-menu-button", "view-menu"],
+  ["settings-menu-button", "settings-menu"],
   ["film-export-menu-button", "film-export-menu"],
 ];
 
@@ -21,6 +20,8 @@ function closeMenus(keep = null) {
     $(menu).hidden = true;
     $(button).setAttribute("aria-expanded", "false");
   }
+  // On a phone an open menu is a sheet over a scrim (mobile.css).
+  document.body.classList.toggle("menu-open", keep != null && !$(keep).hidden);
 }
 
 function wireMenus() {
@@ -33,6 +34,7 @@ function wireMenus() {
       closeMenus(menuId);
       menu.hidden = !open;
       button.setAttribute("aria-expanded", String(open));
+      document.body.classList.toggle("menu-open", open);
     });
     // A menu item that acts closes its menu; a field (a select, a
     // slider, a checkbox) keeps it open while it is adjusted.
@@ -42,6 +44,10 @@ function wireMenus() {
     });
   }
   document.addEventListener("click", () => closeMenus());
+  $("settings-done").addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeMenus();
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeMenus();
   });

@@ -1,6 +1,8 @@
 // The hex bolt driven up its own axis: head below, shank up the z axis
-// through the origin. A right-hand thread advances along +z turning
-// positively about it, one 1 mm lead a turn.
+// through the origin, as into a tapped hole above: a right-hand thread
+// advances along +z turning positively about it, one 1 mm lead a turn,
+// the whole way. A section removes what lies beyond its plane (+y
+// here), so the camera looks from +y at the cut.
 let axis = axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
 let travel = 10.0;
 let film = storyboard(#{ look: "studio", camera: #{ azimuth: -40.0, elevation: 20.0, zoom: 1.0 } });
@@ -12,8 +14,8 @@ film.step("Driving in", "", 4.0, |s| {
     s.turn("body 0", axis, -travel * 360.0, 0.0, #{ ease: "linear" });
 });
 film.step("The thread", "A section view: the model is not cut", 3.0, |s| {
-    s.section(#{ from: "y", from_at: 1.0, to_at: 0.5 });
-    s.camera(#{ azimuth: -90.0, elevation: 5.0, zoom: 1.4 });
+    s.section(#{ from: "y", from_at: 1.0, to_at: 0.5, duration: 1.0 });
+    s.camera(#{ azimuth: 90.0, elevation: 8.0, zoom: 1.4 });
 });
 film.step("", "", 1.5, |s| {
     s.section(#{ from: "y", from_at: 0.5, to: "off" });

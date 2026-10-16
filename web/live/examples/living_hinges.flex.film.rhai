@@ -7,7 +7,7 @@ film.title("Living hinges", "A flexure web and a slotted kerf", 2.5, |s| {
     s.orbit(20.0);
 });
 film.step("The flexure's web", "0.4 thick, rounded at the roots", 3.5, |s| {
-    s.section(#{ from: "z", from_at: 1.0, to_at: 0.5 });
+    s.section(#{ from: "z", from_at: 1.0, to_at: 0.5, duration: 1.0 });
     s.camera(#{ target: "body 0", azimuth: 0.0, elevation: 75.0, zoom: 1.6 });
 });
 film.step("The kerf's slots", "Alternating slots let a rigid plate bend", 3.5, |s| {

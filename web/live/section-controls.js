@@ -1,4 +1,5 @@
-// The view menu's section row (docs/architecture/clipping-view.md §10):
+// The section panel (docs/architecture/clipping-view.md §10), under the
+// model view's corner tools while a section is on:
 // a preset select for the current plane, its position slider, plane
 // chips (up to three), flip / add / remove, the combine mode, and the
 // in-viewport handles toggle. The controls follow the section's state
@@ -25,6 +26,7 @@ export function wireSection(page) {
   const pickFace = () => {
     $("section-hint").hidden = false;
     $("section-tools").hidden = false;
+    $("section-panel").hidden = false;
     page.viewer.pickHook = (hit) => {
       $("section-hint").hidden = true;
       if (!hit.normal) return;
@@ -77,6 +79,9 @@ export function wireSection(page) {
     $("section-toggle").setAttribute("aria-pressed", String(active));
     slider.hidden = !active;
     $("section-tools").hidden = !active && $("section-hint").hidden;
+    // The panel shows with the section (or while a face is being picked).
+    $("section-panel").hidden = !active && $("section-hint").hidden;
+    document.body.classList.toggle("section-open", !$("section-panel").hidden);
     if (!active) {
       if (select.value !== "face") select.value = "";
       page.assembly?.paintSection?.(false);

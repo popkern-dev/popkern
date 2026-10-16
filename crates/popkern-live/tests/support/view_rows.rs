@@ -105,6 +105,14 @@ pub fn assert_phone(out: &Value) {
         named(&p["during_build"], "Building the model"),
         "it says it waits on the build: {p}"
     );
+    let on_top = &p["settings_on_top"];
+    assert_eq!(on_top["open"], true, "{p}");
+    assert_eq!(
+        on_top["topmost"], true,
+        "the settings menu is above the sheet tabs: {p}"
+    );
+    assert_eq!(on_top["scrim"], true, "{p}");
+    assert_eq!(on_top["closed"], true, "{p}");
     assert_eq!(p["status_clear_of_tools"], true, "{p}");
     assert_eq!(p["modes_clustered"], true, "{p}");
     assert_eq!(p["orient_shown"], true, "{p}");
@@ -134,12 +142,19 @@ pub fn assert_projects_ui(out: &Value) {
     for row in race {
         assert_eq!(row["active"], true, "{p}");
         assert!(row["overlay"].is_null(), "{p}");
+        assert_eq!(row["start"], 0.0, "every film chosen starts at zero: {p}");
     }
     assert_eq!(
         race[1]["kind"], "part",
         "the door hinge's own document: {p}"
     );
     assert_eq!(race[1]["bodies"], 3, "{p}");
+    let settings = &p["settings"];
+    assert_eq!(settings["has"], true, "{p}");
+    assert_eq!(settings["in_topbar"], true, "{p}");
+    assert_eq!(settings["corner_buttons"], 2, "section and fit only: {p}");
+    assert_eq!(settings["panel_hidden_off"], true, "{p}");
+    assert_eq!(settings["panel_shown_on"], true, "{p}");
     // The door hinge's leaf turns by t = 4 (the section sweep moves no
     // body): a seek moves bodies on screen.
     assert_eq!(

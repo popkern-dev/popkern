@@ -3,7 +3,7 @@
 // "body 2" the pin — and the pin runs up the z axis through the origin,
 // so the moving leaf turns about it.
 let pin = axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
-let film = storyboard(#{ look: "studio", camera: #{ azimuth: -60.0, elevation: 25.0, zoom: 1.0 } });
+let film = storyboard(#{ look: "studio", camera: #{ azimuth: -60.0, elevation: 25.0, zoom: 0.72 } });
 film.title("Butt hinge", "Two leaves, five knuckles and a pin", 2.5, |s| {
     s.orbit(20.0);
 });

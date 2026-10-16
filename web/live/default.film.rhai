@@ -9,8 +9,8 @@ film.step("All the way round", "", 4.0, |s| {
     s.orbit(150.0);
 });
 film.step("Through the boss", "A section view: the model is not cut", 3.5, |s| {
-    s.section(#{ from: "y", from_at: 1.0, to_at: 0.5 });
-    s.camera(#{ azimuth: -75.0, elevation: 18.0, zoom: 1.2 });
+    s.section(#{ from: "y", from_at: 1.0, to_at: 0.5, duration: 1.5 });
+    s.camera(#{ azimuth: 75.0, elevation: 18.0, zoom: 1.2 });
 });
 film.step("The rounds", "Picked by geometry, certified G1", 3.5, |s| {
     s.section(#{ from: "y", from_at: 0.5, to: "off", duration: 1.5 });

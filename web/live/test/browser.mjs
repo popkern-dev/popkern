@@ -1349,6 +1349,16 @@ m`)};
     document.getElementById("film-exit").click();
     await new Promise((r) => setTimeout(r, 200));
     document.querySelector(".sheet-tabs [data-sheet=history]").click();
+    // The settings menu opens over everything, the sheet tabs too.
+    document.getElementById("settings-menu-button").click();
+    await new Promise((r) => setTimeout(r, 250));
+    const menuBox = rect(document.getElementById("settings-menu"));
+    const tabsBox = rect(document.querySelector(".sheet-tabs"));
+    const probeY = Math.max(menuBox.top + 8, Math.min(menuBox.bottom - 8, tabsBox.top + tabsBox.height / 2));
+    const topmost = document.elementFromPoint(menuBox.left + menuBox.width / 2, probeY);
+    const settings_on_top = { open: !document.getElementById("settings-menu").hidden, topmost: Boolean(topmost?.closest("#settings-menu")), scrim: document.body.classList.contains("menu-open") };
+    document.getElementById("settings-done").click();
+    settings_on_top.closed = document.getElementById("settings-menu").hidden && !document.body.classList.contains("menu-open");
     const list = document.getElementById("film-list");
     const status = rect(document.querySelector(".dock-status"));
     const tools = rect(document.querySelector(".view-tools"));
@@ -1358,6 +1368,7 @@ m`)};
       open,
       closed: { ...closed, list_shown: shown(list), list_items: list.querySelectorAll(".film-list-item").length },
       during_build,
+      settings_on_top,
       status_clear_of_tools: status.right <= tools.left + 0.5 || status.bottom <= tools.top,
       modes_clustered: getComputedStyle(view).backgroundColor !== "rgba(0, 0, 0, 0)" && parseFloat(getComputedStyle(mode).borderTopLeftRadius) < 20,
       orient_shown: shown(document.getElementById("view-orient")),
@@ -1394,6 +1405,8 @@ m`)};
       page.projects.select(film);
       const t0 = performance.now();
       while (!page.film.active && performance.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 100));
+      // Every film chosen starts at zero (the last film was left at 4 s).
+      const start = page.film.time;
       // A seek moves the film's bodies on screen: three.js rebuilt an
       // auto-updating mesh's matrix at every render, dropping them.
       // (from the start: the player keeps its time across films)
@@ -1403,10 +1416,24 @@ m`)};
       await page.film.seek(4.0);
       page.viewer.render();
       const moved = page.viewer.bodies.some((m, i) => m.matrixWorld.elements.join() !== before[i]);
-      race.push({ id, active: page.film.active, moved, overlay: document.getElementById("overlay").hidden ? null : document.getElementById("overlay-text").textContent.slice(0, 200), bodies: page.film.context?.bodies ?? null, kind: page.film.context?.kind ?? null });
+      race.push({ id, active: page.film.active, moved, start, overlay: document.getElementById("overlay").hidden ? null : document.getElementById("overlay-text").textContent.slice(0, 200), bodies: page.film.context?.bodies ?? null, kind: page.film.context?.kind ?? null });
       document.getElementById("film-exit").click();
     }
-    return { themes, scratch_film, deleted, race };
+    // Settings: one menu in the top bar; the section's options are a
+    // panel that shows with the section.
+    const settings = document.getElementById("settings-menu");
+    const settings_row = {
+      has: ["theme", "time-limit", "edges"].every((id) => settings.contains(document.getElementById(id))),
+      in_topbar: Boolean(settings.closest(".topbar")),
+      corner_buttons: document.querySelectorAll(".view-tools button").length,
+    };
+    const panel = document.getElementById("section-panel");
+    settings_row.panel_hidden_off = panel.hidden;
+    document.getElementById("section-toggle").click();
+    await new Promise((r) => setTimeout(r, 100));
+    settings_row.panel_shown_on = !panel.hidden;
+    document.getElementById("section-toggle").click();
+    return { themes, scratch_film, deleted, race, settings: settings_row };
   })()`);
 
   if (process.env.POPKERN_LAUNCH === "1") {

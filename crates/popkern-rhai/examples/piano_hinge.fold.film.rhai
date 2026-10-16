@@ -1,7 +1,7 @@
 // The piano hinge folding: "body 1" is the moving leaf, turning about
 // the pin ("body 2") up the z axis through the origin.
 let pin = axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]);
-let film = storyboard(#{ look: "studio", camera: #{ azimuth: -50.0, elevation: 22.0, zoom: 1.0 } });
+let film = storyboard(#{ look: "studio", camera: #{ azimuth: -50.0, elevation: 22.0, zoom: 0.8 } });
 film.title("Piano hinge", "Twenty-five knuckles along 200", 2.5, |s| {
     s.orbit(15.0);
 });
