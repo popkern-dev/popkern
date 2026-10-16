@@ -42,6 +42,7 @@ export function wireFilmBar(page) {
     player.close();
   };
   $("film-close").addEventListener("click", closeFilm);
+  $("film-exit").addEventListener("click", closeFilm);
   // Escape closes the film (not while typing in the editor or a field).
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape" || !player.active) return;
@@ -92,6 +93,7 @@ export function wireFilmBar(page) {
     $("film-bar").hidden = !open;
     $("film-caption").hidden = !open;
     $("film-frame").hidden = !open;
+    $("film-exit").hidden = !open;
     if (!open) return;
     const film = player.film;
     document.body.classList.toggle("film-playing", player.playing);

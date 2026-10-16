@@ -165,6 +165,9 @@ pub fn assert_film(out: &Value) {
         "the decline names the film's line: {f}"
     );
     assert_eq!(f["broken"]["still_open"], true, "{f}");
+    assert_eq!(f["exit_shown"], true, "the viewport shows its close chip: {f}");
+    assert_eq!(f["exit_closed"], true, "the chip closes the film: {f}");
+    assert_eq!(f["closed"]["exit_hidden"], true, "{f}");
     assert_eq!(f["escape_closed"], true, "Escape closes the film: {f}");
     assert_eq!(f["closed"]["active"], false, "{f}");
     assert_eq!(f["closed"]["bar_hidden"], true, "{f}");

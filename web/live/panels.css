@@ -226,3 +226,7 @@ body.film-playing .film-bar .icon-pause { display: inline; }
 .film-close { min-height: 2rem; padding: 0 0.8rem; font-weight: 600; border-color: var(--line-strong); }
 .film-close:hover { border-color: var(--accent); color: var(--text); }
 #section-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+/* The viewport's own way out of a film: always on screen, whichever
+   sheet a phone shows. */
+.film-exit { position: absolute; top: 0.6rem; left: 0.6rem; z-index: 4; min-height: 2.25rem; padding: 0 0.85rem; font-weight: 600; background: rgba(12, 18, 32, 0.85); border: 1px solid var(--line-strong); border-radius: 999px; color: var(--text); }
+.film-exit:hover { border-color: var(--accent); }

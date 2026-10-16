@@ -898,12 +898,18 @@ film`)};
     // A broken film reports at its line and leaves the open one alone.
     const broken = await film.run(${JSON.stringify('let film = storyboard();\nfilm.step("a", 1.0, |s| { s.move("lid", #{ to: [0.0, 0.0, 1.0] }); });\nfilm')}, "films/broken.rhai");
     result.broken = { ok: broken.ok, kind: broken.outcome?.kind ?? null, rendered: broken.outcome?.rendered ?? null, still_open: film.active };
+    // The viewport's own close chip (on a phone the bar's sheet may be
+    // hidden): shown while a film is open, and it closes the film.
+    result.exit_shown = !document.getElementById("film-exit").hidden;
+    document.getElementById("film-exit").click();
+    result.exit_closed = !film.active;
+    await film.run(source, "films/lift.rhai");
     // Escape closes the film (the page's own key binding).
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await new Promise((r) => setTimeout(r, 50));
     result.escape_closed = !film.active;
     film.close();
-    result.closed = { active: film.active, mode: viewer.mode, bar_hidden: document.getElementById("film-bar").hidden, lifted_back: Math.abs(z() - z0) < 1e-9 };
+    result.closed = { exit_hidden: document.getElementById("film-exit").hidden, active: film.active, mode: viewer.mode, bar_hidden: document.getElementById("film-bar").hidden, lifted_back: Math.abs(z() - z0) < 1e-9 };
     return result;
   })()`);
 
