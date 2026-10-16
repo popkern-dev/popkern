@@ -143,14 +143,14 @@ pub(crate) fn sample_all_edges(
                     0.5 * (pa.z + pb.z),
                 );
                 let dev = pm.distance_to(&chord_mid);
-                // Angular excess is ranked in chord-height units so
-                // the budget truncation below keeps comparing like
-                // with like when both criteria fire.
+                // Angular excess ranks in chord-height units. A span
+                // turning past ~110 deg (deviation over a quarter of its
+                // chord) splits at any chord: one closes a hole (PK-839).
                 let turn_excess = max_turn
                     .map(|m| turn_over(&[a, 0.5 * (a + b), b], &[pa, pm, pb]) / m)
                     .filter(|&r| r > 1.0)
                     .map(|r| r * chord_height);
-                if dev > chord_height {
+                if dev > chord_height || dev > 0.25 * pa.distance_to(&pb) {
                     split_at.push((dev, i));
                 } else if let Some(rank) = turn_excess {
                     split_at.push((rank, i));
