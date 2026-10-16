@@ -120,7 +120,16 @@ fn intersect_impl(
     }
 
     let cos_alpha = pn.dot(&ca).abs();
-    if cos_alpha > 1.0 - tol.angular() {
+    // The circle is the cone's cross-section at the plane's station, so
+    // at a tilt alpha it sits off the plane by up to r·sin(alpha): snap
+    // only while that stays within the linear tolerance, as plane x
+    // cylinder does (PK-845: a tapped hole's mouth cone 1e-4 rad off an
+    // inclined face's normal came out a circle 3.3e-4 off the face, and
+    // the tap declined on curve-surface validation).
+    let sin_alpha = (1.0 - cos_alpha * cos_alpha).max(0.0).sqrt();
+    let station = ((po - apex).dot(&pn) / pn.dot(&ca)).abs();
+    let circle_radius = station * half_angle.ptan();
+    if cos_alpha > 1.0 - tol.angular() && circle_radius * sin_alpha <= tol.linear() {
         Some(case_perpendicular(
             po, pn, pu, pv, apex, ca, half_angle, tol, swapped,
         ))
