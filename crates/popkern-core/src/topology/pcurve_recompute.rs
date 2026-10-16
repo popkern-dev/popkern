@@ -202,11 +202,8 @@ impl BRep {
                 };
                 let (t_lo, t_hi) = edge_direction;
 
-                // Quick linearity check: if the UV quarter points lie
-                // on the line between start/end UV, the pcurve is a
-                // straight line in UV space.  Use degree-1 (exact)
-                // instead of the 64-point degree-3 fit, avoiding
-                // control-point overshoot.
+                // Quick linearity check (quarter points, then the 3D trace):
+                // a straight UV image takes an exact degree-1 pcurve.
                 let (mut u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
                     Some(uv) => uv,
                     None => {
@@ -221,24 +218,14 @@ impl BRep {
                         continue;
                     }
                 };
-                // Branch-honest sampling on periodic charts (PK-286):
-                // cold projections live in the principal branch, so an
-                // edge hovering AT a chart's wrap (mekr seam, u = 0 ==
-                // 2π; atan2(±1e-15, ·) picks the side by ULP)
-                // scattered its samples across both sides of the seam
-                // and spuriously failed linearity — a 7e-15 upstream
-                // change flipped a torus-strip seam pcurve degree-1 ↔
-                // degree-3 (double_boss_plate). Walk the samples as a
-                // continuation chain instead: each successive sample
-                // aligns to the branch nearest its predecessor, in
-                // every periodic direction. The chain also subsumes
-                // the CLOSED-edge full-period unwrap (drafted-cone
-                // rims at (2π,v)→(2π,v) collapsed to zero-span
-                // pcurves and the mesher dropped the cone side of both
-                // rims — ~640 cracked weld edges on an otherwise exact
-                // frustum): quarter points of a full-period sweep each
-                // advance by period/4, so the chained destination
-                // lands at u_s ± period, not back at u_s.
+                // Branch-honest sampling on periodic charts (PK-286): cold
+                // projections pick a seam side by ULP and spuriously failed
+                // linearity (a 7e-15 upstream change flipped a torus seam
+                // pcurve's degree on double_boss_plate), so samples chain to
+                // the branch nearest their predecessor in every periodic
+                // direction. The chain also unwraps CLOSED edges (drafted-
+                // cone rims collapsed to zero-span pcurves, ~640 cracked weld
+                // edges): the chained destination lands one period on.
                 let (period_u, period_v) = surface.periodicity();
                 let align = |value: f64, reference: f64, period: Option<f64>| -> f64 {
                     match period {
@@ -329,15 +316,25 @@ impl BRep {
                         u_snapped = true;
                     }
                 }
-                // A degree-1 pcurve is uniform-speed in UV, so the
-                // shortcut is only exact when the curve's
-                // PARAMETERIZATION maps uniformly onto the UV line —
-                // not merely when the image is straight. A single
-                // midpoint sample accepted image-straight curves with
-                // non-uniform parameterization (measured: cube_extreme
-                // cap seam, fraction-matched deviation 1.42e-2 while
-                // the image was 3.8e-4 off); the quarter points catch
-                // the skew the symmetric midpoint cannot.
+                // A degree-1 pcurve is uniform-speed in UV: exact only when
+                // the PARAMETERIZATION maps uniformly onto the line (a
+                // midpoint test passed cube_extreme's skewed cap seam,
+                // 1.42e-2 off; quarter points catch it), and only when
+                // the line traces the edge everywhere (PK-863).
+                let gate = 10.0
+                    * self.edges[edge_handle]
+                        .tolerance
+                        .unwrap_or(self.tolerance.linear());
+                let line_holds = |a, b| {
+                    super::pcurve_recompute_analytic::uv_line_traces_edge(
+                        &surface,
+                        curve_on_edge,
+                        (t_lo, t_hi),
+                        a,
+                        b,
+                        gate,
+                    )
+                };
                 let uv_linear = all_projected
                     && quarter_samples.iter().all(|&(fraction, u, v)| {
                         let expected_u = u_s + (u_e - u_s) * fraction;
@@ -345,7 +342,8 @@ impl BRep {
                         let deviation =
                             ((u - expected_u).powi(2) + (v - expected_v).powi(2)).sqrt();
                         deviation < 1e-4
-                    });
+                    })
+                    && line_holds((u_s, v_s), (u_e, v_e));
 
                 if uv_linear {
                     // UV path is linear -- exact degree-1 pcurve.

@@ -8,7 +8,9 @@
 //! off the plane: at 1e-4 rad the mouth circle lay 3.3e-4 off the face
 //! and the tap declined on curve-surface validation (at 1e-3 and 1e-2
 //! it declined with curveless edges). The snap is now bounded by the
-//! linear tolerance, as plane x cylinder already was.
+//! linear tolerance, as plane x cylinder already was. The minor-
+//! cylinder helix's pcurve is checked too (PK-863: the recompute's
+//! straight-pcurve shortcut accepted a line 1.1e-4 off the edge).
 
 use popkern_rhai::ScriptHost;
 use std::collections::HashMap;
@@ -32,6 +34,22 @@ fn a_tapped_hole_tilted_off_the_face_normal_serves() {
             .unwrap_or_else(|e| panic!("tilt {tilt}: {}", e.render()));
         let brep = run.model.take().expect("model").to_brep().expect("brep");
         assert!(brep.validate().is_ok(), "tilt {tilt}: invalid");
+        // Every pcurve within validate_all's band (100x its edge's
+        // tolerance), without validate_all's O(n^2) self-intersection
+        // scan of the thread.
+        for (he, data) in &brep.half_edges {
+            let Some(report) = brep.measure_half_edge_pcurve_deviation(he) else {
+                continue;
+            };
+            let edge_tol = brep.edges[data.edge]
+                .tolerance
+                .unwrap_or(brep.tolerance.linear());
+            assert!(
+                report.max_deviation <= 100.0 * edge_tol.max(1e-9),
+                "tilt {tilt}: pcurve {he:?} {:.3e} off its edge",
+                report.max_deviation
+            );
+        }
         let mesh = popkern_mesh::tessellate(&brep, &popkern_mesh::TessellationOptions::display())
             .expect("mesh");
         let key =

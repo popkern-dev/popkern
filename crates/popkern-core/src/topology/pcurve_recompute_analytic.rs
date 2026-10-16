@@ -81,3 +81,30 @@ pub(super) fn edge_is_straight(edge_curve: &Option<crate::geometry::curve::Curve
 #[cfg(test)]
 #[path = "pcurve_recompute_analytic_tests.rs"]
 mod pcurve_recompute_analytic_tests;
+
+/// Whether the straight UV line `uv_s -> uv_e`, mapped through
+/// `surface`, traces `curve` over `range` within `gate` in 3D at every
+/// sixteenth of the edge. The recompute's quarter-point test alone
+/// (an absolute 1e-4 in raw chart units) accepted a near-helix whose
+/// line drifted 1.1e-4 off the edge near its end (an M6 tap's minor-
+/// cylinder edge on the angled fitting, PK-863): a straight pcurve is
+/// exact only where the line holds everywhere, read in model units.
+pub(super) fn uv_line_traces_edge(
+    surface: &crate::geometry::surface::SurfaceGeometry,
+    curve: &crate::geometry::curve::CurveOnEdge,
+    (t_lo, t_hi): (f64, f64),
+    uv_s: (f64, f64),
+    uv_e: (f64, f64),
+    gate: f64,
+) -> bool {
+    use crate::geometry::curve::CurveEval;
+    use crate::geometry::surface::SurfaceEval;
+    (1..16).all(|k| {
+        let f = k as f64 / 16.0;
+        let on_line = surface.point_at(
+            uv_s.0 + (uv_e.0 - uv_s.0) * f,
+            uv_s.1 + (uv_e.1 - uv_s.1) * f,
+        );
+        on_line.distance_to(&curve.geometry.point_at(t_lo + (t_hi - t_lo) * f)) <= gate
+    })
+}
