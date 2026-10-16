@@ -112,3 +112,38 @@ fn a_strict_setback_cap_that_folds_fails_the_feature() {
         }
     }
 }
+
+/// PK-861/PK-865: a corner of three different radii (G2 rounds, so
+/// curvature-continuous strips rather than cylinders) has no single
+/// rolling ball. Strict `rolling_ball` fails the feature naming the
+/// corner and why; non-strict serves the setback cap there.
+#[test]
+fn a_mixed_radius_corner_is_no_rolling_ball() {
+    let strict = mixed_corner(r#", corner_cap: "rolling_ball", corner_cap_strict: true"#);
+    match ScriptHost::new().run(&strict, "strict_ball.rhai") {
+        Err(error) => assert!(
+            error.message.contains("rolling_ball") && error.message.contains("could not serve"),
+            "{}",
+            error.message
+        ),
+        Ok(outcome) => panic!(
+            "a strict rolling ball on mixed radii must fail: {}",
+            report_value(&outcome.model.expect("model"))
+        ),
+    }
+    let outcome = ScriptHost::new()
+        .run(
+            &mixed_corner(r#", corner_cap: "rolling_ball""#),
+            "ball.rhai",
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut model = outcome.model.expect("model");
+    let served = corners(&model);
+    assert_eq!(served.len(), 1, "{served:?}");
+    assert_ne!(served[0]["construction"], "rolling_ball", "{served:?}");
+    let emitted = to_rhai(&mut model).expect("emit");
+    assert!(
+        emitted.contains(r#"corner_cap: "rolling_ball""#),
+        "{emitted}"
+    );
+}
