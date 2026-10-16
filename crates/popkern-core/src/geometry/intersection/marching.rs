@@ -91,6 +91,7 @@ pub(crate) fn march_one_direction(
     let mut arc_acc = 0.0_f64;
     let mut last_near_arc = f64::NEG_INFINITY;
     let mut near_returns = 0u32;
+    let mut stalls = 0u32; // STALL GUARD run length
 
     for _ in 0..max_steps {
         let current = &samples[samples.len() - 1];
@@ -443,6 +444,17 @@ pub(crate) fn march_one_direction(
                         }
                     }
 
+                    // STALL GUARD: steps each advancing under 1% of the
+                    // step asked for are a point, not a curve (a 70 um
+                    // Gregory cap's isolated corner contact ground 200k
+                    // steps per trace, 8.3 s per check).
+                    let stalled = sample.point.distance_to(&prev_point) < 0.01 * step_size;
+                    stalls = if stalled { stalls + 1 } else { 0 };
+                    if stalls >= 64 {
+                        samples.push(sample);
+                        trace_march_termination("stalled", &samples);
+                        return samples;
+                    }
                     samples.push(sample);
                     succeeded = true;
                     break;

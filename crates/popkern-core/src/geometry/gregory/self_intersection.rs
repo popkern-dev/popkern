@@ -436,4 +436,23 @@ mod tests {
             "combined check must flag a heavily-distorted Gregory"
         );
     }
+
+    /// The subdivision check on a 1.6 mm rounded cube's corner cap
+    /// (a 70 um degree-5 Gregory patch, captured) at the 1e-6
+    /// tolerance its caller passes: the diagonal quarters' march kept
+    /// landing on one isolated contact and ground the whole 200k-step
+    /// budget (8.3 s for this patch, 37 s for the cube) until the
+    /// stall guard ended it.
+    #[test]
+    fn a_tiny_corner_patch_checks_fast() {
+        let tiny: GregoryPatch = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/tiny_corner_gregory_deg5.json"
+        ))
+        .expect("fixture");
+        let watch = std::time::Instant::now();
+        // The same verdict the budget-bound march reached.
+        assert!(!subdivision_surface_intersection(&tiny, 1e-6));
+        let elapsed = watch.elapsed().as_secs_f64();
+        assert!(elapsed < 1.0, "took {elapsed:.3} s");
+    }
 }
