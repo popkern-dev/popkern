@@ -29,6 +29,7 @@ mod trim_canonical;
 mod trim_clip;
 mod trim_sampling;
 mod vertex_normal;
+mod vertex_snap;
 mod watertight;
 mod winding_side;
 

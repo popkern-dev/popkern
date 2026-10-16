@@ -33,6 +33,12 @@ const CEILINGS: &[(&str, usize, usize, f64)] = &[
     ("propeller", 0, 0, 12.0),
     ("mixed_radius_corner", 0, 0, 12.0),
     ("pyramid_apex", 0, 0, 12.0),
+    // Watertight rows (2026-10-15): corner patches that evaluated a
+    // shared BRep vertex from their own surface (~5e-16 off) left 16
+    // and 32 open edges in the bit-identical weld until the mesher
+    // snapped boundary samples onto BRep vertices (vertex_snap.rs).
+    ("boss_plate", 0, 0, 12.0),
+    ("polyhedral_dice", 7, 0, 12.0),
 ];
 
 /// Edges of the globally welded display mesh (bit-identical positions)

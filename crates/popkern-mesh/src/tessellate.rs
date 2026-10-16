@@ -866,6 +866,7 @@ fn tessellate_brep_reusing(
     }
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
+    crate::vertex_snap::snap_to_vertices(brep, &mut face_meshes);
     let mut mesh = TriMesh::from_face_meshes(face_meshes);
     // Tolerance-scoped T-junction zippering (PK-208): differently
     // sampled boundary chains along RECORDED-tolerance edges are
