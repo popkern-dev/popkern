@@ -270,15 +270,17 @@ impl BRep {
                 let mut u_snapped = false;
                 if let Some(&(_, first_u, _)) = quarter_samples.first() {
                     use crate::geometry::surface::SurfaceEval;
-                    // Row-degeneracy gate: ∂u within 1e-4 of ∂u=0
-                    // moves a uv point by ≤ ~1e-4·|∂v|·period in 3D —
-                    // sub-tolerance at any chart scale (a projected
-                    // pole endpoint lands at v ≈ 1e-6, ∂u ≈ r·1e-6,
-                    // so an exact-zero gate never fires).
+                    // Row-degeneracy gate: ∂u under 1e-4 of the edge's
+                    // interior ∂u (a projected pole lands at ∂u ≈ r·1e-6,
+                    // so an exact-zero gate never fires). Not ∂v: ∂u/∂v
+                    // has length units on a cylinder, so r < 1e-4 read
+                    // as a pole and lost its exact line (PK-860).
+                    let du_in = quarter_samples
+                        .iter()
+                        .map(|&(_, u, v)| surface.partial_u(u, v).length())
+                        .fold(0.0_f64, f64::max);
                     let pole_at = |u: f64, v: f64| -> bool {
-                        let du = surface.partial_u(u, v).length();
-                        let dv = surface.partial_v(u, v).length();
-                        du <= 1.0e-4 * dv.max(1.0e-12)
+                        du_in > 0.0 && surface.partial_u(u, v).length() <= 1.0e-4 * du_in
                     };
                     // The free azimuth at a pole is the curve's limit:
                     // the direction it arrives from (leaves toward),

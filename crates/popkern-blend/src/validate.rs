@@ -232,14 +232,14 @@ pub(crate) fn validate_fillet_request(
 }
 
 /// Fillet corners resolve only radii above this many linear
-/// tolerances. TEMPORARY CONTAINMENT (PK-860): a rounded cube's
-/// corners serve at 280 tolerances and fail at 200 (a 16 mm cube at
-/// tolerance 2.5e-6 vs 3.5e-6); at 70 (a 1.6 mm cube in a metre
-/// model) the corner cap took the three-quad Gregory path and served a
-/// self-intersecting body 2% short of the exact volume. Straight
-/// fillets without corners serve exactly at 70. PK-860 locates the
-/// tolerance-coupled corner decision and lifts this gate.
-const CORNER_RADIUS_RESOLUTION: f64 = 250.0;
+/// tolerances: a round no larger than the tolerance band has no
+/// geometry the kernel can tell apart. This was a 250x containment
+/// (PK-860) while the corner carve's anchor band (100 tolerances)
+/// swallowed the rail crossings below r/tol = 241; with that band
+/// capped at 0.2 r a 1.6 mm cube rounds exactly at r/tol = 2, 3.5, 70
+/// and 700 (at 10 validate_all reports one self-intersection on an
+/// exact-volume body: PK-866).
+const CORNER_RADIUS_RESOLUTION: f64 = 1.0;
 
 /// Refuse a fillet whose corners (vertices two or more filleted edges
 /// share) carry a radius under [`CORNER_RADIUS_RESOLUTION`] linear

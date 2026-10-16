@@ -163,7 +163,14 @@ pub(crate) fn find_face_trim_anchors(
         .copied()
         .filter(|r| r.is_finite() && *r > 0.0)
         .fold(f64::INFINITY, f64::min);
-    let band = (tolerance.linear() * 100.0).max(min_r * 1e-3);
+    // The band must stay under the r(sqrt2 - 1) = 0.41 r gap at any
+    // tolerance: 100 tolerances alone crossed it below r/tol = 241, the
+    // crossing points matched as anchors and the corner carved through
+    // the ball's feet (a 1.6 mm cube at tolerance 1e-6 served 2% short,
+    // self-intersecting; PK-860).
+    let band = (tolerance.linear() * 100.0)
+        .min(min_r * 0.2)
+        .max(min_r * 1e-3);
 
     // All loops, not just the outer one: hole-loop anchors are the
     // norm on pierced curved supports (PK-141).

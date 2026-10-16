@@ -78,16 +78,41 @@ fn a_millimetre_die_takes_its_rounds() {
 }
 
 /// A 1.6 mm cube in a metre model (r = 70 um, 70x the 1e-6 linear
-/// tolerance) declines fast with the corner-resolution error instead of
-/// serving a corner the kernel cannot resolve. Measured before the
-/// gate: 46 s (corner-cap self-intersection checks marched isolated
-/// contacts through the whole 200k-step budget), then a body check 7
-/// falsely rejected (it read the raw chart normal against
-/// f64::EPSILON); with check 7 scale-free, a self-intersecting body 2%
-/// short of the exact volume. Lifting the gate is PK-860.
+/// tolerance) serves exactly. Measured on the way (PK-838, PK-860):
+/// 46 s (corner-cap self-intersection checks marched isolated
+/// contacts through the whole 200k-step budget); a body check 7
+/// falsely rejected (the raw chart normal against f64::EPSILON); then
+/// a self-intersecting body 2% short, because the corner carve matched
+/// anchors within 100 tolerances, which below r/tol = 241 swallowed the
+/// rail crossings at r(sqrt2 - 1) from them; then exact but reported
+/// G0, because pcurve recompute read every cylinder under r = 1e-4 as
+/// a chart pole and fitted the strips' corner arcs 3.4e-6 off.
 #[test]
-fn a_corner_radius_near_the_tolerance_declines_fast() {
+fn a_rounded_cube_seventy_tolerances_across_serves_exact_and_fast() {
     let (s, r) = (0.0016, 0.04375 * 0.0016);
+    let watch = std::time::Instant::now();
+    let (brep, downgraded) = rounded_cube("m", s, r);
+    assert!(
+        watch.elapsed().as_secs_f64() < 10.0,
+        "took {:?}",
+        watch.elapsed()
+    );
+    assert_eq!(downgraded, 0, "the G1 fillet reads as downgraded");
+    let issues = brep.validate_all();
+    assert!(issues.is_empty(), "{issues:?}");
+    let volume = popkern_measure::body_volume(&brep, &brep.tolerance).expect("volume");
+    let expected = exact_volume(s, r);
+    assert!(
+        ((volume - expected) / expected).abs() < 1e-6,
+        "volume {volume} vs {expected}"
+    );
+}
+
+/// A corner radius within the tolerance band declines fast with the
+/// corner-resolution error.
+#[test]
+fn a_corner_radius_inside_the_tolerance_declines_fast() {
+    let (s, r) = (0.0016, 5e-7);
     let source = format!(
         "let m = model();\n\
          let h = {s} / 2.0;\n\
@@ -95,8 +120,8 @@ fn a_corner_radius_near_the_tolerance_declines_fast() {
          die = die.fillet(edges(), {r}, #{{ label: \"rounds\" }});\nm"
     );
     let watch = std::time::Instant::now();
-    let error = match ScriptHost::new().run(&source, "tiny_cube.rhai") {
-        Ok(_) => panic!("a 70-tolerance corner radius serves"),
+    let error = match ScriptHost::new().run(&source, "sub_tolerance.rhai") {
+        Ok(_) => panic!("a sub-tolerance corner radius serves"),
         Err(e) => e.render(),
     };
     assert!(error.contains("linear tolerance"), "{error}");
