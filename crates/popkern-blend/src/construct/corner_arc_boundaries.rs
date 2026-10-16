@@ -194,7 +194,12 @@ pub(super) fn collapse_corner_anchor_chords(
         let SurfaceGeometry::Sphere { center, radius, .. } = sof.geometry else {
             continue;
         };
-        let on_sphere = |p: Point3| (p.distance_to(&center) - radius).abs() < 1.0e-3;
+        // Contacts sit on the ball, anchors r(sqrt2 - 1) = 0.41r off it:
+        // the band is a fraction of the radius. An absolute 1e-3 read
+        // every vertex of a 1.6 mm cube's r = 7e-5 corner as on the
+        // ball and contracted the wrong chords (its strip end arcs came
+        // out with reversed pcurves, 3.8e-5 off, PK-860).
+        let on_sphere = |p: Point3| (p.distance_to(&center) - radius).abs() < 1.0e-2 * radius;
         if popkern_core::trace::trace_enabled("corner-carve") {
             let start_he = brep.loops[face.outer_loop].half_edge;
             let mut he = start_he;

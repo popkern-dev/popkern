@@ -106,3 +106,32 @@ fn a_corner_radius_near_the_tolerance_declines_fast() {
         watch.elapsed()
     );
 }
+
+/// The same 1.6 mm cube at a 1e-7 tolerance (700 tolerances across its
+/// 70 um rounds, inside the corner resolution) serves exact and clean.
+/// The corner-cap contact collapse read "on the ball" against an
+/// absolute 1e-3, which every vertex of this cube satisfied: it
+/// contracted the wrong chords and the rounds' end arcs carried
+/// reversed pcurves 3.8e-5 off (PK-860).
+#[test]
+fn a_tiny_rounded_cube_at_a_fine_tolerance_serves_exact() {
+    let (s, r) = (0.0016, 0.04375 * 0.0016);
+    let source = format!(
+        "let m = model(#{{ tolerance: 1e-7 }});\n\
+         let h = {s} / 2.0;\n\
+         let die = m.profile(xy_at(-h)).rect({s}, {s}).sketch(\"block\").extrude(blind({s}));\n\
+         die = die.fillet(edges(), {r}, #{{ label: \"rounds\" }});\nm"
+    );
+    let mut run = ScriptHost::new()
+        .run(&source, "tiny_fine.rhai")
+        .unwrap_or_else(|e| panic!("{}", e.render()));
+    let brep = run.model.take().expect("model").to_brep().expect("brep");
+    let issues = brep.validate_all();
+    assert!(issues.is_empty(), "{issues:?}");
+    let volume = popkern_measure::body_volume(&brep, &brep.tolerance).expect("volume");
+    let expected = exact_volume(s, r);
+    assert!(
+        ((volume - expected) / expected).abs() < 1e-6,
+        "volume {volume} vs {expected}"
+    );
+}
