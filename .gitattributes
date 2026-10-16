@@ -1,0 +1,14 @@
+# Every text file checks out with LF, whatever core.autocrlf says. The
+# tools are bash scripts (tools/*.sh, tools/task, tools/zig-cc/*), and a
+# Windows checkout with autocrlf=true gave them CRLF, which bash rejects
+# ($'\r': command not found). The index was already all LF.
+* text=auto eol=lf
+
+# Windows-only scripts keep CRLF in the working tree; PowerShell and cmd
+# read either, and editors there expect CRLF.
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Vendored notices with mixed line endings, kept byte-for-byte.
+THIRD-PARTY-NOTICES.md -text
