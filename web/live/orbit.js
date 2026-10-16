@@ -119,8 +119,46 @@ export class Orbit {
     this.target = min.clone().add(max).multiplyScalar(0.5);
     const size = max.clone().sub(min).length() || 1;
     this.size = size;
-    this.spherical.radius = size * 1.4;
+    this.spherical.radius = this.fitRadius(size);
     this.update();
+  }
+
+  /** The eye distance that frames a model of diagonal `size`: 1.4
+   *  sizes through the vertical field of view, farther in a portrait
+   *  pane (a phone), whose horizontal field is the narrower one. */
+  fitRadius(size) {
+    return (size * 1.4) / Math.min(1, this.camera.aspect || 1);
+  }
+
+  /** Turn to a standard view — azimuth `theta` and polar angle `phi`
+   *  about +Z — refitted to `bounds`, eased over `ms` (0: at once).
+   *  The azimuth turns the short way round. */
+  orient(theta, phi, bounds, ms = 280) {
+    const min = new THREE.Vector3(...bounds[0]);
+    const max = new THREE.Vector3(...bounds[1]);
+    const size = max.clone().sub(min).length() || 1;
+    this.size = size;
+    const from = { theta: this.spherical.theta, phi: this.spherical.phi, radius: this.spherical.radius, target: this.target.clone() };
+    const turn = theta - from.theta;
+    const to = {
+      theta: from.theta + turn - 2 * Math.PI * Math.round(turn / (2 * Math.PI)),
+      phi,
+      radius: this.fitRadius(size),
+      target: min.clone().add(max).multiplyScalar(0.5),
+    };
+    cancelAnimationFrame(this.easing ?? 0);
+    const started = performance.now();
+    const step = (now) => {
+      const t = ms > 0 ? Math.min(1, (now - started) / ms) : 1;
+      const k = t * t * (3 - 2 * t);
+      this.spherical.theta = from.theta + (to.theta - from.theta) * k;
+      this.spherical.phi = from.phi + (to.phi - from.phi) * k;
+      this.spherical.radius = from.radius + (to.radius - from.radius) * k;
+      this.target.lerpVectors(from.target, to.target, k);
+      this.update();
+      if (t < 1) this.easing = requestAnimationFrame(step);
+    };
+    step(started);
   }
 
   update() {

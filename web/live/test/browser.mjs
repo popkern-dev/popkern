@@ -1260,6 +1260,73 @@ m`)};
     return result;
   })()`);
 
+  // The standard views (view-orient.js): each turns the eye to look
+  // along its axis, Z up, and refits.
+  out.views = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    await page.projects.create("Views", 'let m = model();\\nm.profile(xy()).rect(3.0, 1.0).sketch("s").extrude(blind(0.5));\\nm\\n');
+    await page.runDone;
+    const { orientView } = await import("./view-orient.js");
+    const look = {};
+    for (const name of ["front", "back", "left", "right", "top", "bottom", "iso"]) {
+      orientView(page.viewer, name, 0);
+      const d = page.viewer.camera.getWorldDirection(new page.viewer.camera.position.constructor());
+      look[name] = [d.x, d.y, d.z].map((v) => Math.round(v * 1000) / 1000);
+    }
+    return { look, pad_buttons: document.querySelectorAll("#view-orient [data-view]").length };
+  })()`);
+
+  // A phone (PK-867): a project's films are listed on the History
+  // sheet, a film opening brings that sheet up with its controls, the
+  // model view carries its own play button, the film frame's shade
+  // stays inside the model view, the status chip clears the corner's
+  // tools, and the view modes keep their clustered card.
+  await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await new Promise((r) => setTimeout(r, 400));
+  out.phone = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const rect = (el) => el.getBoundingClientRect();
+    const shown = (el) => el && getComputedStyle(el).display !== "none" && !el.hidden;
+    window.prompt = () => "spin";
+    document.querySelector(".sheet-tabs [data-sheet=code]").click();
+    await page.rail.addFilm();
+    const t0 = performance.now();
+    while (!page.film.active && performance.now() - t0 < 120000) await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 200));
+    const pane = rect(document.querySelector(".pane-viewer"));
+    const hole = rect(document.querySelector("#film-frame .film-hole"));
+    const frame = rect(document.getElementById("film-frame"));
+    const open = {
+      active: page.film.active,
+      sheet: document.body.dataset.sheet,
+      bar_shown: shown(document.getElementById("film-bar")),
+      play_view_shown: shown(document.getElementById("film-play-view")),
+      list_hidden: !shown(document.getElementById("film-list")),
+      frame_in_pane: frame.left >= pane.left - 1 && frame.right <= pane.right + 1 && frame.top >= pane.top - 1 && frame.bottom <= pane.bottom + 1,
+      hole_in_pane: hole.left >= pane.left - 1 && hole.right <= pane.right + 1 && hole.top >= pane.top - 1 && hole.bottom <= pane.bottom + 1,
+      clipped: getComputedStyle(document.getElementById("film-frame")).overflow === "hidden",
+    };
+    document.getElementById("film-play-view").click();
+    await new Promise((r) => setTimeout(r, 300));
+    open.played = page.film.playing;
+    page.film.pause();
+    document.getElementById("film-exit").click();
+    await new Promise((r) => setTimeout(r, 200));
+    const list = document.getElementById("film-list");
+    const status = rect(document.querySelector(".dock-status"));
+    const tools = rect(document.querySelector(".view-tools"));
+    const view = document.querySelector(".bar-view");
+    const mode = document.querySelector(".bar-view .mode");
+    return {
+      open,
+      closed: { active: page.film.active, list_shown: shown(list), list_items: list.querySelectorAll(".film-list-item").length },
+      status_clear_of_tools: status.right <= tools.left + 0.5 || status.bottom <= tools.top,
+      modes_clustered: getComputedStyle(view).backgroundColor !== "rgba(0, 0, 0, 0)" && parseFloat(getComputedStyle(mode).borderTopLeftRadius) < 20,
+      orient_shown: shown(document.getElementById("view-orient")),
+    };
+  })()`);
+  await send("Emulation.clearDeviceMetricsOverride");
+
   if (process.env.POPKERN_LAUNCH === "1") {
     out.launch = await launchRows();
   }

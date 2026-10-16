@@ -4,6 +4,7 @@
 // guide showing the film's frame, and the export menu.
 import { PRESETS, codecSupport, exportFilm } from "./film-export.js";
 import { saveBytes } from "./exports.js";
+import { sheetLayout, showSheet } from "./layout.js";
 
 const $ = (id) => document.getElementById(id);
 const RANGE_STEPS = 1000;
@@ -29,7 +30,11 @@ export function wireFilmBar(page) {
     if (preset.selectedOptions[0]?.disabled) preset.value = "gif";
   });
 
-  $("film-play").addEventListener("click", () => (player.playing ? player.pause() : player.play()));
+  const toggle = () => (player.playing ? player.pause() : player.play());
+  $("film-play").addEventListener("click", toggle);
+  // The viewport's own play button: on a phone the bar sits on the
+  // History sheet, which the Code sheet (where films open) hides.
+  $("film-play-view").addEventListener("click", toggle);
   range.addEventListener("input", () => {
     if (!player.active) return;
     player.seek((Number(range.value) / RANGE_STEPS) * player.film.duration);
@@ -88,16 +93,22 @@ export function wireFilmBar(page) {
     }
   });
 
+  let wasOpen = false;
   const paint = () => {
     const open = player.active;
     $("film-bar").hidden = !open;
     $("film-caption").hidden = !open;
     $("film-frame").hidden = !open;
     $("film-exit").hidden = !open;
+    $("film-play-view").hidden = !open;
+    // A film opening on a phone brings up the sheet with its controls.
+    if (open && !wasOpen && sheetLayout()) showSheet("history");
+    wasOpen = open;
+    page.rail?.renderFilms?.();
     if (!open) return;
     const film = player.film;
     document.body.classList.toggle("film-playing", player.playing);
-    $("film-play").setAttribute("aria-label", player.playing ? "Pause the film" : "Play the film");
+    for (const id of ["film-play", "film-play-view"]) $(id).setAttribute("aria-label", player.playing ? "Pause the film" : "Play the film");
     $("film-name").textContent = film.name;
     $("film-time").textContent = `${player.time.toFixed(1)} / ${film.duration.toFixed(1)} s`;
     if (document.activeElement !== range) range.value = String(Math.round((player.time / film.duration) * RANGE_STEPS));
@@ -129,13 +140,18 @@ export function wireFilmBar(page) {
     placeFrame(film);
   };
   player.onChange(paint);
+  // The frame follows the viewport: a phone's sheet tabs, a rotation or
+  // a window resize change the pane's shape under an open film.
+  new ResizeObserver(() => player.active && placeFrame(player.film)).observe(document.querySelector(".pane-viewer"));
   paint();
 }
 
-/** The film's frame inside the viewport (the pane can be any shape). */
+/** The film's frame inside the viewport (the pane can be any shape):
+ *  the frame element covers the pane and clips its hole's shade, so
+ *  the dimming outside the film's frame stays inside the model view. */
 function placeFrame(film) {
   const pane = document.querySelector(".pane-viewer");
-  const guide = $("film-frame");
+  const guide = $("film-frame").querySelector(".film-hole");
   const caption = $("film-caption");
   if (!pane) return;
   const w = pane.clientWidth;

@@ -237,6 +237,7 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     page_rows::assert_appearance(&out);
     page_rows::assert_arm_rows(&out);
     page_rows::assert_open_step(&out);
+    page_rows::assert_view_rows(&out);
     // Broken script: overlay with class + position, line marked, last good model kept.
     assert_eq!(out["broken"]["outcome"], "script_error");
     assert_eq!(out["broken"]["kind"], "SyntaxError");

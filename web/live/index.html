@@ -106,6 +106,7 @@
   <button id="editor-expand" class="card editor-rail" type="button" title="Show the script" aria-label="Show the script" hidden><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg><span>Script</span></button>
   <section class="pane-viewer" aria-label="Model">
     <canvas id="viewer" aria-label="3D view of the model; drag to orbit, wheel or pinch to zoom, right-drag, shift-drag or two-finger drag to pan, arrow keys to orbit"></canvas>
+    <div class="view-corner">
     <div class="view-tools">
       <button id="section-toggle" class="float-button" type="button" aria-pressed="false" title="Section view: cut through the model (drag the handles to move and tilt the cut; more options in the view menu)" aria-label="Section view"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5h11v11h-11zM2.5 13.5 13.5 2.5M5.5 13.5l8-8M2.5 10.5l8-8"/></svg></button>
       <button id="fit" class="float-button" type="button" title="Fit the model to the view" aria-label="Fit the model to the view"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/></svg></button>
@@ -147,7 +148,22 @@
         </div>
       </div>
     </div>
-    <div id="film-frame" class="film-frame" hidden aria-hidden="true"></div>
+    <!-- Standard views (view-orient.js), laid out like an unfolded
+         view cube: top over front, left and right beside it, bottom
+         under it; isometric and back in the top corners. -->
+    <div id="view-orient" class="view-orient" role="group" aria-label="Standard views">
+      <button type="button" data-view="iso" title="Isometric view" aria-label="Isometric view"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 13.5 5v6.2L8 14.4 2.5 11.2V5zM2.5 5 8 8.2 13.5 5M8 8.2v6.2"/></svg></button>
+      <button type="button" data-view="top" title="Top view (looking down -Z)" aria-label="Top view">Top</button>
+      <button type="button" data-view="back" title="Back view (looking along -Y)" aria-label="Back view">Back</button>
+      <button type="button" data-view="left" title="Left view (looking along +X)" aria-label="Left view">Left</button>
+      <button type="button" data-view="front" title="Front view (looking along +Y)" aria-label="Front view">Front</button>
+      <button type="button" data-view="right" title="Right view (looking along -X)" aria-label="Right view">Right</button>
+      <span aria-hidden="true"></span>
+      <button type="button" data-view="bottom" title="Bottom view (looking up +Z)" aria-label="Bottom view">Bottom</button>
+    </div>
+    </div>
+    <div id="film-frame" class="film-frame" hidden aria-hidden="true"><span class="film-hole"></span></div>
+    <button id="film-play-view" class="film-play-view" type="button" hidden title="Play or pause the film" aria-label="Play the film"><svg class="icon solid icon-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10l8-5z"/></svg><svg class="icon solid icon-pause" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 3h2.5v10H4.5zM9 3h2.5v10H9z"/></svg></button>
     <button id="film-exit" class="film-exit" type="button" hidden title="Close the film and go back to the model (Esc)" aria-label="Close the film">✕ Close film</button>
     <div id="film-caption" class="film-caption" hidden aria-live="polite"><strong></strong><span></span></div>
     <span id="pick" class="pick">click a face or edge to see its stable name</span>
@@ -228,6 +244,7 @@
       <button id="film-export" type="button" title="Render the film to a file">Export</button>
       <span id="film-export-state" class="film-export-state" aria-live="polite"></span>
     </div>
+    <div id="film-list" class="film-list" hidden role="group" aria-label="Films"><span class="film-list-label">Films</span></div>
     <div id="history-empty" class="history-empty">
       <span id="history-empty-text">The model's history appears here after a build.</span>
       <button id="history" type="button" hidden title="Build the model live to step through its history">Show the history</button>

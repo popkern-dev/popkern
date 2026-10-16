@@ -1,12 +1,13 @@
 // The page's controls wired to the page controller: the top bar
 // (build, time limit, stop, downloads, show-as-code; the projects
 // controls are wired in projects-dialog.js), open STEP (a button in
-// the projects dialog), the view options (fit, edges, section,
-// explode), clearance, the draft notice and the dialogs. The menus, view modes and tabs are layout.js.
+// the projects dialog), the view options (fit, the standard views, edges,
+// section, explode), clearance, the draft notice and the dialogs. The menus, view modes and tabs are layout.js.
 import { wireSection } from "./section-controls.js";
 import { dismissDraft, restoreDraft } from "./drafts.js";
 import { downloadModel, showModelCode } from "./exports.js";
 import { wireLayout } from "./layout.js";
+import { wireViewOrient } from "./view-orient.js";
 
 const $ = (id) => document.getElementById(id);
 const DIALOGS = ["about-dialog", "code-dialog", "projects-dialog"];
@@ -17,6 +18,7 @@ export function wireControls(page) {
   $("time-limit").addEventListener("change", (e) => page.setTimeLimit(e.target.value === "none" ? null : Number(e.target.value)));
   $("cancel").addEventListener("click", () => page.cancel("cancelled by the user"));
   $("fit").addEventListener("click", () => page.viewer.fitAgain());
+  wireViewOrient(page);
   // History needs the live model: a pre-built one is rebuilt first.
   $("history").addEventListener("click", async () => {
     if (await page.ensureLive()) $("scrubber").focus();

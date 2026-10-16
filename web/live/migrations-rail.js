@@ -43,7 +43,29 @@ export class MigrationsRail {
     this.render();
   }
 
+  /** The phone's History sheet lists the project's films (a phone
+   *  shows the rail only on the Code sheet): one button each, hidden
+   *  while a film plays (the film bar takes the sheet). */
+  renderFilms() {
+    const films = this.page.projects.current ? this.page.projects.filmPaths() : [];
+    const box = $("film-list");
+    box.hidden = films.length === 0 || this.page.film?.active === true;
+    if (box.dataset.films === films.join("\n")) return;
+    box.dataset.films = films.join("\n");
+    box.querySelectorAll("button").forEach((b) => b.remove());
+    for (const path of films) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "film-list-item";
+      b.textContent = `▶ ${filmName(path)}`;
+      b.title = `play the film ${filmName(path)}`;
+      b.addEventListener("click", () => this.open(path));
+      box.append(b);
+    }
+  }
+
   render() {
+    this.renderFilms();
     const p = this.page.projects.current;
     const list = $("migrations-list");
     list.replaceChildren();

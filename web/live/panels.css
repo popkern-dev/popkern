@@ -216,7 +216,13 @@ body.film-playing .film-bar .icon-pause { display: inline; }
 .film-mark-hold { background: var(--muted); }
 .film-mark-title { background: var(--text); }
 .film-export-state { font-size: 0.85em; color: var(--muted); }
-.film-frame { position: absolute; pointer-events: none; box-shadow: 0 0 0 100vmax rgba(8, 12, 20, 0.55); outline: 1px dashed rgba(255, 255, 255, 0.35); z-index: 2; }
+/* The frame covers the model view and clips its hole's shade, so the
+   dimming outside the film's frame never spills over the page. */
+.film-frame { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; pointer-events: none; z-index: 2; }
+.film-hole { position: absolute; box-shadow: 0 0 0 100vmax rgba(8, 12, 20, 0.55); outline: 1px dashed rgba(255, 255, 255, 0.35); }
+/* The viewport's play button and the History sheet's film list are a
+   phone's (mobile.css); a wide screen has the film bar and the rail. */
+.film-play-view, .film-list { display: none; }
 .film-caption { position: absolute; z-index: 3; pointer-events: none; display: flex; flex-direction: column; gap: 0.35em; color: #f5f7fa; transition: opacity 0.1s linear; max-width: 70%; }
 .film-caption strong { font-size: 1.6em; font-weight: 600; }
 .film-caption-title strong { font-size: 2.1em; }
