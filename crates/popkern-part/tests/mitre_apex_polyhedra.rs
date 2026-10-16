@@ -5,7 +5,9 @@
 //! half-space intersection of the face planes and the bevel planes. On
 //! the octahedron (valence 4) and the icosahedron (valence 5) the
 //! bevels at a vertex concur by symmetry, so the body has F + E faces
-//! and no corner polygon. Before this task both declined with an edge
+//! and no corner polygon. Non-concurrent bevels (a stretched
+//! octahedron, a rectangular pyramid apex) meet along a mitre tree
+//! of ridges instead (PK-848). Before PK-841 both declined with an edge
 //! `d/√3` (octahedron) off its bevel plane: the per-edge cluster kept
 //! the original vertex, and the mitre stage only rebuilt valence 3.
 //!
@@ -155,7 +157,7 @@ fn assert_exact_chamfer(solid: &Part, d: f64, faces: usize, what: &str) {
     assert_eq!(
         b.vertices.len(),
         oracle.brep().vertices.len(),
-        "{what} d={d}: one apex per corner, no corner polygon"
+        "{what} d={d}: vertices match the half-space oracle (one apex or one mitre tree per corner)"
     );
 }
 
@@ -271,19 +273,42 @@ fn every_trapezohedron_edge_chamfered_is_the_exact_half_space_intersection() {
     }
 }
 
-/// Negative control: on the stretched octahedron the four bevels at a
-/// y- or z-axis vertex meet in two points, not one, so the exact result
-/// needs a corner face. The stage must decline by name rather than
-/// serve a body whose bevels are bent through a shared apex.
+/// PK-848: on the stretched octahedron the four bevels at a y- or
+/// z-axis vertex do not concur: they meet in two triple points joined
+/// by a mitre ridge (a tree, not one apex). The exact result is still
+/// the half-space intersection, with no corner polygon face.
 #[test]
-fn non_concurrent_valence_four_bevels_decline_by_name() {
-    let err = stretched_octahedron(1.4)
-        .chamfer(0.1, |e: EdgeQuery| e)
-        .expect_err("non-concurrent bevels have no single mitre apex");
-    let text = format!("{err:?}");
-    assert!(
-        text.contains("not concurrent"),
-        "decline names the non-concurrent corner: {}",
-        text.chars().take(600).collect::<String>()
-    );
+fn non_concurrent_valence_four_bevels_meet_along_a_mitre_ridge() {
+    for d in [0.05, 0.1] {
+        assert_exact_chamfer(
+            &stretched_octahedron(1.4),
+            d,
+            8 + 12,
+            "stretched octahedron",
+        );
+    }
+}
+
+/// Rectangular pyramid: its apex bevels pair off across the long and
+/// short sides, so they meet along a ridge too.
+fn rectangular_pyramid() -> Part {
+    let p = |x, y, z| Point3::new(x, y, z);
+    Part::polyhedron(
+        &[
+            p(-0.6, -0.35, 0.0),
+            p(0.6, -0.35, 0.0),
+            p(0.6, 0.35, 0.0),
+            p(-0.6, 0.35, 0.0),
+            p(0.0, 0.0, 0.8),
+        ],
+        Tolerance::default(),
+    )
+    .expect("rectangular pyramid")
+}
+
+#[test]
+fn rectangular_pyramid_apex_chamfers_along_a_mitre_ridge() {
+    for d in [0.04, 0.08] {
+        assert_exact_chamfer(&rectangular_pyramid(), d, 5 + 8, "rectangular pyramid");
+    }
 }

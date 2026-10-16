@@ -28,8 +28,8 @@
 //! for `N > 3` the apex is the least-squares point of the bevel planes
 //! and every plane must pass within the linear band of it (regular
 //! solids with equal distances concur by symmetry). Non-concurrent
-//! bevels need a corner polygon face, which this stage does not build
-//! — it declines with the worst plane residual (PK-848).
+//! bevels meet along a mitre tree of ridges between their feasible
+//! triple points instead (`mitre_apex_tree.rs`, PK-848).
 //!
 //! **Transactional:** the cluster is verified before surgery (valence
 //! pattern, inset corners on two bevels each, planes concurrent) and
@@ -275,7 +275,8 @@ fn rebuild_corner(
     out: &mut BRep,
     vertex: VertexHandle,
     cluster: &Cluster,
-    apex: Point3,
+    apex: Option<Point3>,
+    (corner, bevels): (Point3, &[Plane]),
     tol: f64,
 ) -> Result<(), String> {
     // 1. Slivers + V → 2N-gon. The N slivers form a cycle around V
@@ -299,34 +300,50 @@ fn rebuild_corner(
             2 * n
         ));
     }
-    // 2. Apex spur from C_0, then N−1 mef splits to the other insets.
-    let (&c0, rest) = cluster.insets.split_first().ok_or("no inset corners")?;
-    let he_c0 = half_edge_in_loop_from(out, polygon, c0).ok_or("C0 not on the polygon")?;
-    let mev = out.mev(he_c0, apex).map_err(|e| format!("mev apex: {e}"))?;
-    let apex_v = mev.vertex;
-    let mut mitre_edges = vec![mev.edge];
-    for &c in rest {
-        // Find a loop holding both an A-origin half-edge and `c`.
-        let mut done = false;
-        for he_a in outgoing(out, apex_v) {
-            let loop_ = out
-                .half_edges
-                .get(he_a)
-                .ok_or("stale apex half-edge")?
-                .loop_;
-            if let Some(he_c) = half_edge_in_loop_from(out, loop_, c) {
-                let mef = out
-                    .mef(he_a, he_c)
-                    .map_err(|e| format!("mef apex-{c:?}: {e}"))?;
-                mitre_edges.push(mef.edge);
-                done = true;
-                break;
+    // 2. A concurrent corner: the apex spur from C_0, then N−1 mef
+    //    splits to the other insets. Otherwise the mitre tree
+    //    (mitre_apex_tree.rs, PK-848).
+    let (mitre_edges, interior) = match apex {
+        Some(apex) => {
+            let (&c0, rest) = cluster.insets.split_first().ok_or("no inset corners")?;
+            let he_c0 = half_edge_in_loop_from(out, polygon, c0).ok_or("C0 not on the polygon")?;
+            let mev = out.mev(he_c0, apex).map_err(|e| format!("mev apex: {e}"))?;
+            let apex_v = mev.vertex;
+            let mut mitre_edges = vec![mev.edge];
+            for &c in rest {
+                // Find a loop holding both an A-origin half-edge and `c`.
+                let mut done = false;
+                for he_a in outgoing(out, apex_v) {
+                    let loop_ = out
+                        .half_edges
+                        .get(he_a)
+                        .ok_or("stale apex half-edge")?
+                        .loop_;
+                    if let Some(he_c) = half_edge_in_loop_from(out, loop_, c) {
+                        let mef = out
+                            .mef(he_a, he_c)
+                            .map_err(|e| format!("mef apex-{c:?}: {e}"))?;
+                        mitre_edges.push(mef.edge);
+                        done = true;
+                        break;
+                    }
+                }
+                if !done {
+                    return Err(format!("no loop joins the apex and inset corner {c:?}"));
+                }
             }
+            (mitre_edges, vec![apex_v])
         }
-        if !done {
-            return Err(format!("no loop joins the apex and inset corner {c:?}"));
-        }
-    }
+        None => super::mitre_apex_tree::build_mitre_tree(
+            out,
+            polygon,
+            corner,
+            bevels,
+            &cluster.anchors,
+            &cluster.insets,
+            tol,
+        )?,
+    };
     // 3. Merge each quad into its bevel, delete the anchor.
     for &a in &cluster.anchors {
         let a_out = outgoing(out, a);
@@ -341,7 +358,10 @@ fn rebuild_corner(
         let he_a = a_out[0];
         let he_data = out.half_edges.get(he_a).ok_or("stale anchor half-edge")?;
         let twin = he_data.twin;
-        let quad_side = if half_edge_in_loop_from(out, he_data.loop_, apex_v).is_some() {
+        let quad_side = if interior
+            .iter()
+            .any(|&t| half_edge_in_loop_from(out, he_data.loop_, t).is_some())
+        {
             he_a
         } else {
             twin
@@ -418,7 +438,12 @@ pub(crate) fn settle_mitre_apex_corners(
         if bevels.len() != idx.len() {
             return Err(decline("bevel surfaces are not all planes".into()));
         }
-        let apex = concurrent_apex(&bevels, tol).map_err(decline)?;
+        // Non-concurrent bevels meet along a mitre tree (PK-848).
+        let apex = match concurrent_apex(&bevels, tol) {
+            Ok(apex) => Some(apex),
+            Err(why) if why.contains("not concurrent") => None,
+            Err(why) => return Err(decline(why)),
+        };
         let supports: Vec<Plane> = idx
             .iter()
             .flat_map(|&i| {
@@ -437,7 +462,9 @@ pub(crate) fn settle_mitre_apex_corners(
         )
         .map_err(decline)?;
         let cluster = read_cluster(&staged, vertex, &bevels, tol).map_err(decline)?;
-        rebuild_corner(&mut staged, vertex, &cluster, apex, tol).map_err(decline)?;
+        let corner = position.ok_or_else(|| decline("stale corner vertex".into()))?;
+        rebuild_corner(&mut staged, vertex, &cluster, apex, (corner, &bevels), tol)
+            .map_err(decline)?;
         if let Err(e) = staged.validate() {
             return Err(decline(format!("rebuilt corner fails validation: {e}")));
         }

@@ -73,6 +73,7 @@ pub(crate) mod territory_consistency;
 pub(crate) use post_pipeline::determinism_trace_mod::trace_trim_endpoints as post_pipeline_trace_trim_endpoints;
 pub(crate) mod mitre_apex_corner;
 pub(crate) mod mitre_apex_scaffold;
+pub(crate) mod mitre_apex_tree;
 pub(crate) mod pns_setback_candidate;
 pub(crate) mod rim_chain_chamfer;
 pub(crate) mod setback_cap_fairness;
