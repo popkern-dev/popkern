@@ -219,3 +219,78 @@ fn validate_face_handle(
 #[cfg(test)]
 #[path = "validate_tests.rs"]
 mod tests;
+
+/// [`validate_fillet_specs`], then [`validate_corner_resolution`]
+/// against the operation's tolerance.
+pub(crate) fn validate_fillet_request(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<(), BlendError> {
+    validate_fillet_specs(brep, specs)?;
+    validate_corner_resolution(brep, specs, tolerance)
+}
+
+/// Fillet corners resolve only radii above this many linear
+/// tolerances. TEMPORARY CONTAINMENT (PK-860): a rounded cube's
+/// corners serve at 280 tolerances and fail at 200 (a 16 mm cube at
+/// tolerance 2.5e-6 vs 3.5e-6); at 70 (a 1.6 mm cube in a metre
+/// model) the corner cap took the three-quad Gregory path and served a
+/// self-intersecting body 2% short of the exact volume. Straight
+/// fillets without corners serve exactly at 70. PK-860 locates the
+/// tolerance-coupled corner decision and lifts this gate.
+const CORNER_RADIUS_RESOLUTION: f64 = 250.0;
+
+/// Refuse a fillet whose corners (vertices two or more filleted edges
+/// share) carry a radius under [`CORNER_RADIUS_RESOLUTION`] linear
+/// tolerances, before any geometry work.
+pub(crate) fn validate_corner_resolution(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<(), BlendError> {
+    let floor = CORNER_RADIUS_RESOLUTION * tolerance.linear();
+    let mut at_vertex: std::collections::HashMap<
+        popkern_core::topology::VertexHandle,
+        (usize, f64),
+    > = std::collections::HashMap::new();
+    for spec in specs {
+        let smallest = match &spec.radius {
+            FilletRadius::Constant(r) => *r,
+            FilletRadius::Variable { start, end } => start.min(*end),
+            FilletRadius::ByPoints(points) => {
+                points.iter().map(|p| p.1).fold(f64::INFINITY, f64::min)
+            }
+        };
+        let Some(edge) = brep.edges.get(spec.edge) else {
+            continue;
+        };
+        let Some(he) = brep.half_edges.get(edge.half_edge) else {
+            continue;
+        };
+        let twin_origin = brep.half_edges.get(he.twin).map(|t| t.origin);
+        for vertex in std::iter::once(he.origin).chain(twin_origin) {
+            let entry = at_vertex.entry(vertex).or_insert((0, f64::INFINITY));
+            entry.0 += 1;
+            entry.1 = entry.1.min(smallest);
+        }
+    }
+    let mut corners: Vec<_> = at_vertex
+        .into_iter()
+        .filter(|(_, (count, radius))| *count >= 2 && *radius < floor)
+        .collect();
+    corners.sort_by(|a, b| a.1.1.total_cmp(&b.1.1));
+    if let Some((_, (_, radius))) = corners.first() {
+        return Err(BlendError::InvalidParameter {
+            parameter: "radius".to_string(),
+            value: format!("{radius}"),
+            reason: format!(
+                "a fillet corner's radius is under {CORNER_RADIUS_RESOLUTION} times the \
+                 model's linear tolerance ({}); model in a smaller unit (e.g. millimetres) \
+                 or tighten the tolerance",
+                tolerance.linear()
+            ),
+        });
+    }
+    Ok(())
+}

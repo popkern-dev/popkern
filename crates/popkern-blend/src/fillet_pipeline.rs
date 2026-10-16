@@ -117,7 +117,7 @@ pub(crate) fn fillet_edges_attempt(
     };
     // PHASE 0: Validate.
     let t0 = popkern_core::time::Stopwatch::start();
-    validate::validate_fillet_specs(brep, specs)?;
+    validate::validate_fillet_request(brep, specs, &tolerance)?;
     emit!(progress::FilletPhase::Validate, t0, specs.len());
     check_cancel!();
     // Canonicalize radius laws AFTER validation (errors report the

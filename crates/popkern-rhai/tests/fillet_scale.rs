@@ -76,3 +76,33 @@ fn a_rounded_cube_serves_at_every_scale() {
 fn a_millimetre_die_takes_its_rounds() {
     check("mm", 1e-3, 16.0);
 }
+
+/// A 1.6 mm cube in a metre model (r = 70 um, 70x the 1e-6 linear
+/// tolerance) declines fast with the corner-resolution error instead of
+/// serving a corner the kernel cannot resolve. Measured before the
+/// gate: 46 s (corner-cap self-intersection checks marched isolated
+/// contacts through the whole 200k-step budget), then a body check 7
+/// falsely rejected (it read the raw chart normal against
+/// f64::EPSILON); with check 7 scale-free, a self-intersecting body 2%
+/// short of the exact volume. Lifting the gate is PK-860.
+#[test]
+fn a_corner_radius_near_the_tolerance_declines_fast() {
+    let (s, r) = (0.0016, 0.04375 * 0.0016);
+    let source = format!(
+        "let m = model();\n\
+         let h = {s} / 2.0;\n\
+         let die = m.profile(xy_at(-h)).rect({s}, {s}).sketch(\"block\").extrude(blind({s}));\n\
+         die = die.fillet(edges(), {r}, #{{ label: \"rounds\" }});\nm"
+    );
+    let watch = std::time::Instant::now();
+    let error = match ScriptHost::new().run(&source, "tiny_cube.rhai") {
+        Ok(_) => panic!("a 70-tolerance corner radius serves"),
+        Err(e) => e.render(),
+    };
+    assert!(error.contains("linear tolerance"), "{error}");
+    assert!(
+        watch.elapsed().as_secs_f64() < 5.0,
+        "took {:?}",
+        watch.elapsed()
+    );
+}

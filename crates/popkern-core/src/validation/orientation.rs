@@ -40,8 +40,25 @@ impl BRep {
             } else {
                 0.0
             };
-            let normal = surface_on_face.geometry.normal_at(u_mid, v_mid);
-            if normal.length_squared() < f64::EPSILON {
+            // Degenerate when the chart's partials are parallel or
+            // vanish, read scale-free: the squared length of the raw
+            // normal against f64::EPSILON flagged every face under
+            // ~1e-4 across (a 1.6 mm rounded cube's 70 um corner
+            // patches: |Su x Sv|^2 ~ 2e-17), so a valid mm-scale part
+            // failed validation.
+            let geometry = &surface_on_face.geometry;
+            let (su, sv) = (
+                geometry.partial_u(u_mid, v_mid),
+                geometry.partial_v(u_mid, v_mid),
+            );
+            let normal = geometry.normal_at(u_mid, v_mid);
+            let scale = su.length() * sv.length();
+            let degenerate = if scale > 0.0 && scale.is_finite() {
+                su.cross(&sv).length() <= 1e-12 * scale
+            } else {
+                normal.length_squared() < f64::EPSILON
+            };
+            if degenerate || !normal.length().is_finite() {
                 return Err(ValidationError::InconsistentOrientation { face: face_handle });
             }
         }
@@ -104,5 +121,25 @@ mod tests {
         });
         let result = brep.validate_face_orientation();
         assert!(result.is_err());
+    }
+
+    /// Check 7 reads degeneracy scale-free: a 10 um sphere's chart
+    /// normal has squared length ~1e-20, which the old absolute
+    /// f64::EPSILON test called degenerate.
+    #[test]
+    fn a_tiny_sphere_face_is_not_degenerate() {
+        use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+        let mut brep = make_cube();
+        let face_handle = brep.faces.keys().next().unwrap();
+        brep.faces[face_handle].surface = Some(SurfaceOnFace {
+            geometry: SurfaceGeometry::Sphere {
+                center: Point3::new(0.0, 0.0, 0.0),
+                radius: 1e-5,
+                axis: crate::geometry::Vec3::Z,
+            },
+            orientation: true,
+        });
+        assert!(brep.validate_face_orientation().is_ok());
     }
 }
