@@ -390,3 +390,55 @@ fn reregister_use_pcurve_anchored(
     }
     false
 }
+
+/// The served body's faces must bound regions of their charts: every
+/// face whose loops leave a net period winding (validate_all's loop
+/// period winding check) gets its pcurves re-derived once; a face that
+/// still winds declines the boolean with the check's findings (PK-862).
+/// Bodies that read clean are untouched.
+pub(super) fn gate_loop_period_winding(result: &mut BRep) -> Result<(), String> {
+    let faces: Vec<_> = result.faces.keys().collect();
+    let winding: Vec<_> = result
+        .validate_loop_period_winding_among(&faces)
+        .into_iter()
+        .filter_map(|e| match e {
+            popkern_core::error::ValidationError::LoopPeriodWinding { face, .. } => Some(face),
+            _ => None,
+        })
+        .collect();
+    if winding.is_empty() {
+        return Ok(());
+    }
+    for &face in &winding {
+        let half_edges: Vec<_> = result
+            .half_edges
+            .iter()
+            .filter(|(_, h)| result.loops.get(h.loop_).is_some_and(|l| l.face == face))
+            .map(|(he, _)| he)
+            .collect();
+        for he in half_edges {
+            if let Some(h) = result.half_edges.get_mut(he) {
+                h.pcurve = None;
+            }
+        }
+        result.face_use_pcurves.retain(|key, _| key.face != face);
+    }
+    result.recompute_pcurves_for_lenient(&winding);
+    let still = result.validate_loop_period_winding_among(&winding);
+    if still.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "face loops do not bound a region of their charts: {}",
+            still
+                .iter()
+                .map(|e| format!("{e}"))
+                .collect::<Vec<_>>()
+                .join("; ")
+        ))
+    }
+}
+
+#[cfg(test)]
+#[path = "operation_pcurve_coherence_tests.rs"]
+mod tests;

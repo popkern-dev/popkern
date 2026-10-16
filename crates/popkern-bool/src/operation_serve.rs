@@ -248,6 +248,14 @@ fn serve(
     // Pcurve COHERENCE sweep for doubly-periodic (torus) faces —
     // mechanics and rationale in `operation_pcurve_coherence.rs`.
     super::helpers_pcurve_coherence::recompute_incoherent_periodic_pcurves(&mut result);
+    // The served body's faces must bound regions of their charts
+    // (PK-836, PK-862): coincident cooriented cylinder faces once served
+    // with loops winding round the period (validate() passes them, the
+    // body measured 16587 mm^3 of nothing). Checked here, after the
+    // output repairs re-register pcurves; a face that still winds gets
+    // its pcurves re-derived once, else the boolean declines.
+    super::helpers_pcurve_coherence::gate_loop_period_winding(&mut result)
+        .map_err(BoolError::ValidationFailed)?;
 
     // Debug/the boolean trace topic diagnostics on the SERVED result. This runs
     // after run_output_postprocess deliberately (PK-272): the earlier
