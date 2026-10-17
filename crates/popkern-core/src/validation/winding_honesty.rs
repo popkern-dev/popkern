@@ -79,13 +79,24 @@ impl BRep {
                         reason: if degenerate { "degenerate-uv-area" } else { "" },
                     }
                 }
-                Err(reason) => FaceWindingHonesty {
-                    face,
-                    signed_uv_area: 0.0,
-                    orientation: sof.orientation,
-                    honest: None,
-                    reason,
-                },
+                Err(reason) => {
+                    // Pole loops: the pole-side witness (PK-882).
+                    let witness = reason
+                        .starts_with("pole-")
+                        .then(|| self.pole_side_witness(face, &sof.geometry, sof.orientation))
+                        .flatten();
+                    FaceWindingHonesty {
+                        face,
+                        signed_uv_area: 0.0,
+                        orientation: sof.orientation,
+                        honest: witness,
+                        reason: if witness.is_some() {
+                            "pole-side-witness"
+                        } else {
+                            reason
+                        },
+                    }
+                }
             };
             out.push(verdict);
         }
@@ -359,7 +370,7 @@ impl BRep {
     /// pcurve direction contract, so the direction is verified
     /// against the half-edge's vertex positions through the surface
     /// (the same witness `classify_convexity` uses).
-    fn half_edge_uv_samples(
+    pub(super) fn half_edge_uv_samples(
         &self,
         half_edge: HalfEdgeHandle,
         surface: &SurfaceGeometry,

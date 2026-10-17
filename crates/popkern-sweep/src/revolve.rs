@@ -272,6 +272,12 @@ pub(crate) fn revolve_impl(
         if let Some(ctx) = tracking {
             crate::topology::side_faces::assign_sweep_names(&mut brep, ctx);
         }
+        // Flags are derived state: the loop winding (or, on a face
+        // holding a pole, the pole-side witness) decides them. The
+        // per-face normal sampling authored a bottom-pole sphere cap's
+        // flag against its material (its folded normal pointed into
+        // the body while every other face's pointed out, PK-882).
+        brep.reconcile_orientation_flags();
         brep
     } else {
         crate::topology::side_faces::build_sweep_topology_with(
