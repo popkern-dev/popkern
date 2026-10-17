@@ -970,6 +970,19 @@ a`)};
     // placement, without SwiftShader's frame, whose backpressure grows
     // with machine load (the fastest full step read 37.8 ms beside the
     // whole suite, 20 ms alone).
+    // The worker's own rebuild of the same script, fastest of 5 under
+    // the same load: the step must cost a fraction of it (a re-mesh or
+    // a full describe inside the step reads as one). The page's live
+    // run is no yardstick — on this three-block arm it is mostly
+    // page and frame overhead, and an injected rebuild still read under
+    // half of it.
+    const rebuilds = [];
+    for (let k = 0; k < 5; k++) {
+      const t0 = performance.now();
+      await page.host.run(page.editor.value, "arm.rhai");
+      rebuilds.push(performance.now() - t0);
+    }
+    const rebuildMs = Math.min(...rebuilds);
     const steps = [];
     for (let k = 1; k <= 20; k++) {
       const t0 = performance.now();
@@ -1004,6 +1017,7 @@ a`)};
       frame_ms: { fastest: times[0], median: times[10], max: times[19] },
       step_ms: stepMs,
       run_ms: runMs,
+      rebuild_ms: rebuildMs,
     };
   })()`);
 

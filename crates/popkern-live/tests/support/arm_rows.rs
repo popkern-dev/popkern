@@ -210,13 +210,14 @@ pub fn assert_joint(out: &Value) {
     // fastest of 20 — not the rendered frame: headless Chrome's
     // software GL adds backpressure that scales with machine load (the
     // fastest full step read 20 ms alone and 37.8 ms beside the whole
-    // suite, PK-874). A re-mesh or a full describe is a rebuild: it
-    // also fails the step against the same page's live run.
+    // suite, PK-874). A re-mesh or a full describe is a rebuild: the
+    // step must cost under half the worker's own rebuild of the script,
+    // timed fastest-of-5 under the same load (a rebuild injected into
+    // the step failed this and passed the old half-the-live-run gate).
     let step = j["step_ms"].as_f64().unwrap_or(f64::MAX);
-    let run = j["run_ms"].as_f64().unwrap_or(0.0);
-    eprintln!("[pk874] joint step {step:.2} ms, live run {run:.1} ms");
+    let rebuild = j["rebuild_ms"].as_f64().unwrap_or(0.0);
     assert!(step < 30.0, "a joint step within the wasm budget: {j}");
-    assert!(step < 0.5 * run, "a joint step is no rebuild: {j}");
+    assert!(step < 0.5 * rebuild, "a joint step is no rebuild: {j}");
 }
 
 /// A large model (two metres in millimetres) fits and draws: the depth
