@@ -3628,6 +3628,7 @@ dependencies = [
  "popkern-part",
  "popkern-script",
  "popkern-sketch",
+ "rayon",
  "rhai",
  "serde",
  "serde_json",
