@@ -1419,6 +1419,24 @@ m`)};
       orient_shown: shown(document.getElementById("view-orient")),
     };
   })()`);
+  // A mid desktop width (PK-871): the film tab keeps its name in view
+  // beside the add buttons (at 1280 px it hid behind "+ migration
+  // + film" until they collapsed to glyphs in a narrow card).
+  await send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 800, deviceScaleFactor: 1, mobile: false });
+  await new Promise((r) => setTimeout(r, 400));
+  out.rail_desktop = await evaluate(`(async () => {
+    if (window.popkernLive.film.active) document.getElementById("film-exit")?.click();
+    document.querySelector(".migration:not(.migration-film) .migration-name")?.click();
+    await new Promise((r) => setTimeout(r, 300));
+    const tabs = document.querySelector(".file-tabs").getBoundingClientRect();
+    const film = document.querySelector(".migration-film .migration-name");
+    const r = film?.getBoundingClientRect();
+    return {
+      film_text: film?.textContent ?? null,
+      visible: Boolean(r) && r.width > 0 && r.left >= tabs.left - 0.5 && r.right <= tabs.right + 0.5,
+      add_labels_hidden: [...document.querySelectorAll(".rail-add .rail-add-label")].every((l) => getComputedStyle(l).display === "none"),
+    };
+  })()`);
   await send("Emulation.clearDeviceMetricsOverride");
 
   // Themes, Scratch's film, deleting projects, and a film opened the

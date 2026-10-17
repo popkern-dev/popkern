@@ -7,6 +7,7 @@ use serde_json::Value;
 pub fn assert_view_rows(out: &Value) {
     assert_standard_views(out);
     assert_phone(out);
+    assert_rail_desktop(out);
     assert_projects_ui(out);
 }
 
@@ -59,6 +60,21 @@ pub fn assert_standard_views(out: &Value) {
 /// film opened while a build runs says so, waits, then plays. Closing
 /// lists it again; the status chip clears the corner's tools and the
 /// view modes keep their clustered card.
+/// A mid desktop width (PK-871): the film tab's name stays in view beside
+/// the add buttons, which collapse to glyphs in the narrow script card.
+pub fn assert_rail_desktop(out: &Value) {
+    let r = &out["rail_desktop"];
+    assert_eq!(r["film_text"], "spin", "{r}");
+    assert_eq!(
+        r["visible"], true,
+        "the film tab's name is in view at 1280 px: {r}"
+    );
+    assert_eq!(
+        r["add_labels_hidden"], true,
+        "the add buttons are glyphs: {r}"
+    );
+}
+
 pub fn assert_phone(out: &Value) {
     let p = &out["phone"];
     let open = &p["open"];

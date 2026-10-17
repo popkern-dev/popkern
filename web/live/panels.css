@@ -20,6 +20,16 @@
 .file-tab-open { background: var(--raised-hover); color: var(--text); overflow: hidden; text-overflow: ellipsis; }
 .file-tabs:has(#migrations-rail:not([hidden])) #doc-name { display: none; }
 .migrations-rail { display: flex; }
+/* The add buttons collapse to glyphs when the card is narrow, so the
+   tab row keeps its tabs readable (PK-871: at 1280 px the film tab's
+   name hid behind "+ migration  + film"). */
+.editor-head { container-type: inline-size; }
+.rail-add-glyph { display: none; font-size: 0.7em; margin-left: 0.1em; color: var(--accent); }
+@container (max-width: 30rem) {
+  .rail-add { padding-inline: 0.45rem; }
+  .rail-add .rail-add-label { display: none; }
+  .rail-add .rail-add-glyph { display: inline; }
+}
 /* The open file's save state beside the tabs (projects.js sets it). */
 .save-state { flex: none; font: 0.75rem var(--mono); color: var(--muted); white-space: nowrap; }
 .editor-head[data-state="unsaved"] .save-state::before { content: "● unsaved"; color: var(--warn); }
