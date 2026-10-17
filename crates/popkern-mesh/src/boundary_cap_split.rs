@@ -150,6 +150,10 @@ pub(crate) fn split_leaning_boundary_caps(
     let gate = brep.tolerance.linear().max(1.0e-9) * 10.0;
     let mut changed: Vec<usize> = Vec::new();
     let mut curve_cache = CurveSamples::new();
+    // Vertices this pass created: a chord ending on one is a split's
+    // half, and gets no slack (see `allowance`).
+    let mut created: std::collections::HashSet<[u64; 3]> = Default::default();
+    let bits = |p: Point3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
     for _ in 0..ROUNDS {
         // Every boundary edge copy, keyed by its end positions.
         let mut copies: HashMap<EdgeKey, Vec<(usize, usize, usize, usize)>> = HashMap::new();
@@ -311,7 +315,18 @@ pub(crate) fn split_leaning_boundary_caps(
                     // A copy that does not lean may cross the bound by as much:
                     // its face takes the tilt finish after this pass (the
                     // propeller's hub copy of a blade-edge chord: 5.5 -> 12.5).
-                    let allowance = old.max(bound) + STEP_SLACK;
+                    // The slack is for a chord's first halving only: a
+                    // half that must halve again has to improve, or a cap
+                    // leaning from its corner (not its sagitta) halves
+                    // every round — the boss plate's sphere corners, once
+                    // their rims were sampled at one lattice cell, split
+                    // one chord 2^12 times into 6272 leaning slivers.
+                    let child = created.contains(&bits(pa)) || created.contains(&bits(pb));
+                    let allowance = if child {
+                        old
+                    } else {
+                        old.max(bound) + STEP_SLACK
+                    };
                     let collapse = if worst > allowance {
                         // The apex sits in the chord's cap zone: both halves
                         // keep leaning toward it. Remove it instead.
@@ -343,6 +358,7 @@ pub(crate) fn split_leaning_boundary_caps(
                 continue;
             };
             for cp in plan {
+                created.insert(bits(cp.vertex.position));
                 let fm = &mut meshes[cp.mesh];
                 let t = fm.triangles[cp.triangle];
                 let Some(r) = (0..3).find(|&k| t[k] == cp.a && t[(k + 1) % 3] == cp.b) else {

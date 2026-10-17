@@ -840,6 +840,10 @@ fn tessellate_brep_reusing(
         && let Some(bound) = options.angular_bound()
     {
         let t0 = popkern_core::time::Stopwatch::start();
+        // Chord copies are keyed by their end positions: shared BRep
+        // vertices must be bit-identical in every face first (corner
+        // patches evaluate them from their own surface, ~5e-16 off).
+        crate::vertex_snap::snap_to_vertices(brep, &mut face_meshes);
         let vertex_counts: Vec<usize> = face_meshes.iter().map(|fm| fm.vertices.len()).collect();
         let changed =
             crate::boundary_cap_split::split_leaning_boundary_caps(brep, &mut face_meshes, bound);

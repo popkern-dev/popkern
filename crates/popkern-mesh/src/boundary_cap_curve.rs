@@ -95,7 +95,12 @@ pub(super) fn edge_curve_midpoint(
                             (s, d(s))
                         };
                         let ((sa, da), (sb, db)) = (nearest(a), nearest(b));
-                        if da.max(db) <= gate {
+                        // Every face use of the edge must carry a copy of the
+                        // chord: a split landing on fewer opens the weld
+                        // (PK-873: a sphere corner's rim chords at a BRep
+                        // vertex keyed apart from its neighbour's by 5e-16,
+                        // split alone for 12 rounds, 1542 open edges).
+                        if da.max(db) <= gate && faces.len() >= face_uses(brep, he.edge) {
                             // The split parameter: the chord's midpoint, or
                             // the curve point nearest `toward` (a cap's apex:
                             // its foot), kept to the middle 70% of the span.
@@ -139,3 +144,25 @@ pub(super) fn edge_curve_midpoint(
     }
     best.map(|(_, m)| m)
 }
+
+/// Face uses of `edge`: its half-edges that lie in a live loop (two for
+/// an edge between faces or a seam, one for a sheet's free edge).
+fn face_uses(brep: &BRep, edge: popkern_core::topology::EdgeHandle) -> usize {
+    let Some(first) = brep.edges.get(edge).map(|e| e.half_edge) else {
+        return 0;
+    };
+    let twin = brep.half_edges.get(first).map(|h| h.twin);
+    [Some(first), twin]
+        .into_iter()
+        .flatten()
+        .filter(|&h| {
+            brep.half_edges
+                .get(h)
+                .is_some_and(|h| brep.loops.contains_key(h.loop_))
+        })
+        .count()
+}
+
+#[cfg(test)]
+#[path = "boundary_cap_curve_tests.rs"]
+mod tests;
