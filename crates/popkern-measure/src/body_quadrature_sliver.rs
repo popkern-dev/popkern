@@ -15,6 +15,7 @@
 //! with no pcurves, a sample far from the chord) keeps the chord: the
 //! correction declines to the straight boundary it replaces.
 
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
@@ -32,6 +33,9 @@ const PANELS: usize = 16;
 /// One trim of a face: its pcurve, located by samples.
 pub(super) struct Trim<'a> {
     pcurve: &'a Pcurve,
+    /// The edge's 3-D curve: the true trim (a fitted pcurve can sit
+    /// 1e-5 off it, PK-826).
+    edge: Option<&'a popkern_core::geometry::curve::CurveOnEdge>,
     lo: f64,
     hi: f64,
     closed: bool,
@@ -68,6 +72,7 @@ pub(super) fn face_trims(brep: &BRep, face: FaceHandle) -> Vec<Trim<'_>> {
                 .collect();
             trims.push(Trim {
                 pcurve,
+                edge: brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()),
                 lo,
                 hi,
                 closed: brep
@@ -88,6 +93,9 @@ pub(super) fn face_trims(brep: &BRep, face: FaceHandle) -> Vec<Trim<'_>> {
 /// A chord end lies on a trim within this share of the chord's length
 /// in space.
 const ON_TRIM: f64 = 1e-3;
+/// A located pcurve point lies within this share of the chord of a
+/// chord end in (u, v) when the edge curve decides in space.
+const UV_BRANCH: f64 = 0.05;
 
 /// `x` shifted by whole periods to lie nearest `to`.
 fn near(x: f64, to: f64, period: Option<f64>) -> f64 {
@@ -158,21 +166,42 @@ pub(super) fn sliver_term(
     // gate: the trim across a narrow face (a fillet's other rim at a
     // coarse tolerance) is a strip width away, far more than that.
     let gate = gate.min(ON_TRIM * pa.distance_to(&pb));
+    // Off the trim in space: from the EDGE curve when the trim has one
+    // (exact; a fitted pcurve sits up to ~1e-4 off it, PK-826, and the
+    // hub of the propeller declined every blade-root chord on the
+    // pcurve's distance), else from the pcurve's image.
     let off = |trim: &Trim<'_>, t: f64, q: (f64, f64), p: popkern_core::geometry::Point3| {
+        if let Some(edge) = trim.edge {
+            let (lo, hi) = (edge.t_start.min(edge.t_end), edge.t_start.max(edge.t_end));
+            return edge
+                .geometry
+                .closest_point(&p)
+                .map(|te| edge.geometry.point_at(te.clamp(lo, hi)).distance_to(&p))
+                .unwrap_or(f64::INFINITY);
+        }
         let c = trim.pcurve.point_at(t);
         let c = aligned((c.x, c.y), q, periods);
         surface.point_at(c.0, c.1).distance_to(&p)
+    };
+    // In (u, v) the pcurve only picks the branch: within a twentieth of
+    // the chord with an edge to decide in space, a thousandth without.
+    let uv_band = |trim: &Trim<'_>| {
+        if trim.edge.is_some() {
+            UV_BRANCH * chord
+        } else {
+            ON_TRIM * chord
+        }
     };
     let mut best: Option<(&Trim<'_>, f64, f64, f64)> = None;
     for trim in trims {
         let (ta, uva) = locate(trim, a, periods);
         let da = off(trim, ta, a, pa);
-        if da > gate || uva > ON_TRIM * chord {
+        if da > gate || uva > uv_band(trim) {
             continue;
         }
         let (tb, uvb) = locate(trim, b, periods);
         let worst = da.max(off(trim, tb, b, pb));
-        if worst <= gate && uvb <= ON_TRIM * chord && ta != tb && best.is_none_or(|x| worst < x.3) {
+        if worst <= gate && uvb <= uv_band(trim) && ta != tb && best.is_none_or(|x| worst < x.3) {
             best = Some((trim, ta, tb, worst));
         }
     }
@@ -195,7 +224,24 @@ pub(super) fn sliver_term(
         }
         let p = trim.pcurve.point_at(t);
         let along = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
-        let q = aligned((p.x, p.y), along, periods);
+        let seed = aligned((p.x, p.y), along, periods);
+        // The sliver ends on the EDGE, not the fitted pcurve: the seed's
+        // point on the edge curve, projected back near the seed
+        // (measured: the propeller's fitted blade pcurves biased the
+        // volume by -9e-7 per blade face against OCC).
+        let q = match trim.edge {
+            Some(edge) => {
+                let on_surface = surface.point_at(seed.0, seed.1);
+                let (lo, hi) = (edge.t_start.min(edge.t_end), edge.t_start.max(edge.t_end));
+                let te = edge.geometry.closest_point(&on_surface)?.clamp(lo, hi);
+                let on_edge = edge.geometry.point_at(te);
+                let uv = popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                    surface, &on_edge, seed.0, seed.1,
+                )?;
+                aligned(uv, along, periods)
+            }
+            None => seed,
+        };
         // A sample off the chord's neighbourhood is another branch of
         // the trim (or a trim the chord does not follow).
         if uv_distance(q, along) > chord {
