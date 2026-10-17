@@ -28,6 +28,7 @@ fn stud_thread_edges_lie_on_both_faces() {
         spec,
         length: 8.0,
         tip_chamfer: false,
+        cosmetic_thread: false,
     };
     let rod = match threaded_rod(&params, tolerance) {
         Ok(r) => r,

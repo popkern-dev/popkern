@@ -63,6 +63,9 @@ pub struct FastenerOptions {
     pub no_corner_chamfer: bool,
     /// Suppress a nut's 45° thread-mouth lead-in chamfers.
     pub no_mouth_chamfer: bool,
+    /// Cosmetic thread (screws and rods): a plain root-diameter
+    /// cylinder over the thread length, no modelled helix (PK-847).
+    pub cosmetic_thread: bool,
 }
 
 /// Options for [`Body::tapped_hole`].
@@ -190,6 +193,7 @@ impl Model {
             tip_chamfer: !options.no_tip_chamfer,
             corner_chamfer: !options.no_corner_chamfer,
             mouth_chamfer: !options.no_mouth_chamfer,
+            cosmetic_thread: options.cosmetic_thread,
         };
         let id = record_feature(
             &mut self.tree,

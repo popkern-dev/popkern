@@ -223,8 +223,7 @@ pub enum Feature {
         kind: crate::feature_fastener::FastenerKind,
         /// The thread.
         thread: crate::feature_fastener::ThreadDesc,
-        /// Under-head / overall / rod length; a nut's thickness
-        /// (≤ 0 = the standard nominal thickness).
+        /// Under-head / overall / rod length; a nut's thickness (≤ 0 = nominal).
         length: ParameterId,
         /// Thread only the last `thread_length` of the shank
         /// (`None` = full thread).
@@ -235,14 +234,15 @@ pub enum Feature {
         /// 45° lead-in chamfer on the threaded tip (screws/rods).
         #[serde(default = "crate::feature_fastener::default_true")]
         tip_chamfer: bool,
-        /// 30° hex corner chamfers on both nut faces (nuts only;
-        /// documents written before PK-686 read `true`).
+        /// 30° hex corner chamfers on both nut faces (nuts only; `true` before PK-686).
         #[serde(default = "crate::feature_fastener::default_true")]
         corner_chamfer: bool,
-        /// 45° thread-mouth lead-in chamfers on both nut faces (nuts
-        /// only; documents written before PK-686 read `true`).
+        /// 45° thread-mouth lead-in chamfers on both nut faces (nuts only; ditto).
         #[serde(default = "crate::feature_fastener::default_true")]
         mouth_chamfer: bool,
+        /// Cosmetic thread (screws/rods): a root-diameter cylinder, no helix (PK-847).
+        #[serde(default)]
+        cosmetic_thread: bool,
     },
     /// A tapped (threaded) hole cut into the body: bore at the
     /// internal minor diameter plus a real modeled internal thread

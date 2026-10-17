@@ -47,6 +47,7 @@ pub(super) fn fastener_statement(
         tip_chamfer,
         corner_chamfer,
         mouth_chamfer,
+        cosmetic_thread,
     } = feature
     else {
         return Err(EmitError::not_applicable(
@@ -69,6 +70,9 @@ pub(super) fn fastener_statement(
         pairs.push(("clearance", scalar(tree, *id, context)?));
     }
     thread_pairs(thread, &mut pairs);
+    if *cosmetic_thread {
+        pairs.push(("cosmetic_thread", "true".to_string()));
+    }
     if !tip_chamfer && !matches!(kind, FastenerKind::HexNut) {
         pairs.push(("tip_chamfer", "false".to_string()));
     }

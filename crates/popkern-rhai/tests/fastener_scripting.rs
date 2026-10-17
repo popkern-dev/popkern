@@ -126,3 +126,62 @@ m
         "emits both toggles: {emitted}"
     );
 }
+
+/// PK-847: `cosmetic_thread: true` builds the threaded length as a plain
+/// cylinder at the external root diameter d3 = d − 2·(17/24)H (no
+/// helix), records the toggle, and emits it back to script.
+#[test]
+fn cosmetic_threads_serve_at_the_root_diameter_and_emit() {
+    use popkern_core::geometry::SurfaceGeometry;
+    let h = 0.8 * 3f64.sqrt() / 2.0; // M5: H = (√3/2)·P
+    let d3 = 5.0 - 2.0 * (17.0 / 24.0) * h;
+    let volume = |model: &mut popkern_script::Model| {
+        let part = model.to_part().expect("part");
+        let brep = part.brep();
+        assert!(brep.validate_all().is_empty(), "{:?}", brep.validate_all());
+        let helical = brep.faces.values().any(|f| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Nurbs(_))
+            )
+        });
+        assert!(!helical, "a cosmetic thread cut a helix");
+        let root = brep.faces.values().any(|f| {
+            matches!(f.surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Cylinder { radius, .. }) if (radius - d3 / 2.0).abs() < 1e-9)
+        });
+        assert!(root, "no root-diameter cylinder");
+        popkern_measure::body_volume(brep, &brep.tolerance).expect("volume")
+    };
+    // A rod is the root cylinder exactly.
+    let mut rod = run(r#"
+let m = model();
+m.threaded_rod("M5", 10.0, #{ label: "rod", cosmetic_thread: true });
+m.assert_watertight();
+m
+"#)
+    .model
+    .expect("model");
+    let v = volume(&mut rod);
+    let exact = std::f64::consts::PI * (d3 / 2.0).powi(2) * 10.0;
+    assert!(((v - exact) / exact).abs() < 1e-9, "rod {v} vs {exact}");
+    // A socket screw: head, plain shank, root-diameter thread; it emits
+    // the toggle and the emitted script rebuilds the same body.
+    let mut screw = run(r#"
+let m = model();
+m.bolt("M5", 12.0, #{ head: "socket", thread_length: 8.0, cosmetic_thread: true, label: "screw" });
+m.assert_watertight();
+m
+"#)
+    .model
+    .expect("model");
+    let v = volume(&mut screw);
+    let emitted = to_rhai(&mut screw).expect("emit");
+    assert!(
+        emitted.contains("cosmetic_thread: true"),
+        "emits the toggle: {emitted}"
+    );
+    let mut again = run(&emitted).model.expect("model");
+    let w = volume(&mut again);
+    assert!((v - w).abs() <= 1e-12 * v, "round trip {v} vs {w}");
+}

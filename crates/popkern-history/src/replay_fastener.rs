@@ -80,6 +80,7 @@ pub(super) fn execute_any(
             tip_chamfer,
             corner_chamfer,
             mouth_chamfer,
+            cosmetic_thread,
         } => execute_fastener(
             brep,
             *kind,
@@ -87,10 +88,11 @@ pub(super) fn execute_any(
             *length,
             *thread_length,
             *clearance,
-            FastenerChamfers {
+            FastenerToggles {
                 tip: *tip_chamfer,
                 corner: *corner_chamfer,
                 mouth: *mouth_chamfer,
+                cosmetic_thread: *cosmetic_thread,
             },
             tolerance,
             param_table,
@@ -143,13 +145,15 @@ pub(super) fn execute_any(
 
 /// The `Feature::Fastener` arm: build a fastener body in the
 /// insertion frame (new body — the incoming brep is replaced).
-/// The chamfer toggles a fastener feature records: tip (screws,
-/// rods), hex corners and thread mouths (nuts).
+/// The toggles a fastener feature records: tip chamfer and cosmetic
+/// thread (screws, rods), hex corner and thread mouth chamfers (nuts).
 #[derive(Clone, Copy)]
-struct FastenerChamfers {
+struct FastenerToggles {
     tip: bool,
     corner: bool,
     mouth: bool,
+    /// The screw/rod thread is cosmetic (PK-847).
+    cosmetic_thread: bool,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -160,11 +164,12 @@ fn execute_fastener(
     length: ParameterId,
     thread_length: Option<ParameterId>,
     clearance: Option<ParameterId>,
-    chamfers: FastenerChamfers,
+    chamfers: FastenerToggles,
     tolerance: &Tolerance,
     param_table: &ParameterTable,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     let tip_chamfer = chamfers.tip;
+    let cosmetic_thread = chamfers.cosmetic_thread;
     let spec = thread_spec(thread, param_table)?;
     let length = resolve_param(param_table, length)?;
     let thread_length = optional_param(param_table, thread_length)?;
@@ -176,6 +181,7 @@ fn execute_fastener(
                 spec,
                 length,
                 tip_chamfer,
+                cosmetic_thread,
             },
             *tolerance,
         ),
@@ -188,6 +194,7 @@ fn execute_fastener(
                 head_height: None,
                 head_chamfer: true,
                 tip_chamfer,
+                cosmetic_thread,
             },
             *tolerance,
         ),
@@ -197,6 +204,7 @@ fn execute_fastener(
                 length,
                 thread_length,
                 tip_chamfer,
+                cosmetic_thread,
             },
             *tolerance,
         ),
@@ -206,6 +214,7 @@ fn execute_fastener(
                 length,
                 thread_length,
                 tip_chamfer,
+                cosmetic_thread,
             },
             *tolerance,
         ),

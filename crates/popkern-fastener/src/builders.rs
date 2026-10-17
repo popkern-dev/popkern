@@ -12,9 +12,8 @@ use popkern_math::PortableMath;
 use popkern_sketch::ProfileShape;
 
 use crate::FastenerError;
-use crate::engine::{
-    chamfer_circular_rims_at, cut_thread, extrude_shape, revolved_tool, subtract, union,
-};
+use crate::builders_shank::{cosmetic_rod, headed_screw};
+use crate::engine::{chamfer_circular_rims_at, cut_thread, extrude_shape, revolved_tool, subtract};
 use crate::spec::ThreadSpec;
 use crate::thread_form::{self, external_groove, internal_bore_radius, internal_ridge};
 
@@ -128,6 +127,9 @@ pub struct RodParams {
     pub length: f64,
     /// 45° lead-in chamfer on the +Z tip (default on).
     pub tip_chamfer: bool,
+    /// Cosmetic thread: a plain root-diameter cylinder over the thread
+    /// length, no helix (see `builders_shank`).
+    pub cosmetic_thread: bool,
 }
 
 /// Build a threaded rod.
@@ -140,6 +142,9 @@ pub fn threaded_rod(params: &RodParams, tolerance: Tolerance) -> Result<BRep, Fa
     let stage = "threaded rod";
     params.spec.validate()?;
     positive(stage, "length", params.length)?;
+    if params.cosmetic_thread {
+        return cosmetic_rod(&params.spec, params.length, tolerance);
+    }
     let groove = external_groove(&params.spec)?;
     let mut body = extrude_shape(
         ProfileShape::Circle {
@@ -166,51 +171,6 @@ pub fn threaded_rod(params: &RodParams, tolerance: Tolerance) -> Result<BRep, Fa
     )
 }
 
-/// Shared shank-plus-thread stage for headed screws: shank from
-/// `overlap_from` (buried in the head) to `length`, tip chamfer,
-/// external thread over the last `thread_length` (clamped clear of
-/// the head at `head_clear_z`).
-#[allow(clippy::too_many_arguments)]
-fn headed_screw(
-    head: BRep,
-    spec: &ThreadSpec,
-    length: f64,
-    thread_length: Option<f64>,
-    overlap_from: f64,
-    head_clear_z: f64,
-    chamfer_tip: bool,
-    tolerance: Tolerance,
-) -> Result<BRep, FastenerError> {
-    let groove = external_groove(spec)?;
-    let shank = extrude_shape(
-        ProfileShape::Circle {
-            radius: spec.major_diameter() / 2.0,
-        },
-        overlap_from,
-        length - overlap_from,
-        "screw shank",
-        tolerance,
-    )?;
-    let mut body = union(&head, &shank, "screw head ∪ shank", tolerance)?;
-    if chamfer_tip {
-        body = tip_chamfer(&body, spec, length, tolerance)?;
-    }
-    let lead = spec.lead();
-    let requested = thread_length.unwrap_or(length);
-    let z_start = (length - requested).max(head_clear_z);
-    cut_thread(
-        &body,
-        spec,
-        &groove,
-        z_start,
-        length,
-        Some(head_clear_z + groove.axial_half_width() + 0.1 * lead),
-        None,
-        "external thread",
-        tolerance,
-    )
-}
-
 /// A hex-head bolt (ISO 4017 proportions by default).
 #[derive(Debug, Clone, PartialEq)]
 pub struct HexBoltParams {
@@ -229,6 +189,9 @@ pub struct HexBoltParams {
     pub head_chamfer: bool,
     /// 45° tip lead-in chamfer (default on).
     pub tip_chamfer: bool,
+    /// Cosmetic thread: a plain root-diameter cylinder over the thread
+    /// length, no helix (see `builders_shank`).
+    pub cosmetic_thread: bool,
 }
 
 /// Build a hex-head bolt.
@@ -258,6 +221,7 @@ pub fn hex_bolt(params: &HexBoltParams, tolerance: Tolerance) -> Result<BRep, Fa
         -k / 2.0,
         0.0,
         params.tip_chamfer,
+        params.cosmetic_thread,
         tolerance,
     )
 }
@@ -273,6 +237,9 @@ pub struct SocketCapParams {
     pub thread_length: Option<f64>,
     /// 45° tip lead-in chamfer (default on).
     pub tip_chamfer: bool,
+    /// Cosmetic thread: a plain root-diameter cylinder over the thread
+    /// length, no helix (see `builders_shank`).
+    pub cosmetic_thread: bool,
 }
 
 /// Build a socket-head cap screw.
@@ -319,6 +286,7 @@ pub fn socket_cap_screw(
         -web / 2.0,
         0.0,
         params.tip_chamfer,
+        params.cosmetic_thread,
         tolerance,
     )
 }
@@ -336,6 +304,9 @@ pub struct CountersunkParams {
     pub thread_length: Option<f64>,
     /// 45° tip lead-in chamfer (default on).
     pub tip_chamfer: bool,
+    /// Cosmetic thread: a plain root-diameter cylinder over the thread
+    /// length, no helix (see `builders_shank`).
+    pub cosmetic_thread: bool,
 }
 
 /// Build a countersunk screw.
@@ -379,6 +350,7 @@ pub fn countersunk_screw(
         head_depth / 2.0,
         head_depth,
         params.tip_chamfer,
+        params.cosmetic_thread,
         tolerance,
     )
 }

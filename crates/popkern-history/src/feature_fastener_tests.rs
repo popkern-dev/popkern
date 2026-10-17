@@ -19,6 +19,7 @@ fn nut(corner_chamfer: bool, mouth_chamfer: bool) -> Feature {
         tip_chamfer: true,
         corner_chamfer,
         mouth_chamfer,
+        cosmetic_thread: false,
     }
 }
 

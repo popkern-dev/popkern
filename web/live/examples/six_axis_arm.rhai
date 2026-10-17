@@ -22,14 +22,16 @@
 // part, the second instance turned 180° about the tool axis; each
 // slides on the gripper body, its jaw face grip/2 from the axis.
 //
-// Fasteners: socket cap screws (real threads, fastener family) in
-// counterbored holes. Each mount ring clamps a housing's lip; each foot
-// bolts to a joint's output flange. Fallback boundary (design §6,
-// PK-801): the tool flange's four ISO M6 holes are real tapped threads
-// (the arm's customer interface, ~1 s each); the ~150 bolt-circle holes
-// the arm's own screws engage stay tap-drill bores labelled tapped_M4 /
-// tapped_M5 (a screw and its bore overlap by the thread depth) — real
-// threads there would add ~150 s against the 60 s cold-build budget.
+// Fasteners: socket cap screws (fastener family) in counterbored
+// holes. Each mount ring clamps a housing's lip; each foot bolts to a
+// joint's output flange. Fallback boundary (design §6, PK-801, PK-847):
+// the tool flange's four ISO M6 holes are real tapped threads (the
+// arm's customer interface, ~1 s each); the ~150 bolt-circle holes the
+// arm's own screws engage stay tap-drill bores labelled tapped_M4 /
+// tapped_M5, since real threads there would add ~150 s against the
+// 60 s cold-build budget. Every screw carries a COSMETIC thread (its
+// root diameter: clear of a tap drill and of a real tapped hole's
+// crests); PK-876 tracks real tapped bores and threads.
 //
 let a = assembly("six_axis_arm");
 let pi = 3.141592653589793;
@@ -1005,8 +1007,8 @@ a.drive("forearm", [fore_tube]);
 a.limits("upper_arm", arm.upper_root + arm.upper_end + 60.0, 700.0);
 a.limits("forearm", arm.fore_root + arm.fore_end + 60.0, 650.0);
 
-let bolt = a.part("bolt", #{ size: "M5", length: 12.0 }, |m, q| {
-    m.bolt(q.size, q.length, #{ head: "socket", label: "bolt" });
+let bolt = a.part("bolt", #{ size: "M5", length: 12.0, cosmetic: true }, |m, q| {
+    m.bolt(q.size, q.length, #{ head: "socket", cosmetic_thread: q.cosmetic, label: "bolt" });
 });
 let bolts = #{ M5: bolt, M4: bolt.variant(#{ size: "M4", length: 12.0 }) };
 let bolt_m8 = bolt.variant(#{ size: "M8", length: 20.0 });

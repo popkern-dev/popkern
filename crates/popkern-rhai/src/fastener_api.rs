@@ -32,8 +32,15 @@ const BOLT_OPTIONS: &[&str] = &[
     "left_hand",
     "starts",
     "tip_chamfer",
+    "cosmetic_thread",
 ];
-const ROD_OPTIONS: &[&str] = &["label", "left_hand", "starts", "tip_chamfer"];
+const ROD_OPTIONS: &[&str] = &[
+    "label",
+    "left_hand",
+    "starts",
+    "tip_chamfer",
+    "cosmetic_thread",
+];
 const NUT_OPTIONS: &[&str] = &[
     "label",
     "clearance",
@@ -181,6 +188,10 @@ fn fastener_body(
             && matches!(options.with("corner_chamfer", args::boolean)?, Some(false)),
         no_mouth_chamfer: allowed.contains(&"mouth_chamfer")
             && matches!(options.with("mouth_chamfer", args::boolean)?, Some(false)),
+        // `cosmetic_thread: true` (PK-847): a root-diameter cylinder,
+        // no modelled helix.
+        cosmetic_thread: allowed.contains(&"cosmetic_thread")
+            && matches!(options.with("cosmetic_thread", args::boolean)?, Some(true)),
     };
     let body = m
         .borrow_mut()

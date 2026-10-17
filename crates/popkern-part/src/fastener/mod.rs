@@ -68,6 +68,7 @@ impl ThreadedRod {
                 spec,
                 length,
                 tip_chamfer: true,
+                cosmetic_thread: false,
             },
         }
     }
@@ -75,6 +76,13 @@ impl ThreadedRod {
     /// Enable/disable the tip lead-in chamfer (default on).
     pub fn tip_chamfer(mut self, on: bool) -> ThreadedRod {
         self.params.tip_chamfer = on;
+        self
+    }
+
+    /// Cosmetic thread (default off): the threaded length is a plain
+    /// cylinder at the thread's root diameter d3, no modelled helix.
+    pub fn cosmetic_thread(mut self, on: bool) -> ThreadedRod {
+        self.params.cosmetic_thread = on;
         self
     }
 
@@ -118,6 +126,7 @@ impl HexBolt {
                 head_height: None,
                 head_chamfer: true,
                 tip_chamfer: true,
+                cosmetic_thread: false,
             },
         }
     }
@@ -150,6 +159,13 @@ impl HexBolt {
     /// Enable/disable the tip lead-in chamfer (default on).
     pub fn tip_chamfer(mut self, on: bool) -> HexBolt {
         self.params.tip_chamfer = on;
+        self
+    }
+
+    /// Cosmetic thread (default off): the threaded length is a plain
+    /// cylinder at the thread's root diameter d3, no modelled helix.
+    pub fn cosmetic_thread(mut self, on: bool) -> HexBolt {
+        self.params.cosmetic_thread = on;
         self
     }
 
@@ -187,6 +203,7 @@ impl SocketCapScrew {
                 length,
                 thread_length: None,
                 tip_chamfer: true,
+                cosmetic_thread: false,
             },
         }
     }
@@ -200,6 +217,13 @@ impl SocketCapScrew {
     /// Enable/disable the tip lead-in chamfer (default on).
     pub fn tip_chamfer(mut self, on: bool) -> SocketCapScrew {
         self.params.tip_chamfer = on;
+        self
+    }
+
+    /// Cosmetic thread (default off): the threaded length is a plain
+    /// cylinder at the thread's root diameter d3, no modelled helix.
+    pub fn cosmetic_thread(mut self, on: bool) -> SocketCapScrew {
+        self.params.cosmetic_thread = on;
         self
     }
 
@@ -239,6 +263,7 @@ impl CountersunkScrew {
                 length,
                 thread_length: None,
                 tip_chamfer: true,
+                cosmetic_thread: false,
             },
         }
     }
@@ -252,6 +277,13 @@ impl CountersunkScrew {
     /// Enable/disable the tip lead-in chamfer (default on).
     pub fn tip_chamfer(mut self, on: bool) -> CountersunkScrew {
         self.params.tip_chamfer = on;
+        self
+    }
+
+    /// Cosmetic thread (default off): the threaded length is a plain
+    /// cylinder at the thread's root diameter d3, no modelled helix.
+    pub fn cosmetic_thread(mut self, on: bool) -> CountersunkScrew {
+        self.params.cosmetic_thread = on;
         self
     }
 
