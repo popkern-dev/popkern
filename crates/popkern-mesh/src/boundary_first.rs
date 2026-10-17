@@ -384,6 +384,15 @@ pub(crate) fn tessellate_face_boundary_first(
                 .max((sv * (v1 - v0)) / n as f64)
                 .max(1e-12),
             directional: n_u != n || n_v != n,
+            turn: options
+                .angular_bound()
+                .filter(|_| {
+                    matches!(
+                        surface,
+                        popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+                    )
+                })
+                .map(|bound| (surface, bound)),
         };
         boundary_first_segment_split::request_long_segment_splits(&rings, &lattice, split_requests);
     }

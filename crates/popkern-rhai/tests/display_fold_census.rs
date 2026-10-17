@@ -27,7 +27,7 @@ const CEILINGS: &[(&str, usize, usize, f64)] = &[
     ("countersunk_joint", 1, 0, 12.0),
     ("hex_bolt", 0, 0, 12.0),
     ("threaded_stud", 0, 0, 12.0),
-    ("coil_spring", 0, 4, 14.0),
+    ("coil_spring", 0, 0, 12.0),
     ("coil_spring", 1, 0, 12.0),
     ("coil_spring", 2, 0, 12.0),
     ("propeller", 0, 0, 12.0),
