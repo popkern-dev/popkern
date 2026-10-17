@@ -103,21 +103,79 @@ impl Assembly {
             .any(|m| m.drive.as_ref().is_some_and(|d| d.param == param))
     }
 
+    /// Set several assembly parameters that drive mates only (a pose of
+    /// the six-axis arm's joints, one film frame) and re-solve once:
+    /// every value is checked first, and a failed solve restores them
+    /// all and the placements. `values` are in each parameter's unit.
+    ///
+    /// # Errors
+    ///
+    /// [`AssemblyError::Param`] for an unknown parameter, a non-finite
+    /// or out-of-limits value, or one that drives a part parameter (it
+    /// replays: set it with [`Self::set_assembly_param`]); the solve's
+    /// error when the pose does not solve.
+    pub fn set_mate_params(&mut self, values: &[(&str, f64)]) -> Result<(), AssemblyError> {
+        let mut indices = Vec::with_capacity(values.len());
+        for &(name, value) in values {
+            let Some(index) = self.params.iter().position(|p| p.name == name) else {
+                return Err(param_error(name, "no assembly parameter with this name"));
+            };
+            if !value.is_finite() {
+                return Err(param_error(name, "the value must be finite"));
+            }
+            if let Some([lo, hi]) = self.params[index].bounds
+                && !(lo..=hi).contains(&value)
+            {
+                return Err(param_error(
+                    name,
+                    &format!("{value} is outside its limits [{lo}, {hi}]"),
+                ));
+            }
+            if self.drives.iter().any(|d| d.param == name) {
+                return Err(param_error(name, "it drives a part parameter"));
+            }
+            indices.push(index);
+        }
+        let previous: Vec<f64> = indices.iter().map(|&i| self.params[i].value).collect();
+        for (&index, &(_, value)) in indices.iter().zip(values) {
+            self.params[index].value = self.params[index].unit.to_si(value);
+        }
+        let names: Vec<&str> = values.iter().map(|&(name, _)| name).collect();
+        if let Err(error) = self.apply_mate_drives_of(&names) {
+            for (&index, value) in indices.iter().zip(previous) {
+                self.params[index].value = value;
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Set every mate `param` drives from its current value and re-solve
     /// (transactional: a failed solve restores the mate values and the
     /// placements).
     pub(crate) fn apply_mate_drives(&mut self, param: &str) -> Result<(), AssemblyError> {
-        if !self.drives_mates(param) {
+        self.apply_mate_drives_of(&[param])
+    }
+
+    /// [`Self::apply_mate_drives`] for several parameters at once: one
+    /// solve (or one continuation) moves every mate they drive.
+    fn apply_mate_drives_of(&mut self, params: &[&str]) -> Result<(), AssemblyError> {
+        if !params.iter().any(|p| self.drives_mates(p)) {
             return Ok(());
         }
-        let Some(value) = self
-            .params
-            .iter()
-            .find(|p| p.name == param)
-            .map(|p| p.display_value())
-        else {
-            return Err(param_error(param, "no assembly parameter with this name"));
-        };
+        let mut values = Vec::with_capacity(params.len());
+        for &param in params {
+            let Some(value) = self
+                .params
+                .iter()
+                .find(|p| p.name == param)
+                .map(|p| p.display_value())
+            else {
+                return Err(param_error(param, "no assembly parameter with this name"));
+            };
+            values.push((param, value));
+        }
+        let value_of = |name: &str| values.iter().find(|(p, _)| *p == name).map(|&(_, v)| v);
         let mates = self.mates.clone();
         let placements: Vec<_> = self.root.iter().map(|i| i.placement).collect();
         // Continuation: an angle residual is an atan2 and wraps, so a
@@ -128,7 +186,8 @@ impl Assembly {
             .mates
             .iter()
             .map(|mate| {
-                let drive = mate.drive.as_ref().filter(|d| d.param == param)?;
+                let drive = mate.drive.as_ref()?;
+                let value = value_of(&drive.param)?;
                 let from = match mate.kind {
                     MateKind::Angle { degrees, .. } => degrees,
                     MateKind::Distance { distance, .. } => distance,

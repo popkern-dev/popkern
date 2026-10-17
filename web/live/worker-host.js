@@ -126,6 +126,12 @@ export class WorkerHost {
     return this.request({ type: "set_param", name, value });
   }
 
+  /** Set several joints at once (`{ j1: 30, … }`): one solve, one
+   *  placement envelope (PK-853). */
+  setJoints(values) {
+    return this.request({ type: "set_joints", values });
+  }
+
   /** Certify deferred blend seams for about `sliceMs` (see PROTOCOL.md). */
   certify(sliceMs) {
     return this.request({ type: "certify", slice_ms: sliceMs });

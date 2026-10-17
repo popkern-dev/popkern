@@ -473,6 +473,7 @@ fn protocol_document_names_every_request_the_worker_handles() {
         "init",
         "run",
         "set_param",
+        "set_joints",
         "to_rhai",
         "export_step",
         "export_pkn",

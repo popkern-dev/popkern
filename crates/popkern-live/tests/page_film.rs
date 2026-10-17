@@ -36,7 +36,8 @@ fn film_state_checks_pass() {
 
 /// Screen-space detail for film export (`web/live/film-lod.js`, PK-853):
 /// clustered levels stay on the surface within a cell, carry their
-/// attributes and keep creases.
+/// attributes and keep creases; clustered edge lines stay on their curve
+/// and drop collapsed and repeated segments.
 #[test]
 fn film_detail_checks_pass() {
     let output = match Command::new("node")
@@ -55,5 +56,5 @@ fn film_detail_checks_pass() {
         String::from_utf8_lossy(&output.stderr)
     );
     let row: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
-    assert_eq!(row["checks"].as_u64(), Some(5), "{row}");
+    assert_eq!(row["checks"].as_u64(), Some(8), "{row}");
 }

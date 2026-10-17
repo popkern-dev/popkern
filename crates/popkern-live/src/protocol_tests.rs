@@ -124,3 +124,74 @@ fn an_assembly_timeline_and_its_steps_answer_over_the_protocol() {
     let refused = p.handle(&json!({ "id": 8, "type": "assembly_step", "index": 1 }));
     assert_eq!(refused.json["ok"], false);
 }
+
+#[test]
+fn a_pose_of_joints_answers_one_placement_envelope() {
+    let mut p = init();
+    let source = "let a = assembly(\"chain\");\n\
+        let b = a.part(\"b\", |m| { m.profile(xy()).rect(1.0, 0.2).sketch(\"s\").extrude(blind(0.1)); });\n\
+        let base = a.place(b, \"base\");\n\
+        let arm = a.place(b, \"arm\");\n\
+        let tip = a.place(b, \"tip\");\n\
+        a.ground(base);\n\
+        a.revolute(\"j1\", base.axis([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), arm.axis([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]),\n\
+            #{ zero: [base.datum(\"x\"), arm.datum(\"x\")], angle: 0.0, limits: [-360.0, 360.0] });\n\
+        a.revolute(\"j2\", arm.axis([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]), tip.axis([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),\n\
+            #{ zero: [arm.datum(\"x\"), tip.datum(\"x\")], angle: 0.0, limits: [-360.0, 360.0] });\n\
+        a\n";
+    let run = p.handle(&json!({ "id": 2, "type": "run", "source": source, "name": "chain.rhai" }));
+    assert_eq!(run.json["envelope"]["outcome"], "served", "{}", run.json);
+    let posed =
+        p.handle(&json!({ "id": 3, "type": "set_joints", "values": { "j1": 30.0, "j2": 45.0 } }));
+    let envelope = &posed.json["envelope"];
+    assert_eq!(envelope["outcome"], "served", "{}", posed.json);
+    assert_eq!(envelope["bodies_unchanged"], true);
+    let value = |name: &str| {
+        envelope["params"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|r| r["name"] == name))
+            .and_then(|r| r["value"].as_f64())
+            .unwrap_or(f64::NAN)
+    };
+    // Degrees held in SI (radians) and shown back.
+    assert!((value("j1") - 30.0).abs() < 1e-9 && (value("j2") - 45.0).abs() < 1e-9);
+    // The same pose one joint at a time places every occurrence alike.
+    p.handle(&json!({ "id": 4, "type": "set_joints", "values": { "j1": 0.0, "j2": 0.0 } }));
+    p.handle(&json!({ "id": 5, "type": "set_param", "name": "j1", "value": 30.0 }));
+    let single = p.handle(&json!({ "id": 6, "type": "set_param", "name": "j2", "value": 45.0 }));
+    let worlds = |v: &Value| -> Vec<f64> {
+        v["assembly"]["instances"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .flat_map(|i| i["world"].as_array().cloned().unwrap_or_default())
+                    .filter_map(|x| x.as_f64())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let (a, b) = (worlds(envelope), worlds(&single.json["envelope"]));
+    assert!(!a.is_empty() && a.len() == b.len());
+    assert!(
+        a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-5),
+        "{a:?} vs {b:?}"
+    );
+    // A value outside a joint's limits refuses the whole pose.
+    let refused =
+        p.handle(&json!({ "id": 7, "type": "set_joints", "values": { "j1": 10.0, "j2": 400.0 } }));
+    assert_ne!(
+        refused.json["envelope"]["outcome"], "served",
+        "{}",
+        refused.json
+    );
+    let after = p.handle(&json!({ "id": 8, "type": "set_param", "name": "j1", "value": 30.0 }));
+    let j2 = after.json["envelope"]["params"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["name"] == "j2"))
+        .and_then(|r| r["value"].as_f64())
+        .unwrap_or(f64::NAN);
+    assert!(
+        (j2 - 45.0).abs() < 1e-9,
+        "a refused pose kept part of itself: j2 {j2}"
+    );
+}

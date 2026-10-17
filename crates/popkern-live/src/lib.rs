@@ -29,6 +29,7 @@ pub mod session_assembly_timeline;
 mod session_describe;
 mod session_document;
 pub mod session_film;
+mod session_joints;
 pub mod session_project;
 pub mod session_timeline;
 

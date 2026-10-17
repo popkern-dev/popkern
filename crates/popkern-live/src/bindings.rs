@@ -155,6 +155,28 @@ impl LiveSession {
         json
     }
 
+    /// Set several joints at once (`values_json`: `{"j1": 30, …}`), one
+    /// solve and one placement envelope (PK-853); see
+    /// [`Session::set_joints`]. Malformed JSON sets nothing.
+    pub fn set_joints(&mut self, values_json: &str) -> String {
+        let values: Vec<(String, f64)> =
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(values_json)
+                .map(|o| {
+                    o.into_iter()
+                        .filter_map(|(k, v)| Some((k, v.as_f64()?)))
+                        .collect()
+                })
+                .unwrap_or_default();
+        let envelope = self.session.set_joints(&values);
+        let json = envelope.to_json().to_string();
+        if !envelope.bodies_unchanged {
+            self.bodies = envelope.bodies;
+            self.analysis.clear();
+            self.step.clear();
+        }
+        json
+    }
+
     /// Certify deferred blend seams for about `slice_ms` (at least one
     /// seam); the step as JSON: `{certified, remaining, report,
     /// failure}` with `report` set once `remaining` is zero. Body

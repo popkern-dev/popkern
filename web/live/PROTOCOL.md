@@ -23,6 +23,7 @@ its budgets, and a hostile script must not be able to wedge the page.
 | `run` | `source: string`, `name: string` | envelope reply |
 | `open_step` | `bytes: ArrayBuffer`, `name: string` | envelope reply — a STEP file's product structure as a view-only assembly (assemblies.md §8.3): imported parts with no recipe, re-exportable and savable; `printed` carries the import summary and anything left out |
 | `set_param` | `name: string`, `value: number` | envelope reply |
+| `set_joints` | `values: { [name]: number }` | envelope reply — several placement-only assembly parameters (joints) set with one mate solve and one placement envelope (a film frame's pose); when any name is not a joint, each is set in turn as by `set_param` and the reply is the last envelope or the first failure |
 | `certify` | `slice_ms: number` | `{ ok: true, step: { certified, remaining, report: ReplayReport \| null, failure: outcome \| null } }` |
 | `to_rhai` | — | `{ ok: true, code: string }` or `{ ok: false, outcome }` |
 | `export_step` | `name: string` | `{ ok: true, bytes: Uint8Array }` or `{ ok: false, outcome }` |

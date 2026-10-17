@@ -313,15 +313,15 @@ export class FilmPlayer {
   async applyJoints(joints, render = true) {
     const names = Object.keys(joints).filter((n) => Math.abs((this.jointsApplied[n] ?? NaN) - joints[n]) > 1e-9 || !(n in this.jointsApplied));
     if (!names.length) return;
-    for (const name of names) {
-      const reply = await this.page.host.setParam(name, joints[name]);
-      this.jointsApplied[name] = joints[name];
-      const assembly = reply.ok ? reply.envelope?.assembly : null;
-      if (assembly) {
-        this.page.viewer.place(assembly, { render });
-        // The placements moved under the film: re-read its bases.
-        for (const entry of this.objects) entry.base.copy(entry.object.userData.base ?? entry.object.matrix);
-      }
+    // One request for the frame's pose: one solve, one placement
+    // envelope (seven joints asked one by one cost 600 ms a frame).
+    const reply = await this.page.host.setJoints(Object.fromEntries(names.map((n) => [n, joints[n]])));
+    for (const name of names) this.jointsApplied[name] = joints[name];
+    const assembly = reply.ok ? reply.envelope?.assembly : null;
+    if (assembly) {
+      this.page.viewer.place(assembly, { render });
+      // The placements moved under the film: re-read its bases.
+      for (const entry of this.objects) entry.base.copy(entry.object.userData.base ?? entry.object.matrix);
     }
   }
 

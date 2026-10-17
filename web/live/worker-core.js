@@ -106,6 +106,8 @@ export function createHandler(pkg, loadModule) {
           return envelopeReply(id, session.open_step(new Uint8Array(message.bytes ?? []), String(message.name ?? "model")));
         case "set_param":
           return envelopeReply(id, session.set_param(String(message.name), Number(message.value)));
+        case "set_joints":
+          return envelopeReply(id, session.set_joints(JSON.stringify(message.values ?? {})));
         case "certify":
           return { reply: { id, ok: true, step: JSON.parse(session.certify(Number(message.slice_ms ?? 0))) }, transfer: [] };
         case "to_rhai":

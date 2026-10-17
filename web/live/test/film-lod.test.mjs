@@ -1,10 +1,12 @@
 // Screen-space detail for film export (web/live/film-lod.js): the
 // clustered level of a dense mesh stays on its surface within a cell,
-// keeps its attributes, and does not merge faces across a crease.
+// keeps its attributes, and does not merge faces across a crease; the
+// clustered edge lines stay on their curve, drop collapsed and repeated
+// segments, and keep a fine polyline whole.
 //   node web/live/test/film-lod.test.mjs  -> prints {"checks": n}
 import assert from "node:assert/strict";
 import * as THREE from "../vendor/three.module.min.js";
-import { clusterGeometry } from "../film-lod.js";
+import { clusterGeometry, clusterLines } from "../film-lod.js";
 
 let checks = 0;
 const check = (name, fn) => {
@@ -60,6 +62,50 @@ check("a crease survives: a cube's faces stay apart", () => {
   for (let i = 0; i < q.length; i += 3) {
     assert.ok(Math.max(Math.abs(q[i]), Math.abs(q[i + 1]), Math.abs(q[i + 2])) > 1 - 1e-6);
   }
+});
+
+// A unit circle as 4096 line segments (an edge sampled for close
+// inspection), every segment drawn twice (two faces' outlines).
+const ring = [];
+for (let i = 0; i < 4096; i++) {
+  for (const j of [i, i + 1]) {
+    const a = (j / 4096) * 2 * Math.PI;
+    ring.push(Math.cos(a), Math.sin(a), 0);
+  }
+}
+const circle = new THREE.BufferGeometry();
+circle.setAttribute("position", new THREE.BufferAttribute(new Float32Array([...ring, ...ring]), 3));
+
+check("a coarse cell collapses an edge and drops repeats", () => {
+  const lod = clusterLines(circle, 0.1);
+  const count = lod.attributes.position.count;
+  assert.ok(count > 0 && count % 2 === 0);
+  // About 2π/0.1 cells along the curve: far under one 4096-segment copy.
+  assert.ok(count / 2 < 200, `${count / 2} segments`);
+  const p = lod.attributes.position.array;
+  const keys = new Set();
+  for (let i = 0; i < p.length; i += 6) {
+    const a = `${p[i]},${p[i + 1]},${p[i + 2]}`;
+    const b = `${p[i + 3]},${p[i + 4]},${p[i + 5]}`;
+    assert.notEqual(a, b, "a collapsed segment survived");
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+    assert.ok(!keys.has(key), "a repeated segment survived");
+    keys.add(key);
+  }
+});
+
+check("clustered edge ends stay within a cell of the curve", () => {
+  const cell = 0.05;
+  const p = clusterLines(circle, cell).attributes.position.array;
+  for (let i = 0; i < p.length; i += 3) {
+    const r = Math.hypot(p[i], p[i + 1], p[i + 2]);
+    assert.ok(Math.abs(r - 1) < cell * Math.sqrt(3), `end at radius ${r}`);
+  }
+});
+
+check("a fine cell keeps the polyline (one copy of it)", () => {
+  const lod = clusterLines(circle, 1e-5);
+  assert.equal(lod.attributes.position.count / 2, 4096);
 });
 
 console.log(JSON.stringify({ checks }));

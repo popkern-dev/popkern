@@ -230,10 +230,12 @@ impl Session {
         let part = name.split_once(':').map(|(part, _)| part.to_string());
         let assembly_param = part.is_none() && matches!(document, Document::Assembly(_));
         let result = document.set_param(name, value).and_then(|_| {
+            if assembly_param {
+                // `models_mut` drops every built part from the cache;
+                // the parts a drive replayed dropped their own entries.
+                return Ok(());
+            }
             for (definition, model) in document.models_mut() {
-                if assembly_param {
-                    break;
-                }
                 if part.is_none() || definition == part {
                     model
                         .replay()

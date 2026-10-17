@@ -20,6 +20,18 @@ const MIN_LEVEL = 3;
 const MAX_LEVEL = 12;
 /** A level is used only when it keeps under this share of triangles. */
 const WORTH = 0.7;
+/** Parts under this many pixels across draw no edge lines: on the
+ *  arm's 720p joints film the screws, windings and pins are a few
+ *  pixels wide, their edges a smudge; 441 of its 749 line draws go. */
+const LINE_MIN_PIXELS = 12;
+
+/** Edge lines cluster this many levels finer than their mesh (cells
+ *  of about 0.75 px). Measured on the arm's 720p joints film: the
+ *  visible edges drop from 1.09M line vertices and the frame from
+ *  ~0.9 s to ~0.7 s; 1,357 of 921,600 pixels change by more than 16
+ *  levels (anti-aliased edges moving under a pixel; at the mesh's own
+ *  cells 1,883). The angled fitting guide's frames stay bit-identical. */
+const LINE_FINER = 1;
 
 /** The dominant axis and sign of a normal: clusters never merge across
  *  a crease (a screw head's flat top and its side stay separate). */
@@ -100,6 +112,54 @@ export function clusterGeometry(geometry, cell) {
   return out;
 }
 
+/** Vertex-clustered copy of a non-indexed `LineSegments` geometry
+ *  (position pairs) with cells of side `cell`: each end moves to its
+ *  cluster's mean, and segments collapsing to a point or repeating
+ *  another go. A display edge is sampled for close inspection (the
+ *  arm's visible edges are 1.09M line vertices, more than its 0.42M
+ *  clustered triangles), so a frame draws them at the mesh's cells. */
+export function clusterLines(geometry, cell) {
+  const pos = geometry.attributes.position.array;
+  const n = pos.length / 3;
+  const of = new Int32Array(n);
+  const keys = new Map();
+  const sums = [];
+  for (let i = 0; i < n; i++) {
+    const x = pos[3 * i];
+    const y = pos[3 * i + 1];
+    const z = pos[3 * i + 2];
+    const key = `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+    let c = keys.get(key);
+    if (c === undefined) {
+      c = sums.length;
+      keys.set(key, c);
+      sums.push({ x: 0, y: 0, z: 0, k: 0 });
+    }
+    const s = sums[c];
+    s.x += x;
+    s.y += y;
+    s.z += z;
+    s.k++;
+    of[i] = c;
+  }
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i + 1 < n; i += 2) {
+    const a = Math.min(of[i], of[i + 1]);
+    const b = Math.max(of[i], of[i + 1]);
+    const key = a * sums.length + b;
+    if (a === b || seen.has(key)) continue;
+    seen.add(key);
+    for (const c of [a, b]) {
+      const s = sums[c];
+      out.push(s.x / s.k, s.y / s.k, s.z / s.k);
+    }
+  }
+  const lines = new THREE.BufferGeometry();
+  lines.setAttribute("position", new THREE.BufferAttribute(new Float32Array(out), 3));
+  return lines;
+}
+
 /** Per-frame level choice for the viewer's bodies during an export. */
 export class FilmDetail {
   constructor(viewer) {
@@ -107,6 +167,23 @@ export class FilmDetail {
     /** geometry uuid -> Map(level -> geometry | null when not worth it) */
     this.levels = new Map();
     this.swapped = new Map();
+    /** Edge lines this frame hides (parts too small for their edges). */
+    this.hiddenLines = new Set();
+    /** line geometry uuid -> Map(level -> geometry | null) */
+    this.lineLevels = new Map();
+    this.swappedLines = new Map();
+  }
+
+  lineLevel(full, k, diag) {
+    let byLevel = this.lineLevels.get(full.uuid);
+    if (!byLevel) this.lineLevels.set(full.uuid, (byLevel = new Map()));
+    if (!byLevel.has(k)) {
+      const lod = clusterLines(full, diag / 2 ** k);
+      const worth = lod.attributes.position.count < WORTH * full.attributes.position.count;
+      if (!worth) lod.dispose();
+      byLevel.set(k, worth ? lod : null);
+    }
+    return byLevel.get(k);
   }
 
   level(full, k, diag) {
@@ -142,24 +219,46 @@ export class FilmDetail {
       const unit = (2 * depth * tanHalf) / height;
       const cell = CELL_PIXELS * unit;
       const diag = 2 * radius;
-      let geometry = full;
+      // The player sets each line's visibility per frame; a part too
+      // small on screen for its edges skips them this frame.
+      const lines = mesh.userData.lines;
+      if (lines && lines.visible && diag / unit < LINE_MIN_PIXELS) {
+        lines.visible = false;
+        this.hiddenLines.add(lines);
+      }
+      let level = null;
       for (let k = MIN_LEVEL; k <= MAX_LEVEL; k++) {
         if (diag / 2 ** k > cell) continue;
-        geometry = this.level(full, k, diag) ?? full;
+        level = k;
         break;
       }
+      const geometry = level === null ? full : (this.level(full, level, diag) ?? full);
       if (geometry !== mesh.geometry) {
         if (!this.swapped.has(mesh)) this.swapped.set(mesh, full);
         mesh.geometry = geometry;
+      }
+      if (lines?.visible) {
+        const fullLines = this.swappedLines.get(lines) ?? lines.geometry;
+        const k = level === null ? null : Math.min(level + LINE_FINER, MAX_LEVEL + LINE_FINER);
+        const drawn = k === null ? fullLines : (this.lineLevel(fullLines, k, diag) ?? fullLines);
+        if (drawn !== lines.geometry) {
+          if (!this.swappedLines.has(lines)) this.swappedLines.set(lines, fullLines);
+          lines.geometry = drawn;
+        }
       }
     }
   }
 
   /** Put the full meshes back and free the levels. */
   restore() {
+    for (const lines of this.hiddenLines) lines.visible = true;
+    this.hiddenLines.clear();
     for (const [mesh, full] of this.swapped) mesh.geometry = full;
     this.swapped.clear();
-    for (const byLevel of this.levels.values()) for (const g of byLevel.values()) g?.dispose();
+    for (const [lines, full] of this.swappedLines) lines.geometry = full;
+    this.swappedLines.clear();
+    for (const byLevel of [...this.levels.values(), ...this.lineLevels.values()]) for (const g of byLevel.values()) g?.dispose();
     this.levels.clear();
+    this.lineLevels.clear();
   }
 }

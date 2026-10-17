@@ -184,6 +184,19 @@ impl Protocol {
                 let e = session.set_param(&text("name", ""), number("value"));
                 self.envelope(&id, e)
             }
+            "set_joints" => {
+                let values: Vec<(String, f64)> = message
+                    .get("values")
+                    .and_then(Value::as_object)
+                    .map(|o| {
+                        o.iter()
+                            .filter_map(|(k, v)| Some((k.clone(), v.as_f64()?)))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let e = session.set_joints(&values);
+                self.envelope(&id, e)
+            }
             "run_project" => {
                 let transfer = json!({
                     "files": message.get("files").cloned().unwrap_or(json!({})),
