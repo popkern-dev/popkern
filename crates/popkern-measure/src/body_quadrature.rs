@@ -14,11 +14,16 @@
 //! plane takes its exact term from its edge curves.
 //!
 //! A triangle whose (u, v) corners do not reproduce its vertices (a
-//! seam-branch or pole corner) keeps its flat facet term.
+//! seam-branch or pole corner) keeps its flat facet term. A triangle
+//! integrated on its surface also integrates the sliver between each of
+//! its boundary chords and the face's trim (`body_quadrature_sliver`).
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_mesh::TriMesh;
+
+#[path = "body_quadrature_sliver.rs"]
+mod sliver;
 
 /// Dunavant degree-5 rule: barycentric points and weights (sum 1).
 const RULE: [([f64; 3], f64); 7] = [
@@ -131,7 +136,7 @@ fn surface_term(
 }
 
 /// `⅓ ∬ r · (∂u × ∂v)` over the oriented (u, v) triangle `uv`.
-fn oriented_term(surface: &SurfaceGeometry, uv: [(f64, f64); 3]) -> f64 {
+pub(super) fn oriented_term(surface: &SurfaceGeometry, uv: [(f64, f64); 3]) -> f64 {
     let signed_area = 0.5
         * ((uv[1].0 - uv[0].0) * (uv[2].1 - uv[0].1) - (uv[2].0 - uv[0].0) * (uv[1].1 - uv[0].1));
     let mut sum = 0.0;
@@ -179,7 +184,22 @@ pub(crate) fn quadrature_volume(
             };
             continue;
         }
+        // Chords on the face's boundary: mesh edges of one triangle.
+        let mut uses = std::collections::HashMap::<(usize, usize), u32>::new();
         for t in &fm.triangles {
+            for k in 0..3 {
+                let (i, j) = (t[k], t[(k + 1) % 3]);
+                *uses.entry((i.min(j), i.max(j))).or_default() += 1;
+            }
+        }
+        let trims = surface
+            .map(|_| sliver::face_trims(brep, fm.face))
+            .unwrap_or_default();
+        for t in &fm.triangles {
+            let boundary = [0, 1, 2].map(|k| {
+                let (i, j) = (t[k], t[(k + 1) % 3]);
+                uses.get(&(i.min(j), i.max(j))) == Some(&1)
+            });
             let [a, b, c] = t.map(|i| &fm.vertices[i]);
             let points = [a.position, b.position, c.position];
             let flat = facet_term(points[0], points[1], points[2]);
@@ -235,7 +255,17 @@ pub(crate) fn quadrature_volume(
                         .cross(&s.partial_v(centroid_uv.0, centroid_uv.1));
                     let signed_area = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
                     let agree = normal.dot(&chart) * signed_area;
-                    (agree > 0.0).then_some(exact)
+                    if agree <= 0.0 {
+                        return None;
+                    }
+                    let corners = [a, b, c];
+                    let slivers: f64 = (0..3)
+                        .filter(|&k| boundary[k] && !trims.is_empty())
+                        .filter_map(|k| {
+                            sliver::sliver_term(s, &trims, corners[k], corners[(k + 1) % 3], gate)
+                        })
+                        .sum();
+                    Some(exact + slivers)
                 })
                 .unwrap_or(flat);
         }

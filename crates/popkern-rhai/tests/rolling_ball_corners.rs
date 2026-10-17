@@ -10,7 +10,7 @@
 //! (faces moved in by `r`) swept by the ball,
 //! `V' + S' r + sum(L (pi - a) / 2) r^2 + 4/3 pi r^3`.
 
-use popkern_core::geometry::SurfaceGeometry;
+use popkern_core::geometry::{SurfaceGeometry, Vec3};
 use popkern_core::topology::BRep;
 use popkern_rhai::ScriptHost;
 
@@ -108,6 +108,7 @@ fn a_rounded_dodecahedron_takes_rolling_ball_corners() {
         "dodecahedron rolling-ball fillet took {took:.1} s"
     );
     check(&brep, 20, steiner, "dodecahedron");
+    volume_does_not_depend_on_the_ball_chart(&brep, steiner);
 }
 
 /// Cube corners are already the exact ball on every path: the opt-in
@@ -129,4 +130,102 @@ fn a_rounded_cube_is_unchanged_by_the_opt_in() {
         volume(&ball).to_bits(),
         "cube: identical serve"
     );
+}
+
+/// A cap's chart pole from its direction.
+type ChartAxis = Box<dyn Fn(Vec3) -> Vec3>;
+
+/// Every ball cap re-charted with its pole along `axis(cap direction)`
+/// and fresh pcurves (the geometry is unchanged: only the chart moves).
+fn recharted(brep: &BRep, axis: impl Fn(Vec3) -> Vec3) -> BRep {
+    let mut out = brep.clone();
+    let caps: Vec<_> = out
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Sphere { .. })
+            )
+        })
+        .map(|(h, _)| h)
+        .collect();
+    for &face in &caps {
+        let Some(SurfaceGeometry::Sphere { center, .. }) =
+            out.faces[face].surface.as_ref().map(|s| s.geometry.clone())
+        else {
+            continue;
+        };
+        let start = out.loops[out.faces[face].outer_loop].half_edge;
+        let mut toward = Vec3::new(0.0, 0.0, 0.0);
+        let mut he = start;
+        loop {
+            let h = &out.half_edges[he];
+            toward = toward + (out.vertices[h.origin].position - center);
+            he = h.next;
+            if he == start {
+                break;
+            }
+        }
+        let pole = axis(toward.normalized().expect("cap direction"));
+        if let Some(SurfaceGeometry::Sphere { axis, .. }) =
+            out.faces[face].surface.as_mut().map(|s| &mut s.geometry)
+        {
+            *axis = pole;
+        }
+        let mut he = start;
+        loop {
+            out.half_edges[he].pcurve = None;
+            he = out.half_edges[he].next;
+            if he == start {
+                break;
+            }
+        }
+        out.face_use_pcurves.retain(|key, _| key.face != face);
+    }
+    out.recompute_pcurves_for_lenient(&caps);
+    out
+}
+
+/// PK-872: the volume quadrature integrates each boundary chord's
+/// sliver up to the trim, so the caps' volume no longer depends on how
+/// the chart samples their rims (straight chords read -1.13e-5 of
+/// Steiner with the pole perpendicular to each cap and +2.7e-6 with
+/// +Z): every chart reads within 1e-7.
+fn volume_does_not_depend_on_the_ball_chart(brep: &BRep, steiner: f64) {
+    let perpendicular = |d: Vec3| {
+        let other = if d.x.abs() < 0.9 {
+            Vec3::new(1.0, 0.0, 0.0)
+        } else {
+            Vec3::new(0.0, 1.0, 0.0)
+        };
+        d.cross(&other).normalized().expect("perpendicular")
+    };
+    let charts: [(&str, ChartAxis); 4] = [
+        ("+Z", Box::new(|_| Vec3::new(0.0, 0.0, 1.0))),
+        ("+X", Box::new(|_| Vec3::new(1.0, 0.0, 0.0))),
+        ("perpendicular to each cap", Box::new(perpendicular)),
+        (
+            "tilted 50 degrees off each cap",
+            Box::new(move |d: Vec3| {
+                let p = perpendicular(d);
+                (d * 50f64.to_radians().cos() + p * 50f64.to_radians().sin())
+                    .normalized()
+                    .expect("tilted")
+            }),
+        ),
+    ];
+    let mut report = Vec::new();
+    for (name, axis) in &charts {
+        let body = recharted(brep, axis);
+        let volume = popkern_measure::body_volume(&body, &body.tolerance).expect("volume");
+        report.push((name, (volume - steiner) / steiner));
+    }
+    eprintln!("[pk872] chart -> relative volume error: {report:?}");
+    for (name, error) in &report {
+        assert!(
+            error.abs() < 1e-7,
+            "{name}: relative volume error {error:e}"
+        );
+    }
 }
