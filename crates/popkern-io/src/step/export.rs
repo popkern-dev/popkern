@@ -187,6 +187,10 @@ pub(crate) struct ExportContext {
     pub(crate) surface_conditioning_tolerance: f64,
     /// How Gregory patches are written (from [`StepExportOptions`]).
     pub(crate) gregory_form: GregoryExportForm,
+    /// Write faces reversed (sense and every bound negated) — set while a
+    /// cavity shell's faces are exported, so the void's `CLOSED_SHELL`
+    /// faces out of the void as `BREP_WITH_VOIDS` requires (PK-880).
+    pub(crate) reverse_face_uses: bool,
 }
 
 /// Key for deduplicating points/directions by exact float bits.
@@ -230,6 +234,7 @@ impl ExportContext {
             surface_conditioning_tolerance: 0.1
                 * super::document::RepresentationContext::default().uncertainty,
             gregory_form: GregoryExportForm::Conditioned,
+            reverse_face_uses: false,
         }
     }
 

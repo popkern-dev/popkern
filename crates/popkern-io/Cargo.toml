@@ -13,3 +13,6 @@ thiserror.workspace = true
 [dev-dependencies]
 popkern-blend = { path = "../popkern-blend" }
 popkern-mesh = { path = "../popkern-mesh" }
+# Test-only (PK-880): hollow bodies for the BREP_WITH_VOIDS round trip;
+# popkern-bool depends only on core, so the graph stays acyclic.
+popkern-bool = { path = "../popkern-bool" }

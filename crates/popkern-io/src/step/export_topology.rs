@@ -168,9 +168,11 @@ impl ExportContext {
         // 3. Export faces (surfaces already exported; reuses cached
         // IDs), grouped by their owning brep SHELL.
         let mut face_ids_by_shell: Vec<Vec<EntityId>> = Vec::new();
+        let mut exported_shells = Vec::new();
         let mut shell_handles: Vec<_> = brep.shells.keys().collect();
         shell_handles.sort();
         for &sh in &shell_handles {
+            self.reverse_face_uses = super::export_voids::is_cavity(brep, sh);
             let mut ids = Vec::new();
             for (fh, face) in &brep.faces {
                 if face.shell != sh {
@@ -186,8 +188,10 @@ impl ExportContext {
             }
             if !ids.is_empty() {
                 face_ids_by_shell.push(ids);
+                exported_shells.push(Some(sh));
             }
         }
+        self.reverse_face_uses = false;
         // Faces with no live shell (defensive) travel together.
         {
             let mut orphans = Vec::new();
@@ -204,6 +208,7 @@ impl ExportContext {
             }
             if !orphans.is_empty() {
                 face_ids_by_shell.push(orphans);
+                exported_shells.push(None);
             }
         }
 
@@ -227,13 +232,12 @@ impl ExportContext {
                 vec![str_param(""), list(shell_refs)],
             )]);
         }
-        let mut items = Vec::with_capacity(face_ids_by_shell.len());
-        for ids in face_ids_by_shell {
-            let refs: Vec<_> = ids.iter().map(|&id| ref_(id)).collect();
-            let shell_id = self.emit("CLOSED_SHELL", vec![str_param(""), list(refs)]);
-            items.push(self.emit("MANIFOLD_SOLID_BREP", vec![str_param(""), ref_(shell_id)]));
-        }
-        Ok(items)
+        Ok(super::export_voids::emit_solids(
+            self,
+            brep,
+            &exported_shells,
+            face_ids_by_shell,
+        ))
     }
 
     /// Export a single face with its loops.
@@ -293,7 +297,7 @@ impl ExportContext {
                 str_param(""),
                 list(bounds),
                 ref_(surface_id),
-                bool_(orientation),
+                bool_(orientation != self.reverse_face_uses),
             ],
         );
 
@@ -369,7 +373,8 @@ impl ExportContext {
         } else {
             "FACE_BOUND"
         };
-        let bound_id = self.emit(bound_type, vec![str_param(""), ref_(el_id), bool_(true)]);
+        let sense = !self.reverse_face_uses;
+        let bound_id = self.emit(bound_type, vec![str_param(""), ref_(el_id), bool_(sense)]);
 
         Ok(bound_id)
     }

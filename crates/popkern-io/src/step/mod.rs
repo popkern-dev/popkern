@@ -20,6 +20,7 @@ mod export_topology;
 mod export_topology_face_edges;
 mod export_topology_face_uses;
 mod export_topology_helpers;
+mod export_voids;
 pub mod healing;
 pub mod import;
 pub(crate) mod import_missing_seam;

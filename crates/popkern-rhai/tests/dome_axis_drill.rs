@@ -280,3 +280,50 @@ fn points_in_the_turned_dome_classify_through_its_sphere_trim() {
         assert!(wrong.is_empty(), "{label}: misclassified {wrong:?}");
     }
 }
+
+/// A tool wholly inside the dome leaves a void shell (PK-879): its faces
+/// served with the tool's loop winding under flipped flags, every one
+/// winding-dishonest, while the volume read right.
+#[test]
+fn a_cavity_inside_the_dome_serves_winding_honest_upright_and_turned() {
+    let out_dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("dome_axis_drill");
+    std::fs::create_dir_all(&out_dir).expect("output dir");
+    for (label, turn) in [("upright", ""), ("turned", TURN)] {
+        let src = format!(
+            r#"let m = model();
+let body = m.profile(xz()).path(0.0, 0.0).line_to(1.0, 0.0).line_to(1.0, 2.0)
+    .arc_to([0.70710678118654752, 2.70710678118654752], [0.0, 3.0]).close()
+    .sketch("dome").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle()){turn};
+let cavity = m.tool(|t| t.profile(xy_at(1.5)).circle(0.1).sketch("void").extrude(blind(0.2)){turn});
+body = body.subtract(cavity);
+m
+"#
+        );
+        let mut run = ScriptHost::new()
+            .run(&src, "cavity.rhai")
+            .unwrap_or_else(|e| panic!("{label}: {}", e.render()));
+        let mut model = run.model.take().expect("model");
+        let path = out_dir.join(format!("cavity_{label}.step"));
+        model.to_step(&path).expect("STEP export");
+        let parts = model.to_parts_all().expect("parts");
+        let brep = parts[0].brep();
+        assert_eq!(brep.faces.len(), 6, "{label}: dome skin + void skin");
+        assert_eq!(
+            (brep.solids.len(), brep.shells.len()),
+            (1, 2),
+            "{label}: one solid, outer and cavity shells"
+        );
+        let errors = brep.validate_all();
+        assert!(errors.is_empty(), "{label}: {errors:?}");
+        let pi = std::f64::consts::PI;
+        let exact = 8.0 * pi / 3.0 - pi * 0.01 * 0.2;
+        let volume = popkern_measure::body_volume(brep, &brep.tolerance).expect("volume");
+        assert!((volume - exact).abs() < 1e-9, "{label}: volume {volume}");
+        if let Some(occ) = occ_volume(&path) {
+            assert!(
+                (occ - exact).abs() < 1e-9,
+                "{label}: OCC volume {occ} vs {exact}"
+            );
+        }
+    }
+}

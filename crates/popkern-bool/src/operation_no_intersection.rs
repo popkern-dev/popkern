@@ -181,9 +181,79 @@ fn handle_reverse_containment(
 
 /// Build a hollow solid: A with a B-shaped void inside.
 ///
-/// Copies all of B's topology into A with flipped surface normals, creating
-/// an inner void. The result has A's original outer faces plus B's faces
-/// with inverted orientation.
+/// Copies B's skin into A with its material side mirrored, and joins its
+/// shells to the A solid enclosing them as cavity shells — the model the
+/// cellular shell partition serves (a cavity shell belongs to its
+/// encloser's solid). B's own solids are dropped: copied as solids, the
+/// void read as a second, positive body (PK-879).
 fn build_hollow_solid(a: BRep, b: BRep, _tolerance: &Tolerance) -> Result<BRep, BoolError> {
-    copy_brep_into(a, b, true)
+    let host = enclosing_solid(&a, &b);
+    let a_solids: Vec<_> = a.solids.keys().collect();
+    let mut result = copy_brep_into(a, b, true)?;
+    let Some(host) = host else {
+        return Ok(result);
+    };
+    let void_solids: Vec<_> = result
+        .solids
+        .keys()
+        .filter(|s| !a_solids.contains(s))
+        .collect();
+    for shell in result.shells.values_mut() {
+        if void_solids.contains(&shell.solid) {
+            shell.solid = host;
+        }
+    }
+    for s in void_solids {
+        result.solids.remove(s);
+    }
+    Ok(result)
+}
+
+/// The A solid whose face boxes' union holds B's — the smallest when
+/// several do (nested bodies); `None` when A has no solid. The caller
+/// established that B lies inside A, so a box test picks among A's
+/// disjoint solids. Face boxes, not vertex boxes: a revolved body's
+/// vertices sit on its seam alone.
+fn enclosing_solid(a: &BRep, b: &BRep) -> Option<popkern_core::topology::SolidHandle> {
+    use popkern_core::geometry::intersection::surface_subdivision::Aabb;
+    let union = |boxes: &mut dyn Iterator<Item = Aabb>| {
+        boxes.reduce(|u, x| Aabb {
+            min: popkern_core::geometry::Point3::new(
+                u.min.x.min(x.min.x),
+                u.min.y.min(x.min.y),
+                u.min.z.min(x.min.z),
+            ),
+            max: popkern_core::geometry::Point3::new(
+                u.max.x.max(x.max.x),
+                u.max.y.max(x.max.y),
+                u.max.z.max(x.max.z),
+            ),
+        })
+    };
+    let a_boxes = crate::intersect::compute_face_aabbs(a);
+    let tool = union(
+        &mut crate::intersect::compute_face_aabbs(b)
+            .into_iter()
+            .map(|(_, x)| x),
+    )?;
+    let mut best: Option<(f64, popkern_core::topology::SolidHandle)> = None;
+    for (sh, _) in &a.solids {
+        let Some(u) = union(&mut a_boxes.iter().filter_map(|(f, x)| {
+            let face = a.faces.get(*f)?;
+            (a.shells.get(face.shell)?.solid == sh).then_some(x.clone())
+        })) else {
+            continue;
+        };
+        let holds = u.min.x <= tool.min.x
+            && u.min.y <= tool.min.y
+            && u.min.z <= tool.min.z
+            && u.max.x >= tool.max.x
+            && u.max.y >= tool.max.y
+            && u.max.z >= tool.max.z;
+        let size = (u.max.x - u.min.x) * (u.max.y - u.min.y) * (u.max.z - u.min.z);
+        if holds && best.is_none_or(|(s, _)| size < s) {
+            best = Some((size, sh));
+        }
+    }
+    best.map(|(_, s)| s).or_else(|| a.solids.keys().next())
 }

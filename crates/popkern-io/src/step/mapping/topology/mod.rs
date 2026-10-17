@@ -12,6 +12,8 @@ mod open_shell;
 mod pcurve_orientation;
 mod shell_incidence;
 mod surface_curve_normalization;
+mod surface_models;
+mod voids;
 
 use std::collections::HashMap;
 
@@ -27,11 +29,11 @@ use crate::step::mapping::geometry::GeometryCache;
 use crate::step::parser::graph::EntityGraph;
 use crate::step::parser::types::EntityId;
 use crate::step::schema::topology::{
-    ClosedShell, EdgeCurve, ManifoldSolidBrep, OpenShell, ShellBasedSurfaceModel, VertexPoint,
+    ClosedShell, EdgeCurve, ManifoldSolidBrep, OpenShell, VertexPoint,
 };
 
 use crate::step::same_parameter::SameParameterTally;
-use face_collector::{collect_face_data, widest_bound};
+use face_collector::widest_bound;
 use half_edge_use::choose_step_half_edge_use;
 use import_fidelity_diagnostics::{
     StepHalfEdgeImportProvenance, StepTopologyImportProvenance,
@@ -71,35 +73,10 @@ pub fn map_brep_solids(
         }
     }
 
-    let surface_model_ids: Vec<EntityId> = graph
-        .iter()
-        .filter(|(_, e)| e.type_name == "SHELL_BASED_SURFACE_MODEL")
-        .map(|(&id, _)| id)
-        .collect();
-
-    for item_id in surface_model_ids {
-        let Some(entity) = graph.get(item_id) else {
-            continue;
-        };
-        let model = match ShellBasedSurfaceModel::from_params(&entity.params) {
-            Ok(m) => m,
-            Err(e) => {
-                log.error(Phase::MapTopology, Some(item_id), format!("{e}"));
-                continue;
-            }
-        };
-
-        for shell_id in model.shells {
-            match build_shell_body(graph, geo, shell_id, true, log, tolerance) {
-                Some(brep) => results.push((item_id, brep)),
-                None => log.error(
-                    Phase::MapTopology,
-                    Some(shell_id),
-                    "failed to build sheet body from SHELL_BASED_SURFACE_MODEL",
-                ),
-            }
-        }
-    }
+    results.extend(voids::map_solids_with_voids(graph, geo, log, tolerance));
+    results.extend(surface_models::map_surface_models(
+        graph, geo, log, tolerance,
+    ));
     results
 }
 
@@ -158,13 +135,30 @@ fn build_shell_body(
         }
     };
 
-    build_brep_from_faces(graph, geo, &faces, is_open_shell, log, tolerance)
+    let shells = [faces.len()];
+    let none = std::collections::HashSet::new();
+    let layout = ShellLayout {
+        sizes: &shells,
+        reversed_uses: &none,
+    };
+    build_brep_from_faces(graph, geo, &faces, layout, is_open_shell, log, tolerance)
+}
+
+/// How a body's shell-listed faces split into shells: `sizes[0]` faces
+/// form the outer shell, each further run a cavity shell of the same
+/// solid; `reversed_uses` are used reversed (see
+/// `collect_face_data_reversing`).
+#[derive(Clone, Copy)]
+struct ShellLayout<'a> {
+    sizes: &'a [usize],
+    reversed_uses: &'a std::collections::HashSet<EntityId>,
 }
 
 fn build_brep_from_faces(
     graph: &EntityGraph,
     geo: &mut GeometryCache<'_>,
     faces: &[EntityId],
+    layout: ShellLayout<'_>,
     is_open_shell: bool,
     log: &mut DiagnosticLog,
     tolerance: Tolerance,
@@ -175,7 +169,8 @@ fn build_brep_from_faces(
     let mut provenance = StepTopologyImportProvenance::default();
     let mut same_parameter = SameParameterTally::default();
 
-    let face_data = collect_face_data(graph, faces, log)?;
+    let face_data =
+        face_collector::collect_face_data_reversing(graph, faces, layout.reversed_uses, log)?;
     let incidence_policy = if is_open_shell {
         open_shell_incidence_policy()
     } else {
@@ -236,13 +231,24 @@ fn build_brep_from_faces(
         }
     }
 
-    // Create solid and shell
+    // Create the solid and its shells: the outer first, then cavities
+    // (`add_shell` re-points the solid at its newest shell).
     let solid = builder.add_solid();
-    let shell_h = builder.add_shell(solid);
+    let shell_of: Vec<_> = layout
+        .sizes
+        .iter()
+        .flat_map(|&n| {
+            let sh = builder.add_shell(solid);
+            std::iter::repeat_n(sh, n)
+        })
+        .collect();
+    if let Some(&outer) = shell_of.first() {
+        builder.brep_mut().solids[solid].shell = outer;
+    }
 
     // 4. Create faces with loops
-    for face_info in &face_data.faces {
-        let face_h = builder.add_face(shell_h);
+    for (k, face_info) in face_data.faces.iter().enumerate() {
+        let face_h = builder.add_face(*shell_of.get(k)?);
 
         // Attach surface geometry
         if let Some(sof) = geo.resolve_surface(face_info.surface_id, face_info.same_sense, log) {

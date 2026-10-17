@@ -73,13 +73,19 @@ pub(super) fn handle_empty_selection(
 
 /// Copy all topology from `b` into `a`, optionally flipping B's face normals.
 ///
-/// When `flip_b_normals` is true, the surface orientation on every copied face
-/// is inverted, producing an inner void shell for hollow-solid subtraction.
+/// When `flip_b_normals` is true, B's material side is mirrored before the
+/// copy (loops reversed together with their orientation flags), producing an
+/// inner void shell for hollow-solid subtraction. Flipping the flags alone
+/// left every void face winding-dishonest — its loop still wound as the
+/// tool's outside while its flag said the void's (PK-879).
 pub(crate) fn copy_brep_into(
     mut a: BRep,
-    b: BRep,
+    mut b: BRep,
     flip_b_normals: bool,
 ) -> Result<BRep, BoolError> {
+    if flip_b_normals {
+        b.reverse_body_orientation();
+    }
     use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
 
     // Build handle maps for B → new handles in A.
@@ -170,18 +176,9 @@ pub(crate) fn copy_brep_into(
         sh_map.insert(old_h, new_h);
     }
 
-    // Copy faces, optionally flipping surface orientation.
+    // Copy faces.
     for (old_h, f) in &b.faces {
-        let surface = if flip_b_normals {
-            f.surface
-                .as_ref()
-                .map(|s| popkern_core::geometry::SurfaceOnFace {
-                    geometry: s.geometry.clone(),
-                    orientation: !s.orientation,
-                })
-        } else {
-            f.surface.clone()
-        };
+        let surface = f.surface.clone();
         let new_h = a.faces.insert(Face {
             outer_loop: popkern_core::topology::LoopHandle::default(),
             inner_loops: Vec::new(),

@@ -213,3 +213,36 @@ fn reverse_containment_intersection_returns_inner() {
         .expect("reverse containment intersection should succeed");
     assert_eq!(result.faces.len(), 6);
 }
+
+#[test]
+fn a_hollow_solids_void_faces_are_winding_honest_and_face_the_void() {
+    // PK-879: the void shell's faces kept the tool's loop winding while
+    // their flags were flipped, so every void face read winding-dishonest.
+    use crate::error::PointClassification;
+    use popkern_core::geometry::{Point3, Transform3};
+    let outer = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::scale_uniform(3.0))
+        .unwrap();
+    let inner = BRep::unit_cube(tol())
+        .unwrap()
+        .transform(&Transform3::translation(1.0, 1.0, 1.0))
+        .unwrap();
+    let result = execute_boolean(BoolOperation::Subtraction, outer, inner, &tol())
+        .expect("hollow subtraction should succeed");
+    assert_eq!(result.faces.len(), 12);
+    let dishonest = result.validate_winding_honesty_all();
+    assert!(dishonest.is_empty(), "{dishonest:?}");
+    let boxes = crate::adaptive_precision::body_face_aabbs(&result);
+    let class = |p: Point3| {
+        crate::adaptive_precision::robust_point_in_solid_final(&p, &result, &boxes, &tol())
+    };
+    assert_eq!(
+        class(Point3::new(1.5, 1.5, 1.5)),
+        PointClassification::Outside
+    );
+    assert_eq!(
+        class(Point3::new(0.5, 1.5, 1.5)),
+        PointClassification::Inside
+    );
+}

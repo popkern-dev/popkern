@@ -51,9 +51,22 @@ pub(super) struct OrientedEdgeInfo {
 }
 
 /// Walk all faces in a shell and collect unique vertex/edge IDs and face topology.
+#[cfg(test)]
 pub(super) fn collect_face_data(
     graph: &EntityGraph,
     face_ids: &[EntityId],
+    log: &mut DiagnosticLog,
+) -> Option<FaceData> {
+    collect_face_data_reversing(graph, face_ids, &std::collections::HashSet::new(), log)
+}
+
+/// Face data collection with the shell-listed faces in `reversed_uses`
+/// used reversed on top of their own `ORIENTED_FACE` sense: the faces
+/// of a void shell whose `ORIENTED_CLOSED_SHELL` is `.F.` (PK-880).
+pub(super) fn collect_face_data_reversing(
+    graph: &EntityGraph,
+    face_ids: &[EntityId],
+    reversed_uses: &std::collections::HashSet<EntityId>,
     log: &mut DiagnosticLog,
 ) -> Option<FaceData> {
     let mut vertex_ids = Vec::new();
@@ -84,6 +97,7 @@ pub(super) fn collect_face_data(
             },
             _ => (shell_face_id, false),
         };
+        let reversed = reversed != reversed_uses.contains(&shell_face_id);
         let face_entity = graph.get(face_id)?;
         let mut af = match AdvancedFace::from_params(&face_entity.params) {
             Ok(f) => f,

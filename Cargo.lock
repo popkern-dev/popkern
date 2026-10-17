@@ -3508,6 +3508,7 @@ name = "popkern-io"
 version = "0.1.0"
 dependencies = [
  "popkern-blend",
+ "popkern-bool",
  "popkern-core",
  "popkern-math",
  "popkern-mesh",
