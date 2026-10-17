@@ -42,6 +42,40 @@ impl Pcurve {
         }
     }
 
+    /// Shift the pcurve's PARAMETER by a constant: the same point sits
+    /// at `t + delta` afterwards. Range-normalised forms move their
+    /// range, a NURBS moves its knots, a sinusoid absorbs the shift into
+    /// its offset and phase. Used when the 3-D curve the pcurve follows
+    /// under an identity parameter map is re-parameterised by a rigid
+    /// motion (a circle's angle origin follows its derived basis).
+    pub fn shift_parameter(&mut self, delta: f64) {
+        use popkern_math::PortableMath;
+        self.t_start += delta;
+        self.t_end += delta;
+        match &mut self.geometry {
+            PcurveGeometry::Linear { .. }
+            | PcurveGeometry::Elliptical { .. }
+            | PcurveGeometry::CylinderArcViaRationalQuad { .. } => {}
+            PcurveGeometry::Sinusoidal {
+                u_offset,
+                v_cos,
+                v_sin,
+                ..
+            } => {
+                *u_offset -= delta;
+                let (c, s) = (delta.pcos(), delta.psin());
+                let (a, b) = (*v_cos, *v_sin);
+                *v_cos = a * c - b * s;
+                *v_sin = a * s + b * c;
+            }
+            PcurveGeometry::Nurbs(n) => {
+                for k in &mut n.knots {
+                    *k += delta;
+                }
+            }
+        }
+    }
+
     /// Scale the V coordinate of the whole pcurve by a constant.
     ///
     /// Cylinder and cone charts measure V as arc length along a UNIT

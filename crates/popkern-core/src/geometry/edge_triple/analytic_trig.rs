@@ -46,10 +46,12 @@ pub(super) fn try_dispatch_trig(
     use SurfaceGeometry::*;
     if !(sphere_chart_is_world(surf_a) && sphere_chart_is_world(surf_b)) {
         // The trig-pair sphere solvers write pcurves in the world-+Z
-        // chart; a sphere whose pole turned with its material falls
-        // through to the NURBS-via-intersect_surfaces path, which
-        // reads the chart through the surface evaluators.
-        return None;
+        // chart; a sphere whose pole turned with its material is solved
+        // in its own frame (PK-858), or falls through to the
+        // NURBS-via-intersect_surfaces path when no frame serves.
+        return super::analytic_trig_sphere_frame::try_in_sphere_frame(
+            surf_a, surf_b, anchors, hint, tol,
+        );
     }
     match (surf_a, surf_b) {
         (
