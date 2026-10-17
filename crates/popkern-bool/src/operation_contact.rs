@@ -99,7 +99,16 @@ pub(crate) fn touching_only(
                 .is_some_and(|t| c.geometry.point_at(t).distance_to(p) <= near)
         })
     };
+    // A trim residue (`residue_owner_a`) is the other operand's surface
+    // crossing ONE face beyond the other face's trim: no boundary of
+    // the second body is there, so it is no crossing of the bodies
+    // (PK-847: the six-axis arm's wrist casting's ring and web planes
+    // left residues along a butted tube's whole wall, and the contact
+    // classified as a crossing).
     let contact_only = intersection.records.iter().all(|r| {
+        if r.residue_owner_a.is_some() {
+            return true;
+        }
         let c = &r.curve.curve_3d;
         let (t0, t1) = c.parameter_range();
         let samples: Vec<_> = (0..=LENGTH_SAMPLES)

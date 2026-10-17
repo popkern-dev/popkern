@@ -100,3 +100,51 @@ fn near_boundary_run(
         ((qu - cu).powi(2) + (qv - cv).powi(2)).sqrt() < clearance
     })
 }
+
+/// Whether `curve_uv` lies along the face's boundary contour for its
+/// whole length: every one of 32 samples within the boundary band
+/// ([`super::clip_uv::uv_boundary_band`]) of a boundary pcurve's
+/// polyline (segments, not sample points: a band finer than the
+/// sample spacing read a record exactly on a rim as off it).
+pub(super) fn rides_face_boundary(
+    brep: &BRep,
+    face: FaceHandle,
+    curve_uv: &popkern_core::geometry::nurbs_curve::NurbsCurve,
+) -> bool {
+    let band = super::clip_uv::uv_boundary_band(brep, curve_uv);
+    let Some(ring) = crate::clip::face_uv_boundary(brep, face) else {
+        return false;
+    };
+    let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+    for (_, pc) in &ring {
+        let (a, b) = pc.parameter_range();
+        if !(a.is_finite() && b.is_finite()) {
+            return false;
+        }
+        runs.push(
+            (0..=256)
+                .map(|i| {
+                    let p = pc.point_at(a + (b - a) * f64::from(i) / 256.0);
+                    (p.x, p.y)
+                })
+                .collect(),
+        );
+    }
+    let to_segment = |q: (f64, f64), a: (f64, f64), b: (f64, f64)| {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let l2 = dx * dx + dy * dy;
+        let t = if l2 > 0.0 {
+            (((q.0 - a.0) * dx + (q.1 - a.1) * dy) / l2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        ((q.0 - a.0 - t * dx).powi(2) + (q.1 - a.1 - t * dy).powi(2)).sqrt()
+    };
+    let (t0, t1) = curve_uv.parameter_range();
+    (0..32).all(|k| {
+        let p = curve_uv.point_at(t0 + (t1 - t0) * (f64::from(k) + 0.5) / 32.0);
+        runs.iter()
+            .flat_map(|run| run.windows(2))
+            .any(|w| to_segment((p.x, p.y), w[0], w[1]) < band)
+    })
+}

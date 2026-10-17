@@ -157,7 +157,7 @@ pub(crate) enum UvClipResult {
 /// — an absolute multiple of the model tolerance mis-scales across
 /// charts (measured: 100×linear read 1.0 on a sphere chart in
 /// radians and swallowed every sample of a mid-latitude ring).
-fn uv_boundary_band(brep: &BRep, curve_uv: &NurbsCurve) -> f64 {
+pub(super) fn uv_boundary_band(brep: &BRep, curve_uv: &NurbsCurve) -> f64 {
     let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (
         f64::INFINITY,
         f64::NEG_INFINITY,

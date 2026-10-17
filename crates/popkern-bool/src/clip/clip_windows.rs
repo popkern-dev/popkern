@@ -153,6 +153,23 @@ fn clip_curve_uv_space_tuned(
     let pierce_scope = in_pierce_scope(brep_a, face_a) && in_pierce_scope(brep_b, face_b);
     let open_windows_allowed =
         !curve.is_closed && record_is_transversal(brep_a, face_a, brep_b, face_b, curve);
+    // A CLOSED record lying along BOTH faces' boundaries is an edge the
+    // operands already share (PK-847: a tube butted against a boss of
+    // its own radius — the tube wall meets the boss's end disc on the
+    // disc's rim, which is also the tube's end rim). Its numerical
+    // crossings opened windows and the split tried to cut the disc
+    // along its own rim. The boundaries carry that topology (PK-114).
+    // On ONE boundary only it partitions the other face (a countersunk
+    // head's bottom rim across the shank wall) and stays.
+    if curve.is_closed
+        && super::clip_windows_clearance::rides_face_boundary(brep_a, face_a, &curve.curve_uv1)
+        && super::clip_windows_clearance::rides_face_boundary(brep_b, face_b, &curve.curve_uv2)
+    {
+        if trace {
+            eprintln!("  [uvclip] {face_a:?}x{face_b:?}: closed record rides both rims: dropped");
+        }
+        return Vec::new();
+    }
     // Chart-cell route (PK-304): doubly-periodic faces take
     // folded-containment windows (see `chart_cell`); everything else
     // keeps the tuned crossing machinery.
