@@ -226,7 +226,66 @@ pub(crate) fn point_inside_face_uv_with_density(
         // on-surface query is inside.
         return true;
     }
+    crossings_above += top_pole_crossings(brep, face, &runs, &u_probe, uv_point.y);
     crossings_above % 2 == 1
+}
+
+/// The crossing a face's TOP chart pole contributes to the axial
+/// parity count when its contour reaches the pole and stops: a cap
+/// bounded by a rim and the two uses of its seam (a revolved dome:
+/// rim at colatitude 2.785, seam up to π, the pole a vertex) has no
+/// run along the pole row, so every query read the wrong side of the
+/// rim (outside points inside, inside points outside — records on the
+/// untrimmed sphere far off a housing's dome survived the clip and the
+/// boolean stranded their sides). The pole row bounds the region as
+/// truly as any edge: count it once per probe within the contour's u
+/// extent. A bottom pole needs nothing — it lies below every query.
+fn top_pole_crossings(
+    brep: &BRep,
+    face: FaceHandle,
+    runs: &[Vec<Point3>],
+    u_probe: &[f64],
+    v_query: f64,
+) -> usize {
+    let Some(surface) = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| &s.geometry)
+    else {
+        return 0;
+    };
+    let points = runs.iter().flatten();
+    let (u_lo, u_hi, v_top) = points.fold(
+        (f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY),
+        |(lo, hi, top), q| (lo.min(q.x), hi.max(q.x), top.max(q.y)),
+    );
+    if v_top <= v_query || !v_top.is_finite() {
+        return 0;
+    }
+    // A collapsed row: the u partial vanishes against the v partial.
+    use popkern_core::geometry::surface::SurfaceEval;
+    let at = 0.5 * (u_lo + u_hi);
+    let (pu, pv) = (surface.partial_u(at, v_top), surface.partial_v(at, v_top));
+    if pu.length() > 1e-9 * pv.length().max(1e-300) {
+        return 0;
+    }
+    // A run already along the pole row counts itself.
+    let span = (u_hi - u_lo).max(1e-300);
+    let along = runs.iter().any(|run| {
+        let on: Vec<&Point3> = run
+            .iter()
+            .filter(|q| (q.y - v_top).abs() <= 1e-9 * span)
+            .collect();
+        on.len() >= 2
+            && on
+                .iter()
+                .any(|a| on.iter().any(|b| (a.x - b.x).abs() > 1e-6 * span))
+    });
+    if along {
+        return 0;
+    }
+    u_probe.iter().filter(|&&uq| uq > u_lo && uq < u_hi).count()
 }
 
 /// Hole-aware REGION containment: [`point_inside_face_uv`] minus the
