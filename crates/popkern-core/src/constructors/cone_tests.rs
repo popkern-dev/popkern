@@ -162,3 +162,53 @@ fn cone_cap_loop_is_self_loop() {
         "Should have 1 single-half-edge cap loop"
     );
 }
+
+/// Interior-left at the base rim, measured flag-free (PK-881): walking
+/// each use in its 3-D direction with the face's OUTWARD normal up (the
+/// chart normal signed away from the cone's interior), the face lies on
+/// the left. Both uses ran the rim backwards before — the lateral loop
+/// encircles the apex pole, so the winding audit cannot measure it, and
+/// every shell and offset of a cone inherited the inversion.
+#[test]
+fn cone_base_rim_uses_keep_their_faces_on_the_left() {
+    use crate::geometry::curve::CurveEval;
+    use crate::geometry::surface::SurfaceEval;
+    let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
+    let inside = Point3::new(0.0, 0.0, 0.5);
+    let mut checked = 0;
+    for (he, h) in &cone.half_edges {
+        let edge = &cone.edges[h.edge];
+        if h.origin != cone.half_edges[h.twin].origin {
+            continue; // the seam
+        }
+        let curve = edge.curve.as_ref().unwrap();
+        let (ta, tb) = if edge.half_edge == he {
+            (curve.t_start, curve.t_end)
+        } else {
+            (curve.t_end, curve.t_start)
+        };
+        let t = ta + 0.3 * (tb - ta);
+        let p = curve.geometry.point_at(t);
+        let d = (curve.geometry.point_at(t + 1e-5 * (tb - ta)) - p)
+            .normalized()
+            .unwrap();
+        let surface = &cone.faces[cone.loops[h.loop_].face]
+            .surface
+            .as_ref()
+            .unwrap()
+            .geometry;
+        let (u, v) = surface.closest_point(&p).unwrap();
+        let n = surface.normal_at(u, v).normalized().unwrap();
+        let outward = if n.dot(&(p - inside)) > 0.0 {
+            n
+        } else {
+            n * -1.0
+        };
+        assert!(
+            outward.cross(&d).dot(&(inside - p)) > 0.0,
+            "{he:?} runs the base rim with its face on the right"
+        );
+        checked += 1;
+    }
+    assert_eq!(checked, 2, "both base-rim uses");
+}

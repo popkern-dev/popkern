@@ -47,8 +47,8 @@ fn xy_circle_nurbs(radius: f64, z: f64) -> NurbsCurve {
 
 /// Build a degree-2 rational NURBS circle pcurve in the cap's UV plane.
 ///
-/// The cap face's plane has `u_axis=(1,0,0), v_axis=(0,1,0)`, so UV maps
-/// directly to XY. The pcurve is a circle of `radius` at the UV origin.
+/// The cap face's plane has `u_axis=(1,0,0), v_axis=(0,-1,0)`, so UV is
+/// (x, −y). The pcurve is a circle of `radius` at the UV origin.
 fn cap_circle_pcurve(radius: f64) -> NurbsCurve {
     let r = radius;
     let w = FRAC_1_SQRT_2;
@@ -256,12 +256,17 @@ impl BRep {
 
         // -- Wire edge -> half_edge --
         // CONTRACT (closed edges, see recompute_face_pcurves): the
-        // canonical `half_edge` must traverse the stored curve FORWARD.
-        // The base circle curve runs CCW, but the lateral chart's u
-        // direction is CW here (axis (0,0,-1) puts perp2 at -ŷ), so the
-        // lateral loop traverses the base circle BACKWARD — the cap
-        // side is the forward (canonical) half.
-        brep.edges[e_base_circle].half_edge = he_base_cap;
+        // canonical `half_edge` traverses the stored curve FORWARD.
+        // The base circle runs CCW seen from above. Interior-left under
+        // the outward normal decides each use: the lateral (interior
+        // above the rim, normal tilted outward) runs it CCW — forward,
+        // canonical — and the cap (normal -z) runs it CW. The cap used
+        // to be the canonical side, which wired BOTH uses backwards;
+        // the lateral's pole-encircling loop is unmeasurable by the
+        // winding audit and the cap's chart (u × v = +z against its -z
+        // normal) hid the reversal, so every shell, offset and boolean
+        // of a cone inherited an inverted base rim (PK-881).
+        brep.edges[e_base_circle].half_edge = he_base_arc;
         brep.edges[e_seam].half_edge = he_seam_up;
 
         // -- Wire vertex -> outgoing --
@@ -283,11 +288,13 @@ impl BRep {
             orientation: true,
         });
         brep.faces[f_cap].surface = Some(SurfaceOnFace {
+            // Chart-true: u × v = the -z normal. The CW rim then winds
+            // CCW in (u, v) = (x, -y), as the flag says.
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.0, 0.0, 0.0),
                 normal: Vec3::new(0.0, 0.0, -1.0),
                 u_axis: Vec3::new(1.0, 0.0, 0.0),
-                v_axis: Vec3::new(0.0, 1.0, 0.0),
+                v_axis: Vec3::new(0.0, -1.0, 0.0),
             },
             orientation: true,
         });
@@ -308,10 +315,12 @@ impl BRep {
         });
 
         // -- Pcurves --
-        // Lateral face pcurves (triangular UV domain):
-        //   he_base_arc:   (0, height) -> (TAU, height)
-        //   he_seam_up:    (TAU, height) -> (TAU, 0)   (apex at v=0)
-        //   he_seam_down:  (0, 0) -> (0, height)       (apex at v=0)
+        // Lateral face pcurves (the chart's u runs CW seen from above —
+        // axis (0,0,-1) puts perp2 at -ŷ — so the CCW base arc runs u
+        // DOWN; the loop winds CCW in (u, v), as the flag says):
+        //   he_base_arc:   (TAU, height) -> (0, height)
+        //   he_seam_up:    (0, height) -> (0, 0)       (apex at v=0)
+        //   he_seam_down:  (TAU, 0) -> (TAU, height)   (apex at v=0)
         let line_pcurve = |u0: f64, v0: f64, u1: f64, v1: f64| -> NurbsCurve {
             NurbsCurve {
                 degree: 1,
@@ -321,11 +330,12 @@ impl BRep {
             }
         };
 
-        brep.half_edges[he_base_arc].pcurve = Some(line_pcurve(0.0, h, TAU, h).into());
-        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, h, TAU, 0.0).into());
-        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, 0.0, 0.0, h).into());
+        brep.half_edges[he_base_arc].pcurve = Some(line_pcurve(TAU, h, 0.0, h).into());
+        brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(0.0, h, 0.0, 0.0).into());
+        brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(TAU, 0.0, TAU, h).into());
 
-        // Cap face pcurve: degree-2 rational NURBS circle.
+        // Cap face pcurve: degree-2 rational NURBS circle, CCW in the
+        // cap's (x, -y) chart = the rim's CW traversal.
         brep.half_edges[he_base_cap].pcurve = Some(cap_circle_pcurve(radius).into());
 
         // =====================================================================

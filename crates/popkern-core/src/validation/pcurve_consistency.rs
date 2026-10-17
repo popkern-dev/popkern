@@ -44,14 +44,19 @@ impl BRep {
                 .unwrap_or_else(|| self.tolerance.linear())
                 .max(1.0e-9)
                 * PCURVE_BAND_FACTOR;
-            // A closed edge's sense belongs to the canonical-forward
-            // audit (PK-478: twin claims must oppose); here its pcurve
-            // must trace the edge and both its ends sit on the edge's
-            // one vertex.
+            // A closed edge's pcurve must run along the edge in the use's
+            // own direction (the canonical half-edge forward, its twin
+            // backward) and both its ends sit on the edge's one vertex.
+            // The direction-free trace alone passed a pcurve run against
+            // its edge: the canonical-forward audit exempts a pair whose
+            // two uses claim one direction, and that is exactly what a
+            // loop closure leaves when it reverses a pcurve to close a
+            // chart around a mis-wired rim (PK-878: a drilled dome served
+            // three faces inside-out with every validator green).
             let closed = self.edge_is_closed(data.edge);
             let deviation = if closed {
                 let end_gap = self.pcurve_end_gap_to_origin(half_edge).unwrap_or(0.0);
-                report.max_trace_deviation.max(end_gap)
+                report.max_deviation.max(end_gap)
             } else {
                 report.max_deviation
             };
