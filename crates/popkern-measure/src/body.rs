@@ -54,9 +54,43 @@ impl BoundingBox {
 // ---------------------------------------------------------------------------
 
 /// Tessellate the BRep with fine settings suitable for volumetric queries.
+/// Fine-tessellation chord as a fraction of the body's vertex-box
+/// diagonal (PK-843), capped at the historical 0.001. An absolute
+/// 0.001 was the whole of a millimetre part (a drilled dome's volume
+/// lost 2.4e-7 at k = 1e-3); 5e-4 of the diagonal reproduces 0.001 on
+/// the unit-scale fixtures. Large parts keep 0.001 (a kilometre-scale
+/// dome meshes 28x slower) until the quadrature is chord-independent.
+const FINE_CHORD_PER_DIAGONAL: f64 = 5.0e-4;
+
 fn tessellate_fine(brep: &BRep) -> Result<popkern_mesh::TriMesh, MeasureError> {
+    let (lo, hi) = brep.vertices.values().fold(
+        (
+            Point3::new(f64::MAX, f64::MAX, f64::MAX),
+            Point3::new(f64::MIN, f64::MIN, f64::MIN),
+        ),
+        |(lo, hi), v| {
+            let p = v.position;
+            (
+                Point3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z)),
+                Point3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z)),
+            )
+        },
+    );
+    let diagonal = if lo.x <= hi.x {
+        lo.distance_to(&hi)
+    } else {
+        0.0
+    };
+    // Capped at the historical 0.001: the quadrature's trim slivers
+    // are not chord-independent yet (PK-818), and a 200 mm tee read
+    // 1.3e-4 of its volume at the coarser relative chord.
+    let chord = if diagonal > 0.0 {
+        (FINE_CHORD_PER_DIAGONAL * diagonal).min(0.001)
+    } else {
+        0.001
+    };
     let opts = popkern_mesh::TessellationOptions {
-        chord_height: 0.001,
+        chord_height: chord,
         min_subdivisions: 8,
         max_subdivisions: 128,
         ..Default::default()
