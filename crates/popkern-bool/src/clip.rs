@@ -153,6 +153,19 @@ pub(crate) fn face_uv_inner_boundaries(
     brep: &BRep,
     face: FaceHandle,
 ) -> Vec<Vec<(HalfEdgeHandle, popkern_core::geometry::pcurve::Pcurve)>> {
+    face_uv_inner_boundary_refs(brep, face)
+        .into_iter()
+        .map(|c| c.into_iter().map(|(he, pc)| (he, pc.clone())).collect())
+        .collect()
+}
+
+/// [`face_uv_inner_boundaries`] borrowing the pcurves: the containment
+/// tests read them once per query, and cloning every hole's pcurves
+/// per query was 6% of a cut into a 63-slot disc (PK-802).
+pub(crate) fn face_uv_inner_boundary_refs(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Vec<Vec<(HalfEdgeHandle, &popkern_core::geometry::pcurve::Pcurve)>> {
     let Some(face_data) = brep.faces.get(face) else {
         return Vec::new();
     };
@@ -175,7 +188,7 @@ pub(crate) fn face_uv_inner_boundaries(
             let Some(pcurve) = he.pcurve.as_ref() else {
                 continue 'loops;
             };
-            contour.push((cursor, pcurve.clone()));
+            contour.push((cursor, pcurve));
             cursor = he.next;
             if cursor == start {
                 break;

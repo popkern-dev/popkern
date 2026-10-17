@@ -322,7 +322,7 @@ pub(crate) fn point_inside_face_region_excluding_fresh_holes(
         return false;
     }
     let mut inside = true;
-    for contour in crate::clip::face_uv_inner_boundaries(brep, face) {
+    for contour in crate::clip::face_uv_inner_boundary_refs(brep, face) {
         let fresh = !contour.is_empty()
             && contour.iter().all(|(he, _)| {
                 brep.half_edges
@@ -345,7 +345,7 @@ pub(crate) fn point_inside_face_region_excluding_fresh_holes(
 fn hole_contour_contains(
     contour: &[(
         popkern_core::topology::HalfEdgeHandle,
-        popkern_core::geometry::pcurve::Pcurve,
+        &popkern_core::geometry::pcurve::Pcurve,
     )],
     uv_point: Point3,
     tolerance: &Tolerance,
@@ -353,7 +353,7 @@ fn hole_contour_contains(
     // Outside the contour's conservative box it is outside the sampled
     // polygon too: skip the 32 evaluations per hole edge (a disc with
     // 64 slots tested every hole for every point, PK-743).
-    if crate::pcurve_box::contour_uv_box(contour.iter().map(|(_, pc)| pc))
+    if crate::pcurve_box::contour_uv_box(contour.iter().map(|(_, pc)| *pc))
         .is_some_and(|bx| crate::pcurve_box::outside(&bx, uv_point.x, uv_point.y, 0.0))
     {
         return false;
@@ -397,7 +397,7 @@ pub(crate) fn point_inside_face_region_uv_with_density(
         return false;
     }
     let mut inside = true;
-    for contour in crate::clip::face_uv_inner_boundaries(brep, face) {
+    for contour in crate::clip::face_uv_inner_boundary_refs(brep, face) {
         if hole_contour_contains(&contour, uv_point, tolerance) {
             inside = !inside;
         }
