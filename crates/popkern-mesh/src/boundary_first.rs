@@ -281,10 +281,7 @@ pub(crate) fn tessellate_face_boundary_first(
     }
 
     // UV conditioning for the incircle test (`boundary_first_ring_condition`).
-    let shared = boundary_first_ring_condition::shared_points(&rings);
-    boundary_first_ring_condition::nudge_collinear_runs(&mut rings);
-    boundary_first_ring_condition::jitter_cocircular(&mut rings);
-    boundary_first_ring_condition::resnap_shared_points(&mut rings, &shared);
+    let exact_uv = boundary_first_ring_condition::condition_for_incircle(&mut rings);
 
     // Point set: boundary points (fixed) + interior grid points.
     let mut uv_pts: Vec<(f64, f64)> = Vec::new();
@@ -650,6 +647,7 @@ pub(crate) fn tessellate_face_boundary_first(
     // (`orient_face_meshes_coherently`), which propagates manifold
     // consistency across shared canonical boundary vertices.
     // Materialize vertices.
+    boundary_first_ring_condition::restore_exact_uv(&mut uv_pts, &exact_uv);
     let mut vertices = Vec::with_capacity(uv_pts.len());
     for (i, &(u, v)) in uv_pts.iter().enumerate() {
         let position = pos_pts[i].unwrap_or_else(|| surface.point_at(u, v));

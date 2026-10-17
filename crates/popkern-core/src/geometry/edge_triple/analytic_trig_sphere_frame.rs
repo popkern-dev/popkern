@@ -141,8 +141,24 @@ pub(super) fn try_in_sphere_frame(
     };
     let t = frame_rotation(center, axis)?;
     let back = t.inverse().ok()?;
-    let moved = |s: &SurfaceGeometry| crate::topology::brep::transform_surface(s, &t, 1.0);
+    // `T` takes the pole onto Z exactly in exact arithmetic; its image
+    // lands an ulp off, and the dispatch tests the world chart bit for
+    // bit — an unsnapped pole re-entered this frame path until the
+    // stack overflowed (the rounded tetrahedron's rolling-ball corners).
+    let moved = |s: &SurfaceGeometry| match crate::topology::brep::transform_surface(s, &t, 1.0) {
+        SurfaceGeometry::Sphere { center, radius, .. } => SurfaceGeometry::Sphere {
+            center,
+            radius,
+            axis: Vec3::Z,
+        },
+        other => other,
+    };
     let (ta, tb) = (moved(surf_a), moved(surf_b));
+    if !(super::analytic_trig::sphere_chart_is_world(&ta)
+        && super::analytic_trig::sphere_chart_is_world(&tb))
+    {
+        return None;
+    }
     let original = anchors.clone();
     let anchors = map_anchors(anchors, &t);
     let hint = hint.map(|h| map_hint(h, &t));

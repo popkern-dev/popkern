@@ -5,8 +5,8 @@
 
 use super::*;
 
-#[path = "classify_ray_cone_trim.rs"]
-mod cone_trim;
+#[path = "classify_ray_chart_trim.rs"]
+mod chart_trim;
 #[path = "classify_ray_gates.rs"]
 mod gates;
 use gates::HitGate;
@@ -281,7 +281,7 @@ pub(super) fn ray_crossing_count(
                             );
                         }
                         if matches!(gate, HitGate::Accept) {
-                            gate = cone_trim::cone_trim_gate(
+                            gate = chart_trim::chart_trim_gate(
                                 brep,
                                 *face_handle,
                                 surface,

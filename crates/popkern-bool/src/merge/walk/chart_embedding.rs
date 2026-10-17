@@ -308,6 +308,7 @@ pub(crate) fn build_embedding(
         uv.reverse();
         std::mem::swap(&mut refined_first, &mut refined_last);
     }
+    super::chart_poles::snap_pole_end_azimuths(surface, &mut uv, refined_first, refined_last);
     if popkern_core::trace::trace_enabled("branch-pairing") {
         let (ulo, uhi) = uv.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &(u, _)| {
             (lo.min(u), hi.max(u))

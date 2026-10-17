@@ -3,7 +3,8 @@
 //! The foundational types ([`DoublePrecision`] and [`adaptive_sign`]) live in
 //! `popkern_core::adaptive_precision` and are re-exported here for
 //! backwards compatibility. This module adds `robust_point_in_solid`,
-//! which depends on bool-specific types.
+//! which depends on bool-specific types, and `body_face_aabbs`, the
+//! per-face boxes every point-in-solid query takes.
 
 pub use popkern_core::adaptive_precision::{DoublePrecision, adaptive_sign};
 
@@ -15,6 +16,15 @@ use popkern_core::topology::{BRep, FaceHandle};
 use crate::classify::point_in_solid;
 use crate::classify_winding::point_in_solid_winding;
 use crate::error::PointClassification;
+
+/// The per-face boxes the point-in-solid queries take
+/// ([`robust_point_in_solid`], [`crate::point_in_solid`] and their
+/// `_final` forms): every face with surface geometry, boxed as the
+/// boolean's intersection stage boxes it (trim-scale where the surface
+/// allows). Callers outside the boolean had no way to build them.
+pub fn body_face_aabbs(brep: &BRep) -> Vec<(FaceHandle, Aabb)> {
+    crate::intersect::compute_face_aabbs(brep)
+}
 
 /// Robust point-in-solid classification with adaptive fallback.
 ///

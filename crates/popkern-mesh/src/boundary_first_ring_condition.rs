@@ -2,7 +2,9 @@
 //! (extracted from `boundary_first.rs` under the structural line
 //! budget): collinear-run inward nudge and deterministic cocircular
 //! micro-jitter. Both perturb UV only — 3D positions stay canonical,
-//! so shared-edge closure is unaffected.
+//! so shared-edge closure is unaffected — and only for the
+//! triangulation: the served vertices take back their exact UV
+//! (`restore_exact_uv`).
 
 use super::BoundaryRing;
 use popkern_math::PortableMath;
@@ -13,7 +15,7 @@ use popkern_math::PortableMath;
 /// then connects the run's endpoints directly and the interior
 /// stations never join the hull — the coverage check would reject
 /// the whole face.
-pub(super) fn nudge_collinear_runs(rings: &mut [BoundaryRing]) {
+fn nudge_collinear_runs(rings: &mut [BoundaryRing]) {
     for ring in rings.iter_mut() {
         let n = ring.uv.len();
         if n < 3 {
@@ -58,7 +60,7 @@ pub(super) fn nudge_collinear_runs(rings: &mut [BoundaryRing]) {
 /// exactly-collinear runs do, and cascade coverage holes through the
 /// Delaunay. The jitter is orders of magnitude below any chord
 /// tolerance.
-pub(super) fn jitter_cocircular(rings: &mut [BoundaryRing]) {
+fn jitter_cocircular(rings: &mut [BoundaryRing]) {
     let mut scale = 0.0_f64;
     for ring in rings.iter() {
         let n = ring.uv.len();
@@ -83,10 +85,38 @@ pub(super) fn jitter_cocircular(rings: &mut [BoundaryRing]) {
     }
 }
 
+/// Condition the rings for the incircle test (collinear nudge,
+/// cocircular jitter, pinch copies re-snapped together), returning
+/// their UV from before, in point order (the order the face's point
+/// set lists them) — for [`restore_exact_uv`].
+pub(super) fn condition_for_incircle(rings: &mut [BoundaryRing]) -> Vec<(f64, f64)> {
+    let shared = shared_points(rings);
+    let exact = rings.iter().flat_map(|r| r.uv.iter().copied()).collect();
+    nudge_collinear_runs(rings);
+    jitter_cocircular(rings);
+    resnap_shared_points(rings, &shared);
+    exact
+}
+
+/// Give the boundary points (the point set's first `exact.len()`) back
+/// their unconditioned UV once the triangulation no longer needs the
+/// conditioning (PK-877). The nudge and the jitter move a boundary UV
+/// off its trim by up to 1e-7 of the ring scale while its 3-D position
+/// stays on the trim, and every consumer of the served mesh's UV read
+/// that offset as geometry: the exact-surface volume quadrature
+/// integrated the (u, v) triangles of a drilled dome's sphere zone
+/// 1.3e-8 rad off its exact latitude rim, 1.1e-8 of volume (the face's
+/// slivers measured chord-to-trim, not the conditioning).
+pub(super) fn restore_exact_uv(uv_pts: &mut [(f64, f64)], exact: &[(f64, f64)]) {
+    for (uv, &e) in uv_pts.iter_mut().zip(exact) {
+        *uv = e;
+    }
+}
+
 /// Ring points that coincide exactly — a pinch, where a lobe cut from a
 /// ring (`dissolve_pinches`) shares its point with the ring it left —
 /// as `(ring, index)` groups, recorded before the conditioning passes.
-pub(super) fn shared_points(rings: &[BoundaryRing]) -> Vec<Vec<(usize, usize)>> {
+fn shared_points(rings: &[BoundaryRing]) -> Vec<Vec<(usize, usize)>> {
     let mut by_point: std::collections::BTreeMap<(u64, u64), Vec<(usize, usize)>> =
         std::collections::BTreeMap::new();
     for (r, ring) in rings.iter().enumerate() {
@@ -107,7 +137,7 @@ pub(super) fn shared_points(rings: &[BoundaryRing]) -> Vec<Vec<(usize, usize)>> 
 /// PK-732: the equal-radius tee's main wall, the copies 3.6e-6 rad
 /// apart at the singular point; the wall fell back to a mesh off the
 /// canonical edge samples, 893 open mesh edges).
-pub(super) fn resnap_shared_points(rings: &mut [BoundaryRing], groups: &[Vec<(usize, usize)>]) {
+fn resnap_shared_points(rings: &mut [BoundaryRing], groups: &[Vec<(usize, usize)>]) {
     for group in groups {
         let (r0, i0) = group[0];
         let uv = rings[r0].uv[i0];

@@ -3619,6 +3619,7 @@ name = "popkern-rhai"
 version = "0.1.0"
 dependencies = [
  "popkern-assembly",
+ "popkern-bool",
  "popkern-core",
  "popkern-fastener",
  "popkern-history",

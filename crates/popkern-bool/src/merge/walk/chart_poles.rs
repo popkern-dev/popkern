@@ -14,6 +14,61 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use super::chart_subdivision::FaceChartSubdivision;
 use crate::merge::graph::IntersectionGraph;
 
+/// Whether the chart can carry a collapsed row (see `detect_pole_nodes`).
+fn pole_shaped(surface: &SurfaceGeometry) -> bool {
+    matches!(
+        surface,
+        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cone { .. } | SurfaceGeometry::Nurbs(_)
+    )
+}
+
+/// Whether the chart's u-row through `(u, v)` collapses to one point
+/// (a sphere pole, cone apex or a revolved profile on its axis).
+fn row_collapses(surface: &SurfaceGeometry, u: f64, v: f64) -> bool {
+    let p0 = surface.point_at(u, v);
+    let p1 = surface.point_at(u + 1e-4, v);
+    let scale = 1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
+    p0.distance_to(&p1) < 1e-11 * scale
+}
+
+/// Give a run's pole endpoints their arrival azimuth (PK-877).
+///
+/// A pole sample's u is arbitrary (the whole row is one point), and
+/// the pcurve or projection source fills it with whatever its pole
+/// branch returns: the drilled dome's seam piece from the pole to the
+/// rim ran at u = 0 but sampled u = −π at the pole, the seam-border
+/// alignment read that −π as the seam's azimuth, declared a misfit,
+/// and the sphere walked by 3D-Newell, which wired the closed rim
+/// backwards (the hole wall and the sphere zone served inside-out).
+/// The successor rule at a pole orders departures by this endpoint u
+/// as each run's own meridian azimuth, so the endpoint takes the
+/// azimuth the run approaches it along: the endpoint-refined
+/// δ-sample's u when it is off the pole, else the neighbouring
+/// sample's. A run lying wholly on the pole row keeps its samples.
+pub(crate) fn snap_pole_end_azimuths(
+    surface: &SurfaceGeometry,
+    uv: &mut [(f64, f64)],
+    refined_first: Option<(f64, f64)>,
+    refined_last: Option<(f64, f64)>,
+) {
+    let n = uv.len();
+    if n < 2 || !pole_shaped(surface) {
+        return;
+    }
+    let off_pole = |q: &(f64, f64)| !row_collapses(surface, q.0, q.1);
+    for (end, inner, refined) in [(0, 1, refined_first), (n - 1, n - 2, refined_last)] {
+        if off_pole(&uv[end]) {
+            continue;
+        }
+        let toward = refined
+            .filter(off_pole)
+            .or_else(|| Some(uv[inner]).filter(off_pole));
+        if let Some((u, _)) = toward {
+            uv[end].0 = u;
+        }
+    }
+}
+
 /// Record pole nodes (with rotation side) on `sub` for sphere/cone
 /// charts.
 pub(crate) fn detect_pole_nodes(
@@ -22,14 +77,7 @@ pub(crate) fn detect_pole_nodes(
     sub: &mut FaceChartSubdivision,
     u_period: Option<f64>,
 ) {
-    if u_period.is_some()
-        && matches!(
-            surface,
-            SurfaceGeometry::Sphere { .. }
-                | SurfaceGeometry::Cone { .. }
-                | SurfaceGeometry::Nurbs(_)
-        )
-    {
+    if u_period.is_some() && pole_shaped(surface) {
         // NURBS included since PK-456: a u-closed surface of
         // revolution whose profile touches the axis collapses a whole
         // v-border row to one point — the same pole shape as the
@@ -57,20 +105,17 @@ pub(crate) fn detect_pole_nodes(
                 if sub.poles.contains_key(&node) {
                     continue;
                 }
-                let p0 = surface.point_at(u, v);
-                let p1 = surface.point_at(u + 1e-4, v);
-                let scale =
-                    1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
                 if popkern_core::trace::trace_enabled("pole") {
+                    let p0 = surface.point_at(u, v);
                     eprintln!(
                         "  [pole?] node {node} uv=({u:.4},{v:.4}) p0=({:.3},{:.3},{:.3}) du-dist={:.3e}",
                         p0.x,
                         p0.y,
                         p0.z,
-                        p0.distance_to(&p1)
+                        p0.distance_to(&surface.point_at(u + 1e-4, v))
                     );
                 }
-                if p0.distance_to(&p1) < 1e-11 * scale {
+                if row_collapses(surface, u, v) {
                     // Pole side decides the rotation sense; σ is not
                     // yet calibrated here, so store the side and fold
                     // σ in at the end of the build.

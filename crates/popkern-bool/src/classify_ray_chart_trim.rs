@@ -1,4 +1,5 @@
-//! CONE trim gate for the classify ray (PK-669).
+//! Chart trim gate for the classify ray: cone (PK-669) and sphere
+//! (PK-877) hits are tested against the face's own uv boundary.
 //!
 //! The boundary-derived cone gates (`axial_span_gate`) bound a hit by
 //! the face's AXIAL extent only. That is the whole trim for a band
@@ -11,12 +12,31 @@
 //! 0.47) and cone phantom at (5.01, 2.42, 0.47) — three crossings,
 //! and a bore-void point read Inside).
 //!
+//! A sphere face had no trim test at all: its solver window is the
+//! whole chart and the cap gate (`sphere_cap_gate`) abstains on a
+//! hemisphere (its boundary directions are not all on one side). The
+//! face's AABB prefilter hid that on an upright dome, whose rays from
+//! the wall below the equator never enter the cap's box; turned 37°,
+//! a ray from inside the dome's wall crossed the sphere's lower,
+//! untrimmed half next to its real exit through the wall, the parity
+//! read two, and a drill's wall fragment classified Outside (PK-877).
+//!
 //! The face's own uv boundary is the trim truth. The hit is tested
 //! by exact even-odd parity over the period lifts of the boundary
 //! loops (`periodic_chart_parity`). The gate abstains — keeps the
 //! tuned behavior — whenever that truth is unavailable or untrusted:
-//! a boundary half-edge without a pcurve, or a pcurve whose image
-//! leaves its edge's 3D curve.
+//! a boundary half-edge without a pcurve, a pcurve whose image
+//! leaves its edge's 3D curve, or (spheres) a loop that winds around
+//! the chart without closing through a pole. A cone's chart has one
+//! end (the apex, v = 0), so such a loop bounds the region on the
+//! apex side, which is what the +v parity ray assumes. A sphere's chart
+//! has a pole at each end, and its loops close THROUGH them: a step
+//! along a pole row (a seam reaching the pole and the next leaving it
+//! a period over) is a real chart segment, not a branch jump — a full
+//! sphere's seam spine bounds the whole chart that way. Counted
+//! literally, a v = π row adds one +v crossing per period and a v = 0
+//! row none; a loop that still winds leaves which pole the region
+//! holds undecided.
 //!
 //! A hit within the EDGE BAND of the face's 3D boundary (either side)
 //! is a graze of the edge it shares with a neighbour: the ray crosses
@@ -52,11 +72,11 @@ const EDGE_BAND_CEILING_FRACTION: f64 = 0.05;
 /// pcurve's midpoint image and its edge's 3D curve.
 const IMAGE_HONESTY_PER_LINEAR: f64 = 1.0e3;
 
-/// Accept the hit when `(u, v)` lies on the cone face's trim, skip it
-/// when it lies clearly off, poison the ray at the trim's edge;
-/// [`HitGate::Accept`] for non-cone faces and whenever the face's uv
-/// boundary cannot be trusted. FINAL bodies only (caller-guarded).
-pub(super) fn cone_trim_gate(
+/// Accept the hit when `(u, v)` lies on the cone or sphere face's trim,
+/// skip it when it lies clearly off, poison the ray at the trim's
+/// edge; [`HitGate::Accept`] for other faces and whenever the face's
+/// uv boundary cannot be trusted. FINAL bodies only (caller-guarded).
+pub(super) fn chart_trim_gate(
     brep: &BRep,
     face_handle: FaceHandle,
     surface: &SurfaceGeometry,
@@ -64,7 +84,8 @@ pub(super) fn cone_trim_gate(
     hit: &Point3,
     tolerance: &Tolerance,
 ) -> HitGate {
-    if !matches!(surface, SurfaceGeometry::Cone { .. }) {
+    let sphere = matches!(surface, SurfaceGeometry::Sphere { .. });
+    if !sphere && !matches!(surface, SurfaceGeometry::Cone { .. }) {
         return HitGate::Accept;
     }
     let Some(period) = surface.parameter_periodicity().0 else {
@@ -83,7 +104,10 @@ pub(super) fn cone_trim_gate(
                 return HitGate::Accept;
             }
             let (t0, t1) = pcurve.parameter_range();
-            for i in 0..STATIONS {
+            // Endpoints included: a seam reaching a pole then puts a
+            // sample ON the pole row (junction duplicates have zero
+            // length and the parity skips them).
+            for i in 0..=STATIONS {
                 let q = pcurve.point_at(t0 + (t1 - t0) * i as f64 / STATIONS as f64);
                 ring.push((q.x, q.y));
             }
@@ -93,8 +117,22 @@ pub(super) fn cone_trim_gate(
     if rings.iter().map(Vec::len).sum::<usize>() < 3 {
         return HitGate::Accept;
     }
+    // Sphere rings close through the poles: a step along a pole row
+    // is a real full-period chart segment (a full sphere's seam spine
+    // is two meridians joined there), not a branch jump. At v = 0 it
+    // lies below every +v parity ray; at v = π it crosses each once.
+    let mut pole_crossings = 0usize;
+    if sphere {
+        for ring in &rings {
+            match pole_row_closure(ring, period) {
+                Some(high) => pole_crossings += high,
+                None => return HitGate::Accept,
+            }
+        }
+    }
     let loops: Vec<&[(f64, f64)]> = rings.iter().map(Vec::as_slice).collect();
-    let on_trim = crate::periodic_chart_parity::contains_on_u_periodic_chart(&loops, u, v, period);
+    let on_trim = crate::periodic_chart_parity::contains_on_u_periodic_chart(&loops, u, v, period)
+        != (pole_crossings % 2 == 1);
     let boundary = brep.face_boundary_sample_points(face_handle, STATIONS);
     let (lo, hi) = boundary.iter().fold(
         (
@@ -124,7 +162,7 @@ pub(super) fn cone_trim_gate(
     if near_edge {
         if popkern_core::trace::trace_enabled("ray-classify") {
             eprintln!(
-                "  [ray-band-cone] {face_handle:?} uv=({u:.4},{v:.4}) within {band:.2e} of the trim edge (on trim {on_trim}) — ray inconclusive"
+                "  [ray-band-chart] {face_handle:?} uv=({u:.4},{v:.4}) within {band:.2e} of the trim edge (on trim {on_trim}) — ray inconclusive"
             );
         }
         return HitGate::PoisonRay;
@@ -133,9 +171,46 @@ pub(super) fn cone_trim_gate(
         return HitGate::Accept;
     }
     if popkern_core::trace::trace_enabled("ray-classify") {
-        eprintln!("  [ray-rej-cone] {face_handle:?} uv=({u:.4},{v:.4}) off the trim");
+        eprintln!("  [ray-rej-chart] {face_handle:?} uv=({u:.4},{v:.4}) off the trim");
     }
     HitGate::SkipHit
+}
+
+/// Distance in v, in radians, within which a ring sample is on a pole.
+const POLE_TOUCH: f64 = 1.0e-6;
+
+/// The full periods a sphere ring's v = π pole-row steps traverse
+/// (each crosses a +v parity ray once per period), or `None` when the
+/// ring still winds around the chart with its pole-row steps taken
+/// literally: it then separates the poles without closing through
+/// either, and which one the region holds is undecided.
+fn pole_row_closure(ring: &[(f64, f64)], period: f64) -> Option<usize> {
+    let pi = std::f64::consts::PI;
+    let row = |v: f64| {
+        if v < POLE_TOUCH {
+            Some(false)
+        } else if v > pi - POLE_TOUCH {
+            Some(true)
+        } else {
+            None
+        }
+    };
+    let n = ring.len();
+    let (mut net, mut high) = (0.0_f64, 0usize);
+    for i in 0..n {
+        let (a, b) = (ring[i], ring[(i + 1) % n]);
+        let du = b.0 - a.0;
+        match (row(a.1), row(b.1)) {
+            (Some(x), Some(y)) if x == y => {
+                net += du;
+                if x {
+                    high += (du.abs() / period).round() as usize;
+                }
+            }
+            _ => net += du - period * (du / period).round(),
+        }
+    }
+    (net.abs() <= 0.5 * period).then_some(high)
 }
 
 /// Whether `pcurve`'s midpoint image lies on its edge's 3D curve.
