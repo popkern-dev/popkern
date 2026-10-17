@@ -21,13 +21,12 @@ impl BRep {
         self.recompute_face_pcurves_impl(face_handle, false)
     }
 
-    /// [`Self::recompute_face_pcurves`] with the loop-winding repair
-    /// postcondition armed (see `pcurve_loop_winding_repair`). Reserved
-    /// for from-scratch re-authoring of bodies whose orientation flags
-    /// are trusted (shell/offset assembly output) — established
-    /// pipelines (boolean repair tails) carry closed-rim direction
-    /// conventions their consumers rely on, and the repair must not
-    /// re-orient those.
+    /// [`Self::recompute_face_pcurves`] with the loop-winding
+    /// postcondition armed (see `pcurve_loop_winding_repair`): a fully
+    /// re-authored outer loop that winds against its face's authored
+    /// flag corrects the flag. For from-scratch re-authoring (shell and
+    /// offset assembly output, whose flags are authored before any
+    /// pcurve exists).
     pub fn recompute_face_pcurves_winding_repaired(
         &mut self,
         face_handle: FaceHandle,
@@ -453,15 +452,12 @@ impl BRep {
         // projection anchored one rim arc a period below its loop.
         self.close_periodic_loop_winding(face_handle);
 
-        // Loop-winding honesty, when armed: a closed-edge member's
-        // direction comes from the per-edge canonical bit, which cannot
-        // express the direction each face's CHART needs. Fully
-        // re-authored outer loops that contradict their face's
-        // orientation flag get their closed members flipped
-        // transactionally; partially re-authored loops keep their
-        // trusted directions (see pcurve_loop_winding_repair).
+        // Loop-winding honesty, when armed: a fully re-authored outer
+        // loop that winds against its face's authored flag corrects the
+        // flag; partially re-authored loops keep theirs (see
+        // pcurve_loop_winding_repair).
         if repair_loop_winding {
-            self.fix_loop_pcurve_winding(face_handle, &freshly_authored);
+            self.fix_reauthored_loop_flag(face_handle, &freshly_authored);
         }
 
         Ok(())

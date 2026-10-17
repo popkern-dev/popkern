@@ -1,42 +1,40 @@
-//! Loop-winding repair postcondition for pcurve recompute.
+//! Loop-winding postcondition for full pcurve re-authoring.
 //!
-//! Open-edge pcurve directions are determined by endpoint matching (the
-//! half-edge's own origin/destination disambiguate them), but a CLOSED
-//! edge's two curve endpoints coincide, so authoring falls back to the
-//! per-edge canonical bit — and a per-EDGE bit cannot express the
-//! direction a face's CHART needs: a left-handed chart (u×v against the
-//! folded normal — the cylinder's caps) honestly traverses a shared rim
-//! the same 3D way as its right-handed neighbour, so no single
-//! canonical assignment winds both faces honestly. Measured: every
-//! re-authored hollow-body skin wound one lateral or cap loop against
-//! its orientation flag (`WindingDishonest` on shell/offset assembly
-//! output), while constructor-authored bodies stayed clean only because
-//! their authored pcurves are never re-derived.
+//! Open-edge pcurve directions follow endpoint matching (the half-edge's
+//! own origin/destination), and a CLOSED edge's follow the per-edge
+//! canonical bit (its `half_edge` runs the curve forward, the twin
+//! backward). Both are the half-edge's 3-D traversal, so re-authored
+//! pcurves are honest by construction: two faces sharing an edge use it
+//! oppositely in 3-D, and a left-handed chart (u×v against the material
+//! normal) shows that as a clockwise loop — which is what its flag says.
 //!
-//! The honest disambiguator is the winding contract itself (the
-//! interior-left rule the winding-honesty audit measures): the outer
-//! loop winds counter-clockwise in UV exactly when the stored
-//! orientation flag is `true`. After chart coherence, each measurable
-//! fully-re-authored loop that contradicts its face's flag has its
-//! closed-edge members' pcurves reversed (a lossless, exact
-//! locus-preserving flip) and coherence re-run so open members re-chain
-//! across period branches. The repair is transactional: if the loop
-//! still measures dishonest afterwards, every pcurve of the face is
-//! restored — a wrong verdict must not half-rewrite a chart.
+//! The winding contract (outer loop counter-clockwise in UV exactly when
+//! the orientation flag is `true`) then has one free side left: the
+//! flag a producer AUTHORED. A fully re-authored outer loop that
+//! measures against its face's flag means the authored flag is wrong,
+//! and the flag follows the loop. This used to be the other way round —
+//! the closed members' pcurves were reversed until the loop agreed with
+//! the flag — on the premise that the canonical bit could not express a
+//! chart's direction. That premise was wrong, and the flip made the
+//! wrong side true: a shelled cone's opening wall carried an authored
+//! flag against its material, both of its rims were rewritten to run
+//! against their edges, and the served body read winding-honest while
+//! its pcurves contradicted its topology (PK-878; the outward shell of
+//! the same cone exported to OpenCASCADE at 4.97 for 0.78).
 
 use std::collections::HashSet;
 
-use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceGeometry;
 
 use super::brep::BRep;
 use super::{FaceHandle, HalfEdgeHandle, LoopHandle};
 
 impl BRep {
-    /// Repair loop windings on `face_handle` after pcurve recompute by
-    /// flipping closed-edge member pcurves (see module docs). Loops
-    /// whose winding is unmeasurable (period-wrapping, pole-touching,
-    /// area-degenerate — the audit's own guards) are left untouched.
+    /// After a full pcurve recompute of `face_handle`, give the face the
+    /// flag its re-authored outer loop winds with (see module docs).
+    /// Loops whose winding is unmeasurable (period-wrapping,
+    /// pole-touching, area-degenerate — the audit's own guards) leave
+    /// the flag as authored.
     ///
     /// `freshly_authored` is the set of half-edges whose pcurves THIS
     /// recompute call wrote. Only loops that were re-authored IN FULL
@@ -45,7 +43,7 @@ impl BRep {
     /// carries directions consumers already rely on. The from-scratch
     /// case this repair exists for (assembly copies topology without
     /// pcurves) always authors whole loops.
-    pub(crate) fn fix_loop_pcurve_winding(
+    pub(crate) fn fix_reauthored_loop_flag(
         &mut self,
         face_handle: FaceHandle,
         freshly_authored: &HashSet<HalfEdgeHandle>,
@@ -81,32 +79,19 @@ impl BRep {
                 .filter(|&heh| self.half_edge_on_closed_edge(heh))
                 .collect();
             if closed.is_empty() {
-                // A dishonest all-open loop means the endpoint-matched
-                // authoring itself disagrees with the flag — that is a
-                // flag/topology defect for the audit to surface, not a
-                // direction ambiguity this repair owns.
+                // A dishonest all-open loop is left to the serving
+                // audit: no closed member, so not this re-authoring
+                // path's measured population.
                 continue;
             }
 
-            // Transaction: snapshot every pcurve of the face (coherence
-            // re-chaining may translate members of any of its loops).
-            let snapshot: Vec<(HalfEdgeHandle, Option<Pcurve>)> = self
-                .face_half_edges(face_handle)
-                .into_iter()
-                .map(|heh| (heh, self.half_edges[heh].pcurve.clone()))
-                .collect();
-
-            for &heh in &closed {
-                if let Some(pc) = self.half_edges[heh].pcurve.clone() {
-                    self.half_edges[heh].pcurve = Some(pc.reversed());
-                }
-            }
-            self.close_periodic_loop_winding(face_handle);
-
-            if self.loop_winding_verdict(lh, &surface, desired_positive) != Some(true) {
-                for (heh, pc) in snapshot {
-                    self.half_edges[heh].pcurve = pc;
-                }
+            // The honest pcurves stand; the authored flag follows them.
+            if let Some(sof) = self
+                .faces
+                .get_mut(face_handle)
+                .and_then(|f| f.surface.as_mut())
+            {
+                sof.orientation = !sof.orientation;
             }
         }
     }
@@ -143,19 +128,6 @@ impl BRep {
         {
             out.push(cur);
             cur = self.half_edges[cur].next;
-        }
-        out
-    }
-
-    /// All half-edges of a face across its outer and inner loops.
-    fn face_half_edges(&self, face_handle: FaceHandle) -> Vec<HalfEdgeHandle> {
-        let Some(face) = self.faces.get(face_handle) else {
-            return Vec::new();
-        };
-        let mut out = Vec::new();
-        out.extend(self.loop_members(face.outer_loop));
-        for &lh in &face.inner_loops {
-            out.extend(self.loop_members(lh));
         }
         out
     }

@@ -406,6 +406,19 @@ fn shell_cone_serves_with_exact_offset_arm() {
         "shelled cone must be validate_all-clean: {:?}",
         result.brep.validate_all()
     );
+    // Every use pcurve runs along its edge in the use's direction
+    // (PK-878): the opening wall's authored flag disagreed with its
+    // re-authored loop, and the winding repair rewrote both rim
+    // pcurves to run against their edges (2.0 and 1.78 off, their
+    // diameters) instead of correcting the flag.
+    let against = result
+        .brep
+        .half_edges
+        .keys()
+        .filter_map(|he| result.brep.measure_half_edge_pcurve_deviation(he))
+        .map(|r| r.max_deviation)
+        .fold(0.0_f64, f64::max);
+    assert!(against < 1e-6, "a pcurve runs against its edge: {against}");
 
     // The inner lateral face is a genuine Cone with the apex moved down
     // the axis by exactly d/sin(half_angle).

@@ -4,13 +4,9 @@ use crate::tolerance::Tolerance;
 use crate::topology::BRep;
 
 /// Re-authoring EVERY pcurve from scratch must reproduce winding-honest
-/// loops (PK-322). The closed-edge canonical direction bit cannot
-/// orient a face-loop traversal by itself — the loop-winding repair
-/// postcondition (pcurve_loop_winding_repair) fixes measurable
-/// dishonest loops by flipping closed members. Before it, a stripped
-/// cylinder re-authored every cap and lateral loop against its
-/// orientation flag (the shell/offset assembly path, which copies
-/// topology without pcurves, served WindingDishonest hollow bodies).
+/// loops (PK-322) without moving a correct flag or running a pcurve
+/// against its edge (PK-878): the shell/offset assembly path copies
+/// topology without pcurves and re-authors all of them.
 #[test]
 fn full_pcurve_reauthoring_stays_winding_honest() {
     for (name, mut brep) in [
@@ -25,7 +21,32 @@ fn full_pcurve_reauthoring_stays_winding_honest() {
         for heh in he_handles {
             brep.half_edges[heh].pcurve = None;
         }
+        let flags: Vec<_> = brep
+            .faces
+            .values()
+            .map(|f| f.surface.as_ref().map(|s| s.orientation))
+            .collect();
         brep.recompute_all_pcurves_winding_repaired().unwrap();
+        // The flags were right before the strip: honest re-authoring
+        // must reproduce windings that agree with them, not move them
+        // (PK-878: a repair that rewrites either side to agree hides
+        // which one lied).
+        let after: Vec<_> = brep
+            .faces
+            .values()
+            .map(|f| f.surface.as_ref().map(|s| s.orientation))
+            .collect();
+        assert_eq!(flags, after, "{name}: re-authoring moved orientation flags");
+        let miss = brep
+            .half_edges
+            .keys()
+            .filter_map(|h| brep.measure_half_edge_pcurve_deviation(h))
+            .map(|r| r.max_deviation)
+            .fold(0.0_f64, f64::max);
+        assert!(
+            miss < 1e-6,
+            "{name}: a pcurve runs against its edge ({miss:e})"
+        );
         let winding_errors: Vec<_> = brep
             .validate_all()
             .into_iter()
@@ -61,7 +82,32 @@ fn reversed_body_reauthoring_stays_winding_honest() {
         for heh in he_handles {
             brep.half_edges[heh].pcurve = None;
         }
+        let flags: Vec<_> = brep
+            .faces
+            .values()
+            .map(|f| f.surface.as_ref().map(|s| s.orientation))
+            .collect();
         brep.recompute_all_pcurves_winding_repaired().unwrap();
+        // The flags were right before the strip: honest re-authoring
+        // must reproduce windings that agree with them, not move them
+        // (PK-878: a repair that rewrites either side to agree hides
+        // which one lied).
+        let after: Vec<_> = brep
+            .faces
+            .values()
+            .map(|f| f.surface.as_ref().map(|s| s.orientation))
+            .collect();
+        assert_eq!(flags, after, "{name}: re-authoring moved orientation flags");
+        let miss = brep
+            .half_edges
+            .keys()
+            .filter_map(|h| brep.measure_half_edge_pcurve_deviation(h))
+            .map(|r| r.max_deviation)
+            .fold(0.0_f64, f64::max);
+        assert!(
+            miss < 1e-6,
+            "{name}: a pcurve runs against its edge ({miss:e})"
+        );
         let winding_errors: Vec<_> = brep
             .validate_all()
             .into_iter()
