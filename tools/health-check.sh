@@ -2,6 +2,16 @@
 # Read-only project health/preflight checks for popkern.
 set -euo pipefail
 
+# The checks pipe their search tools through `|| true` (no match is not
+# a failure), which also swallowed command-not-found: without the tool
+# the gate scanned nothing and passed (PK-830). Require it up front.
+for tool in rg jq; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "$(basename "$0"): '$tool' is required but not on PATH" >&2
+        exit 127
+    fi
+done
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
