@@ -271,6 +271,9 @@ fn serve(
     super::helpers_pcurve_coherence::gate_loop_period_winding(&mut result)
         .map_err(BoolError::ValidationFailed)?;
 
+    // Fitted trims record their measured agreement on the edge (PK-826).
+    result.record_measured_edge_tolerances();
+
     // Debug/the boolean trace topic diagnostics on the SERVED result. This runs
     // after run_output_postprocess deliberately (PK-272): the earlier
     // placement fired before reconcile_orientation_flags and reported

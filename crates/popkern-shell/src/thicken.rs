@@ -180,6 +180,9 @@ pub(crate) fn thicken_impl(
     result
         .recompute_all_pcurves_winding_repaired()
         .map_err(|e| ShellError::Topology(e.to_string()))?;
+    // Fitted trims (blend contact lines, re-authored pcurves) record
+    // their measured agreement on the edge (PK-826).
+    result.record_measured_edge_tolerances();
     tracker.finish_stage("thicken.pcurve_recompute", t0, result.faces.len());
 
     // Orientation flags are DERIVED state (a function of finalized

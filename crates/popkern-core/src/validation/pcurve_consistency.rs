@@ -18,7 +18,7 @@ use crate::topology::BRep;
 /// fitted pcurves on free-form and toroidal charts sit 1.4e-5..9e-5
 /// off their edges at the default 1e-6 tolerance — fit accuracy that
 /// belongs in an honest edge tolerance, not in this check.
-const PCURVE_BAND_FACTOR: f64 = 100.0;
+const PCURVE_BAND_FACTOR: f64 = 10.0;
 
 impl BRep {
     /// [`ValidationError::PcurveDeviation`] for every half-edge whose

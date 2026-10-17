@@ -58,6 +58,7 @@ pub use brep_nonmanifold_policy::{
     assess_edge_pair_topology_policy,
 };
 
+mod edge_tolerance_measure;
 mod loop_chart_continuity;
 mod pcurve_end_snap;
 mod pcurve_image_check;
