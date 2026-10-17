@@ -633,9 +633,15 @@ a`)};
     let changed = 0;
     for (let i = 0; i < withCaps.length; i += 4) if (withCaps[i] !== without[i] || withCaps[i + 1] !== without[i + 1]) changed++;
     result.cap_pixels = changed;
-    const t0 = performance.now();
-    for (let k = 0; k < 20; k++) viewer.section.move(k / 20);
-    result.move_ms = (performance.now() - t0) / 20;
+    // The fastest move is its cost: suite load only adds to a sample
+    // (a 20-move mean read 16.7 ms beside the whole suite, PK-874).
+    const moves = [];
+    for (let k = 0; k < 20; k++) {
+      const t0 = performance.now();
+      viewer.section.move(k / 20);
+      moves.push(performance.now() - t0);
+    }
+    result.move_ms = Math.min(...moves);
     select.value = "";
     select.dispatchEvent(new Event("change"));
     result.cleared = viewer.section.caps.children.length === 0 && viewer.bodies.every((m) => !(m.material.clippingPlanes ?? []).length);
@@ -832,9 +838,13 @@ a`)};
     };
     // Outline cost on this scene, one plane.
     section.setPlanes([{ normal: n, offset: n[0] * hc[0] + n[2] * hc[2] }]);
-    const t0 = performance.now();
-    for (let k = 0; k < 10; k++) section.outlineNow();
-    result.outline_ms = (performance.now() - t0) / 10;
+    const outlines = [];
+    for (let k = 0; k < 10; k++) {
+      const t0 = performance.now();
+      section.outlineNow();
+      outlines.push(performance.now() - t0);
+    }
+    result.outline_ms = Math.min(...outlines);
     section.clear();
     result.cleared = section.caps.children.length === 0 && section.outlines.children.length === 0 &&
       viewer.bodies.every((m) => !(m.material.clippingPlanes ?? []).length) && !section.gizmo.group.visible;
@@ -930,11 +940,25 @@ a.revolute("j1", base.axis([0.0, 0.0, 1.0], [0.0, 0.0, 1.0]), link.datum("z"),
 a.revolute("j1_rotor", base.datum("z"), rotor.datum("z"),
     #{ zero: [base.datum("x"), rotor.datum("x")], follow: "j1", ratio: -21.0 });
 a`)};
+    const runStarted = performance.now();
     const run = await page.run({ live: true });
+    const runMs = performance.now() - runStarted;
     const at = (instance) => page.viewer.bodies.find((b) => b.userData.instance === instance).matrix.elements.slice();
     const geometries = page.viewer.bodies.map((m) => m.geometry);
     const sliderRow = [...document.querySelectorAll("#params .param")].find((r) => r.querySelector(".param-name").textContent === "j1");
     const before = { base: at("base"), link: at("link"), rotor: at("rotor") };
+    // The step's own cost (PK-874): the worker's reply and the
+    // placement, without SwiftShader's frame, whose backpressure grows
+    // with machine load (the fastest full step read 37.8 ms beside the
+    // whole suite, 20 ms alone).
+    const steps = [];
+    for (let k = 1; k <= 20; k++) {
+      const t0 = performance.now();
+      const reply = await page.host.setParam("j1", 60 + k);
+      page.viewer.place(reply.envelope.assembly, { render: false });
+      steps.push(performance.now() - t0);
+    }
+    const stepMs = Math.min(...steps);
     const times = [];
     let last = null;
     for (let k = 1; k <= 20; k++) {
@@ -959,6 +983,8 @@ a`)};
       bodies_kept: page.lastGood.envelope.bodies.length,
       report_kept: page.lastGood.envelope.report != null,
       frame_ms: { fastest: times[0], median: times[10], max: times[19] },
+      step_ms: stepMs,
+      run_ms: runMs,
     };
   })()`);
 
