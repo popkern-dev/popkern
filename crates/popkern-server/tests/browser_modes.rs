@@ -67,6 +67,25 @@ fn harness(compute: Compute) -> Option<Value> {
 
 fn assert_common(out: &Value, host: &str) {
     assert!(out["error"].is_null(), "{out}");
+    // Edit-to-refresh (PK-827, the PK-425 gate): a first-feature
+    // parameter edit on the boss plate replays the tree, crosses the
+    // socket and draws within a second (fastest of six: suite load
+    // only adds to a sample).
+    let e = &out["edit_latency"];
+    eprintln!(
+        "[pk827] {host}: edit-to-refresh {} ms (kernel {} ms, transfer + draw {} ms), samples {}",
+        e["fastest_ms"], e["kernel_ms"], e["rest_ms"], e["samples"]
+    );
+    assert!(
+        e["outcomes"]
+            .as_array()
+            .is_some_and(|o| o.iter().all(|x| x == "served")),
+        "every edit serves: {e}"
+    );
+    assert!(
+        e["fastest_ms"].as_f64().unwrap_or(f64::MAX) <= 1000.0,
+        "edit-to-refresh within a second: {e}"
+    );
     assert_eq!(out["exceptions"], serde_json::json!([]), "{out}");
     assert_eq!(out["host"], host, "{out}");
     assert_eq!(out["after_cancel"], "served", "{out}");

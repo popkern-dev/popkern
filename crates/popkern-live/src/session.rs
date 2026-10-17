@@ -229,6 +229,9 @@ impl Session {
         // replays the parts it drives inside `set_param` already.
         let part = name.split_once(':').map(|(part, _)| part.to_string());
         let assembly_param = part.is_none() && matches!(document, Document::Assembly(_));
+        // The kernel's time (replay and describe, the envelope's
+        // `elapsed_ms`): its share of an edit-to-refresh (PK-827).
+        let clock = Stopwatch::start();
         let result = document.set_param(name, value).and_then(|_| {
             if assembly_param {
                 // `models_mut` drops every built part from the cache;
@@ -253,7 +256,12 @@ impl Session {
                 self.describe(outcome, Vec::new(), None)
             }
             Ok(()) if placements_only => self.describe_placements(),
-            Ok(()) => self.describe(Outcome::Served, Vec::new(), None),
+            Ok(()) => {
+                // Replay and describe (the meshes the page draws).
+                let mut envelope = self.describe(Outcome::Served, Vec::new(), None);
+                envelope.elapsed_ms = clock.elapsed().map(|d| d.as_secs_f64() * 1000.0);
+                envelope
+            }
         }
     }
 

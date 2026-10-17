@@ -310,6 +310,25 @@ try {
     return { visible, ticks, first, middle, revisit_ms: revisit, revisit_requests, last, played, linked, camera_kept: camera() === before };
   })()`);
 
+  // Edit-to-refresh latency (PK-827): a parameter of the first feature
+  // replays the whole tree; timed from the call to the frame after the
+  // reply is drawn, the kernel's own share from the envelope. Fastest
+  // of six (suite load only adds).
+  out.edit_latency = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+    const samples = [];
+    for (const value of [0.45, 0.5, 0.45, 0.5, 0.45, 0.5]) {
+      const t0 = performance.now();
+      const reply = await page.setParam("extrude-1.distance", value);
+      await frame();
+      const total = performance.now() - t0;
+      samples.push({ total, kernel: reply.envelope?.elapsed_ms ?? null, outcome: reply.envelope?.outcome ?? null });
+    }
+    const best = samples.reduce((a, b) => (b.total < a.total ? b : a));
+    return { fastest_ms: best.total, kernel_ms: best.kernel, rest_ms: best.kernel == null ? null : best.total - best.kernel, outcomes: samples.map((x) => x.outcome), samples: samples.map((x) => Math.round(x.total)) };
+  })()`);
+
   // A parameter edit through the page's own path.
   const edited = await evaluate(`window.popkernLive.setParam("extrude-1.distance", 0.5).then((r) => ({ outcome: r.envelope?.outcome ?? r.outcome?.outcome, value: r.envelope?.params?.find((p) => p.name === "extrude-1.distance")?.value ?? null }))`);
   out.set_param = edited;
