@@ -65,6 +65,20 @@ pub(super) fn select_and_serve(
             op,
             tolerance,
         ) {
+            Ok((r, _))
+                if let Some(why) = crate::scope::compare_violation(
+                    original_a,
+                    intersection_result,
+                    op,
+                    tolerance,
+                    &r,
+                ) =>
+            {
+                return Err(BoolError::MergeFailed {
+                    stage: "ScopeCompare".to_string(),
+                    reason: format!("local scope premise violated: {why}"),
+                });
+            }
             Ok((r, carried)) => match r.validate() {
                 // Pcurve completeness is part of the acceptance
                 // (PK-463): the cellular assembly leaves record-use
