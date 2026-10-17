@@ -67,13 +67,6 @@ pub struct BlendRepairReport {
     /// direct-apex promotion so the vertex-blend dispatch serves the
     /// corner instead.
     pub serving_self_intersection_retries: Vec<ServingSelfIntersectionRetry>,
-    /// PK-251 serving-boundary footprint repairs: direct-apex corners
-    /// whose served cap crossed a strip support and were repaired IN
-    /// PLACE (interior control points pushed out of the strip
-    /// cylinder at the validator's own overlap samples) so the
-    /// direct-apex serve survives. An uncleared repair falls through
-    /// to the PK-250 exclusion retry.
-    pub serving_footprint_repairs: Vec<ServingFootprintRepair>,
 }
 
 /// Marker prefix of the serving-shape gate's decline reason (PK-260).
@@ -417,4 +410,4 @@ pub use types_repair_support_seam::*;
 
 #[path = "types_repair_serving.rs"]
 mod types_repair_serving;
-pub use types_repair_serving::{ServingFootprintRepair, ServingSelfIntersectionRetry};
+pub use types_repair_serving::ServingSelfIntersectionRetry;

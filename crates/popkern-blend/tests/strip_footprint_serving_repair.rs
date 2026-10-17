@@ -120,11 +120,6 @@ fn crease_rerun(result: &BlendResult) -> bool {
 /// own seams (PK-597), in which case the setback rung serves it.
 fn assert_direct_clean_serve(label: &str, result: &BlendResult) {
     assert!(
-        result.repair_report.serving_footprint_repairs.is_empty(),
-        "{label}: honest-validator-clean corner must not need a repair: {:?}",
-        result.repair_report.serving_footprint_repairs
-    );
-    assert!(
         result
             .repair_report
             .serving_self_intersection_retries
@@ -212,11 +207,6 @@ fn cube_mixed_corner_first_pass_bounds_its_faces_and_crease_reruns() {
         "{label}: first pass trims bound regions: {winding:?}"
     );
     let result = cube_default_result([0.15, 0.1, 0.1]);
-    let repairs = &result.repair_report.serving_footprint_repairs;
-    assert!(
-        repairs.is_empty(),
-        "{label}: no crossing to repair: {repairs:?}"
-    );
     assert!(
         crease_rerun(&result),
         "{label}: the crease re-run serves: {:?}",

@@ -16,18 +16,3 @@ pub struct ServingSelfIntersectionRetry {
     /// face pair, the serving-shape reason, or the gate's reason.
     pub detail: String,
 }
-
-/// One PK-251 serving-boundary footprint repair record.
-#[derive(Debug, Clone)]
-pub struct ServingFootprintRepair {
-    /// Apex vertex whose served direct-apex region was repaired.
-    pub vertex: VertexHandle,
-    /// Validator-driven repair rounds applied.
-    pub rounds: usize,
-    /// Interior control points moved across all rounds.
-    pub corrected_control_points: usize,
-    /// Whether the scoped region validator was clean afterwards.
-    pub cleared: bool,
-    /// Outcome detail ("cleared" or the reason the repair stopped).
-    pub detail: String,
-}

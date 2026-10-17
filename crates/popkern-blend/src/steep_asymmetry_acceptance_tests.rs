@@ -177,10 +177,5 @@ fn mirrored_corner_bridge_winding_serves_direct_clean() {
 fn mixed_neighbor_serves_the_crease_rerun_at_commercial_quality() {
     let result = cube_corner_result([0.15, 0.1, 0.1], [1.0, 1.0, 1.0]);
     let label = "cube [0.15,0.1,0.1] @ (1,1,1)";
-    let repairs = &result.repair_report.serving_footprint_repairs;
-    assert!(
-        repairs.is_empty(),
-        "{label}: no crossing to repair: {repairs:?}"
-    );
     assert_crease_rerun_serve(label, &result);
 }

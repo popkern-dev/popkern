@@ -177,11 +177,6 @@ fn pyramid4_mixed_default_serve_is_direct_and_clean() {
         .collect();
     let result = fillet_edges(&pyramid, &specs, &FilletOptions::default(), tol, None)
         .expect("pyramid4_mixed fillet under true default options");
-    let repairs = &result.repair_report.serving_footprint_repairs;
-    assert!(
-        repairs.is_empty(),
-        "hover is not a crossing — no repair should engage: {repairs:?}"
-    );
     // PK-597: the direct-apex cap creases across its own seams (certified
     // cap-cap normal sine 4.8e-1, body G0), so the corner takes the
     // serving exclusion re-run and the setback rung serves it (certified

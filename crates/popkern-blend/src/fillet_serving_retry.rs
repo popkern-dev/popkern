@@ -93,66 +93,11 @@ fn fillet_edges_serving(
     if offending.is_empty() && declined.is_empty() {
         return Ok(first);
     }
-    // PK-251: before downgrading the corner to vertex-blend, attempt the
-    // in-place footprint repair — validator-driven interior
-    // control-point pushes on the served cap. The repair runs on a
-    // CLONE and is adopted only when every offending region clears,
-    // so the "never serve worse than the measured first pass"
-    // contract is preserved; anything else falls through to the
-    // PK-250 exclusion retry unchanged (with the attempt recorded).
-    let mut repaired_body = first.brep.clone();
-    let mut repairs = Vec::new();
-    for (vertex, _) in &offending {
-        let Some(built_faces) = first
-            .repair_report
-            .apex_routes
-            .iter()
-            .find(|route| route.vertex == *vertex)
-            .map(|route| route.built_faces.clone())
-        else {
-            continue;
-        };
-        repairs.push(
-            crate::fillet_serving_footprint_repair::repair_served_direct_apex_footprint(
-                &mut repaired_body,
-                *vertex,
-                &built_faces,
-            ),
-        );
-    }
-    let all_cleared = !repairs.is_empty() && repairs.iter().all(|repair| repair.cleared);
-    // A serving-shape decline cannot be footprint-repaired (the
-    // declined corner has no served direct cap) — it always takes the
-    // exclusion re-run.
-    let recheck_clean = declined.is_empty()
-        && all_cleared
-        && first
-            .repair_report
-            .apex_routes
-            .iter()
-            .filter(|route| {
-                matches!(route.route, crate::types::ApexConstructionRoute::DirectApex)
-                    && !route.built_faces.is_empty()
-            })
-            .all(|route| {
-                crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::
-                    validate_candidate_region_self_intersection(&repaired_body, &route.built_faces)
-                    .is_ok()
-            });
-    first.repair_report.serving_footprint_repairs = repairs;
-    if recheck_clean {
-        first.brep = repaired_body;
-        // The repair moved cap interior control points, so the served
-        // mid-seam numbers recorded earlier are stale — re-measure on
-        // the repaired body (quality stays honestly reported).
-        crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::
-            refresh_served_mid_seam_diagnostics(&first.brep, &mut first.repair_report);
-        return Ok(first);
-    }
-    // A crossing the footprint repair cleared is resolved: when only
-    // another cause (a serving-shape decline or a creased cap, PK-597)
-    // forces the re-run, the retry record must not name the crossing.
-    let offending = if all_cleared { Vec::new() } else { offending };
+    // PK-251's in-place footprint repair used to run here. Retired
+    // (PK-823): across 82 cube and pyramid corners it cleared its own
+    // region on 12, and on every one the recheck refused the repaired
+    // body and this exclusion re-run served the corner anyway — its up to
+    // 64 rounds of pair intersection were always discarded.
     let excluded: std::collections::BTreeSet<popkern_core::topology::VertexHandle> = offending
         .iter()
         .map(|(vertex, _)| *vertex)
@@ -228,10 +173,6 @@ fn fillet_edges_serving(
                 return Ok(first);
             }
             retried.repair_report.serving_self_intersection_retries = retries;
-            // Keep the failed repair attempts visible on the served
-            // report — the retried pipeline run knows nothing of them.
-            retried.repair_report.serving_footprint_repairs =
-                std::mem::take(&mut first.repair_report.serving_footprint_repairs);
             Ok(retried)
         }
         Err(_) => Ok(first),

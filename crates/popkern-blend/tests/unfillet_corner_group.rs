@@ -262,8 +262,6 @@ fn direct_mixed_15_10_10_retry_serves_clean() {
         ..FilletOptions::default()
     };
     let r = capped_corner_result_with([0.15, 0.1, 0.1], &options);
-    let repairs = &r.repair_report.serving_footprint_repairs;
-    assert!(repairs.is_empty(), "no crossing to repair: {repairs:?}");
     let retries = &r.repair_report.serving_self_intersection_retries;
     assert!(
         retries

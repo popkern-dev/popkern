@@ -37,12 +37,11 @@ pub use types_repair::{
     BlendRepairReport, CapSupportContinuityDiagnostic, CoherenceValidationDiagnostic,
     CylinderTrimFarSideStrategy, CylinderTrimMaterializationDeclineReason,
     CylinderTrimMaterializationDiagnostic, ExactBoundaryCandidatePerformanceReport,
-    SERVING_SHAPE_DECLINE_PREFIX, ServingFootprintRepair, ServingSelfIntersectionRetry,
-    SideSupportContinuationDiagnostic, SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus,
-    SupportCellSplitDiagnostic, SupportCellSplitFallbackReason, SupportSeamDecision,
-    SupportSeamDeclineReason, SupportSeamRelocationReport, SupportSeamRollbackReason,
-    build_blend_repair_action_artifact, support_seam_decline_reason_label,
-    support_seam_rollback_reason_label,
+    SERVING_SHAPE_DECLINE_PREFIX, ServingSelfIntersectionRetry, SideSupportContinuationDiagnostic,
+    SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus, SupportCellSplitDiagnostic,
+    SupportCellSplitFallbackReason, SupportSeamDecision, SupportSeamDeclineReason,
+    SupportSeamRelocationReport, SupportSeamRollbackReason, build_blend_repair_action_artifact,
+    support_seam_decline_reason_label, support_seam_rollback_reason_label,
 };
 pub use types_repair_blend_seam::*;
 pub use types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
