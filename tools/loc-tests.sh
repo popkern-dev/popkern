@@ -18,6 +18,14 @@
 
 set -euo pipefail
 
+# Every count comes from cloc, and code_lines() maps cloc's failures to
+# 0: without cloc the whole table read zero and exited 0 (the host
+# after the 2026-10-14 move had none). Refuse instead.
+if ! command -v cloc >/dev/null 2>&1; then
+    echo "loc-tests.sh: cloc not found on PATH (install: apt install cloc)" >&2
+    exit 1
+fi
+
 # Run cloc and return the SUM row's "code" column (5th field).  Returns 0
 # when the path is empty / no files match the filter.
 code_lines() {
