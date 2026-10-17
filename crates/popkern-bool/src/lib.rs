@@ -54,6 +54,7 @@ mod entity_naming_index;
 pub mod error;
 mod error_remediation;
 mod face_box;
+mod face_box_analytic;
 pub mod history;
 pub mod imprint;
 pub mod instancing;

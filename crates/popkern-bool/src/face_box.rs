@@ -85,6 +85,13 @@ pub(crate) fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
         return Aabb::from_points(&points);
     }
 
+    // Spheres and tori: the boundary plus the surface's critical points
+    // inside the trim window (`face_box_analytic`), not the whole surface.
+    if let Some(extremes) = crate::face_box_analytic::trim_scale_points(brep, face_handle, surf) {
+        points.extend(extremes);
+        return Aabb::from_points(&points);
+    }
+
     // If the surface has a finite parameter range, also sample a 5×5 grid for
     // curved surfaces where vertices may not capture the full extent.
     if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
