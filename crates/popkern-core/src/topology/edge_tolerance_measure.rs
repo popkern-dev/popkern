@@ -27,9 +27,27 @@ impl BRep {
     /// For producer exits that fit geometry; validators read the
     /// recorded tolerance as the edge's band.
     pub fn record_measured_edge_tolerances(&mut self) -> Vec<EdgeHandle> {
+        self.record_measured_edge_tolerances_except(&std::collections::BTreeSet::new())
+    }
+
+    /// [`Self::record_measured_edge_tolerances`] over every edge but
+    /// `unchanged`: edges a producer carried over without re-fitting
+    /// (their curve copied, their pcurves copied or re-derived by the
+    /// measured projection fit, which holds a tenth of the linear
+    /// tolerance). Measuring them is the whole-body cost a local
+    /// operation must not pay — a boolean's 64th slot cut on a disc
+    /// spent 249 ms of its 265 here (PK-826 regression).
+    pub fn record_measured_edge_tolerances_except(
+        &mut self,
+        unchanged: &std::collections::BTreeSet<EdgeHandle>,
+    ) -> Vec<EdgeHandle> {
         let linear = self.tolerance.linear();
         let mut raised = Vec::new();
-        let edges: Vec<EdgeHandle> = self.edges.keys().collect();
+        let edges: Vec<EdgeHandle> = self
+            .edges
+            .keys()
+            .filter(|e| !unchanged.contains(e))
+            .collect();
         for eh in edges {
             let Some(edge) = self.edges.get(eh) else {
                 continue;
@@ -38,13 +56,23 @@ impl BRep {
             let Some(twin) = self.half_edges.get(first).map(|h| h.twin) else {
                 continue;
             };
+            let current = edge.tolerance.unwrap_or(linear);
+            // Screen: the trace-free bound on identical samples; an edge
+            // whose bound cannot raise it skips the trace search.
+            let bound = [first, twin]
+                .into_iter()
+                .filter_map(|he| self.half_edge_pcurve_deviation_bound(he))
+                .map(|d| if d.is_finite() { d } else { f64::INFINITY })
+                .fold(0.0_f64, f64::max);
+            if bound * MEASUREMENT_MARGIN <= current {
+                continue;
+            }
             let worst = [first, twin]
                 .into_iter()
                 .filter_map(|he| self.measure_half_edge_pcurve_deviation(he))
                 .map(|r| r.max_deviation)
                 .filter(|d| d.is_finite())
                 .fold(0.0_f64, f64::max);
-            let current = edge.tolerance.unwrap_or(linear);
             // The margin never manufactures a precision error: it is
             // capped at the model's `max_imprecision`. A measurement past
             // the ceiling is recorded as measured, and precision

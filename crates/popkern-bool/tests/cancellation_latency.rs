@@ -8,11 +8,13 @@
 //! latency structural. This is the PK-190-pattern gate proving it
 //! mid-flight.
 //!
-//! Fixture: two overlapping unit spheres (offset 0.6/0.35/0.2) —
-//! measured 4.89 s release best-of-1 (2026-08-21, 16-core dev
-//! reference), comfortably past the 300 ms mid-flight floor. (The
-//! fixture probe that selected it also surfaced two heavier failing
-//! pairs, filed as PK-304 / PK-305.)
+//! Fixture: two overlapping tori (R 3, r 1), the second turned 0.7 rad
+//! about x and 0.3 about z and moved (1, 0.5, 0.2) — an oblique
+//! spiric intersection, measured 3.56 s release (2026-10-17), past the
+//! 300 ms mid-flight floor on the serving cellular path. The former
+//! pair of unit spheres (4.89 s on 2026-08-21) now unions in 137 ms and
+//! no longer exercises a mid-flight cancel. (The probe that first
+//! selected a fixture also surfaced PK-304 / PK-305.)
 //!
 //! Release-only: the < 1 s claim is a shipped-product property. CI
 //! enforces via the release `perf` job; locally
@@ -27,16 +29,18 @@ use std::time::{Duration, Instant};
 
 fn heavy_operands() -> (BRep, BRep) {
     let tol = Tolerance::default();
-    let a = BRep::sphere(1.0, tol).expect("sphere builds");
-    let b = BRep::sphere(1.0, tol)
-        .expect("sphere builds")
-        .transform(&Transform3::translation(0.6, 0.35, 0.2))
-        .expect("translation applies");
+    let a = BRep::torus(3.0, 1.0, tol).expect("torus builds");
+    let b = BRep::torus(3.0, 1.0, tol)
+        .expect("torus builds")
+        .transform(&Transform3::rotation_x(0.7))
+        .and_then(|b| b.transform(&Transform3::rotation_z(0.3)))
+        .and_then(|b| b.transform(&Transform3::translation(1.0, 0.5, 0.2)))
+        .expect("placement applies");
     (a, b)
 }
 
 /// §15 latency gate: a cancellation fired mid-flight on a
-/// sphere-sphere union must terminate in < 1 s with the inputs
+/// torus-torus union must terminate in < 1 s with the inputs
 /// untouched.
 #[test]
 fn mid_flight_boolean_cancellation_terminates_within_one_second() {
@@ -57,7 +61,7 @@ fn mid_flight_boolean_cancellation_terminates_within_one_second() {
     let full_run = t0.elapsed();
     assert!(
         uncancelled.is_ok(),
-        "reference sphere-sphere union must succeed: {uncancelled:?}"
+        "reference torus-torus union must succeed: {uncancelled:?}"
     );
     assert!(
         full_run > Duration::from_millis(300),

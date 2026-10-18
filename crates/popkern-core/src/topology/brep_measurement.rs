@@ -129,11 +129,35 @@ impl BRep {
         self.measure_half_edge_pcurve_deviation_with_curve(heh, curve_on_edge, edge.half_edge)
     }
 
+    /// An upper bound on [`Self::measure_half_edge_pcurve_deviation`]'s
+    /// `max_deviation` from the same samples without the trace search:
+    /// the measure accepts at most each sample's same-fraction distance.
+    /// A screen for callers that only act on large deviations (a
+    /// 28-edge shelled cube spent 10.7 ms measuring traces it never
+    /// needed — PK-826 regression).
+    pub(crate) fn half_edge_pcurve_deviation_bound(&self, heh: HalfEdgeHandle) -> Option<f64> {
+        let he = self.half_edges.get(heh)?;
+        let edge = self.edges.get(he.edge)?;
+        let curve_on_edge = edge.curve.as_ref()?;
+        self.measure_half_edge_with(heh, curve_on_edge, edge.half_edge, false)
+            .map(|r| r.max_same_fraction_deviation)
+    }
+
     fn measure_half_edge_pcurve_deviation_with_curve(
         &self,
         heh: HalfEdgeHandle,
         curve_on_edge: &CurveOnEdge,
         canonical_half_edge: HalfEdgeHandle,
+    ) -> Option<HalfEdgePcurveDeviation> {
+        self.measure_half_edge_with(heh, curve_on_edge, canonical_half_edge, true)
+    }
+
+    fn measure_half_edge_with(
+        &self,
+        heh: HalfEdgeHandle,
+        curve_on_edge: &CurveOnEdge,
+        canonical_half_edge: HalfEdgeHandle,
+        trace: bool,
     ) -> Option<HalfEdgePcurveDeviation> {
         let he = self.half_edges.get(heh)?;
         let pcurve = he.pcurve.as_ref()?;
@@ -172,6 +196,7 @@ impl BRep {
             curve_on_edge,
             forward,
             DEFAULT_EDGE_SAMPLES,
+            trace,
         )
     }
 
@@ -272,6 +297,7 @@ fn measure_pcurve_deviation(
     curve_on_edge: &CurveOnEdge,
     forward: bool,
     samples: usize,
+    trace_search: bool,
 ) -> Option<HalfEdgePcurveDeviation> {
     let samples = samples.max(1);
     let (t_lo, t_hi) = oriented_edge_parameter_range(curve_on_edge, forward);
@@ -290,7 +316,14 @@ fn measure_pcurve_deviation(
         let uv = pcurve.point_at(pc_t);
         let same_fraction_point = surface.point_at(uv.x, uv.y);
         let same_fraction_dev = p3d.distance_to(&same_fraction_point);
-        let trace = pcurve_trace_nearest(pcurve, surface, &p3d, TRACE_COARSE_SAMPLES);
+        let trace = if trace_search {
+            pcurve_trace_nearest(pcurve, surface, &p3d, TRACE_COARSE_SAMPLES)
+        } else {
+            TraceNearest {
+                distance: same_fraction_dev,
+                t: pc_t,
+            }
+        };
 
         max_same_fraction_deviation = max_same_fraction_deviation.max(same_fraction_dev);
         max_trace_deviation = max_trace_deviation.max(trace.distance);

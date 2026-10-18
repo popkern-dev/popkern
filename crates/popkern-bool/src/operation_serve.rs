@@ -271,8 +271,10 @@ fn serve(
     super::helpers_pcurve_coherence::gate_loop_period_winding(&mut result)
         .map_err(BoolError::ValidationFailed)?;
 
-    // Fitted trims record their measured agreement on the edge (PK-826).
-    result.record_measured_edge_tolerances();
+    // Fitted trims record their measured agreement on the edge (PK-826);
+    // edges carried over unsplit keep their operands' (scoped: the
+    // whole-body measurement made a late slot cut 25x the first).
+    result.record_measured_edge_tolerances_except(carried);
 
     // Debug/the boolean trace topic diagnostics on the SERVED result. This runs
     // after run_output_postprocess deliberately (PK-272): the earlier
