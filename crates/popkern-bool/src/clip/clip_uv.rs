@@ -257,25 +257,27 @@ pub(super) fn uv_clip_one_face(
             // the remaining samples vote against a boundary polygon
             // refined well under the band.
             let band = uv_boundary_band(brep, curve_uv);
-            let boundary_ring = crate::clip::face_uv_boundary(brep, face);
+            // Boundary stations and the region probe are built once for
+            // the five samples (PK-814: a 63-hole disc rebuilt both per
+            // sample, ~2 ms of every late slot cut).
+            let ring: Vec<popkern_core::geometry::Point3> =
+                crate::clip::face_uv_boundary(brep, face)
+                    .iter()
+                    .flatten()
+                    .filter(|(_, pc)| pc.parameter_range().0.is_finite())
+                    .filter(|(_, pc)| pc.parameter_range().1.is_finite())
+                    .flat_map(|(_, pc)| {
+                        let (a, b) = pc.parameter_range();
+                        (0..=64).map(move |i| pc.point_at(a + (b - a) * i as f64 / 64.0))
+                    })
+                    .collect();
             let boundary_d = |q: popkern_core::geometry::Point3| -> f64 {
-                let mut best = f64::INFINITY;
-                for (_, pc) in boundary_ring.iter().flatten() {
-                    let (a, b) = pc.parameter_range();
-                    if !(a.is_finite() && b.is_finite()) {
-                        continue;
-                    }
-                    for i in 0..=64 {
-                        let t = a + (b - a) * i as f64 / 64.0;
-                        let s = pc.point_at(t);
-                        let d = ((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt();
-                        if d < best {
-                            best = d;
-                        }
-                    }
-                }
-                best
+                ring.iter()
+                    .map(|s| ((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt())
+                    .fold(f64::INFINITY, f64::min)
             };
+            let probe =
+                crate::face_region_probe::FaceRegionProbe::new(brep, face, &brep.tolerance, 64);
             let mut inside_votes = 0usize;
             let mut counted = 0usize;
             for k in 1..=5 {
@@ -285,13 +287,7 @@ pub(super) fn uv_clip_one_face(
                     continue;
                 }
                 counted += 1;
-                if crate::split_inner_loop::point_inside_face_region_uv_with_density(
-                    brep,
-                    face,
-                    q,
-                    &brep.tolerance,
-                    64,
-                ) {
+                if probe.contains(q) {
                     inside_votes += 1;
                 }
             }
