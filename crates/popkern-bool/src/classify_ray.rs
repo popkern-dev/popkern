@@ -329,15 +329,16 @@ pub(super) fn ray_crossing_count(
                         surface,
                         popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
                     ) {
-                        match crate::clip::torus_hit_in_face_cell(
+                        match chart_trim::torus_cell_gate(
                             brep,
                             *face_handle,
-                            *u,
-                            *v,
+                            surface,
+                            (*u, *v),
+                            &(*origin + *direction * *t),
                             tolerance,
                         ) {
-                            Some(true) => {}
-                            Some(false) => {
+                            HitGate::Accept => {}
+                            HitGate::SkipHit => {
                                 if ray_trace {
                                     eprintln!(
                                         "  [ray-rej-cell] {face_handle:?} uv=({u:.3},{v:.3})"
@@ -345,7 +346,7 @@ pub(super) fn ray_crossing_count(
                                 }
                                 continue;
                             }
-                            None => return Err(()),
+                            HitGate::PoisonRay => return Err(()),
                         }
                     }
                     // MULTI-TURN helical bands (cylinder/cone charts

@@ -80,20 +80,74 @@ pub(super) fn chart_trim_gate(
     brep: &BRep,
     face_handle: FaceHandle,
     surface: &SurfaceGeometry,
-    (u, v): (f64, f64),
+    uv: (f64, f64),
     hit: &Point3,
     tolerance: &Tolerance,
 ) -> HitGate {
-    let sphere = matches!(surface, SurfaceGeometry::Sphere { .. });
-    if !sphere && !matches!(surface, SurfaceGeometry::Cone { .. }) {
+    if !matches!(
+        surface,
+        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cone { .. }
+    ) {
         return HitGate::Accept;
     }
-    let Some(period) = surface.parameter_periodicity().0 else {
-        return HitGate::Accept;
-    };
-    let Some(outer) = crate::clip::face_uv_boundary(brep, face_handle) else {
-        return HitGate::Accept;
-    };
+    chart_trim_verdict(brep, face_handle, surface, uv, hit, tolerance).unwrap_or(HitGate::Accept)
+}
+
+/// The trim verdict for a hit on a TORUS face whose chart cell cannot
+/// be resolved (PK-431): a revolved groove's torus is full in u and
+/// bounded in v by two circles and a seam, `face_chart_cell` declines
+/// it, and the cell test poisoned every ray that crossed it — points
+/// beside a bearing race's groove classified OnBoundary on all six
+/// directions. Its loops do not wind in v, so the u-periodic parity
+/// decides. `None` when the trim cannot be trusted (the caller keeps
+/// poisoning the ray).
+fn torus_trim_verdict(
+    brep: &BRep,
+    face_handle: FaceHandle,
+    surface: &SurfaceGeometry,
+    uv: (f64, f64),
+    hit: &Point3,
+    tolerance: &Tolerance,
+) -> Option<HitGate> {
+    matches!(surface, SurfaceGeometry::Torus { .. })
+        .then(|| chart_trim_verdict(brep, face_handle, surface, uv, hit, tolerance))
+        .flatten()
+}
+
+/// The trim gate for a hit on a torus face: fold-containment against
+/// the face's chart cell when it resolves, else the chart-trim parity
+/// ([`torus_trim_verdict`]); a hit neither can judge poisons the ray.
+pub(super) fn torus_cell_gate(
+    brep: &BRep,
+    face_handle: FaceHandle,
+    surface: &SurfaceGeometry,
+    uv: (f64, f64),
+    hit: &Point3,
+    tolerance: &Tolerance,
+) -> HitGate {
+    match crate::clip::torus_hit_in_face_cell(brep, face_handle, uv.0, uv.1, tolerance) {
+        Some(true) => HitGate::Accept,
+        Some(false) => HitGate::SkipHit,
+        None => torus_trim_verdict(brep, face_handle, surface, uv, hit, tolerance)
+            .unwrap_or(HitGate::PoisonRay),
+    }
+}
+
+/// The chart-trim verdict for a sphere, cone or torus hit (module
+/// docs); `None` when the face's uv boundary cannot be trusted or does
+/// not decide (an unclosed pole winding, a torus loop winding in v).
+fn chart_trim_verdict(
+    brep: &BRep,
+    face_handle: FaceHandle,
+    surface: &SurfaceGeometry,
+    (u, v): (f64, f64),
+    hit: &Point3,
+    tolerance: &Tolerance,
+) -> Option<HitGate> {
+    let sphere = matches!(surface, SurfaceGeometry::Sphere { .. });
+    let torus = matches!(surface, SurfaceGeometry::Torus { .. });
+    let period = surface.parameter_periodicity().0?;
+    let outer = crate::clip::face_uv_boundary(brep, face_handle)?;
     let inner = crate::clip::face_uv_inner_boundaries(brep, face_handle);
     let honesty = tolerance.linear() * IMAGE_HONESTY_PER_LINEAR;
     let mut rings: Vec<Vec<(f64, f64)>> = Vec::with_capacity(1 + inner.len());
@@ -101,7 +155,7 @@ pub(super) fn chart_trim_gate(
         let mut ring = Vec::with_capacity(contour.len() * STATIONS);
         for (he, pcurve) in contour {
             if !image_honest(brep, *he, pcurve, surface, honesty) {
-                return HitGate::Accept;
+                return None;
             }
             let (t0, t1) = pcurve.parameter_range();
             // Endpoints included: a seam reaching a pole then puts a
@@ -115,7 +169,7 @@ pub(super) fn chart_trim_gate(
         rings.push(ring);
     }
     if rings.iter().map(Vec::len).sum::<usize>() < 3 {
-        return HitGate::Accept;
+        return None;
     }
     // Sphere rings close through the poles: a step along a pole row
     // is a real full-period chart segment (a full sphere's seam spine
@@ -124,11 +178,20 @@ pub(super) fn chart_trim_gate(
     let mut pole_crossings = 0usize;
     if sphere {
         for ring in &rings {
-            match pole_row_closure(ring, period) {
-                Some(high) => pole_crossings += high,
-                None => return HitGate::Accept,
-            }
+            pole_crossings += pole_row_closure(ring, period)?;
         }
+    }
+    // A torus is periodic in v too: the parity runs on the rings' own v
+    // branch, which needs loops that do not wind in v.
+    let mut v = v;
+    if torus {
+        let v_period = surface.parameter_periodicity().1?;
+        if rings.iter().any(|r| winds(r.iter().map(|q| q.1), v_period)) {
+            return None;
+        }
+        let n = rings.iter().map(Vec::len).sum::<usize>() as f64;
+        let mean = rings.iter().flatten().map(|q| q.1).sum::<f64>() / n;
+        v -= v_period * ((v - mean) / v_period).round();
     }
     let loops: Vec<&[(f64, f64)]> = rings.iter().map(Vec::as_slice).collect();
     let on_trim = crate::periodic_chart_parity::contains_on_u_periodic_chart(&loops, u, v, period)
@@ -165,15 +228,29 @@ pub(super) fn chart_trim_gate(
                 "  [ray-band-chart] {face_handle:?} uv=({u:.4},{v:.4}) within {band:.2e} of the trim edge (on trim {on_trim}) — ray inconclusive"
             );
         }
-        return HitGate::PoisonRay;
+        return Some(HitGate::PoisonRay);
     }
     if on_trim {
-        return HitGate::Accept;
+        return Some(HitGate::Accept);
     }
     if popkern_core::trace::trace_enabled("ray-classify") {
         eprintln!("  [ray-rej-chart] {face_handle:?} uv=({u:.4},{v:.4}) off the trim");
     }
-    HitGate::SkipHit
+    Some(HitGate::SkipHit)
+}
+
+/// Whether the closed sequence `values` winds round `period` (net
+/// short-step travel of half a period or more).
+fn winds(values: impl Iterator<Item = f64>, period: f64) -> bool {
+    let vs: Vec<f64> = values.collect();
+    let n = vs.len();
+    let net: f64 = (0..n)
+        .map(|i| {
+            let d = vs[(i + 1) % n] - vs[i];
+            d - period * (d / period).round()
+        })
+        .sum();
+    net.abs() > 0.5 * period
 }
 
 /// Distance in v, in radians, within which a ring sample is on a pole.
