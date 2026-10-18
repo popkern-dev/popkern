@@ -253,12 +253,21 @@ pub(super) fn prepare_cap(
     let (vp, side_p) = side(brep, true, cp)?;
     let (vq, side_q) = side(brep, false, cq)?;
     let (pp, pq) = (brep.vertices[vp].position, brep.vertices[vq].position);
-    let arc = section_arc(pp, pq, center, tangent, r).ok_or_else(|| {
-        decline(
-            format!("no cap section arc of radius {r} at chain end {v:?}"),
-            vpos,
-        )
-    })?;
+    // A chamfer's cap section is a line on its ruled strip (PK-429).
+    let line = super::tangent_chain_geometry::section_line_on(
+        pp,
+        pq,
+        [&link.eg.surface, &link.eg.surface],
+        band,
+    );
+    let arc = line
+        .or_else(|| section_arc(pp, pq, center, tangent, r))
+        .ok_or_else(|| {
+            decline(
+                format!("no cap section arc of radius {r} at chain end {v:?}"),
+                vpos,
+            )
+        })?;
     let x = insert_edge(brep, arc);
     let x_pq = brep.half_edges.insert(blank(vp, x));
     let x_qp = brep.half_edges.insert(blank(vq, x));

@@ -249,12 +249,16 @@ fn build(
         let (center, tangent) = sections[i];
         let radius = links[i].eg.radius_at_end;
         centers.push(center);
-        let curve = section_arc(cp, cq, center, tangent, radius).ok_or_else(|| {
-            decline(
-                format!("no section arc of radius {radius} spans the contacts"),
-                cp,
-            )
-        })?;
+        let strips = [&links[i].eg.surface, &links[(i + 1) % k].eg.surface];
+        let line = super::tangent_chain_geometry::section_line_on(cp, cq, strips, band);
+        let curve = line
+            .or_else(|| section_arc(cp, cq, center, tangent, radius))
+            .ok_or_else(|| {
+                decline(
+                    format!("no section arc of radius {radius} spans the contacts"),
+                    cp,
+                )
+            })?;
         x_edges.push(brep.insert_edge_tracked(Edge {
             half_edge: HalfEdgeHandle::default(),
             curve: Some(curve),

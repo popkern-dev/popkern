@@ -229,6 +229,41 @@ pub(super) fn ball_center(
     })
 }
 
+/// The straight section from `cp` to `cq` when it lies on BOTH strips'
+/// surfaces (within `band`, sampled inside the segment): a chamfer's
+/// cross-section is a line, and its plane or cone strips are ruled
+/// along it. `None` for a fillet's curved section. The junction used
+/// to author every section as a rolling-ball arc: a chamfered rounded
+/// plate's corner cone met its side plane along a 45° line served as a
+/// quarter circle 9.2e-3 off the cone, and check 9 declined the chamfer
+/// (PK-429).
+pub(super) fn section_line_on(
+    cp: Point3,
+    cq: Point3,
+    surfaces: [&popkern_core::geometry::surface::SurfaceGeometry; 2],
+    band: f64,
+) -> Option<CurveOnEdge> {
+    use popkern_core::geometry::surface::SurfaceEval;
+    if cp.distance_to(&cq) <= band {
+        return None;
+    }
+    let on_both = [0.25, 0.5, 0.75].into_iter().all(|f| {
+        let p = cp + (cq - cp) * f;
+        surfaces.iter().all(|s| {
+            s.closest_point(&p)
+                .is_some_and(|(u, v)| s.point_at(u, v).distance_to(&p) <= band)
+        })
+    });
+    on_both.then(|| CurveOnEdge {
+        geometry: CurveGeometry::Line {
+            origin: cp,
+            direction: cq - cp,
+        },
+        t_start: 0.0,
+        t_end: 1.0,
+    })
+}
+
 /// The short arc of the circle about `center` (in the plane normal to
 /// `tangent`) from `cp` to `cq`: a fillet section subtends less than π.
 pub(super) fn section_arc(

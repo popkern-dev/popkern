@@ -62,7 +62,10 @@ pub(super) fn trace_edge_ends(brep: &BRep, strips: &[FaceHandle]) {
 pub(super) fn trace_sections(surfaces: &[&SurfaceGeometry], contacts: &[(Point3, Point3)]) {
     let k = surfaces.len();
     for (i, surface) in surfaces.iter().enumerate() {
-        let prev = (i + k - 1) % k;
+        // An open chain of one link has no junction: nothing to trace.
+        let (Some(&before), Some(&after)) = (contacts.get((i + k - 1) % k), contacts.get(i)) else {
+            continue;
+        };
         let off = |p: Point3| {
             surface
                 .closest_point(&p)
@@ -72,10 +75,10 @@ pub(super) fn trace_sections(surfaces: &[&SurfaceGeometry], contacts: &[(Point3,
         eprintln!(
             "[tangent-chain] strip {i} {} sections off the strip: start {:.3e}/{:.3e} end {:.3e}/{:.3e}",
             surface.kind_name(),
-            off(contacts[prev].0),
-            off(contacts[prev].1),
-            off(contacts[i].0),
-            off(contacts[i].1)
+            off(before.0),
+            off(before.1),
+            off(after.0),
+            off(after.1)
         );
     }
 }
