@@ -14,9 +14,16 @@
 //! 2026-10-13 predates later propeller changes). Measured 2.7e-6 off,
 //! then 8.6e-7 after PK-877/PK-885; Richardson-extrapolated sliver fans
 //! (the hub's blade-root slivers sum to 5e-6, and 16-panel fans left
-//! ~2e-8 of them) bring it to 2.4e-7. The remaining residue is the five
-//! blade faces' mesh dependence (5.5e-9 each between chord scales),
-//! which PK-818 still tracks.
+//! ~2e-8 of them) bring it to 2.4e-7 (7.3e-9 absolute, converged in
+//! the fan's panel count to 2e-10).
+//!
+//! That is the floor this comparison can measure: OCC integrates each
+//! face over the domain its exported PCURVES bound, popkern's slivers
+//! end on the 3-D EDGES, and the propeller's pcurves sit up to 9.8e-7
+//! off their edges (inside the 1e-6 linear tolerance). The two domains
+//! differ by up to Σ gap × edge length = 8.2e-7 of area, at most
+//! 8.2e-7 × |r|max / 3 = 1.4e-7 of volume (4.8e-6 relative) — the
+//! residue sits 20x inside it (PK-818).
 
 use popkern_rhai::ScriptHost;
 
