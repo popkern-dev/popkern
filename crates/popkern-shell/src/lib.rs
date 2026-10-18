@@ -9,6 +9,7 @@ mod arc_join_apex;
 mod arc_join_corner;
 mod arc_join_corner_mixed;
 mod arc_join_geometry;
+mod arc_join_rail;
 mod arc_join_transversal;
 mod arc_join_verify;
 pub mod assemble;

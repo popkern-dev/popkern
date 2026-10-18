@@ -26,9 +26,14 @@ const RAIL_FRACTIONS: [f64; 9] = [0.0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.8
 /// rails are center/axis-anchored similarities); falls back to a NURBS
 /// fit through the projections. Returns the rail and its measured
 /// worst-sample deviation from the offset surface.
+///
+/// `original` — the spine's own face surface — authors general rails as
+/// exact offset images (see [`crate::arc_join_rail`]); `None` projects
+/// onto the offset surface.
 pub(crate) fn offset_rail(
     clone: &CurveOnEdge,
     offset: &SurfaceGeometry,
+    original: Option<&SurfaceGeometry>,
     tolerance: &Tolerance,
 ) -> Option<(CurveOnEdge, f64)> {
     let ts: Vec<f64> = RAIL_FRACTIONS
@@ -48,17 +53,61 @@ pub(crate) fn offset_rail(
         return Some((rail, 0.0));
     }
 
-    // General rail: NURBS through the projections, deviation measured
-    // at fit midpoints against the offset surface.
-    let nurbs = popkern_blend::center_curve::fit_nurbs_through_points(&qs).ok()?;
-    let (t0, t1) = nurbs.parameter_range();
-    let mut worst = 0.0f64;
-    for i in 0..16 {
-        let t = t0 + (i as f64 + 0.5) / 16.0 * (t1 - t0);
-        let p = nurbs.point_at(t);
-        let d = crate::curved_recompute::surface_distance(offset, &p)?;
-        worst = worst.max(d);
+    // General rail: a NURBS fit refined until it holds its stations'
+    // curve between them. Nine stations left the wavy plate's rails
+    // 7e-4..1.4e-3 off (the interpolant's end spans wiggle; PK-883);
+    // doubling converges on a smooth spine. With the original face's
+    // normal field the stations are exact and the fit is measured
+    // against a dense station polyline; without it, against the offset
+    // surface by projection.
+    let spine = |f: f64| {
+        clone
+            .geometry
+            .point_at(clone.t_start + f * (clone.t_end - clone.t_start))
+    };
+    let station = |f: f64| project_to_surface(offset, &spine(f));
+    if let Some(original) = original {
+        // Exact images: stations split until every chord holds the
+        // image curve (the rail is a polyline through them).
+        let step = crate::arc_join_rail::normal_step(original, offset, &spine(0.5))?;
+        let qs = crate::arc_join_rail::adaptive_stations(
+            |f| crate::arc_join_rail::normal_station(original, &spine(f), step),
+            0.5 * tolerance.linear(),
+        )?;
+        let nurbs = popkern_blend::center_curve::fit_nurbs_through_points(&qs).ok()?;
+        let (t0, t1) = nurbs.parameter_range();
+        return Some((
+            CurveOnEdge {
+                geometry: CurveGeometry::Nurbs(nurbs),
+                t_start: t0,
+                t_end: t1,
+            },
+            0.5 * tolerance.linear(),
+        ));
     }
+    let mut best: Option<(popkern_core::geometry::NurbsCurve, f64)> = None;
+    for stations in RAIL_REFINEMENT {
+        let qs: Vec<Point3> = (0..stations)
+            .map(|i| station(i as f64 / (stations - 1) as f64))
+            .collect::<Option<Vec<_>>>()?;
+        let nurbs = popkern_blend::center_curve::fit_nurbs_through_points(&qs).ok()?;
+        let (t0, t1) = nurbs.parameter_range();
+        let probes: Vec<Point3> = (0..2 * stations)
+            .map(|i| nurbs.point_at(t0 + (i as f64 + 0.5) / (2 * stations) as f64 * (t1 - t0)))
+            .collect();
+        let mut worst = 0.0f64;
+        for p in &probes {
+            worst = worst.max(crate::curved_recompute::surface_distance(offset, p)?);
+        }
+        if best.as_ref().is_none_or(|(_, w)| worst < *w) {
+            best = Some((nurbs, worst));
+        }
+        if worst <= tolerance.linear() {
+            break;
+        }
+    }
+    let (nurbs, worst) = best?;
+    let (t0, t1) = nurbs.parameter_range();
     Some((
         CurveOnEdge {
             geometry: CurveGeometry::Nurbs(nurbs),
@@ -68,6 +117,9 @@ pub(crate) fn offset_rail(
         worst,
     ))
 }
+
+/// Station counts tried for a general rail fit, coarse to fine.
+const RAIL_REFINEMENT: [usize; 5] = [9, 17, 33, 65, 129];
 
 fn similarity_rail(
     clone: &CurveOnEdge,

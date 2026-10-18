@@ -50,7 +50,7 @@ pub(crate) fn rebuild_rim_edge_curve(
     let Some(offset) = offset_surfaces.get(outer_face) else {
         return false;
     };
-    let Some((rail, _dev)) = offset_rail(&curve, offset, tolerance) else {
+    let Some((rail, _dev)) = offset_rail(&curve, offset, None, tolerance) else {
         return false;
     };
     if let Some(edge) = skin.edges.get_mut(eh) {

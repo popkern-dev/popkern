@@ -103,14 +103,25 @@ pub(crate) fn construct_arc_joins(
         };
         let off1 = &offset_surfaces[&gap.outer_face1];
         let off2 = &offset_surfaces[&gap.outer_face2];
-        let Some((rail1, dev1)) = offset_rail(&clone_curve, off1, tolerance) else {
+        let original = |f: FaceHandle| {
+            outer
+                .faces
+                .get(f)
+                .and_then(|fd| fd.surface.as_ref())
+                .map(|s| &s.geometry)
+        };
+        let Some((rail1, dev1)) =
+            offset_rail(&clone_curve, off1, original(gap.outer_face1), tolerance)
+        else {
             declines.push(decline(
                 gap,
                 "rail projection onto the first offset surface failed",
             ));
             continue;
         };
-        let Some((rail2, dev2)) = offset_rail(&clone_curve, off2, tolerance) else {
+        let Some((rail2, dev2)) =
+            offset_rail(&clone_curve, off2, original(gap.outer_face2), tolerance)
+        else {
             declines.push(decline(
                 gap,
                 "rail projection onto the second offset surface failed",

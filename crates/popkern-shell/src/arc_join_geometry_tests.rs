@@ -46,7 +46,7 @@ fn offset_rail_translates_a_line_on_a_plane_offset() {
         u_axis: Vec3::new(1.0, 0.0, 0.0),
         v_axis: Vec3::new(0.0, 1.0, 0.0),
     };
-    let (rail, dev) = offset_rail(&clone, &offset, &tol()).unwrap();
+    let (rail, dev) = offset_rail(&clone, &offset, None, &tol()).unwrap();
     assert_eq!(dev, 0.0, "similarity arm is exact");
     let p = rail.geometry.point_at(0.5);
     assert!(p.distance_to(&Point3::new(0.5, 0.0, 1.2)) < 1e-12, "{p:?}");

@@ -43,8 +43,20 @@ pub(super) fn classify_edge(
     for f in STATION_FRACTIONS {
         let t = curve.t_start + f * (curve.t_end - curve.t_start);
         let p = curve.geometry.point_at(t);
-        let (Some(q1), Some(q2)) = (project_to_surface(off1, &p), project_to_surface(off2, &p))
-        else {
+        // The skin still carries the original faces: displacements are
+        // their exact offset images (PK-883; the projection reads the
+        // wrong point past half the vanish distance).
+        let image = |he: HalfEdgeHandle, off: &SurfaceGeometry| match skin
+            .half_edges
+            .get(he)
+            .and_then(|h| skin.loops.get(h.loop_))
+            .and_then(|l| skin.faces.get(l.face))
+            .and_then(|f| f.surface.as_ref())
+        {
+            Some(original) => crate::arc_join_rail::offset_image(&original.geometry, off, &p),
+            None => project_to_surface(off, &p),
+        };
+        let (Some(q1), Some(q2)) = (image(he_handle, off1), image(twin_handle, off2)) else {
             if trace {
                 eprintln!("[join] {eh:?}: projection failed at f={f}");
             }

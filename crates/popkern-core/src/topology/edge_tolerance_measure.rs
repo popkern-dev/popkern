@@ -47,11 +47,12 @@ impl BRep {
             // Capped at the model's `max_imprecision`: the margin never
             // manufactures a precision error. A measurement PAST the
             // ceiling is also recorded at the ceiling — TEMPORARY
-            // CONTAINMENT (PK-883): the wavy plate offset at its
-            // reported max-safe distance measures 1.45e-3; recorded
-            // honestly it fails precision validation, where before it
-            // claimed 1e-6. The replacement is a max-safe report that
-            // keeps the fit inside the ceiling.
+            // CONTAINMENT (PK-885): the near-tangent cylinder tee (r 39
+            // into r 40) measures one intersection edge at 1.03e-4;
+            // recorded honestly it declines a union that serves. (The
+            // wavy plate offset that first needed this, 1.45e-3, now
+            // measures ~2e-8 — PK-883.) The replacement records
+            // over-ceiling measurements as measured.
             let needed = (worst * MEASUREMENT_MARGIN).min(self.max_imprecision);
             if needed > current {
                 if let Some(e) = self.edges.get_mut(eh) {

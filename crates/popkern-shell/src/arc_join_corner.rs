@@ -198,7 +198,7 @@ pub(crate) fn construct_corner(
     let sphere = SurfaceGeometry::Sphere {
         center: p_orig,
         radius: mean_r,
-        axis: popkern_core::geometry::Vec3::Z,
+        axis: cap_chart_axis(skin, cap_face, p_orig),
     };
     let orientation = cap_orientation(skin, cap_face, &sphere).unwrap_or(true);
     skin.faces[cap_face].surface = Some(SurfaceOnFace {
@@ -288,4 +288,45 @@ fn fan_runs(
         return Err("corner fan runs did not close cyclically".into());
     }
     Ok(runs)
+}
+
+/// A chart axis for a corner cap whose poles lie OFF the cap: square
+/// to the cap's centre direction (a convex corner cap spans less than
+/// 90° about it). The fixed +Z axis put a pole on or beside the wavy
+/// plate's top-corner caps, and their arcs' pcurves, fitted through
+/// the chart singularity, traced 1.9e-3 off at d = 0.5 (PK-883).
+fn cap_chart_axis(skin: &BRep, cap: FaceHandle, center: Point3) -> popkern_core::geometry::Vec3 {
+    use popkern_core::geometry::Vec3;
+    let mut sum = Vec3::new(0.0, 0.0, 0.0);
+    if let Some(start) = skin
+        .faces
+        .get(cap)
+        .and_then(|f| skin.loops.get(f.outer_loop))
+        .map(|l| l.half_edge)
+    {
+        let mut he = start;
+        for _ in 0..skin.half_edges.len() {
+            let Some(h) = skin.half_edges.get(he) else {
+                break;
+            };
+            if let Some(v) = skin.vertices.get(h.origin) {
+                sum = sum
+                    + (v.position - center)
+                        .normalized()
+                        .unwrap_or(Vec3::new(0.0, 0.0, 0.0));
+            }
+            he = h.next;
+            if he == start {
+                break;
+            }
+        }
+    }
+    let Some(c) = sum.normalized() else {
+        return Vec3::Z;
+    };
+    let least = [Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::Z]
+        .into_iter()
+        .min_by(|a, b| a.dot(&c).abs().total_cmp(&b.dot(&c).abs()))
+        .unwrap_or(Vec3::Z);
+    c.cross(&least).normalized().unwrap_or(Vec3::Z)
 }
