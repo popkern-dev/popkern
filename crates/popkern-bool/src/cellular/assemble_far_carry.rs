@@ -1,0 +1,186 @@
+//! Far-face carry (local boolean scope stage 2, PK-814,
+//! docs/architecture/local-boolean-scope.md).
+//!
+//! A scoped boolean builds its graph from operand `a`'s ACTIVE faces
+//! only; the far faces — whose boxes miss the tool's, so they carry no
+//! record and lie outside the tool — are kept by a union or a
+//! subtraction and come through unchanged. They are appended here,
+//! entity for entity: surface and orientation, loops, pcurves, edge
+//! curves, names, roles and tolerances. A frontier half-edge (on an
+//! edge shared with an active face) takes the free twin of the edge the
+//! assembly built from that unsplit original edge; far-only vertices and
+//! edges are minted once. A frontier edge with no built edge or no free
+//! twin (the active side did not come through as an unsplit original)
+//! fails the carry, and the caller reruns the boolean unscoped.
+
+use std::collections::HashMap;
+
+use popkern_core::constructors::BRepBuilder;
+use popkern_core::topology::{
+    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, VertexHandle,
+};
+
+/// Original `a` entities already built by the assembly.
+pub(super) struct CarryMaps {
+    /// Unsplit original edges of `a` and the result edge built from each.
+    pub(super) edges: HashMap<EdgeHandle, EdgeHandle>,
+    /// `a`'s vertices and their result vertices.
+    pub(super) vertices: HashMap<VertexHandle, VertexHandle>,
+}
+
+/// [`append_far_faces`] for the assembler: a failure is a merge
+/// diagnostic, and every carried edge (an unsplit original) joins
+/// `carried`.
+pub(super) fn carry(
+    builder: &mut BRepBuilder,
+    shell: ShellHandle,
+    a: &BRep,
+    far: &[FaceHandle],
+    maps: &mut CarryMaps,
+    carried: &mut std::collections::BTreeSet<EdgeHandle>,
+) -> Result<(), crate::error::BoolDiagnostics> {
+    append_far_faces(builder, shell, a, far, maps).map_err(|reason| {
+        let mut d = crate::error::BoolDiagnostics::default();
+        d.warn(
+            crate::error::Stage::Merge,
+            format!("far-face carry: {reason}"),
+        );
+        d
+    })?;
+    carried.extend(maps.edges.values().copied());
+    Ok(())
+}
+
+/// Append `far` (faces of `a`, in `a`'s order) to the assembly.
+pub(super) fn append_far_faces(
+    builder: &mut BRepBuilder,
+    shell: ShellHandle,
+    a: &BRep,
+    far: &[FaceHandle],
+    maps: &mut CarryMaps,
+) -> Result<(), String> {
+    for &fh in far {
+        let face = a.faces.get(fh).ok_or("far face missing")?;
+        let rf = builder.add_face(shell);
+        {
+            let r = builder.brep_mut();
+            r.faces[rf].surface = face.surface.clone();
+            r.faces[rf].name = face.name.clone();
+            r.faces[rf].tolerance = face.tolerance;
+            r.faces[rf].role = face.role.clone();
+        }
+        let loops: Vec<LoopHandle> = std::iter::once(face.outer_loop)
+            .chain(face.inner_loops.iter().copied())
+            .collect();
+        for (k, lh) in loops.into_iter().enumerate() {
+            let hes = loop_half_edges(a, lh)?;
+            let mut out = Vec::with_capacity(hes.len());
+            for h in hes {
+                out.push(carry_half_edge(builder, a, h, maps)?);
+            }
+            if k == 0 {
+                builder.add_loop(&out, rf).map_err(|e| e.to_string())?;
+            } else {
+                builder
+                    .add_inner_loop(&out, rf)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn loop_half_edges(a: &BRep, lh: LoopHandle) -> Result<Vec<HalfEdgeHandle>, String> {
+    let start = a.loops.get(lh).ok_or("far loop missing")?.half_edge;
+    let mut out = Vec::new();
+    let mut he = start;
+    for _ in 0..=a.half_edges.len() {
+        out.push(he);
+        he = a.half_edges.get(he).ok_or("far half-edge missing")?.next;
+        if he == start {
+            return Ok(out);
+        }
+    }
+    Err("far loop does not close".into())
+}
+
+fn carry_vertex(
+    builder: &mut BRepBuilder,
+    a: &BRep,
+    v: VertexHandle,
+    maps: &mut CarryMaps,
+) -> Result<VertexHandle, String> {
+    if let Some(&rv) = maps.vertices.get(&v) {
+        return Ok(rv);
+    }
+    let src = a.vertices.get(v).ok_or("far vertex missing")?;
+    let rv = builder.add_vertex(src.position);
+    let r = builder.brep_mut();
+    r.vertices[rv].name = src.name.clone();
+    r.vertices[rv].tolerance = src.tolerance;
+    maps.vertices.insert(v, rv);
+    Ok(rv)
+}
+
+/// The result half-edge for `a`'s half-edge `h` (see the module docs).
+fn carry_half_edge(
+    builder: &mut BRepBuilder,
+    a: &BRep,
+    h: HalfEdgeHandle,
+    maps: &mut CarryMaps,
+) -> Result<HalfEdgeHandle, String> {
+    let src = a.half_edges.get(h).ok_or("far half-edge missing")?;
+    let e = src.edge;
+    let origin = carry_vertex(builder, a, src.origin, maps)?;
+    let re = match maps.edges.get(&e) {
+        Some(&re) => re,
+        None => {
+            // A far-only edge: built once, its first half-edge from the
+            // edge's canonical half-edge.
+            let edge = a.edges.get(e).ok_or("far edge missing")?;
+            let canon = a
+                .half_edges
+                .get(edge.half_edge)
+                .ok_or("far half-edge missing")?;
+            let twin = a
+                .half_edges
+                .get(canon.twin)
+                .ok_or("far half-edge missing")?;
+            let (v0, v1) = (canon.origin, twin.origin);
+            let (rv0, rv1) = (
+                carry_vertex(builder, a, v0, maps)?,
+                carry_vertex(builder, a, v1, maps)?,
+            );
+            let (re, _, _) = builder.add_edge(rv0, rv1);
+            let r = builder.brep_mut();
+            r.edges[re].curve = edge.curve.clone();
+            r.edges[re].name = edge.name.clone();
+            r.edges[re].tolerance = edge.tolerance;
+            r.edges[re].canonical = edge.canonical.clone();
+            r.edges[re].role = edge.role.clone();
+            maps.edges.insert(e, re);
+            re
+        }
+    };
+    let r = builder.brep_mut();
+    let first = r.edges[re].half_edge;
+    let second = r.half_edges[first].twin;
+    let unwired = |x: HalfEdgeHandle| r.half_edges[x].loop_ == LoopHandle::default();
+    // A far-only edge pairs by canonical identity (a closed edge has one
+    // vertex, so origin cannot tell its sides apart); a frontier edge
+    // takes its free side, which must start at this half-edge's vertex.
+    let pick =
+        if a.edges[e].half_edge == h && unwired(first) && r.half_edges[first].origin == origin {
+            first
+        } else if unwired(second) && r.half_edges[second].origin == origin {
+            second
+        } else if unwired(first) && r.half_edges[first].origin == origin {
+            first
+        } else {
+            return Err(format!(
+                "frontier edge {e:?} has no free side at its far half-edge's origin"
+            ));
+        };
+    r.half_edges[pick].pcurve = src.pcurve.clone();
+    Ok(pick)
+}

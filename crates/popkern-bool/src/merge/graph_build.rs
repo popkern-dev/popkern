@@ -29,11 +29,47 @@ pub(crate) fn insert_operand_topology(
     operand: Operand,
     tolerance: f64,
 ) -> (HashMap<VertexHandle, usize>, HashMap<HalfEdgeHandle, usize>) {
+    insert_operand_topology_scoped(graph, brep, operand, tolerance, None)
+}
+
+/// [`insert_operand_topology`] restricted to the `active` faces (local
+/// boolean scope, PK-814): only their vertices and edges become graph
+/// entities and only their loops are assigned. An edge between an active
+/// and a far face (a frontier edge) is inserted with its far side left
+/// faceless; the far faces are carried into the result by the assembler.
+pub(crate) fn insert_operand_topology_scoped(
+    graph: &mut IntersectionGraph,
+    brep: &BRep,
+    operand: Operand,
+    tolerance: f64,
+    active: Option<&std::collections::HashSet<popkern_core::topology::FaceHandle>>,
+) -> (HashMap<VertexHandle, usize>, HashMap<HalfEdgeHandle, usize>) {
     let mut vertex_map: HashMap<VertexHandle, usize> = HashMap::new();
     let mut he_map: HashMap<HalfEdgeHandle, usize> = HashMap::new();
+    let face_of = |he: HalfEdgeHandle| {
+        brep.half_edges
+            .get(he)
+            .and_then(|h| brep.loops.get(h.loop_))
+            .map(|l| l.face)
+    };
+    let in_scope =
+        |he: HalfEdgeHandle| active.is_none_or(|set| face_of(he).is_some_and(|f| set.contains(&f)));
+    let scoped_vertices: Option<std::collections::HashSet<VertexHandle>> = active.map(|_| {
+        brep.half_edges
+            .iter()
+            .filter(|(h, _)| in_scope(*h))
+            .map(|(_, he)| he.origin)
+            .collect()
+    });
 
     // 1. Insert all vertices as nodes (dedup by position).
     for (vh, vertex) in &brep.vertices {
+        if scoped_vertices
+            .as_ref()
+            .is_some_and(|set| !set.contains(&vh))
+        {
+            continue;
+        }
         let node_idx = if let Some(existing) = graph.find_node(&vertex.position, tolerance) {
             existing
         } else {
@@ -69,6 +105,9 @@ pub(crate) fn insert_operand_topology(
 
         // Skip if we already inserted this edge (both half-edges mapped).
         if he_map.contains_key(&he_h) {
+            continue;
+        }
+        if active.is_some() && !in_scope(he_h) && !in_scope(he.twin) {
             continue;
         }
 
@@ -174,6 +213,9 @@ pub(crate) fn insert_operand_topology(
 
     // 3. Assign faces to half-edges by walking loops.
     for (fh, face) in &brep.faces {
+        if active.is_some_and(|set| !set.contains(&fh)) {
+            continue;
+        }
         let face_ref = FaceRef { operand, face: fh };
 
         // Walk outer loop.

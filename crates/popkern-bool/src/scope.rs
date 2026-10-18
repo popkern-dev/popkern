@@ -285,6 +285,37 @@ fn carry_miss(a: &BRep, face: FaceHandle, result: &BRep) -> String {
     }
 }
 
+/// Far faces below which a scoped run is not worth its carry.
+const MIN_FAR_FACES: usize = 8;
+
+/// The scope a boolean SERVES with (stage 2, PK-814), or `None` to run
+/// unscoped: only a union or a subtraction keeps every far face; compare
+/// mode runs unscoped (it checks the scope's premises on that result);
+/// `POPKERN_BOOL_SCOPE=off` is the kill switch; and a scope with few far
+/// faces gains nothing. The pad is the compare harness's (stage 1 found
+/// no premise violated with it across the boolean, part, rhai,
+/// examples, blend, fastener and hinge suites).
+pub(crate) fn serving_scope(
+    a: &BRep,
+    intersection: &IntersectionResult,
+    op: BoolOperation,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<ActiveScope> {
+    if !matches!(op, BoolOperation::Union | BoolOperation::Subtraction)
+        || compare_enabled()
+        || std::env::var("POPKERN_BOOL_SCOPE").is_ok_and(|v| v == "off")
+    {
+        return None;
+    }
+    let scope = active_scope(
+        a,
+        &intersection.aabbs_a,
+        &intersection.aabbs_b,
+        10.0 * tolerance.linear(),
+    );
+    (scope.far.len() >= MIN_FAR_FACES).then_some(scope)
+}
+
 /// Compare mode (`POPKERN_BOOL_SCOPE=compare`): the first premise the
 /// cellular assembly `assembled` (before validation, pcurve recompute
 /// and the serve postprocess, which stage 2 leaves whole-body) violates,

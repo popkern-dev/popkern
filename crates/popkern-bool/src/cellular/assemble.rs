@@ -38,7 +38,12 @@ pub(crate) fn cellular_assemble(
     brep_b: &BRep,
     tolerance: Tolerance,
     carried: &mut std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    far: Option<&[popkern_core::topology::FaceHandle]>,
 ) -> Result<BRep, BoolDiagnostics> {
+    let mut carry = super::assemble_far_carry::CarryMaps {
+        edges: HashMap::new(),
+        vertices: HashMap::new(),
+    };
     let mut builder = BRepBuilder::new(tolerance);
     let solid = builder.add_solid();
     let shell = builder.add_shell(solid);
@@ -73,6 +78,9 @@ pub(crate) fn cellular_assemble(
     for &node in &needed_nodes {
         let vh = builder.add_vertex(graph.nodes[node].position);
         node_to_vertex.insert(node, vh);
+        if let crate::merge::graph::NodeSource::OriginalA(v) = graph.nodes[node].source {
+            carry.vertices.insert(v, vh);
+        }
     }
 
     // Step 3: Collect all unique edges. CANONICAL KEY = the graph
@@ -189,6 +197,9 @@ pub(crate) fn cellular_assemble(
         let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_a, vh_b);
         if graph.half_edges[key].source.is_unsplit_original() {
             carried.insert(edge_h);
+        }
+        if let EdgeSource::OriginalA(e) = graph.half_edges[key].source {
+            carry.edges.insert(e, edge_h);
         }
 
         edge_he_map.insert(key, (he_fwd, he_twin));
@@ -532,6 +543,12 @@ pub(crate) fn cellular_assemble(
             }
             builder.set_face_surface(face_h, surf);
         }
+    }
+
+    // Far faces (scoped run): appended before the cleanup, which would
+    // drop the frontier edges' still-unwired far sides.
+    if let Some(far) = far {
+        super::assemble_far_carry::carry(&mut builder, shell, brep_a, far, &mut carry, carried)?;
     }
 
     // Cleanup: remove unwired half-edges, dangling edges, orphan vertices.

@@ -49,6 +49,7 @@ pub(crate) fn cellular_graph_merge(
     intersection_result: &IntersectionResult,
     op: BoolOperation,
     tolerance: &Tolerance,
+    scope: Option<&crate::scope::ActiveScope>,
 ) -> Result<
     (
         BRep,
@@ -60,7 +61,17 @@ pub(crate) fn cellular_graph_merge(
     let mut graph = IntersectionGraph::new();
 
     // Insert original topology from both operands.
-    let (_vmap_a, hemap_a) = insert_operand_topology(&mut graph, original_a, Operand::A, snap_tol);
+    // A scoped run (PK-814) builds `a`'s graph from its active faces only
+    // and carries the far faces through the assembly.
+    let active: Option<std::collections::HashSet<_>> =
+        scope.map(|s| s.active.iter().copied().collect());
+    let (_vmap_a, hemap_a) = crate::merge::graph_build::insert_operand_topology_scoped(
+        &mut graph,
+        original_a,
+        Operand::A,
+        snap_tol,
+        active.as_ref(),
+    );
     let (_vmap_b, hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
     // Process edge-face hits.
@@ -233,6 +244,7 @@ pub(crate) fn cellular_graph_merge(
         original_b,
         *tolerance,
         &mut carried,
+        scope.map(|s| s.far.as_slice()),
     )
     .map_err(|mut diag| {
         // ChartSubdivisionReport promotion (PK-106): a failed cellular

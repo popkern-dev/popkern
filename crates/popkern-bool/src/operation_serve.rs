@@ -58,13 +58,35 @@ pub(super) fn select_and_serve(
     // kill-switch (PK-239 precedent).
     let cellular_enabled = std::env::var_os("POPKERN_CELLULAR").is_none_or(|v| v != "0");
     let cellular_result = if cellular_enabled {
-        match crate::cellular::boolean::cellular_graph_merge(
-            original_a,
-            original_b,
-            intersection_result,
-            op,
-            tolerance,
-        ) {
+        // Local scope (PK-814): far faces carried, the rest merged; any
+        // scoped failure or invalid result reruns unscoped.
+        let merge = |scope: Option<&crate::scope::ActiveScope>| {
+            crate::cellular::boolean::cellular_graph_merge(
+                original_a,
+                original_b,
+                intersection_result,
+                op,
+                tolerance,
+                scope,
+            )
+        };
+        let scoped = crate::scope::serving_scope(original_a, intersection_result, op, tolerance)
+            .and_then(|scope| match merge(Some(&scope)) {
+                Ok((r, carried)) if r.validate().is_ok() => Some(Ok((r, carried))),
+                outcome => {
+                    if popkern_core::trace::trace_enabled("boolean") {
+                        eprintln!(
+                            "  [scope] scoped run declined: {:?}",
+                            outcome.err().map(|d| d.into_error().to_string())
+                        );
+                    }
+                    None
+                }
+            });
+        // A scoped result arrives validated (its validity decided the
+        // fallback); the arm below does not validate it twice.
+        let prevalidated = scoped.is_some();
+        match scoped.unwrap_or_else(|| merge(None)) {
             Ok((r, _))
                 if let Some(why) = crate::scope::compare_violation(
                     original_a,
@@ -79,7 +101,7 @@ pub(super) fn select_and_serve(
                     reason: format!("local scope premise violated: {why}"),
                 });
             }
-            Ok((r, carried)) => match r.validate() {
+            Ok((r, carried)) => match if prevalidated { Ok(()) } else { r.validate() } {
                 // Pcurve completeness is part of the acceptance
                 // (PK-463): the cellular assembly leaves record-use
                 // pcurves to the recompute, and a recompute skip

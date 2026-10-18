@@ -16,6 +16,7 @@
 pub(crate) mod assemble;
 pub(crate) mod assemble_cleanup;
 pub(crate) mod assemble_edge_geometry;
+mod assemble_far_carry;
 mod assemble_span_unify;
 pub mod boolean;
 pub mod cell;
