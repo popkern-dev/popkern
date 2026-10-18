@@ -21,7 +21,8 @@ impl BRep {
     /// its curve with its uses' pcurve images (fraction-matched, both
     /// uses), never lowering a recorded tolerance or going below the
     /// model's linear tolerance, and with its margin capped at the
-    /// model's `max_imprecision`. Returns the edges raised.
+    /// model's `max_imprecision` (a measurement past the ceiling is
+    /// recorded as measured). Returns the edges raised.
     ///
     /// For producer exits that fit geometry; validators read the
     /// recorded tolerance as the edge's band.
@@ -44,16 +45,18 @@ impl BRep {
                 .filter(|d| d.is_finite())
                 .fold(0.0_f64, f64::max);
             let current = edge.tolerance.unwrap_or(linear);
-            // Capped at the model's `max_imprecision`: the margin never
-            // manufactures a precision error. A measurement PAST the
-            // ceiling is also recorded at the ceiling — TEMPORARY
-            // CONTAINMENT (PK-885): the near-tangent cylinder tee (r 39
-            // into r 40) measures one intersection edge at 1.03e-4;
-            // recorded honestly it declines a union that serves. (The
-            // wavy plate offset that first needed this, 1.45e-3, now
-            // measures ~2e-8 — PK-883.) The replacement records
-            // over-ceiling measurements as measured.
-            let needed = (worst * MEASUREMENT_MARGIN).min(self.max_imprecision);
+            // The margin never manufactures a precision error: it is
+            // capped at the model's `max_imprecision`. A measurement past
+            // the ceiling is recorded as measured, and precision
+            // validation reports it (the wavy plate offset's 1.45e-3
+            // rails and a near-tangent tee's 1.03e-4 pcurves were
+            // recorded at the ceiling until PK-883/PK-885 authored them
+            // to the linear tolerance).
+            let needed = if worst > self.max_imprecision {
+                worst
+            } else {
+                (worst * MEASUREMENT_MARGIN).min(self.max_imprecision)
+            };
             if needed > current {
                 if let Some(e) = self.edges.get_mut(eh) {
                     e.tolerance = Some(needed);

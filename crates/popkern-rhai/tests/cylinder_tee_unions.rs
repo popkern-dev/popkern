@@ -197,3 +197,27 @@ fn equal_radius_tees_serve_every_boolean_with_exact_volume() {
     let closed = 8.0 * R * R * R / 3.0;
     assert!((overlap(R, 0.0) - closed).abs() / closed < 1e-6);
 }
+
+/// A near-tangent tee's intersection edges keep their pcurves on the
+/// edge (PK-885): the projection fit's refinement quit at 44 spans
+/// when a doubling improved the steep end spans by less than half,
+/// serving the r 39 branch's edges 1.03e-4 off — over the model's
+/// max_imprecision, recorded at the ceiling until honest recording
+/// declined the union.
+#[test]
+fn near_tangent_tee_edges_keep_their_pcurves_on_the_edge() {
+    let mut host = ScriptHost::new();
+    let mut model = host
+        .run(&tee(39.0, 0.0, 100.0), "tee.rhai")
+        .expect("tee serves")
+        .model
+        .expect("model");
+    let body = model.to_brep().expect("body");
+    let worst = body
+        .half_edges
+        .keys()
+        .filter_map(|he| body.measure_half_edge_pcurve_deviation(he))
+        .map(|m| m.max_deviation)
+        .fold(0.0_f64, f64::max);
+    assert!(worst <= 1e-5, "worst pcurve image {worst:.3e}");
+}

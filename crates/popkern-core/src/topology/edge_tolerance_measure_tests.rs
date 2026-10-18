@@ -35,3 +35,22 @@ fn a_misfit_pcurve_raises_its_edge_to_the_measured_gap() {
     assert!((2.0e-5..4.0e-5).contains(&tol), "recorded {tol}");
     assert!(b.validate_pcurve_consistency_all().is_empty());
 }
+
+#[test]
+fn a_misfit_past_the_ceiling_is_recorded_as_measured() {
+    // A 3e-4 nudge, past the 1e-4 max_imprecision: recorded as 3e-4,
+    // not hidden at the ceiling (PK-885 removed that containment).
+    let mut b = BRep::cylinder(1.0, 2.0, Tolerance::default()).unwrap();
+    let (he, edge) = b
+        .half_edges
+        .iter()
+        .find(|(_, h)| h.origin == b.half_edges[h.twin].origin)
+        .map(|(he, h)| (he, h.edge))
+        .unwrap();
+    let pc = b.half_edges[he].pcurve.clone().unwrap();
+    b.half_edges[he].pcurve = Some(pc.translated_uv(0.0, 3.0e-4));
+    b.record_measured_edge_tolerances();
+    let tol = b.edges[edge].tolerance.unwrap();
+    assert!((3.0e-4..3.1e-4).contains(&tol), "recorded {tol}");
+    assert!(tol > b.max_imprecision);
+}

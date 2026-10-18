@@ -171,13 +171,15 @@ pub(super) fn measured_projection_interpolant(
             break;
         };
         let gap = image_gap(&fit, surface, curve_on_edge, (t_lo, t_hi), &breaks, &spans);
-        let converging = gap < 0.5 * best_gap;
-        if gap < best_gap {
-            (best, best_gap) = (fit, gap);
-        }
-        if !converging {
+        // Stop only when a doubling no longer improves the fit: the
+        // former "must halve" rule quit a near-tangent tee's
+        // intersection pcurves at 44 spans when the steep end spans
+        // improved 1.05e-3 -> 8.5e-4, serving them 1.03e-4 off their
+        // edges (PK-885); two more doublings reach 2e-7.
+        if gap >= best_gap {
             break;
         }
+        (best, best_gap) = (fit, gap);
     }
     Some(best)
 }
