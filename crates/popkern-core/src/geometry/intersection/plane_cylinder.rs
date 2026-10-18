@@ -167,7 +167,8 @@ fn case_parallel(
     if d.abs() > cr + tol.linear() {
         return vec![];
     }
-    if d.abs() > cr - tol.linear() {
+    let band = tol.tangency_band(super::coordinate_scale(&[po, co]) + cr);
+    if d.abs() > cr - band {
         return vec![];
     } // tangent
 

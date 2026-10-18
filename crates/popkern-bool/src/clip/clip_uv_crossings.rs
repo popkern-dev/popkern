@@ -9,7 +9,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::clip_branch_normalize;
-use super::clip_crossing_reports::collapse_crossing_reports;
+use super::clip_crossing_reports::{collapse_crossing_reports, resolve_contact_runs};
 use super::clip_crossings_rescue::sampled_uv_crossings;
 use super::clip_lift_crossings::extend_with_lifted_loop_crossings;
 use super::clip_seam_shift::{is_near_seam, shift_curve_u};
@@ -433,7 +433,8 @@ pub(crate) fn find_uv_crossings(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    let mut crossings = collapse_crossing_reports(brep, face, curve_uv, crossings, tolerance);
+    let crossings = collapse_crossing_reports(brep, face, curve_uv, crossings, tolerance);
+    let mut crossings = resolve_contact_runs(brep, face, curve_uv, crossings, tolerance);
     // A closed query on the boundary at its closure point (PK-775).
     let period = surface_is_periodic.then(period_of);
     if let Some(c) = super::clip_lift_crossings::closure_crossing(

@@ -59,9 +59,28 @@ pub(crate) fn intersect_plane_circle(
         return Some(Vec::new());
     }
     let base = b.patan2(a);
-    let half = ratio.clamp(-1.0, 1.0).pacos();
+    // Tangency is a distance band, as for line × cylinder (PK-789): a
+    // circle whose extreme lies past the plane by less than the linear
+    // tolerance touches it once, at that extreme. Its two secant roots
+    // sit 2·sqrt(2·r·depth) apart there (9.5e-4 for r = 4.5 at depth
+    // 1e-7), far beyond the tolerance along the curve although every
+    // point between them is within it of the plane (PK-887).
+    // Open at a whole tolerance, judged past the computation's own
+    // roundoff: a cap typed one tolerance inside (58 − 57.999999 =
+    // 9.99999997e-7) is a secant, as line × cylinder reads it.
+    let scale = super::coordinate_scale(&[center, *plane.origin]) + amp;
+    let tangent = amp - c.abs() < tolerance.tangency_band(scale);
+    let half = if tangent {
+        if ratio > 0.0 {
+            0.0
+        } else {
+            std::f64::consts::PI
+        }
+    } else {
+        ratio.clamp(-1.0, 1.0).pacos()
+    };
     let mut roots = vec![base + half];
-    if half * amp > lin {
+    if !tangent {
         roots.push(base - half);
     }
     let tau = std::f64::consts::TAU;

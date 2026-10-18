@@ -464,6 +464,10 @@ pub(super) fn consolidate_records(
                         } else {
                             pa
                         };
+                        if gap::weld_leaves_a_surface(a, b, &records[ia], [pa, pb], weld, tolerance)
+                        {
+                            continue;
+                        }
                         set_endpoint(&mut records[ia], a_end, weld);
                         set_endpoint(&mut records[ib], b_end, weld);
                     }

@@ -110,6 +110,19 @@ impl Tolerance {
         self.linear
     }
 
+    /// The open band inside which a contact decided by DISTANCE is a
+    /// tangent touch: shallower than the linear tolerance less a
+    /// ten-thousandth of it, and past the roundoff of coordinates of
+    /// magnitude `scale`. A contact typed exactly one tolerance deep is
+    /// then a secant to every solver and weld alike, never a coin flip
+    /// between them (PK-789, PK-887): the edge must clear both the
+    /// arithmetic (58 − 57.999999 = 9.99999997e-7) and the geometry a
+    /// prior operation built (a ring arc a union left 2.1e-11 short of
+    /// its radius read the same cap as tangent).
+    pub fn tangency_band(&self, scale: f64) -> f64 {
+        self.linear * (1.0 - 1e-4) - 16.0 * f64::EPSILON * scale.abs()
+    }
+
     /// Angle tolerance in radians.
     pub fn angular(&self) -> f64 {
         self.angular

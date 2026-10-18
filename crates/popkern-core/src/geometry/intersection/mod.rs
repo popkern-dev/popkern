@@ -3,6 +3,7 @@
 pub(crate) mod adaptive_step;
 mod bezier_clipping;
 mod circle_circle;
+mod circle_cylinder;
 mod circle_of_revolution;
 pub mod coincident;
 pub mod coincident_analytic;
@@ -88,6 +89,14 @@ pub enum CurveIntersection {
 pub struct CurveIntersectionResult {
     /// All intersections found, sorted by t1.
     pub intersections: Vec<CurveIntersection>,
+}
+
+/// The largest coordinate magnitude among `points`.
+pub(crate) fn coordinate_scale(points: &[Point3]) -> f64 {
+    points
+        .iter()
+        .map(|p| p.x.abs().max(p.y.abs()).max(p.z.abs()))
+        .fold(0.0, f64::max)
 }
 
 /// Swap t1/t2 (and t1_range/t2_range) in a list of intersection results.

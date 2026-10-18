@@ -454,7 +454,13 @@ pub(super) fn uv_clip_one_face(
                     let clustered = crossings.iter().all(|c| {
                         let q = curve_uv.point_at(c.t_curve);
                         ((q.x - q_first.x).powi(2) + (q.y - q_first.y).powi(2)).sqrt() < band
-                    });
+                    }) && !super::clip_crossing_reports::crossings_part_in_3d(
+                        brep,
+                        face,
+                        curve_uv,
+                        &crossings,
+                        &brep.tolerance,
+                    );
                     if (t_last - t_first).abs() < span * 1e-6 || clustered {
                         let inset = span * 1e-3;
                         let banded_inside = |q| banded_inside(brep, face, q, band);

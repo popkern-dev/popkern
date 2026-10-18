@@ -1,7 +1,7 @@
 //! Line-cylinder intersection algorithm.
 
 use crate::geometry::analytic_surfaces::orthonormal_basis;
-use crate::geometry::intersection::SurfaceCurveIntersection;
+use crate::geometry::intersection::{SurfaceCurveIntersection, coordinate_scale};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use popkern_math::PortableMath;
@@ -69,7 +69,6 @@ pub(crate) fn intersect_line_cylinder(
     // the boolean stranded the record ends between them (PK-789).
     let t_foot = -b_coef / (2.0 * a_coef);
     let h = (dp_perp + d_perp * t_foot).length();
-    let lin = tolerance.linear();
     // A line OUTSIDE the radius touches nothing a record passes
     // through (the plane x cylinder solver emits no curve there either),
     // so it misses; one strictly less than a tolerance INSIDE is a
@@ -79,7 +78,9 @@ pub(crate) fn intersect_line_cylinder(
     let t_candidates: Vec<f64> = if h > cyl_radius {
         // No real intersection — line misses the cylinder.
         return Vec::new();
-    } else if h > cyl_radius - lin {
+    } else if h > cyl_radius
+        - tolerance.tangency_band(coordinate_scale(&[*line_origin, *cyl_origin]))
+    {
         // Tangent within tolerance — one contact at the foot point.
         vec![t_foot]
     } else {

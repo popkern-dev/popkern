@@ -74,3 +74,47 @@ fn chart_midpoint(
     }
     Some(Point3::new(0.5 * (pa.x + pb.x), 0.5 * (pa.y + pb.y), 0.0))
 }
+
+/// True when `weld` lies off either face pair surface by more than the
+/// linear tolerance (or than the ends it replaces already did): moving
+/// the facing ends there would leave the records off their own
+/// intersection (PK-788). Two traces of one junction weld onto their
+/// midpoint within the curve's sagitta of both surfaces; two DISTINCT
+/// exact junctions inside the slop gate do not — the cap of a boss
+/// 1e-5 inside a ring's extreme meets the ring wall in two exact lines
+/// 0.068 apart, and their averaged start sat 1e-5 off the ring wall
+/// at a point no junction occupies.
+pub(super) fn weld_leaves_a_surface(
+    a: &BRep,
+    b: &BRep,
+    record: &IntersectionRecord,
+    ends: [Point3; 2],
+    weld: Point3,
+    tolerance: &Tolerance,
+) -> bool {
+    let off = |brep: &BRep, face: FaceHandle, p: &Point3| -> Option<f64> {
+        let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+        let (u, v) = surface.closest_point(p)?;
+        Some(surface.point_at(u, v).distance_to(p))
+    };
+    [(a, record.face_a), (b, record.face_b)]
+        .into_iter()
+        .any(|(brep, face)| {
+            let Some(d) = off(brep, face, &weld) else {
+                return false;
+            };
+            // The solvers' own tangency band: a lens exactly one
+            // tolerance deep has a sagitta of exactly one tolerance, so
+            // its welded midpoint and its secant crossings must be read
+            // against the same open bound.
+            let scale = [ends[0], ends[1], weld]
+                .iter()
+                .map(|p| p.x.abs().max(p.y.abs()).max(p.z.abs()))
+                .fold(0.0, f64::max);
+            let allowed = ends
+                .iter()
+                .filter_map(|p| off(brep, face, p))
+                .fold(tolerance.tangency_band(scale), f64::max);
+            d >= allowed
+        })
+}

@@ -123,3 +123,50 @@ fn a_tangent_plane_gives_one_root_and_an_in_plane_circle_an_overlap() {
         "{in_plane:?}"
     );
 }
+
+/// Tangency is a distance band (PK-887): a circle dipping past a plane
+/// by less than the linear tolerance touches it once at its extreme;
+/// at a whole tolerance it crosses twice.
+#[test]
+fn a_circle_dipping_within_tolerance_past_a_plane_touches_it_once() {
+    let r = 4.5;
+    let circle = CurveGeometry::Circle {
+        center: Point3::new(-6.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: r,
+    };
+    let tol = Tolerance::default();
+    let hits_at = |w: f64| {
+        let (o, n, u, v) = (
+            Point3::new(0.0, -w, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        );
+        let hits = intersect_plane_circle(
+            PlaneFrame {
+                origin: &o,
+                normal: &n,
+                u_axis: &u,
+                v_axis: &v,
+            },
+            &circle,
+            (0.0, std::f64::consts::TAU),
+            ((-1e3, 1e3), (-1e3, 1e3)),
+            &tol,
+        )
+        .expect("circular");
+        points(&hits)
+    };
+    for depth in [0.0, 1e-7, 9e-7] {
+        let pts = hits_at(r - depth);
+        assert_eq!(pts.len(), 1, "depth {depth:e}: {pts:?}");
+        let foot = Point3::new(-6.0, -r, 0.0);
+        assert!(
+            (pts[0].1 - foot).length() < 1e-12,
+            "depth {depth:e}: {pts:?}"
+        );
+    }
+    let pts = hits_at(r - tol.linear());
+    assert_eq!(pts.len(), 2, "a whole tolerance deep: {pts:?}");
+}

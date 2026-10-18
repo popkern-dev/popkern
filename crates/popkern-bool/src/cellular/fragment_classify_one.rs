@@ -272,9 +272,21 @@ pub(super) fn sample_and_classify(
                 // tangent to a rod along its own edge put the
                 // midpoint on the rod and classified the face Inside
                 // while its mirror twin sampled its far edge (PK-750).
-                frag_surface
+                // The interior sample can lie on that contact too: a
+                // web face a boss touches along its centre line
+                // sampled the line and read Inside (PK-887). One class
+                // throughout, so any point clear of the other body
+                // decides — the boundary chord midpoints are next.
+                let interior = frag_surface
                     .as_ref()
-                    .and_then(|(s, o)| fragment_interior_sample(graph, fragment, s, *o, true))
+                    .and_then(|(s, o)| fragment_interior_sample(graph, fragment, s, *o, true));
+                let clear =
+                    |p: &Point3| !point_near_any_surface(other.0, other.1, p, eps_probe * 10.0);
+                interior
+                    .into_iter()
+                    .chain(non_shared_chord_midpoints(graph, &fragment.outer_loop, 6))
+                    .find(clear)
+                    .or(interior)
                     .unwrap_or(shortcut)
             } else {
                 shortcut

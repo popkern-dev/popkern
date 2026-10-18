@@ -135,6 +135,30 @@ pub(super) fn dispatch(
         )
         .unwrap_or_default(),
 
+        (
+            SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            },
+            CurveGeometry::Circle { .. } | CurveGeometry::Arc { .. },
+        ) => super::super::circle_cylinder::intersect_circle_cylinder(
+            super::super::circle_cylinder::CylinderFrame {
+                origin,
+                axis,
+                radius: *radius,
+            },
+            curve,
+            t_range,
+            (u_range, v_range),
+            tolerance,
+        )
+        .unwrap_or_else(|| {
+            surface_curve_general::intersect_surface_curve_general(
+                surface, u_range, v_range, curve, t_range, tolerance, dense_grid,
+            )
+        }),
+
         _ => surface_curve_general::intersect_surface_curve_general(
             surface, u_range, v_range, curve, t_range, tolerance, dense_grid,
         ),

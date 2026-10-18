@@ -158,8 +158,14 @@ fn the_stadium_serves_through_tangency() {
     // over a coplanar cap overlap: the cap's record chain turns a
     // corner there, and the complete-the-cut pass pulled that corner
     // onto the rim within its 2e-3 slop gate, so the rim arc served
-    // 1e-3 off the wall (PK-790).
-    for delta in [-0.1, -1e-2, -1e-3, -1e-4, -1e-6, 1e-6, 1e-3, 0.1] {
+    // 1e-3 off the wall (PK-790). δ = −1e-7..−9e-7 put the box long
+    // faces inside the rods by less than the tolerance: the rod cap's
+    // rim circle dipped past them, and plane × circle split it at two
+    // secant roots 9.5e-4 apart while the clip snapped the cap record
+    // onto the box corner, leaving a zero-area sliver (PK-887).
+    for delta in [
+        -0.1, -1e-2, -1e-3, -1e-4, -1e-6, -9e-7, -7e-7, -3e-7, -1e-7, 1e-6, 1e-3, 0.1,
+    ] {
         let w = R + delta;
         let name = format!("stadium_{delta:e}");
         let want = stadium_area(w) * H;

@@ -128,19 +128,6 @@ fn serves_near_extreme(cap_x: f64) -> Result<(), String> {
     Ok(())
 }
 
-/// A sweep point a follow-up task owns: it must decline honestly (a
-/// boolean decline, never an invalid serve); the pin flips when it
-/// serves.
-fn pinned(c: &Casting, name: &str, task: &str) {
-    match serves(c, name) {
-        Ok(()) => panic!("{task}: {name} now serves; promote it to the served set"),
-        Err(e) => assert!(
-            e.contains("merge failed") || e.contains("result validation failed"),
-            "{name}: {e}"
-        ),
-    }
-}
-
 #[test]
 fn the_tangent_boss_casting_serves_through_tangency() {
     let mut failures = Vec::new();
@@ -183,12 +170,18 @@ fn the_near_tangent_cap_casting_serves_through_the_rim_extreme() {
             failures.push(e);
         }
     }
-    if let Err(e) = serves_near_extreme(-367.0 - 1e-6) {
-        failures.push(e);
+    // The cap rim's apex inside the ring-wall lens (PK-788): at the
+    // extreme the ring wall × boss wall loop touches the cap rim from
+    // outside, its crossing reports spread 2e-4 along the touch and the
+    // decisive clip read the coin-flip intervals between them as
+    // ambiguous (the hull kept the whole loop); 1e-4 inside, the two
+    // exact lens lines' starts, 0.22 apart, were welded onto a point off
+    // the ring wall; 1e-5 inside, the ring disc's 0.068 lens chord
+    // sat inside the clip's chart-relative tangent band and dropped.
+    for cap_x in [-367.0 - 1e-6, -367.0, -367.00001, -367.0001] {
+        if let Err(e) = serves_near_extreme(cap_x) {
+            failures.push(e);
+        }
     }
     assert!(failures.is_empty(), "{failures:#?}");
-    for cap_x in [-367.0, -367.00001, -367.0001] {
-        // The cap rim's apex inside the ring-wall lens (PK-788).
-        pinned(&near_tangent_cap(cap_x), &format!("cap_{cap_x}"), "PK-788");
-    }
 }
