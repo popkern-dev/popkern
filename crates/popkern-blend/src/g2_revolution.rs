@@ -25,8 +25,11 @@ use popkern_core::geometry::{NurbsSurface, Point3, Vec3};
 use popkern_math::PortableMath;
 
 /// Rotation axis of a circular-spine pair: a point on the axis and
-/// the unit direction. `None` when the pair is not a coaxial plane ×
-/// axis-symmetric surface.
+/// the unit direction. `None` when the pair is not coaxial. Beyond the
+/// plane arms, any two supports of revolution on one axis qualify
+/// (PK-433: a revolved groove's torus beside its wall cylinder — the
+/// loft's rails sagged 2.6e-5 off the exact contact circles between
+/// stations, and the outer race's G2 strip read 7.4e-6 of volume).
 fn revolution_axis(
     surface1: &SurfaceGeometry,
     surface2: &SurfaceGeometry,
@@ -49,7 +52,7 @@ fn revolution_axis(
         | (SurfaceGeometry::Sphere { center, .. }, SurfaceGeometry::Plane { normal, .. }) => {
             Some((*center, normal.normalized()?))
         }
-        _ => None,
+        _ => crate::fillet_surface_coaxial::shared_axis(surface1, surface2),
     }
 }
 

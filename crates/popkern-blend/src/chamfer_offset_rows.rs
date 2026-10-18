@@ -172,13 +172,19 @@ pub(super) fn face_interior_hint(
     // boundary-sample centroid, projected into the tangent plane.
     // The hint only selects the SIGN of ±(normal × tangent), so
     // centroid-side is decisive for any face whose bulk lies on its
-    // material side — every chamfer support face qualifies. A
-    // degenerate planar Newell (a cap bounded by one closed rim)
-    // routes through the centroid path too.
+    // material side — every chamfer support face qualifies.
+    // A plane whose loops are all one-vertex circles (a revolved
+    // annulus; a cap bounded by one closed rim) has a degenerate
+    // vertex Newell: it takes the plane's normal and the same
+    // measured calibration. Routing it to the centroid sent a
+    // revolved bore's chamfer OUTWARD — an annulus's boundary
+    // centroid lies in the hole (PK-433: the ball bearing's bore
+    // lead-ins added a ring of material, validators clean).
     let surf = face_data.surface.as_ref()?;
-    let planar_newell = matches!(surf.geometry, SurfaceGeometry::Plane { .. })
-        .then(|| newell.normalized())
-        .flatten();
+    let planar_newell = match &surf.geometry {
+        SurfaceGeometry::Plane { normal, .. } => newell.normalized().or(normal.normalized()),
+        _ => None,
+    };
     if let Some(n) = planar_newell {
         // Per-station inward = n_eff × curve_tangent. The SIGN of
         // n_eff is calibrated by MEASUREMENT at the midpoint station

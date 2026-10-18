@@ -80,6 +80,52 @@ pub(super) fn find_seam_edge_at_vertex(
     None
 }
 
+/// The second seamed support of a closed rim (PK-433): splice the
+/// fresh contact-circle half-edge `new_rim` into the loop in place of
+/// `old_rim`, hand the seam's rim end from `v_old` (which moved to the
+/// other support's contact circle) to `v_fresh`, and re-window the
+/// seam. A revolved groove's torus is full in u and bounded by its two
+/// rims and a seam, as is the wall cylinder beside it: treating the
+/// torus side as a lone inner loop pointed it at a self-looped half-
+/// edge and orphaned the rest of its boundary (validation then read a
+/// broken half-edge cycle). Declines unless `seam` is a true seam,
+/// both of its uses in `old_rim`'s loop.
+pub(super) fn splice_fresh_seam_side(
+    brep: &mut BRep,
+    old_rim: HalfEdgeHandle,
+    new_rim: HalfEdgeHandle,
+    seam: EdgeHandle,
+    v_old: VertexHandle,
+    v_fresh: VertexHandle,
+) -> Result<(), String> {
+    let missing = || format!("closed-fillet: seam {seam:?} or rim {old_rim:?} not found");
+    let rim = brep.half_edges.get(old_rim).cloned().ok_or_else(missing)?;
+    let he = brep.edges.get(seam).ok_or_else(missing)?.half_edge;
+    let twin = brep.half_edges.get(he).ok_or_else(missing)?.twin;
+    let uses = [he, twin];
+    if uses
+        .iter()
+        .any(|h| brep.half_edges.get(*h).is_none_or(|d| d.loop_ != rim.loop_))
+    {
+        return Err(format!(
+            "closed-fillet: both supports carry an edge at the rim vertex, but {seam:?} \
+             is not a seam of the second support's loop {:?}",
+            rim.loop_
+        ));
+    }
+    brep.half_edges[new_rim].prev = rim.prev;
+    brep.half_edges[new_rim].next = rim.next;
+    brep.half_edges[rim.prev].next = new_rim;
+    brep.half_edges[rim.next].prev = new_rim;
+    for h in uses {
+        if brep.half_edges[h].origin == v_old {
+            brep.half_edges[h].origin = v_fresh;
+        }
+    }
+    rebuild_seam_curve(brep, seam);
+    Ok(())
+}
+
 /// Re-window a seam edge's curve to its vertices' current positions
 /// after one endpoint moved to the new contact-circle height. The
 /// canonical "forward" direction is preserved: the curve starts at

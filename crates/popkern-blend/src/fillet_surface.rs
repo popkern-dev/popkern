@@ -166,6 +166,15 @@ pub fn build_fillet_surface(
         if let Some(result) = try_circular_center_torus(surface1, surface2, center_result, radius) {
             return Ok(result);
         }
+        // Every other coaxial pair of supports of revolution (PK-433).
+        if let Some(result) = crate::fillet_surface_coaxial::try_coaxial_revolution_torus(
+            surface1,
+            surface2,
+            center_result,
+            radius,
+        ) {
+            return Ok(result);
+        }
         // §11.1 analytic cylinder: parallel-axes cylinder pairs, and a
         // plane parallel to a cylinder axis with the edge along it.
         if let Some(result) = try_cylindrical_analytic(surface1, surface2, center_result, radius) {

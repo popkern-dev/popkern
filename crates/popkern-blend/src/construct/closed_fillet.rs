@@ -122,14 +122,6 @@ pub(crate) fn apply_closed_fillet(
             location: edge_loc,
         })?
         .face;
-    let face_b = brep
-        .loops
-        .get(loop_b)
-        .ok_or_else(|| BlendFailure::InvalidTopology {
-            reason: format!("closed-fillet: loop {loop_b:?} not found"),
-            location: edge_loc,
-        })?
-        .face;
 
     // 2. Compute the new contact-point positions on each support.
     //    NOT the trim curve's own start point: for a closed rim the
@@ -167,7 +159,6 @@ pub(crate) fn apply_closed_fillet(
             location: edge_loc,
         });
     };
-    let _ = face_b;
 
     // 3. Identify which side has a "single-half-edge loop" (the
     //    simple inner-loop case where the rim is an entire
@@ -387,7 +378,7 @@ pub(crate) fn apply_closed_fillet(
     let support_seam_loop = if seam_a.is_some() { loop_a } else { loop_b };
     let support_fresh_loop = if seam_a.is_some() { loop_b } else { loop_a };
     let support_seam_old_he = if seam_a.is_some() { he_a_h } else { he_b_h };
-    let _support_fresh_old_he = if seam_a.is_some() { he_b_h } else { he_a_h };
+    let support_fresh_old_he = if seam_a.is_some() { he_b_h } else { he_a_h };
 
     // Pre-fetch the prev/next of the seam-side rim half-edge so
     // we can splice the new one in.
@@ -442,6 +433,16 @@ pub(crate) fn apply_closed_fillet(
         pcurve: None,
     });
     brep.half_edges[he_fresh_support].twin = he_fresh_fillet;
+    // Both supports seamed (a revolved groove's torus beside its wall
+    // cylinder, PK-433): the fresh vertex takes over the second seam.
+    if let Some(seam) = seam_a.and(seam_b) {
+        let (rim, fresh) = (support_fresh_old_he, he_fresh_support);
+        closed_fillet_seam::splice_fresh_seam_side(brep, rim, fresh, seam, v_old, v_fresh)
+            .map_err(|reason| BlendFailure::InvalidTopology {
+                reason,
+                location: edge_loc,
+            })?;
+    }
     brep.half_edges[he_fresh_fillet].next = he_fresh_fillet;
     brep.half_edges[he_fresh_fillet].prev = he_fresh_fillet;
 
@@ -466,12 +467,7 @@ pub(crate) fn apply_closed_fillet(
     brep.loops[loop_fillet_outer].half_edge = he_seam_fillet;
     brep.loops[loop_fillet_inner].half_edge = he_fresh_fillet;
     brep.vertices[v_fresh].outgoing = he_fresh_support;
-    if !brep
-        .half_edges
-        .contains_key(brep.vertices[v_with_seam].outgoing)
-    {
-        brep.vertices[v_with_seam].outgoing = he_seam_support;
-    }
+    brep.vertices[v_with_seam].outgoing = he_seam_support;
 
     // 13. Delete the old rim half-edges and edge.
     brep.remove_half_edge_reanchored(he_a_h);

@@ -53,6 +53,7 @@ pub(crate) mod fillet_2d_plan;
 pub(crate) mod fillet_2d_solvers;
 pub mod fillet_surface;
 pub mod fillet_surface_analytic;
+mod fillet_surface_coaxial;
 #[cfg(test)]
 #[path = "g2_acceptance_tests.rs"]
 mod g2_acceptance_tests;
