@@ -11,8 +11,12 @@
 //!
 //! Reference: OCC BRepGProp's adaptive volume (1e-9) of the exported
 //! STEP, 0.030047407143187158 (2026-10-17; the 0.03006067 recorded on
-//! 2026-10-13 predates later propeller changes). Measured 2.7e-6 off;
-//! the gate leaves room for the residue PK-818 still tracks.
+//! 2026-10-13 predates later propeller changes). Measured 2.7e-6 off,
+//! then 8.6e-7 after PK-877/PK-885; Richardson-extrapolated sliver fans
+//! (the hub's blade-root slivers sum to 5e-6, and 16-panel fans left
+//! ~2e-8 of them) bring it to 2.4e-7. The remaining residue is the five
+//! blade faces' mesh dependence (5.5e-9 each between chord scales),
+//! which PK-818 still tracks.
 
 use popkern_rhai::ScriptHost;
 
@@ -33,7 +37,7 @@ fn the_propeller_volume_matches_opencascade() {
     let occ = 0.030047407143187158;
     let rel = (volume - occ) / occ;
     assert!(
-        rel.abs() < 1e-5,
+        rel.abs() < 5e-7,
         "propeller volume {volume} vs OCC {occ} ({rel:e})"
     );
 }

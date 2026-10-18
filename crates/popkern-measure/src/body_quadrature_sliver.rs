@@ -26,8 +26,9 @@ use super::oriented_term;
 const LOCATE_SAMPLES: usize = 64;
 /// Newton steps refining a located trim parameter.
 const LOCATE_STEPS: usize = 6;
-/// Fan panels between a chord's ends. The sliver's sag is quadratic in
-/// the chord, so the panelled sliver is within 1/PANELS² of the true one.
+/// Fan panels between a chord's ends at half resolution: the sliver is
+/// integrated at `2 * PANELS` and `PANELS` panels and Richardson-
+/// extrapolated (the inscribed fan's error is quadratic in the panel).
 const PANELS: usize = 16;
 
 /// One trim of a face: its pcurve, located by samples.
@@ -212,10 +213,11 @@ pub(super) fn sliver_term(
     if trim.closed && delta.abs() > 0.5 * span {
         delta -= span * delta.signum();
     }
-    let mut points = Vec::with_capacity(PANELS + 1);
+    let panels = 2 * PANELS;
+    let mut points = Vec::with_capacity(panels + 1);
     points.push(a);
-    for k in 1..PANELS {
-        let f = k as f64 / PANELS as f64;
+    for k in 1..panels {
+        let f = k as f64 / panels as f64;
         let mut t = ta + delta * f;
         if t > trim.hi {
             t -= span;
@@ -250,10 +252,18 @@ pub(super) fn sliver_term(
         points.push(q);
     }
     points.push(b);
-    let sum: f64 = points
-        .windows(2)
-        .skip(1)
-        .map(|w| oriented_term(surface, [a, w[0], w[1]]))
-        .sum();
+    let fan = |pts: &[(f64, f64)]| -> f64 {
+        pts.windows(2)
+            .skip(1)
+            .map(|w| oriented_term(surface, [a, w[0], w[1]]))
+            .sum()
+    };
+    // The fan inscribes the trim: its shortfall falls as 1/panels², so
+    // the fine and half-resolution fans extrapolate it away
+    // (Richardson). At 16 panels alone the hub's blade-root slivers
+    // (5e-6 summed) left ~2e-8 of the propeller's volume (PK-818).
+    let fine = fan(&points);
+    let coarse: Vec<(f64, f64)> = points.iter().step_by(2).copied().collect();
+    let sum = fine + (fine - fan(&coarse)) / 3.0;
     sum.is_finite().then_some(sum)
 }
