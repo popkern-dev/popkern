@@ -14,6 +14,10 @@ const N_SAMPLES: usize = 50;
 /// Minimum consecutive in-tolerance samples to declare an overlap.
 const MIN_CONSECUTIVE: usize = 3;
 
+/// Bisections refining a run end that lies inside curve 1 (one sample
+/// spacing / 2^40: below every model tolerance).
+const BISECTIONS: usize = 40;
+
 /// A sample point pairing between two curves.
 struct Sample {
     t1: f64,
@@ -123,19 +127,63 @@ pub(crate) fn detect_overlaps(
         samples.push(Sample { t1, t2, dist });
     }
 
+    // A run's end strictly inside curve 1 lies between its last
+    // in-tolerance sample and the next sample out: bisect the closest-
+    // point predicate there, so the overlap ends where the curves part
+    // and not on the scan grid (a boss rim lying on its face's rim
+    // pcurve parted at boundary t = 0.5 and was reported at 24/49; the
+    // clip window then lost 1.1% of the rim at each end and the union
+    // stranded record sides, PK-789).
+    let refine = |inside: &Sample, outside: &Sample| -> Sample {
+        let (mut a, mut b) = (inside.t1, outside.t1);
+        let mut best = (inside.t2, inside.dist);
+        for _ in 0..BISECTIONS {
+            let m = 0.5 * (a + b);
+            let (t2, dist) = closest_param_on_curve(curve2, t2_range, &curve1.point_at(m));
+            if dist < tol {
+                (a, best) = (m, (t2, dist));
+            } else {
+                b = m;
+            }
+        }
+        Sample {
+            t1: a,
+            t2: best.0,
+            dist: best.1,
+        }
+    };
+    let span = |start: usize, end: usize| -> Vec<Sample> {
+        let mut run: Vec<Sample> = samples[start..=end]
+            .iter()
+            .map(|s| Sample {
+                t1: s.t1,
+                t2: s.t2,
+                dist: s.dist,
+            })
+            .collect();
+        if start > 0 {
+            run[0] = refine(&samples[start], &samples[start - 1]);
+        }
+        if end + 1 < samples.len() {
+            let last = run.len() - 1;
+            run[last] = refine(&samples[end], &samples[end + 1]);
+        }
+        run
+    };
+
     // Collect contiguous runs where dist < tolerance.linear().
     let mut overlaps: Vec<CurveIntersection> = Vec::new();
 
     let mut run_start: Option<usize> = None;
 
-    for i in 0..samples.len() {
-        let in_tol = samples[i].dist < tol;
+    for (i, sample) in samples.iter().enumerate() {
+        let in_tol = sample.dist < tol;
         match (in_tol, run_start) {
             (true, None) => run_start = Some(i),
             (false, Some(start)) => {
                 let end = i - 1;
                 if end - start + 1 >= MIN_CONSECUTIVE {
-                    overlaps.push(build_overlap(&samples[start..=end]));
+                    overlaps.push(build_overlap(&span(start, end)));
                 }
                 run_start = None;
             }
@@ -146,7 +194,7 @@ pub(crate) fn detect_overlaps(
     if let Some(start) = run_start {
         let end = samples.len() - 1;
         if end - start + 1 >= MIN_CONSECUTIVE {
-            overlaps.push(build_overlap(&samples[start..=end]));
+            overlaps.push(build_overlap(&span(start, end)));
         }
     }
 
@@ -170,6 +218,29 @@ mod tests {
     use super::*;
     use crate::geometry::Point3;
     use crate::tolerance::Tolerance;
+
+    /// A run ending inside curve 1 ends where the curves part, not on
+    /// the 50-sample scan (PK-789): curve 2 covers curve 1 from t = 0.37,
+    /// which the scan alone reports at its next sample, 19/49 = 0.388.
+    #[test]
+    fn a_partial_overlap_ends_where_the_curves_part() {
+        let line = |a: f64, b: f64| NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(a, 0.0, 0.0), Point3::new(b, 0.0, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let (c1, c2) = (line(0.0, 1.0), line(0.37, 2.0));
+        let overlaps =
+            detect_overlaps(&c1, (0.0, 1.0), &c2, (0.0, 1.0), &[], &Tolerance::default());
+        let [CurveIntersection::Overlap { t1_range, t2_range }] = overlaps.as_slice() else {
+            panic!("one overlap expected: {overlaps:?}");
+        };
+        let lin = Tolerance::default().linear();
+        assert!((t1_range.0 - 0.37).abs() <= lin, "start {}", t1_range.0);
+        assert!((t1_range.1 - 1.0).abs() <= 1e-12);
+        assert!(t2_range.0.abs() <= lin, "curve-2 start {}", t2_range.0);
+    }
 
     #[test]
     fn detect_full_overlap() {

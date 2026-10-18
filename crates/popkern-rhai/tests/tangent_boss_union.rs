@@ -144,21 +144,21 @@ fn pinned(c: &Casting, name: &str, task: &str) {
 #[test]
 fn the_tangent_boss_casting_serves_through_tangency() {
     let mut failures = Vec::new();
-    for delta in [0.0, 1e-6, 1e-4, 1e-3, 3e-3, 1e-2, -1e-3, -0.1, 0.1] {
+    // delta -1e-6 (the boss a linear tolerance short of the web top):
+    // the boss end rim lies on its face's rim pcurve, and the curve
+    // overlap ending mid-pcurve was reported on the scan grid — the clip
+    // dropped 1.1% of the rim each side of its seam vertex and two record
+    // ends dangled (PK-789).
+    for delta in [0.0, -1e-6, 1e-6, 1e-4, 1e-3, 3e-3, 1e-2, -1e-3, -0.1, 0.1] {
         let name = format!("boss_{delta:e}");
         if let Err(e) = serves(&tangent_boss(-50.0 + delta, -770.0), &name) {
             failures.push(e);
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
-    for delta in [-1e-6, 1e-7] {
-        // Within the linear tolerance of tangency (PK-789).
-        pinned(
-            &tangent_boss(-50.0 + delta, -770.0),
-            &format!("boss_{delta:e}"),
-            "PK-789",
-        );
-    }
+    // Within the linear tolerance of tangency, the boss 1e-7 proud: the
+    // end face's rim circle bulges past the web edge (PK-789).
+    pinned(&tangent_boss(-50.0 + 1e-7, -770.0), "boss_1e-7", "PK-789");
 }
 
 #[test]
