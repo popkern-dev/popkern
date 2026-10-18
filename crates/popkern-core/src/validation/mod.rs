@@ -56,8 +56,9 @@ impl BRep {
         // analogue) and acceptance ladders gate on this method;
         // serving boundaries (Part ops, validate_all) arm it.
         self.validate_face_orientation()?;
-        self.validate_loop_closure()?;
-        self.validate_watertight()?;
+        let ends = self.edge_curve_endpoints();
+        self.validate_loop_closure_with(&ends)?;
+        self.validate_watertight_with(&ends)?;
         // Precision checks (11)
         self.validate_precision_fast()?;
         // Note: validate_self_intersection is intentionally excluded from

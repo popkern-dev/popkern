@@ -20,6 +20,38 @@ impl BRep {
     /// For edges with [`CurveOnEdge`], the curve is evaluated at `t_end` and
     /// compared to the next edge's start.
     pub fn validate_loop_closure(&self) -> Result<(), ValidationError> {
+        self.validate_loop_closure_with(&self.edge_curve_endpoints())
+    }
+
+    /// Each edge's curve endpoints `(t_start, t_end)`, evaluated once:
+    /// loop closure and watertightness both read them, twice per edge
+    /// each (PK-815: ~40% of `validate()` on a 255-face body).
+    pub(super) fn edge_curve_endpoints(
+        &self,
+    ) -> slotmap::SecondaryMap<
+        crate::topology::EdgeHandle,
+        (crate::geometry::Point3, crate::geometry::Point3),
+    > {
+        let mut ends = slotmap::SecondaryMap::with_capacity(self.edges.len());
+        for (edge, data) in &self.edges {
+            if let Some(c) = &data.curve {
+                ends.insert(
+                    edge,
+                    (c.geometry.point_at(c.t_start), c.geometry.point_at(c.t_end)),
+                );
+            }
+        }
+        ends
+    }
+
+    /// [`Self::validate_loop_closure`] over precomputed endpoints.
+    pub(super) fn validate_loop_closure_with(
+        &self,
+        ends: &slotmap::SecondaryMap<
+            crate::topology::EdgeHandle,
+            (crate::geometry::Point3, crate::geometry::Point3),
+        >,
+    ) -> Result<(), ValidationError> {
         for (loop_handle, loop_data) in &self.loops {
             let start_he = loop_data.half_edge;
 
@@ -52,12 +84,11 @@ impl BRep {
                 // Determine the "end" position of this half-edge.
                 // If there is curve geometry on the parent edge, evaluate at t_end.
                 // Otherwise, the end is the next half-edge's origin vertex.
-                let edge = match self.edges.get(he.edge) {
-                    Some(e) => e,
-                    None => break,
-                };
+                if !self.edges.contains_key(he.edge) {
+                    break;
+                }
 
-                let end_pos = if let Some(curve_on_edge) = &edge.curve {
+                let end_pos = if let Some(&(p_t_start, p_t_end)) = ends.get(he.edge) {
                     // The curve has two endpoints (t_start, t_end). One
                     // matches this half-edge's *origin* vertex; the other
                     // matches its destination. We can't assume the curve
@@ -66,8 +97,6 @@ impl BRep {
                     // authored in the opposite direction. Pick the
                     // endpoint *farther* from `start_pos` (the half-edge's
                     // origin position) as this half-edge's "end".
-                    let p_t_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
-                    let p_t_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
                     let d_to_start = start_pos.distance_to(&p_t_start);
                     let d_to_end = start_pos.distance_to(&p_t_end);
                     if d_to_start <= d_to_end {
@@ -172,6 +201,17 @@ impl BRep {
     ///
     /// For v1a, gracefully skip edges with no geometry.
     pub fn validate_watertight(&self) -> Result<(), ValidationError> {
+        self.validate_watertight_with(&self.edge_curve_endpoints())
+    }
+
+    /// [`Self::validate_watertight`] over precomputed endpoints.
+    pub(super) fn validate_watertight_with(
+        &self,
+        ends: &slotmap::SecondaryMap<
+            crate::topology::EdgeHandle,
+            (crate::geometry::Point3, crate::geometry::Point3),
+        >,
+    ) -> Result<(), ValidationError> {
         for (edge_handle, edge_data) in &self.edges {
             // Retired scaffolding is not part of the production shell:
             // partition legs park displaced sides in ConstructionResidual
@@ -181,14 +221,10 @@ impl BRep {
             if edge_data.role == TopologyRole::ConstructionResidual {
                 continue;
             }
-            let Some(curve_on_edge) = &edge_data.curve else {
+            let Some(&(p_start, p_end)) = ends.get(edge_handle) else {
                 // No geometry — skip.
                 continue;
             };
-
-            // Evaluate the curve at its two endpoints.
-            let p_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
-            let p_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
 
             // The two half-edges for this edge must have origins that match
             // p_start and p_end respectively (or vice versa).
