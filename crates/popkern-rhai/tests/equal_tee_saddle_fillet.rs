@@ -7,7 +7,7 @@
 //! its strips end on the tangent points, with no corner blend there.
 //!
 //! - It serves watertight at r = 2, 4 and 8 with no failure. At
-//!   r = 2 every seam certifies G1 (larger radii: PK-767).
+//!   r = 2 and 4 every seam certifies G1 (r = 8: PK-767).
 //! - OpenCASCADE reads one valid solid.
 //! - The concave fillet adds material along a fixed saddle, so
 //!   (V − V₀) / r² agrees across the radii. It approaches the
@@ -98,12 +98,12 @@ fn the_equal_radius_saddle_fillets_with_strips_that_run_out_at_the_singular_poin
             .expect("saddle row");
         let achieved = &saddle["blend"]["continuity"]["achieved"];
         eprintln!("[pk764] r {r}: continuity achieved {achieved}");
-        // At r = 2 every seam certifies G1. At larger radii the strip
-        // rows part from their supports by ~2.6e-5 between stations,
-        // over the 1e-5 G0 gate (the unequal r30 tee downgrades at r = 8
-        // the same way), and a projected seam correspondence misreads
-        // the narrowing tip: PK-767.
-        if r == 2.0 {
+        // At r = 2 and r = 4 every seam certifies G1 (r = 4 since the
+        // 2026-10 station and seam work; re-measured 2026-10-18). At
+        // r = 8 the blend-to-support seams part 9.6e-5 from their
+        // supports near the vanishing tip, over the 1e-5 G0 gate, while
+        // the walker's rail midpoints sit at 8.5e-6: PK-767.
+        if r <= 4.0 {
             assert_eq!(achieved, "G1", "r {r}: {saddle}");
         }
         if let (Some(v0), Some(v)) = (v0, occ_volume(&source, &format!("fillet_{r}"))) {
