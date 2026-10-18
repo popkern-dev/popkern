@@ -60,20 +60,31 @@ pub(crate) fn intersect_line_cylinder(
         return Vec::new();
     }
 
-    let discriminant = b_coef * b_coef - 4.0 * a_coef * c_coef;
-
-    // Classify discriminant relative to a tolerance band.
-    let disc_eps = tolerance.linear() * tolerance.linear() * a_coef;
-
-    let t_candidates: Vec<f64> = if discriminant < -disc_eps {
+    // Tangency by DISTANCE, as the plane x cylinder solver decides it:
+    // the line's closest approach to the axis, h, against the radius
+    // within the linear tolerance. The former discriminant band
+    // (tol^2 * a) admitted only h within ~tol^2/(8r) of r — a web edge
+    // 1e-7 inside a radius-33 boss read as two crossings 5e-3 apart
+    // while the web face's plane read the same contact as tangent, and
+    // the boolean stranded the record ends between them (PK-789).
+    let t_foot = -b_coef / (2.0 * a_coef);
+    let h = (dp_perp + d_perp * t_foot).length();
+    let lin = tolerance.linear();
+    // A line OUTSIDE the radius touches nothing a record passes
+    // through (the plane x cylinder solver emits no curve there either),
+    // so it misses; one strictly less than a tolerance INSIDE is a
+    // tangent contact. The band is open at a whole tolerance: a contact
+    // exactly that deep is the secant the stadium fixtures serve on (a
+    // closed band read them tangent and left 18 curveless edges).
+    let t_candidates: Vec<f64> = if h > cyl_radius {
         // No real intersection — line misses the cylinder.
         return Vec::new();
-    } else if discriminant <= disc_eps {
-        // Tangent — one solution (double root).
-        vec![-b_coef / (2.0 * a_coef)]
+    } else if h > cyl_radius - lin {
+        // Tangent within tolerance — one contact at the foot point.
+        vec![t_foot]
     } else {
         // Secant — two distinct solutions.
-        let sqrt_disc = discriminant.sqrt();
+        let sqrt_disc = (b_coef * b_coef - 4.0 * a_coef * c_coef).max(0.0).sqrt();
         vec![
             (-b_coef - sqrt_disc) / (2.0 * a_coef),
             (-b_coef + sqrt_disc) / (2.0 * a_coef),
@@ -192,6 +203,43 @@ mod tests {
     // -----------------------------------------------------------------------
     // Tangent: line just grazes the cylinder (discriminant ≈ 0)
     // -----------------------------------------------------------------------
+    /// Tangency is a distance band (PK-789): a line up to a tolerance
+    /// inside the radius touches once, at its foot point; one outside
+    /// misses. A radius-33 cylinder and a line 1e-7 inside used to give
+    /// two crossings 5e-3 apart.
+    #[test]
+    fn a_line_within_tolerance_inside_touches_once_and_outside_misses() {
+        let (o, ax) = (Point3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 1.0));
+        let at = |y: f64| {
+            intersect_line_cylinder(
+                &Point3::new(-50.0, y, 0.0),
+                &Vec3::new(1.0, 0.0, 0.0),
+                (0.0, 100.0),
+                &o,
+                &ax,
+                33.0,
+                (0.0, TAU),
+                (-10.0, 10.0),
+                &default_tol(),
+            )
+        };
+        let inside = at(33.0 - 1e-7);
+        assert_eq!(inside.len(), 1, "{inside:?}");
+        let SurfaceCurveIntersection::Point { point, .. } = &inside[0] else {
+            panic!("point contact expected: {inside:?}");
+        };
+        assert!(point.x.abs() < 1e-9, "the foot point: {point:?}");
+        assert!(
+            at(33.0 + 1e-7).is_empty(),
+            "a line outside the radius misses"
+        );
+        assert_eq!(
+            at(33.0 - 1e-3).len(),
+            2,
+            "a real secant still crosses twice"
+        );
+    }
+
     #[test]
     fn tangent_one_intersection() {
         let (o, ax, r) = unit_cylinder();

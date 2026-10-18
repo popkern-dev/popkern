@@ -149,16 +149,20 @@ fn the_tangent_boss_casting_serves_through_tangency() {
     // overlap ending mid-pcurve was reported on the scan grid — the clip
     // dropped 1.1% of the rim each side of its seam vertex and two record
     // ends dangled (PK-789).
-    for delta in [0.0, -1e-6, 1e-6, 1e-4, 1e-3, 3e-3, 1e-2, -1e-3, -0.1, 0.1] {
+    // Within the tolerance band: delta 1e-7 / 5e-7 put the web's top
+    // edge inside the boss by less than a tolerance — it read as two
+    // crossings 5e-3 apart (line x cylinder's tangency band was
+    // tol^2/(8r)) while the web's top plane read the same contact as
+    // tangent, and the record ends stranded between them (PK-789).
+    for delta in [
+        0.0, -1e-6, -1e-7, 1e-7, 5e-7, 1e-6, 1e-4, 1e-3, 3e-3, 1e-2, -1e-3, -0.1, 0.1,
+    ] {
         let name = format!("boss_{delta:e}");
         if let Err(e) = serves(&tangent_boss(-50.0 + delta, -770.0), &name) {
             failures.push(e);
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
-    // Within the linear tolerance of tangency, the boss 1e-7 proud: the
-    // end face's rim circle bulges past the web edge (PK-789).
-    pinned(&tangent_boss(-50.0 + 1e-7, -770.0), "boss_1e-7", "PK-789");
 }
 
 #[test]
