@@ -41,13 +41,15 @@ impl BRep {
     /// half-edge in arena order is the one reported, as before.
     pub fn validate_half_edge_cycles(&self) -> Result<(), ValidationError> {
         let bound = self.half_edges.len();
-        let mut on_cycle: std::collections::HashSet<crate::topology::HalfEdgeHandle> =
-            std::collections::HashSet::with_capacity(bound);
+        // A dense slot-indexed set: the SipHash set cost ~87 us on a
+        // 1000-half-edge body, most of a validate() (PK-815).
+        let mut on_cycle: slotmap::SecondaryMap<crate::topology::HalfEdgeHandle, ()> =
+            slotmap::SecondaryMap::with_capacity(bound);
         let mut members = Vec::new();
 
         for (he_handle, he_data) in &self.half_edges {
             if self.half_edge_is_construction_residual_for_cycle_validation(he_data)
-                || on_cycle.contains(&he_handle)
+                || on_cycle.contains_key(he_handle)
             {
                 continue;
             }
@@ -62,7 +64,7 @@ impl BRep {
 
             while cursor != he_handle {
                 steps += 1;
-                if steps > bound || on_cycle.contains(&cursor) {
+                if steps > bound || on_cycle.contains_key(cursor) {
                     return Err(broken());
                 }
                 match self.half_edges.get(cursor) {
@@ -76,7 +78,9 @@ impl BRep {
                     None => return Err(broken()),
                 }
             }
-            on_cycle.extend(members.iter().copied());
+            for &member in &members {
+                on_cycle.insert(member, ());
+            }
         }
         Ok(())
     }
@@ -108,16 +112,16 @@ impl BRep {
     /// Only genuinely isolated vertices (no incident half-edges at
     /// all) are exempt.
     pub fn validate_vertex_consistency(&self) -> Result<(), ValidationError> {
-        let mut has_incident: std::collections::BTreeSet<crate::topology::VertexHandle> =
-            std::collections::BTreeSet::new();
+        let mut has_incident: slotmap::SecondaryMap<crate::topology::VertexHandle, ()> =
+            slotmap::SecondaryMap::with_capacity(self.vertices.len());
         for (_, he) in &self.half_edges {
-            has_incident.insert(he.origin);
+            has_incident.insert(he.origin, ());
         }
         for (v_handle, v_data) in &self.vertices {
             let outgoing = v_data.outgoing;
             if !self.half_edges.contains_key(outgoing) {
                 if outgoing != crate::topology::HalfEdgeHandle::default()
-                    || has_incident.contains(&v_handle)
+                    || has_incident.contains_key(v_handle)
                 {
                     return Err(ValidationError::InconsistentVertex {
                         vertex: v_handle,
