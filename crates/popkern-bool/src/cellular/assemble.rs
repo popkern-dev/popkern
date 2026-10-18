@@ -30,6 +30,7 @@ use crate::merge::walk::Fragment;
 #[path = "assemble_material_audit.rs"]
 mod assemble_material_audit;
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn cellular_assemble(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
@@ -38,12 +39,9 @@ pub(crate) fn cellular_assemble(
     brep_b: &BRep,
     tolerance: Tolerance,
     carried: &mut std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
-    far: Option<&[popkern_core::topology::FaceHandle]>,
+    far: Option<&crate::scope::ActiveScope>,
 ) -> Result<BRep, BoolDiagnostics> {
-    let mut carry = super::assemble_far_carry::CarryMaps {
-        edges: HashMap::new(),
-        vertices: HashMap::new(),
-    };
+    let mut carry = super::assemble_far_carry::CarryMaps::default();
     let mut builder = BRepBuilder::new(tolerance);
     let solid = builder.add_solid();
     let shell = builder.add_shell(solid);
@@ -249,6 +247,7 @@ pub(crate) fn cellular_assemble(
         }
         assemble_material_audit::trace_material_sides(graph, frag, sel, brep_a, brep_b);
         let face_h = builder.add_face(shell);
+        carry.kept_faces(frag.face, face_h, sel.flip);
 
         // This fragment's face surface — needed to orient installed
         // pcurves by sampled comparison. Installs are scoped to

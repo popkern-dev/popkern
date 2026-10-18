@@ -70,18 +70,31 @@ pub(super) fn select_and_serve(
                 scope,
             )
         };
-        let scoped = crate::scope::serving_scope(original_a, intersection_result, op, tolerance)
-            .and_then(|scope| match merge(Some(&scope)) {
-                Ok((r, carried)) if r.validate().is_ok() => Some(Ok((r, carried))),
-                outcome => {
-                    if popkern_core::trace::trace_enabled("boolean") {
-                        eprintln!(
-                            "  [scope] scoped run declined: {:?}",
-                            outcome.err().map(|d| d.into_error().to_string())
-                        );
-                    }
-                    None
+        let attempt = |scope: &crate::scope::ActiveScope| match merge(Some(scope)) {
+            Ok((r, carried)) if r.validate().is_ok() => Some(Ok((r, carried))),
+            outcome => {
+                if popkern_core::trace::trace_enabled("boolean") {
+                    eprintln!(
+                        "  [scope] scoped run declined (holes {}): {:?}",
+                        scope.far_holes.len(),
+                        outcome.err().map(|d| d.into_error().to_string())
+                    );
                 }
+                None
+            }
+        };
+        // Hole scope, then face scope, then unscoped.
+        let scoped = crate::scope::serving_scope(original_a, intersection_result, op, tolerance)
+            .and_then(|scope| {
+                attempt(&scope).or_else(|| {
+                    (!scope.far_holes.is_empty()).then(|| {
+                        let faces_only = crate::scope::ActiveScope {
+                            far_holes: Default::default(),
+                            ..scope.clone()
+                        };
+                        attempt(&faces_only)
+                    })?
+                })
             });
         // A scoped result arrives validated (its validity decided the
         // fallback); the arm below does not validate it twice.

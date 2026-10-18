@@ -37,6 +37,9 @@ fn the_last_slot_cut_touches_three_faces_and_carries_the_rest() {
         (3, 252, 504),
         "top, bottom and outer wall active; the other slots' walls far"
     );
+    // Stage 2b: the top and bottom faces' 63 earlier slot holes each lie
+    // away from the tool and are carried like far faces.
+    assert_eq!(scope.far_holes.values().map(Vec::len).sum::<usize>(), 126);
     let result =
         crate::boolean(BoolOperation::Subtraction, body.clone(), tool, tol, None).expect("cut");
     assert_eq!(
@@ -83,7 +86,7 @@ fn the_scoped_merge_assembles_the_unscoped_body() {
     let counts = |b: &BRep| (b.faces.len(), b.edges.len(), b.vertices.len());
     assert_eq!(counts(&scoped), counts(&unscoped));
     assert!(scoped.validate().is_ok());
-    let mut keys = |b: &BRep| {
+    let keys = |b: &BRep| {
         let mut k: Vec<_> = b.faces.keys().map(|f| super::face_key(b, f)).collect();
         k.sort();
         k

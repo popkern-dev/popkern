@@ -289,6 +289,7 @@ impl BRep {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn measure_pcurve_deviation(
     half_edge: HalfEdgeHandle,
     face: FaceHandle,

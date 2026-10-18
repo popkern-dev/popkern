@@ -42,18 +42,27 @@ pub(crate) fn insert_operand_topology_scoped(
     brep: &BRep,
     operand: Operand,
     tolerance: f64,
-    active: Option<&std::collections::HashSet<popkern_core::topology::FaceHandle>>,
+    scope: Option<&crate::scope::ActiveScope>,
 ) -> (HashMap<VertexHandle, usize>, HashMap<HalfEdgeHandle, usize>) {
     let mut vertex_map: HashMap<VertexHandle, usize> = HashMap::new();
     let mut he_map: HashMap<HalfEdgeHandle, usize> = HashMap::new();
-    let face_of = |he: HalfEdgeHandle| {
-        brep.half_edges
-            .get(he)
-            .and_then(|h| brep.loops.get(h.loop_))
-            .map(|l| l.face)
+    let active = scope.map(|s| &s.active);
+    let holes: std::collections::HashSet<popkern_core::topology::LoopHandle> = scope
+        .map(|s| s.far_holes.values().flatten().copied().collect())
+        .unwrap_or_default();
+    // In scope: on an active face, and not on one of its far holes.
+    let in_scope = |he: HalfEdgeHandle| {
+        let Some(h) = brep.half_edges.get(he) else {
+            return active.is_none();
+        };
+        active.is_none_or(|set| {
+            !holes.contains(&h.loop_)
+                && brep
+                    .loops
+                    .get(h.loop_)
+                    .is_some_and(|l| set.contains(&l.face))
+        })
     };
-    let in_scope =
-        |he: HalfEdgeHandle| active.is_none_or(|set| face_of(he).is_some_and(|f| set.contains(&f)));
     let scoped_vertices: Option<std::collections::HashSet<VertexHandle>> = active.map(|_| {
         brep.half_edges
             .iter()
@@ -221,8 +230,8 @@ pub(crate) fn insert_operand_topology_scoped(
         // Walk outer loop.
         walk_loop_and_assign(graph, brep, face.outer_loop, face_ref, &he_map);
 
-        // Walk inner loops.
-        for &inner_loop_h in &face.inner_loops {
+        // Walk inner loops (a scoped run's far holes stay out).
+        for &inner_loop_h in face.inner_loops.iter().filter(|l| !holes.contains(l)) {
             walk_loop_and_assign(graph, brep, inner_loop_h, face_ref, &he_map);
         }
     }

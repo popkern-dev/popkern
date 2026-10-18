@@ -63,14 +63,12 @@ pub(crate) fn cellular_graph_merge(
     // Insert original topology from both operands.
     // A scoped run (PK-814) builds `a`'s graph from its active faces only
     // and carries the far faces through the assembly.
-    let active: Option<std::collections::HashSet<_>> =
-        scope.map(|s| s.active.iter().copied().collect());
     let (_vmap_a, hemap_a) = crate::merge::graph_build::insert_operand_topology_scoped(
         &mut graph,
         original_a,
         Operand::A,
         snap_tol,
-        active.as_ref(),
+        scope,
     );
     let (_vmap_b, hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
@@ -244,7 +242,7 @@ pub(crate) fn cellular_graph_merge(
         original_b,
         *tolerance,
         &mut carried,
-        scope.map(|s| s.far.as_slice()),
+        scope,
     )
     .map_err(|mut diag| {
         // ChartSubdivisionReport promotion (PK-106): a failed cellular

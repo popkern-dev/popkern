@@ -21,11 +21,32 @@ use popkern_core::topology::{
 };
 
 /// Original `a` entities already built by the assembly.
+#[derive(Default)]
 pub(super) struct CarryMaps {
     /// Unsplit original edges of `a` and the result edge built from each.
     pub(super) edges: HashMap<EdgeHandle, EdgeHandle>,
     /// `a`'s vertices and their result vertices.
     pub(super) vertices: HashMap<VertexHandle, VertexHandle>,
+    /// Result faces built from each face of `a`'s kept fragments, with
+    /// their flip.
+    faces: HashMap<FaceHandle, Vec<(FaceHandle, bool)>>,
+}
+
+impl CarryMaps {
+    /// Record a kept fragment's result face.
+    pub(super) fn kept_faces(
+        &mut self,
+        face: crate::merge::graph::FaceRef,
+        result: FaceHandle,
+        flip: bool,
+    ) {
+        if face.operand == crate::merge::graph::Operand::A {
+            self.faces
+                .entry(face.face)
+                .or_default()
+                .push((result, flip));
+        }
+    }
 }
 
 /// [`append_far_faces`] for the assembler: a failure is a merge
@@ -35,18 +56,20 @@ pub(super) fn carry(
     builder: &mut BRepBuilder,
     shell: ShellHandle,
     a: &BRep,
-    far: &[FaceHandle],
+    scope: &crate::scope::ActiveScope,
     maps: &mut CarryMaps,
     carried: &mut std::collections::BTreeSet<EdgeHandle>,
 ) -> Result<(), crate::error::BoolDiagnostics> {
-    append_far_faces(builder, shell, a, far, maps).map_err(|reason| {
-        let mut d = crate::error::BoolDiagnostics::default();
-        d.warn(
-            crate::error::Stage::Merge,
-            format!("far-face carry: {reason}"),
-        );
-        d
-    })?;
+    append_far_holes(builder, a, &scope.far_holes, maps)
+        .and_then(|()| append_far_faces(builder, shell, a, &scope.far, maps))
+        .map_err(|reason| {
+            let mut d = crate::error::BoolDiagnostics::default();
+            d.warn(
+                crate::error::Stage::Merge,
+                format!("far-face carry: {reason}"),
+            );
+            d
+        })?;
     carried.extend(maps.edges.values().copied());
     Ok(())
 }
@@ -65,9 +88,9 @@ pub(super) fn append_far_faces(
         {
             let r = builder.brep_mut();
             r.faces[rf].surface = face.surface.clone();
-            r.faces[rf].name = face.name.clone();
+            r.faces[rf].name = face.name;
             r.faces[rf].tolerance = face.tolerance;
-            r.faces[rf].role = face.role.clone();
+            r.faces[rf].role = face.role;
         }
         let loops: Vec<LoopHandle> = std::iter::once(face.outer_loop)
             .chain(face.inner_loops.iter().copied())
@@ -85,6 +108,36 @@ pub(super) fn append_far_faces(
                     .add_inner_loop(&out, rf)
                     .map_err(|e| e.to_string())?;
             }
+        }
+    }
+    Ok(())
+}
+
+/// Append each active face's far holes (inner loops the graph never
+/// saw) to the one result face its kept fragment became: the hole lies
+/// away from the tool, so in a union or a subtraction it stays in the
+/// kept material around it. A face that came through as several
+/// fragments, flipped, or not at all declines the carry.
+fn append_far_holes(
+    builder: &mut BRepBuilder,
+    a: &BRep,
+    holes: &std::collections::BTreeMap<FaceHandle, Vec<LoopHandle>>,
+    maps: &mut CarryMaps,
+) -> Result<(), String> {
+    for (face, loops) in holes {
+        let target = match maps.faces.get(face).map(Vec::as_slice) {
+            Some(&[(rf, false)]) => rf,
+            other => return Err(format!("far holes of {face:?}: kept as {other:?}")),
+        };
+        for &lh in loops {
+            let hes = loop_half_edges(a, lh)?;
+            let mut out = Vec::with_capacity(hes.len());
+            for h in hes {
+                out.push(carry_half_edge(builder, a, h, maps)?);
+            }
+            builder
+                .add_inner_loop(&out, target)
+                .map_err(|e| e.to_string())?;
         }
     }
     Ok(())
@@ -116,7 +169,7 @@ fn carry_vertex(
     let src = a.vertices.get(v).ok_or("far vertex missing")?;
     let rv = builder.add_vertex(src.position);
     let r = builder.brep_mut();
-    r.vertices[rv].name = src.name.clone();
+    r.vertices[rv].name = src.name;
     r.vertices[rv].tolerance = src.tolerance;
     maps.vertices.insert(v, rv);
     Ok(rv)
@@ -154,10 +207,10 @@ fn carry_half_edge(
             let (re, _, _) = builder.add_edge(rv0, rv1);
             let r = builder.brep_mut();
             r.edges[re].curve = edge.curve.clone();
-            r.edges[re].name = edge.name.clone();
+            r.edges[re].name = edge.name;
             r.edges[re].tolerance = edge.tolerance;
-            r.edges[re].canonical = edge.canonical.clone();
-            r.edges[re].role = edge.role.clone();
+            r.edges[re].canonical = edge.canonical;
+            r.edges[re].role = edge.role;
             maps.edges.insert(e, re);
             re
         }

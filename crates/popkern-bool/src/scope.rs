@@ -36,6 +36,10 @@ pub(crate) struct ActiveScope {
     pub(crate) far: Vec<FaceHandle>,
     /// Edges between an active and a far face.
     pub(crate) frontier: BTreeSet<EdgeHandle>,
+    /// Inner loops of active PLANAR faces that the tool cannot reach
+    /// (stage 2b): carried like far faces, never entering the graph.
+    pub(crate) far_holes:
+        std::collections::BTreeMap<FaceHandle, Vec<popkern_core::topology::LoopHandle>>,
 }
 
 /// Whether compare mode is on (`POPKERN_BOOL_SCOPE=compare`).
@@ -117,11 +121,126 @@ pub(crate) fn active_scope(
             frontier.insert(eh);
         }
     }
+    // The walk's peel pad: 100 linear tolerances, ten scope pads.
+    let far_holes = far_holes(a, &active, (lo, hi), 10.0 * pad);
     ActiveScope {
         active,
         far,
         frontier,
+        far_holes,
     }
+}
+
+/// The inner loops of active planar faces whose conservative curve box
+/// misses the tool's box padded by `pad`, sharing no vertex with the
+/// face's other loops (the walk's peel premises, `identity_peel`): on a
+/// plane a loop enclosed by another lies in that loop's box, and every
+/// record lies in the tool's box, so no record touches or encloses such
+/// a hole.
+fn far_holes(
+    a: &BRep,
+    active: &BTreeSet<FaceHandle>,
+    (lo, hi): (
+        popkern_core::geometry::Point3,
+        popkern_core::geometry::Point3,
+    ),
+    pad: f64,
+) -> std::collections::BTreeMap<FaceHandle, Vec<popkern_core::topology::LoopHandle>> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let mut out = std::collections::BTreeMap::new();
+    for &fh in active {
+        let Some(face) = a.faces.get(fh) else {
+            continue;
+        };
+        if face.inner_loops.is_empty()
+            || !matches!(
+                face.surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Plane { .. })
+            )
+        {
+            continue;
+        }
+        // Loops each vertex bounds: a hole sharing a vertex with
+        // another loop has one counted twice (one pass, not per hole).
+        let loops: Vec<_> = std::iter::once(face.outer_loop)
+            .chain(face.inner_loops.iter().copied())
+            .collect();
+        let mut bounds: HashMap<popkern_core::topology::VertexHandle, usize> = HashMap::new();
+        for &lh in &loops {
+            let mut seen = HashSet::new();
+            for h in loop_half_edges(a, lh) {
+                if let Some(v) = a.half_edges.get(h).map(|x| x.origin)
+                    && seen.insert(v)
+                {
+                    *bounds.entry(v).or_default() += 1;
+                }
+            }
+        }
+        let mut holes = Vec::new();
+        for &lh in &face.inner_loops {
+            let shares = loop_half_edges(a, lh).iter().any(|&h| {
+                a.half_edges
+                    .get(h)
+                    .is_some_and(|x| bounds.get(&x.origin).is_some_and(|&n| n > 1))
+            });
+            let clear = loop_box(a, lh).is_some_and(|(l, h)| {
+                l.x - pad > hi.x
+                    || h.x + pad < lo.x
+                    || l.y - pad > hi.y
+                    || h.y + pad < lo.y
+                    || l.z - pad > hi.z
+                    || h.z + pad < lo.z
+            });
+            if clear && !shares {
+                holes.push(lh);
+            }
+        }
+        if !holes.is_empty() {
+            out.insert(fh, holes);
+        }
+    }
+    out
+}
+
+fn loop_half_edges(
+    a: &BRep,
+    lh: popkern_core::topology::LoopHandle,
+) -> Vec<popkern_core::topology::HalfEdgeHandle> {
+    let mut out = Vec::new();
+    let Some(start) = a.loops.get(lh).map(|l| l.half_edge) else {
+        return out;
+    };
+    let mut he = start;
+    for _ in 0..=a.half_edges.len() {
+        let Some(h) = a.half_edges.get(he) else { break };
+        out.push(he);
+        he = h.next;
+        if he == start {
+            break;
+        }
+    }
+    out
+}
+
+/// A loop's conservative 3D box: vertices plus each edge curve's
+/// conservative extent (as the walk's peel uses).
+fn loop_box(
+    a: &BRep,
+    lh: popkern_core::topology::LoopHandle,
+) -> Option<(
+    popkern_core::geometry::Point3,
+    popkern_core::geometry::Point3,
+)> {
+    let mut points = Vec::new();
+    for h in loop_half_edges(a, lh) {
+        let he = a.half_edges.get(h)?;
+        points.push(a.vertices.get(he.origin)?.position);
+        if let Some(c) = a.edges.get(he.edge).and_then(|e| e.curve.as_ref()) {
+            crate::face_box::conservative_curve_extent(c, &mut points);
+        }
+    }
+    let b = Aabb::from_points(&points)?;
+    Some((b.min, b.max))
 }
 
 /// Every half-edge of the face's loops.
@@ -313,6 +432,14 @@ pub(crate) fn serving_scope(
         &intersection.aabbs_b,
         10.0 * tolerance.linear(),
     );
+    if popkern_core::trace::trace_enabled("boolean") {
+        eprintln!(
+            "  [scope] serving: active {} far {} far holes {}",
+            scope.active.len(),
+            scope.far.len(),
+            scope.far_holes.values().map(Vec::len).sum::<usize>()
+        );
+    }
     (scope.far.len() >= MIN_FAR_FACES).then_some(scope)
 }
 
