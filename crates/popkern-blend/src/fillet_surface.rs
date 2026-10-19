@@ -94,8 +94,6 @@ pub fn build_fillet_surface(
         && let Some(solutions) = center_result.contact_solutions.as_deref()
         && solutions.len() >= 2
     {
-        use crate::g2_cross_section::g2_sweep_from_contact_solutions;
-
         // Circular spine (coaxial plane × cylinder/cone/sphere): the
         // exact surface of revolution of one G2 section — its rows
         // are the rails, where the cubic loft below left them by
@@ -127,7 +125,7 @@ pub fn build_fillet_surface(
         // BallSide translation is needed here (the previous mapping
         // hardcoded the concave-edge case and mirrored every convex
         // blend — PK-091).
-        match g2_sweep_from_contact_solutions(solutions, surface1, surface2) {
+        match crate::closed_station_loft::g2_sweep_or_ring(solutions, surface1, surface2) {
             Ok(nurbs) => {
                 let trim_1 = crate::center_curve::fit_nurbs_through_points(&contacts_0)?;
                 let trim_2 = crate::center_curve::fit_nurbs_through_points(&contacts_1)?;

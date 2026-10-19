@@ -1,6 +1,7 @@
-//! The rim of a hole drilled at an angle fillets (PK-888, PK-889): the
-//! top rim of an r 5 hole tilted off a block's face normal is a plane x
-//! oblique cylinder ellipse, and its contacts are not circles.
+//! The rim of a hole drilled at an angle fillets, G1 and G2 (PK-888,
+//! PK-889, PK-884): the top rim of an r 5 hole tilted off a block's
+//! face normal is a plane x oblique cylinder ellipse, and its contacts
+//! are not circles.
 //!
 //! The strip is a periodic NURBS ring (PK-890): a chord-length periodic
 //! cubic through the walker's stations, so every pcurve pass treats its
@@ -190,14 +191,62 @@ fn an_angled_holes_rim_fillets_on_the_rolling_ball() {
     }
 }
 
-/// The G2 placement declines honestly (never an invalid serve); the
-/// pin flips when it serves.
+/// The G2 rim (PK-884): the strip is the periodic ring through the
+/// walker's G2 cross-sections, its stations refined like G1's (a closed
+/// spine has no ends to extend). Every placement serves
+/// validate_all-clean and OCC-valid as one solid, and popkern's own
+/// continuity evidence reads G2 on every strip-to-support seam.
 #[test]
-fn the_g2_angled_rim_declines_honestly() {
-    // PK-884: the G2 cubic loft for closed rims.
-    let (tilt, roll) = (8.0, 0);
-    match model(&block(tilt, roll, Some("g2"))) {
-        Ok(_) => panic!("PK-884: tilt {tilt} roll {roll} g2 now serves; promote it"),
-        Err(e) => assert!(e.contains("fillet"), "tilt {tilt} roll {roll}: {e}"),
+fn an_angled_holes_rim_fillets_g2() {
+    use popkern_blend::{ContinuityGates, ContinuityLevel, measure_blend_continuity_evidence};
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    for tilt in [8.0, 25.0] {
+        for roll in [0, 7] {
+            let name = format!("g2_tilt{tilt}_roll{roll}");
+            let mut filleted =
+                model(&block(tilt, roll, Some("g2"))).unwrap_or_else(|e| panic!("{name}: {e}"));
+            let brep = filleted.to_brep().expect("brep");
+            let errors = brep.validate_all();
+            assert!(errors.is_empty(), "{name}: {errors:?}");
+            let strips: Vec<_> = brep
+                .faces
+                .iter()
+                .filter(|(_, f)| {
+                    matches!(
+                        f.surface.as_ref().map(|s| &s.geometry),
+                        Some(SurfaceGeometry::Nurbs(_))
+                    )
+                })
+                .map(|(h, _)| h)
+                .collect();
+            assert_eq!(strips.len(), 1, "{name}: one fillet strip");
+            let evidence = measure_blend_continuity_evidence(
+                &brep,
+                &strips,
+                ContinuityLevel::G2,
+                &ContinuityGates::commercial(),
+                33,
+            );
+            assert_eq!(
+                evidence.achieved,
+                ContinuityLevel::G2,
+                "{name}: {evidence:?}"
+            );
+            eprintln!(
+                "[pk884] {name}: g1 {:.2e} g2 {:.2e}",
+                evidence.worst_g1_normal, evidence.worst_g2_residual
+            );
+            let Some(check) = oracle(&mut filleted, &name, "occ_check.py", &[]) else {
+                continue;
+            };
+            assert_eq!(
+                check["passed"], true,
+                "{name}: OCC rejects the STEP: {check}"
+            );
+            let solids =
+                oracle(&mut filleted, &name, "occ_solids.py", &["--adaptive"]).expect("oracle");
+            let solids = solids["solids"].as_array().expect("solids");
+            assert_eq!(solids.len(), 1, "{name}: one solid");
+        }
     }
 }

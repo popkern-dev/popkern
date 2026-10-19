@@ -251,6 +251,13 @@ pub(crate) fn compute_center_via_walker(
         widen(v2_range),
     );
 
+    let closed_spine = {
+        use popkern_core::geometry::curve::CurveEval;
+        let g = &curve_on_edge.geometry;
+        g.point_at(curve_on_edge.t_start)
+            .distance_to(&g.point_at(curve_on_edge.t_end))
+            <= tolerance.linear()
+    };
     center_curve::walker_based_center_curve(
         &analysis.surface_1,
         u1_range,
@@ -272,8 +279,11 @@ pub(crate) fn compute_center_via_walker(
         // geometrically closed', gap 0.87). Its fitted rim circle carried
         // centre roundoff, so boundary points sat either side of the
         // torus's v = 0 seam; the contact circles are now exact
-        // (`trim::exact_torus_contact_circles`, PK-738).
-        !extend_ends,
+        // (`trim::exact_torus_contact_circles`, PK-738). A G2 strip
+        // extends its ends instead, except round a closed spine, which
+        // has none: its periodic ring needs the stations to tolerance
+        // (20 left a G2 angled-rim rail 1.2e-3 off, PK-884).
+        !extend_ends || closed_spine,
     )
     .map_err(|e| BlendFailure::IntersectionFailed {
         reason: e,

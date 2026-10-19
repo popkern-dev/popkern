@@ -12,7 +12,12 @@
 //! cubic rails through the same contacts by 6e-5 on a 25 deg angled
 //! rim, past the 1e-5 rail gate.
 
-use popkern_core::geometry::{NurbsSurface, Point3};
+use popkern_core::geometry::{NurbsSurface, Point3, SurfaceEval};
+
+use crate::contact::ContactSolution;
+use crate::g2_cross_section::{
+    G2Error, G2Request, g2_cross_section_bezier, g2_sweep_from_contact_solutions,
+};
 
 /// Gauss–Seidel sweeps for the cyclic tridiagonal interpolation
 /// system. The loft requires its diagonal to exceed 1.5 times the
@@ -164,13 +169,7 @@ pub(crate) fn closed_ring_through_stations(
     {
         return None;
     }
-    let closes = |pts: &[Point3]| {
-        let mut steps: Vec<f64> = pts.windows(2).map(|w| w[0].distance_to(&w[1])).collect();
-        steps.sort_by(f64::total_cmp);
-        let median = steps.get(steps.len() / 2).copied().unwrap_or(0.0);
-        median > 0.0 && pts[0].distance_to(&pts[n - 1]) <= SAME_STATION * median
-    };
-    if !(closes(footprint_1) && closes(footprint_2)) {
+    if !(stations_close(footprint_1) && stations_close(footprint_2)) {
         return None;
     }
     let rows: Vec<Vec<Point3>> = (0..n - 1)
@@ -180,6 +179,54 @@ pub(crate) fn closed_ring_through_stations(
         .map(|i| loft.weights[i * m..(i + 1) * m].to_vec())
         .collect();
     closed_station_loft(&rows, &row_weights, loft.degree_v, &loft.knots_v)
+}
+
+/// True when a station sequence ends on a repeat of its first station
+/// ([`SAME_STATION`] of its median spacing).
+fn stations_close(pts: &[Point3]) -> bool {
+    let (Some(first), Some(last)) = (pts.first(), pts.last()) else {
+        return false;
+    };
+    let mut steps: Vec<f64> = pts.windows(2).map(|w| w[0].distance_to(&w[1])).collect();
+    steps.sort_by(f64::total_cmp);
+    let median = steps.get(steps.len() / 2).copied().unwrap_or(0.0);
+    pts.len() >= 4 && median > 0.0 && first.distance_to(last) <= SAME_STATION * median
+}
+
+/// The G2 strip through `solutions`: the periodic ring through their
+/// G2 cross-sections when the stations close (PK-884), else the
+/// clamped cubic loft [`g2_sweep_from_contact_solutions`]. A clamped
+/// loft through a closed rim held its seam twice and closed only to
+/// its fit (1.9e-5); its seam ends projected to opposite chart ends.
+pub(crate) fn g2_sweep_or_ring(
+    solutions: &[ContactSolution],
+    surface_0: &dyn SurfaceEval,
+    surface_1: &dyn SurfaceEval,
+) -> Result<NurbsSurface, G2Error> {
+    let contacts = |pick: fn(&ContactSolution) -> Point3| -> Vec<Point3> {
+        solutions.iter().map(pick).collect()
+    };
+    let closed =
+        stations_close(&contacts(|s| s.contact0)) && stations_close(&contacts(|s| s.contact1));
+    if closed {
+        let mut sections = Vec::with_capacity(solutions.len() - 1);
+        for solution in &solutions[..solutions.len() - 1] {
+            let request = G2Request {
+                surface_0,
+                surface_1,
+                solution,
+            };
+            sections.push(g2_cross_section_bezier(&request)?.curve);
+        }
+        let rows: Vec<Vec<Point3>> = sections.iter().map(|c| c.control_points.clone()).collect();
+        let weights: Vec<Vec<f64>> = sections.iter().map(|c| c.weights.clone()).collect();
+        if let Some(first) = sections.first()
+            && let Some(ring) = closed_station_loft(&rows, &weights, first.degree, &first.knots)
+        {
+            return Ok(ring);
+        }
+    }
+    g2_sweep_from_contact_solutions(solutions, surface_0, surface_1)
 }
 
 #[cfg(test)]

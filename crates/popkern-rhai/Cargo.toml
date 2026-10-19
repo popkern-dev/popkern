@@ -29,4 +29,5 @@ thiserror = { workspace = true }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-measure = { path = "../popkern-measure" }
 popkern-bool = { path = "../popkern-bool" }
+popkern-blend = { path = "../popkern-blend" }
 rayon = { workspace = true }
