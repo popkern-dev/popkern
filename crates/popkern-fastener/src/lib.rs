@@ -40,6 +40,7 @@ mod serve_cost_probe_tests;
 mod spec;
 mod spec_standards;
 pub mod standards;
+mod tap_tool;
 mod thread_form;
 
 #[cfg(test)]
@@ -67,6 +68,7 @@ mod thread_form_tests;
 pub use holes::{ClearanceHoleOptions, HoleDepth, TapOptions};
 pub use spec::{Handedness, ThreadSpec};
 pub use standards::ClearanceFit;
+pub use tap_tool::{TapToolFallback, take_tap_tool_fallbacks};
 
 /// Errors from fastener specification and construction.
 ///

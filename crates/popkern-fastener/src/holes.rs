@@ -16,9 +16,10 @@ use popkern_sketch::ProfileShape;
 
 use crate::FastenerError;
 use crate::engine::{cut_thread, extrude_shape, revolved_tool, subtract};
-use crate::entry_ring::{entry_ring_profile, probe_entry};
+use crate::entry_ring::{EntryProbe, entry_ring_profile, probe_entry};
 use crate::spec::ThreadSpec;
 use crate::standards::ClearanceFit;
+use crate::tap_tool::{TapToolInputs, one_tool_enabled, record_fallback, round_up_pow2, tap_tool};
 use crate::thread_form::{self, external_groove, internal_bore_radius, internal_ridge};
 
 /// How deep a hole goes, measured along its axis from the origin.
@@ -213,6 +214,42 @@ pub fn tapped_hole(
     // cuts don't move its plane, and the pre-cut hull keeps the ring
     // lid conservative.
     let entry = probe_entry(body, origin, direction, up);
+    let z_start = thread_form::internal_phase_start(-thread_headroom(spec), spec);
+    // One cut with the cached local-frame tool (`tap_tool`), its extents
+    // past the body's material rounded up so holes share it; any
+    // decline cuts in sequence below, recorded.
+    let shared_entry = EntryProbe {
+        hull_height: round_up_pow2(entry.hull_height, spec.pitch()),
+        ..entry
+    };
+    let (shared_bore, shared_end) = match depth {
+        HoleDepth::Blind(_) => (bore_depth, thread_end),
+        HoleDepth::Through => {
+            let reach = round_up_pow2(bore_depth - spec.major_diameter(), spec.pitch());
+            (reach + spec.major_diameter(), reach + 0.5 * spec.lead())
+        }
+    };
+    let ring = match options.entry_chamfer {
+        true => Some(entry_ring(spec, options, r_bore, &shared_entry, stage)?),
+        false => None,
+    };
+    let inputs = TapToolInputs {
+        spec,
+        ridge: &ridge,
+        r_bore,
+        up,
+        bore_depth: shared_bore,
+        thread_span: (z_start, shared_end),
+        ring: ring.as_deref(),
+    };
+    if one_tool_enabled() {
+        match tap_tool(&inputs, stage, tolerance)
+            .and_then(|tool| subtract_placed(body, &tool, &placement, stage, tolerance))
+        {
+            Ok(result) => return Ok(result),
+            Err(decline) => record_fallback(&decline),
+        }
+    }
     let bore = extrude_shape(
         ProfileShape::Circle { radius: r_bore },
         -up,
@@ -225,7 +262,7 @@ pub fn tapped_hole(
         &result,
         spec,
         &ridge,
-        thread_form::internal_phase_start(-thread_headroom(spec), spec),
+        z_start,
         thread_end,
         None,
         Some(&placement),
@@ -233,28 +270,38 @@ pub fn tapped_hole(
         tolerance,
     )?;
     if options.entry_chamfer {
-        // A seated bearing-head screw's groove starts at its runout
-        // (`head_side_full_major` below the head): every tap ridge
-        // whose mating groove that clip removed meets the screw's
-        // full-major crest, up to the runout plus a ridge half width.
-        // The 45° cone reaches the major radius there, plus P/8 and the
-        // clearance. Ending at P/8 + clearance, the tap's first ridge
-        // met a flush M6 socket screw's full-major top turn (PK-849).
-        let r_mouth = spec.major_diameter() / 2.0
-            + thread_form::head_side_full_major(spec)?
-            + external_groove(spec)?.axial_half_width()
-            + spec.pitch() / 8.0
-            + options.clearance;
-        // Strictly inside the bore void — see the hex-nut mouth
-        // chamfer: r_bore - embed is exactly the groove-base radius
-        // and a coincident cutter cylinder poisons classification.
-        let r_in = r_bore - 2.0 * thread_form::embed_margin(spec);
-        let eps = 0.25 * spec.pitch();
-        let profile = entry_ring_profile(r_in, r_mouth, eps, &entry, stage)?;
+        let profile = entry_ring(spec, options, r_bore, &entry, stage)?;
         let ring = revolved_tool(&profile, "tap entry chamfer", tolerance)?;
         result = subtract_placed(&result, &ring, &placement, stage, tolerance)?;
     }
     Ok(result)
+}
+
+/// The tapped hole's 45° entry chamfer ring profile (local frame).
+fn entry_ring(
+    spec: &ThreadSpec,
+    options: &TapOptions,
+    r_bore: f64,
+    entry: &EntryProbe,
+    stage: &str,
+) -> Result<Vec<(f64, f64)>, FastenerError> {
+    // A seated bearing-head screw's groove starts at its runout
+    // (`head_side_full_major` below the head): every tap ridge whose
+    // mating groove that clip removed meets the screw's full-major
+    // crest, up to the runout plus a ridge half width. The 45° cone
+    // reaches the major radius there, plus P/8 and the clearance.
+    // Ending at P/8 + clearance, the tap's first ridge met a flush M6
+    // socket screw's full-major top turn (PK-849).
+    let r_mouth = spec.major_diameter() / 2.0
+        + thread_form::head_side_full_major(spec)?
+        + external_groove(spec)?.axial_half_width()
+        + spec.pitch() / 8.0
+        + options.clearance;
+    // Strictly inside the bore void — see the hex-nut mouth chamfer:
+    // r_bore - embed is exactly the groove-base radius and a coincident
+    // cutter cylinder poisons classification.
+    let r_in = r_bore - 2.0 * thread_form::embed_margin(spec);
+    entry_ring_profile(r_in, r_mouth, 0.25 * spec.pitch(), entry, stage)
 }
 
 /// Cut a plain clearance hole for a screw of `spec`, with optional
