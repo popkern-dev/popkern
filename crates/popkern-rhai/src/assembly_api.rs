@@ -322,6 +322,30 @@ fn frame(
     i.moved(frame)
 }
 
+/// `instance.seat(axis_at(origin, direction))`: place a fastener on a
+/// hole cut along that axis, in the hole's insertion frame (z down the
+/// axis from its origin, x the fastener family's seed), so its thread
+/// phase matches the hole's (PK-897).
+fn seat(
+    i: &mut ScriptInstance,
+    axis: crate::profile_api::ScriptAxis,
+) -> Result<ScriptInstance, Box<EvalAltResult>> {
+    let crate::profile_api::ScriptAxis::Literal { origin, direction } = axis else {
+        return Err(argument_error(
+            "seat",
+            "the hole axis must be axis_at(origin, direction)",
+        ));
+    };
+    let z = Vec3::new(direction[0], direction[1], direction[2]);
+    let frame = Placement::frame(
+        Point3::new(origin[0], origin[1], origin[2]),
+        z,
+        popkern_fastener::holes::insertion_x_seed(z),
+    )
+    .map_err(|_| argument_error("seat", "the axis direction must be non-zero"))?;
+    i.moved(frame)
+}
+
 fn assert_watertight(a: &mut ScriptAssembly) -> Result<(), Box<EvalAltResult>> {
     a.borrow_mut()
         .assembly
@@ -388,6 +412,7 @@ pub fn register(engine: &mut Engine) {
         .register_fn("translate", translate)
         .register_fn("rotate", rotate)
         .register_fn("frame", frame)
+        .register_fn("seat", seat)
         .register_fn("hide", |i: &mut ScriptInstance| {
             let mut state = i.owner.borrow_mut();
             state.assembly.set_visible(i.at, false).assembly()

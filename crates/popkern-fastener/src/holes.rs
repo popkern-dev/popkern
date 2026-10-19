@@ -107,21 +107,28 @@ fn through_reach(body: &BRep, origin: Point3, direction: Vec3) -> f64 {
 
 /// The rigid placement carrying canonical +Z-axis tools onto the
 /// hole axis.
-fn axis_placement(
-    origin: Point3,
-    direction: Vec3,
-    stage: &str,
-) -> Result<Transform3, FastenerError> {
-    // Any x_axis not parallel to the direction works: pick the world
-    // axis most orthogonal to it.
+/// The x axis seed of a hole's insertion frame along `direction`: the
+/// world axis most orthogonal to it. A hole cut along an axis carries
+/// its thread phase in this frame (z down the axis, x from this seed),
+/// so a fastener placed in the same frame mates; placing one on a hole
+/// needs exactly this rule (PK-897).
+pub fn insertion_x_seed(direction: Vec3) -> Vec3 {
     let d = direction;
-    let x_seed = if d.x.abs() <= d.y.abs() && d.x.abs() <= d.z.abs() {
+    if d.x.abs() <= d.y.abs() && d.x.abs() <= d.z.abs() {
         Vec3::new(1.0, 0.0, 0.0)
     } else if d.y.abs() <= d.z.abs() {
         Vec3::new(0.0, 1.0, 0.0)
     } else {
         Vec3::new(0.0, 0.0, 1.0)
-    };
+    }
+}
+
+fn axis_placement(
+    origin: Point3,
+    direction: Vec3,
+    stage: &str,
+) -> Result<Transform3, FastenerError> {
+    let x_seed = insertion_x_seed(direction);
     Transform3::from_axis_placement(origin, direction, x_seed).map_err(|source| {
         FastenerError::Construction {
             stage: stage.to_string(),

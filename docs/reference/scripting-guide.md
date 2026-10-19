@@ -552,8 +552,10 @@ is an **assembly**: part definitions, each recorded by a closure on a
 fresh model and built **once**, and named instances that place them.
 An instance moves with `translate` / `rotate` (the later call applies
 after the earlier, as on bodies) or `frame(origin, z_dir, x_dir)`;
-placements are rigid (no scale or mirror). A script may return an
-assembly instead of a model.
+`seat(axis_at(origin, direction))` places a fastener on a hole cut
+along that axis, in the hole's own insertion frame, so its thread phase
+matches the hole's. Placements are rigid (no scale or mirror). A script
+may return an assembly instead of a model.
 
 ```rhai
 let a = assembly("pins");
@@ -752,7 +754,7 @@ m.insert_before(f, |m, b| …) insert_after reorder(f, i) delete(f) rollback_to(
 m.add_config add_derived_config duplicate_config delete_config rename_config set_active_config
   set_override clear_override set_suppression clear_suppression configs() config(name)
 assembly(name)   a.part(name, |m| …)   a.part(name, #{defaults}, |m, p| …)   def.variant(#{…})
-a.subassembly(name, |s| …)   a.place(def, name?).translate(dx,dy,dz).rotate(AXIS, deg).frame(o, z, x).hide()
+a.subassembly(name, |s| …)   a.place(def, name?).translate(dx,dy,dz).rotate(AXIS, deg).frame(o, z, x).seat(AXIS).hide()
 a.param(name, v, unit)   a.drive(name, [defs])   a.drive(name, def, part_param)   a.set_param(name, v)
 a.hinge(name, KIND, len, #{angle, …})   a.limits(name, min, max)   a.swing(name, #{from, to, step})
 a.assert_watertight()   a.save(path)   a.to_step(path)

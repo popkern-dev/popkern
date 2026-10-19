@@ -355,7 +355,7 @@ m
 <li>A single expression may nest to 64 levels at the top level and 32 inside a <code>fn</code> body (the same limit in every build — CLI, tests, and the browser build). Computed-geometry arithmetic rarely reaches it, but a deep chain like <code>a + b*c/d - f(g(x))</code> repeated in a point literal can; if you hit <code>Expression exceeds maximum complexity</code>, bind sub-results to <code>let</code> locals (<code>let ang = rot - half; [r*cos(ang), r*sin(ang)]</code>), which also reads better.</li>
 </ul>
 <h2>13. Assemblies: parts built once, placed many times</h2>
-<p>A model with repeated parts (a bearing's balls, a gearbox's planets) is an <strong>assembly</strong>: part definitions, each recorded by a closure on a fresh model and built <strong>once</strong>, and named instances that place them. An instance moves with <code>translate</code> / <code>rotate</code> (the later call applies after the earlier, as on bodies) or <code>frame(origin, z_dir, x_dir)</code>; placements are rigid (no scale or mirror). A script may return an assembly instead of a model.</p>
+<p>A model with repeated parts (a bearing's balls, a gearbox's planets) is an <strong>assembly</strong>: part definitions, each recorded by a closure on a fresh model and built <strong>once</strong>, and named instances that place them. An instance moves with <code>translate</code> / <code>rotate</code> (the later call applies after the earlier, as on bodies) or <code>frame(origin, z_dir, x_dir)</code>; <code>seat(axis_at(origin, direction))</code> places a fastener on a hole cut along that axis, in the hole's own insertion frame, so its thread phase matches the hole's. Placements are rigid (no scale or mirror). A script may return an assembly instead of a model.</p>
 <pre class="lang-rhai"><code>let a = assembly("pins");
 let pin = a.part("pin", |m| {
     m.param("radius", 0.1, "m");
@@ -487,7 +487,7 @@ m.insert_before(f, |m, b| …) insert_after reorder(f, i) delete(f) rollback_to(
 m.add_config add_derived_config duplicate_config delete_config rename_config set_active_config
   set_override clear_override set_suppression clear_suppression configs() config(name)
 assembly(name)   a.part(name, |m| …)   a.part(name, #{defaults}, |m, p| …)   def.variant(#{…})
-a.subassembly(name, |s| …)   a.place(def, name?).translate(dx,dy,dz).rotate(AXIS, deg).frame(o, z, x).hide()
+a.subassembly(name, |s| …)   a.place(def, name?).translate(dx,dy,dz).rotate(AXIS, deg).frame(o, z, x).seat(AXIS).hide()
 a.param(name, v, unit)   a.drive(name, [defs])   a.drive(name, def, part_param)   a.set_param(name, v)
 a.hinge(name, KIND, len, #{angle, …})   a.limits(name, min, max)   a.swing(name, #{from, to, step})
 a.assert_watertight()   a.save(path)   a.to_step(path)

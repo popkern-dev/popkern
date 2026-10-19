@@ -53,17 +53,12 @@ let flat_head = a.part("flat_head", |m| {
 
 a.place(bracket);
 
-// The tap's frame: z down the hole; x the world axis the tap seeds
-// its thread phase from (the one most orthogonal to the axis, here
-// y).
+// The cap screw seated on the tap: `seat` places it in the hole's own
+// insertion frame along the tap's axis (z down the hole, x the seed the
+// tap phases its thread from), so the threads mate.
 let n_len = sqrt(9.0 * 9.0 + 24.0 * 24.0);
-let z = [-9.0 / n_len, 0.0, -24.0 / n_len];
-let x = [0.0, 1.0, 0.0];
-let entry = [12.0, -12.0, 9.5];
-
-// The cap screw seated on the inclined face, its bearing plane at the
-// tap's entry and its frame the tap's, so the threads mate.
-a.place(cap_screw, "angled_screw").frame(entry, z, x);
+let tap = axis_at([12.0, -12.0, 9.5], [-9.0 / n_len, 0.0, -24.0 / n_len]);
+a.place(cap_screw, "angled_screw").seat(tap);
 
 // The flat-head screws seated flush in the countersinks, their tips
 // standing 5 mm proud of the base where they would bite the bench.

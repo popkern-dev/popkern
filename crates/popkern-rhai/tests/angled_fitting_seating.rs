@@ -2,7 +2,8 @@
 //! inclined face (PK-849, PK-897): the tap's entry cone clears the
 //! screw's head-side thread runout, so the head bears on the face with
 //! no washer and the threads mate. Assembly interference reads the pair
-//! touching. Negative control: the same screw turned half a turn about
+//! touching; `seat` supplies the tap's insertion frame. Negative
+//! control: the same screw turned half a turn about
 //! its axis is half a lead out of phase, and its threads overlap the
 //! tap's.
 
@@ -38,14 +39,17 @@ fn the_cap_screw_seats_on_the_inclined_face() {
         ),
         "{seated:?}"
     );
-    let placement = "a.place(cap_screw, \"angled_screw\").frame(entry, z, x);";
+    // `seat` frames the screw with x = +y (the tap's seed); the same
+    // frame with x = -y is the half turn.
+    let placement = "a.place(cap_screw, \"angled_screw\").seat(tap);";
     assert!(
         source.contains(placement),
         "the script's screw placement moved"
     );
     let half_turn = source.replace(
         placement,
-        "a.place(cap_screw, \"angled_screw\").frame(entry, z, [-x[0], -x[1], -x[2]]);",
+        "a.place(cap_screw, \"angled_screw\").frame([12.0, -12.0, 9.5], \
+         [-9.0 / n_len, 0.0, -24.0 / n_len], [0.0, -1.0, 0.0]);",
     );
     let off_phase = interference(&half_turn);
     assert!(
