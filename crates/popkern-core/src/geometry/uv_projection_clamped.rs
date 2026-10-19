@@ -172,6 +172,40 @@ pub(super) fn nurbs_gauss_newton_project(
     if best_dist <= MAX_DIST { best_uv } else { None }
 }
 
+/// Projection onto a NURBS ring in periodic form (PK-892): the nearer
+/// of the knot-span-seeded multi-start and the 5-start grid, landed in
+/// the domain. A ring has no chart border for a start to clamp onto: on
+/// a coiled wall the grid's starts settled at stationary points on
+/// other turns or the far side of the wire (an on-wall point projected
+/// 0.53 off a 0.04 wire), where a clamped chart's border had caught a
+/// seam vertex.
+pub(super) fn periodic_ring_project(
+    surface: &SurfaceGeometry,
+    nurbs: &NurbsSurface,
+    point: &Point3,
+) -> Option<(f64, f64)> {
+    let period = (nurbs.u_period(), nurbs.v_period());
+    let grid = nurbs_gauss_newton_project(surface, nurbs, point);
+    let seeded = nurbs.projection_seed_field().and_then(|field| {
+        crate::geometry::surface::closest_point_from_seed_points(
+            nurbs,
+            point,
+            &field.seeds,
+            &field.points,
+            (period.0.is_some(), period.1.is_some()),
+            6,
+        )
+    });
+    let ((u_lo, _), (v_lo, _)) = nurbs.parameter_range();
+    let wrap = |x: f64, lo: f64, p: Option<f64>| p.map_or(x, |p| lo + (x - lo).rem_euclid(p));
+    let land = |(u, v): (f64, f64)| (wrap(u, u_lo, period.0), wrap(v, v_lo, period.1));
+    let gap = |uv: (f64, f64)| point.distance_to(&surface.point_at(uv.0, uv.1));
+    match (seeded.map(land), grid) {
+        (Some(a), Some(b)) => Some(if gap(a) <= gap(b) { a } else { b }),
+        (a, b) => a.or(b),
+    }
+}
+
 /// A Gregory patch's preimage within rounding (1e-12) of its unit
 /// chart's edge, moved onto that edge. A dual-jet patch's boundary 2-jet
 /// is its polynomial surrogate's only on the boundary itself, and the

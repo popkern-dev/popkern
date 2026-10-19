@@ -106,15 +106,15 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             }
             Some((u, v))
         }
-        // NURBS: the clamped 5-start multistart, UNCHANGED for the
-        // cold construction paths — trim/clip/pcurve authoring sites
-        // depend on its basin behavior (swapping in the knot-seeded
-        // multi-sheet projection, even as best-of-both, moved a
-        // boss-plate fillet-strip projection onto another fold and
-        // the served body carried a real 5.2e-3 curve-surface lie).
-        // Multi-sheet-correct DISTANCE measurement lives in
-        // [`project_point_to_uv_multisheet`] for validation
-        // consumers (PK-449).
+        // A periodic NURBS ring: best of seeded and grid (PK-892).
+        SurfaceGeometry::Nurbs(nurbs) if nurbs.u_period().or(nurbs.v_period()).is_some() => {
+            uv_projection_clamped::periodic_ring_project(surface, nurbs, point)
+        }
+        // NURBS: the clamped 5-start, UNCHANGED for cold construction
+        // paths, whose trim/clip/pcurve sites depend on its basins (the
+        // knot-seeded projection, even best-of-both, moved a boss-plate
+        // strip onto another fold: a 5.2e-3 curve-surface lie). Multi-
+        // sheet DISTANCE lives in [`project_point_to_uv_multisheet`].
         SurfaceGeometry::Nurbs(nurbs) => {
             uv_projection_clamped::nurbs_gauss_newton_project(surface, nurbs, point).or_else(|| {
                 // Rescue on HARD failure only (all five starts ended
