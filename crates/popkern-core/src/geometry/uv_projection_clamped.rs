@@ -59,8 +59,15 @@ pub(super) fn nurbs_gauss_newton_single(
     const MAX_DIST: f64 = 1.0;
 
     let ((u_lo, u_hi), (v_lo, v_hi)) = nurbs.parameter_range();
-    let mut u = u0.clamp(u_lo, u_hi);
-    let mut v = v0.clamp(v_lo, v_hi);
+    // A periodic direction has no edge to clamp at: evaluation wraps,
+    // and the continuation consumer keeps the hint's branch. Clamped,
+    // a closed rail whose hint sat 0.005 short of a periodic strip's
+    // u = 0 stalled on that chart edge 0.21 off the rail (PK-891).
+    let (u_periodic, v_periodic) = (nurbs.u_period().is_some(), nurbs.v_period().is_some());
+    let clamp_u = |u: f64| if u_periodic { u } else { u.clamp(u_lo, u_hi) };
+    let clamp_v = |v: f64| if v_periodic { v } else { v.clamp(v_lo, v_hi) };
+    let mut u = clamp_u(u0);
+    let mut v = clamp_v(v0);
 
     for _ in 0..MAX_ITER {
         // Fused analytic point+partials (PK-281): one basis
@@ -78,8 +85,8 @@ pub(super) fn nurbs_gauss_newton_single(
         }
         let du = (a11 * rhs_u - a01 * rhs_v) / det;
         let dv = (a00 * rhs_v - a01 * rhs_u) / det;
-        u = (u + du).clamp(u_lo, u_hi);
-        v = (v + dv).clamp(v_lo, v_hi);
+        u = clamp_u(u + du);
+        v = clamp_v(v + dv);
         if du * du + dv * dv < STEP_TOL {
             break;
         }

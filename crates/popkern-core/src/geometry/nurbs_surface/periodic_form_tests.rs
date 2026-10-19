@@ -128,3 +128,23 @@ fn closed_clamped_or_broken_wraps_are_not_periodic() {
     uneven.knots_u[last] += 1e-6;
     assert_eq!(uneven.u_period(), None);
 }
+
+/// The hint-seeded projection runs across a periodic seam instead of
+/// stalling on the chart edge (PK-891): seeded just past u = 0, a
+/// point a little before the seam projects onto itself. (The clamped
+/// projector stalled on the chart edge 0.21 off a closed rail; the
+/// angled-hole rim sweep is the end-to-end control.)
+#[test]
+fn hinted_projection_crosses_a_periodic_seam() {
+    use crate::geometry::surface::SurfaceGeometry;
+    use crate::geometry::uv_projection::project_point_to_uv_near;
+    let ring = periodic_ring();
+    let target = ring.point_at(-0.01, 0.5);
+    let surface = SurfaceGeometry::Nurbs(ring.clone());
+    let (u, v) = project_point_to_uv_near(&surface, &target, 0.02, 0.5).expect("projects");
+    assert!(
+        ring.point_at(u, v).distance_to(&target) < 1e-9,
+        "u {u} v {v}"
+    );
+    assert!((u + 0.01).abs() < 1e-6, "stays on the hint's branch: u {u}");
+}
