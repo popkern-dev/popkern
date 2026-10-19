@@ -162,9 +162,13 @@ pub fn walker_based_center_curve(
 /// strip interpolates its exact station rows, so its rails sit off the
 /// supports between stations — a cylinder tee's saddle at the fixed 20
 /// stations left them 1.3e-3 off. Walk again with the nested midpoints
-/// (2n − 1 stations); while the midpoint contacts stray from a cubic
-/// through the coarser stations by more than 10 × the linear
-/// tolerance, adopt the finer walk and repeat (to 1281 stations). A
+/// (2n − 1 stations); while the midpoint contacts stray from a
+/// quadratic through the coarser stations by more than 10 × the linear
+/// tolerance, adopt the finer walk and repeat (to 1281 stations). The
+/// proxy has the strip's own rail degree (its rows loft at degree 2):
+/// a cubic proxy read 4.6e-6 where the strip's rails parted 1.3e-5
+/// from the supports, and the offset tee's support seams read G0
+/// (PK-894). A
 /// walk already accurate is returned unchanged. G2 sweeps are not
 /// refined here: their cubic loft is a different construction, and
 /// denser G2 strips broke a later boolean on a filleted cylinder
@@ -199,7 +203,7 @@ fn refine_station_density(
             if params.windows(2).any(|w| w[1] <= w[0]) {
                 return None;
             }
-            popkern_core::geometry::fitting::interpolate_curve(&pts, &params, 3.min(pts.len() - 1))
+            popkern_core::geometry::fitting::interpolate_curve(&pts, &params, 2.min(pts.len() - 1))
                 .ok()
         };
         let (Some(r0), Some(r1)) = (rail(|s| s.solution.contact0), rail(|s| s.solution.contact1))

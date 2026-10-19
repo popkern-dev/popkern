@@ -13,6 +13,10 @@ use popkern_math::PortableMath;
 
 use crate::fillet_surface::build_clamped_uniform_knots;
 
+/// Bound on the rows added per end: far past any target a station
+/// spacing can reach, short of a runaway on a stalled extrapolation.
+const MAX_ROWS: usize = 64;
+
 /// Extend a rational-loft strip chart by one exact row at each end:
 /// linearly extrapolate the boundary station, re-project the rail
 /// control points onto their supports, re-solve the station centre
@@ -93,7 +97,11 @@ pub(crate) fn extend_loft_rows(
     // one row ≈ 0.5 r left the corner contact W OUTSIDE both charts,
     // clamped at 2.4e-2/3.7e-2; the earlier one-sided multi-row
     // experiment regressed because the sampled-skin twin could not
-    // extend at all — both layouts extend now). Cap 4 rows per end.
+    // extend at all — both layouts extend now). The row count follows
+    // the target, not a fixed cap: a row is one station spacing, and a
+    // densely stationed strip (PK-894: 153 stations on a 0.6-spaced
+    // quadratic rail) stopped 4 rows short of its tee junction and the
+    // chain declined. `MAX_ROWS` only bounds a runaway.
     let target = radius * 1.2;
     let expand_row = |contacts: &([Point3; 3], f64)| -> (Vec<Point3>, Vec<f64>) {
         let ([f0, mid, f2], w) = contacts;
@@ -164,7 +172,7 @@ pub(crate) fn extend_loft_rows(
             continue;
         }
         let mut added = 0.0;
-        for _ in 0..4 {
+        for _ in 0..MAX_ROWS {
             let Some(contacts) = solve_row(step(outer[0], inner[0]), step(outer[2], inner[2]))
             else {
                 break;
@@ -176,6 +184,15 @@ pub(crate) fn extend_loft_rows(
             added += contacts.0[0]
                 .distance_to(&outer[0])
                 .max(contacts.0[2].distance_to(&outer[2]));
+            // A rail whose step turns back has passed a point where its
+            // support turns tangent to the station plane: the row
+            // beyond folds the chart (PK-894, measured: the steps
+            // shrank 0.45 -> 0.003 and reversed 4.1 into an r = 8
+            // extension, and the strip declined as twisted).
+            let reverses = |k: usize| (contacts.0[k] - outer[k]).dot(&(outer[k] - inner[k])) <= 0.0;
+            if reverses(0) || reverses(2) {
+                break;
+            }
             inner = outer;
             outer = contacts.0;
             rows.push((pts, ws));

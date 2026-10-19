@@ -145,7 +145,7 @@ fn the_equal_radius_saddle_fillets_with_strips_that_run_out_at_the_singular_poin
 /// arc's angle as the parameter of its rational form, which agree only
 /// at quarter points, and the rim piece left the branch wall by 5.2e-2;
 /// it now splits where its point is the vertex. Serves at r = 2, 4 and
-/// 8, OCC-valid, with (V − V₀) / r² smooth in r (G1: PK-894).
+/// 8, G1 and OCC-valid, with (V − V₀) / r² smooth in r.
 #[test]
 fn the_offset_tee_saddle_fillets_onto_the_branch_cap() {
     let v0 = occ_volume(&offset_tee(-20.0, None), "offset_tee");
@@ -162,10 +162,12 @@ fn the_offset_tee_saddle_fillets_onto_the_branch_cap() {
             .as_array()
             .and_then(|f| f.iter().find(|row| row["label"] == "saddle"))
             .expect("saddle row");
-        eprintln!(
-            "[pk766] r {r}: continuity achieved {}",
-            saddle["blend"]["continuity"]["achieved"]
-        );
+        // Every seam certifies G1. The strips from the cap run-out to
+        // the main-seam crossing stopped refining while the density
+        // proxy measured a cubic rail against the strip's quadratic one,
+        // and their support seams parted 1.3e-5 (PK-894).
+        let achieved = &saddle["blend"]["continuity"]["achieved"];
+        assert_eq!(achieved, "G1", "r {r}: {saddle}");
         if let (Some(v0), Some(v)) = (v0, occ_volume(&source, &format!("offset_fillet_{r}"))) {
             added.push((v - v0) / (r * r));
         }
