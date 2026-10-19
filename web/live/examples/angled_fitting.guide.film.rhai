@@ -17,7 +17,7 @@ let engaged = [9.0 / n * 8.0, 0.0, 24.0 / n * 8.0];
 
 film.title("Angled fitting", "A wedge bracket that holds a part at an angle", 2.5, |s| {
     s.orbit(30.0);
-    for part in ["washer_1", "angled_screw", "mount_screw_a", "mount_screw_b"] {
+    for part in ["angled_screw", "mount_screw_a", "mount_screw_b"] {
         s.show(part, true, #{ at: 2.5 });
     }
 });
@@ -34,20 +34,14 @@ film.step("1. Screw the bracket down", "Two M5 flat-heads, flush in their counte
     s.camera(#{ azimuth: -20.0, elevation: 35.0, zoom: 1.5, target: "bracket_1" });
 });
 
-film.step("2. A washer on the inclined face", "ISO 7089 M6, flat on the 20.6° face", 2.5, |s| {
-    s.move("washer_1", #{ from: out, duration: 1.6 });
-    s.highlight("washer_1", #{ at: 1.2, duration: 1.3 });
-    s.camera(#{ azimuth: -80.0, elevation: 32.0, zoom: 1.5, target: "bracket_1" });
-});
-
-film.step("3. Thread the cap screw into the angled tap", "M6 x 8, on the tap's own axis", 3.5, |s| {
+film.step("2. Thread the cap screw into the angled tap", "M6 x 8, on the tap's own axis", 3.5, |s| {
     s.move("angled_screw", #{ from: reach, duration: 1.0 });
     s.move("angled_screw", #{ from: engaged, at: 1.0, duration: 2.3, ease: "linear" });
     s.turn("angled_screw", axis_at([12.0, -12.0, 9.5], tap), -2880.0, 0.0, #{ at: 1.0, duration: 2.3, ease: "linear" });
     s.camera(#{ azimuth: -105.0, elevation: 24.0, zoom: 1.35 });
 });
 
-film.step("Ready", "Five parts, every screw on its hole's axis", 3.0, |s| {
+film.step("Ready", "Four parts, every screw on its hole's axis", 3.0, |s| {
     s.camera(#{ azimuth: 40.0, elevation: 25.0, zoom: 1.0, target: "all" });
 });
 film.hold(0.5);

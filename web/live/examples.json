@@ -217,9 +217,9 @@
       "title": "Fastener kit"
     },
     {
-      "blurb": "A wedge bracket with an M6 cap screw and washer threaded in normal to its inclined face, screwed down by two flat-head screws flush in countersunk holes through its flange.",
+      "blurb": "A wedge bracket with an M6 cap screw threaded in normal to its inclined face and seated straight on it, screwed down by two flat-head screws flush in countersunk holes through its flange.",
       "demonstrates": "tapped_hole and clearance_hole on arbitrary axes, placing fasteners on hole axes (frame), thread phase, countersinks, assemblies",
-      "features": 12,
+      "features": 7,
       "file": "angled_fitting.rhai",
       "films": [
         {
