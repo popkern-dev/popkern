@@ -167,7 +167,12 @@ fn corrupt_coordinate(text: &str) -> Option<String> {
 /// the corrupted surface and only the face interior moves.
 fn corrupt_weight(text: &str) -> Option<String> {
     let (start, end) = span_after(text, "RATIONAL_B_SPLINE_SURFACE(", "((", "))")?;
-    let mut rows: Vec<Vec<f64>> = text[start..end]
+    // Part 21 wraps long lists anywhere, between rows included.
+    let flat: String = text[start..end]
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let mut rows: Vec<Vec<f64>> = flat
         .split("),(")
         .map(|row| row.split(',').map(|w| w.trim().parse::<f64>()).collect())
         .collect::<Result<_, _>>()

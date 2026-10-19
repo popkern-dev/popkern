@@ -163,7 +163,8 @@ fn basis2(u: &[f64], n: usize, t: f64) -> (usize, [f64; 3]) {
     (k - 2, vals)
 }
 
-/// Interpolating degree-2 loft through exact station rows: solves,
+/// Interpolating degree-2 loft through exact station rows (by chord
+/// length along the rails): solves,
 /// per v-column in HOMOGENEOUS space, for control points whose
 /// degree-2 B-spline passes through every row (a plain degree-2
 /// B-spline does not interpolate its control points — using rows as
@@ -181,8 +182,30 @@ pub(crate) fn interpolating_loft(
     if m < 3 || rows.iter().any(|r| r.len() != m) || row_weights.iter().any(|w| w.len() != m) {
         return None;
     }
-    // Uniform interpolation parameters + averaged clamped knots.
-    let params: Vec<f64> = (0..n).map(|i| (i as f64) / ((n - 1) as f64)).collect();
+    // Chord-length interpolation parameters (the mean of the first and
+    // last columns' chords: the two rails) + averaged clamped knots.
+    // Uniform parameters on unevenly spaced stations bend the strip
+    // between them: an equal tee's r 8 saddle strips, whose stations
+    // bunch toward their vanishing tips, parted 9.6e-5 from their
+    // supports there (PK-767), where chord length keeps them under the
+    // 1e-5 seam gate.
+    let mut params = Vec::with_capacity(n);
+    let mut arc = 0.0;
+    for i in 0..n {
+        if i > 0 {
+            let chord = |j: usize| rows[i][j].distance_to(&rows[i - 1][j]);
+            arc += 0.5 * (chord(0) + chord(m - 1));
+        }
+        params.push(arc);
+    }
+    // A repeated station has no chord to measure: uniform, as before.
+    if arc > 0.0 && params.windows(2).all(|w| w[1] > w[0]) {
+        for p in params.iter_mut() {
+            *p /= arc;
+        }
+    } else {
+        params = (0..n).map(|i| (i as f64) / ((n - 1) as f64)).collect();
+    }
     let mut knots = vec![0.0; n + 3];
     for j in 1..(n - 2) {
         knots[j + 2] = 0.5 * (params[j] + params[j + 1]);

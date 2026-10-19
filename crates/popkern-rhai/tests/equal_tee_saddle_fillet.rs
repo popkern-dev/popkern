@@ -6,8 +6,9 @@
 //! Each chain is built whole: its seam-crossing junction is exact and
 //! its strips end on the tangent points, with no corner blend there.
 //!
-//! - It serves watertight at r = 2, 4 and 8 with no failure. At
-//!   r = 2 and 4 every seam certifies G1 (r = 8: PK-767).
+//! - It serves watertight at r = 2, 4 and 8 with no failure, and every
+//!   seam certifies G1 (r = 8 since the strips loft their stations by
+//!   chord length, PK-767).
 //! - OpenCASCADE reads one valid solid.
 //! - The concave fillet adds material along a fixed saddle, so
 //!   (V − V₀) / r² agrees across the radii. It approaches the
@@ -98,14 +99,11 @@ fn the_equal_radius_saddle_fillets_with_strips_that_run_out_at_the_singular_poin
             .expect("saddle row");
         let achieved = &saddle["blend"]["continuity"]["achieved"];
         eprintln!("[pk764] r {r}: continuity achieved {achieved}");
-        // At r = 2 and r = 4 every seam certifies G1 (r = 4 since the
-        // 2026-10 station and seam work; re-measured 2026-10-18). At
-        // r = 8 the blend-to-support seams part 9.6e-5 from their
-        // supports near the vanishing tip, over the 1e-5 G0 gate, while
-        // the walker's rail midpoints sit at 8.5e-6: PK-767.
-        if r <= 4.0 {
-            assert_eq!(achieved, "G1", "r {r}: {saddle}");
-        }
+        // Every seam certifies G1. At r = 8 the blend-to-support seams
+        // parted 9.6e-5 from their supports near the vanishing tips while
+        // the strip lofted its unevenly spaced stations by a uniform
+        // parameter (PK-767).
+        assert_eq!(achieved, "G1", "r {r}: {saddle}");
         if let (Some(v0), Some(v)) = (v0, occ_volume(&source, &format!("fillet_{r}"))) {
             assert!(
                 v > v0,
