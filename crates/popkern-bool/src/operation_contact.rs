@@ -121,6 +121,16 @@ pub(crate) fn touching_only(
         trace_decline("a record crosses off the contact rims");
         return None;
     }
+    // A rim record ends the contact only where the faces beyond the rim
+    // turn away from the other body (PK-850).
+    let enters = overlaps.iter().any(|o| {
+        super::contact_rim::rim_neighbour_enters(a, o.face_a, b, tolerance)
+            || super::contact_rim::rim_neighbour_enters(b, o.face_b, a, tolerance)
+    });
+    if enters {
+        trace_decline("a face beyond a contact rim enters the other body");
+        return None;
+    }
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "  [exec] -> touching only ({} opposite contact face(s), {} point record(s))",

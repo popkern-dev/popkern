@@ -13,6 +13,8 @@ pub(crate) mod no_intersection;
 
 #[path = "operation_contact.rs"]
 mod contact;
+#[path = "operation_contact_rim.rs"]
+mod contact_rim;
 #[path = "operation_containment.rs"]
 mod containment;
 #[path = "operation_postprocess.rs"]
