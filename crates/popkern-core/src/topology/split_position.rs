@@ -229,6 +229,16 @@ pub(super) fn route_split_curves(
         let nurbs = curve
             .geometry
             .to_nurbs_in_range((curve.t_start, curve.t_end));
+        // An arc's rational form agrees with its angle only at quarter
+        // points: split it where its POINT is the split vertex. Read
+        // at the angle, a tee's branch-cap rim split where a fillet
+        // strip ran out on the cap left its cylinder by 5.2e-2 (PK-766).
+        let t_param = match curve.geometry {
+            crate::geometry::curve::CurveGeometry::Arc { .. } => nurbs
+                .closest_point(&curve.geometry.point_at(t_param))
+                .unwrap_or(t_param),
+            _ => t_param,
+        };
         match nurbs.split_at(t_param) {
             Ok((left, right)) => {
                 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};

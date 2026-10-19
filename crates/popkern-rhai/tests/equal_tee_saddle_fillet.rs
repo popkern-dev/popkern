@@ -20,6 +20,11 @@
 use popkern_rhai::ScriptHost;
 
 fn tee(fillet: Option<f64>) -> String {
+    offset_tee(0.0, fillet)
+}
+
+/// The tee with its branch axis `x0` off the main axis.
+fn offset_tee(x0: f64, fillet: Option<f64>) -> String {
     let line = fillet
         .map(|r| {
             format!(
@@ -31,7 +36,7 @@ fn tee(fillet: Option<f64>) -> String {
         r#"
 let m = model();
 let main = m.profile(xy()).circle(40.0).sketch("main").extrude(blind(120.0));
-let branch = m.tool(|t| t.profile(yz_at(0.0)).circle(40.0).at(0.0, 60.0).sketch("branch").extrude(blind(100.0)));
+let branch = m.tool(|t| t.profile(yz_at(0.0)).circle(40.0).at({x0:?}, 60.0).sketch("branch").extrude(blind(100.0)));
 let b = main.union(branch, #{{ label: "tee" }});
 {line}
 m.assert_watertight();
@@ -129,6 +134,60 @@ fn the_equal_radius_saddle_fillets_with_strips_that_run_out_at_the_singular_poin
         assert!(
             added.windows(2).all(|w| w[1] < w[0]),
             "smooth in r: {added:?}"
+        );
+    }
+}
+
+/// The tee with its branch offset 20 off the main axis (PK-766): the
+/// branch's start cap at x = 0 cuts the saddle, so each saddle chain
+/// runs out on that planar end face at both ends, where the cap rim, an
+/// exact arc, is split at the rails' crossings. The split read the
+/// arc's angle as the parameter of its rational form, which agree only
+/// at quarter points, and the rim piece left the branch wall by 5.2e-2;
+/// it now splits where its point is the vertex. Serves at r = 2, 4 and
+/// 8, OCC-valid, with (V − V₀) / r² smooth in r (G1: PK-894).
+#[test]
+fn the_offset_tee_saddle_fillets_onto_the_branch_cap() {
+    let v0 = occ_volume(&offset_tee(-20.0, None), "offset_tee");
+    let mut added = Vec::new();
+    for r in [2.0, 4.0, 8.0] {
+        let source = offset_tee(-20.0, Some(r));
+        let outcome = ScriptHost::new()
+            .run(&source, "offset_tee.rhai")
+            .unwrap_or_else(|e| panic!("r {r}: {}", e.render()));
+        let model = outcome.model.expect("model");
+        let report = popkern_rhai::report_value(&model);
+        assert_eq!(report["failures"], 0, "r {r}: {report}");
+        let saddle = report["features"]
+            .as_array()
+            .and_then(|f| f.iter().find(|row| row["label"] == "saddle"))
+            .expect("saddle row");
+        eprintln!(
+            "[pk766] r {r}: continuity achieved {}",
+            saddle["blend"]["continuity"]["achieved"]
+        );
+        if let (Some(v0), Some(v)) = (v0, occ_volume(&source, &format!("offset_fillet_{r}"))) {
+            added.push((v - v0) / (r * r));
+        }
+    }
+    if let (Some(lo), Some(hi)) = (
+        added.iter().copied().reduce(f64::min),
+        added.iter().copied().reduce(f64::max),
+    ) {
+        eprintln!("[pk766] (V - V0)/r^2 across r = 2, 4, 8: {added:?}");
+        assert!(lo > 0.0, "a concave fillet adds material: {added:?}");
+        // The strips end on the cap, whose corner volume grows as r^3:
+        // (V − V₀)/r² falls linearly in r (28.5, 28.1, 27.4), unlike the
+        // axis tee's runout ends. The r = 2 → 4 trend predicts r = 8 to
+        // 0.3 %; a construction error breaks that smoothness.
+        assert!(
+            added.windows(2).all(|w| w[1] < w[0]) && hi > lo,
+            "smooth in r: {added:?}"
+        );
+        let predicted = added[1] + 2.0 * (added[1] - added[0]);
+        assert!(
+            (added[2] - predicted).abs() / added[2] < 0.01,
+            "r = 8 off the small-radius trend ({predicted}): {added:?}"
         );
     }
 }
