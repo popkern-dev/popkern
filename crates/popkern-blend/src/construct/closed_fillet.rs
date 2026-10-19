@@ -209,6 +209,10 @@ pub(crate) fn apply_closed_fillet(
         (v_old, pos_for_face_a, pos_for_face_b)
     };
 
+    let seam_face = brep.loops[if seam_a.is_some() { loop_a } else { loop_b }].face;
+    let (pos_with_seam, v_fresh_pos) =
+        super::closed_fillet_rail::closed_rim_anchors(brep, eg, seam_a.or(seam_b), seam_face)
+            .unwrap_or((pos_with_seam, v_fresh_pos));
     brep.vertices[v_with_seam].position = pos_with_seam;
 
     // 5. If we moved a vertex that's an endpoint of a seam edge,
@@ -269,7 +273,8 @@ pub(crate) fn apply_closed_fillet(
     let circle_fresh = &closed_fillet_seam::orient_circle_to_rim(brep, old_fresh_he, circle_fresh);
     let trim_curve_on_edge = |trim: &popkern_core::geometry::NurbsCurve,
                               circle: &Option<(Point3, popkern_core::geometry::Vec3, f64)>,
-                              start_at: Point3|
+                              start_at: Point3,
+                              old_he_axis: Option<popkern_core::geometry::Vec3>|
      -> popkern_core::geometry::CurveOnEdge {
         match circle {
             Some((center, normal, radius)) => {
@@ -299,11 +304,7 @@ pub(crate) fn apply_closed_fillet(
                     t_end: theta0 + std::f64::consts::TAU,
                 }
             }
-            None => popkern_core::geometry::CurveOnEdge {
-                geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(trim.clone()),
-                t_start: 0.0,
-                t_end: 1.0,
-            },
+            None => super::closed_fillet_rail::rail_on_edge(trim, start_at, old_he_axis),
         }
     };
     // ONE anchor authority per edge: each contact-circle curve is
@@ -318,9 +319,12 @@ pub(crate) fn apply_closed_fillet(
     // the crossed anchor to angle 0, hiding the crossing until the
     // exact conversion landed and it surfaced as a 0.25 mm
     // OpenLoop).
+    let axis = |he| closed_fillet_seam::half_edge_winding_axis(brep, he);
+    let seam_curve = trim_curve_on_edge(trim_seam, circle_seam, pos_with_seam, axis(old_seam_he));
+    let fresh_curve = trim_curve_on_edge(trim_fresh, circle_fresh, v_fresh_pos, axis(old_fresh_he));
     let edge_seam_side = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
-        curve: Some(trim_curve_on_edge(trim_seam, circle_seam, pos_with_seam)),
+        curve: Some(seam_curve),
         name: None,
         tolerance: None,
         canonical: Default::default(),
@@ -328,7 +332,7 @@ pub(crate) fn apply_closed_fillet(
     });
     let edge_fresh_side = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
-        curve: Some(trim_curve_on_edge(trim_fresh, circle_fresh, v_fresh_pos)),
+        curve: Some(fresh_curve),
         name: None,
         tolerance: None,
         canonical: Default::default(),

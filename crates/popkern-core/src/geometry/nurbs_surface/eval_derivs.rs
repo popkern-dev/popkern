@@ -52,6 +52,7 @@ impl NurbsSurface {
     /// roughly the price of one `point_at` and ~5× cheaper than the
     /// point + 2×2-FD pattern it replaces in Gauss–Newton loops.
     pub fn point_and_first_partials(&self, u: f64, v: f64) -> (Point3, Vec3, Vec3) {
+        let (u, v) = self.wrap_into_domain(u, v);
         let span_u = find_span(self.degree_u, &self.knots_u, self.num_u, u);
         let span_v = find_span(self.degree_v, &self.knots_v, self.num_v, v);
         let (nu, du) = basis_funs_and_first_derivs(self.degree_u, &self.knots_u, span_u, u);
@@ -116,6 +117,7 @@ impl NurbsSurface {
     /// that fed curvature and G2 metrics.
     #[allow(clippy::type_complexity)]
     pub fn point_and_two_partials(&self, u: f64, v: f64) -> (Point3, Vec3, Vec3, Vec3, Vec3, Vec3) {
+        let (u, v) = self.wrap_into_domain(u, v);
         let span_u = find_span(self.degree_u, &self.knots_u, self.num_u, u);
         let span_v = find_span(self.degree_v, &self.knots_v, self.num_v, v);
         let (nu, du, duu) = basis_funs_and_two_derivs(self.degree_u, &self.knots_u, span_u, u);

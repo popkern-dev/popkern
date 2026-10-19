@@ -407,16 +407,22 @@ pub(crate) fn step_at(
         return Ok(solution);
     }
 
-    let iter_uv0_range = if sample_index == 0 {
-        request.uv0_range
-    } else {
-        recenter_range(request.uv0_range, prev_uv0, request.surface_0_periodicity)
+    // The first sample keeps the face window, unless its seed sits ON
+    // the end of a full-period window: the solver then clamps its
+    // first step at the bound (PK-766: a tee saddle edge seeded at
+    // u = 4.18879 on [-2.094, 4.18879] diverged; its mirror at the
+    // window's interior converged in two iterations).
+    let window = |range, uv, periodicity| {
+        if sample_index == 0
+            && !crate::walker_window::seed_on_full_period_end(range, uv, periodicity)
+        {
+            range
+        } else {
+            crate::walker_window::recenter_range(range, uv, periodicity)
+        }
     };
-    let iter_uv1_range = if sample_index == 0 {
-        request.uv1_range
-    } else {
-        recenter_range(request.uv1_range, prev_uv1, request.surface_1_periodicity)
-    };
+    let iter_uv0_range = window(request.uv0_range, prev_uv0, request.surface_0_periodicity);
+    let iter_uv1_range = window(request.uv1_range, prev_uv1, request.surface_1_periodicity);
 
     let contact_request = ContactRequest {
         surface_0: request.surface_0,
@@ -449,45 +455,6 @@ pub(crate) fn step_at(
         crate::walker_station::certify_station(request, t, &solution)?;
     }
     Ok(solution)
-}
-
-/// Recenter the contact solver's UV range around `current_uv` for
-/// periodic dimensions, leaving non-periodic dimensions untouched.
-///
-/// For a periodic dimension with period `T`, the new bounds are
-/// `(current_u - 2·T, current_u + 2·T)` — four periods wide,
-/// centered on the previous solution. Newton's natural step from a
-/// good warm start is at most one period (typically a small fraction
-/// of one), so the bounds are unreachable in normal use.
-///
-/// The 4×period factor (rather than the obvious 2×period centered
-/// window) is deliberate: with a 2-period-wide window, Newton can
-/// converge to a periodically-equivalent point that lands *exactly*
-/// on one of the new boundaries (the same 3D point as `current_u`
-/// reached by adding/subtracting one period). The post-convergence
-/// `uv_on_boundary` check in the contact solver then fires and
-/// reports a spurious `OutOfBounds`. Widening to 4×period puts the
-/// boundaries 2 periods away from `current_u`, which is far beyond
-/// any plausible step.
-///
-/// Non-periodic dimensions inherit `base_range` unchanged so the
-/// walker still respects real face bounds (e.g. the cone's axial v
-/// parameter).
-fn recenter_range(
-    base_range: ((f64, f64), (f64, f64)),
-    current_uv: (f64, f64),
-    periodicity: (Option<f64>, Option<f64>),
-) -> ((f64, f64), (f64, f64)) {
-    let (period_u, period_v) = periodicity;
-    let u_range = match period_u {
-        Some(p) => (current_uv.0 - 2.0 * p, current_uv.0 + 2.0 * p),
-        None => base_range.0,
-    };
-    let v_range = match period_v {
-        Some(p) => (current_uv.1 - 2.0 * p, current_uv.1 + 2.0 * p),
-        None => base_range.1,
-    };
-    (u_range, v_range)
 }
 
 #[cfg(test)]

@@ -34,6 +34,7 @@ pub(crate) mod cap_insert;
 mod cap_insert_boundary;
 pub(crate) mod cap_outer_acceptance;
 pub(crate) mod closed_fillet;
+mod closed_fillet_rail;
 pub(crate) mod closed_fillet_rail_pcurve;
 mod closed_fillet_seam; // seam bookkeeping split (500-line ratchet)
 pub(crate) mod corner_arc_boundaries;

@@ -409,7 +409,7 @@ pub(super) fn orient_circle_to_rim(
 /// mapped through its face's surface (right-hand rule: the loop runs
 /// counter-clockwise about the returned axis). `None` without a
 /// pcurve or surface, or when the trace is degenerate.
-fn half_edge_winding_axis(brep: &BRep, he: HalfEdgeHandle) -> Option<Vec3> {
+pub(super) fn half_edge_winding_axis(brep: &BRep, he: HalfEdgeHandle) -> Option<Vec3> {
     use popkern_core::geometry::SurfaceEval as _;
     const SAMPLES: usize = 16;
     let h = brep.half_edges.get(he)?;

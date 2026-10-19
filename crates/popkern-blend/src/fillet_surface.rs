@@ -418,6 +418,20 @@ fn build_nurbs_sweep(
         )
     };
 
+    // A closed rim's stations close on themselves: the strip is a
+    // periodic ring through them, with no chart overlap and no clamped
+    // reloft (PK-890).
+    let ring = crate::closed_station_loft::closed_ring_through_stations;
+    if conic_rho.is_none()
+        && let Some(ring) = ring(&nurbs, footprint_1, footprint_2)
+    {
+        return Ok(FilletSurfaceResult {
+            surface: SurfaceGeometry::Nurbs(ring),
+            trim_curve_1: crate::station_geometry::station_polyline(footprint_1)?,
+            trim_curve_2: crate::station_geometry::station_polyline(footprint_2)?,
+            continuity_downgrade,
+        });
+    }
     // Chart overlap: extend curved-support lofts by exact rows past
     // the corner-ball station (all layouts; trims untouched).
     let (mut nurbs, continuity_downgrade) = (nurbs, continuity_downgrade);

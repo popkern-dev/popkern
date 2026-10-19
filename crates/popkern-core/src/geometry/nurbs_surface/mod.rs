@@ -9,6 +9,7 @@ mod degree_and_split;
 mod eval_derivs;
 mod iso_curve;
 mod knot_ops;
+mod periodic_form;
 mod projection_seed_cache;
 mod sub_patch_hull;
 pub use projection_seed_cache::ProjectionSeedField;
@@ -172,6 +173,7 @@ impl NurbsSurface {
             wz: 0.0,
             w: 0.0,
         };
+        let (u, v) = self.wrap_into_domain(u, v);
         let span_u = find_span(self.degree_u, &self.knots_u, self.num_u, u);
         let span_v = find_span(self.degree_v, &self.knots_v, self.num_v, v);
         let mut intermediate = [zero; MAX_DE_BOOR_DEGREE];
@@ -221,6 +223,10 @@ impl SurfaceEval for NurbsSurface {
     fn normal_at(&self, u: f64, v: f64) -> Vec3 {
         let (_, du, dv) = self.point_and_first_partials(u, v);
         du.cross(&dv)
+    }
+
+    fn parameter_periodicity(&self) -> (Option<f64>, Option<f64>) {
+        (self.u_period(), self.v_period())
     }
 
     fn parameter_range(&self) -> ((f64, f64), (f64, f64)) {

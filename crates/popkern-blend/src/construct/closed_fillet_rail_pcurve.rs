@@ -37,11 +37,31 @@ pub(crate) fn author_trim_pcurve(brep: &mut BRep, he: HalfEdgeHandle, tolerance:
         return;
     };
     let range = (curve.t_start, curve.t_end);
+    // A pcurve runs along its half-edge: on a closed edge the twin of
+    // the canonical half-edge traverses the curve from t_end back to
+    // t_start (the convention `measure_half_edge_pcurve_deviation`
+    // reads), and so must its pcurve.
+    let along_curve = brep.edges[edge_h].half_edge == he;
+    // On a clamped closed strip the strip-side (twin) rail pcurve is
+    // left to the projection recompute, whose branch chaining serves
+    // there and whose pcurve the seam certifier certifies (the G2 rim
+    // fixture went inconclusive on the boundary search's). On a
+    // periodic strip that recompute starts a closed rail on the wrong
+    // image (0.21 off on an angled rim), so the boundary search authors
+    // it (PK-890).
+    if let SurfaceGeometry::Nurbs(strip) = &sof.geometry
+        && !along_curve
+        && strip.u_period().is_none()
+        && strip.v_period().is_none()
+    {
+        return;
+    }
     if matches!(sof.geometry, SurfaceGeometry::Nurbs(_))
         && let Some(pc) = rail_pcurve_on_strip(
             &sof.geometry,
             &curve.geometry,
             range,
+            along_curve,
             tolerance.linear().max(1.0e-9) * 10.0,
         )
     {
@@ -77,6 +97,9 @@ struct Boundary {
     fixed: f64,
     lo: f64,
     hi: f64,
+    /// The boundary wraps (the surface is periodic along it): a search
+    /// bracket may run past `lo`/`hi`, where evaluation wraps.
+    periodic: bool,
 }
 
 impl Boundary {
@@ -96,23 +119,29 @@ fn nearest_on_boundary(
     boundary: &Boundary,
     target: &Point3,
 ) -> (f64, f64) {
+    let (lo, hi) = (boundary.lo, boundary.hi);
     let distance = |s: f64| {
         let (u, v) = boundary.uv(s);
         surface.point_at(u, v).distance_to(target)
     };
-    let mut best = (boundary.lo, f64::INFINITY);
+    let mut best = (lo, f64::INFINITY);
     for i in 0..=SCAN {
-        let s = boundary.lo + (boundary.hi - boundary.lo) * i as f64 / SCAN as f64;
+        let s = lo + (hi - lo) * i as f64 / SCAN as f64;
         let d = distance(s);
         if d < best.1 {
             best = (s, d);
         }
     }
-    let step = (boundary.hi - boundary.lo) / SCAN as f64;
-    let (mut a, mut b) = (
-        (best.0 - step).max(boundary.lo),
-        (best.0 + step).min(boundary.hi),
-    );
+    let step = (hi - lo) / SCAN as f64;
+    // A minimum at the end of a periodic boundary's window lies on
+    // either side of the seam: clamping the bracket there pinned it to
+    // the seam itself (an angled rim's seam anchor 0.0017 of a turn
+    // past u = 0 measured 0.07 off its own rail, PK-890).
+    let (mut a, mut b) = if boundary.periodic {
+        (best.0 - step, best.0 + step)
+    } else {
+        ((best.0 - step).max(lo), (best.0 + step).min(hi))
+    };
     let phi = 0.618_033_988_749_895;
     for _ in 0..48 {
         let c = b - phi * (b - a);
@@ -129,11 +158,14 @@ fn nearest_on_boundary(
 
 /// The co-parameterised pcurve of `arc` over `range` on the strip
 /// boundary it lies on, or `None` when no boundary carries it within
-/// `gate`.
+/// `gate`. With `along_curve` false the pcurve runs the arc backwards
+/// (its `t_start` images the arc's `range.1`), for a half-edge that
+/// traverses its edge against the curve.
 pub(crate) fn rail_pcurve_on_strip(
     surface: &SurfaceGeometry,
     arc: &CurveGeometry,
     range: (f64, f64),
+    along_curve: bool,
     gate: f64,
 ) -> Option<Pcurve> {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
@@ -146,30 +178,43 @@ pub(crate) fn rail_pcurve_on_strip(
             fixed: v0,
             lo: u0,
             hi: u1,
+            periodic: false,
         },
         Boundary {
             along_u: true,
             fixed: v1,
             lo: u0,
             hi: u1,
+            periodic: false,
         },
         Boundary {
             along_u: false,
             fixed: u0,
             lo: v0,
             hi: v1,
+            periodic: false,
         },
         Boundary {
             along_u: false,
             fixed: u1,
             lo: v0,
             hi: v1,
+            periodic: false,
         },
     ];
     let params: Vec<f64> = (0..SAMPLES)
         .map(|i| range.0 + (range.1 - range.0) * i as f64 / (SAMPLES - 1) as f64)
         .collect();
-    let targets: Vec<Point3> = params.iter().map(|&t| arc.point_at(t)).collect();
+    let targets: Vec<Point3> = params
+        .iter()
+        .map(|&t| {
+            arc.point_at(if along_curve {
+                t
+            } else {
+                range.0 + range.1 - t
+            })
+        })
+        .collect();
     let (period_u, period_v) = surface.periodicity();
     let (chart_u, chart_v) = surface.parameter_periodicity();
     let mut best: Option<(f64, Vec<(f64, f64)>)> = None;
@@ -197,6 +242,10 @@ pub(crate) fn rail_pcurve_on_strip(
                 <= gate
         };
         let period = declared.or_else(|| closes.then_some(boundary.hi - boundary.lo));
+        let boundary = &Boundary {
+            periodic: declared.is_some(),
+            ..*boundary
+        };
         for target in &targets {
             let (mut s, d) = nearest_on_boundary(surface, boundary, target);
             worst = worst.max(d);

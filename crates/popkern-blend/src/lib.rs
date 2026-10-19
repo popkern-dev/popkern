@@ -25,6 +25,7 @@ pub mod chamfer_2d;
 pub mod chamfer_2d_by_angle;
 pub(crate) mod chamfer_2d_ray;
 pub mod chamfer_curve;
+pub(crate) mod closed_station_loft;
 pub(crate) mod collapsed_skip;
 pub mod construct;
 /// Test-only hooks for gated work-in-progress construction arms.
@@ -127,6 +128,7 @@ pub mod walker;
 pub(crate) mod walker_adaptive;
 pub(crate) mod walker_station;
 pub(crate) mod walker_tangent;
+mod walker_window;
 pub mod zebra;
 pub use blend_continuity_certification::DeferredSeamCertified;
 pub use blend_continuity_evidence::{

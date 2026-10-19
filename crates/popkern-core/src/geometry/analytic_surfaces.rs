@@ -225,7 +225,7 @@ impl SurfaceEval for SurfaceGeometry {
             SurfaceGeometry::Cone { .. } => (Some(TAU), None),
             SurfaceGeometry::Sphere { .. } => (Some(TAU), None),
             SurfaceGeometry::Torus { .. } => (Some(TAU), Some(TAU)),
-            SurfaceGeometry::Nurbs(_) => (None, None),
+            SurfaceGeometry::Nurbs(n) => (n.u_period(), n.v_period()),
             SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => (None, None),
         }
     }
