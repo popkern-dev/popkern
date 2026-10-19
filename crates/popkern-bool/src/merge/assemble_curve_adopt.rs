@@ -4,7 +4,7 @@
 /// Subrange `stored` to the window spanning `p_start`→`p_end` (by
 /// nearest-param projection) and HEAL the ends exactly onto the node
 /// positions via degree-3 interpolation through samples of the true
-/// curve. The chord fallback this replaces sat 0.17 off both adjacent
+/// curve, as dense as the curve needs. The chord fallback this replaces sat 0.17 off both adjacent
 /// torus surfaces; a raw subrange window left the junction-slop
 /// (measured 1.8e-3) end gap as a shell-gap validation failure.
 pub(crate) fn subrange_healed_curve(
@@ -28,24 +28,53 @@ pub(crate) fn subrange_healed_curve(
     }
     // Sample the true curve over the window, pin exact ends, and
     // interpolate; interior deviation stays at the slop scale near
-    // the ends only.
-    let n = 16usize;
-    let mut points = Vec::with_capacity(n + 1);
-    let mut params = Vec::with_capacity(n + 1);
-    for k in 0..=n {
-        let f = k as f64 / n as f64;
-        let t = t_a + (t_b - t_a) * f;
-        points.push(stored.geometry.point_at(t));
-        params.push(f);
+    // the ends only. Samples double from 17 until the interpolant
+    // follows the curve at every span midpoint clear of the two end
+    // spans, to 1e-7 of the window's length: 17 fixed samples left a
+    // 0.7-turn M12 thread flank x bore piece, about 22 long, 2e-4 off
+    // both surfaces, past the 1e-4 precision bound (PK-898).
+    let length = {
+        let mut acc = 0.0;
+        let mut prev = stored.geometry.point_at(t_a);
+        for k in 1..=64 {
+            let q = stored
+                .geometry
+                .point_at(t_a + (t_b - t_a) * k as f64 / 64.0);
+            acc += prev.distance_to(&q);
+            prev = q;
+        }
+        acc
+    };
+    let target = 1.0e-7 * length;
+    let mut n = 16usize;
+    loop {
+        let at = |f: f64| t_a + (t_b - t_a) * f;
+        let mut points = Vec::with_capacity(n + 1);
+        let mut params = Vec::with_capacity(n + 1);
+        for k in 0..=n {
+            let f = k as f64 / n as f64;
+            points.push(stored.geometry.point_at(at(f)));
+            params.push(f);
+        }
+        points[0] = *p_start;
+        points[n] = *p_end;
+        let fit = popkern_core::geometry::fitting::interpolate_curve(&points, &params, 3).ok()?;
+        let worst = (1..n.saturating_sub(1))
+            .map(|k| {
+                let f = (k as f64 + 0.5) / n as f64;
+                fit.point_at(f)
+                    .distance_to(&stored.geometry.point_at(at(f)))
+            })
+            .fold(0.0_f64, f64::max);
+        if worst <= target || n >= 256 {
+            return Some(popkern_core::geometry::CurveOnEdge {
+                geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(fit),
+                t_start: 0.0,
+                t_end: 1.0,
+            });
+        }
+        n *= 2;
     }
-    points[0] = *p_start;
-    points[n] = *p_end;
-    let fit = popkern_core::geometry::fitting::interpolate_curve(&points, &params, 3).ok()?;
-    Some(popkern_core::geometry::CurveOnEdge {
-        geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(fit),
-        t_start: 0.0,
-        t_end: 1.0,
-    })
 }
 
 /// A CLOSED edge's direction is its canonical half-edge (PK-478): the

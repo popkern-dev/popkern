@@ -3,8 +3,6 @@
 //! `head_side_full_major` below its head, and the tap's entry cone
 //! must clear that stretch: ending at P/8 + clearance, the first tap
 //! ridge met a flush M6 socket screw's top turn over a quarter turn.
-//! (M12 at clearance 0 and 0.1 fails edge-precision validation in this
-//! block at 1.7..1.8 D deep: PK-898.)
 
 use super::*;
 use crate::builders::{SocketCapParams, socket_cap_screw};
@@ -25,6 +23,11 @@ fn classify(point: &Point3, body: &BRep) -> PointClassification {
 /// A block whose entry face is z = 0, material in z > 0, tapped along
 /// +z (the screws' insertion frame: bearing plane z = 0, shank +z).
 fn tapped_block(spec: &ThreadSpec, clearance: f64) -> BRep {
+    tapped_block_at(spec, clearance, 2.0 * spec.major_diameter())
+}
+
+/// [`tapped_block`] with a blind `depth`.
+fn tapped_block_at(spec: &ThreadSpec, clearance: f64, depth: f64) -> BRep {
     let d = spec.major_diameter();
     let half = 2.0 * d;
     let pts = [
@@ -49,7 +52,7 @@ fn tapped_block(spec: &ThreadSpec, clearance: f64) -> BRep {
         spec,
         Point3::new(0.0, 0.0, 0.0),
         Vec3::new(0.0, 0.0, 1.0),
-        HoleDepth::Blind(2.0 * d),
+        HoleDepth::Blind(depth),
         &options,
         Tolerance::default(),
     )
@@ -62,7 +65,7 @@ fn a_flush_socket_screw_clears_its_tapped_hole() {
         ("M4", &[0.1][..]),
         ("M6", &[0.1, 0.2]),
         ("M8", &[0.2]),
-        ("M12", &[0.2]),
+        ("M12", &[0.1, 0.2]),
     ] {
         let spec = ThreadSpec::parse(designation).expect("spec");
         let full_major = thread_form::head_side_full_major(&spec).expect("runout");
@@ -161,6 +164,23 @@ fn blind_taps_serve_at_every_depth_phase() {
                     panic!("{designation} clearance {clearance} depth {depth}: {e:?}")
                 });
             }
+        }
+    }
+}
+
+/// PK-898: an M12 blind tap serves at clearance 0 and 0.1. The entry
+/// chamfer's cut trims each thread flank x bore record at the cone, and
+/// the assembly heals the trimmed piece onto its nodes by interpolating
+/// samples of the record; 17 fixed samples left a 0.7-turn piece, about
+/// 22 long, 2e-4 off both surfaces, and the hole failed the 1e-4 edge
+/// precision bound at every depth phase.
+#[test]
+fn an_m12_blind_tap_serves_at_tight_clearances() {
+    let spec = ThreadSpec::parse("M12").expect("spec");
+    for clearance in [0.0, 0.1] {
+        for k in 0..4 {
+            let depth = 1.7 * spec.major_diameter() + spec.pitch() * k as f64 / 4.0;
+            tapped_block_at(&spec, clearance, depth);
         }
     }
 }
