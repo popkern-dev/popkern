@@ -5,7 +5,8 @@
 //! Every cut takes an arbitrary axis — `origin` on (or just above)
 //! the entry surface, `direction` pointing INTO the material — so
 //! angled fittings need no extra machinery, and a fastener built on
-//! the same axis mates by construction.
+//! the same axis mates by construction: a tapped hole's entry cone
+//! clears the head-side runout of a screw seated flush on it.
 
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::geometry::{Point3, Vec3};
@@ -219,7 +220,18 @@ pub fn tapped_hole(
         tolerance,
     )?;
     if options.entry_chamfer {
-        let r_mouth = spec.major_diameter() / 2.0 + spec.pitch() / 8.0 + options.clearance;
+        // A seated bearing-head screw's groove starts at its runout
+        // (`head_side_full_major` below the head): every tap ridge
+        // whose mating groove that clip removed meets the screw's
+        // full-major crest, up to the runout plus a ridge half width.
+        // The 45° cone reaches the major radius there, plus P/8 and the
+        // clearance. Ending at P/8 + clearance, the tap's first ridge
+        // met a flush M6 socket screw's full-major top turn (PK-849).
+        let r_mouth = spec.major_diameter() / 2.0
+            + thread_form::head_side_full_major(spec)?
+            + external_groove(spec)?.axial_half_width()
+            + spec.pitch() / 8.0
+            + options.clearance;
         // Strictly inside the bore void — see the hex-nut mouth
         // chamfer: r_bore - embed is exactly the groove-base radius
         // and a coincident cutter cylinder poisons classification.
@@ -347,3 +359,7 @@ pub fn external_thread(
         tolerance,
     )
 }
+
+#[cfg(test)]
+#[path = "seated_tap_tests.rs"]
+mod seated_tap_tests;

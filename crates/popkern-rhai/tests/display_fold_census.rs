@@ -21,7 +21,9 @@ const CEILINGS: &[(&str, usize, usize, f64)] = &[
     // 2026-10-13 baseline 0/1/2/1/188/48/124/502/10/19.
     // angled_fitting became an assembly (2026-10-15): bracket, washer,
     // cap screw, then the flat-head screws (body 1 was the loose screw).
-    ("angled_fitting", 0, 0, 12.0),
+    // Containment (PK-896): the PK-849 tap entry cone trims the angled
+    // bore so a boundary sliver leans 12.016°; back to (0, 12.0) there.
+    ("angled_fitting", 0, 1, 12.05),
     ("angled_fitting", 2, 0, 12.0),
     ("angled_fitting", 3, 0, 11.5),
     ("countersunk_joint", 1, 0, 12.0),

@@ -60,14 +60,13 @@ pub(crate) fn headed_screw(
     if chamfer_tip {
         body = tip_chamfer(&body, spec, length, tolerance)?;
     }
-    let lead = spec.lead();
     cut_thread(
         &body,
         spec,
         &groove,
         z_start,
         length,
-        Some(head_clear_z + groove.axial_half_width() + 0.1 * lead),
+        Some(head_clear_z + crate::thread_form::head_side_full_major(spec)?),
         None,
         "external thread",
         tolerance,

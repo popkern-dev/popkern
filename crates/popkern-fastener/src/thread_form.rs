@@ -58,6 +58,15 @@ pub(crate) fn embed_margin(spec: &ThreadSpec) -> f64 {
     spec.pitch() / 16.0
 }
 
+/// How far below a bearing head (socket, hex) a screw's thread stays
+/// at full major diameter: the groove tool's axial half width plus a
+/// tenth of a lead of clip clearance (`headed_screw`'s runout). A
+/// tapped hole's entry cone must clear that stretch for the screw to
+/// seat flush (PK-849): the two builders share this one rule.
+pub(crate) fn head_side_full_major(spec: &ThreadSpec) -> Result<f64, FastenerError> {
+    Ok(external_groove(spec)?.axial_half_width() + 0.1 * spec.lead())
+}
+
 /// The external-thread groove tool: the thread *space* trapezoid,
 /// widened past the major surface by the embed margin. Cutting it
 /// from a major-diameter shank leaves the ISO basic external thread.
