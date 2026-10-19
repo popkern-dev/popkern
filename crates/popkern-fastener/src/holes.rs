@@ -183,9 +183,15 @@ pub fn tapped_hole(
                     requirement: "finite and > one thread lead",
                 });
             }
-            // Keep the tool's quarter-turn overshoot inside the
-            // bore: nominal thread end ¾ lead above the bottom.
-            (d, d - 0.75 * spec.lead())
+            // Keep the whole tool inside the bore: its helix runs half a
+            // lead past the nominal end and rounds up to a quarter turn
+            // (`engine::plan_turns`), and the ridge reaches its axial
+            // half width beyond that; a quarter pitch more keeps it off
+            // the floor. Ending ¾ lead up, the tip met the floor 0.07
+            // past it at every whole-pitch M3 depth, right on the floor
+            // rim's seam vertex, and the subtraction declined (PK-895).
+            let reach = 0.75 * spec.lead() + ridge.axial_half_width() + 0.25 * spec.pitch();
+            (d, d - reach)
         }
         HoleDepth::Through => {
             let reach = through_reach(body, origin, direction);

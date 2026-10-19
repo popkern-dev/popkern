@@ -3,8 +3,8 @@
 //! `head_side_full_major` below its head, and the tap's entry cone
 //! must clear that stretch: ending at P/8 + clearance, the first tap
 //! ridge met a flush M6 socket screw's top turn over a quarter turn.
-//! (M3 and M4 taps into this block decline in merge, and M12 at
-//! clearance 0.1 fails precision validation, with either cone: PK-895.)
+//! (M12 at clearance 0 and 0.1 fails edge-precision validation in this
+//! block at 1.7..1.8 D deep: PK-898.)
 
 use super::*;
 use crate::builders::{SocketCapParams, socket_cap_screw};
@@ -58,7 +58,12 @@ fn tapped_block(spec: &ThreadSpec, clearance: f64) -> BRep {
 
 #[test]
 fn a_flush_socket_screw_clears_its_tapped_hole() {
-    for (designation, clearances) in [("M6", &[0.1, 0.2][..]), ("M8", &[0.2]), ("M12", &[0.2])] {
+    for (designation, clearances) in [
+        ("M4", &[0.1][..]),
+        ("M6", &[0.1, 0.2]),
+        ("M8", &[0.2]),
+        ("M12", &[0.2]),
+    ] {
         let spec = ThreadSpec::parse(designation).expect("spec");
         let full_major = thread_form::head_side_full_major(&spec).expect("runout");
         let screw = socket_cap_screw(
@@ -107,6 +112,55 @@ fn a_flush_socket_screw_clears_its_tapped_hole() {
                 ridge > 0,
                 "{designation}: no tap ridge reaches the crest radius"
             );
+        }
+    }
+}
+
+/// PK-895: a blind tap's thread tool stays clear of the hole's floor at
+/// every depth phase. Its helix runs half a lead past the nominal end,
+/// rounds up to a quarter turn, and the ridge reaches its half width
+/// beyond: ending ¾ lead above the floor, the tip met the floor at every
+/// whole-pitch M3 depth, on the floor rim's seam vertex, and the cut
+/// declined. Twelve depth phases per size and clearance serve.
+#[test]
+fn blind_taps_serve_at_every_depth_phase() {
+    for designation in ["M3", "M4", "M5"] {
+        let spec = ThreadSpec::parse(designation).expect("spec");
+        let d = spec.major_diameter();
+        let half = 2.0 * d;
+        let pts = [
+            Point3::new(-half, -half, 0.0),
+            Point3::new(half, -half, 0.0),
+            Point3::new(half, half, 0.0),
+            Point3::new(-half, half, 0.0),
+        ];
+        let block = BRep::prism(
+            &pts,
+            Vec3::new(0.0, 0.0, 1.0),
+            3.0 * d,
+            Tolerance::default(),
+        )
+        .expect("block");
+        for clearance in [0.0, 0.1] {
+            for k in 0..12 {
+                let depth = 1.7 * d + spec.pitch() * k as f64 / 6.0;
+                let options = TapOptions {
+                    clearance,
+                    entry_chamfer: true,
+                };
+                tapped_hole(
+                    &block,
+                    &spec,
+                    Point3::new(0.0, 0.0, 0.0),
+                    Vec3::new(0.0, 0.0, 1.0),
+                    HoleDepth::Blind(depth),
+                    &options,
+                    Tolerance::default(),
+                )
+                .unwrap_or_else(|e| {
+                    panic!("{designation} clearance {clearance} depth {depth}: {e:?}")
+                });
+            }
         }
     }
 }
