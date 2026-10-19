@@ -60,16 +60,30 @@ impl Homogeneous {
 /// `n_controls`: number of control points
 /// `t`: parameter value
 ///
-/// Valid spans are `[degree, n_controls - 1]`.
+/// Valid spans are `[degree, n_controls - 1]`. A parameter at or past
+/// either end of the domain takes the nearest NON-EMPTY span: a clamped
+/// vector's end spans are never empty, but a periodic-form vector keeps
+/// its seam knot at multiplicity `degree` (PK-890), so its last span
+/// `[knots[n], knots[n + 1]]` is empty, and evaluating the domain end
+/// there read every derivative as zero (PK-893: a periodic G2 ring's
+/// u-partial was 0 at u = 1).
 pub(crate) fn find_span(degree: usize, knots: &[f64], n_controls: usize, t: f64) -> usize {
     let n = n_controls - 1;
 
     // Clamp to valid range
     if t >= knots[n + 1] {
-        return n;
+        let mut k = n;
+        while k > degree && knots[k] >= knots[k + 1] {
+            k -= 1;
+        }
+        return k;
     }
     if t <= knots[degree] {
-        return degree;
+        let mut k = degree;
+        while k < n && knots[k] >= knots[k + 1] {
+            k += 1;
+        }
+        return k;
     }
 
     // Binary search

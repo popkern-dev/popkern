@@ -192,7 +192,7 @@ pub(crate) fn g2_revolution_from_contact_solutions(
         knots_u.push(t);
     }
     knots_u.extend([1.0, 1.0, 1.0]);
-    Some(NurbsSurface {
+    let surface = NurbsSurface {
         degree_u: 2,
         degree_v: 5,
         knots_u,
@@ -201,7 +201,16 @@ pub(crate) fn g2_revolution_from_contact_solutions(
         num_u,
         num_v,
         weights,
-    })
+    };
+    // A closed spine's strip is a ring, smooth across its seam (the
+    // section rotated by the exact circle): it is written in periodic
+    // form, a chart with no seam boundary like a torus (PK-893). The
+    // seam row sits at the first station to the coordinate tolerance;
+    // past it the clamped ring stands, as before.
+    if closed && let Some(ring) = surface.periodic_u_from_closed_clamped(coord_tol) {
+        return Some(ring);
+    }
+    Some(surface)
 }
 
 #[cfg(test)]

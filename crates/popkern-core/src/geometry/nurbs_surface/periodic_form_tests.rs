@@ -148,3 +148,85 @@ fn hinted_projection_crosses_a_periodic_seam() {
     );
     assert!((u + 0.01).abs() < 1e-6, "stays on the hint's branch: u {u}");
 }
+
+/// The exact clamped rational full circle (four 90° arcs, nine rows,
+/// double interior knots) of radius 2, extruded linearly in `v`: the
+/// ring a revolve writes, closed but clamped.
+fn clamped_circle_ring() -> NurbsSurface {
+    let w = std::f64::consts::FRAC_1_SQRT_2;
+    let corner = |k: usize| {
+        let a = std::f64::consts::FRAC_PI_4 * k as f64;
+        let r = if k % 2 == 1 { 2.0 / w } else { 2.0 };
+        (r * a.cos(), r * a.sin())
+    };
+    let mut control_points = Vec::new();
+    let mut weights = Vec::new();
+    for k in 0..9 {
+        let (x, y) = corner(k % 8);
+        for z in [0.0, 3.0] {
+            control_points.push(Point3::new(x, y, z));
+            weights.push(if k % 2 == 1 { w } else { 1.0 });
+        }
+    }
+    NurbsSurface {
+        degree_u: 2,
+        degree_v: 1,
+        knots_u: vec![
+            0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
+        ],
+        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        num_u: 9,
+        num_v: 2,
+        weights,
+        control_points,
+    }
+}
+
+#[test]
+fn a_closed_clamped_ring_converts_to_periodic_form_exactly() {
+    let clamped = clamped_circle_ring();
+    assert_eq!(clamped.u_period(), None, "clamped closure is not a period");
+    let ring = clamped
+        .periodic_u_from_closed_clamped(1e-12)
+        .expect("the circle ring closes");
+    assert_eq!(ring.parameter_range(), clamped.parameter_range());
+    assert!((ring.u_period().expect("periodic form") - 1.0).abs() < 1e-15);
+    for i in 0..=40 {
+        for v in [0.0, 0.4, 1.0] {
+            let u = i as f64 / 40.0;
+            let (a, b) = (clamped.point_at(u, v), ring.point_at(u, v));
+            assert!(a.distance_to(&b) < 1e-14, "u {u} v {v}: {a:?} vs {b:?}");
+            // Past the domain the ring wraps one period.
+            let wrapped = ring.point_at(u + 1.0, v);
+            assert!(wrapped.distance_to(&b) < 1e-13, "u {u}: no wrap");
+            assert!((b.x.hypot(b.y) - 2.0).abs() < 1e-13, "off the circle");
+            // Derivatives too, at the domain ends included: the seam
+            // knot's p-fold multiplicity leaves the span past each end
+            // empty (PK-893, the u-partial read 0 at u = 1).
+            let (da, db) = (clamped.partial_u(u, v), ring.partial_u(u, v));
+            assert!((da - db).length() < 1e-12, "u {u}: {da:?} vs {db:?}");
+            assert!(db.length() > 1.0, "u {u}: degenerate partial {db:?}");
+        }
+    }
+}
+
+#[test]
+fn an_open_or_unclamped_ring_does_not_convert() {
+    let mut open = clamped_circle_ring();
+    // Lift the last row: the ring no longer closes.
+    for j in 0..2 {
+        open.control_points[8 * 2 + j].z += 1e-6;
+    }
+    assert!(open.periodic_u_from_closed_clamped(1e-9).is_none());
+    // Closure within the tolerance converts, onto the first row.
+    let ring = open
+        .periodic_u_from_closed_clamped(1e-5)
+        .expect("closes at 1e-5");
+    assert!(ring.u_period().is_some());
+    // Already periodic (unclamped) input is not clamped.
+    assert!(
+        periodic_ring()
+            .periodic_u_from_closed_clamped(1e-9)
+            .is_none()
+    );
+}

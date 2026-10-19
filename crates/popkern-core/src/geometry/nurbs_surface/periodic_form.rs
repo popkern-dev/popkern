@@ -83,6 +83,78 @@ impl NurbsSurface {
         rows_wrap.then_some(period)
     }
 
+    /// The same ring in periodic form in `u`, for a clamped surface
+    /// that closes in `u`: its last control row coincides with its
+    /// first (points within `linear_tolerance`, weights to the same
+    /// relative bound against the row's scale). `None` when the surface
+    /// is not clamped in `u` or does not close.
+    ///
+    /// The conversion is exact over the domain. The seam knot keeps
+    /// multiplicity `p` (the clamped end knots less one), the interior
+    /// knots are kept, and one period of knots is continued past each
+    /// end; on the span after a `p`-fold knot the basis functions do not
+    /// depend on the knots before it, so every in-domain evaluation is
+    /// the clamped surface's. The last clamped row is dropped for the
+    /// first, and the first `p` rows repeat at the end. The seam's
+    /// smoothness is the clamped ring's own (a producer converts only
+    /// a ring it knows to be smooth there: a C0-cornered wall would
+    /// become a creased period, see the module docs).
+    pub fn periodic_u_from_closed_clamped(&self, linear_tolerance: f64) -> Option<NurbsSurface> {
+        let p = self.degree_u;
+        let n = self.num_u;
+        let m = self.num_v;
+        let k = &self.knots_u;
+        if p == 0 || n < p + 2 || k.len() != n + p + 1 || self.control_points.len() != n * m {
+            return None;
+        }
+        let (a, b) = (k[p], k[n]);
+        let clamped = k[..=p].iter().all(|&t| t == a) && k[n..].iter().all(|&t| t == b);
+        if !clamped || b.partial_cmp(&a) != Some(std::cmp::Ordering::Greater) {
+            return None;
+        }
+        let closes = (0..m).all(|j| {
+            let (wa, wb) = (self.wt(0, j), self.wt(n - 1, j));
+            self.cp(0, j).distance_to(self.cp(n - 1, j)) <= linear_tolerance
+                && (wa - wb).abs() <= 1e-12 * wa.abs().max(wb.abs())
+        });
+        if !closes {
+            return None;
+        }
+        let period = b - a;
+        // One period of knots: the seam p-fold, then the interior.
+        let interior = &k[p + 1..n];
+        let mut cycle: Vec<f64> = vec![a; p];
+        cycle.extend_from_slice(interior);
+        // Knot index i of the periodic vector: one knot before the
+        // leading p-fold seam block, so knots[p] = a starts the domain.
+        let len = n + 2 * p;
+        let distinct = n - 1;
+        let at = |i: isize| -> f64 {
+            let c = cycle.len() as isize;
+            let (q, r) = (i.div_euclid(c), i.rem_euclid(c));
+            cycle[r as usize] + q as f64 * period
+        };
+        let knots_u: Vec<f64> = (0..len as isize).map(|i| at(i - 1)).collect();
+        let mut control_points = Vec::with_capacity((distinct + p) * m);
+        let mut weights = Vec::with_capacity((distinct + p) * m);
+        for i in (0..distinct).chain(0..p) {
+            for j in 0..m {
+                control_points.push(*self.cp(i, j));
+                weights.push(self.wt(i, j));
+            }
+        }
+        Some(NurbsSurface {
+            degree_u: p,
+            degree_v: self.degree_v,
+            knots_u,
+            knots_v: self.knots_v.clone(),
+            num_u: distinct + p,
+            num_v: m,
+            weights,
+            control_points,
+        })
+    }
+
     /// `(u, v)` moved into the knot domain along each periodic
     /// direction.
     ///

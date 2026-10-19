@@ -68,7 +68,14 @@ fn circular_rim_g2_is_an_exact_revolution_that_validates() {
     assert_eq!(blends.len(), 1, "one blend strip");
     let (face, nurbs) = blends[0];
     assert_eq!(nurbs.degree_u, 2, "rational-quadratic revolution in u");
-    assert_eq!(nurbs.num_u, 9, "four 90° segments");
+    // Four 90° segments, written as a ring in periodic form (PK-893):
+    // eight distinct rows and the first two repeated.
+    assert_eq!(nurbs.num_u, 10, "four 90° segments");
+    assert_eq!(
+        nurbs.u_period(),
+        Some(1.0),
+        "a closed rim's strip is a ring"
+    );
     assert_eq!(nurbs.degree_v, 5, "degree-5 G2 section in v");
     assert!(
         nurbs

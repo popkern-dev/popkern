@@ -179,6 +179,16 @@ fn canonical_pcurves(chart: &RevolutionChart) -> (NurbsCurve, NurbsCurve, NurbsC
     }
 }
 
+/// The face chart of a full revolution's construction surface: its
+/// transpose (angle in u), in periodic form in u when the angle rows
+/// close within the linear tolerance; otherwise the clamped transpose.
+fn periodic_angle_chart(surface: &NurbsSurface, tolerance: Tolerance) -> NurbsSurface {
+    let chart = surface.transposed();
+    chart
+        .periodic_u_from_closed_clamped(tolerance.linear())
+        .unwrap_or(chart)
+}
+
 /// Build the welded topology of a full revolution.
 ///
 /// `spans` are the profile spans in world coordinates with on-axis
@@ -321,9 +331,12 @@ pub(crate) fn build_full_revolution_topology(
                 // the closed-chart meshers apply instead of the
                 // v-closed decline (PK-455). Transposition reverses
                 // the chart normal; the flipped orientation keeps the
-                // material side.
+                // material side. The angle direction is the exact
+                // rational circle, smooth across its seam, so the wall
+                // is written in periodic form there: a ring with no
+                // seam boundary in its chart (PK-893).
                 SurfaceOnFace {
-                    geometry: SurfaceGeometry::Nurbs(surfaces[i].transposed()),
+                    geometry: SurfaceGeometry::Nurbs(periodic_angle_chart(&surfaces[i], tolerance)),
                     orientation: false,
                 },
                 (
