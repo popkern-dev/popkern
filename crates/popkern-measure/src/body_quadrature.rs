@@ -150,6 +150,25 @@ pub(super) fn oriented_term(surface: &SurfaceGeometry, uv: [(f64, f64); 3]) -> f
     sum * signed_area / 3.0
 }
 
+/// The (u, v) winding sign of a face mesh's outward-wound triangles:
+/// the sign of the chart normal against the facets' outward normals,
+/// area-weighted over the whole face (a facet's cross product is twice
+/// its area). `None` when the face does not decide (zero or non-finite):
+/// its facets stand.
+fn face_winding(surface: &SurfaceGeometry, fm: &popkern_mesh::FaceMesh) -> Option<f64> {
+    let mut vote = 0.0;
+    for t in &fm.triangles {
+        let [a, b, c] = t.map(|i| fm.vertices[i].uv);
+        let [p, q, r] = t.map(|i| fm.vertices[i].position);
+        let centroid = ((a.0 + b.0 + c.0) / 3.0, (a.1 + b.1 + c.1) / 3.0);
+        let chart = surface
+            .partial_u(centroid.0, centroid.1)
+            .cross(&surface.partial_v(centroid.0, centroid.1));
+        vote += (q - p).cross(&(r - p)).dot(&chart);
+    }
+    (vote.is_finite() && vote != 0.0).then(|| vote.signum())
+}
+
 /// Signed volume of `mesh` (an outward-oriented tessellation of `brep`)
 /// with every face's triangles integrated on the exact surface.
 pub(crate) fn quadrature_volume(
@@ -195,6 +214,7 @@ pub(crate) fn quadrature_volume(
         let trims = surface
             .map(|_| sliver::face_trims(brep, fm.face))
             .unwrap_or_default();
+        let winding = surface.and_then(|s| face_winding(s, fm));
         for t in &fm.triangles {
             let boundary = [0, 1, 2].map(|k| {
                 let (i, j) = (t[k], t[(k + 1) % 3]);
@@ -246,16 +266,17 @@ pub(crate) fn quadrature_volume(
                     if image.distance_to(&centroid) > diameter + gate {
                         return None;
                     }
-                    // The (u, v) orientation must agree with the facet's
-                    // (a mirrored chart triangle flips the sign).
-                    let normal = (points[1] - points[0]).cross(&(points[2] - points[0]));
-                    let centroid_uv = ((a.0 + b.0 + c.0) / 3.0, (a.1 + b.1 + c.1) / 3.0);
-                    let chart = s
-                        .partial_u(centroid_uv.0, centroid_uv.1)
-                        .cross(&s.partial_v(centroid_uv.0, centroid_uv.1));
+                    // The (u, v) orientation must be the face's: a
+                    // mirrored chart triangle flips the sign. Decided
+                    // against the face's own winding, not the facet's
+                    // normal: a sliver facet chording 27° of a helix
+                    // tips its normal across the surface's, and 50477 of
+                    // an M6 flank's triangles fell back to facets whose
+                    // errors no longer cancelled (0.7% of a tapped
+                    // block, PK-901).
                     let signed_area = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
-                    let agree = normal.dot(&chart) * signed_area;
-                    if agree <= 0.0 {
+                    let uv_sign = winding?;
+                    if signed_area * uv_sign <= 0.0 {
                         return None;
                     }
                     let corners = [a, b, c];
