@@ -181,17 +181,17 @@ fn cycloid_fit(s, pi) {
 }
 
 // ---- Part bodies (each a function: closures stay shallow) ----
-// `count` holes of radius hole_r on a circle of radius ring_r, from z
-// for depth: one tool body.
-fn bolt_tool(t, count, ring_r, hole_r, z, depth, pi) {
-    let all = t.profile(xy_at(z)).circle(hole_r).at(ring_r, 0.0).sketch("tap_0").extrude(blind(depth));
-    for k in 1..count {
-        let ang = 2.0 * pi * k / count;
-        let hole = t.profile(xy_at(z)).circle(hole_r).at(ring_r * cos(ang), ring_r * sin(ang))
-            .sketch("tap_" + k).extrude(blind(depth));
-        all = all.union(hole);
+// Size s's bolt circle of radius ring_r: real tapped holes (PK-876)
+// from the face z = entry down -z, `depth` deep, with a 0.1 fit
+// clearance. Every hole phases its thread from the local +x seed; the
+// screws are placed to match (`place_bolts`).
+fn bolt_taps(body, s, ring_r, entry, depth, pi) {
+    for k in 0..s.bolts {
+        let ang = 2.0 * pi * k / s.bolts;
+        body = body.tapped_hole(axis_at([ring_r * cos(ang), ring_r * sin(ang), entry], [0.0, 0.0, -1.0]),
+            s.screw, blind(depth), #{ clearance: 0.1, label: "tapped_" + s.screw + "_" + k });
     }
-    all
+    body
 }
 // The housing's outer solid: a revolved cylinder with a domed cap and
 // a mounting lip at the output end (the bolt circle a casting clamps).
@@ -263,10 +263,12 @@ fn housing_body(m, g, s, pi) {
     body = body.subtract(m.tool(|t| housing_cavity(t, g)), #{ label: "cavity" });
     body = body.subtract(m.tool(|t| radial_rod(t, zb, ang, 2.5, g.ro + 8.0, "cable_bore")),
         #{ label: "cable_bore" });
-    // Bolt circle through the mounting lip: tap-drill bores (E1
-    // fallback), one tool.
-    let holes = m.tool(|t| bolt_tool(t, s.bolts, g.ro + 4.5, s.tap / 2.0, g.len - 9.0, 10.0, pi));
-    body.subtract(holes, #{ label: "tapped_" + s.screw })
+    // Bolt circle through the 8 mm mounting lip: real tapped holes
+    // (PK-876) whose thread runs out of the lip's underside — 10.5
+    // deep, the floor in the air between the lip and the fins (7.6
+    // below it). Ending 9 deep, the M4 thread's tip turned 0.12 past
+    // the underside and the cut declined.
+    bolt_taps(body, s, g.ro + 4.5, g.len, 10.5, pi)
 }
 // The slotted bore of the stator: bore arcs and 12 rectangular slots.
 fn stator_star(g, slot_w, slot_r, pi) {
@@ -377,7 +379,7 @@ fn race_body(m, g, outer) {
     p.sketch("race").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle())
 }
 // The output flange: a hub down to the inner race and a top plate
-// with the output bolt circle (tap-drill bores, E1 fallback).
+// with the output bolt circle (real tapped holes, PK-876).
 fn flange_body(m, g, s, pi) {
     let top = g.len + 1.0;
     let z0 = g.zb - g.half - 1.5;
@@ -385,8 +387,7 @@ fn flange_body(m, g, s, pi) {
     p = p.line_to(g.flange_r, top).line_to(g.flange_r, top + 10.0).line_to(0.0, top + 10.0);
     p = p.line_to(0.0, top).line_to(g.hub_ri, top).close();
     let body = p.sketch("flange").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
-    let holes = m.tool(|t| bolt_tool(t, s.bolts, s.pcd / 2.0, s.tap / 2.0, top + 2.0, 9.0, pi));
-    body.subtract(holes, #{ label: "tapped_" + s.screw })
+    bolt_taps(body, s, s.pcd / 2.0, top + 10.0, 8.0, pi)
 }
 
 // ---- One module's part definitions ----

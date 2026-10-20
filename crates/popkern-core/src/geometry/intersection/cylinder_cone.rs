@@ -91,6 +91,38 @@ pub(crate) fn try_cylinder_cone(
     }
 }
 
+/// Whether a cylinder of radius `cr` and a cone whose axis is parallel
+/// to it, `offset` away, cannot meet over the cone's axial window: the
+/// cone's circles there (radii |v| tan h) all lie strictly inside the
+/// cylinder, all strictly outside it, or all strictly around it, by 10
+/// linear tolerances. A cylinder window does not bound the test, so
+/// it is conservative.
+fn parallel_offset_disjoint(
+    cr: f64,
+    offset: f64,
+    half_angle: f64,
+    cone_v_range: (f64, f64),
+    tolerance: &Tolerance,
+) -> bool {
+    let (v0, v1) = cone_v_range;
+    if !(v0.is_finite() && v1.is_finite() && v0 <= v1) {
+        return false;
+    }
+    let tan_h = half_angle.ptan().abs();
+    let r_max = v0.abs().max(v1.abs()) * tan_h;
+    // The window crossing the apex holds the zero-radius circle.
+    let r_min = if v0 <= 0.0 && v1 >= 0.0 {
+        0.0
+    } else {
+        v0.abs().min(v1.abs()) * tan_h
+    };
+    let margin = 10.0 * tolerance.linear();
+    let inside = offset + r_max < cr - margin;
+    let outside = offset - r_max > cr + margin;
+    let around = offset + cr < r_min - margin;
+    inside || outside || around
+}
+
 /// Coaxial-case implementation. `swapped` = surface1 was the cone.
 #[allow(clippy::too_many_arguments)]
 fn intersect_impl(
@@ -115,8 +147,16 @@ fn intersect_impl(
     }
     // Apex on the cylinder axis?
     let d = apex - co;
-    if (d - ca_n * d.dot(&ca_n)).length() > tolerance.linear() {
-        return None; // parallel-offset → marching
+    let offset = (d - ca_n * d.dot(&ca_n)).length();
+    if offset > tolerance.linear() {
+        // Parallel-offset axes: exactly empty when the cone's window
+        // (a frustum, radius |v| tan h over the window's v) lies wholly
+        // inside the solid cylinder, wholly outside it, or wholly
+        // around it; otherwise marching. Every tapped hole's entry
+        // chamfer cone beside a flange rim paid 80-150 ms of marching
+        // to find nothing (PK-876).
+        return parallel_offset_disjoint(cr, offset, half_angle, cone_v_range, tolerance)
+            .then(Vec::new);
     }
     let tan_h = half_angle.ptan();
     if tan_h.abs() < tolerance.angular() {
@@ -212,3 +252,7 @@ fn uv_hline_of(surface: &SurfaceGeometry, circle: &NurbsCurve) -> Option<NurbsCu
         weights: vec![1.0, 1.0],
     })
 }
+
+#[cfg(test)]
+#[path = "cylinder_cone_offset_tests.rs"]
+mod offset_tests;

@@ -317,15 +317,15 @@
     {
       "blurb": "The three joint sizes of a six-axis arm (L, M, S), each a motor driving a cycloidal reducer: finned housing, slotted stator and windings, a rotor with 180°-opposed cams, two biarc-fitted cycloid discs riding the cams round the ring pins, output pins, and a cross-roller bearing with its rollers at ±45°. One slider per module turns the output; rotor, discs and roller cage follow it.",
       "demonstrates": "computed cycloid flanks fitted with G1 biarcs (deviation checked against the backlash), revolute joints with followers at gear ratios, sub-assemblies, part appearance, finned castings with rounded roots",
-      "features": 426,
+      "features": 298,
       "file": "cycloidal_joint.rhai",
       "thumbnail": "examples/cycloidal_joint.png",
       "title": "Cycloidal joint modules"
     },
     {
-      "blurb": "A complete six-axis robot arm on its cycloidal joint modules: cast base and shoulder, tube links with flanged ends, wrist, an ISO 9409 tool flange and a parallel gripper, bolted together with real M5/M6 screws. Six joint sliders move the arm without rebuilding a part, the tube lengths rebuild their links, and the grip opens the jaws.",
-      "demonstrates": "revolute joints on sub-assembly axes, two-root links mated at a driven length, assembly-parameter drives, swing to first contact, interference, fasteners, part appearance",
-      "features": 1326,
+      "blurb": "A complete six-axis robot arm on its cycloidal joint modules: cast base and shoulder, tube links with flanged ends, wrist, an ISO 9409 tool flange and a parallel gripper, bolted together with real M4/M5/M6 screws threaded into real tapped holes, each turned to mate its thread. Six joint sliders move the arm without rebuilding a part, the tube lengths rebuild their links, and the grip opens the jaws.",
+      "demonstrates": "revolute joints on sub-assembly axes, two-root links mated at a driven length, assembly-parameter drives, swing to first contact, interference, fasteners, tapped holes, thread mating, part appearance",
+      "features": 1198,
       "file": "six_axis_arm.rhai",
       "films": [
         {

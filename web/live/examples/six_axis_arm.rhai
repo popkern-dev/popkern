@@ -24,14 +24,15 @@
 //
 // Fasteners: socket cap screws (fastener family) in counterbored
 // holes. Each mount ring clamps a housing's lip; each foot bolts to a
-// joint's output flange. Fallback boundary (design §6, PK-801, PK-847):
-// the tool flange's four ISO M6 holes are real tapped threads (the
-// arm's customer interface, ~1 s each); the ~150 bolt-circle holes the
-// arm's own screws engage stay tap-drill bores labelled tapped_M4 /
-// tapped_M5, since real threads there would add ~150 s against the
-// 60 s cold-build budget. Every screw carries a COSMETIC thread (its
-// root diameter: clear of a tap drill and of a real tapped hole's
-// crests); PK-876 tracks real tapped bores and threads.
+// joint's output flange. Every screw has a real thread and threads into
+// a real tapped hole (PK-876): the housings' lips, the output flanges
+// and the tool flange's four ISO M6 holes (a 0.1 fit clearance, 0.15
+// for the M6: body_volume over-reads a 0.08-0.1 M6 flank, PK-901).
+// Each tapped hole is one cut of a cached tool (~0.2-0.4 s on these
+// castings). A screw mates a tap cut in its own insertion frame or an
+// axial offset of whole leads (PK-476); `place_bolts` turns each screw
+// by the leftover fraction of a lead between its head and the tapped
+// face.
 //
 let a = assembly("six_axis_arm");
 let pi = 3.141592653589793;
@@ -191,17 +192,17 @@ fn cycloid_fit(s, pi) {
 }
 
 // ---- Part bodies (each a function: closures stay shallow) ----
-// `count` holes of radius hole_r on a circle of radius ring_r, from z
-// for depth: one tool body.
-fn bolt_tool(t, count, ring_r, hole_r, z, depth, pi) {
-    let all = t.profile(xy_at(z)).circle(hole_r).at(ring_r, 0.0).sketch("tap_0").extrude(blind(depth));
-    for k in 1..count {
-        let ang = 2.0 * pi * k / count;
-        let hole = t.profile(xy_at(z)).circle(hole_r).at(ring_r * cos(ang), ring_r * sin(ang))
-            .sketch("tap_" + k).extrude(blind(depth));
-        all = all.union(hole);
+// Size s's bolt circle of radius ring_r: real tapped holes (PK-876)
+// from the face z = entry down -z, `depth` deep, with a 0.1 fit
+// clearance. Every hole phases its thread from the local +x seed; the
+// screws are placed to match (`place_bolts`).
+fn bolt_taps(body, s, ring_r, entry, depth, pi) {
+    for k in 0..s.bolts {
+        let ang = 2.0 * pi * k / s.bolts;
+        body = body.tapped_hole(axis_at([ring_r * cos(ang), ring_r * sin(ang), entry], [0.0, 0.0, -1.0]),
+            s.screw, blind(depth), #{ clearance: 0.1, label: "tapped_" + s.screw + "_" + k });
     }
-    all
+    body
 }
 // The housing's outer solid: a revolved cylinder with a domed cap and
 // a mounting lip at the output end (the bolt circle a casting clamps).
@@ -273,10 +274,12 @@ fn housing_body(m, g, s, pi) {
     body = body.subtract(m.tool(|t| housing_cavity(t, g)), #{ label: "cavity" });
     body = body.subtract(m.tool(|t| radial_rod(t, zb, ang, 2.5, g.ro + 8.0, "cable_bore")),
         #{ label: "cable_bore" });
-    // Bolt circle through the mounting lip: tap-drill bores (E1
-    // fallback), one tool.
-    let holes = m.tool(|t| bolt_tool(t, s.bolts, g.ro + 4.5, s.tap / 2.0, g.len - 9.0, 10.0, pi));
-    body.subtract(holes, #{ label: "tapped_" + s.screw })
+    // Bolt circle through the 8 mm mounting lip: real tapped holes
+    // (PK-876) whose thread runs out of the lip's underside — 10.5
+    // deep, the floor in the air between the lip and the fins (7.6
+    // below it). Ending 9 deep, the M4 thread's tip turned 0.12 past
+    // the underside and the cut declined.
+    bolt_taps(body, s, g.ro + 4.5, g.len, 10.5, pi)
 }
 // The slotted bore of the stator: bore arcs and 12 rectangular slots.
 fn stator_star(g, slot_w, slot_r, pi) {
@@ -387,7 +390,7 @@ fn race_body(m, g, outer) {
     p.sketch("race").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle())
 }
 // The output flange: a hub down to the inner race and a top plate
-// with the output bolt circle (tap-drill bores, E1 fallback).
+// with the output bolt circle (real tapped holes, PK-876).
 fn flange_body(m, g, s, pi) {
     let top = g.len + 1.0;
     let z0 = g.zb - g.half - 1.5;
@@ -395,8 +398,7 @@ fn flange_body(m, g, s, pi) {
     p = p.line_to(g.flange_r, top).line_to(g.flange_r, top + 10.0).line_to(0.0, top + 10.0);
     p = p.line_to(0.0, top).line_to(g.hub_ri, top).close();
     let body = p.sketch("flange").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());
-    let holes = m.tool(|t| bolt_tool(t, s.bolts, s.pcd / 2.0, s.tap / 2.0, top + 2.0, 9.0, pi));
-    body.subtract(holes, #{ label: "tapped_" + s.screw })
+    bolt_taps(body, s, s.pcd / 2.0, top + 10.0, 8.0, pi)
 }
 
 // ---- One module's part definitions ----
@@ -525,7 +527,7 @@ fn joint_mods(arm, frames, sizes) {
             ring_in: g.flange_r + 1.4, ring_out: g.ro + 12.0, rl: g.ro + 4.5,
             foot_r: s.pcd / 2.0 + cb_r + 3.0,
             clear_r: if big { 2.75 } else { 2.25 }, cb_r: cb_r, cb_d: if big { 6.0 } else { 5.0 },
-            screw: if big { "M5" } else { "M4" },
+            screw: if big { "M5" } else { "M4" }, lead: if big { 0.8 } else { 0.7 },
         });
     }
     mods
@@ -567,13 +569,21 @@ fn cbore_tool(t, md, rc, count, zf, depth, through, ext, pi) {
     }
     all
 }
-// The bolts of a cbore_tool circle, heads on the pocket floors.
-fn place_bolts(sub, bolt, md, rc, count, zf, depth, name, pi) {
+// The bolts of a cbore_tool circle, heads on the pocket floors, each
+// threading into the tapped hole whose entry face is `gap` below its
+// head. Thread mating phase (PK-476): a screw mates a tap cut in its
+// own insertion frame, or one offset along the axis by whole leads; the
+// head sits `gap` out of the hole, so the screw turns by the leftover
+// fraction of a lead about the outward axis from the hole's +x seed.
+fn place_bolts(sub, bolt, md, rc, count, zf, depth, gap, name, pi) {
     let d = m_dir(md.M, [0.0, 0.0, -1.0]);
+    let leads = gap / md.lead;
+    let phase = 2.0 * pi * (leads - leads.floor());
+    let x = m_dir(md.M, [cos(phase), sin(phase), 0.0]);
     for k in 0..count {
         let ang = 2.0 * pi * k / count;
         let at = m_point(md.M, [rc * cos(ang), rc * sin(ang), zf - depth]);
-        sub.place(bolt, name + "_" + k).frame(at, d, m_dir(md.M, [cos(ang), sin(ang), 0.0]));
+        sub.place(bolt, name + "_" + k).frame(at, d, x);
     }
 }
 // The mount ring's and the foot's bolt circles (module md); `ext` is
@@ -716,9 +726,17 @@ fn iso_taps(body, md, face, pi) {
     for k in 0..4 {
         let ang = pi / 8.0 + pi * k / 2.0;
         body = body.tapped_hole(axis_at(m_point(md.M, [25.0 * cos(ang), 25.0 * sin(ang), face]), d),
-            "M6", blind(10.0), #{ label: "tapped_M6_" + k });
+            "M6", blind(10.0), #{ clearance: 0.15, label: "tapped_M6_" + k });
     }
     body
+}
+// A hole's insertion-frame x seed along d: the world axis most
+// orthogonal to it (popkern_fastener::holes::insertion_x_seed).
+fn insertion_seed(d) {
+    let x = abs(d[0]);
+    let y = abs(d[1]);
+    let z = abs(d[2]);
+    if x <= y && x <= z { [1.0, 0.0, 0.0] } else if y <= z { [0.0, 1.0, 0.0] } else { [0.0, 0.0, 1.0] }
 }
 fn tool_flange_body(m, m6, pi) {
     let face = m6.g.len + 29.0;
@@ -830,14 +848,16 @@ fn fill_link(sub, castings, prev, next, parts, mods, arm, bolts, pi) {
         place_output(sub, parts[arm.sizes[prev]], md);
         let face = if prev == 5 { md.g.len + 29.0 } else { md.g.len + 23.0 };
         let depth = if prev == 5 { md.cb_d + 6.0 } else { md.cb_d };
+        // Heads at face - depth; the flange's tapped face at len + 11.
         place_bolts(sub, bolts[md.screw], md, md.s.pcd / 2.0, md.s.bolts, face, depth,
-            "j" + (prev + 1) + "_foot", pi);
+            face - depth - (md.g.len + 11.0), "j" + (prev + 1) + "_foot", pi);
     }
     if next >= 0 {
         let md = mods[next];
         place_static(sub, parts[arm.sizes[next]], md);
+        // Heads at len + 10 - cb_d; the housing lip's tapped face at len.
         place_bolts(sub, bolts[md.screw], md, md.rl, md.s.bolts, md.g.len + 10.0, md.cb_d,
-            "j" + (next + 1) + "_mount", pi);
+            10.0 - md.cb_d, "j" + (next + 1) + "_mount", pi);
     }
 }
 
@@ -1007,7 +1027,7 @@ a.drive("forearm", [fore_tube]);
 a.limits("upper_arm", arm.upper_root + arm.upper_end + 60.0, 700.0);
 a.limits("forearm", arm.fore_root + arm.fore_end + 60.0, 650.0);
 
-let bolt = a.part("bolt", #{ size: "M5", length: 12.0, cosmetic: true }, |m, q| {
+let bolt = a.part("bolt", #{ size: "M5", length: 12.0, cosmetic: false }, |m, q| {
     m.bolt(q.size, q.length, #{ head: "socket", cosmetic_thread: q.cosmetic, label: "bolt" });
 });
 let bolts = #{ M5: bolt, M4: bolt.variant(#{ size: "M4", length: 12.0 }) };
@@ -1063,12 +1083,15 @@ let link_5 = a.subassembly("link_5", |sub| {
 let link_6 = a.subassembly("link_6", |sub| {
     fill_link(sub, [[tool_flange, "tool_flange"], [gripper, "gripper"], [dowel, "dowel"]], 5, -1,
         parts, mods, arm, bolts, pi);
-    // The gripper's four M6 screws, heads on their pocket floors.
+    // The gripper's four M6 screws, heads on their pocket floors 3.5
+    // (3.5 leads) out of the ISO taps, which are cut in world
+    // coordinates: half a turn from the taps' seed (PK-476, PK-876).
     let d = m_dir(mods[5].M, [0.0, 0.0, -1.0]);
+    let s = insertion_seed(d);
     for k in 0..4 {
         let ang = iso_angle(k, pi);
         let at = m_point(mods[5].M, [25.0 * cos(ang), 25.0 * sin(ang), gl.face + 3.5]);
-        sub.place(bolt_m6, "gripper_screw_" + k).frame(at, d, m_dir(mods[5].M, [cos(ang), sin(ang), 0.0]));
+        sub.place(bolt_m6, "gripper_screw_" + k).frame(at, d, [-s[0], -s[1], -s[2]]);
     }
 });
 

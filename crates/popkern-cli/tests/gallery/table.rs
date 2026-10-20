@@ -255,7 +255,7 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
          round the ring pins, output pins, and a cross-roller bearing with its \
          rollers at ±45°. One slider per module turns the output; rotor, discs \
          and roller cage follow it.",
-        426,
+        298,
         "computed cycloid flanks fitted with G1 biarcs (deviation checked against \
          the backlash), revolute joints with followers at gear ratios, \
          sub-assemblies, part appearance, finned castings with rounded roots",
@@ -265,12 +265,13 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
         "Six-axis arm",
         "A complete six-axis robot arm on its cycloidal joint modules: cast base \
          and shoulder, tube links with flanged ends, wrist, an ISO 9409 tool \
-         flange and a parallel gripper, bolted together with real M5/M6 screws. \
-         Six joint sliders move the arm without rebuilding a part, the tube \
-         lengths rebuild their links, and the grip opens the jaws.",
-        1326,
+         flange and a parallel gripper, bolted together with real M4/M5/M6 screws \
+         threaded into real tapped holes, each turned to mate its thread. Six \
+         joint sliders move the arm without rebuilding a part, the tube lengths \
+         rebuild their links, and the grip opens the jaws.",
+        1198,
         "revolute joints on sub-assembly axes, two-root links mated at a driven \
          length, assembly-parameter drives, swing to first contact, \
-         interference, fasteners, part appearance",
+         interference, fasteners, tapped holes, thread mating, part appearance",
     ),
 ];
