@@ -7,29 +7,6 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Translate all vertices and geometry of a BRep by a vector offset.
-fn translate(mut brep: BRep, offset: Vec3) -> BRep {
-    use popkern_core::geometry::{curve::CurveGeometry, surface::SurfaceGeometry};
-    for (_, vertex) in &mut brep.vertices {
-        vertex.position = vertex.position + offset;
-    }
-    for (_, face) in &mut brep.faces {
-        if let Some(ref mut sof) = face.surface
-            && let SurfaceGeometry::Plane { ref mut origin, .. } = sof.geometry
-        {
-            *origin = *origin + offset;
-        }
-    }
-    for (_, edge) in &mut brep.edges {
-        if let Some(ref mut coe) = edge.curve
-            && let CurveGeometry::Line { ref mut origin, .. } = coe.geometry
-        {
-            *origin = *origin + offset;
-        }
-    }
-    brep
-}
-
 // -- ray_intersects_aabb
 
 #[test]
@@ -117,75 +94,6 @@ fn point_negative_outside_unit_cube() {
     let pt = Point3::new(-1.0, -1.0, -1.0);
     let result = point_in_solid(&pt, &cube, &aabbs, &tol()).expect("classification should succeed");
     assert_eq!(result, PointClassification::Outside);
-}
-
-// -- classify_fragments
-
-#[test]
-fn classify_cube_faces_against_disjoint_cube() {
-    let cube_a = BRep::unit_cube(tol()).expect("cube a");
-    let cube_b = translate(
-        BRep::unit_cube(tol()).expect("cube b"),
-        Vec3::new(5.0, 0.0, 0.0),
-    );
-    let aabbs_b = crate::intersect::compute_face_aabbs(&cube_b);
-    let empty_edges = HashSet::new();
-
-    let result = classify_fragments(&cube_a, &cube_b, &aabbs_b, &empty_edges, &tol())
-        .expect("classification should succeed");
-
-    // All faces of cube_a should be outside cube_b.
-    assert_eq!(result.len(), 6);
-    for class in result.values() {
-        assert_eq!(*class, Classification::Outside);
-    }
-}
-
-#[test]
-fn classify_small_cube_inside_large_cube() {
-    // Small cube at (0.25..0.75) inside unit cube (0..1).
-    let outer = BRep::unit_cube(tol()).expect("outer cube");
-    let inner = translate(
-        {
-            let mut c = BRep::unit_cube(tol()).expect("inner cube");
-            // Scale to 0.5 size: vertices go from 0..1 to 0..0.5
-            for (_, v) in &mut c.vertices {
-                v.position =
-                    Point3::new(v.position.x * 0.5, v.position.y * 0.5, v.position.z * 0.5);
-            }
-            c
-        },
-        Vec3::new(0.25, 0.25, 0.25),
-    );
-
-    let aabbs_outer = crate::intersect::compute_face_aabbs(&outer);
-    let empty_edges = HashSet::new();
-
-    let result = classify_fragments(&inner, &outer, &aabbs_outer, &empty_edges, &tol())
-        .expect("classification should succeed");
-
-    // All faces of the inner cube should be inside the outer cube.
-    assert_eq!(result.len(), 6);
-    for class in result.values() {
-        assert_eq!(
-            *class,
-            Classification::Inside,
-            "inner face should be inside outer cube"
-        );
-    }
-}
-
-#[test]
-fn classify_fragments_empty_brep() {
-    let empty = BRep::new(tol());
-    let cube = BRep::unit_cube(tol()).expect("cube");
-    let aabbs = crate::intersect::compute_face_aabbs(&cube);
-    let empty_edges = HashSet::new();
-
-    let result = classify_fragments(&empty, &cube, &aabbs, &empty_edges, &tol())
-        .expect("classification should succeed");
-
-    assert!(result.is_empty());
 }
 
 // -- pick_sample_point

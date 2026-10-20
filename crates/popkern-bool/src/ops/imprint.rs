@@ -13,7 +13,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 use crate::clip::{clip_curve_to_faces, edge_triple_to_curve_on_surface, face_vertex_positions};
 use crate::error::BoolError;
 use crate::intersect::{IntersectionRecord, compute_face_aabbs};
-use crate::split::split_along_curves;
+use crate::split::{SplitSide, split_body_along_curves};
 
 /// Result of an imprint operation.
 #[derive(Debug)]
@@ -146,14 +146,13 @@ pub fn imprint(
         });
     }
 
-    // Run the split phase against (target, tool) clones. The split
-    // pipeline splits both inputs but only the target side is returned;
-    // the tool clone is discarded.
-    let split_result = split_along_curves(target.clone(), tool.clone(), &records, tolerance)
-        .map_err(|diag| diag.into_error())?;
+    // The target's faces split along the records' target-side curves.
+    let (imprinted_target, _) =
+        split_body_along_curves(target.clone(), SplitSide::A, &records, tolerance)
+            .map_err(|diag| diag.into_error())?;
 
     Ok(ImprintResult {
-        imprinted_target: split_result.a,
+        imprinted_target,
         curves,
         pairs_tested,
     })

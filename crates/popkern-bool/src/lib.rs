@@ -86,7 +86,6 @@ pub mod perturbation;
 pub mod postprocess;
 pub mod progress;
 pub mod provenance;
-pub(crate) mod select;
 pub mod sheet;
 pub(crate) mod split;
 pub(crate) mod split_inner_loop;
@@ -386,7 +385,7 @@ pub fn subtraction_ref(
 ///
 /// Identical to [`boolean`] but populates a [`BoolDiagnostics`] with
 /// [`PhaseMetric`](crate::error::PhaseMetric) samples for each pipeline stage
-/// (intersection, split, classification, selection, merge, validation). Use
+/// (intersection, merge, validation). Use
 /// this entry point for performance regression detection and tooling that
 /// needs to attribute time to specific phases.
 ///

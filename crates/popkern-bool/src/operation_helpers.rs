@@ -1,20 +1,14 @@
 //! Helper functions for the boolean pipeline orchestrator: the BRep
-//! copy/combine utilities, empty-selection handling, containment
-//! verification and record tracing. The no-intersection dispatch
+//! copy/combine utilities, containment verification and record
+//! tracing. The no-intersection dispatch
 //! lives in `operation_no_intersection.rs` (500-line cap).
 
 use std::collections::HashMap;
 
-use popkern_core::topology::{BRep, FaceHandle};
+use popkern_core::topology::BRep;
 
-use crate::error::{BoolError, BoolOperation, Classification};
-use crate::split::SplitResult;
+use crate::error::BoolError;
 
-/// Handle the case where no intersection curves were found between the solids.
-///
-/// Determines the spatial relationship (disjoint, containment, or coincident)
-/// by classifying a sample point from A against B, then returns the
-/// appropriate result for the given operation.
 /// Combine two disjoint BReps into a single BRep by copying all topology
 /// from `b` into `a`.
 ///
@@ -24,51 +18,6 @@ use crate::split::SplitResult;
 /// dispatcher to implement non-overlapping `SheetSheetUnion`.
 pub(crate) fn combine_breps(a: BRep, b: BRep) -> Result<BRep, BoolError> {
     copy_brep_into(a, b, false)
-}
-
-/// Handle the case where the select stage produces 0 kept faces.
-///
-/// This happens when all fragments from both operands classify the same way
-/// (e.g. all Inside). Infers containment from the classification maps and
-/// returns the appropriate operand directly. When containment cannot be
-/// determined, returns an empty BRep.
-pub(super) fn handle_empty_selection(
-    op: BoolOperation,
-    split_result: SplitResult,
-    classifications_a: &HashMap<FaceHandle, Classification>,
-    classifications_b: &HashMap<FaceHandle, Classification>,
-) -> BRep {
-    let all_a_inside = !classifications_a.is_empty()
-        && classifications_a
-            .values()
-            .all(|c| *c == Classification::Inside);
-    let all_b_inside = !classifications_b.is_empty()
-        && classifications_b
-            .values()
-            .all(|c| *c == Classification::Inside);
-
-    if all_a_inside {
-        // A is entirely inside B.
-        return match op {
-            BoolOperation::Union => split_result.b,
-            BoolOperation::Intersection => split_result.a,
-            BoolOperation::Subtraction => BRep::new(split_result.a.tolerance),
-        };
-    }
-
-    if all_b_inside {
-        // B is entirely inside A.
-        return match op {
-            BoolOperation::Union => split_result.a,
-            BoolOperation::Intersection => split_result.b,
-            // A minus B when B is inside A — full hollow solid requires
-            // combining A with flipped B. For now, return A (the outer shell).
-            BoolOperation::Subtraction => split_result.a,
-        };
-    }
-
-    // Cannot determine containment — return empty result.
-    BRep::new(split_result.a.tolerance)
 }
 
 /// Copy all topology from `b` into `a`, optionally flipping B's face normals.

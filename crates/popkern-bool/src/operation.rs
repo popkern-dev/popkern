@@ -29,12 +29,9 @@ use postprocess::log_validation_issues;
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 use crate::cancellation::CancellationToken;
-use crate::classify::classify_fragments;
 use crate::error::{BoolDiagnostics, BoolError, BoolOperation, PhaseMetric, Stage};
 use crate::intersect::find_intersections;
 use crate::progress::{ProgressEvent, ProgressReporter};
-use crate::select::{Operand, select_faces};
-use crate::split::split_along_curves;
 
 const TOTAL_PHASES: usize = 6;
 
@@ -75,7 +72,6 @@ fn check_cancel(cancel: Option<&CancellationToken>) -> Result<(), BoolError> {
     Ok(())
 }
 
-use self::helpers::{handle_empty_selection, verify_whole_body_containment};
 use self::no_intersection::handle_no_intersection;
 
 #[path = "operation_sense_rescue.rs"]
@@ -221,154 +217,16 @@ pub(super) fn execute_boolean_pipeline(
         return Ok(result);
     }
 
-    // Clone originals for graph merge (graph merge reads originals, not split).
-    let original_a = a.clone();
-    let original_b = b.clone();
-
-    // Stage 2: Split — trim faces along intersection curves.
-    let t_split = popkern_core::time::Stopwatch::start();
-    let split_result = split_along_curves(a, b, &intersection_result.records, tolerance)
-        .map_err(|diag| diag.into_error())?;
-    let split_fragment_count = split_result.a.faces.len() + split_result.b.faces.len();
-    let elapsed_split = t_split.elapsed();
-    metrics.push(PhaseMetric {
-        stage: Stage::Split,
-        duration: elapsed_split,
-        entity_count: split_fragment_count,
-    });
-    report_phase(
-        &mut progress,
-        Stage::Split,
-        1,
-        elapsed_split,
-        split_fragment_count,
-    );
-    check_cancel(cancel)?;
-
-    // Stage 3: Classify — label each fragment as inside/outside/on-boundary.
-    // The classified-against body is the SPLIT operand, so its face
-    // AABBs must be computed from the split body too: the pre-split
-    // operand boxes collide by handle with the split faces and pair a
-    // face with another face's box (latent until the per-hit face-box
-    // gate cross-referenced them — a contained-cubes intersection
-    // rejected every real hit and served empty, PK-464).
-    let t_classify = popkern_core::time::Stopwatch::start();
-    let split_aabbs_a = crate::intersect::compute_face_aabbs(&split_result.a);
-    let split_aabbs_b = crate::intersect::compute_face_aabbs(&split_result.b);
-    let classifications_a = classify_fragments(
-        &split_result.a,
-        &split_result.b,
-        &split_aabbs_b,
-        &split_result.fragments_a.intersection_edges,
-        tolerance,
-    )?;
-
-    let classifications_b = classify_fragments(
-        &split_result.b,
-        &split_result.a,
-        &split_aabbs_a,
-        &split_result.fragments_b.intersection_edges,
-        tolerance,
-    )?;
-    let elapsed_classify = t_classify.elapsed();
-    let count_classify = classifications_a.len() + classifications_b.len();
-    metrics.push(PhaseMetric {
-        stage: Stage::Classification,
-        duration: elapsed_classify,
-        entity_count: count_classify,
-    });
-    report_phase(
-        &mut progress,
-        Stage::Classification,
-        2,
-        elapsed_classify,
-        count_classify,
-    );
-    check_cancel(cancel)?;
-
-    // Build the combined classification list for Stage 4.
-    let mut all_classifications = Vec::new();
-    for (face, class) in &classifications_a {
-        all_classifications.push((*face, Operand::A, *class));
-    }
-    for (face, class) in &classifications_b {
-        all_classifications.push((*face, Operand::B, *class));
-    }
-
-    // Stage 4: Select — choose which fragments belong to the result.
-    let t_select = popkern_core::time::Stopwatch::start();
-    let selection = select_faces(op, &all_classifications);
-    let elapsed_select = t_select.elapsed();
-    let count_select = selection.keep_a.len() + selection.keep_b.len();
-    metrics.push(PhaseMetric {
-        stage: Stage::Selection,
-        duration: elapsed_select,
-        entity_count: count_select,
-    });
-    report_phase(
-        &mut progress,
-        Stage::Selection,
-        3,
-        elapsed_select,
-        count_select,
-    );
-    check_cancel(cancel)?;
-
-    // If selection is empty, the split/classify pipeline classified all fragments
-    // the same way (e.g. all Inside). Infer containment and return the
-    // appropriate operand directly instead of producing a 0-face result.
-    //
-    // NOT when coincident face overlaps exist: the face-level
-    // classifier's samples sit in the other body's boundary plane
-    // there, its parity verdicts are coin flips, and an all-drop
-    // selection is noise, not containment (measured: a dovetail-rail
-    // cutter whose void floor is flush with the plate underside
-    // emptied the whole tip piece). The cellular stage below carries
-    // the coincident-aware offset-pair classification — let it run.
-    if selection.keep_a.is_empty()
-        && selection.keep_b.is_empty()
-        && intersection_result.coincidence.face_overlaps.is_empty()
-    {
-        // The inferred containment must be VERIFIED against the
-        // original operands before it is served: the classifications
-        // come from one seed per propagation component, and an
-        // under-split operand fuses both sides of the trim into one
-        // component whose single seed wipes everything (measured: a
-        // rim-straddling key subtract served an EMPTY body, PK-173).
-        // A refuted claim falls through to the cellular stage, which
-        // classifies per fragment.
-        let all_a_inside = !classifications_a.is_empty()
-            && classifications_a
-                .values()
-                .all(|c| *c == crate::error::Classification::Inside);
-        let all_b_inside = !classifications_b.is_empty()
-            && classifications_b
-                .values()
-                .all(|c| *c == crate::error::Classification::Inside);
-        let claim_verified = if all_a_inside {
-            verify_whole_body_containment(&original_a, &original_b)
-        } else if all_b_inside {
-            verify_whole_body_containment(&original_b, &original_a)
-        } else {
-            false
-        };
-        if claim_verified {
-            if popkern_core::trace::trace_enabled("boolean") {
-                eprintln!("  [exec] -> empty-selection containment path (verified)");
-            }
-            let result =
-                handle_empty_selection(op, split_result, &classifications_a, &classifications_b);
-            log_validation_issues(&result, op);
-            return Ok(result);
-        }
-        if popkern_core::trace::trace_enabled("boolean") {
-            eprintln!("  [exec] empty-selection containment REFUTED — continuing to cellular");
-        }
-    }
-
+    // The cellular stage serves from the operands and the
+    // intersection. A face-level split, classification and selection
+    // used to run first, and fed nothing but an empty-selection
+    // containment shortcut the cellular stage answers by itself: with
+    // them skipped the workspace suite (10101 tests) passed unchanged,
+    // and a 64-slot disc's late cut took 8.0 ms instead of 10.2 (the
+    // first 3.9 instead of 5.0; PK-814).
     serve::select_and_serve(
-        &original_a,
-        &original_b,
+        &a,
+        &b,
         &intersection_result,
         op,
         tolerance,

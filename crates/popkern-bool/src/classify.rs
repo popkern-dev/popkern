@@ -5,8 +5,6 @@
 //! point on the fragment, and transversal crossings with the solid's faces are
 //! counted. Odd crossings indicate inside, even indicate outside.
 
-use std::collections::{HashMap, HashSet};
-
 use popkern_core::{
     geometry::{
         Point3, Vec3,
@@ -15,11 +13,11 @@ use popkern_core::{
         surface::{SurfaceEval, SurfaceGeometry},
     },
     tolerance::Tolerance,
-    topology::{BRep, EdgeHandle, FaceHandle},
+    topology::{BRep, FaceHandle},
 };
 
 use crate::classify_uv_loops::{hit_inside_inner_loop, hit_inside_outer_loop};
-use crate::error::{BoolError, Classification, PointClassification};
+use crate::error::{BoolError, PointClassification};
 
 // ---------------------------------------------------------------------------
 // 1. Ray-AABB intersection (slab test)
@@ -411,60 +409,6 @@ fn point_in_solid_impl(
 // ---------------------------------------------------------------------------
 // 5. Classify all fragments
 // ---------------------------------------------------------------------------
-
-/// Classify every face in `fragments_brep` relative to `other_brep`.
-///
-/// For each face, picks a sample point (surface midpoint or first vertex) and
-/// calls [`point_in_solid`] against the other solid. The resulting
-/// [`PointClassification`] is mapped to [`Classification`]:
-///
-/// - `Inside` -> `Classification::Inside`
-/// - `Outside` -> `Classification::Outside`
-/// - `OnBoundary` -> `Classification::OnBoundaryCooriented` (conservative default)
-///
-/// # Arguments
-///
-/// * `fragments_brep` — the BRep whose faces are being classified.
-/// * `other_brep` — the solid to test containment against.
-/// * `other_face_aabbs` — precomputed face AABBs for `other_brep`.
-/// * `intersection_edges` — edges that lie on the intersection (used for
-///   future propagation optimization; currently unused).
-/// * `tolerance` — geometric tolerance for all distance and coincidence tests.
-pub(crate) fn classify_fragments(
-    fragments_brep: &BRep,
-    other_brep: &BRep,
-    other_face_aabbs: &[(FaceHandle, Aabb)],
-    intersection_edges: &HashSet<EdgeHandle>,
-    tolerance: &Tolerance,
-) -> Result<HashMap<FaceHandle, Classification>, BoolError> {
-    // Use topological propagation: classify one seed per connected component,
-    // then propagate across non-intersection edges. Falls back to per-face
-    // ray casting if propagation fails.
-    match crate::classify_propagation::classify_with_propagation(
-        fragments_brep,
-        other_brep,
-        other_face_aabbs,
-        intersection_edges,
-        tolerance,
-    ) {
-        Ok((result, _ray_count)) => Ok(result),
-        Err(_) => {
-            // Propagation failed — fall back to per-face classification
-            let mut result = HashMap::new();
-            for face_handle in fragments_brep.faces.keys() {
-                let sample = pick_sample_point(fragments_brep, face_handle);
-                let pc = point_in_solid(&sample, other_brep, other_face_aabbs, tolerance)?;
-                let class = match pc {
-                    PointClassification::Inside => Classification::Inside,
-                    PointClassification::Outside => Classification::Outside,
-                    PointClassification::OnBoundary => Classification::OnBoundaryCooriented,
-                };
-                result.insert(face_handle, class);
-            }
-            Ok(result)
-        }
-    }
-}
 
 /// Pick a representative sample point on a face for classification.
 ///

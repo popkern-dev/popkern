@@ -37,6 +37,7 @@ pub(crate) struct FragmentMap {
 }
 
 /// Result of splitting both solids along intersection curves.
+#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct SplitResult {
     /// The modified solid A (with faces split).
@@ -210,11 +211,18 @@ pub(super) fn outer_loop_uv_area(brep: &BRep, face: FaceHandle) -> f64 {
     0.5 * a
 }
 
-/// Split the faces of two BRep solids along intersection curves.
-///
-/// For each intersection record, splits the corresponding face of A using
-/// `curve_uv1` (the UV curve on surface A) and the face of B using
-/// `curve_uv2` (the UV curve on surface B).
+/// Which operand's faces a split trims: `A` with each record's
+/// `curve_uv1` on `face_a`, `B` with `curve_uv2` on `face_b`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SplitSide {
+    /// The first operand.
+    A,
+    /// The second operand (the two-sided test surface's other side).
+    #[cfg_attr(not(test), allow(dead_code))]
+    B,
+}
+
+/// Split `body`'s faces on one `side` of the intersection `records`.
 ///
 /// All intersection curves per face are processed in sequence. After each
 /// split, subsequent curves target whichever fragment contains the curve's
@@ -224,32 +232,24 @@ pub(super) fn outer_loop_uv_area(brep: &BRep, face: FaceHandle) -> f64 {
 /// # Errors
 ///
 /// Returns [`BoolDiagnostics`] if any `split_face` call fails.
-pub(crate) fn split_along_curves(
-    mut a: BRep,
-    mut b: BRep,
+pub(crate) fn split_body_along_curves(
+    mut body: BRep,
+    side: SplitSide,
     records: &[IntersectionRecord],
     tolerance: &Tolerance,
-) -> Result<SplitResult, BoolDiagnostics> {
-    let mut fragments_a = FragmentMap {
+) -> Result<(BRep, FragmentMap), BoolDiagnostics> {
+    let mut fragments = FragmentMap {
         origin: HashMap::new(),
         intersection_edges: HashSet::new(),
     };
-    let mut fragments_b = FragmentMap {
-        origin: HashMap::new(),
-        intersection_edges: HashSet::new(),
-    };
-
-    // Group records by face_a and face_b (collect all curves per face).
+    // Group records by face (collect all curves per face).
     // Deterministic face processing order: the split cascade mutates
     // faces (fragments feed find_fragment_for_curve), so HashMap
     // iteration made whole boolean outcomes run-to-run
     // nondeterministic (measured: the open-chain pre-pass fired in
     // one of three identical runs).
-    let mut curves_a: std::collections::BTreeMap<FaceHandle, Vec<(usize, bool)>> =
+    let mut curves: std::collections::BTreeMap<FaceHandle, Vec<(usize, bool)>> =
         std::collections::BTreeMap::new();
-    let mut curves_b: std::collections::BTreeMap<FaceHandle, Vec<(usize, bool)>> =
-        std::collections::BTreeMap::new();
-
     for (idx, record) in records.iter().enumerate() {
         // TRIM-RESIDUE records (PK-465) are graph-partition aids —
         // they end mid-face at junction nodes and never imprint as
@@ -258,53 +258,43 @@ pub(crate) fn split_along_curves(
         if record.residue_owner_a.is_some() {
             continue;
         }
-        curves_a.entry(record.face_a).or_default().push((idx, true));
-        curves_b
-            .entry(record.face_b)
-            .or_default()
-            .push((idx, false));
+        let (face, use_uv1) = match side {
+            SplitSide::A => (record.face_a, true),
+            SplitSide::B => (record.face_b, false),
+        };
+        curves.entry(face).or_default().push((idx, use_uv1));
     }
-
-    // Split faces in solid A.
-    for (&original_face, entries) in &curves_a {
-        if !a.faces.contains_key(original_face) {
+    for (&original_face, entries) in &curves {
+        if !body.faces.contains_key(original_face) {
             continue;
         }
         split_face_curves(
-            &mut a,
+            &mut body,
             original_face,
             entries,
             records,
             tolerance,
-            &mut fragments_a,
+            &mut fragments,
         )?;
     }
-
-    // Split faces in solid B.
-    for (&original_face, entries) in &curves_b {
-        if !b.faces.contains_key(original_face) {
-            continue;
-        }
-        split_face_curves(
-            &mut b,
-            original_face,
-            entries,
-            records,
-            tolerance,
-            &mut fragments_b,
-        )?;
+    // All unsplit faces map to themselves.
+    for face_handle in body.faces.keys() {
+        fragments.origin.entry(face_handle).or_insert(face_handle);
     }
+    Ok((body, fragments))
+}
 
-    // All unsplit faces in A map to themselves.
-    for face_handle in a.faces.keys() {
-        fragments_a.origin.entry(face_handle).or_insert(face_handle);
-    }
-
-    // All unsplit faces in B map to themselves.
-    for face_handle in b.faces.keys() {
-        fragments_b.origin.entry(face_handle).or_insert(face_handle);
-    }
-
+/// Both operands split along the records ([`split_body_along_curves`]
+/// on each side): the splitter's two-sided test surface.
+#[cfg(test)]
+pub(crate) fn split_along_curves(
+    a: BRep,
+    b: BRep,
+    records: &[IntersectionRecord],
+    tolerance: &Tolerance,
+) -> Result<SplitResult, BoolDiagnostics> {
+    let (a, fragments_a) = split_body_along_curves(a, SplitSide::A, records, tolerance)?;
+    let (b, fragments_b) = split_body_along_curves(b, SplitSide::B, records, tolerance)?;
     Ok(SplitResult {
         a,
         b,

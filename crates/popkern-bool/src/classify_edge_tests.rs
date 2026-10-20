@@ -243,35 +243,3 @@ fn pick_sample_point_face_with_no_surface_returns_origin() {
     assert_eq!(pt.y, 0.0);
     assert_eq!(pt.z, 0.0);
 }
-
-// -- classify_fragments — OnBoundary case
-
-#[test]
-fn classify_fragments_on_boundary_maps_to_cooriented() {
-    // A cube exactly on its own boundary — classify it against itself.
-    // When a face's sample point lies on a surface, point_in_solid may return
-    // OnBoundary; classify_fragments should map that to OnBoundaryCooriented.
-    let cube = BRep::unit_cube(tol()).expect("cube");
-    let aabbs = crate::intersect::compute_face_aabbs(&cube);
-    let empty_edges = HashSet::new();
-
-    let result = classify_fragments(&cube, &cube, &aabbs, &empty_edges, &tol())
-        .expect("classification should succeed");
-
-    // All 6 faces should classify as something — no error.
-    assert_eq!(result.len(), 6);
-    // All should be OnBoundaryCooriented (or Inside/Outside depending on
-    // exact sample placement), but classification must not fail.
-    for class in result.values() {
-        assert!(
-            matches!(
-                class,
-                Classification::Inside
-                    | Classification::Outside
-                    | Classification::OnBoundaryCooriented
-                    | Classification::OnBoundaryCrossing
-            ),
-            "unexpected classification: {class:?}"
-        );
-    }
-}
