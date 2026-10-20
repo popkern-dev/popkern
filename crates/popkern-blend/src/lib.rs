@@ -51,6 +51,7 @@ mod face_blend_attach_through;
 mod face_blend_parallel;
 mod face_blend_sheet;
 pub mod fillet_2d;
+pub mod fillet_2d_hermite;
 pub(crate) mod fillet_2d_plan;
 pub(crate) mod fillet_2d_solvers;
 pub mod fillet_surface;
@@ -144,6 +145,7 @@ pub use error::{
     BlendError, BlendFailure, BlendWarning, Remediation, RemediationAction, RemediationContext,
 };
 pub use fillet_2d::{fillet_corner_2d, fillet_corners_2d};
+pub use fillet_2d_hermite::{HermiteCorner2d, hermite_corner_2d};
 pub use history::{
     ChamferOperationRecord, FilletOperationRecord, chamfer_recorded, fillet_recorded,
 };

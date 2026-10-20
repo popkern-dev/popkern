@@ -138,7 +138,7 @@ pub fn fillet_corners_2d(brep: &BRep, specs: &[(VertexHandle, f64)]) -> Result<B
     Ok(current)
 }
 
-fn apply_corner_plan(
+pub(crate) fn apply_corner_plan(
     brep: &mut BRep,
     corner: VertexHandle,
     plan: &CornerPlan,
@@ -179,20 +179,29 @@ fn apply_corner_plan(
     //    `he_out_a` (just before it) and points from `t2` → `t1`.
     //    `new_back` splices into the loop containing `he_out_b`
     //    and points from `t1` → `t2`.
-    let arc_geometry = CurveGeometry::Arc {
-        center: plan.arc_center,
-        normal: plan.arc_normal,
-        radius: plan.radius,
-        start_angle: plan.start_angle,
-        end_angle: plan.end_angle,
+    // The blend: the plan's curve when it carries one (a Hermite
+    // corner, `t1` to `t2` over [0, 1]), else the fillet arc.
+    let blend = match &plan.curve {
+        Some(curve) => CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(curve.clone()),
+            t_start: 0.0,
+            t_end: 1.0,
+        },
+        None => CurveOnEdge {
+            geometry: CurveGeometry::Arc {
+                center: plan.arc_center,
+                normal: plan.arc_normal,
+                radius: plan.radius,
+                start_angle: plan.start_angle,
+                end_angle: plan.end_angle,
+            },
+            t_start: plan.start_angle,
+            t_end: plan.end_angle,
+        },
     };
     let arc_edge = brep.insert_edge_tracked(Edge {
         half_edge: Default::default(),
-        curve: Some(CurveOnEdge {
-            geometry: arc_geometry,
-            t_start: plan.start_angle,
-            t_end: plan.end_angle,
-        }),
+        curve: Some(blend),
         name: None,
         tolerance: None,
         canonical: Default::default(),

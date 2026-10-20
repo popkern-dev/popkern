@@ -39,7 +39,7 @@ use crate::fillet_2d_solvers::{solve_arc_arc_fillet, solve_generic_fillet, solve
 /// Collecting everything up front lets us bail out cleanly on any
 /// input validation failure without having to roll back partial
 /// state.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct CornerPlan {
     /// Outgoing half-edge at the corner whose edge will carry the
     /// first tangent point `t1`. Walked out of the corner vertex
@@ -63,6 +63,34 @@ pub(crate) struct CornerPlan {
     pub(crate) end_angle: f64,
     /// Fillet radius (copied in for convenience).
     pub(crate) radius: f64,
+    /// A blend curve that replaces the arc (`t1` to `t2`, parameter
+    /// `[0, 1]`): the Hermite corner blend (PK-508).
+    pub(crate) curve: Option<popkern_core::geometry::NurbsCurve>,
+}
+
+impl CornerPlan {
+    /// The plan installing `curve` (from the contact on `he_out_a`'s
+    /// edge to the contact on `he_out_b`'s) in place of the corner.
+    pub(crate) fn for_curve(
+        he_out_a: HalfEdgeHandle,
+        he_out_b: HalfEdgeHandle,
+        curve: popkern_core::geometry::NurbsCurve,
+    ) -> CornerPlan {
+        use popkern_core::geometry::curve::CurveEval;
+        let (t1, t2) = (curve.point_at(0.0), curve.point_at(1.0));
+        CornerPlan {
+            he_out_a,
+            he_out_b,
+            t1,
+            t2,
+            arc_center: t1,
+            arc_normal: Vec3::new(0.0, 0.0, 1.0),
+            start_angle: 0.0,
+            end_angle: 0.0,
+            radius: 0.0,
+            curve: Some(curve),
+        }
+    }
 }
 
 pub(crate) fn corner_plan(
@@ -268,5 +296,6 @@ pub(crate) fn corner_plan(
         start_angle,
         end_angle,
         radius,
+        curve: None,
     })
 }
