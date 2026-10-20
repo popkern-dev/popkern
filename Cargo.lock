@@ -3525,9 +3525,11 @@ version = "0.1.0"
 dependencies = [
  "js-sys",
  "popkern-assembly",
+ "popkern-bool",
  "popkern-constraint",
  "popkern-core",
  "popkern-history",
+ "popkern-io",
  "popkern-measure",
  "popkern-mesh",
  "popkern-part",
