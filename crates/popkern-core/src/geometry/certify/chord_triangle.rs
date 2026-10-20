@@ -1,0 +1,291 @@
+//! The triangle half of the certified chordal bound (see `chord`).
+//!
+//! For parameter vertices `w_i` and the affine map `L` with
+//! `L(w_i) = p_i`, every `x` in the triangle satisfies
+//! `|L(x) − S(x)| ≤ (M/2) R² + max_i |p_i − S(w_i)|`, where `M`
+//! bounds `|D²_d S|` over the triangle for unit directions `d` and `R`
+//! is the radius of its smallest enclosing circle (Waldron). The same
+//! form holds on any sub-triangle against the same `L`, with the
+//! discrepancies `|L(q_j) − S(q_j)|` at its own vertices, so the
+//! triangle is cut along C⁰ parameter lines (where Taylor's remainder
+//! does not hold) and bisected into four while the bound exceeds the
+//! target.
+
+use super::super::CertifyDecline;
+use super::super::interval::Iv;
+use super::super::surface_jet::SurfaceJetSource;
+use super::{ROUNDING, magnitude, point_to_box};
+use crate::geometry::Point3;
+
+/// Bisection depth of a triangle (4^depth sub-triangles at most).
+const TRIANGLE_DEPTH: usize = 3;
+
+/// Where the surface is not C¹, and how its chart wraps: the triangle
+/// is cut along these lines before Taylor bounds apply, and pieces
+/// outside a spline's domain are shifted by its period.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct C0Breaks {
+    /// `u` values of C⁰ (or worse) parameter lines.
+    pub u: Vec<f64>,
+    /// `v` values of C⁰ (or worse) parameter lines.
+    pub v: Vec<f64>,
+    /// `(start, period)` of a periodic `u` domain a piece is shifted
+    /// into before its jets are taken (spline sources only).
+    pub wrap_u: Option<(f64, f64)>,
+    /// `(start, period)` of a periodic `v` domain.
+    pub wrap_v: Option<(f64, f64)>,
+}
+
+pub(super) type Uv = (f64, f64);
+
+/// A certified upper bound of the distance between the triangle
+/// `p0 p1 p2` and the surface patch over its parameter triangle `w`
+/// (each point of either within the bound of the other through the
+/// affine correspondence), tightened toward `target`.
+///
+/// # Errors
+///
+/// [`CertifyDecline`] when the surface has no enclosure over a piece
+/// (non-finite jets, a spline box outside its knots).
+pub fn triangle_chord_bound(
+    source: &mut SurfaceJetSource,
+    breaks: &C0Breaks,
+    w: [Uv; 3],
+    p: [Point3; 3],
+    target: f64,
+) -> Result<f64, CertifyDecline> {
+    let affine = Affine::new(w, p);
+    let scale = p.iter().map(|q| magnitude(*q)).fold(0.0, f64::max);
+    let mut worst = 0.0_f64;
+    for piece in cut(vec![w], breaks) {
+        worst = worst.max(piece_bound(
+            source,
+            breaks,
+            &affine,
+            piece,
+            target,
+            TRIANGLE_DEPTH,
+        )?);
+    }
+    Ok(worst + ROUNDING * (worst + scale))
+}
+
+/// The affine map of the parameter triangle onto the emitted one.
+struct Affine {
+    w: [Uv; 3],
+    p: [Point3; 3],
+    det: f64,
+}
+
+impl Affine {
+    fn new(w: [Uv; 3], p: [Point3; 3]) -> Self {
+        let det = (w[1].0 - w[0].0) * (w[2].1 - w[0].1) - (w[2].0 - w[0].0) * (w[1].1 - w[0].1);
+        Affine { w, p, det }
+    }
+
+    /// `L(q)`; a degenerate parameter triangle maps every point to the
+    /// nearest vertex's image (its pieces are then single points or
+    /// segments whose discrepancies carry the bound).
+    fn at(&self, q: Uv) -> Point3 {
+        let w = &self.w;
+        if self.det.abs() <= f64::MIN_POSITIVE {
+            let d = |a: Uv| (a.0 - q.0).powi(2) + (a.1 - q.1).powi(2);
+            let k = (0..3)
+                .min_by(|&i, &j| d(w[i]).total_cmp(&d(w[j])))
+                .unwrap_or(0);
+            return self.p[k];
+        }
+        let l1 =
+            ((q.0 - w[0].0) * (w[2].1 - w[0].1) - (w[2].0 - w[0].0) * (q.1 - w[0].1)) / self.det;
+        let l2 =
+            ((w[1].0 - w[0].0) * (q.1 - w[0].1) - (q.0 - w[0].0) * (w[1].1 - w[0].1)) / self.det;
+        let l0 = 1.0 - l1 - l2;
+        let p = &self.p;
+        Point3::new(
+            l0 * p[0].x + l1 * p[1].x + l2 * p[2].x,
+            l0 * p[0].y + l1 * p[1].y + l2 * p[2].y,
+            l0 * p[0].z + l1 * p[1].z + l2 * p[2].z,
+        )
+    }
+}
+
+/// The triangles cut along every break line strictly inside them.
+fn cut(mut pieces: Vec<[Uv; 3]>, breaks: &C0Breaks) -> Vec<[Uv; 3]> {
+    let lines = breaks
+        .u
+        .iter()
+        .map(|&x| (0, x))
+        .chain(breaks.v.iter().map(|&x| (1, x)));
+    for (axis, x) in lines {
+        let mut next = Vec::with_capacity(pieces.len());
+        for t in pieces {
+            next.extend(split(t, axis, x));
+        }
+        pieces = next;
+    }
+    pieces
+}
+
+pub(super) fn coord(q: Uv, axis: usize) -> f64 {
+    if axis == 0 { q.0 } else { q.1 }
+}
+
+/// Triangle `t` split by the line `coord(·, axis) = x` into triangles
+/// on each side (itself when the line misses its interior).
+pub(super) fn split(t: [Uv; 3], axis: usize, x: f64) -> Vec<[Uv; 3]> {
+    let c: Vec<f64> = t.iter().map(|&q| coord(q, axis) - x).collect();
+    if c.iter().all(|&d| d >= 0.0) || c.iter().all(|&d| d <= 0.0) {
+        return vec![t];
+    }
+    let mut sides: [Vec<Uv>; 2] = [Vec::new(), Vec::new()];
+    for i in 0..3 {
+        let (a, b) = (t[i], t[(i + 1) % 3]);
+        let (ca, cb) = (c[i], c[(i + 1) % 3]);
+        if ca <= 0.0 {
+            sides[0].push(a);
+        }
+        if ca >= 0.0 {
+            sides[1].push(a);
+        }
+        if (ca < 0.0 && cb > 0.0) || (ca > 0.0 && cb < 0.0) {
+            let s = ca / (ca - cb);
+            let mut q = (a.0 + s * (b.0 - a.0), a.1 + s * (b.1 - a.1));
+            // On the line exactly: the pieces then meet along it.
+            if axis == 0 {
+                q.0 = x;
+            } else {
+                q.1 = x;
+            }
+            sides[0].push(q);
+            sides[1].push(q);
+        }
+    }
+    let mut out = Vec::new();
+    for poly in sides {
+        for k in 1..poly.len().saturating_sub(1) {
+            out.push([poly[0], poly[k], poly[k + 1]]);
+        }
+    }
+    out
+}
+
+/// Squared radius of the smallest circle holding the triangle.
+fn enclosing_radius_sqr(t: &[Uv; 3]) -> f64 {
+    let d2 = |a: Uv, b: Uv| (a.0 - b.0).powi(2) + (a.1 - b.1).powi(2);
+    let sides = [d2(t[1], t[2]), d2(t[0], t[2]), d2(t[0], t[1])];
+    let long = sides.iter().copied().fold(0.0, f64::max);
+    let others: f64 = sides.iter().sum::<f64>() - long;
+    if long >= others {
+        // Right or obtuse: the longest side's midpoint.
+        return long / 4.0;
+    }
+    // Acute: the circumradius, R² = a²b²c² / (16 · area²).
+    let area2 = ((t[1].0 - t[0].0) * (t[2].1 - t[0].1) - (t[2].0 - t[0].0) * (t[1].1 - t[0].1))
+        .powi(2)
+        / 4.0;
+    if area2 <= 0.0 {
+        return long / 4.0;
+    }
+    (sides[0] * sides[1] * sides[2] / (16.0 * area2)).max(long / 4.0)
+}
+
+/// Shift into a periodic spline domain (all vertices together).
+pub(super) fn wrap<const N: usize>(
+    t: [Uv; N],
+    breaks: &C0Breaks,
+    source: &SurfaceJetSource,
+) -> [Uv; N] {
+    if !matches!(source, SurfaceJetSource::Spline(_)) {
+        return t;
+    }
+    let shift = |axis: usize, w: Option<(f64, f64)>| -> f64 {
+        let Some((start, period)) = w.filter(|w| w.1 > 0.0) else {
+            return 0.0;
+        };
+        let lo = t
+            .iter()
+            .map(|&q| coord(q, axis))
+            .fold(f64::INFINITY, f64::min);
+        -((lo - start) / period).floor() * period
+    };
+    let (su, sv) = (shift(0, breaks.wrap_u), shift(1, breaks.wrap_v));
+    t.map(|q| (q.0 + su, q.1 + sv))
+}
+
+fn piece_bound(
+    source: &mut SurfaceJetSource,
+    breaks: &C0Breaks,
+    affine: &Affine,
+    t: [Uv; 3],
+    target: f64,
+    depth: usize,
+) -> Result<f64, CertifyDecline> {
+    let chart = wrap(t, breaks, source);
+    let mut disc = 0.0_f64;
+    for (q, c) in t.iter().zip(&chart) {
+        let jet = source.jet_piecewise(Iv::point(c.0), Iv::point(c.1))?.0;
+        disc = disc.max(point_to_box(affine.at(*q), jet.partial(0, 0)));
+    }
+    let hull = |k: usize| {
+        let lo = chart
+            .iter()
+            .map(|q| coord(*q, k))
+            .fold(f64::INFINITY, f64::min);
+        let hi = chart
+            .iter()
+            .map(|q| coord(*q, k))
+            .fold(f64::NEG_INFINITY, f64::max);
+        Iv::new(lo, hi)
+    };
+    let (jet, _) = source.jet_piecewise(hull(0), hull(1))?;
+    let [a, b, c] = [(2, 0), (1, 1), (0, 2)].map(|(i, j)| jet.partial(i, j).norm().hi);
+    // Bounds of |D²_d S| = |d1² S_uu + 2 d1 d2 S_uv + d2² S_vv|, all
+    // valid, the smallest kept: isotropic, λ_max([[a, b], [b, c]])
+    // times |d|²; and diagonal, (a + εb) d1² + (c + b/ε) d2² for any
+    // ε > 0 (as 2|d1 d2| ≤ ε d1² + d2²/ε), the metric of the
+    // parameters scaled by sqrt(a + εb) and sqrt(c + b/ε). ε = 1, and
+    // ε = the triangle's v/u extent ratio, which balances the cross
+    // term on long strips (a cylinder's or a far cone's: the isotropic
+    // form charges the axial length with the ring curvature).
+    let (half_sum, half_diff) = (Iv::point(a + c).scale(0.5), Iv::point(a - c).scale(0.5));
+    let m = (half_sum + (half_diff.sqr() + Iv::point(b).sqr()).sqrt()).hi;
+    let isotropic = (Iv::point(m) * Iv::point(enclosing_radius_sqr(&t)))
+        .scale(0.5)
+        .hi;
+    let extent = |k: usize| {
+        let xs = t.iter().map(|q| coord(*q, k));
+        xs.clone().fold(f64::NEG_INFINITY, f64::max) - xs.fold(f64::INFINITY, f64::min)
+    };
+    let ratio = (extent(1) / extent(0)).clamp(1e-6, 1e6);
+    let diagonal = |eps: f64| {
+        let (eps, b) = (Iv::point(eps), Iv::point(b));
+        let su = (Iv::point(a) + eps * b).sqrt().hi;
+        let sv = (Iv::point(c) + b / eps).sqrt().hi;
+        let scaled = t.map(|q| (q.0 * su, q.1 * sv));
+        Iv::point(enclosing_radius_sqr(&scaled)).scale(0.5).hi
+    };
+    let quad = if ratio.is_finite() {
+        diagonal(ratio)
+    } else {
+        f64::INFINITY
+    };
+    let own = isotropic.min(diagonal(1.0)).min(quad) * (1.0 + 1e-12) + disc;
+    if own <= target || depth == 0 {
+        return Ok(own);
+    }
+    let mid = |i: usize, j: usize| (0.5 * (t[i].0 + t[j].0), 0.5 * (t[i].1 + t[j].1));
+    let (m01, m12, m20) = (mid(0, 1), mid(1, 2), mid(2, 0));
+    let mut children = 0.0_f64;
+    for sub in [
+        [t[0], m01, m20],
+        [m01, t[1], m12],
+        [m20, m12, t[2]],
+        [m01, m12, m20],
+    ] {
+        children = children.max(piece_bound(source, breaks, affine, sub, target, depth - 1)?);
+        if children >= own {
+            return Ok(own);
+        }
+    }
+    Ok(children)
+}

@@ -12,6 +12,7 @@
 pub mod analytic_jet;
 pub mod bernstein;
 mod boundary_surrogate;
+pub mod chord;
 pub mod interval;
 pub mod interval_vec;
 pub mod nurbs_jet;

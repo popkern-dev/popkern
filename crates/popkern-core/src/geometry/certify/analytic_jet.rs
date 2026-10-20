@@ -46,12 +46,16 @@ pub enum AnalyticJetSource {
         /// Half-angle.
         half_angle: f64,
     },
-    /// `C + r(sin v cos u, sin v sin u, cos v)`.
+    /// `C + r(sin v cos u·e1 + sin v sin u·e2 + cos v·a)`, the pole
+    /// `a = axis` and `(e1, e2)` its [`frame_of`] (the evaluator's
+    /// chart: `sphere_to_world`).
     Sphere {
         /// Center.
         center: Point3,
         /// Radius.
         radius: f64,
+        /// Pole direction.
+        axis: Vec3,
     },
     /// `C + (R + r cos v)(cos u·e1 + sin u·e2) + r sin v·a`.
     Torus {
@@ -155,7 +159,11 @@ impl AnalyticJetSource {
                         _ => IvVec3::ZERO,
                     }
                 }
-                AnalyticJetSource::Sphere { center, radius } => {
+                AnalyticJetSource::Sphere {
+                    center,
+                    radius,
+                    axis,
+                } => {
                     let r = Iv::point(radius);
                     let s_l = sin_deriv(l, cv, sv);
                     let z = if k == 0 {
@@ -168,6 +176,14 @@ impl AnalyticJetSource {
                         r * s_l * sin_deriv(k, cu, su),
                         z,
                     );
+                    // The chart frame, as `sphere_to_world` maps it
+                    // (identity for the +Z pole).
+                    let local = if axis == Vec3::Z {
+                        local
+                    } else {
+                        let (e1, e2) = orthonormal_basis(axis);
+                        v3(e1).scale(local.x) + v3(e2).scale(local.y) + v3(axis).scale(local.z)
+                    };
                     if (k, l) == (0, 0) {
                         p3(center) + local
                     } else {

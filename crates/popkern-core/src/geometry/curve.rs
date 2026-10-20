@@ -101,6 +101,50 @@ pub fn closest_point_on_curve(curve: &dyn CurveEval, point: &Point3) -> Option<f
     })
 }
 
+/// The closest point over the window `[t0, t1]` only (an edge's own
+/// window, which may lie on another period than the curve's declared
+/// range): the best of dense samples, polished by Newton steps clamped
+/// to the window.
+pub fn closest_point_in_window(curve: &dyn CurveEval, point: &Point3, t0: f64, t1: f64) -> f64 {
+    let (t0, t1) = (t0.min(t1), t0.max(t1));
+    let samples = 64;
+    let dist = |t: f64| curve.point_at(t).distance_to(point);
+    let polish = |mut t: f64| -> f64 {
+        for _ in 0..30 {
+            let diff = curve.point_at(t) - *point;
+            let d1 = curve.derivative_at(t, 1);
+            let fp = d1.dot(&d1) + diff.dot(&curve.derivative_at(t, 2));
+            if fp.abs() < 1e-30 {
+                break;
+            }
+            let next = (t - diff.dot(&d1) / fp).clamp(t0, t1);
+            if dist(next) > dist(t) {
+                break;
+            }
+            let done = (next - t).abs() < 1e-12;
+            t = next;
+            if done {
+                break;
+            }
+        }
+        t
+    };
+    // Seeds: the three best samples and both window ends. On a closed
+    // edge a point just past the start ties with the end, whose Newton
+    // step clamps there: the start's does not.
+    let mut seeds: Vec<f64> = (0..=samples)
+        .map(|k| t0 + (t1 - t0) * k as f64 / samples as f64)
+        .collect();
+    seeds.sort_by(|a, b| dist(*a).total_cmp(&dist(*b)));
+    seeds.truncate(3);
+    seeds.extend([t0, t1]);
+    seeds
+        .into_iter()
+        .map(polish)
+        .min_by(|a, b| dist(*a).total_cmp(&dist(*b)))
+        .unwrap_or(t0)
+}
+
 /// Compute AABB by sampling a curve at evenly-spaced parameters.
 pub fn curve_bounding_box_by_sampling(curve: &dyn CurveEval, t_range: (f64, f64)) -> Aabb {
     let n = 16;

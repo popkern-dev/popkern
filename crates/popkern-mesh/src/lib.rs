@@ -10,6 +10,7 @@ mod angular_refine;
 mod boundary_cap_split;
 mod boundary_first;
 mod boundary_sew;
+mod chordal_certificate;
 mod crack_zipper;
 mod crease_flip;
 mod encroachment;
@@ -34,6 +35,9 @@ mod vertex_snap;
 mod watertight;
 mod winding_side;
 
+pub use chordal_certificate::{
+    ChordalCertificate, ChordalInconclusive, ChordalStatus, FaceChordal, chordal_certificate,
+};
 pub use encroachment::tessellate_faces;
 pub use error::MeshError;
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};

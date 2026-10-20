@@ -148,12 +148,15 @@ impl SurfaceJetSource {
                 frame: frame_of(*axis),
                 half_angle: *half_angle,
             }),
-            SurfaceGeometry::Sphere { center, radius, .. } => {
-                SurfaceJetSource::Analytic(AnalyticJetSource::Sphere {
-                    center: *center,
-                    radius: *radius,
-                })
-            }
+            SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis,
+            } => SurfaceJetSource::Analytic(AnalyticJetSource::Sphere {
+                center: *center,
+                radius: *radius,
+                axis: *axis,
+            }),
             SurfaceGeometry::Torus {
                 center,
                 axis,
@@ -212,7 +215,7 @@ impl SurfaceJetSource {
     /// shape operator are then known without a chart).
     pub fn sphere(&self) -> Option<(crate::geometry::Point3, f64)> {
         match self {
-            SurfaceJetSource::Analytic(AnalyticJetSource::Sphere { center, radius }) => {
+            SurfaceJetSource::Analytic(AnalyticJetSource::Sphere { center, radius, .. }) => {
                 Some((*center, *radius))
             }
             _ => None,
