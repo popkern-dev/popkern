@@ -18,10 +18,10 @@ parallel = ["dep:rayon"]
 popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 rayon = { workspace = true, optional = true }
+slotmap.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-slotmap.workspace = true
 # The boolean determinism pins build their own rayon pools (PK-300).
 rayon.workspace = true
 # Test-only sibling dependency (the mesh crate uses the same pattern

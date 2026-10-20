@@ -23,6 +23,7 @@
 use std::collections::HashSet;
 
 use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
+use slotmap::SecondaryMap;
 
 /// Report from a loop repair pass.
 #[derive(Debug, Clone, Default)]
@@ -49,7 +50,10 @@ pub fn repair_stranded_loops(brep: &mut BRep) -> LoopRepairReport {
     let mut report = LoopRepairReport::default();
 
     // 1. Build the set of half-edges reachable from any face's loops.
-    let mut reachable: HashSet<HalfEdgeHandle> = HashSet::new();
+    // Dense slot-indexed sets: SipHash sets over every half-edge were
+    // most of this pass on a 1000-half-edge body (PK-815).
+    let mut reachable: SecondaryMap<HalfEdgeHandle, ()> =
+        SecondaryMap::with_capacity(brep.half_edges.len());
     for (_, face) in &brep.faces {
         collect_loop(brep, face.outer_loop, &mut reachable);
         for &inner_loop in &face.inner_loops {
@@ -59,17 +63,18 @@ pub fn repair_stranded_loops(brep: &mut BRep) -> LoopRepairReport {
 
     // 2. Identify half-edges that are in some loop owned by a face
     //    but not reachable from the face's loop chain.
-    let owned_loops: HashSet<LoopHandle> = brep
+    let owned_loops: SecondaryMap<LoopHandle, ()> = brep
         .faces
         .values()
         .flat_map(|f| std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()))
+        .map(|l| (l, ()))
         .collect();
 
     let stranded: Vec<HalfEdgeHandle> = brep
         .half_edges
         .iter()
         .filter_map(|(heh, he)| {
-            if owned_loops.contains(&he.loop_) && !reachable.contains(&heh) {
+            if owned_loops.contains_key(he.loop_) && !reachable.contains_key(heh) {
                 Some(heh)
             } else {
                 None
@@ -149,7 +154,7 @@ pub fn repair_stranded_loops(brep: &mut BRep) -> LoopRepairReport {
     report
 }
 
-fn collect_loop(brep: &BRep, loop_h: LoopHandle, out: &mut HashSet<HalfEdgeHandle>) {
+fn collect_loop(brep: &BRep, loop_h: LoopHandle, out: &mut SecondaryMap<HalfEdgeHandle, ()>) {
     let Some(loop_data) = brep.loops.get(loop_h) else {
         return;
     };
@@ -157,7 +162,7 @@ fn collect_loop(brep: &BRep, loop_h: LoopHandle, out: &mut HashSet<HalfEdgeHandl
     let mut cursor = start;
     let limit = brep.half_edges.len() + 1;
     for _ in 0..limit {
-        out.insert(cursor);
+        out.insert(cursor, ());
         if let Some(he) = brep.half_edges.get(cursor) {
             cursor = he.next;
         } else {
