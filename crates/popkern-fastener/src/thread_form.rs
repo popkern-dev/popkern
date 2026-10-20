@@ -168,11 +168,22 @@ pub(crate) fn internal_ridge(
     }
     let r_bore = internal_bore_radius(spec, clearance);
     let crest_flat = p - 2.0 * flank_w(r_bore);
-    if crest_flat <= 0.0 {
+    // The internal crest — the land between adjacent grooves at the
+    // bore wall, P/4 in the basic profile — must keep a sixteenth of
+    // that, P/64 (a quarter of the embed margin). Narrower, the land is
+    // a knife edge: the flank corner sits a fraction of it under the
+    // bore wall and the bore meets the tool along a near-edge contact
+    // (an M4 at 0.15 left 0.0018 mm, its corner 0.0008 under the bore,
+    // and the bore, groove and cut booleans all declined, PK-899). The
+    // tightest fits that serve keep 0.0095 (M3 at 0.1) and 0.0191 (M6
+    // at 0.2).
+    let min_flat = 0.25 * embed;
+    if crest_flat < min_flat {
         return Err(FastenerError::ProfileOverlap {
             detail: format!(
                 "clearance {clearance:.6} consumes the internal crest flat at \
-                 the bore wall (remaining flat {crest_flat:.6})"
+                 the bore wall (remaining flat {crest_flat:.6}, under the \
+                 {min_flat:.6} knife-edge bound P/64)"
             ),
             gap: crest_flat,
             pitch: p,

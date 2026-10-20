@@ -120,3 +120,46 @@ fn holes_of_one_shape_share_a_tool() {
         assert_eq!(disagreements(&one, &seq, d, x, t), 0, "hole at x {x}");
     }
 }
+
+/// Every coarse metric size at every common fit clearance either serves
+/// a valid one-tool tapped hole or declines with a structured
+/// ProfileOverlap — never a boolean decline (PK-899: an M4 at 0.15 left
+/// a 0.0017 mm crest land and every cut path declined on it).
+#[test]
+fn every_size_and_fit_serves_or_declines_with_the_profile_reason() {
+    for designation in ["M3", "M4", "M5", "M6", "M8"] {
+        let spec = ThreadSpec::parse(designation).expect("spec");
+        let d = spec.major_diameter();
+        let t = 2.6 * d;
+        for clearance in [0.0, 0.05, 0.1, 0.15, 0.2] {
+            let _ = super::take_tap_tool_fallbacks();
+            let result = tapped_hole(
+                &block(d, t),
+                &spec,
+                Point3::new(0.0, 0.0, t),
+                Vec3::new(0.0, 0.0, -1.0),
+                HoleDepth::Blind(1.7 * d),
+                &TapOptions {
+                    clearance,
+                    entry_chamfer: true,
+                },
+                Tolerance::default(),
+            );
+            match result {
+                Ok(body) => {
+                    assert!(
+                        body.validate().is_ok(),
+                        "{designation} {clearance}: invalid"
+                    );
+                    let fell_back = super::take_tap_tool_fallbacks();
+                    assert!(
+                        fell_back.is_empty(),
+                        "{designation} {clearance}: {fell_back:?}"
+                    );
+                }
+                Err(crate::FastenerError::ProfileOverlap { .. }) => {}
+                Err(e) => panic!("{designation} {clearance}: {e}"),
+            }
+        }
+    }
+}
