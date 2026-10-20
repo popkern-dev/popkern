@@ -70,7 +70,7 @@ fn pcurve_stripped_wall_face_welds_watertight() {
         .map(|(fh, _)| fh)
         .expect("bottom cap");
     let options = TessellationOptions::default();
-    let edge_samples = crate::boundary_first::sample_all_edges(&brep, &options);
+    let edge_samples = crate::boundary_first::sample_edges(&brep, &options, None);
     let mut sink = Vec::new();
     assert!(
         crate::boundary_first::tessellate_face_boundary_first(

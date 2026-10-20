@@ -28,10 +28,11 @@ use std::sync::Arc;
 use crate::assembly::{Assembly, DefinitionId};
 use crate::interference::{Occurrence, PairReport};
 use crate::mesh_bvh::{LocalMesh, WorldMesh};
+use popkern_core::topology::FaceHandle;
 
 /// Finer world meshes per occurrence path, body and level, shared by
 /// every pair (and worker) certifying against that occurrence.
-pub(crate) type WorldMeshes = std::sync::Mutex<HashMap<(String, usize, u32), Arc<WorldMesh>>>;
+pub(crate) type WorldMeshes = std::sync::Mutex<HashMap<(String, usize, u32, u64), Arc<WorldMesh>>>;
 
 /// Refinement levels past the base chord (each 1/8 of the last).
 pub(crate) const MAX_LEVELS: u32 = 3;
@@ -42,24 +43,55 @@ impl Assembly {
     /// a finer mesh could not be built (the caller decides at the base
     /// level, boolean included); `Some(report)` otherwise — the first
     /// decided one, or the finest level's.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn certify_pair(
         &self,
         a: &Occurrence,
         b: &Occurrence,
         parts: &HashMap<DefinitionId, Arc<crate::parts_cache::CachedParts>>,
+        base: &HashMap<(DefinitionId, usize), Arc<LocalMesh>>,
         worlds: &WorldMeshes,
         options: &crate::interference::InterferenceOptions,
         tolerance: f64,
     ) -> Option<Option<PairReport>> {
         let chord_fraction = options.chord_fraction;
+        // Only the near region refines (`mesh_near`): the faces of the
+        // base triangles within the band of the other occurrence.
+        let band = options.clearance + tolerance;
+        let mut near_a: Vec<std::collections::BTreeSet<FaceHandle>> =
+            vec![Default::default(); a.bodies.len()];
+        let mut near_b: Vec<std::collections::BTreeSet<FaceHandle>> =
+            vec![Default::default(); b.bodies.len()];
+        // Containment is asked of the base meshes, which are closed: a
+        // near region is not, and a body inside the other has no near
+        // face at all when the gap exceeds the band.
+        let mut contained = vec![vec![false; b.bodies.len()]; a.bodies.len()];
+        for (ia, (brep_a, wa, body_a)) in a.bodies.iter().enumerate() {
+            for (ib, (brep_b, wb, body_b)) in b.bodies.iter().enumerate() {
+                contained[ia][ib] = brep_a.first_vertex().is_some_and(|p| wb.contains(&p))
+                    || brep_b.first_vertex().is_some_and(|p| wa.contains(&p));
+                let (Some(la), Some(lb)) = (
+                    base.get(&(a.definition, *body_a)),
+                    base.get(&(b.definition, *body_b)),
+                ) else {
+                    return None;
+                };
+                let (ta, tb) = wa.near_triangles(wb, band);
+                near_a[ia].extend(ta.iter().map(|&t| la.faces[t]));
+                near_b[ib].extend(tb.iter().map(|&t| lb.faces[t]));
+            }
+        }
         let mut last: Option<Option<PairReport>> = None;
         for level in 1..=MAX_LEVELS {
             let fraction = chord_fraction / 8f64.powi(level as i32);
             let mut local: HashMap<(DefinitionId, usize), Arc<LocalMesh>> = HashMap::new();
             let meshes = &self.meshes;
-            let mut finer_occurrence = |o: &Occurrence| -> Option<Occurrence> {
+            let mut finer_occurrence = |o: &Occurrence,
+                                        near: &[std::collections::BTreeSet<FaceHandle>]|
+             -> Option<Occurrence> {
                 let mut bodies = Vec::with_capacity(o.bodies.len());
-                for (brep, _, body) in &o.bodies {
+                for (index, (brep, _, body)) in o.bodies.iter().enumerate() {
+                    let faces: Vec<FaceHandle> = near.get(index)?.iter().copied().collect();
                     let cached = parts.get(&o.definition)?;
                     let local_brep = cached.parts.get(*body)?.brep();
                     let content = *cached.contents.get(*body)?;
@@ -73,8 +105,18 @@ impl Assembly {
                         max_subdivisions: base.max_subdivisions << (3 * level),
                         ..base
                     };
-                    let mesh = meshes.get_or_build(content, local_brep, &options).ok()?;
-                    let key = (o.path.clone(), *body, level);
+                    let mesh = Arc::new(
+                        meshes
+                            .get_or_build_faces(content, local_brep, &faces, &options)
+                            .ok()?,
+                    );
+                    let region = {
+                        use std::hash::{Hash, Hasher};
+                        let mut hasher = std::hash::DefaultHasher::new();
+                        faces.hash(&mut hasher);
+                        hasher.finish()
+                    };
+                    let key = (o.path.clone(), *body, level, region);
                     let cached = worlds.lock().ok().and_then(|w| w.get(&key).cloned());
                     let world = match cached {
                         Some(w) => w,
@@ -97,7 +139,8 @@ impl Assembly {
                 })
             };
             // No finer mesh: the caller decides at the base level.
-            let (Some(fa), Some(fb)) = (finer_occurrence(a), finer_occurrence(b)) else {
+            let (Some(fa), Some(fb)) = (finer_occurrence(a, &near_a), finer_occurrence(b, &near_b))
+            else {
                 return None;
             };
             // The exact boolean also runs at the first level: a flush
@@ -109,7 +152,15 @@ impl Assembly {
             // refined gap is above the tolerance with a loose bound) and
             // refines on.
             let run_boolean = level == 1 || level == MAX_LEVELS;
-            let check = self.check_pair(&fa, &fb, &local, options, tolerance, run_boolean);
+            let check = self.check_pair(
+                &fa,
+                &fb,
+                &local,
+                options,
+                tolerance,
+                run_boolean,
+                Some(&contained),
+            );
             if check.settled {
                 return Some(check.report);
             }

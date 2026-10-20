@@ -667,106 +667,9 @@ fn tessellate_brep_reusing(
         };
     }
     let cancel = tracker.token();
-    // Canonical per-edge samples: adjacent faces share bit-identical
-    // boundary vertices (PK-095 closure).
-    stage_gate!();
-    let t0 = popkern_core::time::Stopwatch::start();
-    let mut edge_samples = crate::boundary_first::sample_all_edges(brep, options);
-    tracker.finish_stage("tessellate.edge_samples", t0, edge_samples.len());
-    // Encroachment refinement (Ruppert-style): a face whose Delaunay
-    // coverage fails because boundary points crowd a ring segment
-    // (engraved pockets, thin annuli) requests SPLITS of the
-    // canonical edge spans involved. Splits refine the SHARED sample
-    // sets and all faces re-run, so watertightness is preserved by
-    // construction. Bounded rounds; convergence is guaranteed by the
-    // no-new-fraction check.
-    const ENCROACHMENT_ROUNDS: usize = 8;
+    let (edge_samples, mut checked) =
+        crate::encroachment::sample_and_refine_edges(brep, None, options, tracker)?;
     let bf_trace = popkern_core::trace::trace_enabled("boundary-first");
-    // Incremental rounds (PK-277): round 0 checks every face; later
-    // rounds only faces incident to an edge whose canonical samples
-    // were refined last round. A face's requests are a pure function
-    // of its own boundary samples, and every skip reason below is
-    // monotone (fractions only grow, per-edge caps only fill), so an
-    // unchanged-boundary face can only reproduce requests that were
-    // already inserted or are permanently deduped.
-    let mut active: Option<std::collections::HashSet<FaceHandle>> = None;
-    // Each check builds the face's boundary-first mesh, the same pure
-    // function of its edge samples that the final pass would run. Keep
-    // it until a split changes one of the face's edges. Rebuilding
-    // every face in the final pass doubled the mesh cost of a thread
-    // rod, whose rounds usually end with no requests (PK-794).
-    let mut checked: HashMap<FaceHandle, Option<crate::mesh::FaceMesh>> = HashMap::new();
-    for round in 0..ENCROACHMENT_ROUNDS {
-        // §17 per-round poll (the per-face closures also short-circuit
-        // on a fired token, so a cancelled round finishes fast).
-        stage_gate!();
-        let round_started = popkern_core::time::Stopwatch::start();
-        // Slotmap key order, filtered — request order matches the
-        // retired all-faces loop with the no-op faces removed.
-        let faces: Vec<FaceHandle> = brep
-            .faces
-            .keys()
-            .filter(|&fh| brep.faces[fh].surface.is_some())
-            .filter(|fh| active.as_ref().is_none_or(|set| set.contains(fh)))
-            .collect();
-        let checks =
-            crate::face_pass::check_faces(brep, &faces, &edge_samples, options, bf_trace, cancel);
-        stage_gate!();
-        let mut requests = Vec::new();
-        for check in checks {
-            requests.extend(check.requests);
-            checked.insert(check.face, check.mesh);
-        }
-        if requests.is_empty() {
-            break;
-        }
-        let mut split_edges: std::collections::BTreeSet<popkern_core::topology::EdgeHandle> =
-            std::collections::BTreeSet::new();
-        let mut inserted = 0usize;
-        for (eh, fraction) in requests {
-            let Some(samples) = edge_samples.get_mut(&eh) else {
-                continue;
-            };
-            if samples.fractions.len() >= 8192 {
-                // Refinement cap per edge — matches the adaptive
-                // sampler's runaway guard (96 starved the xfine
-                // cut-curve splits and the coverage check bounced the
-                // whole wall to the uniform-grid path; 512 refused a
-                // long torus-band rim the splits its facets need,
-                // PK-653).
-                continue;
-            }
-            let idx = samples.fractions.partition_point(|&f| f < fraction);
-            let near = |f: f64| (f - fraction).abs() < 1e-4;
-            if (idx > 0 && near(samples.fractions[idx - 1]))
-                || (idx < samples.fractions.len() && near(samples.fractions[idx]))
-            {
-                continue; // already refined here
-            }
-            let Some(curve) = brep.edges.get(eh).and_then(|e| e.curve.as_ref()) else {
-                continue;
-            };
-            use popkern_core::geometry::curve::CurveEval;
-            let ceval: &dyn CurveEval = &curve.geometry;
-            let point = ceval.point_at(curve.t_start + (curve.t_end - curve.t_start) * fraction);
-            samples.fractions.insert(idx, fraction);
-            samples.points.insert(idx, point);
-            split_edges.insert(eh);
-            inserted += 1;
-        }
-        if bf_trace && inserted > 0 {
-            eprintln!("  [bf] encroachment round {round}: split {inserted} edge spans");
-        }
-        tracker.finish_stage("tessellate.encroachment_round", round_started, inserted);
-        if inserted == 0 {
-            break;
-        }
-        let changed = crate::face_pass::faces_incident_to_edges(brep, &split_edges);
-        for face in &changed {
-            checked.remove(face);
-        }
-        active = Some(changed);
-    }
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
     let mut face_meshes = Vec::new();
@@ -836,9 +739,7 @@ fn tessellate_brep_reusing(
     tracker.finish_stage("tessellate.orient", t0, face_meshes.len());
     // Display contract (facet tilt): leaning boundary facets split their
     // boundary chord on the edge curve in every face carrying it.
-    if std::env::var("ZZ_NOE1").is_err()
-        && let Some(bound) = options.angular_bound()
-    {
+    if let Some(bound) = options.angular_bound() {
         let t0 = popkern_core::time::Stopwatch::start();
         // Chord copies are keyed by their end positions: shared BRep
         // vertices must be bit-identical in every face first (corner

@@ -69,7 +69,7 @@ mod boundary_first_unwrap;
 mod boundary_first_wrap_pair;
 #[path = "boundary_first_wrap_slit.rs"]
 mod boundary_first_wrap_slit;
-pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_all_edges};
+pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_edges};
 use boundary_first_wrap_pair::{join_wrapped_rings, stash_wrapped_ring};
 
 /// One boundary ring: ordered UV polygon with matched 3D positions
@@ -417,18 +417,13 @@ pub(crate) fn tessellate_face_boundary_first(
     let ruled_v = !matches!(
         surface,
         popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
-    ) && {
-        let u_mid = 0.5 * (u0 + u1);
-        let pa = surface.point_at(u_mid, v0);
-        let pb = surface.point_at(u_mid, v1);
-        let pm = surface.point_at(u_mid, 0.5 * (v0 + v1));
-        let chord_mid = Point3::new(
-            0.5 * (pa.x + pb.x),
-            0.5 * (pa.y + pb.y),
-            0.5 * (pa.z + pb.z),
-        );
-        pm.distance_to(&chord_mid) <= options.chord_height
-    };
+    ) && boundary_first_ruled_lattice::v_line_straight(
+        surface,
+        0.5 * (u0 + u1),
+        (v0, v1),
+        &boundary_first_ruled_lattice::v_line_fractions(surface, v0, v1),
+        options.chord_height,
+    );
     // Delaunay metric: the surface metric, v compressed on ruled lattices.
     let mut tri_scale = (su, shear, sv_sheared);
     if ruled_v {

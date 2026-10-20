@@ -17,7 +17,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::mesh_bvh::{LocalMesh, WorldMesh};
 use crate::placement::Placement;
@@ -39,6 +39,9 @@ pub(crate) struct MeshCache {
     /// others asking for it meanwhile wait for that build (`None`: the
     /// tessellation failed).
     meshes: Mutex<HashMap<Key, Arc<MeshCell>>>,
+    /// Single-face meshes (certification near regions, PK-900), kept
+    /// apart so a pair's region never evicts a whole-body mesh.
+    faces: Mutex<HashMap<Key, Arc<MeshCell>>>,
     /// Placed meshes by occurrence path and body, with the local mesh
     /// and placement they were built from: an occurrence that has not
     /// moved since the last check (half a swing's) reuses its BVH.
@@ -51,6 +54,7 @@ impl Clone for MeshCache {
     fn clone(&self) -> Self {
         MeshCache {
             meshes: Mutex::new(self.meshes.lock().map(|m| m.clone()).unwrap_or_default()),
+            faces: Mutex::new(self.faces.lock().map(|m| m.clone()).unwrap_or_default()),
             placed: Mutex::new(self.placed.lock().map(|m| m.clone()).unwrap_or_default()),
         }
     }
@@ -77,33 +81,72 @@ impl MeshCache {
         brep: &BRep,
         options: &popkern_mesh::TessellationOptions,
     ) -> Result<Arc<LocalMesh>, popkern_mesh::MeshError> {
-        let key = (
-            content,
-            options.chord_height.to_bits(),
-            options.max_subdivisions,
-            options.min_subdivisions,
-            options.max_facet_angle.to_bits(),
-        );
-        let build =
-            || popkern_mesh::tessellate(brep, options).map(|m| Arc::new(LocalMesh::new(brep, &m)));
-        // Built outside the map's lock but once per key: concurrent
-        // workers certifying pairs against one body used to build its
-        // (fine, certification-level) mesh once each, a dozen copies of
-        // the arm base's at once (PK-847: 100-170 s per base pair).
-        let cell = match self.meshes.lock() {
-            Ok(mut meshes) => {
-                if meshes.len() >= CAPACITY && !meshes.contains_key(&key) {
-                    meshes.clear();
-                }
-                meshes.entry(key).or_default().clone()
+        cached(&self.meshes, CAPACITY, content, options, || {
+            popkern_mesh::tessellate(brep, options).map(|m| Arc::new(LocalMesh::new(brep, &m)))
+        })
+    }
+
+    /// The tessellation of `faces` of `brep` alone (a certification
+    /// pair's near region, PK-900): each face's mesh is built once on a
+    /// miss and shared by every pair whose region holds it — the screws
+    /// of one flange all touch its face.
+    pub(crate) fn get_or_build_faces(
+        &self,
+        content: u64,
+        brep: &BRep,
+        faces: &[FaceHandle],
+        options: &popkern_mesh::TessellationOptions,
+    ) -> Result<LocalMesh, popkern_mesh::MeshError> {
+        use std::hash::{Hash, Hasher};
+        let pieces = faces
+            .iter()
+            .map(|&face| {
+                let mut hasher = std::hash::DefaultHasher::new();
+                (content, face).hash(&mut hasher);
+                cached(&self.faces, FACE_CAPACITY, hasher.finish(), options, || {
+                    LocalMesh::from_faces(brep, &[face], options).map(Arc::new)
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(LocalMesh::concat(&pieces))
+    }
+}
+
+/// Single-face meshes kept before that map is cleared: a pair's region
+/// holds a few faces, an assembly's regions a few thousand.
+const FACE_CAPACITY: usize = 8 * CAPACITY;
+
+fn cached(
+    map: &Mutex<HashMap<Key, Arc<MeshCell>>>,
+    capacity: usize,
+    content: u64,
+    options: &popkern_mesh::TessellationOptions,
+    build: impl Fn() -> Result<Arc<LocalMesh>, popkern_mesh::MeshError>,
+) -> Result<Arc<LocalMesh>, popkern_mesh::MeshError> {
+    let key = (
+        content,
+        options.chord_height.to_bits(),
+        options.max_subdivisions,
+        options.min_subdivisions,
+        options.max_facet_angle.to_bits(),
+    );
+    // Built outside the map's lock but once per key: concurrent
+    // workers certifying pairs against one body used to build its
+    // (fine, certification-level) mesh once each, a dozen copies of
+    // the arm base's at once (PK-847: 100-170 s per base pair).
+    let cell = match map.lock() {
+        Ok(mut meshes) => {
+            if meshes.len() >= capacity && !meshes.contains_key(&key) {
+                meshes.clear();
             }
-            Err(_) => return build(),
-        };
-        match cell.get_or_init(|| build().ok()) {
-            Some(mesh) => Ok(mesh.clone()),
-            // The tessellation failed: run it again for its error.
-            None => build(),
+            meshes.entry(key).or_default().clone()
         }
+        Err(_) => return build(),
+    };
+    match cell.get_or_init(|| build().ok()) {
+        Some(mesh) => Ok(mesh.clone()),
+        // The tessellation failed: run it again for its error.
+        None => build(),
     }
 }
 

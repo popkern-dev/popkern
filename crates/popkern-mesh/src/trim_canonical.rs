@@ -10,7 +10,7 @@
 //! PK-295 fixture mid-campaign: 57 open mesh edges along a spiric).
 //!
 //! This module samples a trim loop at the CANONICAL per-edge stations
-//! (`sample_all_edges` — the same samples every boundary-first face
+//! (`sample_edges` — the same samples every boundary-first face
 //! uses), pairing each canonical 3-D point with the half-edge
 //! pcurve's UV at the co-parameterized station. The uniform-grid face's
 //! trim polyline then shares every vertex — bit-identical — with the

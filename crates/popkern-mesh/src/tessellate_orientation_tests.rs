@@ -17,7 +17,7 @@ fn boundary_segments_come_out_in_one_order() {
         &brep,
         &[face],
         Default::default(),
-        &crate::boundary_first::sample_all_edges(&brep, &TessellationOptions::default()),
+        &crate::boundary_first::sample_edges(&brep, &TessellationOptions::default(), None),
         &TessellationOptions::default(),
         false,
         None,

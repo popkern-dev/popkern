@@ -180,8 +180,8 @@ pub(super) fn ruled_lattice(
 }
 
 /// Whether the chart's v iso-lines are straight across the whole box
-/// (five u positions, three interior points each, within
-/// `chord_height` of their end-to-end chord): the condition under
+/// (five u positions, each within `chord_height` of its end-to-end
+/// chord at every [`v_line_fractions`] sample): the condition under
 /// which compressing v in the Delaunay metric cannot lengthen a
 /// facet's error. The ruled-path test samples the u-midline only.
 pub(super) fn ruled_everywhere(
@@ -189,20 +189,59 @@ pub(super) fn ruled_everywhere(
     (u0, u1, v0, v1): (f64, f64, f64, f64),
     chord_height: f64,
 ) -> bool {
-    use popkern_core::geometry::surface::SurfaceEval;
+    let fractions = v_line_fractions(surface, v0, v1);
     [0.1, 0.3, 0.5, 0.7, 0.9].iter().all(|&fu| {
-        let u = u0 + (u1 - u0) * fu;
-        let (pa, pb) = (surface.point_at(u, v0), surface.point_at(u, v1));
-        [0.25, 0.5, 0.75].iter().all(|&fv| {
-            let p = surface.point_at(u, v0 + (v1 - v0) * fv);
-            let on_chord = Point3::new(
-                pa.x + (pb.x - pa.x) * fv,
-                pa.y + (pb.y - pa.y) * fv,
-                pa.z + (pb.z - pa.z) * fv,
-            );
-            p.distance_to(&on_chord) <= chord_height
-        })
+        v_line_straight(
+            surface,
+            u0 + (u1 - u0) * fu,
+            (v0, v1),
+            &fractions,
+            chord_height,
+        )
     })
+}
+
+/// Whether the v iso-line at `u` lies within `chord_height` of its
+/// end-to-end chord at each of `fractions` of `(v0, v1)`.
+pub(super) fn v_line_straight(
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    u: f64,
+    (v0, v1): (f64, f64),
+    fractions: &[f64],
+    chord_height: f64,
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let (pa, pb) = (surface.point_at(u, v0), surface.point_at(u, v1));
+    fractions.iter().all(|&fv| {
+        let p = surface.point_at(u, v0 + (v1 - v0) * fv);
+        let on_chord = Point3::new(
+            pa.x + (pb.x - pa.x) * fv,
+            pa.y + (pb.y - pa.y) * fv,
+            pa.z + (pb.z - pa.z) * fv,
+        );
+        p.distance_to(&on_chord) <= chord_height
+    })
+}
+
+/// Fractions of `(v0, v1)` at which a v iso-line's straightness is
+/// sampled: its quarters, and on a NURBS chart the quarters of every v
+/// knot span the window meets. A line wound through many knot spans
+/// (a tap's thread flank, a 142 mm helix six turns round) can return
+/// to its chord at fixed fractions: the quarters alone read 5.7e-4 on
+/// a line 6.2 mm off it, the chart took the ruled Delaunay metric, and
+/// its facets sagged 0.23 at a 0.011 chord (PK-900).
+pub(super) fn v_line_fractions(
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    v0: f64,
+    v1: f64,
+) -> Vec<f64> {
+    let mut fractions = vec![0.25, 0.5, 0.75];
+    if let popkern_core::geometry::surface::SurfaceGeometry::Nurbs(n) = surface {
+        fractions.extend(super::boundary_first_lattice::span_fractions(
+            &n.knots_v, v0, v1,
+        ));
+    }
+    fractions
 }
 
 #[cfg(test)]

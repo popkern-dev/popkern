@@ -193,7 +193,7 @@ impl Assembly {
         let check = |&(i, j): &(usize, usize)| -> Option<PairReport> {
             let (a, b) = (&occurrences[i], &occurrences[j]);
             let started = trace.then(popkern_core::time::Stopwatch::start);
-            let first = this.check_pair(a, b, &local, options, tolerance, false);
+            let first = this.check_pair(a, b, &local, options, tolerance, false, None);
             if first.settled {
                 return first.report;
             }
@@ -201,9 +201,9 @@ impl Assembly {
                 .as_ref()
                 .and_then(popkern_core::time::Stopwatch::elapsed);
             let report = this
-                .certify_pair(a, b, &parts, &worlds, options, tolerance)
+                .certify_pair(a, b, &parts, &local, &worlds, options, tolerance)
                 .unwrap_or_else(|| {
-                    this.check_pair(a, b, &local, options, tolerance, true)
+                    this.check_pair(a, b, &local, options, tolerance, true, None)
                         .report
                 });
             if let (Some(s), Some(coarse)) = (&started, coarse)
@@ -238,6 +238,7 @@ impl Assembly {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn check_pair(
         &self,
         a: &Occurrence,
@@ -246,15 +247,28 @@ impl Assembly {
         options: &InterferenceOptions,
         tolerance: f64,
         run_boolean: bool,
+        contained: Option<&[Vec<bool>]>,
     ) -> PairCheck {
         let (clearance, volume) = (options.clearance, options.overlap_volume);
         // Overlap first: crossing meshes or containment, then the
         // boolean decides interfering versus touching.
-        for (brep_a, mesh_a, _) in &a.bodies {
-            for (brep_b, mesh_b, _) in &b.bodies {
-                let crossing = mesh_a.crosses(mesh_b)
-                    || brep_a.first_vertex().is_some_and(|p| mesh_b.contains(&p))
-                    || brep_b.first_vertex().is_some_and(|p| mesh_a.contains(&p));
+        for (ia, (brep_a, mesh_a, _)) in a.bodies.iter().enumerate() {
+            for (ib, (brep_b, mesh_b, _)) in b.bodies.iter().enumerate() {
+                // Containment asks a closed mesh. A near-region mesh
+                // (PK-900) is not one: its caller passes the answer the
+                // closed base meshes gave, per body pair.
+                let inside = match contained {
+                    Some(known) => known
+                        .get(ia)
+                        .and_then(|r| r.get(ib))
+                        .copied()
+                        .unwrap_or(false),
+                    None => {
+                        brep_a.first_vertex().is_some_and(|p| mesh_b.contains(&p))
+                            || brep_b.first_vertex().is_some_and(|p| mesh_a.contains(&p))
+                    }
+                };
+                let crossing = inside || mesh_a.crosses(mesh_b);
                 if !crossing {
                     continue;
                 }

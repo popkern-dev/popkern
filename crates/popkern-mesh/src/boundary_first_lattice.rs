@@ -74,8 +74,16 @@ pub(super) fn directional_stations(
     let (v0, v1) = v_span;
     let cap = 512usize;
     let max_turn = options.angular_bound();
+    // Every knot-span quarter along each direction: a segment's sag is
+    // read at those inside it as well as at its midpoint.
+    let samples = |dir_u: bool| match surface {
+        SurfaceGeometry::Nurbs(nurbs) if dir_u => span_fractions(&nurbs.knots_u, u0, u1),
+        SurfaceGeometry::Nurbs(nurbs) => span_fractions(&nurbs.knots_v, v0, v1),
+        _ => Vec::new(),
+    };
     let refine = |dir_u: bool| -> usize {
         let mut n = options.min_subdivisions.max(2);
+        let inner = samples(dir_u);
         loop {
             let mut worst = 0.0_f64;
             for cross in [0.25, 0.5, 0.75] {
@@ -96,6 +104,22 @@ pub(super) fn directional_stations(
                         0.5 * (prev.z + next.z),
                     );
                     worst = worst.max(mid.distance_to(&chord_mid));
+                    // A segment over whole turns of a coil has its
+                    // midpoint back on its chord: the knot-span samples
+                    // inside it see the line between (PK-900: a tap's
+                    // 142 mm flank helix kept n = 4 and nine interior
+                    // points, its facets 16x the chord height).
+                    let (fa, fb) = (k as f64 / n as f64, (k + 1) as f64 / n as f64);
+                    let lo = inner.partition_point(|&f| f <= fa);
+                    for &f in inner[lo..].iter().take_while(|&&f| f < fb) {
+                        let t = (f - fa) / (fb - fa);
+                        let on_chord = Point3::new(
+                            prev.x + (next.x - prev.x) * t,
+                            prev.y + (next.y - prev.y) * t,
+                            prev.z + (next.z - prev.z) * t,
+                        );
+                        worst = worst.max(at(f).distance_to(&on_chord));
+                    }
                     if let Some(max_turn) = max_turn {
                         // Iso-line tangent turn in chord-height units
                         // so one threshold decides both criteria.
@@ -123,4 +147,26 @@ pub(super) fn directional_stations(
         }
     }
     (n_u.max(2), n_v.max(2))
+}
+
+/// Fractions of `(a, b)` at the quarters of every knot span of `knots`
+/// the window meets, ascending: where a NURBS iso-line is sampled so a
+/// line wound through many spans cannot return to a chord between
+/// samples by phase.
+pub(super) fn span_fractions(knots: &[f64], a: f64, b: f64) -> Vec<f64> {
+    let span = b - a;
+    if span.is_nan() || span <= 0.0 {
+        return Vec::new();
+    }
+    let mut breaks = vec![a];
+    breaks.extend(knots.iter().copied().filter(|&k| k > a && k < b));
+    breaks.push(b);
+    breaks.dedup();
+    let mut out = Vec::with_capacity(3 * breaks.len());
+    for w in breaks.windows(2) {
+        for q in [0.25, 0.5, 0.75] {
+            out.push((w[0] + (w[1] - w[0]) * q - a) / span);
+        }
+    }
+    out
 }

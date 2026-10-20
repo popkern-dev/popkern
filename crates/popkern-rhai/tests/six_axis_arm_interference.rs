@@ -39,9 +39,10 @@ fn the_whole_arm_has_no_interfering_pair() {
         report.occurrences
     );
     // 18.3 s quiet at the test profile with cosmetic threads (626 s at
-    // filing). Real mated threads measure 135.9 s: a 0.1 fit never
-    // settles on the coarse meshes and descends to the finest whole-body
-    // ones. TEMPORARY CONTAINMENT: the gate stands at 200 s until PK-900
-    // settles thread-mated pairs locally and restores 60 s.
-    assert!(took < 200.0, "whole-arm interference took {took:.1} s");
+    // filing). Real mated threads measured 135.9 s, then 42.7 s once
+    // certification re-meshed only each pair's near faces (56.5 s on
+    // whole bodies) and the tap flanks meshed within their chord (a
+    // flank sampled by phase luck sagged 16x it, and the gripper screws
+    // descended to the finest level, 23 s each; PK-900).
+    assert!(took < 60.0, "whole-arm interference took {took:.1} s");
 }

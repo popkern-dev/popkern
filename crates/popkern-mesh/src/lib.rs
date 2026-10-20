@@ -12,6 +12,7 @@ mod boundary_first;
 mod boundary_sew;
 mod crack_zipper;
 mod crease_flip;
+mod encroachment;
 mod error;
 mod export;
 mod face_pass;
@@ -33,6 +34,7 @@ mod vertex_snap;
 mod watertight;
 mod winding_side;
 
+pub use encroachment::tessellate_faces;
 pub use error::MeshError;
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 pub use tessellate::tessellate_face;

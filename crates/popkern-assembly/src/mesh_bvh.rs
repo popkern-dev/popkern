@@ -200,6 +200,8 @@ pub struct WorldMesh {
 
 const LEAF: usize = 4;
 
+#[path = "mesh_near.rs"]
+mod near;
 #[path = "mesh_overlap.rs"]
 mod overlap;
 pub use overlap::certain_overlap;
