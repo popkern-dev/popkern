@@ -136,30 +136,47 @@ fn main() {
         .expect("shaded render");
     println!("  wrote {}", shaded.display());
 
-    for (name, mode) in [
-        (
-            "surface_analysis_zebra.png",
-            SurfaceAnalysisMode::Zebra {
-                stripe_count: 14,
-                normals: popkern_viz::zebra::ZebraNormals::Mesh,
-            },
-        ),
-        (
-            "surface_analysis_gaussian.png",
-            SurfaceAnalysisMode::Curvature {
-                kind: CurvatureKind::Gaussian,
-            },
-        ),
-        (
-            "surface_analysis_mean.png",
-            SurfaceAnalysisMode::Curvature {
-                kind: CurvatureKind::Mean,
-            },
-        ),
+    let zebra = out_dir.join("surface_analysis_zebra.png");
+    let mode = SurfaceAnalysisMode::Zebra {
+        stripe_count: 14,
+        normals: popkern_viz::zebra::ZebraNormals::Mesh,
+    };
+    render_surface_analysis_to_png(&brep, &camera, 800, 600, mode, &zebra)
+        .expect("analysis render");
+    println!("  wrote {}", zebra.display());
+
+    // Curvature maps with their range on the image and in the report
+    // (PK-504): fitted to the sampled extreme, extrema are samples.
+    let mesh = popkern_mesh::tessellate(&brep, &popkern_mesh::TessellationOptions::display())
+        .expect("display mesh");
+    for (name, kind) in [
+        ("surface_analysis_gaussian.png", CurvatureKind::Gaussian),
+        ("surface_analysis_mean.png", CurvatureKind::Mean),
     ] {
+        let (pixels, report) = popkern_viz::curvature_map::render_curvature_map(
+            &brep,
+            &mesh,
+            &camera,
+            800,
+            600,
+            popkern_viz::curvature_map::CurvatureMapOptions {
+                kind,
+                range: popkern_viz::curvature_map::CurvatureRange::default(),
+                legend: true,
+            },
+        );
         let path = out_dir.join(name);
-        render_surface_analysis_to_png(&brep, &camera, 800, 600, mode, &path)
-            .expect("analysis render");
-        println!("  wrote {}", path.display());
+        popkern_viz::headless::write_png(&path, 800, 600, &pixels).expect("png");
+        println!(
+            "  wrote {} ({}: +/-{:.3e}, sampled [{:.3e}, {:.3e}], {} of {} pixels clipped, {} unevaluated)",
+            path.display(),
+            report.kind,
+            report.half_range,
+            report.sampled_min,
+            report.sampled_max,
+            report.clipped,
+            report.pixels,
+            report.unevaluated
+        );
     }
 }
