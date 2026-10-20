@@ -23,6 +23,15 @@
 
 #![forbid(unsafe_code)]
 
+/// The release this server was built as: `POPKERN_VERSION` at build
+/// time (tools/dist-linux.sh stamps release candidates), else the crate
+/// version. `host.json` and the MCP handshake report it, so the page and
+/// agents see the same release `popkern --version` prints (PK-835).
+pub const RELEASE_VERSION: &str = match option_env!("POPKERN_VERSION") {
+    Some(version) => version,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 mod http;
 mod mcp;
 mod mcp_tools;

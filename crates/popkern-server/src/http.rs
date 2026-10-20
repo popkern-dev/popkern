@@ -178,7 +178,7 @@ pub(crate) fn connection(mut stream: TcpStream, context: &Context) {
         let value = json!({
             "storage": "server",
             "compute": context.options.compute.as_str(),
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": crate::RELEASE_VERSION,
             "root": context.options.root.display().to_string(),
             "mcp": "/mcp",
         });

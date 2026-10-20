@@ -32,11 +32,9 @@ pub use watch::Watcher;
 use std::process::ExitCode;
 
 /// The release this binary was built as: `POPKERN_VERSION` at build time
-/// (tools/dist-linux.sh stamps release candidates), else the crate version.
-pub const VERSION: &str = match option_env!("POPKERN_VERSION") {
-    Some(version) => version,
-    None => env!("CARGO_PKG_VERSION"),
-};
+/// (tools/dist-linux.sh stamps release candidates), else the crate version
+/// — the one the server reports in `host.json`.
+pub const VERSION: &str = popkern_server::RELEASE_VERSION;
 
 /// The page `popkern serve` uses without `--page`: an installed layout's
 /// `<prefix>/share/popkern/live` (the binary in `<prefix>/bin`), else the

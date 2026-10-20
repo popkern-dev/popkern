@@ -115,7 +115,7 @@ fn answer(message: &Value, context: &Context) -> Option<Value> {
                 json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },
-                    "serverInfo": { "name": "popkern", "version": env!("CARGO_PKG_VERSION") },
+                    "serverInfo": { "name": "popkern", "version": crate::RELEASE_VERSION },
                     "instructions": INSTRUCTIONS,
                 }),
             )

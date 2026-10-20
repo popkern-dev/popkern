@@ -95,7 +95,8 @@ fn the_page_and_host_json() {
         json!({
             "storage": "server",
             "compute": "native",
-            "version": env!("CARGO_PKG_VERSION"),
+            // The stamped release (`popkern --version`'s), PK-835.
+            "version": popkern_server::RELEASE_VERSION,
             // Absolute, so the page can say where projects live.
             "root": root_path("page").display().to_string(),
             "mcp": "/mcp",
