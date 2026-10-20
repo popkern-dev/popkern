@@ -26,8 +26,7 @@
 // holes. Each mount ring clamps a housing's lip; each foot bolts to a
 // joint's output flange. Every screw has a real thread and threads into
 // a real tapped hole (PK-876): the housings' lips, the output flanges
-// and the tool flange's four ISO M6 holes (a 0.1 fit clearance, 0.15
-// for the M6: body_volume over-reads a 0.08-0.1 M6 flank, PK-901).
+// and the tool flange's four ISO M6 holes, all at a 0.1 fit clearance.
 // Each tapped hole is one cut of a cached tool (~0.2-0.4 s on these
 // castings). A screw mates a tap cut in its own insertion frame or an
 // axial offset of whole leads (PK-476); `place_bolts` turns each screw
@@ -726,7 +725,7 @@ fn iso_taps(body, md, face, pi) {
     for k in 0..4 {
         let ang = pi / 8.0 + pi * k / 2.0;
         body = body.tapped_hole(axis_at(m_point(md.M, [25.0 * cos(ang), 25.0 * sin(ang), face]), d),
-            "M6", blind(10.0), #{ clearance: 0.15, label: "tapped_M6_" + k });
+            "M6", blind(10.0), #{ clearance: 0.1, label: "tapped_M6_" + k });
     }
     body
 }
