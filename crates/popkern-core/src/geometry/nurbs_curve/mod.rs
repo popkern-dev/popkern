@@ -410,3 +410,6 @@ mod tests;
 
 #[cfg(test)]
 mod derivative_tests;
+
+#[path = "exact_derivatives.rs"]
+mod exact_derivatives;

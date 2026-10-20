@@ -34,6 +34,7 @@ pub mod contact;
 pub(crate) mod continuity;
 pub(crate) mod corner_2d_helpers;
 pub mod curvature_comb;
+pub mod curve_join;
 pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;
 pub(crate) mod degeneracy_surface;
