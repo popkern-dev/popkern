@@ -94,12 +94,18 @@ impl Assembly {
         &self,
         selected: &dyn Fn(&str) -> bool,
         local: &HashMap<(DefinitionId, usize), Arc<LocalMesh>>,
+        motion: Option<crate::interference_motion::Motion<'_>>,
     ) -> Vec<Candidate> {
         let mut out = Vec::new();
-        for row in self.leaves() {
+        for mut row in self.leaves() {
             let path = row.path.to_string();
             if !row.is_part || !selected(&path) {
                 continue;
+            }
+            // A world-frame motion of this occurrence (a film's offsets
+            // and turns), applied after its placement.
+            if let Some(moved) = motion.and_then(|m| m(&path)) {
+                row.world = row.world.then(&moved);
             }
             let mut bodies = Vec::new();
             for body in 0.. {

@@ -366,7 +366,11 @@ impl Assembly {
                 overlap_volume: false,
                 ..InterferenceOptions::default()
             },
-            &|a, b| scope.checks(a, b),
+            &crate::interference_motion::PairScope {
+                keep: &|a, b| scope.checks(a, b),
+                motion: None,
+                certify: true,
+            },
         )?;
         let mut min_distance = f64::INFINITY;
         let mut contact = None;

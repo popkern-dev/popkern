@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use popkern_live::{HostOptions, Session};
-use popkern_rhai::film::film_name;
+use popkern_rhai::film::{film_name, film_overlaps};
 use serde_json::{Value, json};
 
 use crate::args::Cli;
@@ -191,9 +191,25 @@ pub fn run_films(cli: &Cli, source: &FilmSource) -> Result<Vec<Value>, (u8, Stri
             .map(|(_, b)| String::from_utf8_lossy(b).into_owned())
             .unwrap_or_default();
         match session.film(&text, path, None) {
-            Ok(reply) => out.push(
-                json!({ "name": name, "path": path, "film": reply.film, "printed": reply.printed }),
-            ),
+            Ok(reply) => {
+                // Parts driven through each other (PK-855): a warning,
+                // not an error — a film may pass a part through a
+                // cut-away on purpose.
+                let warnings = match session.document_mut() {
+                    Some(popkern_assembly::Document::Assembly(assembly)) => {
+                        film_overlaps(assembly, &reply.film, reply.context.unit_scale)
+                            .map_err(|e| (3, format!("film {name}: overlap check: {e}")))?
+                    }
+                    _ => Vec::new(),
+                };
+                out.push(json!({
+                    "name": name,
+                    "path": path,
+                    "film": reply.film,
+                    "printed": reply.printed,
+                    "warnings": warnings,
+                }));
+            }
             Err(outcome) => {
                 return Err((
                     2,
@@ -241,6 +257,19 @@ pub fn film_command(cli: &Cli) -> u8 {
                 film["size"][0],
                 film["size"][1],
             );
+            for w in f["warnings"].as_array().into_iter().flatten() {
+                let line = w["line"]
+                    .as_u64()
+                    .map(|l| format!(" (line {l})"))
+                    .unwrap_or_default();
+                println!(
+                    "  warning: frame {} ({:.2} s): {} and {} overlap{line}",
+                    w["frame"],
+                    w["time"].as_f64().unwrap_or(0.0),
+                    w["pair"][0].as_str().unwrap_or(""),
+                    w["pair"][1].as_str().unwrap_or(""),
+                );
+            }
         }
     }
     let Some(out) = &cli.out else {

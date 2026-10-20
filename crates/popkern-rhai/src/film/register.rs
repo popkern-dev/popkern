@@ -118,6 +118,8 @@ pub fn register(engine: &mut Engine, context: Rc<FilmContext>, name: &str) {
     );
     engine.register_fn("camera", camera);
     engine.register_fn("move", movement);
+    engine.register_fn("insert", super::fastener::insert);
+    engine.register_fn("screw_in", super::fastener::screw_in);
     engine.register_fn(
         "turn",
         |ctx: NativeCallContext,

@@ -42,6 +42,7 @@ pub mod hinge_seam;
 pub mod history;
 pub mod interference;
 mod interference_certify;
+mod interference_motion;
 mod interference_occurrences;
 mod interference_refine;
 pub mod joints;

@@ -29,6 +29,10 @@ pub struct FilmContext {
     /// document is in).
     #[serde(default)]
     pub values: std::collections::BTreeMap<String, f64>,
+    /// Fastener occurrences' insertion axes (`s.insert`, `s.screw_in`;
+    /// empty for a part).
+    #[serde(default)]
+    pub fasteners: std::collections::BTreeMap<String, super::fastener::FastenerAxis>,
 }
 
 impl FilmContext {
@@ -57,6 +61,7 @@ impl FilmContext {
                     joints: Vec::new(),
                     params,
                     values,
+                    fasteners: Default::default(),
                 }
             }
             Document::Assembly(assembly) => {
@@ -86,6 +91,7 @@ impl FilmContext {
                     joints,
                     params,
                     values,
+                    fasteners: super::fastener::fastener_axes(assembly),
                 }
             }
         }

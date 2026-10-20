@@ -31,6 +31,7 @@ use popkern_core::tolerance::Tolerance;
 
 use crate::assembly::{Assembly, DefinitionId};
 use crate::error::AssemblyError;
+use crate::interference_motion::PairScope;
 use crate::interference_refine::{bounds_diagonal, faces_at, refine};
 use crate::mesh_bvh::{LocalMesh, WorldMesh};
 
@@ -67,16 +68,18 @@ impl Assembly {
         &mut self,
         options: &InterferenceOptions,
     ) -> Result<InterferenceReport, AssemblyError> {
-        self.interference_where(options, &|_, _| true)
+        self.interference_where(options, &PairScope::all())
     }
 
-    /// [`Assembly::interference`] over the occurrence pairs (paths)
-    /// `keep` accepts: a swing checks only the pairs its motion changes.
+    /// [`Assembly::interference`] over the occurrence pairs `scope`
+    /// accepts, with its occurrences moved by `scope.motion` and, unless
+    /// `scope.certify`, only the pairs the base meshes settle.
     pub(crate) fn interference_where(
         &mut self,
         options: &InterferenceOptions,
-        keep: &dyn Fn(&str, &str) -> bool,
+        scope: &PairScope<'_>,
     ) -> Result<InterferenceReport, AssemblyError> {
+        let keep = scope.keep;
         let tolerance = options.tolerance.unwrap_or_else(|| {
             self.definitions
                 .iter()
@@ -150,7 +153,7 @@ impl Assembly {
         trace_phase("definition meshes");
         // Broad phase on world bounds; only the occurrences of candidate
         // pairs are placed (`interference_occurrences`).
-        let candidates_all = self.interference_candidates(&selected, &local);
+        let candidates_all = self.interference_candidates(&selected, &local, scope.motion);
         let mut candidate_pairs: Vec<(usize, usize)> = Vec::new();
         for i in 0..candidates_all.len() {
             for j in i + 1..candidates_all.len() {
@@ -190,9 +193,13 @@ impl Assembly {
         let candidates = candidate_pairs.len();
         let this: &Self = self;
         let trace = popkern_core::trace::trace_enabled("interference");
+        let certify = scope.certify;
         let check = |&(i, j): &(usize, usize)| -> Option<PairReport> {
             let (a, b) = (&occurrences[i], &occurrences[j]);
             let started = trace.then(popkern_core::time::Stopwatch::start);
+            if !certify {
+                return crate::interference_motion::proven_overlap(a, b, tolerance);
+            }
             let first = this.check_pair(a, b, &local, options, tolerance, false, None);
             if first.settled {
                 return first.report;

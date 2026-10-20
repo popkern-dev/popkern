@@ -288,6 +288,7 @@ fn a_film_reads_the_shown_model_not_the_last_live_build() {
         joints: Vec::new(),
         params: Vec::new(),
         values: Default::default(),
+        fasteners: Default::default(),
     };
     let film = "let film = storyboard();\nfilm.step(\"lift\", \"\", 1.0, |s| { s.move(\"body 1\", #{ to: [0.0, 0.0, 1.0] }); });\nfilm";
     let reply = session

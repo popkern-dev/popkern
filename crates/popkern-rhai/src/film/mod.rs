@@ -5,7 +5,9 @@
 mod actions;
 mod api;
 mod context;
+mod fastener;
 pub mod model;
+mod overlap;
 mod register;
 
 use std::cell::RefCell;
@@ -15,7 +17,9 @@ use rhai::{Dynamic, Scope};
 
 pub use api::{ScriptFilm, ScriptFilmDocument, ScriptStep};
 pub use context::FilmContext;
+pub use fastener::FastenerAxis;
 pub use model::{CameraKey, CameraTo, Channel, Ease, Film, FilmStep, SectionKey, Track};
+pub use overlap::{FilmOverlap, film_overlaps, occurrence_motion};
 
 use crate::engine::build_engine;
 use crate::host::{HostOptions, ScriptRunError};
