@@ -177,6 +177,9 @@ impl Assembly {
         }
         let value_of = |name: &str| values.iter().find(|(p, _)| *p == name).map(|&(_, v)| v);
         let mates = self.mates.clone();
+        // Released joints read their angles back into parameters
+        // (PK-808): a refused or rejected solve restores those too.
+        let params = self.params.clone();
         let placements: Vec<_> = self.root.iter().map(|i| i.placement).collect();
         // Continuation: an angle residual is an atan2 and wraps, so a
         // large jump solved in one go can land on another branch (or
@@ -240,6 +243,7 @@ impl Assembly {
                 }
                 _ => {
                     self.mates = mates.clone();
+                    self.params = params.clone();
                     for (instance, placement) in self.root.iter_mut().zip(&placements) {
                         instance.placement = *placement;
                     }
@@ -259,6 +263,7 @@ impl Assembly {
             }
             if let Err(error) = self.solve_in_place(false) {
                 self.mates = mates;
+                self.params = params;
                 for (instance, placement) in self.root.iter_mut().zip(placements) {
                     instance.placement = placement;
                 }

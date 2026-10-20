@@ -1120,4 +1120,30 @@ a.assert_watertight();
 
 // The displayed pose: home, ready or reach.
 ready(a);
+
+// Target posing (six-axis-arm §11 E4, PK-808): with `target_posing`
+// true the arm starts at home, a target block placed by tx, ty, tz
+// (offsets from the flange's home) holds the flange concentric and
+// coincident on the j6 axis, and j1..j5 are released: they turn to
+// reach it and are refused at their limits. j6 still spins the tool.
+let target_posing = false;
+if target_posing {
+    home(a);
+    let target = a.part("target", |m| {
+        m.profile(xy()).rect(10.0, 10.0).sketch("target").extrude(blind(2.0));
+    });
+    let t = a.place(target, "target");
+    let normals = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    let names = ["tx", "ty", "tz"];
+    for k in 0..3 {
+        a.param(names[k], 0.0, "m");
+        a.limits(names[k], -900.0, 900.0);
+        a.distance(roots[0].plane([0.0, 0.0, 0.0], normals[k]), t.plane([0.0, 0.0, 0.0], normals[k]),
+            p(names[k]), #{ aligned: true });
+    }
+    for k in 0..5 { a.release_joint("j" + (k + 1)); }
+    let md = mods[5];
+    a.concentric(roots[8].axis(md.o, md.z), t.axis(md.o, md.z));
+    a.coincident(roots[8].plane(md.o, md.z), t.plane(md.o, md.z), #{ aligned: true });
+}
 a

@@ -122,6 +122,8 @@ pub struct Assembly {
     pub(crate) history: crate::history::AssemblyHistory,
     /// Joints over the mates (six-axis-arm §4.3).
     pub(crate) joints: Vec<crate::joints::Joint>,
+    /// Angle mates of released joints: left out of the solve (PK-808).
+    pub(crate) released: std::collections::BTreeSet<usize>,
     /// Tessellations for the interference check, by body content.
     pub(crate) meshes: crate::mesh_cache::MeshCache,
     /// Built part bodies for the interference check, by definition.
@@ -141,6 +143,7 @@ impl Assembly {
             drives: Vec::new(),
             history: crate::history::AssemblyHistory::default(),
             joints: Vec::new(),
+            released: std::collections::BTreeSet::new(),
             meshes: crate::mesh_cache::MeshCache::default(),
             parts_cache: crate::parts_cache::PartsCache::default(),
         }

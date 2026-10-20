@@ -138,6 +138,21 @@ pub enum AssemblyError {
         /// The solve's report (conflicting and redundant mates, free motions).
         report: Box<crate::mate_solve::MateReport>,
     },
+    /// A released joint's solved angle is outside its limits; nothing
+    /// moved (PK-808).
+    #[error(
+        "joint '{joint}' would turn to {angle:.3} degrees, outside its limits [{}, {}]; nothing was moved",
+        limits[0],
+        limits[1]
+    )]
+    JointLimit {
+        /// The joint.
+        joint: String,
+        /// The angle the solve reached, degrees.
+        angle: f64,
+        /// Its limits, degrees.
+        limits: [f64; 2],
+    },
     /// STEP writing or reading failed.
     #[error("STEP: {0}")]
     Step(String),
@@ -232,6 +247,13 @@ impl AssemblyError {
             }
             AssemblyError::MateConflict { report } => {
                 json!({ "reason": "mate_conflict", "report": report })
+            }
+            AssemblyError::JointLimit {
+                joint,
+                angle,
+                limits,
+            } => {
+                json!({ "reason": "joint_limit", "joint": joint, "angle": angle, "limits": limits })
             }
             AssemblyError::Step(detail) => json!({ "reason": "step", "detail": detail }),
             AssemblyError::Document(detail) => json!({ "reason": "document", "detail": detail }),

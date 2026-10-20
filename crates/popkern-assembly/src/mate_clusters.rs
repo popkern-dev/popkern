@@ -8,9 +8,15 @@
 //! to roots already placed fix it alone (rank 6 in its own six
 //! columns) — or which has no mate to any root still pending — is
 //! solved alone with those mates, and joins the placed set. When no
-//! root can be peeled (a loop: a four-bar, two fingers on one rail),
-//! the pending roots connected to the first one through mates among
-//! pending roots are solved together as one cluster.
+//! root can be peeled, the pending roots that only *follow* others are
+//! set aside first, from the outside in: a root whose mates fix it
+//! alone and ask nothing of the roots they reach (the rank of their
+//! rows in its own six columns is 6 and is the rank in all of theirs)
+//! — a reducer's rotor, discs and cage on a released joint (PK-808),
+//! a finger on its rail. Each is solved alone after the roots it
+//! follows. What remains (a loop: a four-bar, a released chain held
+//! by a target) is solved as one cluster of the pending roots
+//! connected to the first one through mates among pending roots.
 //!
 //! Solving a fully fixed root alone gives the same placement the joint
 //! solve would; a root with no pending coupling has a block-diagonal
@@ -44,25 +50,53 @@ pub(crate) fn plan(
     }
     let mut pending: Vec<usize> = free.to_vec();
     let mut out = Vec::new();
+    // Roots set aside to follow, and whether a mate reaches one (its
+    // mates are the follower's own, solved with it).
+    let mut followers: Vec<usize> = Vec::new();
+    let mut set_aside = vec![false; roots];
     while !pending.is_empty() {
+        let live = |i: usize| !touches[i].iter().any(|t| set_aside[*t]);
         let mut chosen = None;
         for (pi, &r) in pending.iter().enumerate() {
             let own: Vec<usize> = (0..resolved.len())
                 .filter(|&i| {
-                    touches[i].contains(&r) && touches[i].iter().all(|t| *t == r || known[*t])
+                    live(i)
+                        && touches[i].contains(&r)
+                        && touches[i].iter().all(|t| *t == r || known[*t])
                 })
                 .collect();
             if own.is_empty() {
                 continue;
             }
             let coupled = (0..resolved.len()).any(|i| {
-                touches[i].contains(&r) && touches[i].iter().any(|t| *t != r && !known[*t])
+                live(i)
+                    && touches[i].contains(&r)
+                    && touches[i].iter().any(|t| *t != r && !known[*t])
             });
             if !coupled || fixed_alone(resolved, &own, r, current, size)? {
                 chosen = Some(pi);
                 break;
             }
         }
+        if chosen.is_none() {
+            let mut any = false;
+            for pi in (0..pending.len()).rev() {
+                let r = pending[pi];
+                let own: Vec<usize> = (0..resolved.len())
+                    .filter(|&i| live(i) && touches[i].contains(&r))
+                    .collect();
+                if follows(resolved, touches, &own, r, &known, current, size)? {
+                    set_aside[r] = true;
+                    followers.push(pending.remove(pi));
+                    any = true;
+                    break;
+                }
+            }
+            if any {
+                continue;
+            }
+        }
+        let live = |i: usize| !touches[i].iter().any(|t| set_aside[*t]);
         let cluster = match chosen {
             Some(pi) => vec![pending.remove(pi)],
             None => {
@@ -72,8 +106,8 @@ pub(crate) fn plan(
                 let mut grew = true;
                 while grew {
                     grew = false;
-                    for t in touches {
-                        if t.iter().any(|r| members.contains(r)) {
+                    for (i, t) in touches.iter().enumerate() {
+                        if live(i) && t.iter().any(|r| members.contains(r)) {
                             for &r in t {
                                 if !known[r] && !members.contains(&r) {
                                     members.push(r);
@@ -97,7 +131,46 @@ pub(crate) fn plan(
         }
         out.push(cluster);
     }
+    // Followers after what they follow: the last set aside first.
+    out.extend(followers.into_iter().rev().map(|r| vec![r]));
     Ok(out)
+}
+
+/// Whether mates `own` fix root `r` alone and ask nothing of the
+/// pending roots they reach: rank 6 in `r`'s columns, and no more in
+/// all of theirs. Such a root moves to satisfy them wherever the others
+/// land.
+fn follows(
+    resolved: &[(Mate, Resolved, Resolved, Option<Resolved>)],
+    touches: &[Vec<usize>],
+    own: &[usize],
+    r: usize,
+    known: &[bool],
+    current: &[Placement],
+    size: f64,
+) -> Result<bool, AssemblyError> {
+    if own.is_empty() {
+        return Ok(false);
+    }
+    let mut free = vec![r];
+    for &i in own {
+        for &t in &touches[i] {
+            if !known[t] && !free.contains(&t) {
+                free.push(t);
+            }
+        }
+    }
+    let sub: Vec<_> = own.iter().map(|&i| resolved[i].clone()).collect();
+    let problem = Problem {
+        resolved: &sub,
+        free: &free,
+        base: current,
+        size,
+    };
+    let jacobian = problem.jacobian(&vec![0.0; 6 * free.len()])?;
+    let mine: Vec<Vec<f64>> = jacobian.iter().map(|row| row[..6].to_vec()).collect();
+    let rank = rank_of(&mine, 6, RANK_REL);
+    Ok(rank == 6 && rank_of(&jacobian, 6 * free.len(), RANK_REL) == 6)
 }
 
 /// Whether mates `own` fix root `r` completely (rank 6 in its columns)

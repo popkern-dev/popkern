@@ -11,7 +11,7 @@ pub const MODULES: &str = include_str!("../../examples/cycloidal_joint.rhai");
 
 /// The arm at home (the displayed-pose line set to `home`).
 pub fn build() -> Assembly {
-    let source = SCRIPT.replace("\nready(a);\na\n", "\nhome(a);\na\n");
+    let source = SCRIPT.replace("\nready(a);\n", "\nhome(a);\n");
     assert_ne!(source, SCRIPT, "the displayed-pose line moved");
     let mut host = ScriptHost::new();
     let mut outcome = host

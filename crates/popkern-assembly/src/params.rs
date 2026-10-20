@@ -150,6 +150,12 @@ impl Assembly {
         let Some(index) = self.params.iter().position(|p| p.name == name) else {
             return Err(param_error(name, "no assembly parameter with this name"));
         };
+        if self.is_released_param(name) {
+            return Err(param_error(
+                name,
+                "the joint is released: its angle follows the solve (drive it to set it)",
+            ));
+        }
         if let Some([lo, hi]) = self.params[index].bounds
             && !(lo..=hi).contains(&value)
         {

@@ -46,6 +46,7 @@ mod interference_motion;
 mod interference_occurrences;
 mod interference_refine;
 pub mod joints;
+mod joints_release;
 mod mate_clusters;
 pub mod mate_linalg;
 mod mate_predict;

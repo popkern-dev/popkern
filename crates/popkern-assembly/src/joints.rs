@@ -119,7 +119,7 @@ fn perpendicular(d: Vec3) -> Vec3 {
 }
 
 /// The signed angle (degrees) from `ua` to `ub` about `k`.
-fn signed_degrees(ua: Vec3, ub: Vec3, k: Vec3) -> f64 {
+pub(crate) fn signed_degrees(ua: Vec3, ub: Vec3, k: Vec3) -> f64 {
     ua.cross(&ub).dot(&k).patan2(ua.dot(&ub)).to_degrees()
 }
 

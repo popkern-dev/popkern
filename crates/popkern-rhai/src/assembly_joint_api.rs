@@ -101,9 +101,22 @@ fn revolute(
     rhai::serde::to_dynamic(&report).map_err(|e| argument_error("revolute", e.to_string()))
 }
 
-/// Register `revolute`.
+/// Register `revolute`, `release_joint` and `drive_joint` (PK-808: a
+/// released joint turns with the other mates within its limits).
 pub fn register(engine: &mut Engine) {
     engine
+        .register_fn(
+            "release_joint",
+            |a: &mut ScriptAssembly, name: &str| -> Result<(), Box<EvalAltResult>> {
+                a.borrow_mut().assembly.release_joint(name).assembly()
+            },
+        )
+        .register_fn(
+            "drive_joint",
+            |a: &mut ScriptAssembly, name: &str| -> Result<(), Box<EvalAltResult>> {
+                a.borrow_mut().assembly.drive_joint(name).assembly()
+            },
+        )
         .register_fn(
             "revolute",
             |a: &mut ScriptAssembly, name: &str, x: ScriptMateRef, y: ScriptMateRef| {
