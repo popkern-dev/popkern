@@ -60,7 +60,7 @@ fn points_on_a_periodic_coil_wall_project_onto_themselves() {
         None,
     )
     .expect("coil");
-    let clamped = coil
+    let wall = coil
         .brep
         .faces
         .values()
@@ -69,9 +69,8 @@ fn points_on_a_periodic_coil_wall_project_onto_themselves() {
             _ => None,
         })
         .expect("the tube wall");
-    let ring = clamped
-        .periodic_u_from_closed_clamped(tol.linear())
-        .expect("the wire closes in u");
+    // The sweep writes the wall in periodic form (PK-892).
+    let ring = wall;
     assert!(ring.u_period().is_some());
     let surface = SurfaceGeometry::Nurbs(ring);
     let mut worst: f64 = 0.0;

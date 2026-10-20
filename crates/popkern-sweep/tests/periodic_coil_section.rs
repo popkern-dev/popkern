@@ -58,7 +58,7 @@ fn periodic_coil_wall(tol: Tolerance) -> SurfaceGeometry {
         None,
     )
     .expect("coil");
-    let clamped = coil
+    let wall = coil
         .brep
         .faces
         .values()
@@ -67,11 +67,9 @@ fn periodic_coil_wall(tol: Tolerance) -> SurfaceGeometry {
             _ => None,
         })
         .expect("the tube wall");
-    SurfaceGeometry::Nurbs(
-        clamped
-            .periodic_u_from_closed_clamped(tol.linear())
-            .expect("the wire closes in u"),
-    )
+    // The sweep writes the wall in periodic form (PK-892).
+    assert!(wall.u_period().is_some());
+    SurfaceGeometry::Nurbs(wall)
 }
 
 #[test]

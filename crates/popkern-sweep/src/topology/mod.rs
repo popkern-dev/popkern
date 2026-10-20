@@ -4,6 +4,7 @@
 //! generators into a complete BRep solid with proper half-edge wiring.
 
 pub mod caps;
+pub(crate) mod periodic_wall;
 pub mod revolution_canonical;
 pub mod revolution_faces;
 pub mod side_faces;

@@ -351,15 +351,49 @@ pub(super) fn ring_walk_direction(
             q.distance_to(&samples.points[n / 4]) <= q.distance_to(&samples.points[n - 1 - n / 4]);
         entry_forward == along
     } else if closed_edge && samples.points.len() >= 3 {
-        let (pt0, pt1) = pc.parameter_range();
-        let early_uv = pc.point_at(pt0 + (pt1 - pt0) * 0.05);
-        let early = surface.point_at(early_uv.x, early_uv.y);
-        early.distance_to(&samples.points[1])
-            <= early.distance_to(&samples.points[samples.points.len() - 2])
+        closed_pcurve_along_curve(pc, surface, samples).unwrap_or_else(|| {
+            // Three or four samples: no interior to locate against, the
+            // early image against the samples beside the closure.
+            let (pt0, pt1) = pc.parameter_range();
+            let early_uv = pc.point_at(pt0 + (pt1 - pt0) * 0.05);
+            let early = surface.point_at(early_uv.x, early_uv.y);
+            early.distance_to(&samples.points[1])
+                <= early.distance_to(&samples.points[samples.points.len() - 2])
+        })
     } else {
         samples.points.first()?.distance_to(origin) <= samples.points.last()?.distance_to(origin)
     };
     Some((closed_edge, closed_entry_forward, forward))
+}
+
+/// Whether a CLOSED edge's pcurve runs in its canonical samples' curve
+/// order: the sample nearest the pcurve's image a sixth of the way
+/// along lies in the first half of the samples. Both ends image to the
+/// closure point, so comparing a pcurve point with the samples next to
+/// it is knife-edge, and a pcurve's parameter need not follow arc
+/// length: a grind's cut round a periodic coil wall imaged its 5%
+/// point 12% round the wire, nearer the sample one side of the seam
+/// than the sample the other, and the walk took the wire backwards
+/// (the ring wound twice; 4082 open mesh edges, PK-892). `None` below
+/// five samples.
+fn closed_pcurve_along_curve(
+    pc: &popkern_core::geometry::pcurve::Pcurve,
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    samples: &EdgeSamples,
+) -> Option<bool> {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let n = samples.points.len();
+    if n < 5 {
+        return None;
+    }
+    let (pt0, pt1) = pc.parameter_range();
+    let q_uv = pc.point_at(pt0 + (pt1 - pt0) / 6.0);
+    let q = surface.point_at(q_uv.x, q_uv.y);
+    let nearest = (1..n - 1).min_by(|&a, &b| {
+        q.distance_to(&samples.points[a])
+            .total_cmp(&q.distance_to(&samples.points[b]))
+    })?;
+    Some(2 * nearest < n)
 }
 
 /// Refine a boundary sample's UV from its pcurve seed by point

@@ -11,8 +11,8 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, HalfEdgeHandle};
 
 use crate::error::SweepError;
-use crate::topology::caps::create_cap_face;
 pub(crate) use crate::topology::sweep_naming::assign_sweep_names;
+use crate::topology::{caps::create_cap_face, periodic_wall::ring_wall};
 
 /// Build a BRep solid from sweep surface results.
 ///
@@ -208,7 +208,7 @@ fn build_closed_profile_topology(
         };
         let (geometry, chart) = recognized
             .map(|(g, c)| (g, Some(c)))
-            .unwrap_or_else(|| (SurfaceGeometry::Nurbs(surfaces[i].clone()), None));
+            .unwrap_or_else(|| (ring_wall(&surfaces[i], tolerance), None));
         // The loop below is authored against the NURBS frame (u =
         // profile, v = path), whose du×dv normal is the face's
         // outward direction. A recognized canonical surface carries
