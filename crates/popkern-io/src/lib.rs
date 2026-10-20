@@ -3,6 +3,7 @@
 //! popkern-io: STEP import and export for the popkern BRep kernel.
 
 pub mod error;
+pub mod section_drawing;
 pub mod step;
 
 pub use step::document::*;

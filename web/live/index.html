@@ -151,6 +151,12 @@
             <option value="all">the corner only</option>
           </select>
         </label>
+        <div class="section-buttons" title="The kernel's exact section by this plane: every body's loops, measured">
+          <span>Export section</span>
+          <button id="section-export-svg" type="button" title="Download the exact section as SVG">SVG</button>
+          <button id="section-export-dxf" type="button" title="Download the exact section as DXF">DXF</button>
+        </div>
+        <p id="section-measure" class="menu-hint" hidden></p>
         <label class="menu-field menu-check"><input id="section-handles" type="checkbox" checked> Handles</label>
         <p id="section-hint" class="menu-hint" hidden>Click a face to put the plane on it.</p>
       </div>

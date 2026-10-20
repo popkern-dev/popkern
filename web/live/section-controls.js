@@ -4,6 +4,7 @@
 // chips (up to three), flip / add / remove, the combine mode, and the
 // in-viewport handles toggle. The controls follow the section's state
 // through `section.onChange`, so a link, a film or a gizmo drag shows.
+import { saveBytes } from "./exports.js";
 import { MAX_PLANES } from "./section-geometry.js";
 
 const $ = (id) => document.getElementById(id);
@@ -72,6 +73,31 @@ export function wireSection(page) {
   $("section-remove").addEventListener("click", () => section.removePlane());
   $("section-combine").addEventListener("change", (e) => section.setCombine(e.target.value));
   $("section-handles").addEventListener("change", (e) => section.gizmo.setEnabled(e.target.checked));
+
+  // Export this section (PK-856): the kernel cuts the built document
+  // by the current plane exactly; the file is its loops per body.
+  const exportSection = async (kind) => {
+    const plane = section.planes[section.current];
+    if (!plane || !(await page.ensureLive())) return;
+    const reply = await page.host.section(plane);
+    if (!reply.ok) {
+      page.showOutcome(reply.outcome);
+      return;
+    }
+    const { svg, dxf, bodies } = reply.section;
+    const measure = $("section-measure");
+    const area = bodies.reduce((sum, b) => sum + b.area, 0);
+    measure.textContent = bodies.length
+      ? `${bodies.length} bod${bodies.length === 1 ? "y" : "ies"} cut, area ${area.toPrecision(6)}`
+      : "This plane cuts no body.";
+    measure.hidden = false;
+    if (!bodies.length) return;
+    const text = kind === "svg" ? svg : dxf;
+    const mime = kind === "svg" ? "image/svg+xml" : "application/dxf";
+    saveBytes(new TextEncoder().encode(text), `${page.tab.stem}-section.${kind}`, mime);
+  };
+  $("section-export-svg").addEventListener("click", () => exportSection("svg"));
+  $("section-export-dxf").addEventListener("click", () => exportSection("dxf"));
 
   const paint = () => {
     const planes = section.planes;

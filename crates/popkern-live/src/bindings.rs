@@ -205,6 +205,17 @@ impl LiveSession {
         }
     }
 
+    /// The built document's exact section by the clipping plane
+    /// `normal` (JSON `[x, y, z]`) and `offset` (world SI, PK-856):
+    /// `{svg, dxf, bodies, frame}` as JSON, or `{"outcome": …}`.
+    pub fn section(&mut self, normal: &str, offset: f64) -> String {
+        let normal: [f64; 3] = serde_json::from_str(normal).unwrap_or([0.0, 0.0, 1.0]);
+        match self.session.section(normal, offset) {
+            Ok(reply) => serde_json::to_string(&reply).unwrap_or_default(),
+            Err(outcome) => serde_json::json!({ "outcome": outcome }).to_string(),
+        }
+    }
+
     /// The document as canonical Rhai, or the outcome JSON as the error.
     pub fn to_rhai(&mut self) -> Result<String, JsValue> {
         self.session

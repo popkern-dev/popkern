@@ -149,6 +149,13 @@ export class WorkerHost {
     return this.request({ type: "export_pkn" });
   }
 
+  /** The exact section of the built document by a clipping plane
+   *  `{ normal, offset }` (world SI): `{ section: { svg, dxf, bodies,
+   *  frame } }` (PK-856). */
+  section(plane) {
+    return this.request({ type: "section", normal: plane.normal, offset: plane.offset });
+  }
+
   /** Interference and clearance between assembly occurrences. */
   interference(clearance) {
     return this.request({ type: "interference", clearance });

@@ -145,6 +145,11 @@ impl Session {
         self.document.as_mut()
     }
 
+    /// The built document, its display cache kept (a section reads it).
+    pub(crate) fn document_for_section(&mut self) -> Option<&mut Document> {
+        self.document.as_mut()
+    }
+
     pub(crate) fn wall_budget(&self) -> WallBudget {
         WallBudget::describe(self.options.timeout.is_some(), monotonic_clock_available())
     }

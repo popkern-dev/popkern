@@ -165,6 +165,13 @@ export function createHandler(pkg, loadModule) {
           if (reply.outcome) return { reply: { id, ok: false, outcome: reply.outcome }, transfer: [] };
           return { reply: { id, ok: true, ...reply }, transfer: [] };
         }
+        case "section": {
+          // The built document's exact section by a clipping plane
+          // (PK-856): SVG and DXF text, per-body area and centroid.
+          const reply = JSON.parse(session.section(JSON.stringify(message.normal ?? [0, 0, 1]), Number(message.offset ?? 0)));
+          if (reply.outcome) return { reply: { id, ok: false, outcome: reply.outcome }, transfer: [] };
+          return { reply: { id, ok: true, section: reply }, transfer: [] };
+        }
         case "timeline": {
           const parts = JSON.parse(session.timeline());
           if (!Array.isArray(parts)) return { reply: { id, ok: false, outcome: parts.outcome }, transfer: [] };

@@ -31,6 +31,7 @@ mod session_document;
 pub mod session_film;
 mod session_joints;
 pub mod session_project;
+pub mod session_section;
 pub mod session_timeline;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]

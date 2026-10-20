@@ -301,6 +301,17 @@ impl Protocol {
                 })),
                 Err(outcome) => failed(outcome),
             },
+            "section" => {
+                let normal = message
+                    .get("normal")
+                    .and_then(|n| serde_json::from_value::<[f64; 3]>(n.clone()).ok())
+                    .unwrap_or([0.0, 0.0, 1.0]);
+                let offset = message.get("offset").and_then(Value::as_f64).unwrap_or(0.0);
+                match session.section(normal, offset) {
+                    Ok(reply) => Reply::plain(json!({ "id": id, "ok": true, "section": reply })),
+                    Err(outcome) => failed(outcome),
+                }
+            }
             "timeline" => match session
                 .timeline()
                 .and_then(|parts| Ok((parts, session.assembly_timeline()?)))
