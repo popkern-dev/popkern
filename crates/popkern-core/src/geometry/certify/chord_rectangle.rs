@@ -134,3 +134,57 @@ fn piece_bound(
     }
     Ok(children)
 }
+
+/// How far an emitted quad, split into two triangles along a diagonal,
+/// is from the bilinear patch through its corners (`[p(u0, v0),
+/// p(u1, v0), p(u0, v1), p(u1, v1)]`, split along `p(u0, v0) p(u1, v1)`
+/// when `main_diagonal`, else along the other).
+///
+/// Projected along the normal `n` of either triangle, the quad must be
+/// strictly convex and the other triangle must face the same way.
+/// Then the bilinear map is a bijection onto the projected quad, and
+/// over each projected point both the patch and the triangle pair sit
+/// at heights between the corners' (`0` and the off corner's `h`).
+/// Pairing points that share a projection maps the rectangle onto the
+/// triangles, and no pair is farther apart than `|h|`. This avoids the
+/// in-plane shear an affine correspondence charges: a planar trapezoid
+/// (two rulings of a cone) is offset 0. `None` when neither triangle
+/// gives a valid projection.
+pub fn quad_pair_offset(corners: [Point3; 4], main_diagonal: bool) -> Option<f64> {
+    let q = [corners[0], corners[1], corners[3], corners[2]];
+    // Each triangle of the split and the quad corner it leaves out, as
+    // indices into the cyclic `q`.
+    let splits: [([usize; 3], usize); 2] = if main_diagonal {
+        [([0, 1, 2], 3), ([0, 2, 3], 1)]
+    } else {
+        [([1, 2, 3], 0), ([1, 3, 0], 2)]
+    };
+    let scale = q.iter().map(|p| magnitude(*p)).fold(0.0, f64::max);
+    let normal = |t: [usize; 3]| (q[t[1]] - q[t[0]]).cross(&(q[t[2]] - q[t[0]]));
+    let mut best: Option<f64> = None;
+    for (k, (tri, off)) in splits.iter().enumerate() {
+        let Some(n) = normal(*tri).normalized() else {
+            continue;
+        };
+        let (other, _) = splits[1 - k];
+        if normal(other).dot(&n) <= 0.0 {
+            continue;
+        }
+        let turns: Vec<f64> = (0..4)
+            .map(|i| {
+                let (a, b, c) = (q[i], q[(i + 1) % 4], q[(i + 2) % 4]);
+                (b - a).cross(&(c - b)).dot(&n)
+            })
+            .collect();
+        let edge = (0..4)
+            .map(|i| (q[(i + 1) % 4] - q[i]).length())
+            .fold(0.0, f64::max);
+        let margin = 1e-9 * edge * edge;
+        if !(turns.iter().all(|t| *t > margin) || turns.iter().all(|t| *t < -margin)) {
+            continue;
+        }
+        let h = (q[*off] - q[tri[0]]).dot(&n).abs() + ROUNDING * (edge + scale);
+        best = Some(best.map_or(h, |b| b.min(h)));
+    }
+    best
+}

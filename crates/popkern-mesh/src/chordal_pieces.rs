@@ -32,51 +32,167 @@ pub(crate) fn unwrap(w: [(f64, f64); 3], periods: (Option<f64>, Option<f64>)) ->
 }
 
 /// A triangle's parameter domain and its correspondence.
+#[derive(Debug, Clone, Copy)]
 pub(crate) enum Piece {
     /// A parameter triangle mapped affinely onto the emitted one.
     Triangle([(f64, f64); 3], [Point3; 3]),
     /// A parameter rectangle mapped bilinearly onto four corners
     /// (`(u0, v0), (u1, v0), (u0, v1), (u1, v1)`).
     Rectangle((f64, f64), (f64, f64), [Point3; 4]),
+    /// Two emitted triangles tiling a parameter rectangle (corners as
+    /// in `Rectangle`), split along `(u0, v0) (u1, v1)` when the flag is
+    /// set: bounded by the bilinear patch and its offset from the pair
+    /// (`quad_pair_offset`), not by either triangle's affine shear.
+    Quad((f64, f64), (f64, f64), [Point3; 4], bool),
 }
 
 impl Piece {
-    /// The largest deviation on a 7 × 7 grid of the correspondence.
+    /// The emitted triangles this piece stands for.
+    #[cfg(test)]
+    fn triangles(&self) -> Vec<[Point3; 3]> {
+        match self {
+            Piece::Triangle(_, p) => vec![*p],
+            Piece::Rectangle(_, _, c) | Piece::Quad(_, _, c, true) => {
+                vec![[c[0], c[1], c[3]], [c[0], c[3], c[2]]]
+            }
+            Piece::Quad(_, _, c, false) => vec![[c[1], c[3], c[2]], [c[1], c[2], c[0]]],
+        }
+    }
+
+    /// The largest distance, over a 7 × 7 grid of the piece's parameter
+    /// domain, from the surface to the piece's own triangles: a lower
+    /// bound of the piece's deviation under any correspondence.
+    #[cfg(test)]
     pub(crate) fn sampled(&self, surface: &SurfaceGeometry) -> f64 {
+        self.sampled_against(surface, &self.triangles())
+    }
+
+    /// As [`Piece::sampled`], against `triangles` (a face's whole mesh:
+    /// a lower bound of the face's chordal deviation, so a witness that
+    /// an `Exceeds` is the mesh's and not the bound's).
+    pub(crate) fn sampled_against(
+        &self,
+        surface: &SurfaceGeometry,
+        triangles: &[[Point3; 3]],
+    ) -> f64 {
         let n = 6;
         let mut worst = 0.0_f64;
-        let mix = |c: &[Point3], w: &[f64]| {
-            let mut out = Point3::new(0.0, 0.0, 0.0);
-            for (p, k) in c.iter().zip(w) {
-                out = Point3::new(out.x + k * p.x, out.y + k * p.y, out.z + k * p.z);
-            }
-            out
-        };
         for i in 0..=n {
             for j in 0..=n {
                 let (r, t) = (i as f64 / n as f64, j as f64 / n as f64);
-                let (l, uv) = match self {
-                    Piece::Triangle(w, p) => {
+                let uv = match self {
+                    Piece::Triangle(w, _) => {
                         if r + t > 1.0 {
                             continue;
                         }
                         let k = [1.0 - r - t, r, t];
-                        let uv = (
+                        (
                             k[0] * w[0].0 + k[1] * w[1].0 + k[2] * w[2].0,
                             k[0] * w[0].1 + k[1] * w[1].1 + k[2] * w[2].1,
-                        );
-                        (mix(p, &k), uv)
+                        )
                     }
-                    Piece::Rectangle(u, v, c) => {
-                        let k = [(1.0 - r) * (1.0 - t), r * (1.0 - t), (1.0 - r) * t, r * t];
-                        (mix(c, &k), (u.0 + r * (u.1 - u.0), v.0 + t * (v.1 - v.0)))
+                    Piece::Rectangle(u, v, _) | Piece::Quad(u, v, _, _) => {
+                        (u.0 + r * (u.1 - u.0), v.0 + t * (v.1 - v.0))
                     }
                 };
-                worst = worst.max(l.distance_to(&surface.point_at(uv.0, uv.1)));
+                let at = surface.point_at(uv.0, uv.1);
+                let near = triangles
+                    .iter()
+                    .map(|tri| point_triangle_distance(at, *tri))
+                    .fold(f64::INFINITY, f64::min);
+                worst = worst.max(near);
             }
         }
         worst
     }
+}
+
+/// Distance from `x` to the triangle `t` (closest point by region,
+/// Ericson's *Real-Time Collision Detection* 5.1.5).
+fn point_triangle_distance(x: Point3, t: [Point3; 3]) -> f64 {
+    let [a, b, c] = t;
+    let (ab, ac, ax) = (b - a, c - a, x - a);
+    let (d1, d2) = (ab.dot(&ax), ac.dot(&ax));
+    if d1 <= 0.0 && d2 <= 0.0 {
+        return x.distance_to(&a);
+    }
+    let bx = x - b;
+    let (d3, d4) = (ab.dot(&bx), ac.dot(&bx));
+    if d3 >= 0.0 && d4 <= d3 {
+        return x.distance_to(&b);
+    }
+    let cx = x - c;
+    let (d5, d6) = (ab.dot(&cx), ac.dot(&cx));
+    if d6 >= 0.0 && d5 <= d6 {
+        return x.distance_to(&c);
+    }
+    let along = |p: Point3, e: popkern_core::geometry::Vec3, k: f64| {
+        x.distance_to(&Point3::new(p.x + k * e.x, p.y + k * e.y, p.z + k * e.z))
+    };
+    let vc = d1 * d4 - d3 * d2;
+    if vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0 {
+        return along(a, ab, d1 / (d1 - d3));
+    }
+    let vb = d5 * d2 - d1 * d6;
+    if vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0 {
+        return along(a, ac, d2 / (d2 - d6));
+    }
+    let va = d3 * d6 - d5 * d4;
+    if va <= 0.0 && d4 - d3 >= 0.0 && d5 - d6 >= 0.0 {
+        return along(b, c - b, (d4 - d3) / ((d4 - d3) + (d5 - d6)));
+    }
+    let n = ab.cross(&ac);
+    match n.normalized() {
+        Some(n) => ax.dot(&n).abs(),
+        None => x.distance_to(&a),
+    }
+}
+
+/// The parameter rectangle two triangles sharing an edge tile, when
+/// the edge is its diagonal: `t` (vertices, unwrapped parameters,
+/// positions) and the partner `s`'s vertices `vs`, with its corner off
+/// the shared edge as `off` (raw parameter, position). `None` unless
+/// the four parameters are a rectangle's corners.
+pub(crate) fn quad_piece(
+    t: ([usize; 3], [(f64, f64); 3], [Point3; 3]),
+    vs: [usize; 3],
+    off: ((f64, f64), Point3),
+    periods: (Option<f64>, Option<f64>),
+) -> Option<Piece> {
+    let (vt, wt, pt) = t;
+    let k = (0..3).find(|&k| !vs.contains(&vt[k]))?;
+    let (a, b) = ((k + 1) % 3, (k + 2) % 3);
+    let fold = |x: f64, base: f64, p: Option<f64>| match p.filter(|p| *p > 0.0) {
+        Some(p) => x - ((x - base) / p).round() * p,
+        None => x,
+    };
+    let d = (
+        fold(off.0.0, wt[a].0, periods.0),
+        fold(off.0.1, wt[a].1, periods.1),
+    );
+    let (wa, wb) = (wt[a], wt[b]);
+    let span = (wa.0 - wb.0).abs() + (wa.1 - wb.1).abs();
+    let eps = 1e-9 * span;
+    let same = |p: (f64, f64), q: (f64, f64)| (p.0 - q.0).abs() <= eps && (p.1 - q.1).abs() <= eps;
+    let (c1, c2) = ((wa.0, wb.1), (wb.0, wa.1));
+    let corners_ok = (wa.0 - wb.0).abs() > eps
+        && (wa.1 - wb.1).abs() > eps
+        && ((same(wt[k], c1) && same(d, c2)) || (same(wt[k], c2) && same(d, c1)));
+    if !corners_ok {
+        return None;
+    }
+    let u = (wa.0.min(wb.0), wa.0.max(wb.0));
+    let v = (wa.1.min(wb.1), wa.1.max(wb.1));
+    let slot = |w: (f64, f64)| {
+        usize::from((w.0 - u.1).abs() < (w.0 - u.0).abs())
+            + 2 * usize::from((w.1 - v.1).abs() < (w.1 - v.0).abs())
+    };
+    let mut corners = [pt[a]; 4];
+    for (w, p) in [(wa, pt[a]), (wb, pt[b]), (wt[k], pt[k]), (d, off.1)] {
+        corners[slot(w)] = p;
+    }
+    let main = matches!((slot(wa), slot(wb)), (0, 3) | (3, 0));
+    Some(Piece::Quad(u, v, corners, main))
 }
 
 /// The parameter pieces of a triangle. A vertex at a chart pole (a

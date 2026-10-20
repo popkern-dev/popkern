@@ -352,3 +352,54 @@ fn the_sphere_jet_follows_a_tilted_pole() {
         );
     }
 }
+
+#[test]
+fn a_cone_strip_quad_is_bounded_by_its_ruling_sag_not_its_shear() {
+    // One ruling-to-ruling cell of a drafted cup's wall (PK-903): its
+    // triangle read 2.6e-2 under the affine correspondence, while the
+    // two triangles lie in the plane of the two rulings.
+    let s = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, 285.43),
+        axis: Vec3::new(0.0, 0.0, -1.0),
+        half_angle: 0.104_72,
+    };
+    let (u, v) = ((5.473_24, 5.497_79), (245.43, 285.43));
+    let w = [(u.0, v.0), (u.1, v.0), (u.0, v.1), (u.1, v.1)];
+    let c = w.map(|(a, b)| s.point_at(a, b));
+    let mut source = SurfaceJetSource::new(&s).expect("source");
+    let none = C0Breaks::default();
+    let alone = triangle_chord_bound(
+        &mut source,
+        &none,
+        [w[0], w[1], w[3]],
+        [c[0], c[1], c[3]],
+        5e-3,
+    )
+    .expect("triangle");
+    let offset = quad_pair_offset(c, true).expect("convex");
+    let quad = rectangle_chord_bound(&mut source, &none, u, v, c, 5e-3).expect("quad") + offset;
+    let radius = c[3].distance_to(&Point3::new(0.0, 0.0, c[3].z));
+    let sag = radius * (1.0 - ((u.1 - u.0) / 2.0).cos());
+    assert!(offset < 1e-9, "planar trapezoid: {offset}");
+    assert!(alone > 2e-2, "{alone}");
+    assert!(quad >= sag && quad < 1.2 * sag, "{quad} vs sag {sag}");
+}
+
+#[test]
+fn a_twisted_quad_is_offset_by_its_corner_and_a_bow_tie_has_no_projection() {
+    let h = 0.1;
+    let c = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 0.0, 0.0),
+        Point3::new(0.0, 1.0, 0.0),
+        Point3::new(1.0, 1.0, h),
+    ];
+    // The bilinear patch z = h s t is h/4 from the pair at its centre
+    // along the split diagonal.
+    for main in [true, false] {
+        let offset = quad_pair_offset(c, main).expect("convex");
+        assert!(offset >= h / 4.0 && offset <= h, "{main}: {offset}");
+    }
+    let bow = [c[0], c[1], c[3], c[2]];
+    assert_eq!(quad_pair_offset(bow, true), None);
+}

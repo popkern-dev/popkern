@@ -13,7 +13,9 @@ use std::collections::HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::certify::CertifyDecline;
-use popkern_core::geometry::certify::chord::{rectangle_chord_bound, triangle_chord_bound};
+use popkern_core::geometry::certify::chord::{
+    quad_pair_offset, rectangle_chord_bound, triangle_chord_bound,
+};
 use popkern_core::geometry::certify::surface_jet::SurfaceJetSource;
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -57,9 +59,12 @@ pub struct FaceChordal {
     pub surface_bound: f64,
     /// Index (into `TriMesh::triangles`) of the triangle with it.
     pub worst_triangle: Option<usize>,
-    /// A sampled lower bound of that triangle's deviation (the same
-    /// correspondence, on a grid): how tight the proven bound is, and
-    /// a witness that an `Exceeds` is the mesh's and not the bound's.
+    /// A sampled lower bound of the face's chordal deviation: the
+    /// largest distance from the surface, on a grid over that
+    /// triangle's parameter piece, to the face's nearest emitted
+    /// triangle. It shows how tight the proven bound is, and whether an
+    /// `Exceeds` is the mesh's (witness past the tolerance too) or the
+    /// bound's.
     pub witness: f64,
     /// The largest proven boundary-segment bound.
     pub boundary_bound: f64,
@@ -161,29 +166,97 @@ fn certify_face(
     };
     let breaks = c0_breaks(surface);
     let periods = surface.periodicity();
+    let mut bound_piece = |piece: &Piece| match piece {
+        Piece::Triangle(w, p) => triangle_chord_bound(&mut source, &breaks, *w, *p, tolerance),
+        Piece::Rectangle(u, v, c) => {
+            rectangle_chord_bound(&mut source, &breaks, *u, *v, *c, tolerance)
+        }
+        Piece::Quad(u, v, c, main) => match quad_pair_offset(*c, *main) {
+            Some(h) => {
+                rectangle_chord_bound(&mut source, &breaks, *u, *v, *c, tolerance).map(|b| b + h)
+            }
+            None => Ok(f64::INFINITY),
+        },
+    };
+    // Each triangle's bound and the piece holding it; `plain` keeps the
+    // unwrapped parameters of triangles bounded as one affine piece.
+    let mut best: Vec<(f64, Piece)> = Vec::with_capacity(tris.len());
+    let mut plain: Vec<Option<[(f64, f64); 3]>> = Vec::with_capacity(tris.len());
     for &t in tris {
         let tri = mesh.triangles[t];
         let p = tri.map(|i| mesh.vertices[i].position);
         let w = unwrap(tri.map(|i| mesh.vertices[i].uv), periods);
-        for piece in pole_pieces(surface, w, p, tolerance) {
-            let bound = match &piece {
-                Piece::Triangle(w, p) => {
-                    triangle_chord_bound(&mut source, &breaks, *w, *p, tolerance)
-                }
-                Piece::Rectangle(u, v, c) => {
-                    rectangle_chord_bound(&mut source, &breaks, *u, *v, *c, tolerance)
-                }
-            };
-            match bound {
-                Ok(b) if b > out.surface_bound => {
-                    out.surface_bound = b;
-                    out.worst_triangle = Some(t);
-                    out.witness = piece.sampled(surface);
-                }
+        let pieces = pole_pieces(surface, w, p, tolerance);
+        plain.push(matches!(pieces[..], [Piece::Triangle(..)]).then_some(w));
+        let mut worst = (0.0_f64, Piece::Triangle(w, p));
+        for piece in pieces {
+            match bound_piece(&piece) {
+                Ok(b) if b >= worst.0 => worst = (b, piece),
                 Ok(_) => {}
                 Err(e) => return inconclusive(out, ChordalInconclusive::Decline(e)),
             }
         }
+        best.push(worst);
+    }
+    // An affine correspondence charges a trapezoid's in-plane shear (a
+    // cone strip between two rulings: 2.6e-2 parametric, 2e-3 apart).
+    // Two triangles tiling a parameter rectangle are bounded together,
+    // through the bilinear patch, and the smaller bound is kept.
+    if best.iter().any(|(b, _)| *b > tolerance) {
+        let mut by_edge: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        for (k, &t) in tris.iter().enumerate() {
+            let tri = mesh.triangles[t];
+            for e in 0..3 {
+                let (a, b) = (tri[e], tri[(e + 1) % 3]);
+                by_edge.entry((a.min(b), a.max(b))).or_default().push(k);
+            }
+        }
+        for k in 0..tris.len() {
+            let Some(w) = plain[k].filter(|_| best[k].0 > tolerance) else {
+                continue;
+            };
+            let vt = mesh.triangles[tris[k]];
+            let pt = vt.map(|i| mesh.vertices[i].position);
+            for e in 0..3 {
+                let (a, b) = (vt[e], vt[(e + 1) % 3]);
+                let Some(partners) = by_edge.get(&(a.min(b), a.max(b))) else {
+                    continue;
+                };
+                for &j in partners.iter().filter(|&&j| j != k && plain[j].is_some()) {
+                    let vs = mesh.triangles[tris[j]];
+                    let Some(&o) = vs.iter().find(|&&i| i != a && i != b) else {
+                        continue;
+                    };
+                    let off = (mesh.vertices[o].uv, mesh.vertices[o].position);
+                    let Some(quad) = quad_piece((vt, w, pt), vs, off, periods) else {
+                        continue;
+                    };
+                    let b = match bound_piece(&quad) {
+                        Ok(b) => b,
+                        Err(e) => return inconclusive(out, ChordalInconclusive::Decline(e)),
+                    };
+                    // Either quad tiling a triangle bounds it.
+                    for i in [k, j] {
+                        if b < best[i].0 {
+                            best[i] = (b, quad);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if let Some((k, (b, piece))) = best
+        .iter()
+        .enumerate()
+        .max_by(|x, y| x.1.0.total_cmp(&y.1.0))
+    {
+        out.surface_bound = *b;
+        out.worst_triangle = Some(tris[k]);
+        let all: Vec<[Point3; 3]> = tris
+            .iter()
+            .map(|&t| mesh.triangles[t].map(|i| mesh.vertices[i].position))
+            .collect();
+        out.witness = piece.sampled_against(surface, &all);
     }
     match boundary_bound(brep, mesh, face, tris, tolerance) {
         Ok(b) => out.boundary_bound = b,
@@ -200,7 +273,7 @@ mod chordal_boundary;
 #[path = "chordal_pieces.rs"]
 mod chordal_pieces;
 use chordal_boundary::boundary_bound;
-pub(crate) use chordal_pieces::{Piece, c0_breaks, pole_pieces, unwrap};
+pub(crate) use chordal_pieces::{Piece, c0_breaks, pole_pieces, quad_piece, unwrap};
 
 #[cfg(test)]
 #[path = "chordal_certificate_tests.rs"]

@@ -61,11 +61,11 @@ fn primitive_meshes_certify_and_their_bounds_cover_the_sampled_deviation() {
             assert!(f.surface_bound >= f.witness, "{name}: {f:?}");
         }
         if name == "torus" {
-            // The mesher misses its chord height on this torus (PK-903):
-            // proven, and witnessed by samples past the tolerance.
-            assert!(!cert.exceeding().is_empty());
+            // The 3/1 torus meshes within its chord height (4.7e-3 from
+            // the surface to the mesh, 4.8e-3 back, sampled), but its
+            // bilinear bound charges the in-plane u-sag: 5.5e-3 (PK-908).
             for f in cert.exceeding() {
-                assert!(f.witness > options.chord_height, "{f:?}");
+                assert!(f.witness <= options.chord_height, "{f:?}");
             }
         } else {
             assert!(cert.certified(), "{name}: {:?}", cert.exceeding());

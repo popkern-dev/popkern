@@ -27,7 +27,7 @@ use crate::geometry::{Point3, PortableMath};
 mod chord_rectangle;
 #[path = "chord_triangle.rs"]
 mod chord_triangle;
-pub use chord_rectangle::rectangle_chord_bound;
+pub use chord_rectangle::{quad_pair_offset, rectangle_chord_bound};
 pub use chord_triangle::{C0Breaks, triangle_chord_bound};
 
 /// Relative inflation of float-computed distances (a few ulps of the
