@@ -46,7 +46,17 @@ pub fn geometric_chart_periods(geometry: &SurfaceGeometry) -> (Option<f64>, Opti
         let v_closed = (0..nu).all(|i| {
             cp(i, 0).distance_to(&cp(i, nv - 1)) < eps && (w(i, 0) - w(i, nv - 1)).abs() < 1.0e-9
         });
-        return (u_closed.then_some(u1 - u0), v_closed.then_some(v1 - v0));
+        // A periodic-form chart (PK-890) closes by construction, its
+        // control net wrapped rather than duplicated: the declared period
+        // is the chart period, which the row test above cannot see. Read
+        // as open, a coil wall in periodic form took the mixed-pair
+        // wrapped-record path, and a grind's cut loop round the wire
+        // fitted one pcurve across the seam (edge precision 0.049,
+        // PK-892).
+        return (
+            ns.u_period().or(u_closed.then_some(u1 - u0)),
+            ns.v_period().or(v_closed.then_some(v1 - v0)),
+        );
     }
     geometry.periodicity()
 }
