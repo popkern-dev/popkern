@@ -411,3 +411,49 @@ fn conic_to_nurbs_in_range_converts_only_the_sub_arc() {
         arc.to_nurbs()
     );
 }
+
+#[test]
+fn projection_stays_in_range_and_the_extension_is_asked_for_explicitly() {
+    // PK-907: a rational quarter circle extended past its end runs on
+    // round the circle; a point at 3π/2 projected to t = −3.79 there.
+    use std::f64::consts::{FRAC_PI_2, PI};
+    let arc = CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+        start_angle: 0.0,
+        end_angle: FRAC_PI_2,
+    };
+    let nurbs = arc.to_nurbs_in_range((0.0, FRAC_PI_2));
+    let (t0, t1) = nurbs.parameter_range();
+    let lifted = |p: Point3| p + Vec3::new(0.0, 0.0, 0.3);
+    for p in [
+        arc.point_at(1.5 * PI),
+        arc.point_at(PI),
+        arc.point_at(1.25 * PI),
+        lifted(arc.point_at(0.25 * PI)),
+    ] {
+        let t = closest_point_on_curve(&nurbs, &p).expect("foot");
+        assert!((t0..=t1).contains(&t), "{p:?}: t {t} outside [{t0}, {t1}]");
+        // Within the range, the foot is the nearest of dense samples.
+        let sampled = (0..=256)
+            .map(|k| {
+                nurbs
+                    .point_at(t0 + (t1 - t0) * k as f64 / 256.0)
+                    .distance_to(&p)
+            })
+            .fold(f64::INFINITY, f64::min);
+        assert!(nurbs.point_at(t).distance_to(&p) <= sampled + 1e-9, "{p:?}");
+    }
+    // A point just past the end: the extension's foot lies past the
+    // range and reaches it; the in-range foot stops at the end.
+    let past = arc.point_at(FRAC_PI_2 + 0.05);
+    let e = closest_point_on_extension(&nurbs, &past).expect("foot");
+    assert!(!(t0..=t1).contains(&e), "{e}");
+    assert!(nurbs.point_at(e).distance_to(&past) < 1e-6);
+    let t = closest_point_on_curve(&nurbs, &past).expect("foot");
+    assert!(
+        nurbs.point_at(t).distance_to(&arc.point_at(FRAC_PI_2)) < 1e-9,
+        "{t}"
+    );
+}

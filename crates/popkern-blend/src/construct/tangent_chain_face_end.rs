@@ -17,7 +17,9 @@
 //! overhung support from V to its crossing. That is the disc the
 //! per-edge pipeline builds for a lone root arc (PK-740).
 
-use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::curve::{
+    CurveEval, CurveGeometry, CurveOnEdge, closest_point_on_extension,
+};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
@@ -127,7 +129,13 @@ fn landing(brep: &BRep, edge: EdgeHandle, raw: Point3, vpos: Point3, band: f64) 
         curve.t_start.min(curve.t_end),
         curve.t_start.max(curve.t_end),
     );
-    let on_curve = curve.geometry.point_at(s);
+    // Past the corner the rail lands on the edge curve's extension,
+    // which the in-range projection does not reach (PK-907).
+    let on_curve = closest_point_on_extension(&curve.geometry, &raw)
+        .map(|e| curve.geometry.point_at(e))
+        .into_iter()
+        .chain([curve.geometry.point_at(s)])
+        .min_by(|a, b| a.distance_to(&raw).total_cmp(&b.distance_to(&raw)))?;
     let clamped = curve.geometry.point_at(s.clamp(lo, hi));
     if clamped.distance_to(&raw) <= band {
         Some(Landing::OnEdge(clamped))
