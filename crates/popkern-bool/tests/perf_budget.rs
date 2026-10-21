@@ -273,6 +273,11 @@ fn torus_carrying_cylinder_union_within_budget() {
 /// ~15.5 ms, 3.17-3.24, gate 3.9 (the body-proportional excess, ~10.5
 /// ms at 252 extra faces, is what PK-802/804 track). The rest is
 /// per-face constants in graph build, assembly and whole-body passes.
+/// The local scope (PK-813/814) then carried the far faces and holes,
+/// and stopped recomputing per-boolean constants over the whole body
+/// (dense scope and carry maps, kept ray windows and hole boxes, the
+/// region filter skipping carried holes): slot 0 ~3.8 ms, slot 63 ~6.8,
+/// 1.77-1.83, gate 2.3 (merge alone 1.48-1.51).
 #[test]
 fn slotted_disc_late_cut_stays_near_the_first() {
     if debug_skip("64-slot disc, slot 63 vs slot 0") {
@@ -310,10 +315,10 @@ fn slotted_disc_late_cut_stays_near_the_first() {
     }
     let ratio = last.as_secs_f64() / first.as_secs_f64().max(1e-9);
     eprintln!(
-        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 3.9)"
+        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 2.3)"
     );
     assert!(
-        ratio <= 3.9,
-        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 3.9"
+        ratio <= 2.3,
+        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 2.3"
     );
 }

@@ -47,6 +47,9 @@ pub(crate) struct OperandHalfEdgeMaps<'a> {
     pub boxes_a: &'a [(FaceHandle, Aabb)],
     /// Operand B's face boxes.
     pub boxes_b: &'a [(FaceHandle, Aabb)],
+    /// Operand A's holes a scoped boolean carries (PK-814): their edges
+    /// are not in the graph, and they lie away from every record.
+    pub carried_holes: Option<&'a std::collections::HashSet<popkern_core::topology::LoopHandle>>,
 }
 
 /// The graph half-edges of one stored loop, in loop order; `None` when

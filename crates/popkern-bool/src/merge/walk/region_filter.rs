@@ -58,6 +58,7 @@ pub(super) fn drop_hole_interior_record_pieces(
     he_indices: &[usize],
     brep_a: &BRep,
     brep_b: &BRep,
+    carried: Option<&std::collections::HashSet<popkern_core::topology::LoopHandle>>,
     tolerance: &Tolerance,
 ) -> Option<Vec<usize>> {
     let brep = match face_ref.operand {
@@ -84,7 +85,13 @@ pub(super) fn drop_hole_interior_record_pieces(
     // Hole contours as dense UV polygons; seam-spanning contours
     // (u-span over half the period — a hole the chart tears) are
     // skipped rather than mis-tested.
-    let contours = crate::clip::face_uv_inner_boundaries(brep, face_ref.face);
+    // Holes a scoped boolean carries are skipped: their boxes miss the
+    // tool's by 100 linear tolerances, and every record midpoint lies in
+    // it, so none is within the 40-tolerance pad below (PK-814: the
+    // disc's 63 holes built per cut).
+    let contours = crate::clip::face_uv_inner_boundary_refs_except(brep, face_ref.face, |lh| {
+        carried.is_some_and(|c| c.contains(&lh))
+    });
     if contours.is_empty() {
         return None;
     }
@@ -258,7 +265,7 @@ fn contour_box_holds_any(
     brep: &BRep,
     contour: &[(
         popkern_core::topology::HalfEdgeHandle,
-        popkern_core::geometry::pcurve::Pcurve,
+        &popkern_core::geometry::pcurve::Pcurve,
     )],
     mids: &[Point3],
     periodic: bool,

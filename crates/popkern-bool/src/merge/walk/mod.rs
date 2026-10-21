@@ -18,6 +18,7 @@ pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;
 #[cfg(test)]
 mod chart_walk_tests;
+mod fragment;
 mod fragment_chart;
 mod hole_nesting;
 mod hole_nesting_chart;
@@ -27,6 +28,7 @@ mod next_edge;
 mod region_filter;
 pub(crate) mod walk_geometry;
 mod walk_loop_measures;
+pub(crate) use fragment::Fragment;
 pub(crate) use fragment_chart::FragmentChart;
 pub(crate) use identity::OperandHalfEdgeMaps;
 mod walk_trace;
@@ -39,33 +41,6 @@ use super::graph::{FaceRef, IntersectionGraph};
 use boundary_predicates::node_on_face_boundary;
 use next_edge::next_around_face;
 use walk_geometry::signed_area;
-
-/// A face fragment — loops forming a subset of an original face.
-#[derive(Debug)]
-pub(crate) struct Fragment {
-    /// The face this fragment belongs to.
-    pub face: FaceRef,
-    /// Half-edge indices forming the outer loop (CCW).
-    pub outer_loop: Vec<usize>,
-    /// Half-edge indices forming inner loops (CW holes).
-    pub inner_loops: Vec<Vec<usize>>,
-    /// The chart walk's own view of this fragment, when the chart
-    /// permutation walk produced it. `None` for 3D-Newell fallback
-    /// walks, whose loops carry no chart handedness guarantee.
-    pub chart: Option<FragmentChart>,
-}
-
-impl Fragment {
-    /// A fragment the walk produced (no chart view yet, not identity).
-    fn walked(face: FaceRef, outer_loop: Vec<usize>, inner_loops: Vec<Vec<usize>>) -> Self {
-        Self {
-            face,
-            outer_loop,
-            inner_loops,
-            chart: None,
-        }
-    }
-}
 
 /// Walk all face fragments in the graph (graph-merge pipeline entry).
 ///
@@ -142,6 +117,7 @@ pub(crate) fn walk_all_fragments_ext(
         chart_primary,
         overlap_pairs,
         opposite_aabbs: &opposite_aabbs,
+        carried_holes: identity.and_then(|m| m.carried_holes),
         tolerance,
         fragments: &mut fragments,
         chart_views: &mut chart_views,
@@ -209,6 +185,8 @@ struct FaceWalk<'g, 'o> {
         popkern_core::topology::FaceHandle,
     )],
     opposite_aabbs: &'g hole_nesting::OppositeAabbs<'g>,
+    /// Operand A's holes the scope carries ([`OperandHalfEdgeMaps`]).
+    carried_holes: Option<&'g HashSet<popkern_core::topology::LoopHandle>>,
     tolerance: &'g popkern_core::tolerance::Tolerance,
     fragments: &'o mut Vec<Fragment>,
     chart_views: &'o mut std::collections::HashMap<FaceRef, (f64, fragment_chart::OrbitPolylines)>,
@@ -226,6 +204,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
         chart_primary,
         overlap_pairs,
         opposite_aabbs,
+        carried_holes,
         tolerance,
         ref mut fragments,
         ref mut chart_views,
@@ -237,7 +216,13 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
     // doubled rings into the face's inner loops (PK-428).
     let filtered_hes;
     let he_indices = match region_filter::drop_hole_interior_record_pieces(
-        graph, face_ref, he_indices, brep_a, brep_b, tolerance,
+        graph,
+        face_ref,
+        he_indices,
+        brep_a,
+        brep_b,
+        carried_holes.filter(|_| face_ref.operand == super::graph::Operand::A),
+        tolerance,
     ) {
         Some(kept) => {
             filtered_hes = kept;

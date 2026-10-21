@@ -166,11 +166,20 @@ pub(crate) fn face_uv_inner_boundary_refs(
     brep: &BRep,
     face: FaceHandle,
 ) -> Vec<Vec<(HalfEdgeHandle, &popkern_core::geometry::pcurve::Pcurve)>> {
+    face_uv_inner_boundary_refs_except(brep, face, |_| false)
+}
+
+/// [`face_uv_inner_boundary_refs`] without the holes `skip` names.
+pub(crate) fn face_uv_inner_boundary_refs_except(
+    brep: &BRep,
+    face: FaceHandle,
+    skip: impl Fn(popkern_core::topology::LoopHandle) -> bool,
+) -> Vec<Vec<(HalfEdgeHandle, &popkern_core::geometry::pcurve::Pcurve)>> {
     let Some(face_data) = brep.faces.get(face) else {
         return Vec::new();
     };
     let mut contours = Vec::new();
-    'loops: for &inner in &face_data.inner_loops {
+    'loops: for &inner in face_data.inner_loops.iter().filter(|&&lh| !skip(lh)) {
         let Some(loop_data) = brep.loops.get(inner) else {
             continue;
         };

@@ -195,6 +195,8 @@ pub(crate) fn cellular_graph_merge(
         .map(|o| (o.face_a, o.face_b))
         .collect();
     let mut walk_fallbacks: Vec<(crate::merge::graph::FaceRef, String)> = Vec::new();
+    let carried_holes: Option<std::collections::HashSet<_>> =
+        scope.map(|s| s.far_holes.values().flatten().copied().collect());
     let fragments = walk_all_fragments_ext(
         &graph,
         original_a,
@@ -208,6 +210,7 @@ pub(crate) fn cellular_graph_merge(
             b: &hemap_b,
             boxes_a: &intersection_result.aabbs_a,
             boxes_b: &intersection_result.aabbs_b,
+            carried_holes: carried_holes.as_ref(),
         }),
         tolerance,
     );
