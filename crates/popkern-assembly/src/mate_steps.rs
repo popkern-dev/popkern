@@ -46,17 +46,26 @@ pub(crate) fn gauss_newton(problem: &Problem<'_>) -> Result<(Vec<f64>, usize), A
             r = lr;
         }
     }
-    // Both full-coordinate solves missed: a revolute chain's joint-space
-    // solve (PK-763), verified on the cluster's own residual.
-    if max_abs(&r) > MATE_TOLERANCE
+    // Both full-coordinate solves missed, or a target jump landed past a
+    // released joint's limit: a revolute chain's joint-space solve
+    // (PK-763), which ranks the chain's branches by their limits
+    // (PK-902), verified on the cluster's own residual. A continuous
+    // edit keeps its branch and is refused past a limit.
+    let missed = max_abs(&r) > MATE_TOLERANCE;
+    let jump =
+        n > 0 && max_abs(&problem.residual(&vec![0.0; n])?) > crate::mate_reduced::BRANCH_JUMP;
+    let past = !missed && jump && problem.limit_excess(&x) > 0.0;
+    if (missed || past)
         && n > 0
-        && let Some(rx) = crate::mate_reduced::rescue(
-            problem,
-            max_abs(&problem.residual(&vec![0.0; n])?) > crate::mate_reduced::BRANCH_JUMP,
-        )?
+        && let Some(rx) = crate::mate_reduced::rescue(problem, jump)?
     {
         let rr = problem.residual(&rx)?;
-        if max_abs(&rr) < max_abs(&r) {
+        let better = if missed {
+            max_abs(&rr) < max_abs(&r)
+        } else {
+            max_abs(&rr) <= MATE_TOLERANCE && problem.limit_excess(&rx) < problem.limit_excess(&x)
+        };
+        if better {
             x = rx;
         }
     }

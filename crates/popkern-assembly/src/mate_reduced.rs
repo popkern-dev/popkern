@@ -21,7 +21,9 @@
 //!   pose first and then, if that misses, from each joint turned by a
 //!   half turn (the chain's other IK branches); among the solutions the
 //!   one nearest the current pose (least total joint turn) wins, so a
-//!   reachable continuous solution is never traded for a flip;
+//!   reachable continuous solution is never traded for a flip, unless
+//!   it leaves a released joint past its limits: solutions are ranked by
+//!   how far past them they lie first (PK-902);
 //! - the solution maps back to the cluster's own increments, so the
 //!   caller's residual test, diagnostics and placements are unchanged.
 //!
@@ -363,18 +365,29 @@ pub(crate) fn rescue(
     let wrap = |a: f64| {
         (a + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI
     };
-    let mut best: Option<(f64, Vec<f64>)> = None;
+    let mut best: Option<((f64, f64), Vec<f64>)> = None;
     for (s, seed) in seeds.into_iter().enumerate() {
         let (y, worst) = solve_from(&residual, seed)?;
         if worst > MATE_TOLERANCE {
             continue;
         }
+        let placed = placements(problem, &links, &rest, &y)?;
+        let excess = crate::mate_solve::limit_excess(problem.limits, |r| {
+            match problem.free.iter().position(|&f| f == r.root) {
+                Some(k) => r.local.placed(&placed[k]),
+                None => r.local.placed(&problem.base[r.root]),
+            }
+        });
         let turn: f64 = y.iter().take(links.len()).map(|a| wrap(*a).abs()).sum();
-        if best.as_ref().is_none_or(|(t, _)| turn < *t) {
-            best = Some((turn, y));
+        if best
+            .as_ref()
+            .is_none_or(|((e, t), _)| (excess, turn) < (*e, *t))
+        {
+            best = Some(((excess, turn), y));
         }
-        // The from-current solution is the continuous one: keep it.
-        if s == 0 {
+        // The from-current solution is the continuous one: keep it,
+        // unless it leaves a joint past its limits.
+        if s == 0 && excess == 0.0 {
             break;
         }
     }

@@ -57,6 +57,11 @@ pub fn skeleton(delta: [f64; 3]) -> Assembly {
 /// [`skeleton`]; with `joints`, each revolute is a joint `j1..j6` with
 /// the arm's limits, released (PK-808), instead of bare mates.
 pub fn skeleton_with(delta: [f64; 3], joints: bool) -> Assembly {
+    skeleton_with_limits(delta, joints, &LIMITS)
+}
+
+/// [`skeleton_with`], its released joints held to `limits`.
+pub fn skeleton_with_limits(delta: [f64; 3], joints: bool, limits: &[[f64; 2]; 6]) -> Assembly {
     let f = frames(&table(), &[0.0; 6]);
     let mut asm = Assembly::new("skeleton");
     let d = asm.add_part("block", block()).expect("part");
@@ -79,7 +84,7 @@ pub fn skeleton_with(delta: [f64; 3], joints: bool) -> Assembly {
                 axis(&b, o, z),
                 &popkern_assembly::RevoluteOptions {
                     angle: Some(0.0),
-                    limits: Some(LIMITS[k - 1]),
+                    limits: Some(limits[k - 1]),
                     ..Default::default()
                 },
             )

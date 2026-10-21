@@ -166,6 +166,7 @@ fn follows(
         free: &free,
         base: current,
         size,
+        limits: &[],
     };
     let jacobian = problem.jacobian(&vec![0.0; 6 * free.len()])?;
     let mine: Vec<Vec<f64>> = jacobian.iter().map(|row| row[..6].to_vec()).collect();
@@ -189,6 +190,7 @@ fn fixed_alone(
         free: &free,
         base: current,
         size,
+        limits: &[],
     };
     let jacobian = problem.jacobian(&[0.0; 6])?;
     Ok(rank_of(&jacobian, 6, RANK_REL) == 6)

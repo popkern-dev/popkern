@@ -220,6 +220,23 @@ impl Assembly {
             &mut current,
             size,
         );
+        // The released joints' limits, for the solve to keep where a
+        // target jump can choose its branch (PK-902).
+        let bounds: Vec<JointBound> = (self.joints.iter())
+            .filter(|j| self.released.contains(&j.mates[2]))
+            .filter_map(|j| {
+                let (_, za, zb, Some(axis)) = resolved.get(j.mates[2])? else {
+                    return None;
+                };
+                let limits = self.params.iter().find(|p| p.name == j.name)?.bounds?;
+                Some(JointBound {
+                    za: za.clone(),
+                    zb: zb.clone(),
+                    axis: axis.clone(),
+                    limits,
+                })
+            })
+            .collect();
         let mut known: Vec<bool> = vec![true; self.root.len()];
         for &f in &free {
             known[f] = false;
@@ -243,6 +260,7 @@ impl Assembly {
                 free: cluster,
                 base: &current,
                 size,
+                limits: &bounds,
             };
             let (x, its) = crate::mate_steps::gauss_newton(&problem)?;
             iterations += its;
@@ -280,6 +298,7 @@ impl Assembly {
             free: &[],
             base: &current,
             size,
+            limits: &[],
         };
         let rows = all.rows(&[])?;
         let mut r = all.residual(&[])?;
@@ -335,4 +354,4 @@ impl Assembly {
 
 #[path = "mate_problem.rs"]
 mod problem;
-pub(crate) use problem::{Problem, mate_rows};
+pub(crate) use problem::{JointBound, Problem, limit_excess, mate_rows};

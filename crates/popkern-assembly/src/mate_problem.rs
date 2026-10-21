@@ -8,6 +8,38 @@ pub(crate) struct Problem<'a> {
     pub(crate) free: &'a [usize],
     pub(crate) base: &'a [Placement],
     pub(crate) size: f64,
+    /// The released joints' limits a solution should keep (PK-902).
+    pub(crate) limits: &'a [JointBound],
+}
+
+/// A released joint's limits as the post-solve check measures them:
+/// the signed angle from `za`'s direction to `zb`'s about `axis`, in
+/// degrees, within `limits` (PK-808).
+#[derive(Debug, Clone)]
+pub(crate) struct JointBound {
+    pub(crate) za: Resolved,
+    pub(crate) zb: Resolved,
+    pub(crate) axis: Resolved,
+    pub(crate) limits: [f64; 2],
+}
+
+/// The degrees by which the joints of `bounds` lie past their limits,
+/// summed, with each primitive placed by `world` (0 within them).
+pub(crate) fn limit_excess(bounds: &[JointBound], world: impl Fn(&Resolved) -> Primitive) -> f64 {
+    bounds
+        .iter()
+        .map(|b| {
+            let (Some(k), Some(ua), Some(ub)) = (
+                world(&b.axis).direction(),
+                world(&b.za).direction(),
+                world(&b.zb).direction(),
+            ) else {
+                return 0.0;
+            };
+            let angle = crate::joints::signed_degrees(ua, ub, k);
+            (b.limits[0] - angle).max(angle - b.limits[1]).max(0.0)
+        })
+        .sum()
 }
 
 impl Problem<'_> {
@@ -24,6 +56,11 @@ impl Problem<'_> {
             out = turn.compose(&out);
         }
         Placement::from_raw(Transform3::translation(t.x, t.y, t.z).compose(&out))
+    }
+
+    /// [`limit_excess`] at increment `x`.
+    pub(crate) fn limit_excess(&self, x: &[f64]) -> f64 {
+        limit_excess(self.limits, |r| self.world(x, r))
     }
 
     fn world(&self, x: &[f64], r: &Resolved) -> Primitive {
