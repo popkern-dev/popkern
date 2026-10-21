@@ -19,10 +19,11 @@
 //! violation named, so a suite run under the variable lists every case
 //! the scope would get wrong.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, LoopHandle, VertexHandle};
+use slotmap::SecondaryMap;
 
 use crate::error::BoolOperation;
 use crate::intersect::IntersectionResult;
@@ -78,12 +79,18 @@ pub(crate) fn active_scope(
         lo = Point3::new(lo.x.min(l.x), lo.y.min(l.y), lo.z.min(l.z));
         hi = Point3::new(hi.x.max(h.x), hi.y.max(h.y), hi.z.max(h.z));
     }
-    let boxes: HashMap<FaceHandle, &Aabb> = aabbs_a.iter().map(|(f, b)| (*f, b)).collect();
+    // Dense maps on `a`'s handles throughout: the scope is computed for
+    // every boolean, over the whole body (PK-814: 0.44 ms of SipHash maps
+    // at the slot disc's 64th cut).
+    let mut boxes: SecondaryMap<FaceHandle, &Aabb> = SecondaryMap::with_capacity(aabbs_a.len());
+    for (f, b) in aabbs_a {
+        boxes.insert(*f, b);
+    }
     // A face with no box (no surface) stays active: nothing proves it far.
-    let seeds: HashSet<FaceHandle> = a
+    let active: BTreeSet<FaceHandle> = a
         .faces
         .keys()
-        .filter(|f| {
+        .filter(|&f| {
             boxes.get(f).is_none_or(|bx| {
                 let (l, h) = padded(bx, pad);
                 l.x <= hi.x
@@ -102,9 +109,11 @@ pub(crate) fn active_scope(
     // padded box misses the tool's carries none, and neither do its
     // edges and vertices, which lie in that box. A face sharing an edge
     // whose box meets the tool's has a box meeting it too: it is a seed.
-    let active: BTreeSet<FaceHandle> = seeds.iter().copied().collect();
     let far: Vec<FaceHandle> = a.faces.keys().filter(|f| !active.contains(f)).collect();
-    let far_set: HashSet<FaceHandle> = far.iter().copied().collect();
+    let mut far_set: SecondaryMap<FaceHandle, ()> = SecondaryMap::with_capacity(far.len());
+    for &f in &far {
+        far_set.insert(f, ());
+    }
     let mut frontier = BTreeSet::new();
     for (eh, e) in &a.edges {
         let face_of = |he| {
@@ -116,7 +125,7 @@ pub(crate) fn active_scope(
         let twin = a.half_edges.get(e.half_edge).map(|h| h.twin);
         let (f0, f1) = (face_of(e.half_edge), twin.and_then(face_of));
         if let (Some(f0), Some(f1)) = (f0, f1)
-            && far_set.contains(&f0) != far_set.contains(&f1)
+            && far_set.contains_key(f0) != far_set.contains_key(f1)
         {
             frontier.insert(eh);
         }
@@ -165,25 +174,31 @@ fn far_holes(
         let loops: Vec<_> = std::iter::once(face.outer_loop)
             .chain(face.inner_loops.iter().copied())
             .collect();
-        let mut bounds: HashMap<popkern_core::topology::VertexHandle, usize> = HashMap::new();
+        // Each vertex's loop count, and the last loop that counted it.
+        let mut bounds: SecondaryMap<VertexHandle, (usize, LoopHandle)> = SecondaryMap::new();
         for &lh in &loops {
-            let mut seen = HashSet::new();
             for h in loop_half_edges(a, lh) {
-                if let Some(v) = a.half_edges.get(h).map(|x| x.origin)
-                    && seen.insert(v)
-                {
-                    *bounds.entry(v).or_default() += 1;
+                let Some(v) = a.half_edges.get(h).map(|x| x.origin) else {
+                    continue;
+                };
+                match bounds.get_mut(v) {
+                    Some((n, last)) if *last != lh => (*n, *last) = (*n + 1, lh),
+                    Some(_) => {}
+                    None => {
+                        bounds.insert(v, (1, lh));
+                    }
                 }
             }
         }
         let mut holes = Vec::new();
+        let mut points = Vec::new();
         for &lh in &face.inner_loops {
             let shares = loop_half_edges(a, lh).iter().any(|&h| {
                 a.half_edges
                     .get(h)
-                    .is_some_and(|x| bounds.get(&x.origin).is_some_and(|&n| n > 1))
+                    .is_some_and(|x| bounds.get(x.origin).is_some_and(|&(n, _)| n > 1))
             });
-            let clear = loop_box(a, lh).is_some_and(|(l, h)| {
+            let clear = loop_box(a, lh, &mut points).is_some_and(|(l, h)| {
                 l.x - pad > hi.x
                     || h.x + pad < lo.x
                     || l.y - pad > hi.y
@@ -227,19 +242,20 @@ fn loop_half_edges(
 fn loop_box(
     a: &BRep,
     lh: popkern_core::topology::LoopHandle,
+    points: &mut Vec<popkern_core::geometry::Point3>,
 ) -> Option<(
     popkern_core::geometry::Point3,
     popkern_core::geometry::Point3,
 )> {
-    let mut points = Vec::new();
+    points.clear();
     for h in loop_half_edges(a, lh) {
         let he = a.half_edges.get(h)?;
         points.push(a.vertices.get(he.origin)?.position);
         if let Some(c) = a.edges.get(he.edge).and_then(|e| e.curve.as_ref()) {
-            crate::face_box::conservative_curve_extent(c, &mut points);
+            crate::face_box::conservative_curve_extent(c, points);
         }
     }
-    let b = Aabb::from_points(&points)?;
+    let b = Aabb::from_points(points)?;
     Some((b.min, b.max))
 }
 

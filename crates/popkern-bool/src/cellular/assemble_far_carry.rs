@@ -19,14 +19,17 @@ use popkern_core::constructors::BRepBuilder;
 use popkern_core::topology::{
     BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, VertexHandle,
 };
+use slotmap::SecondaryMap;
 
-/// Original `a` entities already built by the assembly.
+/// Original `a` entities already built by the assembly. The edge and
+/// vertex maps are dense on `a`'s handles: the carry looks them up per
+/// half-edge (~1500 at the slot disc's 64th cut).
 #[derive(Default)]
 pub(super) struct CarryMaps {
     /// Unsplit original edges of `a` and the result edge built from each.
-    pub(super) edges: HashMap<EdgeHandle, EdgeHandle>,
+    pub(super) edges: SecondaryMap<EdgeHandle, EdgeHandle>,
     /// `a`'s vertices and their result vertices.
-    pub(super) vertices: HashMap<VertexHandle, VertexHandle>,
+    pub(super) vertices: SecondaryMap<VertexHandle, VertexHandle>,
     /// Result faces built from each face of `a`'s kept fragments, with
     /// their flip.
     faces: HashMap<FaceHandle, Vec<(FaceHandle, bool)>>,
@@ -163,7 +166,7 @@ fn carry_vertex(
     v: VertexHandle,
     maps: &mut CarryMaps,
 ) -> Result<VertexHandle, String> {
-    if let Some(&rv) = maps.vertices.get(&v) {
+    if let Some(&rv) = maps.vertices.get(v) {
         return Ok(rv);
     }
     let src = a.vertices.get(v).ok_or("far vertex missing")?;
@@ -185,7 +188,7 @@ fn carry_half_edge(
     let src = a.half_edges.get(h).ok_or("far half-edge missing")?;
     let e = src.edge;
     let origin = carry_vertex(builder, a, src.origin, maps)?;
-    let re = match maps.edges.get(&e) {
+    let re = match maps.edges.get(e) {
         Some(&re) => re,
         None => {
             // A far-only edge: built once, its first half-edge from the

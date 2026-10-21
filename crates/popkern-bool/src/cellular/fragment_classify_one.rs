@@ -6,42 +6,25 @@
 //! per-fragment path, unchanged; the propagation planner decides who
 //! calls it.
 
-use std::collections::HashSet;
-
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::intersection::surface_subdivision::Aabb;
-use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, FaceHandle};
 
 use super::fragment_interior::{fragment_interior_sample, planar_outward_normal};
 use super::fragment_sample_helpers::{
     non_shared_chord_midpoints, point_near_any_edge, point_near_any_surface, sample_fragment_point,
 };
-use crate::adaptive_precision::robust_point_in_solid_final;
 use crate::error::PointClassification;
 
 /// How near (in fine-probe lengths) the other body's edges a sample must
 /// sit before its offset-pair verdict may be grazing them: the band the
 /// sampler's hazard checks use.
 const GRAZE_BAND_PER_PROBE: f64 = 10.0;
-use crate::merge::graph::{IntersectionGraph, Operand};
+use crate::merge::graph::Operand;
 use crate::merge::walk::Fragment;
 
-/// Shared context for one `classify_fragments_cellular` run: the
-/// operands, their face AABBs, the coincident-overlap face sets, and
-/// the calibrated probe offsets.
-pub(super) struct ClassifyCtx<'a> {
-    pub graph: &'a IntersectionGraph,
-    pub brep_a: &'a BRep,
-    pub brep_b: &'a BRep,
-    pub aabbs_a: &'a [(FaceHandle, Aabb)],
-    pub aabbs_b: &'a [(FaceHandle, Aabb)],
-    pub overlap_a: &'a HashSet<FaceHandle>,
-    pub overlap_b: &'a HashSet<FaceHandle>,
-    pub probe_eps: f64,
-    pub probe_eps_coarse: f64,
-    pub tolerance: &'a Tolerance,
-}
+#[path = "fragment_classify_ctx.rs"]
+mod ctx;
+pub(super) use ctx::ClassifyCtx;
+use ctx::classify_against;
 
 /// Sample a representative point on `fragment` and classify it
 /// against the OTHER operand. Returns `(sample, class, cooriented)`
@@ -61,6 +44,7 @@ pub(super) fn sample_and_classify(
         probe_eps,
         probe_eps_coarse,
         tolerance,
+        ..
     } = *ctx;
     // Sample a point on this fragment. Fragments with inner
     // loops or closed-rim outers need the interior-aware
@@ -134,10 +118,8 @@ pub(super) fn sample_and_classify(
             return true; // no probe axis — pre-calibration path, no opinion
         };
         for e in [eps_probe, probe_eps_coarse] {
-            let a =
-                robust_point_in_solid_final(&(*p + n0 * e), own_brep_ref, own_aabbs_ref, tolerance);
-            let b =
-                robust_point_in_solid_final(&(*p - n0 * e), own_brep_ref, own_aabbs_ref, tolerance);
+            let a = classify_against(ctx, &(*p + n0 * e), own_brep_ref, own_aabbs_ref, tolerance);
+            let b = classify_against(ctx, &(*p - n0 * e), own_brep_ref, own_aabbs_ref, tolerance);
             if matches!(
                 (a, b),
                 (PointClassification::Inside, PointClassification::Outside)
@@ -215,13 +197,13 @@ pub(super) fn sample_and_classify(
             Vec::new()
         };
         let unanimous = mids.len() < 2 || {
-            let first = robust_point_in_solid_final(&mids[0], other.0, other.1, tolerance);
+            let first = classify_against(ctx, &mids[0], other.0, other.1, tolerance);
             matches!(
                 first,
                 PointClassification::Inside | PointClassification::Outside
             ) && mids[1..]
                 .iter()
-                .all(|p| robust_point_in_solid_final(p, other.0, other.1, tolerance) == first)
+                .all(|p| classify_against(ctx, p, other.0, other.1, tolerance) == first)
         };
         if unanimous {
             // The shortcut itself can land ON the other body's
@@ -345,7 +327,7 @@ pub(super) fn sample_and_classify(
     // the uncalibrated rules apply.
     let mut cooriented: Option<bool> = None;
     let class = if !needs_offset_pair {
-        robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance)
+        classify_against(ctx, &sample, other_brep, other_aabbs, tolerance)
     } else {
         use popkern_core::geometry::surface::SurfaceEval;
         let own_brep = match fragment.face.operand {
@@ -387,13 +369,15 @@ pub(super) fn sample_and_classify(
                     Operand::B => (brep_b, &aabbs_b),
                 };
                 let calibrate = |e: f64| {
-                    let s_plus = robust_point_in_solid_final(
+                    let s_plus = classify_against(
+                        ctx,
                         &(sample + n_raw * e),
                         own_brep_ref,
                         own_aabbs,
                         tolerance,
                     );
-                    let s_minus = robust_point_in_solid_final(
+                    let s_minus = classify_against(
+                        ctx,
                         &(sample - n_raw * e),
                         own_brep_ref,
                         own_aabbs,
@@ -415,10 +399,9 @@ pub(super) fn sample_and_classify(
                 let pair_at = |e: f64| {
                     let p_plus = sample + n * e;
                     let p_minus = sample - n * e;
-                    let v_plus =
-                        robust_point_in_solid_final(&p_plus, other_brep, other_aabbs, tolerance);
+                    let v_plus = classify_against(ctx, &p_plus, other_brep, other_aabbs, tolerance);
                     let v_minus =
-                        robust_point_in_solid_final(&p_minus, other_brep, other_aabbs, tolerance);
+                        classify_against(ctx, &p_minus, other_brep, other_aabbs, tolerance);
                     // the pair-scan trace topic: per-probe forensics for the
                     // offset-pair classifier — prints the exact
                     // probe points and their verdicts (the face-selection trace topic
@@ -488,7 +471,7 @@ pub(super) fn sample_and_classify(
                     }
                 }
             }
-            None => robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance),
+            None => classify_against(ctx, &sample, other_brep, other_aabbs, tolerance),
         }
     };
     (sample, class, cooriented)

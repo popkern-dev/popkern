@@ -155,6 +155,10 @@ pub(super) fn classify_fragments_cellular(
         probe_eps * 16.0
     };
 
+    let (rays_a, rays_b) = (
+        crate::classify::RaySolid::new(brep_a, &aabbs_a),
+        crate::classify::RaySolid::new(brep_b, &aabbs_b),
+    );
     let ctx = super::fragment_classify_one::ClassifyCtx {
         graph,
         brep_a,
@@ -166,6 +170,8 @@ pub(super) fn classify_fragments_cellular(
         probe_eps,
         probe_eps_coarse,
         tolerance,
+        rays_a: &rays_a,
+        rays_b: &rays_b,
     };
 
     let n = fragments.len();

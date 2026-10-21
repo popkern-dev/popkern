@@ -74,7 +74,7 @@ fn ray_intersects_aabb(origin: &Point3, direction: &Vec3, aabb: &Aabb) -> bool {
 /// the surface's u/v axes to determine a finite bounding rectangle with
 /// generous padding. Returns the surface's own parameter range if it is
 /// already finite.
-fn face_parameter_range(brep: &BRep, face_handle: FaceHandle) -> ((f64, f64), (f64, f64)) {
+fn face_parameter_range(brep: &BRep, face_handle: FaceHandle) -> UvWindow {
     let face = &brep.faces[face_handle];
     let surface_on_face = match face.surface.as_ref() {
         Some(s) => s,
@@ -239,7 +239,10 @@ fn face_vertex_positions(brep: &BRep, face_handle: FaceHandle) -> Vec<Point3> {
 
 #[path = "classify_ray.rs"]
 mod classify_ray;
+#[path = "classify_ray_solid.rs"]
+mod ray_solid;
 use classify_ray::ray_crossing_count;
+pub(crate) use ray_solid::{RaySolid, UvWindow, point_in_solid_final_on};
 
 /// Directions for the multi-ray voting scheme.
 ///
@@ -294,7 +297,7 @@ pub fn point_in_solid(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> Result<PointClassification, BoolError> {
-    point_in_solid_impl(point, solid, face_aabbs, tolerance, false).map(|(c, _)| c)
+    point_in_solid_impl(point, solid, face_aabbs, tolerance, false, None).map(|(c, _)| c)
 }
 
 /// [`point_in_solid`] for FINAL bodies (boolean inputs/outputs, not
@@ -310,7 +313,7 @@ pub fn point_in_solid_final(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> Result<PointClassification, BoolError> {
-    point_in_solid_impl(point, solid, face_aabbs, tolerance, true).map(|(c, _)| c)
+    point_in_solid_impl(point, solid, face_aabbs, tolerance, true, None).map(|(c, _)| c)
 }
 
 /// [`point_in_solid_final`] that also reports whether the ray vote was
@@ -327,7 +330,7 @@ pub fn point_in_solid_final_with_confidence(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> Result<(PointClassification, bool), BoolError> {
-    point_in_solid_impl(point, solid, face_aabbs, tolerance, true)
+    point_in_solid_impl(point, solid, face_aabbs, tolerance, true, None)
 }
 
 fn point_in_solid_impl(
@@ -336,6 +339,7 @@ fn point_in_solid_impl(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
     skip_hole_hits: bool,
+    rays: Option<&RaySolid<'_>>,
 ) -> Result<(PointClassification, bool), BoolError> {
     if crate::face_box::outside_closed_body(point, solid, face_aabbs, tolerance) {
         return Ok((PointClassification::Outside, false));
@@ -353,6 +357,7 @@ fn point_in_solid_impl(
                 face_aabbs,
                 tolerance,
                 skip_hole_hits,
+                rays,
             );
             eprintln!(
                 "  [ray] p=({:.2},{:.2},{:.2}) d=({:.2},{:.2},{:.2}) -> {r:?}",
@@ -366,6 +371,7 @@ fn point_in_solid_impl(
             face_aabbs,
             tolerance,
             skip_hole_hits,
+            rays,
         ) {
             Ok(count) => {
                 if count % 2 == 1 {

@@ -48,6 +48,20 @@ pub fn robust_point_in_solid(
     }
 }
 
+/// [`robust_point_in_solid_final`] against a prepared solid (face
+/// windows kept across classifications).
+pub(crate) fn robust_point_in_solid_final_on(
+    point: &Point3,
+    rays: &crate::classify::RaySolid<'_>,
+    tolerance: &Tolerance,
+) -> PointClassification {
+    match crate::classify::point_in_solid_final_on(point, rays, tolerance) {
+        Ok(PointClassification::Inside) => PointClassification::Inside,
+        Ok(PointClassification::Outside) => PointClassification::Outside,
+        Ok(PointClassification::OnBoundary) | Err(_) => point_in_solid_winding(point, rays.solid),
+    }
+}
+
 /// [`robust_point_in_solid`] against a FINAL body: hits through the
 /// holes of holed faces are genuine voids and don't count (see
 /// `point_in_solid_final`).

@@ -26,6 +26,7 @@ pub(super) fn ray_crossing_count(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
     skip_hole_hits: bool,
+    rays: Option<&super::RaySolid<'_>>,
 ) -> Result<usize, ()> {
     let ray_curve = CurveGeometry::Line {
         origin: *origin,
@@ -41,9 +42,8 @@ pub(super) fn ray_crossing_count(
     // per adjacent wall, voted even, and the opening fragment was
     // kept — PK-460).
     let mut crossing_ts: Vec<(f64, bool)> = Vec::new();
-
     let ray_trace = popkern_core::trace::trace_enabled("ray-classify");
-    for (face_handle, aabb) in face_aabbs {
+    for (k, (face_handle, aabb)) in face_aabbs.iter().enumerate() {
         if !ray_intersects_aabb(origin, direction, aabb) {
             if ray_trace {
                 eprintln!("  [ray] {face_handle:?} aabb miss {aabb:?}");
@@ -58,7 +58,8 @@ pub(super) fn ray_crossing_count(
         };
         let surface = &surface_on_face.geometry;
 
-        let ((u_min, u_max), (v_min, v_max)) = face_parameter_range(brep, *face_handle);
+        let ((u_min, u_max), (v_min, v_max)) =
+            rays.map_or_else(|| face_parameter_range(brep, *face_handle), |r| r.window(k));
 
         // NURBS faces query a PADDED window and treat band hits as an
         // inconclusive RAY: a ray grazing along a tool's corner edge
@@ -419,9 +420,11 @@ pub(super) fn ray_crossing_count(
                             surface,
                             (*u, *v),
                         );
-                    if curved_hole
-                        || (is_plane && hit_inside_inner_loop(brep, *face_handle, *u, *v))
-                    {
+                    let in_hole = || match rays {
+                        Some(r) => r.hits_hole(k, *u, *v),
+                        None => hit_inside_inner_loop(brep, *face_handle, *u, *v),
+                    };
+                    if curved_hole || (is_plane && in_hole()) {
                         continue;
                     }
                     if popkern_core::trace::trace_enabled("ray-classify") {
@@ -473,9 +476,8 @@ pub(super) fn ray_crossing_count(
     Ok(count)
 }
 
-/// Width of the distinct knot span containing `x` (clamped into the
-/// knot range; at the last knot, the last span); infinite for a
-/// degenerate knot vector.
+/// Width of the distinct knot span holding `x` (clamped into the knot
+/// range, the last span at the last knot); infinite when degenerate.
 fn knot_span_width(knots: &[f64], x: f64) -> f64 {
     let mut distinct: Vec<f64> = Vec::new();
     for &k in knots {

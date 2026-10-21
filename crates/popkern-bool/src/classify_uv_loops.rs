@@ -315,6 +315,49 @@ struct Seg<'a> {
     curve: Option<(&'a popkern_core::geometry::pcurve::Pcurve, f64, f64)>,
 }
 
+/// The conservative UV box of loop `lh`'s pcurves, outside which
+/// [`uv_point_in_loop`] reads `false`; `None` for a loop without one
+/// (no pcurve).
+pub(crate) fn loop_uv_box(
+    brep: &BRep,
+    lh: popkern_core::topology::LoopHandle,
+) -> Option<crate::pcurve_box::UvBox> {
+    let start = brep.loops.get(lh)?.half_edge;
+    let mut pcurves = Vec::new();
+    let mut walk = start;
+    for _ in 0..brep.half_edges.len() + 1 {
+        let d = brep.half_edges.get(walk)?;
+        pcurves.extend(d.pcurve.as_ref());
+        walk = d.next;
+        if walk == start {
+            break;
+        }
+    }
+    if pcurves.is_empty() {
+        return None;
+    }
+    crate::pcurve_box::contour_uv_box(pcurves.iter().copied())
+}
+
+/// [`hit_inside_inner_loop`] with each hole's [`loop_uv_box`] known: a
+/// hole whose box excludes the hit is skipped without walking it (the
+/// verdict `uv_point_in_loop` would give), the rest tested in full.
+pub(crate) fn hit_inside_inner_loop_boxed(
+    brep: &BRep,
+    holes: &[(
+        popkern_core::topology::LoopHandle,
+        Option<crate::pcurve_box::UvBox>,
+    )],
+    u: f64,
+    v: f64,
+) -> bool {
+    holes.iter().any(|(lh, bx)| {
+        !bx.as_ref()
+            .is_some_and(|bx| crate::pcurve_box::outside(bx, u, v, 0.0))
+            && uv_point_in_loop(brep, *lh, u, v) == Some(true)
+    })
+}
+
 /// True when the surface hit at `(u, v)` lands inside one of the
 /// face's INNER-loop polygons (pcurve-sampled, even-odd).
 pub(crate) fn hit_inside_inner_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool {
