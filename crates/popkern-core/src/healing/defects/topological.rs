@@ -379,7 +379,8 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         ValidationError::CurveSurfaceDeviation { edge, .. } => {
             vec![EntityRef::Edge(*edge)]
         }
-        ValidationError::CanonicalBackward { edge } => {
+        ValidationError::CanonicalBackward { edge }
+        | ValidationError::CurveWindowOutsideSpan { edge, .. } => {
             vec![EntityRef::Edge(*edge)]
         }
         ValidationError::ShellGap { edge, .. } => {

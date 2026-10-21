@@ -92,6 +92,27 @@ pub enum ValidationError {
         edge: EdgeHandle,
     },
 
+    /// An edge's curve window leaves the angular span its Arc or
+    /// Ellipse declares (PK-906). Evaluation is periodic, so the edge
+    /// still traces correctly, but projection and parameter-range
+    /// queries answer for the declared span.
+    #[error(
+        "Edge {edge:?}: window [{t_start}, {t_end}] outside its curve's span \
+         [{span_start}, {span_end}]"
+    )]
+    CurveWindowOutsideSpan {
+        /// The violating edge.
+        edge: EdgeHandle,
+        /// The edge's window start.
+        t_start: f64,
+        /// The edge's window end.
+        t_end: f64,
+        /// The curve's declared span start.
+        span_start: f64,
+        /// The curve's declared span end.
+        span_end: f64,
+    },
+
     /// Edge curve deviates from adjacent surface.
     #[error("Edge {edge:?} deviates from surface by {max_deviation}")]
     CurveSurfaceDeviation {

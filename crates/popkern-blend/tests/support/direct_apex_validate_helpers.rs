@@ -43,6 +43,7 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
             | ValidationError::WindingDishonest { .. }
             | ValidationError::MissingPcurves { .. }
             | ValidationError::CanonicalBackward { .. }
+            | ValidationError::CurveWindowOutsideSpan { .. }
             | ValidationError::CurveSurfaceDeviation { .. }
             | ValidationError::TwistedSurface { .. }
             | ValidationError::LoopPeriodWinding { .. }

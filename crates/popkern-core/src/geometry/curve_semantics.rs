@@ -27,6 +27,48 @@ pub struct LineSegmentParams {
 }
 
 impl CurveGeometry {
+    /// The declared angular span `(start_angle, end_angle)` of an Arc
+    /// or Ellipse; `None` for curves without one.
+    pub fn angular_span(&self) -> Option<(f64, f64)> {
+        match self {
+            CurveGeometry::Arc {
+                start_angle,
+                end_angle,
+                ..
+            }
+            | CurveGeometry::Ellipse {
+                start_angle,
+                end_angle,
+                ..
+            } => Some((*start_angle, *end_angle)),
+            _ => None,
+        }
+    }
+
+    /// The same curve declaring `window` as its angular span. An Arc
+    /// or Ellipse edge moved onto the complement (or another turn)
+    /// still evaluates there, but projection and parameter-range
+    /// queries answer for the declared span (PK-906). Curves without a
+    /// declared span are returned unchanged.
+    pub fn spanning(&self, window: (f64, f64)) -> CurveGeometry {
+        let (lo, hi) = (window.0.min(window.1), window.0.max(window.1));
+        let mut out = self.clone();
+        if let CurveGeometry::Arc {
+            start_angle,
+            end_angle,
+            ..
+        }
+        | CurveGeometry::Ellipse {
+            start_angle,
+            end_angle,
+            ..
+        } = &mut out
+        {
+            (*start_angle, *end_angle) = (lo, hi);
+        }
+        out
+    }
+
     /// Detect whether this curve is geometrically a straight segment over its
     /// native parameter range.
     ///

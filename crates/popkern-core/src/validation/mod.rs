@@ -23,6 +23,7 @@ mod self_intersection_twist;
 pub use self_intersection_trim::InteriorOverlapSample;
 mod canonical_forward;
 mod canonical_forward_arbitration;
+mod curve_window;
 mod loop_period_winding;
 mod pcurve_consistency;
 mod pcurve_presence;
@@ -247,6 +248,8 @@ impl BRep {
         // running the curve forward (PK-478; a bored tube's start-cap
         // hole ran with its outer loop, PK-819).
         errors.extend(self.validate_canonical_forward_all());
+        // Arc/Ellipse windows inside their declared spans (PK-906).
+        errors.extend(self.validate_curve_window_all());
         if let Err(e) = self.validate_loop_closure() {
             errors.push(e);
         }

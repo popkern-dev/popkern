@@ -432,12 +432,12 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         }
     }
     let side_flipped = (pick_t0, pick_t1) != (triple.t_start, triple.t_end);
-    // Apply: 3D curve on edge, pcurve_a on the half-edge whose face
-    // is face_1, pcurve_b on the twin (face_2's half-edge).
+    // Apply: 3D curve on edge (an arc declaring the side picked,
+    // PK-906), pcurve_a on face_1's half-edge, pcurve_b on the twin.
     let geometry = triple
         .curve_3d
         .canonical_line_in_range((pick_t0, pick_t1), tolerance.linear().max(1.0e-8))
-        .unwrap_or_else(|| triple.curve_3d.clone());
+        .unwrap_or_else(|| triple.curve_3d.spanning((pick_t0, pick_t1)));
     let new_curve = CurveOnEdge {
         geometry,
         t_start: pick_t0,
