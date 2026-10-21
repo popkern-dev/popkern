@@ -73,3 +73,38 @@ fn a_disc_intersected_with_an_inward_boss_validates_in_either_order() {
         }
     }
 }
+
+/// Every operation in both operand orders on the same mixed-sense pairs:
+/// each serves a valid body, a union has the same shape either way, and
+/// the all-planar results hold their true volumes.
+#[test]
+fn every_operation_on_the_mixed_sense_pair_validates_in_either_order() {
+    let tol = Tolerance::default();
+    let disc = BRep::cylinder(30.0, 1.5, tol).expect("disc");
+    let counts = |r: &BRep| (r.faces.len(), r.edges.len(), r.vertices.len());
+    for (z0, depth) in [(1.4, 0.1), (0.5, 1.0)] {
+        let boss = boss(z0, tol);
+        let run = |op, a: &BRep, b: &BRep| {
+            let r = boolean(op, a.clone(), b.clone(), tol, None)
+                .unwrap_or_else(|e| panic!("{op:?} (z0 {z0}): {e}"));
+            assert!(
+                r.validate().is_ok(),
+                "{op:?} (z0 {z0}): {:?}",
+                r.validate().err()
+            );
+            r
+        };
+        for op in [BoolOperation::Union, BoolOperation::Intersection] {
+            let (ab, ba) = (run(op, &disc, &boss), run(op, &boss, &disc));
+            assert_eq!(counts(&ab), counts(&ba), "{op:?} (z0 {z0}) is order-free");
+        }
+        run(BoolOperation::Subtraction, &disc, &boss);
+        let stub = run(BoolOperation::Subtraction, &boss, &disc);
+        let want = 16.0 * (2.0 - depth);
+        let v = polyhedral_volume(&stub);
+        assert!(
+            (v - want).abs() < 1e-9 * want,
+            "boss − disc (z0 {z0}): {v} vs {want}"
+        );
+    }
+}
