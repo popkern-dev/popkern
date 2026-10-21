@@ -28,6 +28,25 @@ pub(crate) struct Carried {
     pub(crate) a_edges: CarriedEdges,
     /// The faces built from `a`'s (kept fragments, carried far faces).
     pub(crate) a_faces: SecondaryMap<FaceHandle, ()>,
+    /// The edges built from `b`'s unsplit edges, recorded only when its
+    /// far faces are carried (a scoped union, PK-816).
+    pub(crate) b_edges: CarriedEdges,
+    /// The faces built from `b`'s unflipped kept fragments and carried
+    /// far faces, under the same condition.
+    pub(crate) b_faces: SecondaryMap<FaceHandle, ()>,
+}
+
+impl Carried {
+    /// One operand's carried edges and faces.
+    pub(crate) fn of(
+        &mut self,
+        operand: crate::merge::graph::Operand,
+    ) -> (&mut CarriedEdges, &mut SecondaryMap<FaceHandle, ()>) {
+        match operand {
+            crate::merge::graph::Operand::A => (&mut self.a_edges, &mut self.a_faces),
+            crate::merge::graph::Operand::B => (&mut self.b_edges, &mut self.b_faces),
+        }
+    }
 }
 
 /// Where the serve tail may edit.
@@ -51,7 +70,7 @@ pub(crate) struct Touched {
 impl ServeRegion {
     /// The region of `brep` given what it `carried` from `a`.
     pub(crate) fn of(brep: &BRep, carried: &Carried) -> Self {
-        if carried.a_edges.is_empty() {
+        if carried.a_edges.is_empty() && carried.b_edges.is_empty() {
             return Self::Whole;
         }
         Self::marked(brep, carried, SecondaryMap::new(), SecondaryMap::new())
@@ -79,10 +98,12 @@ impl ServeRegion {
     /// Add both loops and faces of every edge that is not INTACT: an
     /// edge is intact when it is built from an unsplit edge of `a` and
     /// both its faces are built from `a`'s, i.e. it and its two sides
-    /// stand as in `a`. A face or loop of intact edges only keeps `a`'s
-    /// structure (a carried hole, an unsplit boundary between unsplit
-    /// faces); `b`'s faces, a flush neighbour that replaced one of `a`'s,
-    /// and every face a pass creates have an edge that is not.
+    /// stand as in `a` — or the same of `b` when a scoped union carries
+    /// `b`'s far faces (PK-816). A face or loop of intact edges only
+    /// keeps an operand's structure (a carried hole, an unsplit boundary
+    /// between unsplit faces); a face along the operands' meeting, a
+    /// flush neighbour that replaced one of `a`'s, and every face a pass
+    /// creates have an edge that is not.
     fn marked(
         brep: &BRep,
         carried: &Carried,
@@ -96,10 +117,14 @@ impl ServeRegion {
             let sides = [he, brep.half_edges.get(he.twin).unwrap_or(he)];
             let face_of =
                 |h: &popkern_core::topology::HalfEdge| brep.loops.get(h.loop_).map(|l| l.face);
-            let intact = carried.a_edges.contains_key(eh)
-                && sides
-                    .iter()
-                    .all(|h| face_of(h).is_some_and(|f| carried.a_faces.contains_key(f)));
+            let stands = |edges: &CarriedEdges, faces: &SecondaryMap<FaceHandle, ()>| {
+                edges.contains_key(eh)
+                    && sides
+                        .iter()
+                        .all(|h| face_of(h).is_some_and(|f| faces.contains_key(f)))
+            };
+            let intact = stands(&carried.a_edges, &carried.a_faces)
+                || stands(&carried.b_edges, &carried.b_faces);
             if intact {
                 continue;
             }

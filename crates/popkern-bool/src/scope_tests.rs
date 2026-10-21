@@ -8,6 +8,7 @@ use popkern_core::topology::BRep;
 
 use super::{active_scope, scope_violation};
 use crate::error::BoolOperation;
+use crate::merge::graph::Operand;
 
 fn slot(k: usize, tol: Tolerance) -> BRep {
     let a = std::f64::consts::TAU * k as f64 / 64.0;
@@ -43,14 +44,29 @@ fn the_last_slot_cut_touches_three_faces_and_carries_the_rest() {
     let result =
         crate::boolean(BoolOperation::Subtraction, body.clone(), tool, tol, None).expect("cut");
     assert_eq!(
-        scope_violation(BoolOperation::Subtraction, &body, &hits, &scope, &result),
+        scope_violation(
+            BoolOperation::Subtraction,
+            Operand::A,
+            &body,
+            &hits,
+            &scope,
+            &result
+        ),
         None
     );
     // Negative control: a pad that empties the tool box calls the faces
     // it touches far.
     let blind = active_scope(&body, &hits.aabbs_a, &hits.aabbs_b, -3.0);
     assert!(
-        scope_violation(BoolOperation::Subtraction, &body, &hits, &blind, &result).is_some(),
+        scope_violation(
+            BoolOperation::Subtraction,
+            Operand::A,
+            &body,
+            &hits,
+            &blind,
+            &result
+        )
+        .is_some(),
         "a scope missing the touched faces must be refused"
     );
 }
@@ -72,13 +88,17 @@ fn the_scoped_merge_assembles_the_unscoped_body() {
     let hits = crate::intersect::find_intersections(&body, &tool, &tol).expect("intersections");
     let scope = active_scope(&body, &hits.aabbs_a, &hits.aabbs_b, 10.0 * tol.linear());
     let merge = |s: Option<&super::ActiveScope>| {
+        let s = s.map(|a| super::OperandScopes {
+            a: Some(a.clone()),
+            b: None,
+        });
         crate::cellular::boolean::cellular_graph_merge(
             &body,
             &tool,
             &hits,
             BoolOperation::Subtraction,
             &tol,
-            s,
+            s.as_ref(),
         )
     };
     let (unscoped, _) = merge(None).expect("unscoped merge");

@@ -60,23 +60,23 @@ pub(super) fn select_and_serve(
     let cellular_result = if cellular_enabled {
         // Local scope (PK-814): far faces carried, the rest merged; any
         // scoped failure or invalid result reruns unscoped.
-        let merge = |scope: Option<&crate::scope::ActiveScope>| {
+        let merge = |scopes: Option<&crate::scope::OperandScopes>| {
             crate::cellular::boolean::cellular_graph_merge(
                 original_a,
                 original_b,
                 intersection_result,
                 op,
                 tolerance,
-                scope,
+                scopes,
             )
         };
-        let attempt = |scope: &crate::scope::ActiveScope| match merge(Some(scope)) {
+        let attempt = |scopes: &crate::scope::OperandScopes| match merge(Some(scopes)) {
             Ok((r, carried)) if r.validate().is_ok() => Some(Ok((r, carried))),
             outcome => {
                 if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!(
                         "  [scope] scoped run declined (holes {}): {:?}",
-                        scope.far_holes.len(),
+                        scopes.a.as_ref().map_or(0, |s| s.far_holes.len()),
                         outcome.err().map(|d| d.into_error().to_string())
                     );
                 }
@@ -84,25 +84,23 @@ pub(super) fn select_and_serve(
             }
         };
         // Hole scope, then face scope, then unscoped.
-        let scoped = crate::scope::serving_scope(original_a, intersection_result, op, tolerance)
-            .and_then(|scope| {
-                attempt(&scope).or_else(|| {
-                    (!scope.far_holes.is_empty()).then(|| {
-                        let faces_only = crate::scope::ActiveScope {
-                            far_holes: Default::default(),
-                            ..scope.clone()
-                        };
-                        attempt(&faces_only)
-                    })?
-                })
-            });
+        let scopes = crate::scope::serving_scopes(
+            original_a,
+            original_b,
+            intersection_result,
+            op,
+            tolerance,
+        );
+        let scoped = (scopes.a.is_some() || scopes.b.is_some())
+            .then(|| attempt(&scopes).or_else(|| attempt(&scopes.faces_only()?)))
+            .flatten();
         // A scoped result arrives validated (its validity decided the
         // fallback); the arm below does not validate it twice.
         let prevalidated = scoped.is_some();
         match scoped.unwrap_or_else(|| merge(None)) {
             Ok((r, _))
                 if let Some(why) = crate::scope::compare_violation(
-                    original_a,
+                    (original_a, original_b),
                     intersection_result,
                     op,
                     tolerance,

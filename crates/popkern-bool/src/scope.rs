@@ -1,6 +1,9 @@
-//! Local boolean scope, stage 1 (docs/architecture/local-boolean-scope.md,
-//! PK-813): the active region of operand `a` and the compare check that
-//! measures whether serving it alone would be sound.
+//! Local boolean scope (docs/architecture/local-boolean-scope.md, stage 1
+//! PK-813, stage 4 PK-816): the active region of an operand and the
+//! compare check that measures whether serving it alone would be sound.
+//! Either operand is scoped against the other; the statements below are
+//! for `a` and hold for `b` with the roles swapped, except that a far
+//! face of `b` is kept only by a union ([`far_kept`]).
 //!
 //! Active = faces of `a` whose padded box meets `b`'s padded body box
 //! (no ring: see `active_scope`); far = the rest, in `a`'s face order; frontier = edges between an active and
@@ -10,10 +13,10 @@
 //!
 //! 1. no intersection record lies on a far face;
 //! 2. every far face comes through unchanged (same surface kind, the same
-//!    loop vertex positions bit for bit) for a union or a subtraction,
-//!    and is absent for an intersection;
-//! 3. every frontier edge survives unsplit (an edge between the same two
-//!    end positions).
+//!    loop vertex positions bit for bit) where the operation keeps it,
+//!    and is absent where it does not;
+//! 3. where far faces are kept, every frontier edge survives unsplit (an
+//!    edge between the same two end positions).
 //!
 //! A violated premise fails the boolean in compare mode with the first
 //! violation named, so a suite run under the variable lists every case
@@ -27,6 +30,7 @@ use slotmap::SecondaryMap;
 
 use crate::error::BoolOperation;
 use crate::intersect::IntersectionResult;
+use crate::merge::graph::Operand;
 
 /// Operand `a`'s active region against a tool (see the module docs).
 #[derive(Debug, Clone, Default)]
@@ -194,24 +198,25 @@ fn face_key(brep: &BRep, face: FaceHandle) -> (String, Vec<[u64; 3]>) {
 /// `None` (see the module docs).
 pub(crate) fn scope_violation(
     op: BoolOperation,
+    operand: Operand,
     a: &BRep,
     intersection: &IntersectionResult,
     scope: &ActiveScope,
     result: &BRep,
 ) -> Option<String> {
     let far: HashSet<FaceHandle> = scope.far.iter().copied().collect();
-    if let Some(r) = intersection
-        .records
-        .iter()
-        .find(|r| far.contains(&r.face_a))
-    {
-        return Some(format!("a record lies on far face {:?}", r.face_a));
+    let on = |r: &crate::intersect::IntersectionRecord| match operand {
+        Operand::A => r.face_a,
+        Operand::B => r.face_b,
+    };
+    if let Some(r) = intersection.records.iter().find(|r| far.contains(&on(r))) {
+        return Some(format!("a record lies on far face {:?}", on(r)));
     }
     let result_keys: HashSet<(String, Vec<[u64; 3]>)> =
         result.faces.keys().map(|f| face_key(result, f)).collect();
+    let expected = far_kept(op, operand);
     for &f in &scope.far {
         let carried = result_keys.contains(&face_key(a, f));
-        let expected = !matches!(op, BoolOperation::Intersection);
         if carried != expected {
             return Some(format!(
                 "far face {f:?} {} the result ({op:?}){}",
@@ -241,7 +246,7 @@ pub(crate) fn scope_violation(
         );
         Some(if p <= q { (p, q) } else { (q, p) })
     };
-    if !matches!(op, BoolOperation::Intersection) {
+    if expected {
         let result_edges: HashSet<_> = result
             .edges
             .values()
@@ -304,40 +309,100 @@ fn carry_miss(a: &BRep, face: FaceHandle, result: &BRep) -> String {
 /// Far faces below which a scoped run is not worth its carry.
 const MIN_FAR_FACES: usize = 8;
 
-/// The scope a boolean SERVES with (stage 2, PK-814), or `None` to run
-/// unscoped: only a union or a subtraction keeps every far face; compare
-/// mode runs unscoped (it checks the scope's premises on that result);
-/// `POPKERN_BOOL_SCOPE=off` is the kill switch; and a scope with few far
-/// faces gains nothing. The pad is the compare harness's (stage 1 found
-/// no premise violated with it across the boolean, part, rhai,
-/// examples, blend, fastener and hinge suites).
-pub(crate) fn serving_scope(
+/// Both operands' scopes for one boolean (stage 4, PK-816). A far face
+/// of either lies outside the other operand (its box misses the other's
+/// body box), so the result either keeps it unchanged — carried, see
+/// [`far_kept`] — or drops it; in neither case does it form a fragment.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct OperandScopes {
+    /// Operand `a`'s scope, if it serves.
+    pub(crate) a: Option<ActiveScope>,
+    /// The tool's scope, if it serves.
+    pub(crate) b: Option<ActiveScope>,
+}
+
+impl OperandScopes {
+    /// The scopes whose far faces `op` keeps (and the assembler carries):
+    /// `a`'s and `b`'s in that order.
+    pub(crate) fn carried(
+        &self,
+        op: BoolOperation,
+    ) -> (Option<&ActiveScope>, Option<&ActiveScope>) {
+        (
+            self.a.as_ref().filter(|_| far_kept(op, Operand::A)),
+            self.b.as_ref().filter(|_| far_kept(op, Operand::B)),
+        )
+    }
+
+    /// The same scopes without far holes (the hole scope's fallback), or
+    /// `None` when there are none to leave out.
+    pub(crate) fn faces_only(&self) -> Option<Self> {
+        let holes = |s: &Option<ActiveScope>| s.as_ref().is_some_and(|s| !s.far_holes.is_empty());
+        let strip = |s: &Option<ActiveScope>| {
+            s.as_ref().map(|s| ActiveScope {
+                far_holes: Default::default(),
+                ..s.clone()
+            })
+        };
+        (holes(&self.a) || holes(&self.b)).then(|| Self {
+            a: strip(&self.a),
+            b: strip(&self.b),
+        })
+    }
+}
+
+/// Whether `op` keeps an operand's far faces: a union keeps both
+/// operands' outside material, a subtraction `a`'s, an intersection
+/// neither (each far face lies outside the other operand).
+pub(crate) fn far_kept(op: BoolOperation, operand: Operand) -> bool {
+    match op {
+        BoolOperation::Union => true,
+        BoolOperation::Subtraction => operand == Operand::A,
+        BoolOperation::Intersection => false,
+    }
+}
+
+/// The scopes a boolean SERVES with (stages 2 and 4, PK-814, PK-816), or
+/// none to run unscoped: compare mode runs unscoped (it checks the
+/// scopes' premises on that result); `POPKERN_BOOL_SCOPE=off` is the kill
+/// switch; and a scope with few far faces gains nothing. Far holes are
+/// carried for `a` only when its far faces are kept: a dropped face's
+/// holes border only dropped material, and `b`'s scope carries faces
+/// only (its holes stay in the graph, where the walk peels them). The
+/// pad is the compare harness's (stage 1 found no premise violated with
+/// it across the boolean, part, rhai, examples, blend, fastener and
+/// hinge suites).
+pub(crate) fn serving_scopes(
     a: &BRep,
+    b: &BRep,
     intersection: &IntersectionResult,
     op: BoolOperation,
     tolerance: &popkern_core::tolerance::Tolerance,
-) -> Option<ActiveScope> {
-    if !matches!(op, BoolOperation::Union | BoolOperation::Subtraction)
-        || compare_enabled()
-        || std::env::var("POPKERN_BOOL_SCOPE").is_ok_and(|v| v == "off")
-    {
-        return None;
+) -> OperandScopes {
+    if compare_enabled() || std::env::var("POPKERN_BOOL_SCOPE").is_ok_and(|v| v == "off") {
+        return OperandScopes::default();
     }
-    let scope = active_scope(
-        a,
-        &intersection.aabbs_a,
-        &intersection.aabbs_b,
-        10.0 * tolerance.linear(),
-    );
+    let pad = 10.0 * tolerance.linear();
+    let mut sa = active_scope(a, &intersection.aabbs_a, &intersection.aabbs_b, pad);
+    if !far_kept(op, Operand::A) {
+        sa.far_holes.clear();
+    }
+    let mut sb = active_scope(b, &intersection.aabbs_b, &intersection.aabbs_a, pad);
+    sb.far_holes.clear();
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
-            "  [scope] serving: active {} far {} far holes {}",
-            scope.active.len(),
-            scope.far.len(),
-            scope.far_holes.values().map(Vec::len).sum::<usize>()
+            "  [scope] serving: active {} far {} far holes {}; tool active {} far {}",
+            sa.active.len(),
+            sa.far.len(),
+            sa.far_holes.values().map(Vec::len).sum::<usize>(),
+            sb.active.len(),
+            sb.far.len()
         );
     }
-    (scope.far.len() >= MIN_FAR_FACES).then_some(scope)
+    OperandScopes {
+        a: (sa.far.len() >= MIN_FAR_FACES).then_some(sa),
+        b: (sb.far.len() >= MIN_FAR_FACES).then_some(sb),
+    }
 }
 
 /// Compare mode (`POPKERN_BOOL_SCOPE=compare`): the first premise the
@@ -345,7 +410,7 @@ pub(crate) fn serving_scope(
 /// and the serve postprocess, which stage 2 leaves whole-body) violates,
 /// or `None`. Off, or with no far face, it costs nothing.
 pub(crate) fn compare_violation(
-    a: &BRep,
+    (a, b): (&BRep, &BRep),
     intersection: &IntersectionResult,
     op: BoolOperation,
     tolerance: &popkern_core::tolerance::Tolerance,
@@ -354,24 +419,27 @@ pub(crate) fn compare_violation(
     if !compare_enabled() {
         return None;
     }
-    let scope = active_scope(
-        a,
-        &intersection.aabbs_a,
-        &intersection.aabbs_b,
-        10.0 * tolerance.linear(),
-    );
-    if popkern_core::trace::trace_enabled("boolean") {
-        eprintln!(
-            "  [scope] active {} far {} frontier {}",
-            scope.active.len(),
-            scope.far.len(),
-            scope.frontier.len()
-        );
-    }
-    if scope.far.is_empty() {
-        return None;
-    }
-    scope_violation(op, a, intersection, &scope, assembled)
+    let pad = 10.0 * tolerance.linear();
+    let sides = [
+        (Operand::A, a, &intersection.aabbs_a, &intersection.aabbs_b),
+        (Operand::B, b, &intersection.aabbs_b, &intersection.aabbs_a),
+    ];
+    sides.into_iter().find_map(|(operand, brep, own, other)| {
+        let scope = active_scope(brep, own, other, pad);
+        if popkern_core::trace::trace_enabled("boolean") {
+            eprintln!(
+                "  [scope] {operand:?} active {} far {} frontier {}",
+                scope.active.len(),
+                scope.far.len(),
+                scope.frontier.len()
+            );
+        }
+        if scope.far.is_empty() {
+            return None;
+        }
+        scope_violation(op, operand, brep, intersection, &scope, assembled)
+            .map(|why| format!("{operand:?}: {why}"))
+    })
 }
 
 #[path = "scope_holes.rs"]
@@ -381,3 +449,7 @@ use holes::far_holes;
 #[cfg(test)]
 #[path = "scope_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "scope_operand_tests.rs"]
+mod operand_tests;

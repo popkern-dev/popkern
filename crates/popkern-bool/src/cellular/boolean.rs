@@ -18,7 +18,6 @@ use popkern_core::topology::BRep;
 use crate::error::{BoolDiagnostics, BoolOperation};
 use crate::intersect::IntersectionResult;
 use crate::merge::graph::{IntersectionGraph, Operand};
-use crate::merge::graph_build::insert_operand_topology;
 use crate::merge::graph_duplicates::remove_collinear_duplicates;
 use crate::merge::graph_intersect::insert_intersection_curves;
 use crate::merge::graph_split::split_shared_edges_at_nodes;
@@ -49,14 +48,16 @@ pub(crate) fn cellular_graph_merge(
     intersection_result: &IntersectionResult,
     op: BoolOperation,
     tolerance: &Tolerance,
-    scope: Option<&crate::scope::ActiveScope>,
+    scopes: Option<&crate::scope::OperandScopes>,
 ) -> Result<(BRep, crate::serve_region::Carried), BoolDiagnostics> {
     let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
 
     // Insert original topology from both operands.
-    // A scoped run (PK-814) builds `a`'s graph from its active faces only
-    // and carries the far faces through the assembly.
+    // A scoped run (PK-814, PK-816) builds each scoped operand's graph
+    // from its active faces only; the assembly carries the far faces the
+    // operation keeps and the rest never form fragments.
+    let scope = scopes.and_then(|s| s.a.as_ref());
     let (_vmap_a, hemap_a) = crate::merge::graph_build::insert_operand_topology_scoped(
         &mut graph,
         original_a,
@@ -64,7 +65,13 @@ pub(crate) fn cellular_graph_merge(
         snap_tol,
         scope,
     );
-    let (_vmap_b, hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
+    let (_vmap_b, hemap_b) = crate::merge::graph_build::insert_operand_topology_scoped(
+        &mut graph,
+        original_b,
+        Operand::B,
+        snap_tol,
+        scopes.and_then(|s| s.b.as_ref()),
+    );
 
     // Process edge-face hits.
     if popkern_core::trace::trace_enabled("boolean") {
@@ -239,7 +246,7 @@ pub(crate) fn cellular_graph_merge(
         original_b,
         *tolerance,
         &mut carried,
-        scope,
+        scopes.map(|s| s.carried(op)).unwrap_or_default(),
     )
     .map_err(|mut diag| {
         // ChartSubdivisionReport promotion (PK-106): a failed cellular

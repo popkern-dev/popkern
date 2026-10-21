@@ -1,10 +1,11 @@
 //! Far-face carry (local boolean scope stage 2, PK-814,
 //! docs/architecture/local-boolean-scope.md).
 //!
-//! A scoped boolean builds its graph from operand `a`'s ACTIVE faces
-//! only; the far faces — whose boxes miss the tool's, so they carry no
-//! record and lie outside the tool — are kept by a union or a
-//! subtraction and come through unchanged. They are appended here,
+//! A scoped boolean builds its graph from a scoped operand's ACTIVE
+//! faces only; the far faces — whose boxes miss the other operand's, so
+//! they carry no record and lie outside it — are kept by a union (either
+//! operand's) or a subtraction (`a`'s, stage 4: PK-816) and come through
+//! unchanged. They are appended here,
 //! entity for entity: surface and orientation, loops, pcurves, edge
 //! curves, names, roles and tolerances. A frontier half-edge (on an
 //! edge shared with an active face) takes the free twin of the edge the
@@ -21,29 +22,39 @@ use popkern_core::topology::{
 };
 use slotmap::SecondaryMap;
 
-/// Original `a` entities already built by the assembly. The edge and
-/// vertex maps are dense on `a`'s handles: the carry looks them up per
-/// half-edge (~1500 at the slot disc's 64th cut).
-#[derive(Default)]
-pub(super) struct CarryMaps {
-    /// Unsplit original edges of `a` and the result edge built from each.
-    pub(super) edges: SecondaryMap<EdgeHandle, EdgeHandle>,
-    /// `a`'s vertices and their result vertices.
-    pub(super) vertices: SecondaryMap<VertexHandle, VertexHandle>,
-    /// Result faces built from each face of `a`'s kept fragments, with
-    /// their flip.
+use crate::merge::graph::{EdgeSource, NodeSource, Operand};
+use crate::scope::ActiveScope;
+use crate::serve_region::Carried;
+
+/// One operand's original entities already built by the assembly. The
+/// edge and vertex maps are dense on that operand's handles: the carry
+/// looks them up per half-edge (~1500 at the slot disc's 64th cut).
+struct CarryMaps {
+    /// The operand whose entities these are.
+    operand: Operand,
+    /// Unsplit original edges and the result edge built from each.
+    edges: SecondaryMap<EdgeHandle, EdgeHandle>,
+    /// Original vertices and their result vertices.
+    vertices: SecondaryMap<VertexHandle, VertexHandle>,
+    /// Result faces built from each face's kept fragments, with their
+    /// flip.
     faces: HashMap<FaceHandle, Vec<(FaceHandle, bool)>>,
 }
 
 impl CarryMaps {
+    /// Empty maps for `operand`.
+    fn of(operand: Operand) -> Self {
+        Self {
+            operand,
+            edges: SecondaryMap::new(),
+            vertices: SecondaryMap::new(),
+            faces: HashMap::new(),
+        }
+    }
+
     /// Record a kept fragment's result face.
-    pub(super) fn kept_faces(
-        &mut self,
-        face: crate::merge::graph::FaceRef,
-        result: FaceHandle,
-        flip: bool,
-    ) {
-        if face.operand == crate::merge::graph::Operand::A {
+    fn kept_faces(&mut self, face: crate::merge::graph::FaceRef, result: FaceHandle, flip: bool) {
+        if face.operand == self.operand {
             self.faces
                 .entry(face.face)
                 .or_default()
@@ -52,16 +63,96 @@ impl CarryMaps {
     }
 }
 
+/// Both operands' carry bookkeeping for one assembly. `b`'s structure
+/// counts as carried only when its far faces are (a scoped union,
+/// PK-816); otherwise its faces stay touched as before.
+pub(super) struct Carry<'s> {
+    a: CarryMaps,
+    b: CarryMaps,
+    far: (Option<&'s ActiveScope>, Option<&'s ActiveScope>),
+}
+
+impl<'s> Carry<'s> {
+    /// Bookkeeping for the far faces `far` of `a` and `b` that the
+    /// operation keeps.
+    pub(super) fn new(far: (Option<&'s ActiveScope>, Option<&'s ActiveScope>)) -> Self {
+        Self {
+            a: CarryMaps::of(Operand::A),
+            b: CarryMaps::of(Operand::B),
+            far,
+        }
+    }
+
+    /// Record the result vertex built from a graph node.
+    pub(super) fn vertex(&mut self, source: &NodeSource, vh: VertexHandle) {
+        match *source {
+            NodeSource::OriginalA(v) => {
+                self.a.vertices.insert(v, vh);
+            }
+            NodeSource::OriginalB(v) if self.far.1.is_some() => {
+                self.b.vertices.insert(v, vh);
+            }
+            _ => {}
+        }
+    }
+
+    /// Record the result edge built from a graph edge.
+    pub(super) fn edge(&mut self, source: &EdgeSource, edge: EdgeHandle, carried: &mut Carried) {
+        if source.is_unsplit_original() {
+            carried.edges.insert(edge, ());
+        }
+        let (maps, e) = match *source {
+            EdgeSource::OriginalA(e) => (&mut self.a, e),
+            EdgeSource::OriginalB(e) if self.far.1.is_some() => (&mut self.b, e),
+            _ => return,
+        };
+        maps.edges.insert(e, edge);
+        carried.of(maps.operand).0.insert(edge, ());
+    }
+
+    /// Record a kept fragment's result face.
+    pub(super) fn face(
+        &mut self,
+        face: crate::merge::graph::FaceRef,
+        result: FaceHandle,
+        flip: bool,
+        carried: &mut Carried,
+    ) {
+        self.a.kept_faces(face, result, flip);
+        self.b.kept_faces(face, result, flip);
+        if face.operand == Operand::A || (self.far.1.is_some() && !flip) {
+            carried.of(face.operand).1.insert(result, ());
+        }
+    }
+
+    /// Append the kept far faces of both operands (see [`carry`]).
+    pub(super) fn far_faces(
+        &mut self,
+        builder: &mut BRepBuilder,
+        shell: ShellHandle,
+        (a, b): (&BRep, &BRep),
+        carried: &mut Carried,
+    ) -> Result<(), crate::error::BoolDiagnostics> {
+        if let Some(far) = self.far.0 {
+            carry(builder, shell, a, far, &mut self.a, carried)?;
+        }
+        if let Some(far) = self.far.1 {
+            carry(builder, shell, b, far, &mut self.b, carried)?;
+        }
+        Ok(())
+    }
+}
+
 /// [`append_far_faces`] for the assembler: a failure is a merge
 /// diagnostic, and every carried edge (an unsplit original) joins
 /// `carried`.
-pub(super) fn carry(
+fn carry(
     builder: &mut BRepBuilder,
     shell: ShellHandle,
     a: &BRep,
-    scope: &crate::scope::ActiveScope,
+    scope: &ActiveScope,
     maps: &mut CarryMaps,
-    carried: &mut crate::serve_region::Carried,
+    carried: &mut Carried,
 ) -> Result<(), crate::error::BoolDiagnostics> {
     append_far_holes(builder, a, &scope.far_holes, maps)
         .and_then(|()| append_far_faces(builder, shell, a, &scope.far, maps, carried))
@@ -75,24 +166,25 @@ pub(super) fn carry(
         })?;
     carried.edges.extend(maps.edges.values().map(|&e| (e, ())));
     carried
-        .a_edges
+        .of(maps.operand)
+        .0
         .extend(maps.edges.values().map(|&e| (e, ())));
     Ok(())
 }
 
-/// Append `far` (faces of `a`, in `a`'s order) to the assembly.
-pub(super) fn append_far_faces(
+/// Append `far` (faces of the operand `a`, in its order) to the assembly.
+fn append_far_faces(
     builder: &mut BRepBuilder,
     shell: ShellHandle,
     a: &BRep,
     far: &[FaceHandle],
     maps: &mut CarryMaps,
-    carried: &mut crate::serve_region::Carried,
+    carried: &mut Carried,
 ) -> Result<(), String> {
     for &fh in far {
         let face = a.faces.get(fh).ok_or("far face missing")?;
         let rf = builder.add_face(shell);
-        carried.a_faces.insert(rf, ());
+        carried.of(maps.operand).1.insert(rf, ());
         {
             let r = builder.brep_mut();
             r.faces[rf].surface = face.surface.clone();

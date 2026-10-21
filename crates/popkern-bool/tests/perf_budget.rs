@@ -325,3 +325,61 @@ fn slotted_disc_late_cut_stays_near_the_first() {
         "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 1.8"
     );
 }
+
+/// The symmetric case (PK-816): a small target unioned with the 64-slot
+/// disc as the TOOL costs what the mirrored union (the disc as target)
+/// does. The tool's far faces never formed fragments once it was scoped
+/// like the target: before, the boss ∪ disc union paid every slot wall's
+/// graph entities, identity fragment, classification and serve-tail
+/// pass (11.1 ms against 8.3 for disc ∪ boss, 1.34); scoped, 1.09-1.13
+/// interleaved. Control: with the tool's scope off, 1.46 fails the gate.
+#[test]
+fn a_small_target_with_the_slotted_disc_as_tool_costs_as_its_mirror() {
+    if debug_skip("64-slot disc as tool vs as target") {
+        return;
+    }
+    let tol = tol();
+    let slot = |k: usize| {
+        let a = std::f64::consts::TAU * k as f64 / 64.0;
+        let (ca, sa, w) = (a.cos(), a.sin(), 0.6);
+        let pts = [
+            Point3::new(22.0 * ca + w * sa, 22.0 * sa - w * ca, -1.0),
+            Point3::new(27.0 * ca + w * sa, 27.0 * sa - w * ca, -1.0),
+            Point3::new(27.0 * ca - w * sa, 27.0 * sa + w * ca, -1.0),
+            Point3::new(22.0 * ca - w * sa, 22.0 * sa + w * ca, -1.0),
+        ];
+        BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 4.0, tol).expect("slot prism")
+    };
+    let mut body = BRep::cylinder(30.0, 1.5, tol).expect("disc");
+    for k in 0..63 {
+        body = boolean(BoolOperation::Subtraction, body, slot(k), tol, None).expect("slot cut");
+    }
+    let pts = [
+        Point3::new(-2.0, -2.0, 1.4),
+        Point3::new(2.0, -2.0, 1.4),
+        Point3::new(2.0, 2.0, 1.4),
+        Point3::new(-2.0, 2.0, 1.4),
+    ];
+    let boss = BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss");
+    let union = |a: &BRep, b: &BRep| {
+        boolean(BoolOperation::Union, a.clone(), b.clone(), tol, None).expect("union")
+    };
+    // Interleaved, so both sides of the ratio see the same contention.
+    let (mut mirror, mut symmetric) = (Duration::MAX, Duration::MAX);
+    for _ in 0..7 {
+        let t0 = Instant::now();
+        union(&body, &boss);
+        mirror = mirror.min(t0.elapsed());
+        let t0 = Instant::now();
+        union(&boss, &body);
+        symmetric = symmetric.min(t0.elapsed());
+    }
+    let ratio = symmetric.as_secs_f64() / mirror.as_secs_f64().max(1e-9);
+    eprintln!(
+        "perf budget [disc as tool]: boss ∪ disc {symmetric:?}, disc ∪ boss {mirror:?}, ratio {ratio:.2} (gate 1.25)"
+    );
+    assert!(
+        ratio <= 1.25,
+        "the disc as tool costs {ratio:.2}x the disc as target ({symmetric:?} vs {mirror:?}) > 1.25"
+    );
+}

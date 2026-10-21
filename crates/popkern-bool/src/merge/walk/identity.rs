@@ -159,13 +159,24 @@ pub(crate) fn compare_mode() -> bool {
 /// precondition and panics with both loop sets (compare mode is a
 /// test-harness switch, never a serving path).
 pub(crate) fn compare_identity(identity: &Fragment, walked: &[&Fragment]) {
+    // A loop is a cycle: the walk may start it at another half-edge
+    // (measured: a blind tap's tool wall, the same 24 half-edges from
+    // the 24th). Compare each from its least half-edge.
+    let canonical = |lp: &[usize]| {
+        let start = (0..lp.len()).min_by_key(|&i| lp[i]).unwrap_or(0);
+        lp[start..]
+            .iter()
+            .chain(&lp[..start])
+            .copied()
+            .collect::<Vec<_>>()
+    };
     let sorted = |inner: &[Vec<usize>]| {
-        let mut inner = inner.to_vec();
+        let mut inner: Vec<_> = inner.iter().map(|l| canonical(l)).collect();
         inner.sort();
         inner
     };
     let same = walked.len() == 1
-        && walked[0].outer_loop == identity.outer_loop
+        && canonical(&walked[0].outer_loop) == canonical(&identity.outer_loop)
         && sorted(&walked[0].inner_loops) == sorted(&identity.inner_loops);
     assert!(
         same,

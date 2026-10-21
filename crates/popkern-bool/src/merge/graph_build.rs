@@ -36,7 +36,8 @@ pub(crate) fn insert_operand_topology(
 /// boolean scope, PK-814): only their vertices and edges become graph
 /// entities and only their loops are assigned. An edge between an active
 /// and a far face (a frontier edge) is inserted with its far side left
-/// faceless; the far faces are carried into the result by the assembler.
+/// faceless; the assembler carries the far faces the operation keeps, and
+/// the rest form no fragment (PK-816).
 pub(crate) fn insert_operand_topology_scoped(
     graph: &mut IntersectionGraph,
     brep: &BRep,
