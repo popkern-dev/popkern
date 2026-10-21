@@ -5,6 +5,10 @@
 use super::super::surface_jet::ParamMap;
 use super::*;
 
+/// How near a knot (relative to the domain's length) a box end is taken
+/// to end on it; far above parameter rounding, far below any piece.
+const KNOT_SNAP: f64 = 1e-9;
+
 impl NurbsJetSource {
     /// An enclosure of the surface's position alone over a box inside
     /// the domain: the hull of the positive-weight entries of each
@@ -22,6 +26,7 @@ impl NurbsJetSource {
     /// known to be zero has a weight enclosure reaching zero;
     /// [`CertifyDecline::SpanStraddle`] for a box leaving the domain.
     pub fn position_hull(&mut self, u: Iv, v: Iv) -> Result<IvVec3, CertifyDecline> {
+        let (u, v) = self.snapped(u, v);
         let (p, q) = self.degree;
         let domain = |knots: &[f64], degree: usize, num: usize| (knots[degree], knots[num]);
         let (du, dv) = (
@@ -138,6 +143,7 @@ impl NurbsJetSource {
     ///
     /// As [`NurbsJetSource::position_hull`].
     pub fn difference_hull(&mut self, u: Iv, v: Iv, l: &ParamMap) -> Result<f64, CertifyDecline> {
+        let (u, v) = self.snapped(u, v);
         let (p, q) = self.degree;
         let domain = |knots: &[f64], degree: usize, num: usize| (knots[degree], knots[num]);
         let (du, dv) = (
@@ -252,6 +258,40 @@ impl NurbsJetSource {
             }
         }
         Ok(worst)
+    }
+
+    /// The box with each end within [`KNOT_SNAP`] of the domain's
+    /// length short of a knot extended to that knot. A larger box
+    /// encloses the smaller, and an end on a span end is exact, which
+    /// the zero tracking needs: a mesh vertex 1e-13 inside an activated
+    /// Gregory corner otherwise mixes the corner's near-zero weights
+    /// into every box beside it (pentagon_tower, 4.2e-2 at any size
+    /// against a 2.2e-3 witness, PK-910).
+    fn snapped(&self, u: Iv, v: Iv) -> (Iv, Iv) {
+        let (p, q) = self.degree;
+        let snap = |x: Iv, knots: &[f64], degree: usize, num: usize| {
+            let Some(inner) = knots.get(degree..=num) else {
+                return x;
+            };
+            let (Some(first), Some(last)) = (inner.first(), inner.last()) else {
+                return x;
+            };
+            let reach = KNOT_SNAP * (last - first);
+            let (mut lo, mut hi) = (x.lo, x.hi);
+            for &k in inner {
+                if k < lo && lo - k <= reach {
+                    lo = k;
+                }
+                if k > hi && k - hi <= reach {
+                    hi = k;
+                }
+            }
+            Iv::new(lo, hi)
+        };
+        (
+            snap(u, &self.knots_u, p, self.num.0),
+            snap(v, &self.knots_v, q, self.num.1),
+        )
     }
 
     /// Span `(su, sv)`'s homogeneous net restricted to the box (indexed

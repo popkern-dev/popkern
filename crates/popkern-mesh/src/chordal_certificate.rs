@@ -270,11 +270,19 @@ fn certify_face(
             })
             .collect();
         let mut bounds: Vec<f64> = best.iter().map(|b| b.0).collect();
-        bend_pass(surface, &input, &mut bounds, tolerance, |w, p, c| {
+        let bent = bend_pass(surface, &input, &mut bounds, tolerance, |w, p, c| {
             bent_triangle_chord_bound(&mut source, &breaks, w, p, c, tolerance)
                 .ok()
                 .flatten()
         });
+        // Still over: follow the nearest-point map piecewise (PK-910),
+        // in one chart only (unwrapped periodic triangles need not
+        // share their edges' parameters).
+        if periods.0.is_none() && periods.1.is_none() && bounds.iter().any(|&b| b > tolerance) {
+            refine_pass(surface, &input, &mut bounds, &bent, tolerance, |w, p| {
+                triangle_chord_bound(&mut source, &breaks, w, p, tolerance).ok()
+            });
+        }
         for (b, x) in best.iter_mut().zip(bounds) {
             b.0 = x;
         }
@@ -308,9 +316,12 @@ mod chordal_bend;
 mod chordal_boundary;
 #[path = "chordal_pieces.rs"]
 mod chordal_pieces;
+#[path = "chordal_refine.rs"]
+mod chordal_refine;
 use chordal_bend::{BendTriangle, bend_pass};
 use chordal_boundary::boundary_bound;
 pub(crate) use chordal_pieces::{Piece, c0_breaks, pole_pieces, quad_piece, unwrap};
+use chordal_refine::refine_pass;
 
 #[cfg(test)]
 #[path = "chordal_certificate_tests.rs"]

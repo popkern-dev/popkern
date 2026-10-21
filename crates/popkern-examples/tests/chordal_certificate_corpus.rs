@@ -102,16 +102,16 @@ fn the_corpus_meshes_certify_or_name_their_faces() {
             );
         }
     }
-    // Measured 2026-10-21 (PK-909): 271 faces, 266 certified, 5 proven
-    // past the chord height and none witnessed: pentagon_tower Gregory
-    // caps beside activated corners, three at 5.4e-3 (2.2e-3 witnesses)
-    // and two at 4.3e-2. The nets' difference hull (second order beside
-    // a weight zero, where the position hull is first) and bent corner
-    // pieces certified the other ten (2.1e-2 to 2.9e-2 before). None
-    // inconclusive. A ratchet: the counts may only improve.
+    // Measured 2026-10-21 (PK-910): all 271 faces certified. The last
+    // five, pentagon_tower Gregory caps beside activated corners (two
+    // triangles over the whole patch, 5.4e-3 and 4.3e-2 against 2.2e-3
+    // witnesses), certify through refined pairings (4.7e-3..5.0e-3) once
+    // box ends within rounding of the corner snap to it (the two at
+    // 4.3e-2). PK-909's difference hull and bent corner pieces certified
+    // the ten before. A ratchet: the counts may only improve.
     let witnessed = exceeds - loose;
     assert!(
-        certified >= 266 && exceeds <= 5 && witnessed == 0 && inconclusive == 0,
+        certified >= 271 && exceeds == 0 && witnessed == 0 && inconclusive == 0,
         "{certified} certified, {exceeds} exceed ({witnessed} witnessed), {inconclusive} inconclusive"
     );
     eprintln!(
@@ -141,4 +141,41 @@ fn narrow_fillet_strips_meet_the_chord_height() {
     );
     assert!(cert.inconclusive().is_empty(), "{:?}", cert.inconclusive());
     assert!(cert.certified(), "{:?}", cert.exceeding());
+}
+
+#[test]
+fn a_box_ending_within_rounding_of_an_activated_corner_encloses_like_one_on_it() {
+    // PK-910: pentagon_tower's caps mesh a vertex at u = 1 − 1.06e-13
+    // beside their activated corner (1, 1). Ending there, a box missed
+    // the exact corner the zero tracking needs and its hull spread to
+    // 4.2e-2 at any size (against 4.9e-4 on the corner), so the caps'
+    // corner pieces never certified. Box ends that near a knot snap to
+    // it.
+    use popkern_core::geometry::SurfaceEval;
+    use popkern_core::geometry::certify::{Iv, IvVec3, SurfaceJetSource};
+    let part = build_pentagon_tower().expect("pentagon tower");
+    let mut caps = 0;
+    for (_, face) in part.brep().faces.iter() {
+        let Some(surface) = face.surface.as_ref().map(|s| &s.geometry) else {
+            continue;
+        };
+        if surface.kind_name() != "Gregory" {
+            continue;
+        }
+        let mut source = SurfaceJetSource::new(surface).expect("jet source");
+        let corner = IvVec3::from_point(surface.point_at(1.0, 1.0));
+        let mut spread = |hi: f64| {
+            let hull = source
+                .position_hull(Iv::new(0.97, hi), Iv::new(0.97, 1.0))
+                .expect("hull");
+            (hull - corner).norm().hi
+        };
+        let (on, near) = (spread(1.0), spread(1.0 - 1.06e-13));
+        assert!(
+            near <= on * 1.001 + 1e-12,
+            "{near} against {on} on the corner"
+        );
+        caps += 1;
+    }
+    assert!(caps >= 5, "{caps} Gregory faces");
 }

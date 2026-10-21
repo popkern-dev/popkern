@@ -23,7 +23,7 @@
 //! midpoint to the surface point nearest the chord's midpoint, which
 //! cancels the in-plane sag that the affine pairing charges.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use popkern_core::geometry::{Point3, SurfaceEval, SurfaceGeometry};
 
@@ -41,6 +41,9 @@ pub(super) struct BendTriangle {
     pub p: [Point3; 3],
 }
 
+/// A welded edge, unordered.
+pub(super) type EdgeKey = (usize, usize);
+
 /// Rounds of rejection before the pass gives up on bending at all.
 const MAX_ROUNDS: usize = 8;
 
@@ -48,14 +51,14 @@ const MAX_ROUNDS: usize = 8;
 /// pairing bounds more tightly. `bound(w, p, controls)` is the bent
 /// bound, `None` where it does not apply or declines (the triangle then
 /// keeps its unbent bound); `None` entries of `tris` (pole pieces)
-/// never bend.
+/// never bend. Returns the edges left bent.
 pub(super) fn bend_pass(
     surface: &SurfaceGeometry,
     tris: &[Option<BendTriangle>],
     bounds: &mut [f64],
     tolerance: f64,
     mut bound: impl FnMut([Uv; 3], [Point3; 3], [Option<Uv>; 3]) -> Option<f64>,
-) {
+) -> HashSet<EdgeKey> {
     let mut users: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::new();
     for (k, t) in tris.iter().enumerate() {
         let Some(t) = t else { continue };
@@ -73,6 +76,7 @@ pub(super) fn bend_pass(
     for _ in 0..MAX_ROUNDS {
         let mut found = vec![None; tris.len()];
         let mut rejected = false;
+        let mut edges = HashSet::new();
         for k in 0..tris.len() {
             let Some(t) = tris[k].filter(|_| bent[k]) else {
                 continue;
@@ -98,6 +102,11 @@ pub(super) fn bend_pass(
                 *c = Some((m.0 + 2.0 * d.0, m.1 + 2.0 * d.1));
                 across[e] = Some(aligned(&tj, &t, e));
             }
+            edges.extend(
+                (0..3)
+                    .filter(|&e| controls[e].is_some())
+                    .map(|e| key(&t, e)),
+            );
             let admissible = net_inside(t.w, controls, across);
             match admissible.then(|| bound(t.w, t.p, controls)).flatten() {
                 Some(b) if b < bounds[k] => found[k] = Some(b),
@@ -113,13 +122,14 @@ pub(super) fn bend_pass(
                     *b = f;
                 }
             }
-            return;
+            return edges;
         }
     }
+    HashSet::new()
 }
 
 /// The welded edge `e` (vertices `e`, `e + 1`) of `t`, unordered.
-fn key(t: &BendTriangle, e: usize) -> (usize, usize) {
+pub(super) fn key(t: &BendTriangle, e: usize) -> EdgeKey {
     let (a, b) = (t.weld[e], t.weld[(e + 1) % 3]);
     (a.min(b), a.max(b))
 }
@@ -166,7 +176,7 @@ fn aligned(other: &BendTriangle, t: &BendTriangle, e: usize) -> [Uv; 3] {
     other.w.map(|q| (q.0 + s.0, q.1 + s.1))
 }
 
-fn orient(a: Uv, b: Uv, c: Uv) -> f64 {
+pub(super) fn orient(a: Uv, b: Uv, c: Uv) -> f64 {
     let p = |q: Uv| robust::Coord { x: q.0, y: q.1 };
     robust::orient2d(p(a), p(b), p(c))
 }
