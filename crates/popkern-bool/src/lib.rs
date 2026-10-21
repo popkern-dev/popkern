@@ -187,7 +187,7 @@ pub fn boolean(
         (Vec::new(), Vec::new(), 0, 0)
     };
 
-    let mut result = operation::execute_boolean(op, a.clone(), b.clone(), &tol).or_else(|e| {
+    let mut result = operation::execute_boolean(op, &a, &b, &tol).or_else(|e| {
         // Perturbation fallback: retry with slightly perturbed geometry
         // if the error is the kind that perturbation can fix.
         if matches!(
@@ -401,8 +401,7 @@ pub fn boolean_with_diagnostics(
     tol: Tolerance,
 ) -> Result<(BRep, BoolDiagnostics), BoolError> {
     let mut metrics = Vec::new();
-    let result =
-        operation::execute_boolean_with_metrics(op, a.clone(), b.clone(), &tol, &mut metrics)?;
+    let result = operation::execute_boolean_with_metrics(op, a, b, &tol, &mut metrics)?;
     let diagnostics = BoolDiagnostics {
         phase_metrics: metrics,
         ..BoolDiagnostics::default()
@@ -440,8 +439,8 @@ pub fn boolean_cancellable(
         let mut metrics = Vec::new();
         operation::execute_boolean_full(
             op,
-            worker_a,
-            worker_b,
+            &worker_a,
+            &worker_b,
             &tol,
             &mut metrics,
             Some(&worker_token),
@@ -467,15 +466,7 @@ pub fn boolean_with_progress(
     reporter: &mut dyn progress::ProgressReporter,
 ) -> Result<BRep, BoolError> {
     let mut metrics = Vec::new();
-    operation::execute_boolean_full(
-        op,
-        a.clone(),
-        b.clone(),
-        &tol,
-        &mut metrics,
-        None,
-        Some(reporter),
-    )
+    operation::execute_boolean_full(op, a, b, &tol, &mut metrics, None, Some(reporter))
 }
 
 /// Wedge-matching trace gate (fragment-walk successor diagnostics).

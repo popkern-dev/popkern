@@ -36,7 +36,7 @@ pub fn boolean_with_remediation(
     // fell through to the perturbation fallback so the final hint
     // can avoid recommending it again.
     let mut perturbation_attempted = false;
-    let result = operation::execute_boolean(op, a.clone(), b.clone(), &tol).or_else(|e| {
+    let result = operation::execute_boolean(op, a, b, &tol).or_else(|e| {
         if matches!(
             e,
             BoolError::CoincidentFaces { .. }

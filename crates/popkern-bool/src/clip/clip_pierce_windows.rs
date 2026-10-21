@@ -148,7 +148,12 @@ fn compute_junction_points(
     let other_surf = &other_surface.geometry;
     let ow = crate::intersect::bounded_parameter_range(other_brep, other_face, other_surf);
     let tolerance = &brep_x.tolerance;
+    let margin = 100.0 * tolerance.linear().max(other_brep.tolerance.linear());
     for eh in trim_boundary_edges(brep_x, face_x) {
+        // An edge wholly beside a planar other surface cannot meet it.
+        if super::clip_edge_box::edge_clear_of_plane(brep_x, eh, other_surf, margin) {
+            continue;
+        }
         let Some(edge) = brep_x.edges.get(eh) else {
             continue;
         };
@@ -206,12 +211,16 @@ pub(super) fn intervals_clear_of_boundary(
     bounds.push(t_min);
     bounds.extend(ts.iter().copied());
     bounds.push(t_max);
+    // Each edge with its box: one farther than the clearance is not near.
     let edge_curves: Vec<_> = [(brep_a, face_a), (brep_b, face_b)]
         .into_iter()
         .flat_map(|(brep, face)| {
             trim_boundary_edges(brep, face)
                 .into_iter()
-                .filter_map(move |eh| brep.edges.get(eh)?.curve.clone())
+                .filter_map(move |eh| {
+                    let c = brep.edges.get(eh)?.curve.clone()?;
+                    Some((c, super::clip_edge_box::edge_box(brep, eh)))
+                })
         })
         .collect();
     for w in bounds.windows(2) {
@@ -219,7 +228,13 @@ pub(super) fn intervals_clear_of_boundary(
             continue;
         }
         let p = curve.curve_3d.point_at(0.5 * (w[0] + w[1]));
-        for c in &edge_curves {
+        for (c, bx) in &edge_curves {
+            if bx
+                .as_ref()
+                .is_some_and(|b| super::clip_edge_box::box_distance(b, &p) >= clearance)
+            {
+                continue;
+            }
             let Some(t) = (&c.geometry as &dyn CurveEval).closest_point(&p) else {
                 continue;
             };

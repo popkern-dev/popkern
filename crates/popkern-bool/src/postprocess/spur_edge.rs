@@ -186,9 +186,15 @@ fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64) -> bool {
 /// Retire ONE short MEV spur (tip valence 1) via the transactional
 /// `kev` operator. Returns whether anything was removed.
 fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64) -> bool {
-    let mut valence: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
+    // Dense on the vertex handles (PK-815: every boolean's result).
+    let mut valence: slotmap::SecondaryMap<popkern_core::topology::VertexHandle, usize> =
+        slotmap::SecondaryMap::with_capacity(brep.vertices.len());
     for (_, he) in brep.half_edges.iter() {
-        *valence.entry(he.origin).or_default() += 1;
+        if let Some(n) = valence.get_mut(he.origin) {
+            *n += 1;
+        } else {
+            valence.insert(he.origin, 1);
+        }
     }
     let candidates: Vec<_> = brep
         .edges
@@ -207,9 +213,9 @@ fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64) -> bool {
             // `kev` removes the edge plus the TWIN's origin (the
             // tip); pick whichever half-edge points INTO a valence-1
             // tip.
-            if valence.get(&twin.origin).copied().unwrap_or(0) == 1 {
+            if valence.get(twin.origin).copied().unwrap_or(0) == 1 {
                 Some(d.half_edge)
-            } else if valence.get(&he.origin).copied().unwrap_or(0) == 1 {
+            } else if valence.get(he.origin).copied().unwrap_or(0) == 1 {
                 Some(he.twin)
             } else {
                 None

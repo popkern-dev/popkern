@@ -24,8 +24,8 @@ use crate::progress::ProgressReporter;
 /// the input model is unchanged.
 pub(crate) fn execute_boolean_full(
     op: BoolOperation,
-    a: BRep,
-    b: BRep,
+    a: &BRep,
+    b: &BRep,
     tolerance: &Tolerance,
     metrics: &mut Vec<PhaseMetric>,
     cancel: Option<&CancellationToken>,
@@ -55,9 +55,8 @@ pub(crate) fn execute_boolean_full(
     // body; `None` (degenerate sampling) disables the rescue. It walks
     // the whole body, and only a FAILED primary reads it, so it runs
     // on the operand copies after the failure (PK-804: computed up
-    // front it was 7.6 ms of a 47 ms slot cut on a 255-face disc; the
-    // copies cost 0.3 ms).
-    let rescue_operands = (a.clone(), b.clone());
+    // front it was 7.6 ms of a 47 ms slot cut on a 255-face disc). The
+    // copies are taken after the failure too (PK-815: 0.3 ms a cut).
 
     // `progress` is consumed by the primary run; the rescue run is
     // internal and reports no progress.
@@ -67,7 +66,7 @@ pub(crate) fn execute_boolean_full(
         Err(BoolError::Cancelled) => return Err(BoolError::Cancelled),
         Err(e) => e,
     };
-    let (mut ra, mut rb) = rescue_operands;
+    let (mut ra, mut rb) = (a.clone(), b.clone());
     let sense_of = |body: &BRep| {
         body.faces
             .iter()
@@ -98,7 +97,7 @@ pub(crate) fn execute_boolean_full(
             "  [exec] mixed-sense pair declined ({err}); retrying with the inward operand reversed"
         );
     }
-    match execute_boolean_pipeline(op, ra, rb, tolerance, &mut Vec::new(), cancel, None) {
+    match execute_boolean_pipeline(op, &ra, &rb, tolerance, &mut Vec::new(), cancel, None) {
         Ok(rescued) => {
             // Tear bar: a divergence at 1% of the body extent is a
             // feature-scale hole, not an approximation band

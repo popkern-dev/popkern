@@ -97,8 +97,8 @@ pub(crate) use sense_rescue::execute_boolean_full;
 /// from whichever stage failed.
 pub(crate) fn execute_boolean(
     op: BoolOperation,
-    a: BRep,
-    b: BRep,
+    a: &BRep,
+    b: &BRep,
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolError> {
     execute_boolean_full(op, a, b, tolerance, &mut Vec::new(), None, None)
@@ -109,8 +109,8 @@ pub(crate) fn execute_boolean(
 /// Backwards-compatible wrapper used by `boolean_with_diagnostics`.
 pub(crate) fn execute_boolean_with_metrics(
     op: BoolOperation,
-    a: BRep,
-    b: BRep,
+    a: &BRep,
+    b: &BRep,
     tolerance: &Tolerance,
     metrics: &mut Vec<PhaseMetric>,
 ) -> Result<BRep, BoolError> {
@@ -118,13 +118,15 @@ pub(crate) fn execute_boolean_with_metrics(
 }
 
 /// The staged boolean pipeline body (intersect → split → classify →
-/// select → merge → validate). Runs the operands exactly as given;
-/// the mixed-sense rescue orchestration lives in
+/// select → merge → validate). Runs the operands exactly as given,
+/// borrowed: only the no-intersection shortcut, which combines them,
+/// takes copies (PK-815: the late cut of a 255-face disc copied it twice
+/// per boolean); the mixed-sense rescue orchestration lives in
 /// [`sense_rescue::execute_boolean_full`].
 pub(super) fn execute_boolean_pipeline(
     op: BoolOperation,
-    a: BRep,
-    b: BRep,
+    a: &BRep,
+    b: &BRep,
     tolerance: &Tolerance,
     metrics: &mut Vec<PhaseMetric>,
     cancel: Option<&CancellationToken>,
@@ -142,7 +144,7 @@ pub(super) fn execute_boolean_pipeline(
     // Stage 1: Intersect — compute face-face intersection curves.
     let t_intersect = popkern_core::time::Stopwatch::start();
     let intersection_result =
-        find_intersections(&a, &b, tolerance).map_err(|diag| diag.into_error())?;
+        find_intersections(a, b, tolerance).map_err(|diag| diag.into_error())?;
     let elapsed_intersect = t_intersect.elapsed();
     let count_intersect = intersection_result.records.len();
     metrics.push(PhaseMetric {
@@ -172,8 +174,8 @@ pub(super) fn execute_boolean_pipeline(
         }
         return handle_no_intersection(
             op,
-            a,
-            b,
+            a.clone(),
+            b.clone(),
             &intersection_result.aabbs_a,
             &intersection_result.aabbs_b,
             tolerance,
@@ -201,11 +203,11 @@ pub(super) fn execute_boolean_pipeline(
 
     // Coincident-body containment shortcut — verified geometrically
     // (see `operation_containment.rs`).
-    if containment::coincident_containment_applies(&a, &b, &intersection_result, tolerance) {
+    if containment::coincident_containment_applies(a, b, &intersection_result, tolerance) {
         return handle_no_intersection(
             op,
-            a,
-            b,
+            a.clone(),
+            b.clone(),
             &intersection_result.aabbs_a,
             &intersection_result.aabbs_b,
             tolerance,
@@ -213,7 +215,7 @@ pub(super) fn execute_boolean_pipeline(
     }
 
     // Bodies that only touch (opposite contact faces, point records).
-    if let Some(result) = contact::touching_only(op, &a, &b, &intersection_result, tolerance) {
+    if let Some(result) = contact::touching_only(op, a, b, &intersection_result, tolerance) {
         return Ok(result);
     }
 
@@ -225,8 +227,8 @@ pub(super) fn execute_boolean_pipeline(
     // and a 64-slot disc's late cut took 8.0 ms instead of 10.2 (the
     // first 3.9 instead of 5.0; PK-814).
     serve::select_and_serve(
-        &a,
-        &b,
+        a,
+        b,
         &intersection_result,
         op,
         tolerance,

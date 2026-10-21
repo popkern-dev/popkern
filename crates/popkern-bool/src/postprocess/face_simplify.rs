@@ -45,11 +45,14 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
     };
 
     let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
-    let mut visited = std::collections::HashSet::new();
+    // Dense on the body's face handles: the pass runs on every
+    // boolean's whole result (PK-815).
+    let mut visited: slotmap::SecondaryMap<FaceHandle, ()> =
+        slotmap::SecondaryMap::with_capacity(brep.faces.len());
     // Each face's edge-neighbours (the other side of each of its edges),
     // in edge order.
-    let mut adjacency: std::collections::HashMap<FaceHandle, Vec<FaceHandle>> =
-        std::collections::HashMap::new();
+    let mut adjacency: slotmap::SecondaryMap<FaceHandle, Vec<FaceHandle>> =
+        slotmap::SecondaryMap::with_capacity(brep.faces.len());
     for (_eh, edge) in &brep.edges {
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
@@ -60,14 +63,18 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
         let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(twin.loop_)) else {
             continue;
         };
-        adjacency.entry(la.face).or_default().push(lb.face);
-        if lb.face != la.face {
-            adjacency.entry(lb.face).or_default().push(la.face);
+        if let Some(e) = adjacency.entry(la.face) {
+            e.or_default().push(lb.face);
+        }
+        if lb.face != la.face
+            && let Some(e) = adjacency.entry(lb.face)
+        {
+            e.or_default().push(la.face);
         }
     }
 
     for &fh in &face_handles {
-        if visited.contains(&fh) {
+        if visited.contains_key(fh) {
             continue;
         }
 
@@ -86,7 +93,7 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
 
         // Find all adjacent faces with the same surface
         let mut group = vec![fh];
-        visited.insert(fh);
+        visited.insert(fh, ());
 
         // Chart-span budget for DOUBLY-periodic surfaces (torus):
         // merging every co-surfacial patch of a torus produced one
@@ -124,8 +131,8 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
             // Adjacent faces via shared edges, in edge order (the
             // adjacency is built once: scanning every edge per visited
             // face was quadratic in body size — PK-804).
-            for &neighbor in adjacency.get(&current).map(Vec::as_slice).unwrap_or(&[]) {
-                if visited.contains(&neighbor) {
+            for &neighbor in adjacency.get(current).map(Vec::as_slice).unwrap_or(&[]) {
+                if visited.contains_key(neighbor) {
                     continue;
                 }
                 let neighbor_surf = match brep.faces.get(neighbor).and_then(|f| f.surface.as_ref())
@@ -178,7 +185,7 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
                         group_span = Some((clo_u, chi_u, clo_v, chi_v));
                     }
                     group.push(neighbor);
-                    visited.insert(neighbor);
+                    visited.insert(neighbor, ());
                     queue.push_back(neighbor);
                 }
             }

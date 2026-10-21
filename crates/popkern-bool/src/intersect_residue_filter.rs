@@ -161,6 +161,14 @@ pub(crate) fn drop_kept_flank_residues(
             };
             let mut min_d = f64::MAX;
             for eh in crate::clip_endpoint_refine::boundary_edges(own_brep, own_face) {
+                // An edge whose box is past the gate cannot bring the
+                // distance under it (PK-815: a disc face's 61 edges per
+                // residue).
+                if crate::clip::edge_box(own_brep, eh).is_some_and(|b| {
+                    crate::clip::box_distance(&b, &mid) >= boundary_gate.max(min_d)
+                }) {
+                    continue;
+                }
                 let Some(c) = own_brep.edges.get(eh).and_then(|e| e.curve.as_ref()) else {
                     continue;
                 };

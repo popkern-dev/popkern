@@ -38,8 +38,8 @@ fn disjoint_cubes_union_produces_valid_result() {
         BRep::unit_cube(tol()).expect("unit cube b"),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result =
-        execute_boolean(BoolOperation::Union, a, b, &tol()).expect("disjoint union should succeed");
+    let result = execute_boolean(BoolOperation::Union, &a, &b, &tol())
+        .expect("disjoint union should succeed");
     // Should have 12 faces (6 + 6).
     assert_eq!(result.faces.len(), 12);
 }
@@ -51,7 +51,7 @@ fn disjoint_cubes_intersection_is_empty() {
         BRep::unit_cube(tol()).expect("unit cube b"),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = execute_boolean(BoolOperation::Intersection, a, b, &tol())
+    let result = execute_boolean(BoolOperation::Intersection, &a, &b, &tol())
         .expect("disjoint intersection should succeed");
     assert_eq!(result.faces.len(), 0);
 }
@@ -63,7 +63,7 @@ fn disjoint_cubes_subtraction_returns_a() {
         BRep::unit_cube(tol()).expect("unit cube b"),
         Vec3::new(5.0, 0.0, 0.0),
     );
-    let result = execute_boolean(BoolOperation::Subtraction, a, b, &tol())
+    let result = execute_boolean(BoolOperation::Subtraction, &a, &b, &tol())
         .expect("disjoint subtraction should succeed");
     // Should return A unchanged -- 6 faces.
     assert_eq!(result.faces.len(), 6);
@@ -83,7 +83,7 @@ fn contained_cube_union_returns_outer() {
             -1.0, -1.0, -1.0,
         ))
         .unwrap();
-    let result = execute_boolean(BoolOperation::Union, a, b, &tol())
+    let result = execute_boolean(BoolOperation::Union, &a, &b, &tol())
         .expect("contained union should succeed");
     assert_eq!(result.faces.len(), 6);
 }
@@ -102,7 +102,7 @@ fn contained_cube_intersection_returns_inner() {
             -1.0, -1.0, -1.0,
         ))
         .unwrap();
-    let result = execute_boolean(BoolOperation::Intersection, a, b, &tol())
+    let result = execute_boolean(BoolOperation::Intersection, &a, &b, &tol())
         .expect("contained intersection should succeed");
     assert_eq!(result.faces.len(), 6);
 }
@@ -111,7 +111,7 @@ fn contained_cube_intersection_returns_inner() {
 fn empty_a_returns_degenerate_input_error() {
     let a = BRep::new(tol());
     let b = BRep::unit_cube(tol()).expect("unit cube b");
-    let result = execute_boolean(BoolOperation::Union, a, b, &tol());
+    let result = execute_boolean(BoolOperation::Union, &a, &b, &tol());
     assert!(result.is_err(), "empty A should produce an error");
     assert!(
         matches!(result.unwrap_err(), BoolError::DegenerateInput(_)),
@@ -151,7 +151,7 @@ fn contained_cube_subtraction_a_inside_b_is_empty() {
             -1.0, -1.0, -1.0,
         ))
         .unwrap();
-    let result = execute_boolean(BoolOperation::Subtraction, a, b, &tol())
+    let result = execute_boolean(BoolOperation::Subtraction, &a, &b, &tol())
         .expect("containment subtraction should succeed");
     assert_eq!(result.faces.len(), 0, "A inside B: A − B should be empty");
 }
@@ -168,7 +168,7 @@ fn containment_subtraction_creates_hollow() {
             v.position.z * 0.6 + 0.2,
         );
     }
-    let result = execute_boolean(BoolOperation::Subtraction, outer, inner, &tol())
+    let result = execute_boolean(BoolOperation::Subtraction, &outer, &inner, &tol())
         .expect("hollow subtraction should succeed");
     // Should have 12 faces (6 outer + 6 inner flipped).
     assert_eq!(result.faces.len(), 12);
@@ -189,7 +189,7 @@ fn reverse_containment_union_returns_outer() {
         ))
         .unwrap();
     let b = BRep::unit_cube(tol()).expect("unit cube b");
-    let result = execute_boolean(BoolOperation::Union, a, b, &tol())
+    let result = execute_boolean(BoolOperation::Union, &a, &b, &tol())
         .expect("reverse containment union should succeed");
     assert_eq!(result.faces.len(), 6);
 }
@@ -209,7 +209,7 @@ fn reverse_containment_intersection_returns_inner() {
         ))
         .unwrap();
     let b = BRep::unit_cube(tol()).expect("unit cube b");
-    let result = execute_boolean(BoolOperation::Intersection, a, b, &tol())
+    let result = execute_boolean(BoolOperation::Intersection, &a, &b, &tol())
         .expect("reverse containment intersection should succeed");
     assert_eq!(result.faces.len(), 6);
 }
@@ -228,7 +228,7 @@ fn a_hollow_solids_void_faces_are_winding_honest_and_face_the_void() {
         .unwrap()
         .transform(&Transform3::translation(1.0, 1.0, 1.0))
         .unwrap();
-    let result = execute_boolean(BoolOperation::Subtraction, outer, inner, &tol())
+    let result = execute_boolean(BoolOperation::Subtraction, &outer, &inner, &tol())
         .expect("hollow subtraction should succeed");
     assert_eq!(result.faces.len(), 12);
     let dishonest = result.validate_winding_honesty_all();

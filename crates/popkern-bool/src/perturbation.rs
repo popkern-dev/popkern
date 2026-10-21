@@ -54,7 +54,7 @@ pub fn boolean_with_perturbation(
     // unperturbed try re-entered `boolean`, unboundedly, before any
     // perturbed attempt ever ran (measured: a bearing's races∪ball
     // union overflowed the stack on its first perturbable error).
-    match crate::operation::execute_boolean(op, a.clone(), b.clone(), &tolerance) {
+    match crate::operation::execute_boolean(op, a, b, &tolerance) {
         Ok(result) => return Ok(result),
         Err(e) => {
             // Only retry for errors that perturbation can fix
@@ -89,7 +89,7 @@ pub fn boolean_with_perturbation(
             Err(_) => continue,
         };
 
-        match crate::operation::execute_boolean(op, a.clone(), perturbed_b, &tolerance) {
+        match crate::operation::execute_boolean(op, a, &perturbed_b, &tolerance) {
             Ok(mut result) => {
                 // Project result vertices back toward original surfaces.
                 // For small perturbations this is approximately correct.

@@ -145,20 +145,35 @@ fn find_candidate(
     popkern_core::geometry::Point3,
     popkern_core::geometry::Point3,
 )> {
-    // BTreeMap, not HashMap: this scan returns the FIRST passing
+    // Handle order, not hash order: this scan returns the FIRST passing
     // vertex, and the fixpoint caller breaks on the first kve
     // decline — hash order would make the dissolved set and the
     // surviving-edge authoring order run-to-run nondeterministic
-    // (PK-300 hash-iteration audit).
-    let mut outgoing: std::collections::BTreeMap<
+    // (PK-300 hash-iteration audit). A dense map iterates in the
+    // handles' order (the BTreeMap's, slot index then version) without
+    // a tree or a vector per vertex (PK-815: every boolean's whole
+    // result); only each vertex's first two outgoing half-edges and
+    // its count are kept, as only valence 2 is read.
+    let mut outgoing: slotmap::SecondaryMap<
         VertexHandle,
-        Vec<popkern_core::topology::HalfEdgeHandle>,
-    > = std::collections::BTreeMap::new();
+        (usize, [popkern_core::topology::HalfEdgeHandle; 2]),
+    > = slotmap::SecondaryMap::with_capacity(brep.vertices.len());
     for (h, he) in brep.half_edges.iter() {
-        outgoing.entry(he.origin).or_default().push(h);
+        match outgoing.get_mut(he.origin) {
+            Some((n, first)) => {
+                if *n < 2 {
+                    first[*n] = h;
+                }
+                *n += 1;
+            }
+            None => {
+                outgoing.insert(he.origin, (1, [h, h]));
+            }
+        }
     }
-    for (m, hes) in &outgoing {
-        if hes.len() != 2 {
+    for (m, &(n, hes)) in &outgoing {
+        let m = &m;
+        if n != 2 {
             continue;
         }
         let (h1, h2) = (hes[0], hes[1]);

@@ -13,6 +13,8 @@ mod clip_branch_normalize;
 mod clip_crossing_reports;
 mod clip_crossings_rescue;
 mod clip_dispatch;
+mod clip_edge_box;
+pub(crate) use clip_edge_box::{box_distance, edge_box};
 mod clip_lift_crossings;
 mod clip_line;
 mod clip_line_exact;

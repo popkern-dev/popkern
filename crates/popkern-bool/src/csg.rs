@@ -38,17 +38,17 @@ pub fn csg_eval(tree: CsgNode, tolerance: &Tolerance) -> Result<BRep, BoolError>
         CsgNode::Union(left, right) => {
             let a = csg_eval(*left, tolerance)?;
             let b = csg_eval(*right, tolerance)?;
-            execute_boolean(BoolOperation::Union, a, b, tolerance)
+            execute_boolean(BoolOperation::Union, &a, &b, tolerance)
         }
         CsgNode::Intersection(left, right) => {
             let a = csg_eval(*left, tolerance)?;
             let b = csg_eval(*right, tolerance)?;
-            execute_boolean(BoolOperation::Intersection, a, b, tolerance)
+            execute_boolean(BoolOperation::Intersection, &a, &b, tolerance)
         }
         CsgNode::Subtraction(left, right) => {
             let a = csg_eval(*left, tolerance)?;
             let b = csg_eval(*right, tolerance)?;
-            execute_boolean(BoolOperation::Subtraction, a, b, tolerance)
+            execute_boolean(BoolOperation::Subtraction, &a, &b, tolerance)
         }
     }
 }
