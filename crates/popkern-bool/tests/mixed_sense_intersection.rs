@@ -1,0 +1,75 @@
+//! PK-911: a disc intersected with an inward-shelled boss (`BRep::prism`
+//! primitives are inward shells) in either operand order. The disc-first
+//! order once served an invalid body: the cellular merge wired the
+//! mixed-sense pair's record edges one way from both sides, and the
+//! graph-merge fallback served record edges whose pcurves ran against
+//! their curves (recorded edge tolerance 4.0). The served body must now
+//! validate and hold the true slab volume in both orders.
+
+use popkern_bool::{BoolOperation, boolean};
+use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::BRep;
+
+/// Volume of an all-planar body with straight edges: the divergence
+/// theorem over each face's vertex fan.
+fn polyhedral_volume(brep: &BRep) -> f64 {
+    let mut volume = 0.0;
+    for face in brep.faces.values() {
+        for l in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
+            let start = brep.loops[l].half_edge;
+            let mut points = Vec::new();
+            let mut h = start;
+            loop {
+                points.push(brep.vertices[brep.half_edges[h].origin].position);
+                h = brep.half_edges[h].next;
+                if h == start {
+                    break;
+                }
+            }
+            let o = points[0];
+            for w in points[1..].windows(2) {
+                let (a, b) = (w[0], w[1]);
+                volume += (o.x * (a.y * b.z - a.z * b.y) - o.y * (a.x * b.z - a.z * b.x)
+                    + o.z * (a.x * b.y - a.y * b.x))
+                    / 6.0;
+            }
+        }
+    }
+    volume.abs()
+}
+
+fn boss(z0: f64, tol: Tolerance) -> BRep {
+    let pts = [
+        Point3::new(-2.0, -2.0, z0),
+        Point3::new(2.0, -2.0, z0),
+        Point3::new(2.0, 2.0, z0),
+        Point3::new(-2.0, 2.0, z0),
+    ];
+    BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss")
+}
+
+#[test]
+fn a_disc_intersected_with_an_inward_boss_validates_in_either_order() {
+    let tol = Tolerance::default();
+    let disc = BRep::cylinder(30.0, 1.5, tol).expect("disc");
+    // A boss crossing the top plane by 0.1, and one by 1.0.
+    for (z0, depth) in [(1.4, 0.1), (0.5, 1.0)] {
+        let boss = boss(z0, tol);
+        let want = 16.0 * depth;
+        for (name, a, b) in [("disc ∩ boss", &disc, &boss), ("boss ∩ disc", &boss, &disc)] {
+            let r = boolean(BoolOperation::Intersection, a.clone(), b.clone(), tol, None)
+                .unwrap_or_else(|e| panic!("{name} (z0 {z0}): {e}"));
+            assert!(
+                r.validate().is_ok(),
+                "{name} (z0 {z0}): {:?}",
+                r.validate().err()
+            );
+            let v = polyhedral_volume(&r);
+            assert!(
+                (v - want).abs() < 1e-9 * want.max(1.0) + 1e-9,
+                "{name} (z0 {z0}): volume {v} vs {want}"
+            );
+        }
+    }
+}

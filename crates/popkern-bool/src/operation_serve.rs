@@ -326,7 +326,23 @@ fn serve(
     // Fitted trims record their measured agreement on the edge (PK-826);
     // edges carried over unsplit keep their operands' (scoped: the
     // whole-body measurement made a late slot cut 25x the first).
-    result.record_measured_edge_tolerances_where(|e| !carried.edges.contains_key(e));
+    let raised = result.record_measured_edge_tolerances_where(|e| !carried.edges.contains_key(e));
+    // An edge whose trims miss its curve past the model's ceiling fails
+    // `validate()`: decline instead of serving it (PK-911: a mixed-sense
+    // disc ∩ inward-boss served four record edges whose pcurves ran
+    // against their curves, 4.0 off). The decline is what lets the
+    // mixed-sense rescue retry with the inward operand reversed.
+    if let Some((edge, measured)) = raised
+        .iter()
+        .filter_map(|&e| Some((e, result.edges.get(e)?.tolerance?)))
+        .find(|&(_, t)| t > result.max_imprecision)
+    {
+        return Err(BoolError::ValidationFailed(format!(
+            "edge {edge:?}: its curve and trims disagree by {measured:.3e}, past the model's \
+             max imprecision {:.1e}; declining rather than serving it",
+            result.max_imprecision
+        )));
+    }
 
     // Debug/the boolean trace topic diagnostics on the SERVED result. This runs
     // after run_output_postprocess deliberately (PK-272): the earlier
