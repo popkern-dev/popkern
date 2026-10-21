@@ -378,3 +378,41 @@ mod pcurve;
 
 #[path = "certify_gregory_tests.rs"]
 mod gregory;
+
+#[test]
+fn a_jet_to_a_lower_order_is_the_full_jets_prefix_and_unbounded_past_it() {
+    // PK-905: the chordal bound reads only S and its second partials,
+    // and asks for them alone; what it gets must be the full jet's
+    // enclosures bit for bit (same arithmetic, fewer nets).
+    let torus = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 3.0,
+        minor_radius: 1.0,
+    };
+    let nurbs = SurfaceGeometry::Nurbs(rational_nurbs());
+    for surface in [torus, nurbs] {
+        let mut source = surface_jet::SurfaceJetSource::new(&surface).expect("source");
+        for (u, v) in [
+            (Iv::new(0.1, 0.3), Iv::new(0.2, 0.25)),
+            (Iv::point(0.35), Iv::point(0.6)),
+            // Straddling the NURBS's interior knots.
+            (Iv::new(0.3, 0.5), Iv::new(0.5, 0.6)),
+        ] {
+            let (full, _) = source.jet_piecewise(u, v).expect("full");
+            for order in [0, 2] {
+                let (low, _) = source.jet_piecewise_to(u, v, order).expect("low");
+                assert_eq!(low.order(), order);
+                for &(a, b) in surface_jet::JET_ORDERS.iter() {
+                    if a + b <= order {
+                        assert_eq!(low.partial(a, b), full.partial(a, b), "{a} {b}");
+                    } else {
+                        assert!(!low.partial(a, b).is_finite(), "{a} {b} past {order}");
+                    }
+                }
+                assert!(low.is_finite());
+                assert_eq!(full.hull(&low).order(), order);
+            }
+        }
+    }
+}

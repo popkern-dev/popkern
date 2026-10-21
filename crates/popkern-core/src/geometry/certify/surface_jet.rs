@@ -40,6 +40,12 @@ const fn jet_orders() -> [(usize, usize); JET_SLOTS] {
     out
 }
 
+/// Number of partials of total order `≤ order`: the prefix of
+/// [`JET_ORDERS`] a jet of that order fills.
+pub const fn jet_slots(order: usize) -> usize {
+    (order + 1) * (order + 2) / 2
+}
+
 /// Slot of `(∂u^a, ∂v^b)` in [`JET_ORDERS`].
 pub fn jet_slot(a: usize, b: usize) -> usize {
     let total = a + b;
@@ -47,11 +53,12 @@ pub fn jet_slot(a: usize, b: usize) -> usize {
     total * (total + 1) / 2 + b
 }
 
-/// Enclosures of `S` and its partials up to [`MAX_JET_ORDER`] over a
-/// box.
+/// Enclosures of `S` and its partials up to an order (at most
+/// [`MAX_JET_ORDER`]) over a box; partials past it read as unbounded.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfaceJet {
     partials: [IvVec3; JET_SLOTS],
+    order: usize,
 }
 
 impl SurfaceJet {
@@ -59,6 +66,7 @@ impl SurfaceJet {
     pub fn entire() -> Self {
         Self {
             partials: [IvVec3::ENTIRE; JET_SLOTS],
+            order: MAX_JET_ORDER,
         }
     }
 
@@ -66,13 +74,29 @@ impl SurfaceJet {
     pub fn zero() -> Self {
         Self {
             partials: [IvVec3::ZERO; JET_SLOTS],
+            order: MAX_JET_ORDER,
         }
     }
 
-    /// Enclosure of `∂u^a ∂v^b S` (`a + b ≤` [`MAX_JET_ORDER`]; higher
+    /// The highest total order this jet encloses.
+    pub fn order(&self) -> usize {
+        self.order
+    }
+
+    /// The jet cut to partials of total order `≤ order`; the rest read
+    /// as unbounded.
+    pub fn truncated(mut self, order: usize) -> Self {
+        self.order = self.order.min(order);
+        for p in &mut self.partials[jet_slots(self.order)..] {
+            *p = IvVec3::ENTIRE;
+        }
+        self
+    }
+
+    /// Enclosure of `∂u^a ∂v^b S` (`a + b ≤` the jet's order; higher
     /// orders read as unbounded).
     pub fn partial(&self, a: usize, b: usize) -> IvVec3 {
-        if a + b > MAX_JET_ORDER {
+        if a + b > self.order {
             return IvVec3::ENTIRE;
         }
         self.partials[jet_slot(a, b)]
@@ -80,7 +104,7 @@ impl SurfaceJet {
 
     /// Set the enclosure of `∂u^a ∂v^b S`.
     pub fn set(&mut self, a: usize, b: usize, value: IvVec3) {
-        if a + b <= MAX_JET_ORDER {
+        if a + b <= self.order {
             self.partials[jet_slot(a, b)] = value;
         }
     }
@@ -91,12 +115,14 @@ impl SurfaceJet {
         for (a, b) in out.partials.iter_mut().zip(other.partials.iter()) {
             *a = a.hull(*b);
         }
-        out
+        out.truncated(other.order)
     }
 
-    /// True when every partial is finite.
+    /// True when every enclosed partial (up to the order) is finite.
     pub fn is_finite(&self) -> bool {
-        self.partials.iter().all(|p| p.is_finite())
+        self.partials[..jet_slots(self.order)]
+            .iter()
+            .all(|p| p.is_finite())
     }
 }
 
@@ -285,9 +311,21 @@ impl SurfaceJetSource {
     /// says whether the box straddled a knot (see
     /// [`NurbsJetSource::jet_piecewise`]).
     pub fn jet_piecewise(&mut self, u: Iv, v: Iv) -> Result<(SurfaceJet, bool), CertifyDecline> {
+        self.jet_piecewise_to(u, v, MAX_JET_ORDER)
+    }
+
+    /// [`SurfaceJetSource::jet_piecewise`] to total order `order` only
+    /// (a chordal bound reads the position and second partials: the
+    /// higher nets are neither restricted nor divided).
+    pub fn jet_piecewise_to(
+        &mut self,
+        u: Iv,
+        v: Iv,
+        order: usize,
+    ) -> Result<(SurfaceJet, bool), CertifyDecline> {
         let (jet, straddled) = match self {
-            SurfaceJetSource::Analytic(source) => (source.jet(u, v), false),
-            SurfaceJetSource::Spline(source) => source.jet_piecewise(u, v)?,
+            SurfaceJetSource::Analytic(source) => (source.jet_to(u, v, order), false),
+            SurfaceJetSource::Spline(source) => source.jet_piecewise_to(u, v, order)?,
         };
         if jet.is_finite() {
             Ok((jet, straddled))

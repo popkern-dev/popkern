@@ -247,7 +247,7 @@ pub(crate) fn faces_incident_to_edges(
 /// (default) is on and tracing is off. The parallel arm uses an
 /// indexed `map` + `collect`, which rayon guarantees to be positionally
 /// ordered — output is identical to the sequential arm.
-fn dispatch<I: Send, T: Send>(
+pub(crate) fn dispatch<I: Send, T: Send>(
     items: Vec<I>,
     trace: bool,
     per_face: impl Fn(I) -> T + Sync,

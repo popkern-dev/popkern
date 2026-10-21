@@ -53,6 +53,10 @@ impl SpanBoxEncloser {
     /// Hull of every partial net of span `span` restricted to the box
     /// with local ends `u = (au, bu)`, `v = (av, bv)`, indexed like the
     /// nets.
+    /// `nets` may be a prefix of the span's partial nets (a jet to a
+    /// lower order): a cached iso line holds one entry per net of the
+    /// prefix that filled it, and a net past it takes the full
+    /// restriction.
     pub(super) fn enclose(
         &mut self,
         span: (usize, usize),

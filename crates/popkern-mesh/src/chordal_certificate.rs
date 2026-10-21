@@ -125,10 +125,12 @@ pub fn chordal_certificate(brep: &BRep, mesh: &TriMesh, tolerance: f64) -> Chord
         });
         by_face[k].1.push(t);
     }
-    let faces = by_face
-        .into_iter()
-        .map(|(face, tris)| certify_face(brep, mesh, face, &tris, tolerance))
-        .collect();
+    // Faces are independent (each prepares its own jet source): they
+    // run like tessellation's face pass, in parallel and collected in
+    // order, so the certificate is the same at any thread count.
+    let faces = crate::face_pass::dispatch(by_face, false, |(face, tris)| {
+        certify_face(brep, mesh, face, &tris, tolerance)
+    });
     ChordalCertificate { tolerance, faces }
 }
 

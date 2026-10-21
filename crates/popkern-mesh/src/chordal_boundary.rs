@@ -4,9 +4,9 @@
 
 use std::collections::HashMap;
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::certify::chord::{curve_piece_bound, curve_point_distance};
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, closest_point_in_window};
+use popkern_core::geometry::{Point3, PortableMath};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 use super::ChordalInconclusive;
@@ -50,14 +50,66 @@ pub(super) fn boundary_bound(
         .map(|(_, e)| e)
         .collect();
     segments.sort_unstable();
+    // Each boundary vertex ends two segments: its feet on every edge
+    // are found once.
+    let mut feet: HashMap<usize, Vec<Option<(f64, f64)>>> = HashMap::new();
+    let mut feet_of = |i: usize| -> Vec<Option<(f64, f64)>> {
+        let p = mesh.vertices[i].position;
+        feet.entry(i)
+            .or_insert_with(|| edges.iter().map(|&eh| edge_foot(brep, eh, p)).collect())
+            .clone()
+    };
     for (a, b) in segments {
         let (pa, pb) = (mesh.vertices[a].position, mesh.vertices[b].position);
         if pa.distance_to(&pb) <= f64::EPSILON * (1.0 + magnitude(pa)) {
             continue;
         }
-        worst = worst.max(segment_bound(brep, &edges, pa, pb, tolerance)?);
+        let ends = (feet_of(a), feet_of(b));
+        worst = worst.max(segment_bound(brep, &edges, (pa, pb), &ends, tolerance)?);
     }
     Ok(worst)
+}
+
+/// The foot `(t, distance)` of `p` on edge `eh`'s curve within the
+/// edge's own window (a curve's declared range can lie on another
+/// period: an arc's angles vs a lifted edge window); `None` for an
+/// edge without a curve or a finite window.
+fn edge_foot(brep: &BRep, eh: EdgeHandle, p: Point3) -> Option<(f64, f64)> {
+    let curve = brep.edges.get(eh)?.curve.as_ref()?;
+    let window = (curve.t_start, curve.t_end);
+    if !(window.0.is_finite() && window.1.is_finite()) {
+        return None;
+    }
+    let t = window_foot(&curve.geometry, p, window);
+    Some((t, p.distance_to(&curve.geometry.point_at(t))))
+}
+
+/// A foot of `p` on the curve within `window`: closed-form on a line
+/// or circle (the angle lifted into the window), sampled and polished
+/// otherwise. Any foot is valid for the bound, which adds the ends'
+/// distances; the nearest keeps it tight.
+pub(super) fn window_foot(g: &CurveGeometry, p: Point3, window: (f64, f64)) -> f64 {
+    let (lo, hi) = (window.0.min(window.1), window.0.max(window.1));
+    match g {
+        CurveGeometry::Line { origin, direction } if direction.dot(direction) > 0.0 => {
+            ((p - *origin).dot(direction) / direction.dot(direction)).clamp(lo, hi)
+        }
+        CurveGeometry::Circle { center, .. } | CurveGeometry::Arc { center, .. } => {
+            // The evaluator's own basis, so the angle is its parameter.
+            let bu = g.point_at(0.0) - *center;
+            let bv = g.point_at(std::f64::consts::FRAC_PI_2) - *center;
+            let d = p - *center;
+            let t = lo + (d.dot(&bv).patan2(d.dot(&bu)) - lo).rem_euclid(std::f64::consts::TAU);
+            if t <= hi {
+                t
+            } else if g.point_at(lo).distance_to(&p) <= g.point_at(hi).distance_to(&p) {
+                lo
+            } else {
+                hi
+            }
+        }
+        _ => closest_point_in_window(g, &p, lo, hi),
+    }
 }
 
 fn magnitude(p: Point3) -> f64 {
@@ -106,34 +158,27 @@ struct Projection<'a> {
 /// corner (its ends on two edges meeting at a vertex), the two-edge
 /// chain through that vertex, whichever bound is smaller (both are
 /// pieces of the face boundary, so both are valid).
+type Feet = Vec<Option<(f64, f64)>>;
+
 fn segment_bound(
     brep: &BRep,
     edges: &[EdgeHandle],
-    pa: Point3,
-    pb: Point3,
+    (pa, pb): (Point3, Point3),
+    (feet_a, feet_b): &(Feet, Feet),
     tolerance: f64,
 ) -> Result<f64, ChordalInconclusive> {
     let mut found: Vec<Projection<'_>> = Vec::new();
-    for &eh in edges {
-        let Some(curve) = brep.edges.get(eh).and_then(|e| e.curve.as_ref()) else {
+    for (k, &eh) in edges.iter().enumerate() {
+        let (Some(curve), Some((ta, da)), Some((tb, db))) = (
+            brep.edges.get(eh).and_then(|e| e.curve.as_ref()),
+            feet_a.get(k).copied().flatten(),
+            feet_b.get(k).copied().flatten(),
+        ) else {
             continue;
         };
-        let g = &curve.geometry;
-        // Within the edge's own window: a curve's declared range can lie
-        // on another period (an arc's angles vs a lifted edge window).
-        let (lo, hi) = (curve.t_start, curve.t_end);
-        if !(lo.is_finite() && hi.is_finite()) {
-            continue;
-        }
-        let ta = closest_point_in_window(g, &pa, lo, hi);
-        let tb = closest_point_in_window(g, &pb, lo, hi);
-        let (da, db) = (
-            pa.distance_to(&g.point_at(ta)),
-            pb.distance_to(&g.point_at(tb)),
-        );
         found.push(Projection {
-            curve: g,
-            window: (lo, hi),
+            curve: &curve.geometry,
+            window: (curve.t_start, curve.t_end),
             ta,
             tb,
             da,

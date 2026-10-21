@@ -167,12 +167,14 @@ fn own_bound(
     let chart = wrap(corners, breaks, source);
     let mut disc = 0.0_f64;
     for (q, c) in corners.iter().zip(&chart) {
-        let jet = source.jet_piecewise(Iv::point(c.0), Iv::point(c.1))?.0;
+        let jet = source
+            .jet_piecewise_to(Iv::point(c.0), Iv::point(c.1), 0)?
+            .0;
         disc = disc.max(point_to_box(map.at(*q), jet.partial(0, 0)));
     }
     let (du, dv) = (chart[0].0 - corners[0].0, chart[0].1 - corners[0].1);
     let (jet, _) =
-        source.jet_piecewise(Iv::new(u.0 + du, u.1 + du), Iv::new(v.0 + dv, v.1 + dv))?;
+        source.jet_piecewise_to(Iv::new(u.0 + du, u.1 + du), Iv::new(v.0 + dv, v.1 + dv), 2)?;
     let (a, c) = (jet.partial(2, 0).norm().hi, jet.partial(0, 2).norm().hi);
     let eighth = |h: f64, m: f64| (Iv::point(h).sqr() * Iv::point(m) / Iv::point(8.0)).hi;
     Ok((eighth(u.1 - u.0, a) + eighth(v.1 - v.0, c)) * (1.0 + 1e-12) + disc)

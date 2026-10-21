@@ -28,10 +28,11 @@ pub(super) const CORNER_DEPTH: usize = 20;
 /// Pieces near weight zeros one bound may visit (each corner subtree
 /// splits every sibling, so depth alone does not bound the work).
 /// Measured on pentagon_tower's Gregory caps (PK-904): the bound is the
-/// same from 16 to 4096 pieces (2.3e-2, set by the pieces beside the
+/// same from 4 to 4096 pieces (2.3e-2, set by the pieces beside the
 /// activated corner, where the jets' quotient diverges as the box
-/// shrinks), while the time grows from 0.2 s to 25 s per triangle.
-pub(super) const CORNER_WORK: usize = 16;
+/// shrinks), while the time grows from 0.1 s to 25 s per triangle;
+/// at 2 pieces 13 of the 20 caps' bounds loosen (PK-905).
+pub(super) const CORNER_WORK: usize = 4;
 
 /// Where the surface is not C¹, and how its chart wraps: the triangle
 /// is cut along these lines before Taylor bounds apply, and pieces
@@ -72,11 +73,15 @@ pub fn triangle_chord_bound(
     let mut worst = 0.0_f64;
     let mut work = CORNER_WORK;
     for piece in cut(vec![w], breaks) {
+        let mut disc = [0.0; 3];
+        for (d, q) in disc.iter_mut().zip(piece) {
+            *d = discrepancy(source, breaks, &affine, q)?;
+        }
         worst = worst.max(piece_bound(
             source,
             breaks,
             &affine,
-            piece,
+            (piece, disc),
             target,
             (TRIANGLE_DEPTH, CORNER_DEPTH, false),
             &mut work,
@@ -227,18 +232,39 @@ pub(super) fn wrap<const N: usize>(
     t.map(|q| (q.0 + su, q.1 + sv))
 }
 
+/// `|L(q) − S(q)|`, bounded above; infinite at a zero of the weight
+/// function, where the quotient declines (a piece with such a vertex
+/// has no Taylor bound and takes the position hull).
+fn discrepancy(
+    source: &mut SurfaceJetSource,
+    breaks: &C0Breaks,
+    affine: &Affine,
+    q: Uv,
+) -> Result<f64, CertifyDecline> {
+    let [c] = wrap([q], breaks, source);
+    let (u, v) = (Iv::point(c.0), Iv::point(c.1));
+    match source.jet_piecewise_to(u, v, 0) {
+        Ok((jet, _)) => Ok(point_to_box(affine.at(q), jet.partial(0, 0))),
+        Err(CertifyDecline::DenominatorContainsZero) => Ok(f64::INFINITY),
+        Err(e) => Err(e),
+    }
+}
+
+/// The bound over piece `t`, whose vertices' discrepancies are `disc`
+/// (a piece's children share its corners, so each split encloses only
+/// its three midpoints).
 fn piece_bound(
     source: &mut SurfaceJetSource,
     breaks: &C0Breaks,
     affine: &Affine,
-    t: [Uv; 3],
+    (t, disc): ([Uv; 3], [f64; 3]),
     target: f64,
     (depth, corner, near): (usize, usize, bool),
     work: &mut usize,
 ) -> Result<f64, CertifyDecline> {
-    let taylor = match own_bound(source, breaks, affine, t) {
-        Ok(own) => Some(own),
-        Err(CertifyDecline::DenominatorContainsZero) => None,
+    let taylor = match own_bound(source, breaks, t, disc) {
+        Ok(own) if own.is_finite() => Some(own),
+        Ok(_) | Err(CertifyDecline::DenominatorContainsZero) => None,
         Err(e) => return Err(e),
     };
     // Near a zero of the weight function (a Gregory corner) the jets
@@ -276,13 +302,18 @@ fn piece_bound(
     }
     let mid = |i: usize, j: usize| (0.5 * (t[i].0 + t[j].0), 0.5 * (t[i].1 + t[j].1));
     let (m01, m12, m20) = (mid(0, 1), mid(1, 2), mid(2, 0));
+    let (d01, d12, d20) = (
+        discrepancy(source, breaks, affine, m01)?,
+        discrepancy(source, breaks, affine, m12)?,
+        discrepancy(source, breaks, affine, m20)?,
+    );
     let next = (depth.saturating_sub(1), corner.saturating_sub(1), near);
     let mut children = 0.0_f64;
     for sub in [
-        [t[0], m01, m20],
-        [m01, t[1], m12],
-        [m20, m12, t[2]],
-        [m01, m12, m20],
+        ([t[0], m01, m20], [disc[0], d01, d20]),
+        ([m01, t[1], m12], [d01, disc[1], d12]),
+        ([m20, m12, t[2]], [d20, d12, disc[2]]),
+        ([m01, m12, m20], [d01, d12, d20]),
     ] {
         children = children.max(piece_bound(
             source, breaks, affine, sub, target, next, work,
@@ -295,19 +326,15 @@ fn piece_bound(
 }
 
 /// The piece's own Taylor bound (Waldron's, smallest of three metric
-/// forms) plus its vertex discrepancies.
+/// forms) plus its largest vertex discrepancy.
 fn own_bound(
     source: &mut SurfaceJetSource,
     breaks: &C0Breaks,
-    affine: &Affine,
     t: [Uv; 3],
+    disc: [f64; 3],
 ) -> Result<f64, CertifyDecline> {
     let chart = wrap(t, breaks, source);
-    let mut disc = 0.0_f64;
-    for (q, c) in t.iter().zip(&chart) {
-        let jet = source.jet_piecewise(Iv::point(c.0), Iv::point(c.1))?.0;
-        disc = disc.max(point_to_box(affine.at(*q), jet.partial(0, 0)));
-    }
+    let disc = disc.into_iter().fold(0.0_f64, f64::max);
     let hull = |k: usize| {
         let lo = chart
             .iter()
@@ -319,7 +346,7 @@ fn own_bound(
             .fold(f64::NEG_INFINITY, f64::max);
         Iv::new(lo, hi)
     };
-    let (jet, _) = source.jet_piecewise(hull(0), hull(1))?;
+    let (jet, _) = source.jet_piecewise_to(hull(0), hull(1), 2)?;
     let [a, b, c] = [(2, 0), (1, 1), (0, 2)].map(|(i, j)| jet.partial(i, j).norm().hi);
     // Bounds of |D²_d S| = |d1² S_uu + 2 d1 d2 S_uv + d2² S_vv|, all
     // valid, the smallest kept: isotropic, λ_max([[a, b], [b, c]])

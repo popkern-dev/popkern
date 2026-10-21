@@ -105,3 +105,64 @@ fn a_moved_vertex_raises_the_bound_by_its_offset() {
     );
     assert!(!cert.certified());
 }
+
+/// PK-905: faces are certified in parallel and collected in order, so
+/// the certificate is the same at any thread count.
+#[cfg(feature = "parallel")]
+#[test]
+fn thread_count_does_not_change_the_certificate() {
+    let brep = BRep::torus(3.0, 1.0, Tolerance::default()).expect("torus");
+    let options = TessellationOptions::default();
+    let mesh = tessellate(&brep, &options).expect("mesh");
+    let at = |threads: usize| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("pool")
+            .install(|| chordal_certificate(&brep, &mesh, options.chord_height))
+    };
+    let (single, many) = (at(1), at(8));
+    assert_eq!(single, many);
+    assert!(single.faces.len() > 1);
+}
+
+#[test]
+fn closed_form_feet_are_the_nearest_points_in_the_window() {
+    use popkern_core::geometry::Vec3;
+    use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
+    let arc = CurveGeometry::Arc {
+        center: Point3::new(1.0, -2.0, 0.5),
+        normal: Vec3::new(0.0, 0.6, 0.8),
+        radius: 1.5,
+        start_angle: 0.0,
+        end_angle: 1.0,
+    };
+    let line = CurveGeometry::Line {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        direction: Vec3::new(2.0, 0.0, 0.0),
+    };
+    // A window on another turn than the arc's span, and a line window.
+    for (curve, window) in [
+        (
+            &arc,
+            (std::f64::consts::TAU + 0.2, std::f64::consts::TAU + 0.9),
+        ),
+        (&arc, (-3.0, -2.5)),
+        (&line, (-1.0, 2.0)),
+    ] {
+        for k in 0..40 {
+            let s = k as f64 * 0.37;
+            let p = Point3::new(s.sin() * 3.0, s.cos() * 2.0 - 2.0, (2.0 * s).sin());
+            let t = chordal_boundary::window_foot(curve, p, window);
+            assert!((window.0..=window.1).contains(&t), "{t} outside {window:?}");
+            let sampled = (0..=2000)
+                .map(|j| window.0 + (window.1 - window.0) * j as f64 / 2000.0)
+                .map(|x| curve.point_at(x).distance_to(&p))
+                .fold(f64::INFINITY, f64::min);
+            assert!(
+                curve.point_at(t).distance_to(&p) <= sampled + 1e-12,
+                "{p:?}"
+            );
+        }
+    }
+}

@@ -8,7 +8,7 @@
 
 use super::interval::Iv;
 use super::interval_vec::IvVec3;
-use super::surface_jet::{JET_ORDERS, SurfaceJet};
+use super::surface_jet::{JET_ORDERS, MAX_JET_ORDER, SurfaceJet, jet_slots};
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::{Point3, Vec3};
 
@@ -113,10 +113,17 @@ fn comb(frame: (Vec3, Vec3), a: Iv, b: Iv) -> IvVec3 {
 impl AnalyticJetSource {
     /// Enclosure of every partial up to order 6 over the box.
     pub fn jet(&self, u: Iv, v: Iv) -> SurfaceJet {
-        let mut jet = SurfaceJet::zero();
+        self.jet_to(u, v, MAX_JET_ORDER)
+    }
+
+    /// Enclosure of every partial up to total order `order` over the
+    /// box (higher ones read as unbounded).
+    pub fn jet_to(&self, u: Iv, v: Iv, order: usize) -> SurfaceJet {
+        let order = order.min(MAX_JET_ORDER);
+        let mut jet = SurfaceJet::zero().truncated(order);
         let (cu, su) = (Iv::cos(u), Iv::sin(u));
         let (cv, sv) = (Iv::cos(v), Iv::sin(v));
-        for &(k, l) in JET_ORDERS.iter() {
+        for &(k, l) in JET_ORDERS[..jet_slots(order)].iter() {
             let value = match *self {
                 AnalyticJetSource::Plane {
                     origin,
