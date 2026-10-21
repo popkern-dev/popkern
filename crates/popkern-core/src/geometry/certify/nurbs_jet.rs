@@ -99,6 +99,15 @@ impl NurbsJetSource {
         })
     }
 
+    /// The parameter domain `((u0, u1), (v0, v1))`.
+    pub fn domain(&self) -> ((f64, f64), (f64, f64)) {
+        let (p, q) = self.degree;
+        (
+            (self.knots_u[p], self.knots_u[self.num.0]),
+            (self.knots_v[q], self.knots_v[self.num.1]),
+        )
+    }
+
     /// Distinct interior knot values in u and v: seam intervals are
     /// split wherever a pcurve's image crosses one.
     pub fn breaks(&self) -> (Vec<f64>, Vec<f64>) {

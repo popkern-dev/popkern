@@ -126,6 +126,30 @@ impl SurfaceJet {
     }
 }
 
+/// The map a chordal bound pairs the surface with, enclosed:
+/// `p + α·q + β·r + α·β·t` with `α = (u − u0) / hu`, `β = (v − v0) / hv`
+/// (affine for `t = 0`, a rectangle's bilinear map otherwise), in the
+/// source's chart parameters.
+#[derive(Debug, Clone, Copy)]
+pub struct ParamMap {
+    /// Origin of `α` in `u`.
+    pub u0: Iv,
+    /// Origin of `β` in `v`.
+    pub v0: Iv,
+    /// Scale of `α` in `u`.
+    pub hu: Iv,
+    /// Scale of `β` in `v`.
+    pub hv: Iv,
+    /// The image of `α = β = 0`.
+    pub p: IvVec3,
+    /// The `α` term.
+    pub q: IvVec3,
+    /// The `β` term.
+    pub r: IvVec3,
+    /// The `α·β` term.
+    pub t: IvVec3,
+}
+
 /// A surface prepared for rigorous jet enclosure.
 #[derive(Debug, Clone)]
 pub enum SurfaceJetSource {
@@ -248,6 +272,14 @@ impl SurfaceJetSource {
         }
     }
 
+    /// A spline's parameter domain; `None` for the analytic kinds.
+    pub fn domain(&self) -> Option<((f64, f64), (f64, f64))> {
+        match self {
+            SurfaceJetSource::Analytic(_) => None,
+            SurfaceJetSource::Spline(source) => Some(source.domain()),
+        }
+    }
+
     /// Interior parameter breaks (knots) in u and v; empty for the
     /// analytic kinds.
     pub fn breaks(&self) -> (Vec<f64>, Vec<f64>) {
@@ -331,6 +363,17 @@ impl SurfaceJetSource {
             Ok((jet, straddled))
         } else {
             Err(CertifyDecline::NonFinite)
+        }
+    }
+
+    /// An upper bound of `|S − L|` over a box, `L` the pairing `l`,
+    /// from a spline's nets alone (see
+    /// [`NurbsJetSource::difference_hull`]); unbounded for the analytic
+    /// kinds, whose Taylor bounds do not need it.
+    pub fn difference_hull(&mut self, u: Iv, v: Iv, l: &ParamMap) -> Result<f64, CertifyDecline> {
+        match self {
+            SurfaceJetSource::Analytic(_) => Ok(f64::INFINITY),
+            SurfaceJetSource::Spline(source) => source.difference_hull(u, v, l),
         }
     }
 

@@ -102,16 +102,16 @@ fn the_corpus_meshes_certify_or_name_their_faces() {
             );
         }
     }
-    // Measured 2026-10-20 (PK-908): 271 faces, 256 certified, 15 proven
-    // past the chord height and none witnessed. The 15 are Gregory caps
-    // beside activated corners, bounded there by their position hull at
-    // 2.1e-2 to 5.2e-2 against 2.2e-3 to 4.4e-3 witnesses (PK-909). The
-    // bent pairing certified the other caps (7.9e-3 before) and both
-    // fillet tori (5.3e-3, 7.6e-3). None inconclusive. A ratchet: the
-    // counts may only improve.
+    // Measured 2026-10-21 (PK-909): 271 faces, 266 certified, 5 proven
+    // past the chord height and none witnessed: pentagon_tower Gregory
+    // caps beside activated corners, three at 5.4e-3 (2.2e-3 witnesses)
+    // and two at 4.3e-2. The nets' difference hull (second order beside
+    // a weight zero, where the position hull is first) and bent corner
+    // pieces certified the other ten (2.1e-2 to 2.9e-2 before). None
+    // inconclusive. A ratchet: the counts may only improve.
     let witnessed = exceeds - loose;
     assert!(
-        certified >= 256 && exceeds <= 15 && witnessed == 0 && inconclusive == 0,
+        certified >= 266 && exceeds <= 5 && witnessed == 0 && inconclusive == 0,
         "{certified} certified, {exceeds} exceed ({witnessed} witnessed), {inconclusive} inconclusive"
     );
     eprintln!(

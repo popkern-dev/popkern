@@ -171,3 +171,112 @@ fn a_blended_corner_is_enclosed_by_its_hull_and_its_triangle_is_bounded() {
     }
     assert!(corners > 0, "no fixture reaches an activated corner");
 }
+
+/// The largest sampled `|L(u, v) − S(u, v)|` over the box, `L` the map.
+fn sampled_map(
+    surface: &SurfaceGeometry,
+    map: &surface_jet::ParamMap,
+    u: (f64, f64),
+    v: (f64, f64),
+) -> f64 {
+    let mut worst = 0.0_f64;
+    for i in 0..=40 {
+        for j in 0..=40 {
+            let (a, b) = (
+                u.0 + (u.1 - u.0) * i as f64 / 40.0,
+                v.0 + (v.1 - v.0) * j as f64 / 40.0,
+            );
+            let (al, be) = (
+                (Iv::point(a) - map.u0) / map.hu,
+                (Iv::point(b) - map.v0) / map.hv,
+            );
+            let l = map.p + map.q.scale(al) + map.r.scale(be) + map.t.scale(al * be);
+            worst = worst.max(
+                (l - IvVec3::from_point(surface.point_at(a, b)))
+                    .norm()
+                    .mid(),
+            );
+        }
+    }
+    worst
+}
+
+/// PK-909: beside an activated corner the nets bound `S − L` to second
+/// order (the position hull stalls at first), at the corner itself, and
+/// a pairing moved off the patch reads its offset.
+#[test]
+fn the_difference_hull_bounds_a_blended_corner_to_second_order() {
+    let mut corners = 0;
+    for surface in rational_gregories() {
+        let mut source = SurfaceJetSource::new(&surface).unwrap_or_else(|e| panic!("{e}"));
+        if source.jet(Iv::new(0.0, 0.1), Iv::new(0.0, 0.1)).is_ok() {
+            continue;
+        }
+        corners += 1;
+        let mut last: Option<(f64, f64)> = None;
+        for h in [0.1, 0.05, 0.025, 0.0125] {
+            let w = [(0.0, 0.0), (h, 0.0), (0.0, h)];
+            let p = w.map(|(a, b)| surface.point_at(a, b));
+            let p0 = IvVec3::from_point(p[0]);
+            let map = surface_jet::ParamMap {
+                u0: Iv::point(0.0),
+                v0: Iv::point(0.0),
+                hu: Iv::point(h),
+                hv: Iv::point(h),
+                p: p0,
+                q: IvVec3::from_point(p[1]) - p0,
+                r: IvVec3::from_point(p[2]) - p0,
+                t: IvVec3::new(Iv::point(0.0), Iv::point(0.0), Iv::point(0.0)),
+            };
+            let (u, v) = (Iv::new(0.0, h), Iv::new(0.0, h));
+            let bound = source
+                .difference_hull(u, v, &map)
+                .unwrap_or_else(|e| panic!("{e}"));
+            let truth = sampled_map(&surface, &map, (0.0, h), (0.0, h));
+            assert!(bound >= truth, "h {h}: {bound} under {truth}");
+            let hull = source.position_hull(u, v).unwrap_or_else(|e| panic!("{e}"));
+            let first = p
+                .iter()
+                .map(|q| (hull - IvVec3::from_point(*q)).norm().hi)
+                .fold(0.0, f64::max);
+            if let Some((b, f)) = last {
+                assert!(bound <= 0.4 * b, "h {h}: {bound} after {b} (second order)");
+                assert!(
+                    first >= 0.4 * f,
+                    "h {h}: the hull {first} after {f} (first order)"
+                );
+            }
+            last = Some((bound, first));
+            // Negative control: the pairing lifted 0.05 off the patch.
+            let lift = IvVec3::new(Iv::point(0.0), Iv::point(0.0), Iv::point(0.05));
+            let moved = surface_jet::ParamMap {
+                p: p0 + lift,
+                ..map
+            };
+            let off = source
+                .difference_hull(u, v, &moved)
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert!(off >= 0.05 - bound, "h {h}: {off}");
+            // A bilinear pairing (a twist term) is bounded too.
+            let twist = IvVec3::new(Iv::point(0.01), Iv::point(-0.02), Iv::point(0.03));
+            let bilinear = surface_jet::ParamMap { t: twist, ..map };
+            let b2 = source
+                .difference_hull(u, v, &bilinear)
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert!(
+                b2 >= sampled_map(&surface, &bilinear, (0.0, h), (0.0, h)),
+                "h {h}"
+            );
+        }
+        // A bent pairing at the corner applies (its image enclosures are
+        // clipped to the patch's domain) and bounds what it pairs.
+        use super::super::chord::{C0Breaks, bent_triangle_chord_bound};
+        let w = [(0.0, 0.0), (0.2, 0.0), (0.0, 0.2)];
+        let p = w.map(|(a, b)| surface.point_at(a, b));
+        let bent =
+            bent_triangle_chord_bound(&mut source, &C0Breaks::default(), w, p, [None; 3], 1e-4)
+                .unwrap_or_else(|e| panic!("{e}"));
+        assert!(bent.is_some_and(f64::is_finite), "{bent:?}");
+    }
+    assert!(corners > 0, "no fixture reaches an activated corner");
+}

@@ -23,12 +23,16 @@ use crate::geometry::curve::CurveGeometry;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, PortableMath};
 
+#[path = "chord_affine.rs"]
+mod chord_affine;
 #[path = "chord_bend.rs"]
 mod chord_bend;
 #[path = "chord_rectangle.rs"]
 mod chord_rectangle;
 #[path = "chord_triangle.rs"]
 mod chord_triangle;
+#[path = "chord_waldron.rs"]
+mod chord_waldron;
 pub use chord_rectangle::{quad_pair_offset, rectangle_chord_bound};
 pub use chord_triangle::{C0Breaks, bent_triangle_chord_bound, triangle_chord_bound};
 

@@ -14,7 +14,9 @@
 use super::super::CertifyDecline;
 use super::super::interval::Iv;
 use super::super::surface_jet::SurfaceJetSource;
+use super::chord_affine::Affine;
 use super::chord_bend::Bend;
+use super::chord_waldron::waldron;
 use super::{ROUNDING, magnitude, point_to_box};
 use crate::geometry::Point3;
 
@@ -40,6 +42,12 @@ pub(super) const CORNER_DEPTH: usize = 20;
 /// shrinks), while the time grows from 0.1 s to 25 s per triangle;
 /// at 2 pieces 13 of the 20 caps' bounds loosen (PK-905).
 pub(super) const CORNER_WORK: usize = 4;
+
+/// The corner budget of a bent bound, whose corner pieces the nets bound
+/// to second order (PK-909): pentagon_tower's caps read 8.9e-3 at 4
+/// pieces, 4.8e-3 at 64, the same at 1024. Bent bounds run only on the
+/// triangles the others leave over the tolerance.
+const BENT_CORNER_WORK: usize = 64;
 
 /// Where the surface is not C¹, and how its chart wraps: the triangle
 /// is cut along these lines before Taylor bounds apply, and pieces
@@ -107,9 +115,14 @@ pub fn bent_triangle_chord_bound(
     controls: [Option<Uv>; 3],
     target: f64,
 ) -> Result<Option<f64>, CertifyDecline> {
-    let Some(bend) = Bend::new(w, controls) else {
+    let Some(mut bend) = Bend::new(w, controls) else {
         return Ok(None);
     };
+    // A spline's domain (where its position hull applies) clips the
+    // image enclosures; not across a periodic chart's wrap.
+    if let (Some(domain), None, None) = (source.domain(), breaks.wrap_u, breaks.wrap_v) {
+        bend = bend.clipped_to(&controls, domain);
+    }
     let (bu, bv) = bend.map_box(&w);
     let crosses = |lines: &[f64], x: Iv| lines.iter().any(|&k| x.lo < k && k < x.hi);
     if cut(vec![w], breaks).len() != 1 || crosses(&breaks.u, bu) || crosses(&breaks.v, bv) {
@@ -121,7 +134,7 @@ pub fn bent_triangle_chord_bound(
         affine: &affine,
         bend: Some(&bend),
     };
-    let mut work = CORNER_WORK;
+    let mut work = BENT_CORNER_WORK;
     let worst = top_bound(source, &ctx, w, target, &mut work)?;
     Ok(Some(worst + ROUNDING * (worst + scale_of(&p))))
 }
@@ -166,45 +179,6 @@ fn top_bound(
         ),
         work,
     )
-}
-
-/// The affine map of the parameter triangle onto the emitted one.
-struct Affine {
-    w: [Uv; 3],
-    p: [Point3; 3],
-    det: f64,
-}
-
-impl Affine {
-    fn new(w: [Uv; 3], p: [Point3; 3]) -> Self {
-        let det = (w[1].0 - w[0].0) * (w[2].1 - w[0].1) - (w[2].0 - w[0].0) * (w[1].1 - w[0].1);
-        Affine { w, p, det }
-    }
-
-    /// `L(q)`; a degenerate parameter triangle maps every point to the
-    /// nearest vertex's image (its pieces are then single points or
-    /// segments whose discrepancies carry the bound).
-    fn at(&self, q: Uv) -> Point3 {
-        let w = &self.w;
-        if self.det.abs() <= f64::MIN_POSITIVE {
-            let d = |a: Uv| (a.0 - q.0).powi(2) + (a.1 - q.1).powi(2);
-            let k = (0..3)
-                .min_by(|&i, &j| d(w[i]).total_cmp(&d(w[j])))
-                .unwrap_or(0);
-            return self.p[k];
-        }
-        let l1 =
-            ((q.0 - w[0].0) * (w[2].1 - w[0].1) - (w[2].0 - w[0].0) * (q.1 - w[0].1)) / self.det;
-        let l2 =
-            ((w[1].0 - w[0].0) * (q.1 - w[0].1) - (q.0 - w[0].0) * (w[1].1 - w[0].1)) / self.det;
-        let l0 = 1.0 - l1 - l2;
-        let p = &self.p;
-        Point3::new(
-            l0 * p[0].x + l1 * p[1].x + l2 * p[2].x,
-            l0 * p[0].y + l1 * p[1].y + l2 * p[2].y,
-            l0 * p[0].z + l1 * p[1].z + l2 * p[2].z,
-        )
-    }
 }
 
 /// The triangles cut along every break line strictly inside them.
@@ -267,34 +241,20 @@ pub(super) fn split(t: [Uv; 3], axis: usize, x: f64) -> Vec<[Uv; 3]> {
     out
 }
 
-/// Squared radius of the smallest circle holding the triangle.
-fn enclosing_radius_sqr(t: &[Uv; 3]) -> f64 {
-    let d2 = |a: Uv, b: Uv| (a.0 - b.0).powi(2) + (a.1 - b.1).powi(2);
-    let sides = [d2(t[1], t[2]), d2(t[0], t[2]), d2(t[0], t[1])];
-    let long = sides.iter().copied().fold(0.0, f64::max);
-    let others: f64 = sides.iter().sum::<f64>() - long;
-    if long >= others {
-        // Right or obtuse: the longest side's midpoint.
-        return long / 4.0;
-    }
-    // Acute: the circumradius, R² = a²b²c² / (16 · area²).
-    let area2 = ((t[1].0 - t[0].0) * (t[2].1 - t[0].1) - (t[2].0 - t[0].0) * (t[1].1 - t[0].1))
-        .powi(2)
-        / 4.0;
-    if area2 <= 0.0 {
-        return long / 4.0;
-    }
-    (sides[0] * sides[1] * sides[2] / (16.0 * area2)).max(long / 4.0)
-}
-
 /// Shift into a periodic spline domain (all vertices together).
 pub(super) fn wrap<const N: usize>(
     t: [Uv; N],
     breaks: &C0Breaks,
     source: &SurfaceJetSource,
 ) -> [Uv; N] {
+    let (su, sv) = wrap_shift(&t, breaks, source);
+    t.map(|q| (q.0 + su, q.1 + sv))
+}
+
+/// The period multiples [`wrap`] adds to `t`.
+fn wrap_shift(t: &[Uv], breaks: &C0Breaks, source: &SurfaceJetSource) -> Uv {
     if !matches!(source, SurfaceJetSource::Spline(_)) {
-        return t;
+        return (0.0, 0.0);
     }
     let shift = |axis: usize, w: Option<(f64, f64)>| -> f64 {
         let Some((start, period)) = w.filter(|w| w.1 > 0.0) else {
@@ -306,14 +266,18 @@ pub(super) fn wrap<const N: usize>(
             .fold(f64::INFINITY, f64::min);
         -((lo - start) / period).floor() * period
     };
-    let (su, sv) = (shift(0, breaks.wrap_u), shift(1, breaks.wrap_v));
-    t.map(|q| (q.0 + su, q.1 + sv))
+    (shift(0, breaks.wrap_u), shift(1, breaks.wrap_v))
 }
 
 /// The surface parameters a piece's points pair with, as a box in the
 /// spline's chart: the hull of `t` (affine correspondence) or of `φ(t)`
 /// (bent), shifted into a periodic domain.
 fn chart_box(source: &SurfaceJetSource, ctx: &Ctx<'_>, t: &[Uv]) -> (Iv, Iv) {
+    shifted_chart_box(source, ctx, t).0
+}
+
+/// [`chart_box`] and the shift it applied.
+fn shifted_chart_box(source: &SurfaceJetSource, ctx: &Ctx<'_>, t: &[Uv]) -> ((Iv, Iv), Uv) {
     let (u, v) = match ctx.bend {
         Some(bend) => bend.map_box(t),
         None => {
@@ -327,8 +291,12 @@ fn chart_box(source: &SurfaceJetSource, ctx: &Ctx<'_>, t: &[Uv]) -> (Iv, Iv) {
             (span(0), span(1))
         }
     };
-    let [lo, hi] = wrap([(u.lo, v.lo), (u.hi, v.hi)], ctx.breaks, source);
-    (Iv::new(lo.0, hi.0), Iv::new(lo.1, hi.1))
+    let shift = wrap_shift(&[(u.lo, v.lo), (u.hi, v.hi)], ctx.breaks, source);
+    let (lo, hi) = (
+        (u.lo + shift.0, v.lo + shift.1),
+        (u.hi + shift.0, v.hi + shift.1),
+    );
+    ((Iv::new(lo.0, hi.0), Iv::new(lo.1, hi.1)), shift)
 }
 
 /// `|L(q) − S(φ(q))|` (`φ` the identity unbent), bounded above;
@@ -364,17 +332,33 @@ fn piece_bound(
     // decline, or enclose loosely beside it: the position hull bounds
     // those pieces too, and they recurse on the corner budget.
     let near = near || taylor.is_none();
-    let own = if near {
-        let (u, v) = chart_box(source, ctx, &t);
-        let hull = source.position_hull(u, v)?;
-        let own = t
-            .iter()
-            .map(|q| point_to_box(ctx.affine.at(*q), hull))
-            .fold(0.0, f64::max);
-        taylor.map_or(own, |x| x.min(own))
-    } else {
-        taylor.unwrap_or(f64::INFINITY)
-    };
+    let mut own = taylor.unwrap_or(f64::INFINITY);
+    if near || own > target {
+        let ((u, v), shift) = shifted_chart_box(source, ctx, &t);
+        if near {
+            let hull = source.position_hull(u, v)?;
+            own = own.min(
+                t.iter()
+                    .map(|q| point_to_box(ctx.affine.at(*q), hull))
+                    .fold(0.0, f64::max),
+            );
+        }
+        // A spline's nets bound S − L themselves, second order where the
+        // position hull is first and unaffected by a weight zero
+        // (PK-909); bent pieces through an affine map in the surface's
+        // parameters (`Bend::difference`). An optional tightening: where
+        // it declines, the others stand.
+        let netted = match ctx.bend {
+            None => ctx
+                .affine
+                .param_map(shift)
+                .and_then(|l| source.difference_hull(u, v, &l).ok()),
+            Some(bend) => bend.difference(source, &t, t.map(|q| ctx.affine.at(q)), (u, v), shift),
+        };
+        if let Some(d) = netted {
+            own = own.min(d);
+        }
+    }
     let budget = if near {
         // Each piece near the corner spends one unit of the call's
         // work: out of it, the piece keeps its own (valid) bound.
@@ -425,35 +409,5 @@ fn own_bound(
         Some(bend) => bend.second_partials(&t, &jet),
         None => [(2, 0), (1, 1), (0, 2)].map(|(i, j)| jet.partial(i, j).norm().hi),
     };
-    // Bounds of |D²_d S| = |d1² S_uu + 2 d1 d2 S_uv + d2² S_vv|, all
-    // valid, the smallest kept: isotropic, λ_max([[a, b], [b, c]])
-    // times |d|²; and diagonal, (a + εb) d1² + (c + b/ε) d2² for any
-    // ε > 0 (as 2|d1 d2| ≤ ε d1² + d2²/ε), the metric of the
-    // parameters scaled by sqrt(a + εb) and sqrt(c + b/ε). ε = 1, and
-    // ε = the triangle's v/u extent ratio, which balances the cross
-    // term on long strips (a cylinder's or a far cone's: the isotropic
-    // form charges the axial length with the ring curvature).
-    let (half_sum, half_diff) = (Iv::point(a + c).scale(0.5), Iv::point(a - c).scale(0.5));
-    let m = (half_sum + (half_diff.sqr() + Iv::point(b).sqr()).sqrt()).hi;
-    let isotropic = (Iv::point(m) * Iv::point(enclosing_radius_sqr(&t)))
-        .scale(0.5)
-        .hi;
-    let extent = |k: usize| {
-        let xs = t.iter().map(|q| coord(*q, k));
-        xs.clone().fold(f64::NEG_INFINITY, f64::max) - xs.fold(f64::INFINITY, f64::min)
-    };
-    let ratio = (extent(1) / extent(0)).clamp(1e-6, 1e6);
-    let diagonal = |eps: f64| {
-        let (eps, b) = (Iv::point(eps), Iv::point(b));
-        let su = (Iv::point(a) + eps * b).sqrt().hi;
-        let sv = (Iv::point(c) + b / eps).sqrt().hi;
-        let scaled = t.map(|q| (q.0 * su, q.1 * sv));
-        Iv::point(enclosing_radius_sqr(&scaled)).scale(0.5).hi
-    };
-    let quad = if ratio.is_finite() {
-        diagonal(ratio)
-    } else {
-        f64::INFINITY
-    };
-    Ok(isotropic.min(diagonal(1.0)).min(quad) * (1.0 + 1e-12) + disc)
+    Ok(waldron(&t, [a, b, c]) + disc)
 }

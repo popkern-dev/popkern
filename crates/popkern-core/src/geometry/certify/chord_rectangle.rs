@@ -11,7 +11,8 @@
 
 use super::super::CertifyDecline;
 use super::super::interval::Iv;
-use super::super::surface_jet::SurfaceJetSource;
+use super::super::interval_vec::IvVec3;
+use super::super::surface_jet::{ParamMap, SurfaceJetSource};
 use super::chord_triangle::{CORNER_DEPTH, CORNER_WORK, Uv, wrap};
 use super::{C0Breaks, ROUNDING, magnitude, point_to_box};
 use crate::geometry::Point3;
@@ -76,6 +77,31 @@ struct Bilinear {
 }
 
 impl Bilinear {
+    /// The map as a [`ParamMap`] in the parameters shifted by `shift`
+    /// (a spline chart's). A collapsed side reads its coordinate as 0,
+    /// as [`Bilinear::at`] does: its terms drop.
+    fn param_map(&self, shift: Uv) -> ParamMap {
+        let p = Iv::point;
+        let c = self.corners.map(IvVec3::from_point);
+        let zero = IvVec3::new(p(0.0), p(0.0), p(0.0));
+        let (open_u, open_v) = (self.u.1 != self.u.0, self.v.1 != self.v.0);
+        let side = |open: bool, a: f64, b: f64| if open { p(b) - p(a) } else { p(1.0) };
+        ParamMap {
+            u0: p(self.u.0) + p(shift.0),
+            v0: p(self.v.0) + p(shift.1),
+            hu: side(open_u, self.u.0, self.u.1),
+            hv: side(open_v, self.v.0, self.v.1),
+            p: c[0],
+            q: if open_u { c[1] - c[0] } else { zero },
+            r: if open_v { c[2] - c[0] } else { zero },
+            t: if open_u && open_v {
+                c[3] - c[1] - c[2] + c[0]
+            } else {
+                zero
+            },
+        }
+    }
+
     fn at(&self, q: Uv) -> Point3 {
         let r = if self.u.1 != self.u.0 {
             (q.0 - self.u.0) / (self.u.1 - self.u.0)
@@ -115,19 +141,25 @@ fn piece_bound(
     // Near a zero of the weight function (a Gregory corner): the
     // position hull bounds the piece too (see `chord_triangle`).
     let near = near || taylor.is_none();
-    let own = if near {
+    let mut own = taylor.unwrap_or(f64::INFINITY);
+    if near || own > target {
         let chart = wrap(corners, breaks, source);
         let (du, dv) = (chart[0].0 - corners[0].0, chart[0].1 - corners[0].1);
-        let hull =
-            source.position_hull(Iv::new(u.0 + du, u.1 + du), Iv::new(v.0 + dv, v.1 + dv))?;
-        let own = corners
-            .iter()
-            .map(|q| point_to_box(map.at(*q), hull))
-            .fold(0.0, f64::max);
-        taylor.map_or(own, |x| x.min(own))
-    } else {
-        taylor.unwrap_or(f64::INFINITY)
-    };
+        let (bu, bv) = (Iv::new(u.0 + du, u.1 + du), Iv::new(v.0 + dv, v.1 + dv));
+        if near {
+            let hull = source.position_hull(bu, bv)?;
+            own = own.min(
+                corners
+                    .iter()
+                    .map(|q| point_to_box(map.at(*q), hull))
+                    .fold(0.0, f64::max),
+            );
+        }
+        // The nets' own bound of S − B (see `chord_triangle`).
+        if let Ok(d) = source.difference_hull(bu, bv, &map.param_map((du, dv))) {
+            own = own.min(d);
+        }
+    }
     let budget = if near {
         // Each piece near the corner spends one unit of the call's
         // work: out of it, the piece keeps its own (valid) bound.

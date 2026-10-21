@@ -28,8 +28,10 @@
 
 use super::super::interval::Iv;
 use super::super::interval_vec::IvVec3;
-use super::super::surface_jet::SurfaceJet;
+use super::super::surface_jet::{ParamMap, SurfaceJet, SurfaceJetSource};
 use super::chord_triangle::Uv;
+use super::chord_waldron::waldron;
+use crate::geometry::Point3;
 
 /// The bent map of one parameter triangle, enclosed.
 #[derive(Debug, Clone)]
@@ -40,6 +42,10 @@ pub(super) struct Bend {
     /// Midpoint displacement `δ_k` of edge `k`.
     d: [[Iv; 2]; 3],
     det: Iv,
+    /// A box `φ(T)` is known to lie in (its control net does): image
+    /// enclosures are clipped to it, so their rounding does not leave a
+    /// spline's domain.
+    clip: Option<((f64, f64), (f64, f64))>,
 }
 
 impl Bend {
@@ -75,7 +81,24 @@ impl Bend {
             grad: [g0, g1, g2],
             d,
             det,
+            clip: None,
         })
+    }
+
+    /// Clip image enclosures to `domain` when the control net (corners
+    /// `w` and the bent edges' `controls`), whose hull holds `φ(T)`,
+    /// lies in it.
+    pub(super) fn clipped_to(
+        mut self,
+        controls: &[Option<Uv>; 3],
+        domain: ((f64, f64), (f64, f64)),
+    ) -> Bend {
+        let ((u0, u1), (v0, v1)) = domain;
+        let inside = |q: &Uv| (u0..=u1).contains(&q.0) && (v0..=v1).contains(&q.1);
+        if self.w.iter().all(inside) && controls.iter().flatten().all(inside) {
+            self.clip = Some(domain);
+        }
+        self
     }
 
     /// Barycentric coordinates of `q`, enclosed.
@@ -124,6 +147,13 @@ impl Bend {
                 *o = *o + bubble * d;
             }
         }
+        if let Some(((u0, u1), (v0, v1))) = self.clip {
+            let cut = |x: Iv, lo: f64, hi: f64| {
+                let (a, b) = (x.lo.max(lo), x.hi.min(hi));
+                Iv::new(a.min(b), b)
+            };
+            out = [cut(out[0], u0, u1), cut(out[1], v0, v1)];
+        }
         (out[0], out[1])
     }
 
@@ -163,6 +193,70 @@ impl Bend {
             }
         }
         h
+    }
+
+    /// An upper bound of `|S(φ(y)) − L(y)|` over piece `t` from a
+    /// spline's nets (PK-909), `at` the piece vertices' `L`, `(u, v)` the
+    /// chart box holding `φ(t)` and `shift` its chart offset. Through an
+    /// affine map `M` in the surface's parameters,
+    /// `|S∘φ − L| ≤ |S − M| + |M∘φ − L|`: the first over the box by the
+    /// difference hull, the second, quadratic in `y` with constant
+    /// second partials `DM·D²φ`, by Waldron from its values at the
+    /// vertices. Any `M` is valid; the one through the mapped vertices
+    /// makes those values (nearly) zero. `None` where it does not apply.
+    pub(super) fn difference(
+        &self,
+        source: &mut SurfaceJetSource,
+        t: &[Uv; 3],
+        at: [Point3; 3],
+        (u, v): (Iv, Iv),
+        shift: Uv,
+    ) -> Option<f64> {
+        let mapped = t.map(|q| self.map_box(&[q]));
+        let x = mapped.map(|(a, b)| (a.mid() + shift.0, b.mid() + shift.1));
+        // M through (x_i, at_i): its Jacobian D·E⁻¹.
+        let (e1, e2) = (
+            (x[1].0 - x[0].0, x[1].1 - x[0].1),
+            (x[2].0 - x[0].0, x[2].1 - x[0].1),
+        );
+        let det = e1.0 * e2.1 - e2.0 * e1.1;
+        if !det.is_finite() || det.abs() <= f64::MIN_POSITIVE {
+            return None;
+        }
+        let (d1, d2) = (at[1] - at[0], at[2] - at[0]);
+        let mu = (d1 * e2.1 - d2 * e1.1) * (1.0 / det);
+        let mv = (d2 * e1.0 - d1 * e2.0) * (1.0 / det);
+        let m0 = at[0] - mu * x[0].0 - mv * x[0].1;
+        let p = Iv::point;
+        let map = ParamMap {
+            u0: p(0.0),
+            v0: p(0.0),
+            hu: p(1.0),
+            hv: p(1.0),
+            p: IvVec3::from_point(m0),
+            q: IvVec3::from_vec(mu),
+            r: IvVec3::from_vec(mv),
+            t: IvVec3::new(p(0.0), p(0.0), p(0.0)),
+        };
+        let surface = source.difference_hull(u, v, &map).ok()?;
+        // M∘φ − L at the vertices, enclosed through φ.
+        let ends = mapped
+            .iter()
+            .zip(at)
+            .map(|(&(a, b), l)| {
+                let m = map.p + map.q.scale(a + p(shift.0)) + map.r.scale(b + p(shift.1));
+                (m - IvVec3::from_point(l)).norm().hi
+            })
+            .fold(0.0_f64, f64::max);
+        // Its second partials: Σ_k ∂M/∂x_k · ∂_i∂_j φ_k.
+        let h = self.hessian();
+        let g = |i: usize, j: usize| {
+            (map.q.scale(h[0][i][j]) + map.r.scale(h[1][i][j]))
+                .norm()
+                .hi
+        };
+        let bow = waldron(t, [g(0, 0), g(0, 1), g(1, 1)]);
+        Some(surface + ends + bow)
     }
 
     /// Bounds `(|G_11|, |G_12|, |G_22|)` of the second partials of
