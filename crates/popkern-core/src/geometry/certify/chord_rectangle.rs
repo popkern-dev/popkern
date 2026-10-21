@@ -12,7 +12,7 @@
 use super::super::CertifyDecline;
 use super::super::interval::Iv;
 use super::super::surface_jet::SurfaceJetSource;
-use super::chord_triangle::{Uv, wrap};
+use super::chord_triangle::{CORNER_DEPTH, CORNER_WORK, Uv, wrap};
 use super::{C0Breaks, ROUNDING, magnitude, point_to_box};
 use crate::geometry::Point3;
 
@@ -51,6 +51,7 @@ pub fn rectangle_chord_bound(
     let us = cuts(u.0.min(u.1), u.0.max(u.1), &breaks.u);
     let vs = cuts(v.0.min(v.1), v.0.max(v.1), &breaks.v);
     let mut worst = 0.0_f64;
+    let mut work = CORNER_WORK;
     for uu in us.windows(2) {
         for vv in vs.windows(2) {
             let piece = ((uu[0], uu[1]), (vv[0], vv[1]));
@@ -60,7 +61,8 @@ pub fn rectangle_chord_bound(
                 &map,
                 piece,
                 target,
-                RECTANGLE_DEPTH,
+                (RECTANGLE_DEPTH, CORNER_DEPTH, false),
+                &mut work,
             )?);
         }
     }
@@ -101,7 +103,65 @@ fn piece_bound(
     map: &Bilinear,
     (u, v): ((f64, f64), (f64, f64)),
     target: f64,
-    depth: usize,
+    (depth, corner, near): (usize, usize, bool),
+    work: &mut usize,
+) -> Result<f64, CertifyDecline> {
+    let corners = [(u.0, v.0), (u.1, v.0), (u.0, v.1), (u.1, v.1)];
+    let taylor = match own_bound(source, breaks, map, (u, v)) {
+        Ok(own) => Some(own),
+        Err(CertifyDecline::DenominatorContainsZero) => None,
+        Err(e) => return Err(e),
+    };
+    // Near a zero of the weight function (a Gregory corner): the
+    // position hull bounds the piece too (see `chord_triangle`).
+    let near = near || taylor.is_none();
+    let own = if near {
+        let chart = wrap(corners, breaks, source);
+        let (du, dv) = (chart[0].0 - corners[0].0, chart[0].1 - corners[0].1);
+        let hull =
+            source.position_hull(Iv::new(u.0 + du, u.1 + du), Iv::new(v.0 + dv, v.1 + dv))?;
+        let own = corners
+            .iter()
+            .map(|q| point_to_box(map.at(*q), hull))
+            .fold(0.0, f64::max);
+        taylor.map_or(own, |x| x.min(own))
+    } else {
+        taylor.unwrap_or(f64::INFINITY)
+    };
+    let budget = if near {
+        // Each piece near the corner spends one unit of the call's
+        // work: out of it, the piece keeps its own (valid) bound.
+        *work = work.saturating_sub(1);
+        if *work == 0 { 0 } else { corner }
+    } else {
+        depth
+    };
+    if own <= target || budget == 0 {
+        return Ok(own);
+    }
+    let (um, vm) = (0.5 * (u.0 + u.1), 0.5 * (v.0 + v.1));
+    let next = (depth.saturating_sub(1), corner.saturating_sub(1), near);
+    let mut children = 0.0_f64;
+    for sub in [
+        ((u.0, um), (v.0, vm)),
+        ((um, u.1), (v.0, vm)),
+        ((u.0, um), (vm, v.1)),
+        ((um, u.1), (vm, v.1)),
+    ] {
+        children = children.max(piece_bound(source, breaks, map, sub, target, next, work)?);
+        if children >= own {
+            return Ok(own);
+        }
+    }
+    Ok(children)
+}
+
+/// The piece's own bilinear bound plus its corner discrepancies.
+fn own_bound(
+    source: &mut SurfaceJetSource,
+    breaks: &C0Breaks,
+    map: &Bilinear,
+    (u, v): ((f64, f64), (f64, f64)),
 ) -> Result<f64, CertifyDecline> {
     let corners = [(u.0, v.0), (u.1, v.0), (u.0, v.1), (u.1, v.1)];
     let chart = wrap(corners, breaks, source);
@@ -115,24 +175,7 @@ fn piece_bound(
         source.jet_piecewise(Iv::new(u.0 + du, u.1 + du), Iv::new(v.0 + dv, v.1 + dv))?;
     let (a, c) = (jet.partial(2, 0).norm().hi, jet.partial(0, 2).norm().hi);
     let eighth = |h: f64, m: f64| (Iv::point(h).sqr() * Iv::point(m) / Iv::point(8.0)).hi;
-    let own = (eighth(u.1 - u.0, a) + eighth(v.1 - v.0, c)) * (1.0 + 1e-12) + disc;
-    if own <= target || depth == 0 {
-        return Ok(own);
-    }
-    let (um, vm) = (0.5 * (u.0 + u.1), 0.5 * (v.0 + v.1));
-    let mut children = 0.0_f64;
-    for sub in [
-        ((u.0, um), (v.0, vm)),
-        ((um, u.1), (v.0, vm)),
-        ((u.0, um), (vm, v.1)),
-        ((um, u.1), (vm, v.1)),
-    ] {
-        children = children.max(piece_bound(source, breaks, map, sub, target, depth - 1)?);
-        if children >= own {
-            return Ok(own);
-        }
-    }
-    Ok(children)
+    Ok((eighth(u.1 - u.0, a) + eighth(v.1 - v.0, c)) * (1.0 + 1e-12) + disc)
 }
 
 /// How far an emitted quad, split into two triangles along a diagonal,

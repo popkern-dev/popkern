@@ -102,15 +102,15 @@ fn the_corpus_meshes_certify_or_name_their_faces() {
             );
         }
     }
-    // Measured 2026-10-20 (PK-903): 271 faces, 249 certified, 7 proven
-    // past the chord height, of which 6 are loose bounds (surface-to-mesh
-    // witnesses within it: Gregory caps 3.7e-3 against a 7.9e-3 bound, a
-    // torus 3.9e-3 against 5.3e-3; PK-908) and 1 a witnessed miss (a
-    // torus at 7.1e-3), 15 inconclusive (PK-904: Gregory corners). A
-    // ratchet: the counts may only improve.
+    // Measured 2026-10-20 (PK-904): 271 faces, 249 certified, 22 proven
+    // past the chord height and none witnessed: loose bounds (PK-908).
+    // Gregory caps read 2.1e-2 (activated corners bounded by their
+    // position hull; PK-909) against 2.2e-3 witnesses, other caps 7.9e-3
+    // against 3.7e-3, two tori 5.3e-3 and 7.6e-3 against 3.9e-3 and
+    // 2.6e-3. None inconclusive. A ratchet: the counts may only improve.
     let witnessed = exceeds - loose;
     assert!(
-        certified >= 249 && exceeds <= 7 && witnessed <= 1 && inconclusive <= 15,
+        certified >= 249 && exceeds <= 22 && witnessed == 0 && inconclusive == 0,
         "{certified} certified, {exceeds} exceed ({witnessed} witnessed), {inconclusive} inconclusive"
     );
     eprintln!(

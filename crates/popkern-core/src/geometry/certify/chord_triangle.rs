@@ -20,6 +20,19 @@ use crate::geometry::Point3;
 /// Bisection depth of a triangle (4^depth sub-triangles at most).
 const TRIANGLE_DEPTH: usize = 3;
 
+/// Bisection depth toward a zero of the weight function (a Gregory
+/// corner), where only the position hull encloses: each level halves
+/// the corner piece, whose bound shrinks with its size.
+pub(super) const CORNER_DEPTH: usize = 20;
+
+/// Pieces near weight zeros one bound may visit (each corner subtree
+/// splits every sibling, so depth alone does not bound the work).
+/// Measured on pentagon_tower's Gregory caps (PK-904): the bound is the
+/// same from 16 to 4096 pieces (2.3e-2, set by the pieces beside the
+/// activated corner, where the jets' quotient diverges as the box
+/// shrinks), while the time grows from 0.2 s to 25 s per triangle.
+pub(super) const CORNER_WORK: usize = 16;
+
 /// Where the surface is not C¹, and how its chart wraps: the triangle
 /// is cut along these lines before Taylor bounds apply, and pieces
 /// outside a spline's domain are shifted by its period.
@@ -57,6 +70,7 @@ pub fn triangle_chord_bound(
     let affine = Affine::new(w, p);
     let scale = p.iter().map(|q| magnitude(*q)).fold(0.0, f64::max);
     let mut worst = 0.0_f64;
+    let mut work = CORNER_WORK;
     for piece in cut(vec![w], breaks) {
         worst = worst.max(piece_bound(
             source,
@@ -64,7 +78,8 @@ pub fn triangle_chord_bound(
             &affine,
             piece,
             target,
-            TRIANGLE_DEPTH,
+            (TRIANGLE_DEPTH, CORNER_DEPTH, false),
+            &mut work,
         )?);
     }
     Ok(worst + ROUNDING * (worst + scale))
@@ -218,7 +233,74 @@ fn piece_bound(
     affine: &Affine,
     t: [Uv; 3],
     target: f64,
-    depth: usize,
+    (depth, corner, near): (usize, usize, bool),
+    work: &mut usize,
+) -> Result<f64, CertifyDecline> {
+    let taylor = match own_bound(source, breaks, affine, t) {
+        Ok(own) => Some(own),
+        Err(CertifyDecline::DenominatorContainsZero) => None,
+        Err(e) => return Err(e),
+    };
+    // Near a zero of the weight function (a Gregory corner) the jets
+    // decline, or enclose loosely beside it: the position hull bounds
+    // those pieces too, and they recurse on the corner budget.
+    let near = near || taylor.is_none();
+    let own = if near {
+        let chart = wrap(t, breaks, source);
+        let span = |k: usize| {
+            let xs = chart.iter().map(|q| coord(*q, k));
+            Iv::new(
+                xs.clone().fold(f64::INFINITY, f64::min),
+                xs.fold(f64::NEG_INFINITY, f64::max),
+            )
+        };
+        let hull = source.position_hull(span(0), span(1))?;
+        let own = t
+            .iter()
+            .map(|q| point_to_box(affine.at(*q), hull))
+            .fold(0.0, f64::max);
+        taylor.map_or(own, |x| x.min(own))
+    } else {
+        taylor.unwrap_or(f64::INFINITY)
+    };
+    let budget = if near {
+        // Each piece near the corner spends one unit of the call's
+        // work: out of it, the piece keeps its own (valid) bound.
+        *work = work.saturating_sub(1);
+        if *work == 0 { 0 } else { corner }
+    } else {
+        depth
+    };
+    if own <= target || budget == 0 {
+        return Ok(own);
+    }
+    let mid = |i: usize, j: usize| (0.5 * (t[i].0 + t[j].0), 0.5 * (t[i].1 + t[j].1));
+    let (m01, m12, m20) = (mid(0, 1), mid(1, 2), mid(2, 0));
+    let next = (depth.saturating_sub(1), corner.saturating_sub(1), near);
+    let mut children = 0.0_f64;
+    for sub in [
+        [t[0], m01, m20],
+        [m01, t[1], m12],
+        [m20, m12, t[2]],
+        [m01, m12, m20],
+    ] {
+        children = children.max(piece_bound(
+            source, breaks, affine, sub, target, next, work,
+        )?);
+        if children >= own {
+            return Ok(own);
+        }
+    }
+    Ok(children)
+}
+
+/// The piece's own Taylor bound (Waldron's, smallest of three metric
+/// forms) plus its vertex discrepancies.
+fn own_bound(
+    source: &mut SurfaceJetSource,
+    breaks: &C0Breaks,
+    affine: &Affine,
+    t: [Uv; 3],
 ) -> Result<f64, CertifyDecline> {
     let chart = wrap(t, breaks, source);
     let mut disc = 0.0_f64;
@@ -269,23 +351,5 @@ fn piece_bound(
     } else {
         f64::INFINITY
     };
-    let own = isotropic.min(diagonal(1.0)).min(quad) * (1.0 + 1e-12) + disc;
-    if own <= target || depth == 0 {
-        return Ok(own);
-    }
-    let mid = |i: usize, j: usize| (0.5 * (t[i].0 + t[j].0), 0.5 * (t[i].1 + t[j].1));
-    let (m01, m12, m20) = (mid(0, 1), mid(1, 2), mid(2, 0));
-    let mut children = 0.0_f64;
-    for sub in [
-        [t[0], m01, m20],
-        [m01, t[1], m12],
-        [m20, m12, t[2]],
-        [m01, m12, m20],
-    ] {
-        children = children.max(piece_bound(source, breaks, affine, sub, target, depth - 1)?);
-        if children >= own {
-            return Ok(own);
-        }
-    }
-    Ok(children)
+    Ok(isotropic.min(diagonal(1.0)).min(quad) * (1.0 + 1e-12) + disc)
 }

@@ -295,6 +295,20 @@ impl SurfaceJetSource {
             Err(CertifyDecline::NonFinite)
         }
     }
+
+    /// Enclosure of the position alone over a box, where the jets'
+    /// quotient may decline (see [`NurbsJetSource::position_hull`]).
+    pub fn position_hull(&mut self, u: Iv, v: Iv) -> Result<IvVec3, CertifyDecline> {
+        let at = match self {
+            SurfaceJetSource::Analytic(source) => source.jet(u, v).partial(0, 0),
+            SurfaceJetSource::Spline(source) => source.position_hull(u, v)?,
+        };
+        if at.x.is_finite() && at.y.is_finite() && at.z.is_finite() {
+            Ok(at)
+        } else {
+            Err(CertifyDecline::NonFinite)
+        }
+    }
 }
 
 /// The exact rational form of a Gregory patch in its own `(u, v)`

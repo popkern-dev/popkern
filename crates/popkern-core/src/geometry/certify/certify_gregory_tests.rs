@@ -120,3 +120,54 @@ fn a_patch_edge_subnormal_box_encloses_tightly() {
         );
     }
 }
+
+/// Where the jets decline (an activated corner), the position hull
+/// still encloses the patch, and a corner triangle's chordal bound is
+/// proven and covers its sampled deviation (PK-904). Negative control:
+/// moving the corner vertex off the patch raises the bound past it.
+#[test]
+fn a_blended_corner_is_enclosed_by_its_hull_and_its_triangle_is_bounded() {
+    use super::super::chord::{C0Breaks, triangle_chord_bound};
+    let mut corners = 0;
+    for surface in rational_gregories() {
+        let mut source = SurfaceJetSource::new(&surface).unwrap_or_else(|e| panic!("{e}"));
+        let (u, v) = (Iv::new(0.0, 0.1), Iv::new(0.0, 0.1));
+        if source.jet(u, v).is_ok() {
+            continue;
+        }
+        corners += 1;
+        let hull = source.position_hull(u, v).unwrap_or_else(|e| panic!("{e}"));
+        for i in 0..=8 {
+            for j in 0..=8 {
+                let q = surface.point_at(0.1 * i as f64 / 8.0, 0.1 * j as f64 / 8.0);
+                let gap = (hull - IvVec3::from_point(q)).norm();
+                assert!(gap.lo <= 1e-12, "hull misses ({i}, {j})");
+            }
+        }
+        let w = [(0.0, 0.0), (0.2, 0.0), (0.0, 0.2)];
+        let p = w.map(|(a, b)| surface.point_at(a, b));
+        let none = C0Breaks::default();
+        let bound =
+            triangle_chord_bound(&mut source, &none, w, p, 1e-4).unwrap_or_else(|e| panic!("{e}"));
+        let mut truth = 0.0_f64;
+        for i in 0..=20 {
+            for j in 0..=(20 - i) {
+                let (r, t) = (i as f64 / 20.0, j as f64 / 20.0);
+                let k = [1.0 - r - t, r, t];
+                let l = Point3::new(
+                    k[0] * p[0].x + k[1] * p[1].x + k[2] * p[2].x,
+                    k[0] * p[0].y + k[1] * p[1].y + k[2] * p[2].y,
+                    k[0] * p[0].z + k[1] * p[1].z + k[2] * p[2].z,
+                );
+                truth = truth.max(l.distance_to(&surface.point_at(0.2 * r, 0.2 * t)));
+            }
+        }
+        assert!(bound >= truth && bound.is_finite(), "{bound} vs {truth}");
+        let mut moved = p;
+        moved[0] = Point3::new(p[0].x, p[0].y, p[0].z + 0.05);
+        let raised = triangle_chord_bound(&mut source, &none, w, moved, 1e-4)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert!(raised >= 0.05, "{raised}");
+    }
+    assert!(corners > 0, "no fixture reaches an activated corner");
+}
