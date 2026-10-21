@@ -47,29 +47,10 @@ pub(crate) enum Piece {
 }
 
 impl Piece {
-    /// The emitted triangles this piece stands for.
-    #[cfg(test)]
-    fn triangles(&self) -> Vec<[Point3; 3]> {
-        match self {
-            Piece::Triangle(_, p) => vec![*p],
-            Piece::Rectangle(_, _, c) | Piece::Quad(_, _, c, true) => {
-                vec![[c[0], c[1], c[3]], [c[0], c[3], c[2]]]
-            }
-            Piece::Quad(_, _, c, false) => vec![[c[1], c[3], c[2]], [c[1], c[2], c[0]]],
-        }
-    }
-
     /// The largest distance, over a 7 × 7 grid of the piece's parameter
-    /// domain, from the surface to the piece's own triangles: a lower
-    /// bound of the piece's deviation under any correspondence.
-    #[cfg(test)]
-    pub(crate) fn sampled(&self, surface: &SurfaceGeometry) -> f64 {
-        self.sampled_against(surface, &self.triangles())
-    }
-
-    /// As [`Piece::sampled`], against `triangles` (a face's whole mesh:
-    /// a lower bound of the face's chordal deviation, so a witness that
-    /// an `Exceeds` is the mesh's and not the bound's).
+    /// domain, from the surface to the nearest of `triangles` (a face's
+    /// whole mesh: a lower bound of the face's chordal deviation, so a
+    /// witness that an `Exceeds` is the mesh's and not the bound's).
     pub(crate) fn sampled_against(
         &self,
         surface: &SurfaceGeometry,

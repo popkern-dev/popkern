@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::certify::CertifyDecline;
 use popkern_core::geometry::certify::chord::{
-    quad_pair_offset, rectangle_chord_bound, triangle_chord_bound,
+    bent_triangle_chord_bound, quad_pair_offset, rectangle_chord_bound, triangle_chord_bound,
 };
 use popkern_core::geometry::certify::surface_jet::SurfaceJetSource;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -247,6 +247,38 @@ fn certify_face(
             }
         }
     }
+    // Triangles still over: pair them through bent edges, which do not
+    // charge a surface's sag inside its tangent plane (PK-908).
+    if best.iter().any(|(b, _)| *b > tolerance) {
+        let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+        let mut id = |p: Point3| {
+            let next = weld.len();
+            *weld
+                .entry([p.x, p.y, p.z].map(|x| (x + 0.0).to_bits()))
+                .or_insert(next)
+        };
+        let input: Vec<Option<BendTriangle>> = tris
+            .iter()
+            .zip(&plain)
+            .map(|(&t, w)| {
+                let p = mesh.triangles[t].map(|i| mesh.vertices[i].position);
+                w.map(|w| BendTriangle {
+                    weld: p.map(&mut id),
+                    w,
+                    p,
+                })
+            })
+            .collect();
+        let mut bounds: Vec<f64> = best.iter().map(|b| b.0).collect();
+        bend_pass(surface, &input, &mut bounds, tolerance, |w, p, c| {
+            bent_triangle_chord_bound(&mut source, &breaks, w, p, c, tolerance)
+                .ok()
+                .flatten()
+        });
+        for (b, x) in best.iter_mut().zip(bounds) {
+            b.0 = x;
+        }
+    }
     if let Some((k, (b, piece))) = best
         .iter()
         .enumerate()
@@ -270,10 +302,13 @@ fn certify_face(
     out
 }
 
+#[path = "chordal_bend.rs"]
+mod chordal_bend;
 #[path = "chordal_boundary.rs"]
 mod chordal_boundary;
 #[path = "chordal_pieces.rs"]
 mod chordal_pieces;
+use chordal_bend::{BendTriangle, bend_pass};
 use chordal_boundary::boundary_bound;
 pub(crate) use chordal_pieces::{Piece, c0_breaks, pole_pieces, quad_piece, unwrap};
 

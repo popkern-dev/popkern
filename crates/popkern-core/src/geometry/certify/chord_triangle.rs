@@ -14,11 +14,18 @@
 use super::super::CertifyDecline;
 use super::super::interval::Iv;
 use super::super::surface_jet::SurfaceJetSource;
+use super::chord_bend::Bend;
 use super::{ROUNDING, magnitude, point_to_box};
 use crate::geometry::Point3;
 
 /// Bisection depth of a triangle (4^depth sub-triangles at most).
 const TRIANGLE_DEPTH: usize = 3;
+
+/// Bisection depth of a bent triangle: bent bounds are taken only for
+/// triangles the others leave over the tolerance, and land near it (the
+/// double-boss fillet torus read 5.007e-3 at depth 3, against a 5e-3
+/// chord height and a 4.82e-3 sampled pairing).
+const BENT_DEPTH: usize = 4;
 
 /// Bisection depth toward a zero of the weight function (a Gregory
 /// corner), where only the position hull encloses: each level halves
@@ -69,25 +76,96 @@ pub fn triangle_chord_bound(
     target: f64,
 ) -> Result<f64, CertifyDecline> {
     let affine = Affine::new(w, p);
-    let scale = p.iter().map(|q| magnitude(*q)).fold(0.0, f64::max);
     let mut worst = 0.0_f64;
     let mut work = CORNER_WORK;
     for piece in cut(vec![w], breaks) {
-        let mut disc = [0.0; 3];
-        for (d, q) in disc.iter_mut().zip(piece) {
-            *d = discrepancy(source, breaks, &affine, q)?;
-        }
-        worst = worst.max(piece_bound(
-            source,
+        let ctx = Ctx {
             breaks,
-            &affine,
-            (piece, disc),
-            target,
-            (TRIANGLE_DEPTH, CORNER_DEPTH, false),
-            &mut work,
-        )?);
+            affine: &affine,
+            bend: None,
+        };
+        worst = worst.max(top_bound(source, &ctx, piece, target, &mut work)?);
     }
-    Ok(worst + ROUNDING * (worst + scale))
+    Ok(worst + ROUNDING * (worst + scale_of(&p)))
+}
+
+/// The bound of [`triangle_chord_bound`] under the bent correspondence
+/// `y ↦ (S(φ(y)), L(y))`, `φ` the quadratic map whose edge `k`
+/// (vertices `k`, `k + 1`) has the control point `controls[k]` (`None`
+/// for a straight edge; see `chord_bend`). `None` when
+/// the bend does not apply: a degenerate triangle, or one a C⁰ line of
+/// the surface crosses (in `y` or under `φ`).
+///
+/// # Errors
+///
+/// As [`triangle_chord_bound`].
+pub fn bent_triangle_chord_bound(
+    source: &mut SurfaceJetSource,
+    breaks: &C0Breaks,
+    w: [Uv; 3],
+    p: [Point3; 3],
+    controls: [Option<Uv>; 3],
+    target: f64,
+) -> Result<Option<f64>, CertifyDecline> {
+    let Some(bend) = Bend::new(w, controls) else {
+        return Ok(None);
+    };
+    let (bu, bv) = bend.map_box(&w);
+    let crosses = |lines: &[f64], x: Iv| lines.iter().any(|&k| x.lo < k && k < x.hi);
+    if cut(vec![w], breaks).len() != 1 || crosses(&breaks.u, bu) || crosses(&breaks.v, bv) {
+        return Ok(None);
+    }
+    let affine = Affine::new(w, p);
+    let ctx = Ctx {
+        breaks,
+        affine: &affine,
+        bend: Some(&bend),
+    };
+    let mut work = CORNER_WORK;
+    let worst = top_bound(source, &ctx, w, target, &mut work)?;
+    Ok(Some(worst + ROUNDING * (worst + scale_of(&p))))
+}
+
+fn scale_of(p: &[Point3; 3]) -> f64 {
+    p.iter().map(|q| magnitude(*q)).fold(0.0, f64::max)
+}
+
+/// What every piece of one triangle's bound shares.
+struct Ctx<'a> {
+    breaks: &'a C0Breaks,
+    affine: &'a Affine,
+    /// The bent map, or `None` for the affine correspondence.
+    bend: Option<&'a Bend>,
+}
+
+/// A top-level piece: its vertex discrepancies, then its bound.
+fn top_bound(
+    source: &mut SurfaceJetSource,
+    ctx: &Ctx<'_>,
+    piece: [Uv; 3],
+    target: f64,
+    work: &mut usize,
+) -> Result<f64, CertifyDecline> {
+    let mut disc = [0.0; 3];
+    for (d, q) in disc.iter_mut().zip(piece) {
+        *d = discrepancy(source, ctx, q)?;
+    }
+    piece_bound(
+        source,
+        ctx,
+        (piece, disc),
+        target,
+        (
+            if ctx.bend.is_some() {
+                BENT_DEPTH
+            } else {
+                TRIANGLE_DEPTH
+            },
+            CORNER_DEPTH,
+            false,
+        ),
+        work,
+    )
 }
 
 /// The affine map of the parameter triangle onto the emitted one.
@@ -232,19 +310,35 @@ pub(super) fn wrap<const N: usize>(
     t.map(|q| (q.0 + su, q.1 + sv))
 }
 
-/// `|L(q) − S(q)|`, bounded above; infinite at a zero of the weight
-/// function, where the quotient declines (a piece with such a vertex
-/// has no Taylor bound and takes the position hull).
-fn discrepancy(
-    source: &mut SurfaceJetSource,
-    breaks: &C0Breaks,
-    affine: &Affine,
-    q: Uv,
-) -> Result<f64, CertifyDecline> {
-    let [c] = wrap([q], breaks, source);
-    let (u, v) = (Iv::point(c.0), Iv::point(c.1));
+/// The surface parameters a piece's points pair with, as a box in the
+/// spline's chart: the hull of `t` (affine correspondence) or of `φ(t)`
+/// (bent), shifted into a periodic domain.
+fn chart_box(source: &SurfaceJetSource, ctx: &Ctx<'_>, t: &[Uv]) -> (Iv, Iv) {
+    let (u, v) = match ctx.bend {
+        Some(bend) => bend.map_box(t),
+        None => {
+            let span = |k: usize| {
+                let xs = t.iter().map(|q| coord(*q, k));
+                Iv::new(
+                    xs.clone().fold(f64::INFINITY, f64::min),
+                    xs.fold(f64::NEG_INFINITY, f64::max),
+                )
+            };
+            (span(0), span(1))
+        }
+    };
+    let [lo, hi] = wrap([(u.lo, v.lo), (u.hi, v.hi)], ctx.breaks, source);
+    (Iv::new(lo.0, hi.0), Iv::new(lo.1, hi.1))
+}
+
+/// `|L(q) − S(φ(q))|` (`φ` the identity unbent), bounded above;
+/// infinite at a zero of the weight function, where the quotient
+/// declines (a piece with such a vertex has no Taylor bound and takes
+/// the position hull).
+fn discrepancy(source: &mut SurfaceJetSource, ctx: &Ctx<'_>, q: Uv) -> Result<f64, CertifyDecline> {
+    let (u, v) = chart_box(source, ctx, &[q]);
     match source.jet_piecewise_to(u, v, 0) {
-        Ok((jet, _)) => Ok(point_to_box(affine.at(q), jet.partial(0, 0))),
+        Ok((jet, _)) => Ok(point_to_box(ctx.affine.at(q), jet.partial(0, 0))),
         Err(CertifyDecline::DenominatorContainsZero) => Ok(f64::INFINITY),
         Err(e) => Err(e),
     }
@@ -255,14 +349,13 @@ fn discrepancy(
 /// its three midpoints).
 fn piece_bound(
     source: &mut SurfaceJetSource,
-    breaks: &C0Breaks,
-    affine: &Affine,
+    ctx: &Ctx<'_>,
     (t, disc): ([Uv; 3], [f64; 3]),
     target: f64,
     (depth, corner, near): (usize, usize, bool),
     work: &mut usize,
 ) -> Result<f64, CertifyDecline> {
-    let taylor = match own_bound(source, breaks, t, disc) {
+    let taylor = match own_bound(source, ctx, t, disc) {
         Ok(own) if own.is_finite() => Some(own),
         Ok(_) | Err(CertifyDecline::DenominatorContainsZero) => None,
         Err(e) => return Err(e),
@@ -272,18 +365,11 @@ fn piece_bound(
     // those pieces too, and they recurse on the corner budget.
     let near = near || taylor.is_none();
     let own = if near {
-        let chart = wrap(t, breaks, source);
-        let span = |k: usize| {
-            let xs = chart.iter().map(|q| coord(*q, k));
-            Iv::new(
-                xs.clone().fold(f64::INFINITY, f64::min),
-                xs.fold(f64::NEG_INFINITY, f64::max),
-            )
-        };
-        let hull = source.position_hull(span(0), span(1))?;
+        let (u, v) = chart_box(source, ctx, &t);
+        let hull = source.position_hull(u, v)?;
         let own = t
             .iter()
-            .map(|q| point_to_box(affine.at(*q), hull))
+            .map(|q| point_to_box(ctx.affine.at(*q), hull))
             .fold(0.0, f64::max);
         taylor.map_or(own, |x| x.min(own))
     } else {
@@ -303,9 +389,9 @@ fn piece_bound(
     let mid = |i: usize, j: usize| (0.5 * (t[i].0 + t[j].0), 0.5 * (t[i].1 + t[j].1));
     let (m01, m12, m20) = (mid(0, 1), mid(1, 2), mid(2, 0));
     let (d01, d12, d20) = (
-        discrepancy(source, breaks, affine, m01)?,
-        discrepancy(source, breaks, affine, m12)?,
-        discrepancy(source, breaks, affine, m20)?,
+        discrepancy(source, ctx, m01)?,
+        discrepancy(source, ctx, m12)?,
+        discrepancy(source, ctx, m20)?,
     );
     let next = (depth.saturating_sub(1), corner.saturating_sub(1), near);
     let mut children = 0.0_f64;
@@ -315,9 +401,7 @@ fn piece_bound(
         ([m20, m12, t[2]], [d20, d12, disc[2]]),
         ([m01, m12, m20], [d01, d12, d20]),
     ] {
-        children = children.max(piece_bound(
-            source, breaks, affine, sub, target, next, work,
-        )?);
+        children = children.max(piece_bound(source, ctx, sub, target, next, work)?);
         if children >= own {
             return Ok(own);
         }
@@ -329,25 +413,18 @@ fn piece_bound(
 /// forms) plus its largest vertex discrepancy.
 fn own_bound(
     source: &mut SurfaceJetSource,
-    breaks: &C0Breaks,
+    ctx: &Ctx<'_>,
     t: [Uv; 3],
     disc: [f64; 3],
 ) -> Result<f64, CertifyDecline> {
-    let chart = wrap(t, breaks, source);
     let disc = disc.into_iter().fold(0.0_f64, f64::max);
-    let hull = |k: usize| {
-        let lo = chart
-            .iter()
-            .map(|q| coord(*q, k))
-            .fold(f64::INFINITY, f64::min);
-        let hi = chart
-            .iter()
-            .map(|q| coord(*q, k))
-            .fold(f64::NEG_INFINITY, f64::max);
-        Iv::new(lo, hi)
+    let (u, v) = chart_box(source, ctx, &t);
+    let (jet, _) = source.jet_piecewise_to(u, v, 2)?;
+    // Second partials of S (unbent), or of S∘φ by the chain rule.
+    let [a, b, c] = match ctx.bend {
+        Some(bend) => bend.second_partials(&t, &jet),
+        None => [(2, 0), (1, 1), (0, 2)].map(|(i, j)| jet.partial(i, j).norm().hi),
     };
-    let (jet, _) = source.jet_piecewise_to(hull(0), hull(1), 2)?;
-    let [a, b, c] = [(2, 0), (1, 1), (0, 2)].map(|(i, j)| jet.partial(i, j).norm().hi);
     // Bounds of |D²_d S| = |d1² S_uu + 2 d1 d2 S_uv + d2² S_vv|, all
     // valid, the smallest kept: isotropic, λ_max([[a, b], [b, c]])
     // times |d|²; and diagonal, (a + εb) d1² + (c + b/ε) d2² for any

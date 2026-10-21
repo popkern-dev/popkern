@@ -13,18 +13,50 @@ fn primitives() -> Vec<(&'static str, BRep)> {
     ]
 }
 
-/// The largest sampled `|L(x) − S(x)|` over the mesh's triangles.
+/// A sampled two-sided distance between each face and its triangles:
+/// surface samples to the face's nearest triangle, and triangle samples
+/// to their projection on the surface. Bent pairings (PK-908) bound
+/// this, not the affine `|L(x) − S(x)|`. Surface samples come from every
+/// fourth triangle (a maximum over fewer samples is still a lower
+/// bound; each is measured against every triangle).
 fn sampled(brep: &BRep, mesh: &TriMesh) -> f64 {
+    use popkern_core::geometry::SurfaceEval;
     let mut worst = 0.0_f64;
-    for (t, &face) in mesh.face_map.iter().enumerate() {
-        let Some(s) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
+    for f in &mesh.face_meshes {
+        let Some(s) = brep.faces.get(f.face).and_then(|x| x.surface.as_ref()) else {
             continue;
         };
-        let tri = mesh.triangles[t];
-        let p = tri.map(|i| mesh.vertices[i].position);
-        let w = unwrap(tri.map(|i| mesh.vertices[i].uv), s.geometry.periodicity());
-        for piece in pole_pieces(&s.geometry, w, p, 0.005) {
-            worst = worst.max(piece.sampled(&s.geometry));
+        let tris: Vec<usize> = (0..mesh.triangles.len())
+            .filter(|&t| mesh.face_map[t] == f.face)
+            .collect();
+        let all: Vec<[Point3; 3]> = tris
+            .iter()
+            .map(|&t| mesh.triangles[t].map(|i| mesh.vertices[i].position))
+            .collect();
+        for (k, (&t, p)) in tris.iter().zip(&all).enumerate() {
+            let tri = mesh.triangles[t];
+            let w = unwrap(tri.map(|i| mesh.vertices[i].uv), s.geometry.periodicity());
+            for piece in pole_pieces(&s.geometry, w, *p, 0.005)
+                .iter()
+                .filter(|_| k % 4 == 0)
+            {
+                worst = worst.max(piece.sampled_against(&s.geometry, &all));
+            }
+            let n = 4;
+            for i in 0..=n {
+                for j in 0..=n - i {
+                    let (b1, b2) = (i as f64 / n as f64, j as f64 / n as f64);
+                    let b0 = 1.0 - b1 - b2;
+                    let q = Point3::new(
+                        b0 * p[0].x + b1 * p[1].x + b2 * p[2].x,
+                        b0 * p[0].y + b1 * p[1].y + b2 * p[2].y,
+                        b0 * p[0].z + b1 * p[1].z + b2 * p[2].z,
+                    );
+                    if let Some((u, v)) = s.geometry.closest_point(&q) {
+                        worst = worst.max(q.distance_to(&s.geometry.point_at(u, v)));
+                    }
+                }
+            }
         }
     }
     worst
@@ -60,16 +92,11 @@ fn primitive_meshes_certify_and_their_bounds_cover_the_sampled_deviation() {
         for f in &cert.faces {
             assert!(f.surface_bound >= f.witness, "{name}: {f:?}");
         }
-        if name == "torus" {
-            // The 3/1 torus meshes within its chord height (4.7e-3 from
-            // the surface to the mesh, 4.8e-3 back, sampled), but its
-            // bilinear bound charges the in-plane u-sag: 5.5e-3 (PK-908).
-            for f in cert.exceeding() {
-                assert!(f.witness <= options.chord_height, "{f:?}");
-            }
-        } else {
-            assert!(cert.certified(), "{name}: {:?}", cert.exceeding());
-        }
+        // The 3/1 torus meshes within its chord height (4.7e-3 from the
+        // surface to the mesh, 4.8e-3 back, sampled); its affine and
+        // bilinear pairings charged the in-plane u-sag (5.5e-3), the bent
+        // one does not (PK-908).
+        assert!(cert.certified(), "{name}: {:?}", cert.exceeding());
     }
 }
 
