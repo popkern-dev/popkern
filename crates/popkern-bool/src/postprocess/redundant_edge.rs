@@ -28,9 +28,22 @@ pub struct RedundantEdgeReport {
 /// NURBS faces are excluded from simplification because co-surfacial
 /// detection for NURBS is approximate and unreliable.
 pub fn find_redundant_edges(brep: &BRep, tolerance: &Tolerance) -> RedundantEdgeReport {
+    find_redundant_edges_in(brep, tolerance, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`find_redundant_edges`] over the edges `region` admits (both faces
+/// in it).
+pub(crate) fn find_redundant_edges_in(
+    brep: &BRep,
+    tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
+) -> RedundantEdgeReport {
     let mut report = RedundantEdgeReport::default();
 
     for (eh, _) in &brep.edges {
+        if !region.admits_edge(brep, eh) {
+            continue;
+        }
         report.edges_analyzed += 1;
         if edge_redundant_now(brep, eh, tolerance) {
             report.redundant_edges.push(eh);

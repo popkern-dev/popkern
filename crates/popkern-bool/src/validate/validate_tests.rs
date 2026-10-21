@@ -446,7 +446,7 @@ fn post_check_gates_report_exactly_the_gating_findings() {
         BRep::cylinder(1.0, 2.0, tol()).unwrap(),
     ] {
         let full = super::post_check::post_check(&body, &tol(), false);
-        let gates = super::post_check::post_check_gates(&body, &tol(), &Default::default());
+        let gates = super::post_check::post_check_gates(&body, &tol(), &Default::default(), false);
         let errors = |r: &super::post_check::PostCheckReport| -> Vec<String> {
             r.findings
                 .iter()

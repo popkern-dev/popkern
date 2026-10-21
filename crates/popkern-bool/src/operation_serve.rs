@@ -172,13 +172,22 @@ pub(super) fn select_and_serve(
             .map_err(|diag| diag.into_error())
     };
     let from_cellular = cellular_result.is_some();
-    let (result, carried) = match cellular_result {
-        Some(r) => r,
-        None => (graph()?, std::collections::BTreeSet::new()),
+    // A cellular result arrives validated in full (its acceptance);
+    // a graph-merge one does not.
+    let (result, carried, validated) = match cellular_result {
+        Some((r, carried)) => (r, carried, true),
+        None => (graph()?, crate::serve_region::Carried::default(), false),
     };
     let merged = (result, t_merge.elapsed());
     let served = serve(
-        merged, &carried, op, tolerance, original_a, original_b, metrics, progress,
+        merged,
+        (&carried, validated),
+        op,
+        tolerance,
+        original_a,
+        original_b,
+        metrics,
+        progress,
     )?;
     let open = free_half_edges(&served);
     if !closed_operands || open == 0 {
@@ -196,7 +205,7 @@ pub(super) fn select_and_serve(
         let merged = (retried, t_retry.elapsed());
         let served = serve(
             merged,
-            &std::collections::BTreeSet::new(),
+            (&crate::serve_region::Carried::default(), false),
             op,
             tolerance,
             original_a,
@@ -225,7 +234,7 @@ fn unclosed(open: usize) -> BoolError {
 #[allow(clippy::too_many_arguments)]
 fn serve(
     (result, elapsed_merge): (BRep, Option<std::time::Duration>),
-    carried: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    (carried, validated): (&crate::serve_region::Carried, bool),
     op: BoolOperation,
     tolerance: &Tolerance,
     original_a: &BRep,
@@ -246,6 +255,12 @@ fn serve(
     // original-operand edges without pcurves — only faces with a gap
     // in their pcurve inventory are recomputed (PK-274): a face the
     // merge carried over intact keeps its authoritative pcurves.
+    // Pcurve edits keep a validity verdict: `validate()` reads none.
+    let mut gate = if validated {
+        super::postprocess_gate::ValidityGate::known(true)
+    } else {
+        super::postprocess_gate::ValidityGate::new()
+    };
     let mut result = result;
     if let Err(e) = result.recompute_pcurves_where_missing()
         && popkern_core::trace::trace_enabled("boolean")
@@ -254,13 +269,14 @@ fn serve(
     }
     super::helpers_pcurve_coherence::normalize_output_loop_charts(&mut result);
 
-    super::helpers::pre_check_retire_and_empty_gate(
+    let region = crate::serve_region::ServeRegion::of(&result, carried);
+    gate.edited(super::helpers::pre_check_retire_and_empty_gate(
         &mut result,
         op,
-        original_a,
-        original_b,
+        (original_a, original_b),
         tolerance,
-    )?;
+        &region,
+    )?);
 
     // §12.5 / §7.3: gated post-validation. Run the boolean-specific
     // post-check (manifold, Euler, half-edge cycles, watertightness).
@@ -269,8 +285,12 @@ fn serve(
     // (commit history) made this consistently green; if a future
     // change regresses, fail loudly.
     let t_validate = popkern_core::time::Stopwatch::start();
-    let pc_errors: Vec<String> =
-        super::helpers::validate_with_junction_reconcile_retry(&mut result, tolerance, carried);
+    let pc_errors: Vec<String> = super::helpers::validate_with_junction_reconcile_retry(
+        &mut result,
+        tolerance,
+        &carried.edges,
+        &mut gate,
+    );
     let elapsed_validate = t_validate.elapsed();
     let count_validate = result.faces.len();
     metrics.push(PhaseMetric {
@@ -289,8 +309,7 @@ fn serve(
         super::helpers::trace_invalid_result(&result);
         return Err(BoolError::ValidationFailed(pc_errors.join("; ")));
     }
-
-    run_output_postprocess(&mut result, tolerance);
+    run_output_postprocess(&mut result, tolerance, gate, region, carried);
     super::postprocess::decline_on_unrepairable_stubs(&mut result, tolerance)?;
     crate::postprocess::curveless_edge::repair_or_decline_curveless_edges(&mut result, tolerance)?;
 
@@ -309,7 +328,7 @@ fn serve(
     // Fitted trims record their measured agreement on the edge (PK-826);
     // edges carried over unsplit keep their operands' (scoped: the
     // whole-body measurement made a late slot cut 25x the first).
-    result.record_measured_edge_tolerances_except(carried);
+    result.record_measured_edge_tolerances_where(|e| !carried.edges.contains_key(e));
 
     // Debug/the boolean trace topic diagnostics on the SERVED result. This runs
     // after run_output_postprocess deliberately (PK-272): the earlier

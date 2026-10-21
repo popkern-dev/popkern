@@ -41,13 +41,20 @@ impl BRep {
         &mut self,
         unchanged: &std::collections::BTreeSet<EdgeHandle>,
     ) -> Vec<EdgeHandle> {
+        self.record_measured_edge_tolerances_where(|e| !unchanged.contains(&e))
+    }
+
+    /// [`Self::record_measured_edge_tolerances`] over the edges `measure`
+    /// admits (a dense set's test where the unchanged edges are most of
+    /// a body: a `BTreeSet` lookup per edge was a third of this pass on
+    /// a 771-edge body, PK-815).
+    pub fn record_measured_edge_tolerances_where(
+        &mut self,
+        measure: impl Fn(EdgeHandle) -> bool,
+    ) -> Vec<EdgeHandle> {
         let linear = self.tolerance.linear();
         let mut raised = Vec::new();
-        let edges: Vec<EdgeHandle> = self
-            .edges
-            .keys()
-            .filter(|e| !unchanged.contains(e))
-            .collect();
+        let edges: Vec<EdgeHandle> = self.edges.keys().filter(|&e| measure(e)).collect();
         for eh in edges {
             let Some(edge) = self.edges.get(eh) else {
                 continue;

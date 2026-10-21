@@ -39,8 +39,17 @@ pub struct KeyholeLoopReport {
 /// Iterates to a fixed point: each merge removes one inner loop, and a
 /// face may carry several pinches.
 pub fn merge_pinched_keyhole_loops(brep: &mut BRep) -> KeyholeLoopReport {
+    merge_pinched_keyhole_loops_in(brep, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`merge_pinched_keyhole_loops`] on the faces `region` admits (a
+/// splice edits one face and creates none).
+pub(crate) fn merge_pinched_keyhole_loops_in(
+    brep: &mut BRep,
+    region: &crate::serve_region::ServeRegion,
+) -> KeyholeLoopReport {
     let mut report = KeyholeLoopReport::default();
-    while let Some((face, inner, he_outer, he_inner)) = find_pinched_pair(brep) {
+    while let Some((face, inner, he_outer, he_inner)) = find_pinched_pair(brep, region) {
         if splice_at_pinch(brep, face, inner, he_outer, he_inner) {
             report.merged += 1;
         } else {
@@ -57,13 +66,19 @@ pub fn merge_pinched_keyhole_loops(brep: &mut BRep) -> KeyholeLoopReport {
 /// different class (the near-tangent weld family), never a keyhole.
 fn find_pinched_pair(
     brep: &BRep,
+    region: &crate::serve_region::ServeRegion,
 ) -> Option<(FaceHandle, LoopHandle, HalfEdgeHandle, HalfEdgeHandle)> {
     for (fh, face) in brep.faces.iter() {
-        if face.inner_loops.is_empty() {
+        if face.inner_loops.is_empty() || !region.admits_face(fh) {
             continue;
         }
         let outer_members = loop_members(brep, face.outer_loop)?;
+        // A pinch between two loops of carried edges only is `a`'s.
+        let outer_touched = region.admits_loop(face.outer_loop);
         for &inner in &face.inner_loops {
+            if !outer_touched && !region.admits_loop(inner) {
+                continue;
+            }
             let inner_members = loop_members(brep, inner)?;
             for &hi in &inner_members {
                 let vi = brep.half_edges.get(hi)?.origin;

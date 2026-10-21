@@ -39,12 +39,26 @@ impl FaceSimplifyReport {
 /// Note: actual merging (Kill-Edge-Face Euler operations) is not performed
 /// here — this function only identifies the candidates.
 pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplifyReport {
+    find_merge_candidates_in(brep, tolerance, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`find_merge_candidates`] among the faces `region` admits: groups
+/// neither start nor grow outside it.
+fn find_merge_candidates_in(
+    brep: &BRep,
+    tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
+) -> FaceSimplifyReport {
     let mut report = FaceSimplifyReport {
         faces_analyzed: brep.faces.len(),
         ..Default::default()
     };
 
-    let face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
+    let face_handles: Vec<FaceHandle> = brep
+        .faces
+        .keys()
+        .filter(|&f| region.admits_face(f))
+        .collect();
     // Dense on the body's face handles: the pass runs on every
     // boolean's whole result (PK-815).
     let mut visited: slotmap::SecondaryMap<FaceHandle, ()> =
@@ -63,6 +77,9 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
         let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(twin.loop_)) else {
             continue;
         };
+        if !(region.admits_face(la.face) && region.admits_face(lb.face)) {
+            continue;
+        }
         if let Some(e) = adjacency.entry(la.face) {
             e.or_default().push(lb.face);
         }
@@ -211,6 +228,16 @@ pub fn find_merge_candidates(brep: &BRep, tolerance: &Tolerance) -> FaceSimplify
 /// merge by restoring from a snapshot and stops the pass. Returns
 /// the number of faces eliminated.
 pub fn apply_face_simplification(brep: &mut BRep, tolerance: &Tolerance) -> usize {
+    apply_face_simplification_in(brep, tolerance, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`apply_face_simplification`] among the faces `region` admits (a
+/// merge kills a face and creates none, so the region stays exact).
+pub(crate) fn apply_face_simplification_in(
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
+) -> usize {
     let mut eliminated = 0;
     // Hard cap so a pathological case can't run forever. Each merge
     // strictly decreases the face count, so the actual cap is the
@@ -218,7 +245,7 @@ pub fn apply_face_simplification(brep: &mut BRep, tolerance: &Tolerance) -> usiz
     let max_iterations = brep.faces.len() + 1;
 
     for _ in 0..max_iterations {
-        let report = find_merge_candidates(brep, tolerance);
+        let report = find_merge_candidates_in(brep, tolerance, region);
         if report.merge_groups.is_empty() {
             break;
         }

@@ -3,20 +3,28 @@
 
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
+use crate::serve_region::ServeRegion;
+
 /// Safely remove redundant edges, validating after each removal.
 ///
 /// Finds redundant edges and removes them one at a time via KEF.
 /// After each removal, validates the topology. If validation fails,
 /// stops immediately (leaving remaining redundant edges in place).
 /// Returns how many edits it made (KEFs applied, chains dissolved) —
-/// zero when the body is unchanged.
-pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Tolerance) -> usize {
-    use crate::postprocess::redundant_edge::find_redundant_edges;
+/// zero when the body is unchanged. Only edges `region` admits are
+/// dissolved (a dissolution kills an edge and a face and creates
+/// nothing, so the region stays exact).
+pub(crate) fn remove_redundant_edges_safe(
+    result: &mut BRep,
+    tolerance: &Tolerance,
+    region: &ServeRegion,
+) -> usize {
+    use crate::postprocess::redundant_edge::find_redundant_edges_in;
 
-    let report = find_redundant_edges(result, tolerance);
+    let report = find_redundant_edges_in(result, tolerance, region);
 
     if report.redundant_edges.is_empty() {
-        return dissolve_redundant_chains(result, tolerance);
+        return dissolve_redundant_chains(result, tolerance, region);
     }
 
     let (mut removed, mut edits) = (0, 0usize);
@@ -66,7 +74,7 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
     if removed > 0 && cfg!(debug_assertions) {
         eprintln!("[boolean] post-processing: removed {removed} redundant edge(s)");
     }
-    edits + dissolve_redundant_chains(result, tolerance)
+    edits + dissolve_redundant_chains(result, tolerance, region)
 }
 
 /// Merge co-surfacial face pairs whose shared boundary is a multi-edge
@@ -74,12 +82,20 @@ pub(crate) fn remove_redundant_edges_safe(result: &mut BRep, tolerance: &Toleran
 /// validates. Single-edge pairs were handled above; pairs whose
 /// shared edges are not one path stay split (a ring would need an
 /// inner loop, not a merge).
-fn dissolve_redundant_chains(result: &mut BRep, tolerance: &Tolerance) -> usize {
+fn dissolve_redundant_chains(
+    result: &mut BRep,
+    tolerance: &Tolerance,
+    region: &ServeRegion,
+) -> usize {
     use crate::postprocess::redundant_chain::{dissolve_chain, shared_coplanar_chain};
     let mut merged = 0usize;
     loop {
         let mut progressed = false;
-        let edges: Vec<_> = result.edges.keys().collect();
+        let edges: Vec<_> = result
+            .edges
+            .keys()
+            .filter(|&e| region.admits_edge(result, e))
+            .collect();
         for eh in edges {
             let Some(chain) = shared_coplanar_chain(result, eh, tolerance) else {
                 continue;

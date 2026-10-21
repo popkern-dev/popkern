@@ -28,6 +28,7 @@ mod loop_period_winding;
 mod pcurve_consistency;
 mod pcurve_presence;
 mod winding_honesty;
+mod winding_honesty_among;
 mod winding_pole_witness;
 
 pub use canonical_forward::{CanonicalForwardState, CanonicalForwardVerdict};

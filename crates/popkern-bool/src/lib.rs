@@ -72,6 +72,7 @@ pub(crate) mod periodic_chart_parity_torus;
 pub mod propagation_report;
 pub(crate) mod record_side_witness;
 pub(crate) mod scope;
+pub(crate) mod serve_region;
 
 /// PK-478 E1 diagnostic export (see `merge::closed_side_census`):
 /// closed-edge witness census for the sense-aware-merge exploration.

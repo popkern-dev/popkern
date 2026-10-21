@@ -26,6 +26,8 @@
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
+use crate::serve_region::ServeRegion;
+
 /// Report from a spur-collapse pass.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SpurCollapseReport {
@@ -44,18 +46,29 @@ pub fn collapse_degenerate_spur_edges(
     brep: &mut BRep,
     tolerance: &Tolerance,
 ) -> SpurCollapseReport {
+    collapse_degenerate_spur_edges_in(brep, tolerance, &ServeRegion::Whole)
+}
+
+/// [`collapse_degenerate_spur_edges`] on the faces `region` admits: a
+/// ghost face or a stub's face in it, a spur edge with both sides in it
+/// (removals create nothing, so the region stays exact).
+pub(crate) fn collapse_degenerate_spur_edges_in(
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    region: &ServeRegion,
+) -> SpurCollapseReport {
     let mut report = SpurCollapseReport::default();
     let length_gate = tolerance.linear() * 10.0;
     loop {
-        if retire_one_ghost_face(brep, length_gate) {
+        if retire_one_ghost_face(brep, length_gate, region) {
             report.ghost_faces_removed += 1;
             continue;
         }
-        if retire_one_mev_spur(brep, length_gate) {
+        if retire_one_mev_spur(brep, length_gate, region) {
             report.spurs_removed += 1;
             continue;
         }
-        if excise_one_self_twin_stub(brep, length_gate) {
+        if excise_one_self_twin_stub(brep, length_gate, region) {
             report.self_twins_removed += 1;
             continue;
         }
@@ -98,10 +111,15 @@ fn is_degenerate_self_twin(
 /// boundary). Removes the face, its loops, half-edges, edges, and
 /// orphaned vertices, with snapshot rollback if structural
 /// validation regresses.
-fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64) -> bool {
+fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64, region: &ServeRegion) -> bool {
     let target = brep.faces.iter().find_map(|(fh, f)| {
+        if !region.admits_face(fh) {
+            return None;
+        }
         let mut loop_handles = vec![f.outer_loop];
         loop_handles.extend(f.inner_loops.iter().copied());
+        // Walked with an early exit: a real face fails on its first
+        // half-edge (PK-815: the 64-hole caps were walked whole).
         let mut hes = Vec::new();
         for lh in &loop_handles {
             let l = brep.loops.get(*lh)?;
@@ -109,6 +127,9 @@ fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64) -> bool {
             let mut cur = start;
             let mut steps = 0usize;
             loop {
+                if !is_degenerate_self_twin(brep, cur, length_gate) {
+                    return None;
+                }
                 hes.push(cur);
                 cur = brep.half_edges.get(cur)?.next;
                 steps += 1;
@@ -120,15 +141,7 @@ fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64) -> bool {
                 }
             }
         }
-        if !hes.is_empty()
-            && hes
-                .iter()
-                .all(|&h| is_degenerate_self_twin(brep, h, length_gate))
-        {
-            Some((fh, loop_handles, hes))
-        } else {
-            None
-        }
+        (!hes.is_empty()).then_some((fh, loop_handles, hes))
     });
     let Some((face_h, loop_handles, hes)) = target else {
         return false;
@@ -185,8 +198,29 @@ fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64) -> bool {
 
 /// Retire ONE short MEV spur (tip valence 1) via the transactional
 /// `kev` operator. Returns whether anything was removed.
-fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64) -> bool {
-    // Dense on the vertex handles (PK-815: every boolean's result).
+fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64, region: &ServeRegion) -> bool {
+    // The short edges first (each as its half-edge and twin): the
+    // valence census over every half-edge is paid only when one exists
+    // (PK-815: every boolean's result).
+    let short: Vec<_> = brep
+        .edges
+        .iter()
+        .filter_map(|(eh, d)| {
+            let he = brep.half_edges.get(d.half_edge)?;
+            if he.twin == d.half_edge {
+                return None; // self-twin: handled by the stub pass
+            }
+            let twin = brep.half_edges.get(he.twin)?;
+            let a = brep.vertices.get(he.origin)?.position;
+            let b = brep.vertices.get(twin.origin)?.position;
+            (a.distance_to(&b) <= length_gate && region.admits_edge(brep, eh))
+                .then_some((d.half_edge, he.twin))
+        })
+        .collect();
+    if short.is_empty() {
+        return false;
+    }
+    // Dense on the vertex handles.
     let mut valence: slotmap::SecondaryMap<popkern_core::topology::VertexHandle, usize> =
         slotmap::SecondaryMap::with_capacity(brep.vertices.len());
     for (_, he) in brep.half_edges.iter() {
@@ -196,27 +230,21 @@ fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64) -> bool {
             valence.insert(he.origin, 1);
         }
     }
-    let candidates: Vec<_> = brep
-        .edges
-        .iter()
-        .filter_map(|(_, d)| {
-            let he = brep.half_edges.get(d.half_edge)?;
-            if he.twin == d.half_edge {
-                return None; // self-twin: handled by the stub pass
-            }
-            let twin = brep.half_edges.get(he.twin)?;
-            let a = brep.vertices.get(he.origin)?.position;
-            let b = brep.vertices.get(twin.origin)?.position;
-            if a.distance_to(&b) > length_gate {
-                return None;
-            }
-            // `kev` removes the edge plus the TWIN's origin (the
-            // tip); pick whichever half-edge points INTO a valence-1
-            // tip.
-            if valence.get(twin.origin).copied().unwrap_or(0) == 1 {
-                Some(d.half_edge)
-            } else if valence.get(he.origin).copied().unwrap_or(0) == 1 {
-                Some(he.twin)
+    let origin_valence = |h| {
+        brep.half_edges
+            .get(h)
+            .and_then(|he| valence.get(he.origin).copied())
+            .unwrap_or(0)
+    };
+    // `kev` removes the edge plus the TWIN's origin (the tip); pick
+    // whichever half-edge points INTO a valence-1 tip.
+    let candidates: Vec<_> = short
+        .into_iter()
+        .filter_map(|(he, twin)| {
+            if origin_valence(twin) == 1 {
+                Some(he)
+            } else if origin_valence(he) == 1 {
+                Some(twin)
             } else {
                 None
             }
@@ -233,12 +261,12 @@ fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64) -> bool {
 /// Excise ONE degenerate self-twinned stub half-edge from its loop
 /// chain, with snapshot rollback if structural validation regresses.
 /// Returns whether anything was removed.
-fn excise_one_self_twin_stub(brep: &mut BRep, length_gate: f64) -> bool {
+fn excise_one_self_twin_stub(brep: &mut BRep, length_gate: f64, region: &ServeRegion) -> bool {
     let candidates: Vec<_> = brep
         .half_edges
         .iter()
         .filter_map(|(heh, he)| {
-            if he.twin != heh {
+            if he.twin != heh || !region.admits_face(brep.loops.get(he.loop_)?.face) {
                 return None;
             }
             // Degenerate: the stub's edge spans (numerically) one

@@ -10,6 +10,17 @@ use popkern_core::topology::BRep;
 /// weld residue and must retire before the serve gate measures loop
 /// closure (the postprocess passes run after it).
 pub fn retire_point_loop_pairs(brep: &mut BRep, tolerance: &Tolerance) -> usize {
+    retire_point_loop_pairs_in(brep, tolerance, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`retire_point_loop_pairs`] for the edges `region` admits (a pair
+/// retires from its own loops and creates nothing). The weld-slop
+/// gate stays relative to the whole body's extent.
+pub(crate) fn retire_point_loop_pairs_in(
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
+) -> usize {
     // Weld-slop scale, capped relative to the body's extent: at a
     // coarse model tolerance linear×500 reaches FEATURE scale and
     // retired a real hole rim (measured: the plate fixture's 0.6-r
@@ -31,7 +42,7 @@ pub fn retire_point_loop_pairs(brep: &mut BRep, tolerance: &Tolerance) -> usize 
     let diag = ((hi.x - lo.x).powi(2) + (hi.y - lo.y).powi(2) + (hi.z - lo.z).powi(2)).sqrt();
     let gate = (tolerance.linear() * 500.0).min(diag.max(0.0) * 1.0e-4);
     let mut n = 0;
-    while retire_one_point_loop_pair(brep, gate) {
+    while retire_one_point_loop_pair(brep, gate, region) {
         n += 1;
     }
     n
@@ -41,19 +52,23 @@ pub fn retire_point_loop_pairs(brep: &mut BRep, tolerance: &Tolerance) -> usize 
 /// originate at the SAME vertex and whose curve extent is below
 /// `gate`. Splices both halves out of their loops (excise pattern),
 /// with snapshot rollback on structural regression.
-fn retire_one_point_loop_pair(brep: &mut BRep, gate: f64) -> bool {
+fn retire_one_point_loop_pair(
+    brep: &mut BRep,
+    gate: f64,
+    region: &crate::serve_region::ServeRegion,
+) -> bool {
     use popkern_core::geometry::curve::CurveEval as _;
     let candidates: Vec<_> = brep
         .edges
         .iter()
-        .filter_map(|(_, d)| {
+        .filter_map(|(eh, d)| {
             let heh = d.half_edge;
             let he = brep.half_edges.get(heh)?;
             if he.twin == heh {
                 return None; // self-twin: the stub pass owns it
             }
             let twin = brep.half_edges.get(he.twin)?;
-            if he.origin != twin.origin {
+            if he.origin != twin.origin || !region.admits_edge(brep, eh) {
                 return None;
             }
             // Extent by dense sampling over BOTH the stored window

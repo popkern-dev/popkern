@@ -61,10 +61,10 @@ pub(super) fn carry(
     a: &BRep,
     scope: &crate::scope::ActiveScope,
     maps: &mut CarryMaps,
-    carried: &mut std::collections::BTreeSet<EdgeHandle>,
+    carried: &mut crate::serve_region::Carried,
 ) -> Result<(), crate::error::BoolDiagnostics> {
     append_far_holes(builder, a, &scope.far_holes, maps)
-        .and_then(|()| append_far_faces(builder, shell, a, &scope.far, maps))
+        .and_then(|()| append_far_faces(builder, shell, a, &scope.far, maps, carried))
         .map_err(|reason| {
             let mut d = crate::error::BoolDiagnostics::default();
             d.warn(
@@ -73,7 +73,10 @@ pub(super) fn carry(
             );
             d
         })?;
-    carried.extend(maps.edges.values().copied());
+    carried.edges.extend(maps.edges.values().map(|&e| (e, ())));
+    carried
+        .a_edges
+        .extend(maps.edges.values().map(|&e| (e, ())));
     Ok(())
 }
 
@@ -84,10 +87,12 @@ pub(super) fn append_far_faces(
     a: &BRep,
     far: &[FaceHandle],
     maps: &mut CarryMaps,
+    carried: &mut crate::serve_region::Carried,
 ) -> Result<(), String> {
     for &fh in far {
         let face = a.faces.get(fh).ok_or("far face missing")?;
         let rf = builder.add_face(shell);
+        carried.a_faces.insert(rf, ());
         {
             let r = builder.brep_mut();
             r.faces[rf].surface = face.surface.clone();

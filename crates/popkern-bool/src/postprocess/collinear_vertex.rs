@@ -77,9 +77,12 @@ fn face_pair(
 /// collinear, merging each pair into one edge spanning the full
 /// extent. Returns the number of vertices dissolved. Pcurves on
 /// surviving edges are re-derived by the caller's recompute pass.
+/// Only vertices whose face pair `region` admits are dissolved (a
+/// dissolution creates nothing, so the region stays exact).
 pub(crate) fn dissolve_collinear_valence2_vertices(
     brep: &mut BRep,
     tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
 ) -> usize {
     let tol = tolerance.linear();
     let mut dissolved = 0usize;
@@ -87,7 +90,8 @@ pub(crate) fn dissolve_collinear_valence2_vertices(
     // same line (a boundary split into three pieces). Bounded by the
     // vertex count — each iteration removes one vertex or stops.
     for _ in 0..brep.vertices.len().max(1) {
-        let Some((m, keep_he, survivor_edge, a_pos, b_pos)) = find_candidate(brep, tol) else {
+        let Some((m, keep_he, survivor_edge, a_pos, b_pos)) = find_candidate(brep, tol, region)
+        else {
             break;
         };
         if brep.kve(keep_he).is_err() {
@@ -138,6 +142,7 @@ pub(crate) fn dissolve_collinear_valence2_vertices(
 fn find_candidate(
     brep: &BRep,
     tol: f64,
+    region: &crate::serve_region::ServeRegion,
 ) -> Option<(
     VertexHandle,
     popkern_core::topology::HalfEdgeHandle,
@@ -185,7 +190,8 @@ fn find_candidate(
             continue;
         }
         match (face_pair(brep, e1), face_pair(brep, e2)) {
-            (Some(p1), Some(p2)) if p1 == p2 => {}
+            (Some(p1), Some(p2))
+                if p1 == p2 && region.admits_face(p1.0) && region.admits_face(p1.1) => {}
             _ => continue,
         }
         // Far endpoints: h1/h2 depart M, so their twins' origins are

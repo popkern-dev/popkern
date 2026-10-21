@@ -60,6 +60,17 @@ impl SliverRemovalReport {
 ///   under. Sliver thresholds are derived from this via
 ///   [`SliverThresholds::from_tolerance`].
 pub fn remove_slivers(brep: &mut BRep, tolerance: &Tolerance) -> SliverRemovalReport {
+    remove_slivers_in(brep, tolerance, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`remove_slivers`] for the slivers `region` admits, absorbed only
+/// into neighbours it admits (a merge kills a face and creates none,
+/// so the region stays exact).
+pub(crate) fn remove_slivers_in(
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
+) -> SliverRemovalReport {
     let thresholds = SliverThresholds::from_tolerance(tolerance.linear() * 5.0);
     // A sliver may only be ABSORBED into a face whose surface
     // geometrically contains it — KEF rewires topology without
@@ -78,6 +89,9 @@ pub fn remove_slivers(brep: &mut BRep, tolerance: &Tolerance) -> SliverRemovalRe
         .faces
         .keys()
         .filter(|fh| {
+            if !region.admits_face(*fh) {
+                return false;
+            }
             // The vertex-polygon area/aspect proxy is only faithful
             // for faces whose boundary is a simple 3-D polygon. A
             // wrap-around face (periodic wall carrying seam edges or
@@ -131,7 +145,7 @@ pub fn remove_slivers(brep: &mut BRep, tolerance: &Tolerance) -> SliverRemovalRe
         // to kef. kef survives `half_edge.loop_.face` and kills the
         // twin's face — so we want to choose `chosen` such that the
         // sliver is reachable through its twin.
-        let chosen = find_killing_half_edge(brep, sliver, &thresholds, absorb_distance);
+        let chosen = find_killing_half_edge(brep, sliver, &thresholds, absorb_distance, region);
         let Some(he) = chosen else {
             // No safe neighbor exists (sliver fully surrounded by
             // other slivers, or only neighbor is itself).
@@ -173,6 +187,7 @@ fn find_killing_half_edge(
     target: FaceHandle,
     thresholds: &SliverThresholds,
     absorb_distance: f64,
+    region: &crate::serve_region::ServeRegion,
 ) -> Option<HalfEdgeHandle> {
     let face_data = brep.faces.get(target)?;
     let outer_loop = face_data.outer_loop;
@@ -189,7 +204,7 @@ fn find_killing_half_edge(
 
         // Skip the seam case where both half-edges are in the same
         // face — kef would fail its precondition.
-        if neighbor_face != target {
+        if neighbor_face != target && region.admits_face(neighbor_face) {
             // Check whether the neighbor is itself a sliver. If it
             // is, skip — merging two slivers doesn't help.
             let neighbor_positions = face_vertex_positions(brep, neighbor_face);

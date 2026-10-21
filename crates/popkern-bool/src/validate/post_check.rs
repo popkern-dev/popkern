@@ -95,12 +95,22 @@ pub fn post_check(
 /// operand's own curve and face surfaces — skip the curve-surface
 /// check (check 9): it re-measured every far edge of the body on every
 /// boolean (PK-802). Serving boundaries (`validate_all`) still measure
-/// every edge.
+/// every edge. A caller that knows the body passes `validate()`
+/// (`structure_validated`) skips the gates `validate()` contains —
+/// manifold edges, Euler, loop closure, watertightness, half-edge
+/// pairing and cycles — and gets the curve-surface check's findings
+/// alone.
 pub(crate) fn post_check_gates(
     result: &BRep,
     tolerance: &Tolerance,
-    carried: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    carried: &crate::serve_region::CarriedEdges,
+    structure_validated: bool,
 ) -> PostCheckReport {
+    if structure_validated {
+        let mut report = counted(result);
+        push_curve_surface(&mut report, result, carried);
+        return report;
+    }
     post_check_scoped(result, tolerance, false, false, carried)
 }
 
@@ -109,16 +119,9 @@ fn post_check_scoped(
     tolerance: &Tolerance,
     check_self_intersection: bool,
     diagnostics: bool,
-    carried: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    carried: &crate::serve_region::CarriedEdges,
 ) -> PostCheckReport {
-    let mut report = PostCheckReport {
-        face_count: result.faces.len(),
-        edge_count: result.edges.len(),
-        vertex_count: result.vertices.len(),
-        euler_characteristic: result.vertices.len() as i64 - result.edges.len() as i64
-            + result.faces.len() as i64,
-        ..Default::default()
-    };
+    let mut report = counted(result);
 
     // 1. Manifold edges
     if let Err(e) = result.validate_manifold_edges() {
@@ -217,31 +220,7 @@ fn post_check_scoped(
             measured_value: None,
         });
     }
-    let curve_surface = if carried.is_empty() {
-        result.validate_curve_surface()
-    } else {
-        let scoped: Vec<_> = result
-            .edges
-            .keys()
-            .filter(|e| !carried.contains(e))
-            .collect();
-        match result
-            .validate_curve_surface_edges(&scoped)
-            .into_iter()
-            .next()
-        {
-            Some(e) => Err(e),
-            None => Ok(()),
-        }
-    };
-    if let Err(e) = curve_surface {
-        report.findings.push(PostCheckFinding {
-            severity: Severity::Error,
-            message: format!("Edge curve deviates from face surface: {e}"),
-            error: Some(e),
-            measured_value: None,
-        });
-    }
+    push_curve_surface(&mut report, result, carried);
 
     // 3. Orientation consistency
     if let Err(e) = result.validate_half_edge_pairing() {
@@ -321,3 +300,52 @@ fn post_check_scoped(
 
     report
 }
+
+/// An empty report carrying `result`'s entity counts.
+fn counted(result: &BRep) -> PostCheckReport {
+    PostCheckReport {
+        face_count: result.faces.len(),
+        edge_count: result.edges.len(),
+        vertex_count: result.vertices.len(),
+        euler_characteristic: result.vertices.len() as i64 - result.edges.len() as i64
+            + result.faces.len() as i64,
+        ..Default::default()
+    }
+}
+
+/// The curve-surface gate (check 9), on every edge but `carried`.
+fn push_curve_surface(
+    report: &mut PostCheckReport,
+    result: &BRep,
+    carried: &crate::serve_region::CarriedEdges,
+) {
+    let curve_surface = if carried.is_empty() {
+        result.validate_curve_surface()
+    } else {
+        let scoped: Vec<_> = result
+            .edges
+            .keys()
+            .filter(|&e| !carried.contains_key(e))
+            .collect();
+        match result
+            .validate_curve_surface_edges(&scoped)
+            .into_iter()
+            .next()
+        {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    };
+    if let Err(e) = curve_surface {
+        report.findings.push(PostCheckFinding {
+            severity: Severity::Error,
+            message: format!("Edge curve deviates from face surface: {e}"),
+            error: Some(e),
+            measured_value: None,
+        });
+    }
+}
+
+#[cfg(test)]
+#[path = "post_check_tests.rs"]
+mod tests;

@@ -38,7 +38,7 @@ pub(crate) fn cellular_assemble(
     brep_a: &BRep,
     brep_b: &BRep,
     tolerance: Tolerance,
-    carried: &mut std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    carried: &mut crate::serve_region::Carried,
     far: Option<&crate::scope::ActiveScope>,
 ) -> Result<BRep, BoolDiagnostics> {
     let mut carry = super::assemble_far_carry::CarryMaps::default();
@@ -194,10 +194,11 @@ pub(crate) fn cellular_assemble(
         let vh_b = node_to_vertex[&nb];
         let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_a, vh_b);
         if graph.half_edges[key].source.is_unsplit_original() {
-            carried.insert(edge_h);
+            carried.edges.insert(edge_h, ());
         }
         if let EdgeSource::OriginalA(e) = graph.half_edges[key].source {
             carry.edges.insert(e, edge_h);
+            carried.a_edges.insert(edge_h, ());
         }
 
         edge_he_map.insert(key, (he_fwd, he_twin));
@@ -248,6 +249,9 @@ pub(crate) fn cellular_assemble(
         assemble_material_audit::trace_material_sides(graph, frag, sel, brep_a, brep_b);
         let face_h = builder.add_face(shell);
         carry.kept_faces(frag.face, face_h, sel.flip);
+        if frag.face.operand == crate::merge::graph::Operand::A {
+            carried.a_faces.insert(face_h, ());
+        }
 
         // This fragment's face surface — needed to orient installed
         // pcurves by sampled comparison. Installs are scoped to

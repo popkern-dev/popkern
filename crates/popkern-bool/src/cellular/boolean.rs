@@ -50,13 +50,7 @@ pub(crate) fn cellular_graph_merge(
     op: BoolOperation,
     tolerance: &Tolerance,
     scope: Option<&crate::scope::ActiveScope>,
-) -> Result<
-    (
-        BRep,
-        std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
-    ),
-    BoolDiagnostics,
-> {
+) -> Result<(BRep, crate::serve_region::Carried), BoolDiagnostics> {
     let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
 
@@ -236,7 +230,7 @@ pub(crate) fn cellular_graph_merge(
         .filter(|&i| selections[i].keep)
         .collect();
 
-    let mut carried = std::collections::BTreeSet::new();
+    let mut carried = crate::serve_region::Carried::default();
     let result = super::assemble::cellular_assemble(
         &graph,
         &fragments,

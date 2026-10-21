@@ -47,6 +47,15 @@ pub struct LoopRepairReport {
 /// associations, so a successful pass cannot make the topology
 /// strictly worse.
 pub fn repair_stranded_loops(brep: &mut BRep) -> LoopRepairReport {
+    repair_stranded_loops_in(brep, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`repair_stranded_loops`] on the loops of the faces `region` admits
+/// (a removal creates nothing, so the region stays exact).
+pub(crate) fn repair_stranded_loops_in(
+    brep: &mut BRep,
+    region: &crate::serve_region::ServeRegion,
+) -> LoopRepairReport {
     let mut report = LoopRepairReport::default();
 
     // 1. Build the set of half-edges reachable from any face's loops.
@@ -54,7 +63,7 @@ pub fn repair_stranded_loops(brep: &mut BRep) -> LoopRepairReport {
     // most of this pass on a 1000-half-edge body (PK-815).
     let mut reachable: SecondaryMap<HalfEdgeHandle, ()> =
         SecondaryMap::with_capacity(brep.half_edges.len());
-    for (_, face) in &brep.faces {
+    for (_, face) in brep.faces.iter().filter(|&(f, _)| region.admits_face(f)) {
         collect_loop(brep, face.outer_loop, &mut reachable);
         for &inner_loop in &face.inner_loops {
             collect_loop(brep, inner_loop, &mut reachable);
@@ -65,7 +74,9 @@ pub fn repair_stranded_loops(brep: &mut BRep) -> LoopRepairReport {
     //    but not reachable from the face's loop chain.
     let owned_loops: SecondaryMap<LoopHandle, ()> = brep
         .faces
-        .values()
+        .iter()
+        .filter(|&(f, _)| region.admits_face(f))
+        .map(|(_, f)| f)
         .flat_map(|f| std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()))
         .map(|l| (l, ()))
         .collect();

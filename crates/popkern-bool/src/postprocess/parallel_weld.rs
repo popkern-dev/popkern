@@ -30,6 +30,17 @@ pub struct ParallelWeldReport {
 
 /// Weld mutually-reversed self-twinned half-edge pairs.
 pub fn weld_parallel_self_twins(brep: &mut BRep, tolerance: &Tolerance) -> ParallelWeldReport {
+    weld_parallel_self_twins_in(brep, tolerance, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`weld_parallel_self_twins`] for pairs whose edit stays in `region`:
+/// both halves' faces and every face at the two vertices the weld
+/// re-origins (a weld creates nothing, so the region stays exact).
+pub(crate) fn weld_parallel_self_twins_in(
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
+) -> ParallelWeldReport {
     let mut report = ParallelWeldReport::default();
     // Junction-slop class: the gore's two rims are up to ~2e-3 apart
     // mid-span; their shared endpoints coincide to the same class.
@@ -56,7 +67,10 @@ pub fn weld_parallel_self_twins(brep: &mut BRep, tolerance: &Tolerance) -> Paral
         let mut pair: Option<(HalfEdgeHandle, HalfEdgeHandle)> = None;
         'outer: for (i, x) in selfies.iter().enumerate() {
             for y in selfies.iter().skip(i + 1) {
-                if x.1.distance_to(&y.2) < gate && x.2.distance_to(&y.1) < gate {
+                if x.1.distance_to(&y.2) < gate
+                    && x.2.distance_to(&y.1) < gate
+                    && weld_in_region(brep, x.0, y.0, region)
+                {
                     pair = Some((x.0, y.0));
                     break 'outer;
                 }
@@ -126,4 +140,29 @@ pub fn weld_parallel_self_twins(brep: &mut BRep, tolerance: &Tolerance) -> Paral
         report.welded += 1;
     }
     report
+}
+
+/// Whether welding `ha` with `hb` edits only faces `region` admits:
+/// their own faces and every face at `hb`'s two ends (re-origined onto
+/// `ha`'s).
+fn weld_in_region(
+    brep: &BRep,
+    ha: HalfEdgeHandle,
+    hb: HalfEdgeHandle,
+    region: &crate::serve_region::ServeRegion,
+) -> bool {
+    let face = |h: HalfEdgeHandle| {
+        brep.half_edges
+            .get(h)
+            .and_then(|he| brep.loops.get(he.loop_))
+            .map(|l| l.face)
+    };
+    let ends = |h: HalfEdgeHandle| {
+        let he = brep.half_edges.get(h)?;
+        Some([he.origin, brep.half_edges.get(he.next)?.origin])
+    };
+    [ha, hb]
+        .into_iter()
+        .all(|h| face(h).is_some_and(|f| region.admits_face(f)))
+        && ends(hb).is_some_and(|vs| vs.into_iter().all(|v| region.admits_vertex(brep, v)))
 }

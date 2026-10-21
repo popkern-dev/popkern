@@ -52,55 +52,59 @@ impl BRep {
     }
 
     fn audit_winding_tier1(&self) -> Vec<FaceWindingHonesty> {
-        let mut out = Vec::new();
-        for (face, data) in &self.faces {
-            let Some(sof) = &data.surface else {
-                continue;
-            };
-            let verdict = match self.outer_loop_signed_uv_area(face, &sof.geometry) {
-                Ok(area) => {
-                    // Degeneracy floor: perimeter-relative, so a
-                    // seam-spine loop (net-zero enclosed area at any
-                    // chart scale — e.g. a full sphere wall) reads
-                    // indeterminate instead of amplifying roundoff
-                    // into a verdict. Honest loops sit near the
-                    // isoperimetric scale (perimeter/4)^2, ~1e10x
-                    // above this floor.
-                    let degenerate = area.signed.abs() <= area.perimeter.powi(2) * 1.0e-12;
-                    FaceWindingHonesty {
-                        face,
-                        signed_uv_area: area.signed,
-                        orientation: sof.orientation,
-                        honest: if degenerate {
-                            None
-                        } else {
-                            Some((area.signed > 0.0) == sof.orientation)
-                        },
-                        reason: if degenerate { "degenerate-uv-area" } else { "" },
-                    }
+        self.faces
+            .keys()
+            .filter_map(|face| self.face_winding_tier1(face))
+            .collect()
+    }
+
+    /// One face's first-tier verdict (its outer loop's measured
+    /// winding, or the pole-side witness); `None` for a missing face
+    /// or one without a surface.
+    pub(super) fn face_winding_tier1(&self, face: FaceHandle) -> Option<FaceWindingHonesty> {
+        let sof = self.faces.get(face)?.surface.as_ref()?;
+        let verdict = match self.outer_loop_signed_uv_area(face, &sof.geometry) {
+            Ok(area) => {
+                // Degeneracy floor: perimeter-relative, so a
+                // seam-spine loop (net-zero enclosed area at any
+                // chart scale — e.g. a full sphere wall) reads
+                // indeterminate instead of amplifying roundoff
+                // into a verdict. Honest loops sit near the
+                // isoperimetric scale (perimeter/4)^2, ~1e10x
+                // above this floor.
+                let degenerate = area.signed.abs() <= area.perimeter.powi(2) * 1.0e-12;
+                FaceWindingHonesty {
+                    face,
+                    signed_uv_area: area.signed,
+                    orientation: sof.orientation,
+                    honest: if degenerate {
+                        None
+                    } else {
+                        Some((area.signed > 0.0) == sof.orientation)
+                    },
+                    reason: if degenerate { "degenerate-uv-area" } else { "" },
                 }
-                Err(reason) => {
-                    // Pole loops: the pole-side witness (PK-882).
-                    let witness = reason
-                        .starts_with("pole-")
-                        .then(|| self.pole_side_witness(face, &sof.geometry, sof.orientation))
-                        .flatten();
-                    FaceWindingHonesty {
-                        face,
-                        signed_uv_area: 0.0,
-                        orientation: sof.orientation,
-                        honest: witness,
-                        reason: if witness.is_some() {
-                            "pole-side-witness"
-                        } else {
-                            reason
-                        },
-                    }
+            }
+            Err(reason) => {
+                // Pole loops: the pole-side witness (PK-882).
+                let witness = reason
+                    .starts_with("pole-")
+                    .then(|| self.pole_side_witness(face, &sof.geometry, sof.orientation))
+                    .flatten();
+                FaceWindingHonesty {
+                    face,
+                    signed_uv_area: 0.0,
+                    orientation: sof.orientation,
+                    honest: witness,
+                    reason: if witness.is_some() {
+                        "pole-side-witness"
+                    } else {
+                        reason
+                    },
                 }
-            };
-            out.push(verdict);
-        }
-        out
+            }
+        };
+        Some(verdict)
     }
 
     /// Second tier: resolve tier-1-indeterminate faces by tangency
@@ -112,7 +116,7 @@ impl BRep {
     /// honest). Transverse neighbours stay below the witness floor
     /// and cannot vote. Iterates to a fixpoint so chains of
     /// deferred faces resolve through their first anchored member.
-    fn resolve_by_tangency_witness(&self, verdicts: &mut [FaceWindingHonesty]) {
+    pub(super) fn resolve_by_tangency_witness(&self, verdicts: &mut [FaceWindingHonesty]) {
         const WITNESS_FLOOR: f64 = 0.9;
         for _ in 0..verdicts.len() {
             let known: std::collections::BTreeMap<FaceHandle, bool> = verdicts

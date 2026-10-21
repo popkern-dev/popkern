@@ -190,20 +190,30 @@ pub(crate) use crate::operation_postprocess_trace::trace_face_census;
 mod redundant;
 use redundant::remove_redundant_edges_safe;
 
-pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
+pub(crate) fn run_output_postprocess(
+    result: &mut BRep,
+    tolerance: &Tolerance,
+    mut gate: super::postprocess_gate::ValidityGate,
+    mut region: crate::serve_region::ServeRegion,
+    carried: &crate::serve_region::Carried,
+) {
+    // Each pass edits only faces `region` admits (the locality
+    // decision, docs/architecture/local-boolean-scope.md "the touched
+    // region"); the region is re-derived after a pass that edited.
     // Post-processing: prune stranded half-edges left behind by
     // broken merge loops. The merge phase occasionally tags
     // half-edges with a loop handle they're not reachable from;
     // this pruning step removes them so the visible topology
     // matches the Euler-Poincaré accounting.
     trace_face_census("pre-postprocess", result);
-    let mut gate = super::postprocess_gate::ValidityGate::new();
-    let _ = crate::postprocess::loop_repair::repair_stranded_loops(result);
+    let _ = crate::postprocess::loop_repair::repair_stranded_loops_in(result, &region);
     trace_face_census("post-stranded", result);
 
     // Post-processing: remove redundant edges if the result topology is valid.
     if gate.valid(result) {
-        gate.edited(remove_redundant_edges_safe(result, tolerance));
+        let edits = remove_redundant_edges_safe(result, tolerance, &region);
+        gate.edited(edits);
+        refresh(&mut region, edits, result, carried);
     }
     trace_face_census("post-redundant", result);
 
@@ -212,8 +222,11 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // neighbor via KEF, validating after every removal and bailing
     // out on any corruption rather than compounding damage.
     if gate.valid(result) {
-        let sliver = crate::postprocess::sliver_removal::remove_slivers(result, tolerance);
-        gate.edited(sliver.removed + sliver.failed + usize::from(sliver.aborted_with.is_some()));
+        let sliver =
+            crate::postprocess::sliver_removal::remove_slivers_in(result, tolerance, &region);
+        let edits = sliver.removed + sliver.failed + usize::from(sliver.aborted_with.is_some());
+        gate.edited(edits);
+        refresh(&mut region, edits, result, carried);
     }
     trace_face_census("post-sliver", result);
 
@@ -223,9 +236,11 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // disabled because of a stale-edge-handle bug; the iterate-and-
     // recompute pattern fixes that.
     if gate.valid(result) {
-        gate.edited(
-            crate::postprocess::face_simplify::apply_face_simplification(result, tolerance),
+        let edits = crate::postprocess::face_simplify::apply_face_simplification_in(
+            result, tolerance, &region,
         );
+        gate.edited(edits);
+        refresh(&mut region, edits, result, carried);
     }
     trace_face_census("post-simplify", result);
     // Note: fix_zero_thickness_sheets remains disabled — its global
@@ -240,9 +255,10 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // are re-derived immediately below.
     if gate.valid(result) {
         let dissolved = crate::postprocess::collinear_vertex::dissolve_collinear_valence2_vertices(
-            result, tolerance,
+            result, tolerance, &region,
         );
         gate.edited(dissolved);
+        refresh(&mut region, dissolved, result, carried);
         if dissolved > 0 {
             // PK-274: each dissolution is a transactional kve that
             // cleared the pcurves it touched — refill exactly those.
@@ -257,7 +273,13 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     trace_face_census("post-collinear-vertex", result);
 
     // Post-processing: collapse micro-edges (position merge).
-    let micro_edges = crate::imprint::micro_edge::find_micro_edges(result, tolerance.linear());
+    let micro_edges: Vec<_> =
+        crate::imprint::micro_edge::find_micro_edges(result, tolerance.linear())
+            .into_iter()
+            .filter(|m| {
+                region.admits_vertex(result, m.start) && region.admits_vertex(result, m.end)
+            })
+            .collect();
     if !micro_edges.is_empty() {
         // Only ends at distinct positions move (a closed rim's single
         // vertex is its own midpoint).
@@ -276,13 +298,14 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // AFTER the micro-edge position pass so spurs that pass squashed
     // to zero length are caught along with walk-emitted stubs; each
     // removal is a transactional kev.
-    let spur_report =
-        crate::postprocess::spur_edge::collapse_degenerate_spur_edges(result, tolerance);
-    gate.edited(
-        spur_report.spurs_removed
-            + spur_report.self_twins_removed
-            + spur_report.ghost_faces_removed,
+    let spur_report = crate::postprocess::spur_edge::collapse_degenerate_spur_edges_in(
+        result, tolerance, &region,
     );
+    let edits = spur_report.spurs_removed
+        + spur_report.self_twins_removed
+        + spur_report.ghost_faces_removed;
+    gate.edited(edits);
+    refresh(&mut region, edits, result, carried);
     if spur_report.spurs_removed > 0
         && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
     {
@@ -302,8 +325,10 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // serve). Splice such loops into the outer cycle at the pinch
     // vertex; transactional per merge.
     if gate.valid(result) {
-        let keyhole = crate::postprocess::keyhole_loop::merge_pinched_keyhole_loops(result);
+        let keyhole =
+            crate::postprocess::keyhole_loop::merge_pinched_keyhole_loops_in(result, &region);
         gate.edited(keyhole.merged + keyhole.declined);
+        refresh(&mut region, keyhole.merged, result, carried);
         if keyhole.merged + keyhole.declined > 0
             && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
         {
@@ -320,8 +345,10 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // a chart-co-located slit, which pinches the UV ring and forces
     // the tessellator's grid fallback (57 open mesh edges on the
     // rim-filleted-cylinder subtraction's seam-side bulge).
-    let slit_report = crate::postprocess::slit_seam::dissolve_slit_seams(result, tolerance);
+    let slit_report =
+        crate::postprocess::slit_seam::dissolve_slit_seams_in(result, tolerance, &region);
     gate.edited(slit_report.dissolved + slit_report.declined);
+    refresh(&mut region, slit_report.dissolved, result, carried);
     if slit_report.dissolved > 0
         && (popkern_core::trace::trace_enabled("boolean") || cfg!(debug_assertions))
     {
@@ -335,8 +362,11 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // Weld the two masked halves of a collapsed near-tangential gore
     // into one twin pair (PK-309) — postprocess/parallel_weld.rs.
     if gate.valid(result) {
-        let weld = crate::postprocess::parallel_weld::weld_parallel_self_twins(result, tolerance);
+        let weld = crate::postprocess::parallel_weld::weld_parallel_self_twins_in(
+            result, tolerance, &region,
+        );
         gate.edited(weld.welded + weld.declined);
+        refresh(&mut region, weld.welded, result, carried);
         if weld.welded > 0
             && (cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean"))
         {
@@ -354,7 +384,10 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // the OCC oracle rejects. Splice it out; real-extent one-sided
     // survivors stay.
     if gate.valid(result) {
-        let stubs = crate::postprocess::self_twin_stub::remove_self_twin_stubs(result, tolerance);
+        let stubs = crate::postprocess::self_twin_stub::remove_self_twin_stubs_in(
+            result, tolerance, &region,
+        );
+        refresh(&mut region, stubs.removed, result, carried);
         if stubs.removed > 0
             && (cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean"))
         {
@@ -372,6 +405,10 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // `circular()` and keep the analytic path downstream — every
     // operation (PK-419 retired the subtraction-only scope once the
     // spine walker seeded a closed rim at its own station).
+    // Whole-body by design: a representation upgrade later operations
+    // rely on (a cylinder's NURBS rims select as `circular()` and read
+    // their sense 40x faster as arcs), not a normalization of the cut;
+    // a screen per edge skips everything but circular NURBS.
     let rims = crate::postprocess::exact_rims::promote_exact_rims(result, tolerance);
     if rims.promoted + rims.declined > 0
         && (cfg!(debug_assertions) || popkern_core::trace::trace_enabled("boolean"))
@@ -387,10 +424,19 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // passes above can leave same-face ghost structure (a discarded
     // region's boundary whose other side was masked away) that the
     // pre-check sweep could not see — it was not yet same-face then.
-    let late_point_loops =
-        crate::postprocess::point_loop_retire::retire_point_loop_pairs(result, tolerance);
-    let late_slit_faces = crate::postprocess::slit_retire::retire_pure_slit_faces(result);
-    let late_slit_pairs = crate::postprocess::slit_retire::excise_same_face_slit_pairs(result);
+    let late_point_loops = crate::postprocess::point_loop_retire::retire_point_loop_pairs_in(
+        result, tolerance, &region,
+    );
+    let late_slit_faces =
+        crate::postprocess::slit_retire::retire_pure_slit_faces_in(result, &region);
+    let late_slit_pairs =
+        crate::postprocess::slit_retire::excise_same_face_slit_pairs_in(result, &region);
+    refresh(
+        &mut region,
+        late_point_loops + late_slit_faces + late_slit_pairs,
+        result,
+        carried,
+    );
     if (late_point_loops + late_slit_faces + late_slit_pairs) > 0
         && popkern_core::trace::trace_enabled("boolean")
     {
@@ -410,9 +456,22 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // merge authors stamped tool-body faces (bore walls, countersink
     // cones, slot planes) with constant flags that the corpus audit
     // measured dishonest. Runs last, after every pcurve author above.
-    let flips = result.reconcile_orientation_flags();
+    let flips = region.reconcile_orientation_flags(result);
     if flips > 0 && popkern_core::trace::trace_enabled("boolean") {
         eprintln!("[boolean] post-processing: reconciled {flips} orientation flag(s)");
     }
     crate::postprocess::repair_closed_edge_sense(result);
+}
+
+/// Re-derive `region` after a pass that made `edits` (a split-off loop
+/// or a re-wired face joins it).
+fn refresh(
+    region: &mut crate::serve_region::ServeRegion,
+    edits: usize,
+    result: &BRep,
+    carried: &crate::serve_region::Carried,
+) {
+    if edits > 0 {
+        region.refresh(result, carried);
+    }
 }

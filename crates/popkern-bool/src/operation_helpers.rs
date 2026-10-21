@@ -295,23 +295,25 @@ pub(super) fn verify_whole_body_containment(inner: &BRep, outer: &BRep) -> bool 
 pub(super) fn pre_check_retire_and_empty_gate(
     result: &mut BRep,
     op: crate::error::BoolOperation,
-    original_a: &BRep,
-    original_b: &BRep,
+    (original_a, original_b): (&BRep, &BRep),
     tolerance: &popkern_core::tolerance::Tolerance,
-) -> Result<(), crate::error::BoolError> {
+    region: &crate::serve_region::ServeRegion,
+) -> Result<usize, crate::error::BoolError> {
     // Weld-residue point-loop slivers retire BEFORE the serve gate:
     // their stale analytic windows measure as loop/shell gaps
     // exactly the weld distance wide (PK-465).
-    let point_loops =
-        crate::postprocess::point_loop_retire::retire_point_loop_pairs(result, tolerance);
+    let point_loops = crate::postprocess::point_loop_retire::retire_point_loop_pairs_in(
+        result, tolerance, region,
+    );
     if point_loops > 0 && popkern_core::trace::trace_enabled("boolean") {
         eprintln!("[boolean] pre-check: {point_loops} weld point-loop sliver(s) retired");
     }
-    let slit_faces = crate::postprocess::slit_retire::retire_pure_slit_faces(result);
+    let slit_faces = crate::postprocess::slit_retire::retire_pure_slit_faces_in(result, region);
     if slit_faces > 0 && popkern_core::trace::trace_enabled("boolean") {
         eprintln!("[boolean] pre-check: {slit_faces} pure-slit face(s) retired");
     }
-    let slit_pairs = crate::postprocess::slit_retire::excise_same_face_slit_pairs(result);
+    let slit_pairs =
+        crate::postprocess::slit_retire::excise_same_face_slit_pairs_in(result, region);
     if slit_pairs > 0 && popkern_core::trace::trace_enabled("boolean") {
         eprintln!("[boolean] pre-check: {slit_pairs} same-face slit pair(s) excised");
     }
@@ -341,7 +343,7 @@ pub(super) fn pre_check_retire_and_empty_gate(
         }
     }
 
-    Ok(())
+    Ok(point_loops + slit_faces + slit_pairs)
 }
 
 /// Post-check with ONE junction-reconciliation retry (PK-472): a
@@ -353,7 +355,8 @@ pub(super) fn pre_check_retire_and_empty_gate(
 pub(super) fn validate_with_junction_reconcile_retry(
     result: &mut popkern_core::topology::BRep,
     tolerance: &popkern_core::tolerance::Tolerance,
-    carried: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    carried: &crate::serve_region::CarriedEdges,
+    gate: &mut super::postprocess_gate::ValidityGate,
 ) -> Vec<String> {
     let collect_errors = |report: &crate::validate::post_check::PostCheckReport| -> Vec<String> {
         report
@@ -368,13 +371,18 @@ pub(super) fn validate_with_junction_reconcile_retry(
             .map(|f| f.message.clone())
             .collect()
     };
-    let pc_report = crate::validate::post_check::post_check_gates(result, tolerance, carried);
+    // A body known to validate passes every gate but the curve-surface
+    // check without re-measuring them.
+    let validated = gate.known_valid();
+    let pc_report =
+        crate::validate::post_check::post_check_gates(result, tolerance, carried, validated);
     let pc_errors = collect_errors(&pc_report);
     if pc_errors.is_empty() {
         return pc_errors;
     }
     crate::postprocess::junction_reconcile::reconcile_junction_cluster_geometry(result, tolerance);
-    let retry = crate::validate::post_check::post_check_gates(result, tolerance, carried);
+    gate.edited(1);
+    let retry = crate::validate::post_check::post_check_gates(result, tolerance, carried, false);
     let retry_errors = collect_errors(&retry);
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(

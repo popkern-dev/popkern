@@ -5,6 +5,8 @@
 
 use popkern_core::topology::BRep;
 
+use crate::serve_region::ServeRegion;
+
 /// Excise interwoven same-face slit PAIRS: an edge both of whose
 /// half-edges lie in the SAME loop of a NON-closed face is an
 /// out-and-back spur woven into a real boundary (the walk-level
@@ -17,6 +19,12 @@ use popkern_core::topology::BRep;
 /// Closed/periodic faces keep their seams (a seam has exactly this
 /// half-edge shape and is load-bearing).
 pub fn excise_same_face_slit_pairs(brep: &mut BRep) -> usize {
+    excise_same_face_slit_pairs_in(brep, &ServeRegion::Whole)
+}
+
+/// [`excise_same_face_slit_pairs`] on the faces `region` admits (the
+/// surgery edits one face; a loop it splits off stays on that face).
+pub(crate) fn excise_same_face_slit_pairs_in(brep: &mut BRep, region: &ServeRegion) -> usize {
     use popkern_core::geometry::surface::SurfaceGeometry;
     let face_is_closed = |brep: &BRep, fh: popkern_core::topology::FaceHandle| -> bool {
         let Some(face) = brep.faces.get(fh) else {
@@ -72,7 +80,7 @@ pub fn excise_same_face_slit_pairs(brep: &mut BRep) -> usize {
             let (Some(l1), Some(l2)) = (brep.loops.get(he.loop_), brep.loops.get(tw.loop_)) else {
                 continue;
             };
-            if l1.face != l2.face {
+            if l1.face != l2.face || !region.admits_face(l1.face) {
                 continue;
             }
             if face_is_closed(brep, l1.face) {
@@ -246,6 +254,12 @@ pub fn excise_same_face_slit_pairs(brep: &mut BRep) -> usize {
 /// PK-465). Removing such a face removes only its own loops and
 /// edges: by construction nothing else references them.
 pub fn retire_pure_slit_faces(brep: &mut BRep) -> usize {
+    retire_pure_slit_faces_in(brep, &ServeRegion::Whole)
+}
+
+/// [`retire_pure_slit_faces`] on the faces `region` admits (a slit
+/// loop or face retires alone).
+pub(crate) fn retire_pure_slit_faces_in(brep: &mut BRep, region: &ServeRegion) -> usize {
     let mut removed = 0usize;
     loop {
         // A SLIT LOOP: every half-edge's twin lies in the SAME loop —
@@ -257,7 +271,7 @@ pub fn retire_pure_slit_faces(brep: &mut BRep) -> usize {
             popkern_core::topology::FaceHandle,
             Vec<popkern_core::topology::LoopHandle>,
         )> = None;
-        'faces: for (fh, face) in &brep.faces {
+        'faces: for (fh, face) in brep.faces.iter().filter(|&(f, _)| region.admits_face(f)) {
             let mut all_loops = vec![face.outer_loop];
             all_loops.extend(face.inner_loops.iter().copied());
             for &lh in &all_loops {

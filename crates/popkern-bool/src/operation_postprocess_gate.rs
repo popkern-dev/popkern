@@ -7,6 +7,11 @@
 //! until a pass reports that it edited the body (a count of applied
 //! or declined edits — declines count, since a declined transactional
 //! edit is not proven bit-identical to its snapshot), then re-measured.
+//!
+//! A verdict can also start known: the merge validated its result in
+//! full before the serve, and the steps between edit pcurves only,
+//! which `validate()` does not read (PK-815: a 255-face body's serve
+//! tail re-ran two whole-body validations that only repeated it).
 
 use popkern_core::topology::BRep;
 
@@ -17,6 +22,18 @@ impl ValidityGate {
     /// No verdict yet: the first [`ValidityGate::valid`] measures.
     pub(crate) fn new() -> Self {
         Self(None)
+    }
+
+    /// A verdict of `validate().is_ok()` the caller already measured
+    /// on the body as it now stands.
+    pub(crate) fn known(valid: bool) -> Self {
+        Self(Some(valid))
+    }
+
+    /// Whether a kept verdict says the body validates, without
+    /// measuring (`false` when none is kept).
+    pub(crate) fn known_valid(&self) -> bool {
+        self.0 == Some(true)
     }
 
     /// Whether `brep` validates (measured when no verdict is kept).

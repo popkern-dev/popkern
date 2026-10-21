@@ -277,7 +277,10 @@ fn torus_carrying_cylinder_union_within_budget() {
 /// and stopped recomputing per-boolean constants over the whole body
 /// (dense scope and carry maps, kept ray windows and hole boxes, the
 /// region filter skipping carried holes): slot 0 ~3.8 ms, slot 63 ~6.8,
-/// 1.77-1.83, gate 2.3 (merge alone 1.48-1.51).
+/// 1.77-1.83, gate 2.3 (merge alone 1.48-1.51). The serve tail then
+/// stopped re-validating a body the merge had validated (pcurve-only
+/// steps keep the verdict), and normalizes only the faces the cut
+/// touched (PK-815): slot 63 ~5.7 ms, 1.46-1.50, gate 1.8.
 #[test]
 fn slotted_disc_late_cut_stays_near_the_first() {
     if debug_skip("64-slot disc, slot 63 vs slot 0") {
@@ -315,10 +318,10 @@ fn slotted_disc_late_cut_stays_near_the_first() {
     }
     let ratio = last.as_secs_f64() / first.as_secs_f64().max(1e-9);
     eprintln!(
-        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 2.3)"
+        "perf budget [slotted disc]: slot 0 {first:?}, slot 63 {last:?}, ratio {ratio:.2} (gate 1.8)"
     );
     assert!(
-        ratio <= 2.3,
-        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 2.3"
+        ratio <= 1.8,
+        "the 64th slot cut costs {ratio:.2}x the first ({last:?} vs {first:?}) > 1.8"
     );
 }

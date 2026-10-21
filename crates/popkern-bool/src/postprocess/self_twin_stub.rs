@@ -35,11 +35,27 @@ pub struct SelfTwinStubReport {
 /// and delete them (with their edge record). Transactional: the body
 /// is restored whole if the result fails validation.
 pub fn remove_self_twin_stubs(brep: &mut BRep, tolerance: &Tolerance) -> SelfTwinStubReport {
+    remove_self_twin_stubs_in(brep, tolerance, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`remove_self_twin_stubs`] for the stubs in faces `region` admits
+/// (a splice edits one loop and creates nothing).
+pub(crate) fn remove_self_twin_stubs_in(
+    brep: &mut BRep,
+    tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
+) -> SelfTwinStubReport {
     let mut report = SelfTwinStubReport::default();
     let candidates: Vec<HalfEdgeHandle> = brep
         .half_edges
         .iter()
-        .filter(|(h, he)| he.twin == *h)
+        .filter(|(h, he)| {
+            he.twin == *h
+                && brep
+                    .loops
+                    .get(he.loop_)
+                    .is_some_and(|l| region.admits_face(l.face))
+        })
         .map(|(h, _)| h)
         .collect();
     if candidates.is_empty() {

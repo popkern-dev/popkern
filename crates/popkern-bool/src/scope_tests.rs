@@ -93,9 +93,9 @@ fn the_scoped_merge_assembles_the_unscoped_body() {
     };
     assert_eq!(keys(&scoped), keys(&unscoped), "same faces, bit for bit");
     assert!(
-        carried.len() >= scope.frontier.len(),
+        carried.edges.len() >= scope.frontier.len(),
         "the far walls' edges are carried: {}",
-        carried.len()
+        carried.edges.len()
     );
     // Negative control: the blind scope's far faces include the ones the
     // tool cuts; their frontier edges never come through unsplit.

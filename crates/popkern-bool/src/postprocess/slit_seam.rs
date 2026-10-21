@@ -34,7 +34,17 @@ pub struct SlitSeamReport {
 }
 
 /// Dissolve seam edges whose two halves are chart-co-located slits.
-pub fn dissolve_slit_seams(brep: &mut BRep, _tolerance: &Tolerance) -> SlitSeamReport {
+pub fn dissolve_slit_seams(brep: &mut BRep, tolerance: &Tolerance) -> SlitSeamReport {
+    dissolve_slit_seams_in(brep, tolerance, &crate::serve_region::ServeRegion::Whole)
+}
+
+/// [`dissolve_slit_seams`] on the faces `region` admits (a slit lies in
+/// one face; dissolving it creates nothing).
+pub(crate) fn dissolve_slit_seams_in(
+    brep: &mut BRep,
+    _tolerance: &Tolerance,
+    region: &crate::serve_region::ServeRegion,
+) -> SlitSeamReport {
     let mut report = SlitSeamReport::default();
     let candidates: Vec<EdgeHandle> = brep
         .edges
@@ -62,6 +72,9 @@ pub fn dissolve_slit_seams(brep: &mut BRep, _tolerance: &Tolerance) -> SlitSeamR
             // macroscopic flap like the θ=0 bulge's 0.22-long seam
             // remnant belongs here.
             let face = brep.loops.get(he.loop_)?.face;
+            if !region.admits_face(face) {
+                return None;
+            }
             let surface = brep.faces.get(face)?.surface.as_ref()?;
             let (pu, pv) = surface.geometry.parameter_periodicity();
             if pu.is_none() && pv.is_none() {
