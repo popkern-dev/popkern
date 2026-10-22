@@ -35,6 +35,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 
 use crate::mesh::{FaceMesh, MeshVertex};
+use crate::shading_contract::{row_shading_bound, row_shading_error};
 use crate::vertex_normal::{chart_singular, limit_normal, singular_without_unique_normal};
 
 /// Growth budget: the refined mesh may hold at most this many times
@@ -46,6 +47,14 @@ const GROWTH_FLOOR: usize = 4096;
 /// is below this fraction of the edge length is collapsed at that
 /// endpoint (a pole): the coordinate carries no position there.
 const POLE_TRAVEL: f64 = 1.0e-3;
+
+/// Halvings of a seam band facet at most under the shading contract
+/// (its row narrows to a sixteenth). Near a vanishing strip end no row
+/// height keeps the bound, and unbounded halving there spent the whole
+/// growth budget before the cube's rail needles were reached (PK-914).
+/// Three halvings left pentagon5_variable's worst seam at 5.1e-3 per
+/// pixel; four bring it to 3.5e-3.
+const SEAM_ROW_HALVINGS: u8 = 4;
 
 fn angle_between(a: Vec3, b: Vec3) -> f64 {
     let (la, lb) = (a.length(), b.length());
@@ -72,6 +81,112 @@ pub(crate) fn refine_face_mesh_from(
     surface: &SurfaceGeometry,
     max_angle: f64,
     seeds: &[usize],
+) {
+    refine(mesh, surface, max_angle, seeds, None);
+}
+
+/// Refine `mesh` in place until every needle row in its seam band
+/// keeps the shading contract ([`crate::shading_contract`]) under the
+/// angular bound `max_angle`, or no admissible interior split remains,
+/// or the growth budget is spent. The seam band is the facets standing
+/// on the face boundary and every facet split from one, each halved at
+/// most [`SEAM_ROW_HALVINGS`] times. The zebra reads a seam over a
+/// few pixels on either side, so the rows behind the first matter as
+/// much as the first. Splits follow the angular pass's longest-edge
+/// rule, so a needle bisects across its row: its long edges carry the
+/// row's normal turn. Returns the band facets left outside the
+/// contract (halving-capped, boundary-limited or out of budget).
+pub(crate) fn refine_face_shading(
+    mesh: &mut FaceMesh,
+    surface: &SurfaceGeometry,
+    max_angle: f64,
+    chord_height: f64,
+) -> usize {
+    let seam = SeamShading {
+        bound: row_shading_bound(max_angle),
+        chord_height,
+    };
+    // The seam band: the facets standing on the face boundary (depth
+    // 1), and every facet split from one (one deeper per split).
+    let uses = edge_use(mesh);
+    let mut band: Vec<u8> = mesh
+        .triangles
+        .iter()
+        .map(|t| u8::from((0..3).any(|k| uses.get(&edge_key(t[k], t[(k + 1) % 3])) == Some(&1))))
+        .collect();
+    let over = |mesh: &FaceMesh, band: &[u8]| -> Vec<usize> {
+        (0..mesh.triangles.len())
+            .filter(|&t| over_seam_bound(mesh, surface, t, band, seam))
+            .collect()
+    };
+    let seeds = over(mesh, &band);
+    if !seeds.is_empty() {
+        refine(mesh, surface, max_angle, &seeds, Some((seam, &mut band)));
+    }
+    over(mesh, &band).len()
+}
+
+fn edge_key(a: usize, b: usize) -> (usize, usize) {
+    (a.min(b), a.max(b))
+}
+
+/// Whether facet `t` lies in the seam band, may still be halved, and
+/// breaks the contract.
+fn over_seam_bound(
+    mesh: &FaceMesh,
+    surface: &SurfaceGeometry,
+    t: usize,
+    band: &[u8],
+    seam: SeamShading,
+) -> bool {
+    let depth = band.get(t).copied().unwrap_or(0);
+    (1..=SEAM_ROW_HALVINGS).contains(&depth)
+        && row_error(mesh, surface, t, seam.chord_height) > seam.bound
+}
+
+/// How many triangles of `mesh` use each edge.
+fn edge_use(mesh: &FaceMesh) -> HashMap<(usize, usize), usize> {
+    let mut uses = HashMap::new();
+    for t in &mesh.triangles {
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            *uses.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    uses
+}
+
+/// The largest row shading error of facet `t` over its edges as the
+/// row's base (zero when no edge makes it a measurable needle).
+fn row_error(mesh: &FaceMesh, surface: &SurfaceGeometry, t: usize, chord_height: f64) -> f64 {
+    let tri = mesh.triangles[t];
+    (0..3)
+        .filter_map(|k| {
+            let v = |i: usize| &mesh.vertices[tri[(k + i) % 3]];
+            row_shading_error(surface, v(0), v(1), v(2), chord_height)
+        })
+        .fold(0.0, f64::max)
+}
+
+/// The shading contract a refinement holds the seam band to.
+#[derive(Debug, Clone, Copy)]
+struct SeamShading {
+    /// The largest row shading error kept (radians).
+    bound: f64,
+    /// The display's chord height, which sets the thinnest row held.
+    chord_height: f64,
+}
+
+/// The refinement core: under `seam` (with the band's halving depths)
+/// a triangle is over the bound when it is a band facet whose row
+/// shading error passes the contract's, otherwise when an edge's
+/// normal angle passes `max_angle`.
+fn refine(
+    mesh: &mut FaceMesh,
+    surface: &SurfaceGeometry,
+    max_angle: f64,
+    seeds: &[usize],
+    mut seam: Option<(SeamShading, &mut Vec<u8>)>,
 ) {
     if mesh.triangles.is_empty() || matches!(surface, SurfaceGeometry::Plane { .. }) {
         return;
@@ -197,7 +312,13 @@ pub(crate) fn refine_face_mesh_from(
             break;
         }
         let t = mesh.triangles[ti];
-        if !forced {
+        if let Some((seam, band)) = seam.as_ref() {
+            // A seam shading violation belongs to the facet, not an
+            // edge: splitting either long edge narrows its row.
+            if !forced && !over_seam_bound(mesh, surface, ti, band, *seam) {
+                continue;
+            }
+        } else if !forced {
             // Over-bound pairs of this triangle, classified by whether
             // their edge can be split. A triangle is refined only when
             // it has violations AND every one of them is splittable:
@@ -276,11 +397,17 @@ pub(crate) fn refine_face_mesh_from(
         );
         // Fold guard: the true midpoint of a sub-facet chord sits
         // within about half the chord of it; an image farther away
-        // crossed a chart singularity or seam.
+        // crossed a chart singularity or seam. The shading pass asks
+        // for a true bisection, within a quarter of the chord: near a
+        // degenerate corner the chart midpoint barely moves the
+        // surface, and it re-split one row thousands of times without
+        // narrowing it (PK-914).
         let unit_normal = (!chart_singular(surface, uv.0, uv.1))
             .then(|| limit_normal(surface, uv.0, uv.1))
             .flatten();
-        let Some(n) = unit_normal.filter(|_| position.distance_to(&chord_mid) <= 0.5 * len) else {
+        let fold = if seam.is_some() { 0.25 } else { 0.5 };
+        let splits = position.distance_to(&chord_mid) <= fold * len;
+        let Some(n) = unit_normal.filter(|_| splits) else {
             unsplittable.insert((a, b));
             queue.push((ti, forced));
             continue;
@@ -305,6 +432,16 @@ pub(crate) fn refine_face_mesh_from(
             let new_index = mesh.triangles.len();
             mesh.triangles[tj] = [p, m, c];
             mesh.triangles.push([m, q, c]);
+            if let Some((_, band)) = seam.as_mut() {
+                let depth = band[tj];
+                let child = if depth == 0 {
+                    0
+                } else {
+                    depth.saturating_add(1)
+                };
+                band[tj] = child;
+                band.push(child);
+            }
             // Edge bookkeeping: (p,m) and (m,c) belong to tj; (m,q)
             // and (m,c) to the new triangle; (q,c) moves from tj to
             // the new triangle.

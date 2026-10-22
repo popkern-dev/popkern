@@ -29,10 +29,21 @@
 //! a construction change that roughens a cap reads over them. PK-575
 //! tightens the cap-rim rows as the residual falls.
 
-use popkern_examples::zebra_attribution::{Attribution, attribute, attribution_fixtures};
+use popkern_examples::zebra_attribution::{
+    Attribution, attribute, attribute_with, attribution_fixtures,
+};
 
 const SIZE: u32 = 640;
 const STRIPES: u32 = 16;
+
+/// Strip-support mesh-view slope readings (per pixel, worst-seam
+/// median) the display mesh is ratcheted to at 1.25x (PK-914).
+const STRIP_SUPPORT_MESH_BARS: &[(&str, f64)] = &[
+    ("pentagon_flagship", 1.03e-3),
+    ("pentagon5_blunt_g2", 1.19e-3),
+    ("pentagon5_variable_g2", 3.48e-3),
+    ("cube_corner", 8.24e-4),
+];
 
 fn attributions() -> Vec<(&'static str, Attribution)> {
     attribution_fixtures()
@@ -76,8 +87,10 @@ fn cap_fixtures_attribute_stripe_defects_to_surface_or_tessellation() {
     }
 
     // Strip-support seams are exact G1 (cylinder/G2-strip on a plane):
-    // the surface view reads them clean and every display kink there
-    // is the tessellation's.
+    // the surface view reads them clean, so every display kink there
+    // is the tessellation's. Under the row shading contract (PK-914)
+    // the blunt pentagon's mesh reads 1.4x its surface view's floor;
+    // the flagship's and the cube's still read 6x and 7x theirs.
     for name in ["pentagon_flagship", "pentagon5_blunt_g2", "cube_corner"] {
         let (s, m) = get(name).class("strip-support").expect("strip-support");
         assert!(
@@ -86,7 +99,7 @@ fn cap_fixtures_attribute_stripe_defects_to_surface_or_tessellation() {
             s.normal_p50
         );
         assert!(
-            m.slope_p50 > 4.0 * s.slope_p50,
+            m.slope_p50 > s.slope_p50,
             "{name}: strip-support kink must be the mesh's: {s:?} vs {m:?}"
         );
     }
@@ -122,23 +135,19 @@ fn cap_fixtures_attribute_stripe_defects_to_surface_or_tessellation() {
         );
     }
 
-    // Mesh-view ratchets on the strip-support seams (PK-655), 1.25x
-    // the reading measured 2026-10-21. Every strip-support edge is G1
-    // to 0 rad and the G2 strips flat at their rails, so these readings
-    // are the display mesh's own crease: each halves when the frame
-    // doubles (a fixed jump in the normal's gradient, not instrument
-    // floor), and a 24-degree display mesh reads over the bars on the
-    // variable pentagon (1.51e-2) and the cube (1.74e-3). The variable
-    // pentagon's worst seam (1.06e-2; 9.45e-3 before PK-651) sits on a
-    // single rail needle 0.306 long and 0.0064 wide: neither a wider
-    // clearance band nor rows graded toward the rails lowered it.
-    let mesh_bars: &[(&str, f64)] = &[
-        ("pentagon_flagship", 1.99e-3),
-        ("pentagon5_blunt_g2", 9.15e-3),
-        ("pentagon5_variable_g2", 1.06e-2),
-        ("cube_corner", 9.20e-4),
-    ];
-    for &(name, slope) in mesh_bars {
+    // Mesh-view ratchets on the strip-support seams (PK-655, PK-914),
+    // 1.25x the reading measured 2026-10-22. Every strip-support edge
+    // is G1 to 0 rad and the G2 strips flat at their rails, so these
+    // readings are the display mesh's own crease. Its rail needles
+    // (0.306 long, 0.0064 high on the variable pentagon) turned at the
+    // secant rate over a row where the strip's curvature rises from
+    // zero, and read 1.99e-3, 9.15e-3, 1.06e-2 and 9.20e-4. The row
+    // shading contract narrows the seam band's rows until each departs
+    // from its base's first-order prediction by at most a 32nd of the
+    // facet bound. The variable pentagon now reads under its surface
+    // view's 4.6e-3. `a_mesh_without_the_shading_contract_reads_over_
+    // the_mesh_bars` is the bars' negative control.
+    for &(name, slope) in STRIP_SUPPORT_MESH_BARS {
         let (_, m) = get(name).class("strip-support").expect("strip-support");
         assert!(
             m.slope_p50 <= 1.25 * slope,
@@ -159,5 +168,31 @@ fn cap_fixtures_attribute_stripe_defects_to_surface_or_tessellation() {
             s.normal_p50
         );
         assert!(m.slope_p50 > 2.0 * s.slope_p50, "{name}: {s:?} vs {m:?}");
+    }
+}
+
+/// The mesh bars' negative control: the chord-only mesh (no angular
+/// bound, so no row shading contract) keeps its rail needles, and
+/// every fixture's strip-support seam reads over its bar (measured
+/// 2026-10-22: 1.99e-3, 1.36e-2, 1.89e-2, 1.74e-3).
+#[test]
+fn a_mesh_without_the_shading_contract_reads_over_the_mesh_bars() {
+    let options = popkern_mesh::TessellationOptions::default();
+    assert!(options.max_facet_angle >= std::f64::consts::PI);
+    for fx in attribution_fixtures() {
+        let at = attribute_with(&fx, &options, SIZE, STRIPES);
+        let (_, m) = at.class("strip-support").expect("strip-support");
+        let bar = STRIP_SUPPORT_MESH_BARS
+            .iter()
+            .find(|(n, _)| *n == fx.name)
+            .map(|(_, b)| *b)
+            .expect("a bar per fixture");
+        assert!(
+            m.slope_p50 > 1.25 * bar,
+            "{}: chord-only mesh slope {:.3e} under the bar {:.3e}",
+            fx.name,
+            m.slope_p50,
+            1.25 * bar
+        );
     }
 }

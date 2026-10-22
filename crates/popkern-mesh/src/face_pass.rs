@@ -171,9 +171,25 @@ pub(crate) fn tessellate_face_pass(
                                 &mut fm, geometry, chord, max_angle, max_angle,
                             );
                         }
-                        // The facet-tilt passes run again last: the crease
+                        // The facet-tilt passes run again: the crease
                         // flips judge creases, not lean, and can undo them.
                         crate::tilt_refine::finish_tilt(&mut fm, geometry, chord, max_angle);
+                        // The shading contract last (PK-914) narrows seam
+                        // rows. Its split vertices lie on the surface but
+                        // can still lean a neighbour past the tilt bound
+                        // (pyramid_apex: five facets at 12.1°), so leaning
+                        // facets are bisected after it. The full tilt
+                        // finish would flip and relax the narrowed rows
+                        // wide again (cube_corner's seam back over HEAD).
+                        let before = fm.triangles.len();
+                        crate::angular_refine::refine_face_shading(
+                            &mut fm, geometry, max_angle, chord,
+                        );
+                        if fm.triangles.len() > before {
+                            crate::tilt_refine::bisect_leaning_facets_from(
+                                &mut fm, geometry, max_angle, None,
+                            );
+                        }
                     }
                 }
                 return FacePassOutcome::BoundaryFirst(fm);

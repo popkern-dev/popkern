@@ -286,8 +286,23 @@ impl Attribution {
 /// Render `fx` into a `size` × `size` deferred frame on the display
 /// mesh and measure its attribution for `stripes` stripes.
 pub fn attribute(fx: &AttributionFixture, size: u32, stripes: u32) -> Attribution {
-    let mesh = popkern_mesh::tessellate(&fx.brep, &popkern_mesh::TessellationOptions::display())
-        .expect("display mesh");
+    attribute_with(
+        fx,
+        &popkern_mesh::TessellationOptions::display(),
+        size,
+        stripes,
+    )
+}
+
+/// [`attribute`] on the mesh `options` tessellate (a negative control
+/// renders a coarser mesh than the display's).
+pub fn attribute_with(
+    fx: &AttributionFixture,
+    options: &popkern_mesh::TessellationOptions,
+    size: u32,
+    stripes: u32,
+) -> Attribution {
+    let mesh = popkern_mesh::tessellate(&fx.brep, options).expect("mesh");
     let frame = rasterize_zebra_frame(&fx.brep, &mesh, &fx.camera, size, size);
     let disagreement = frame.mode_disagreement(stripes);
     let is_plane = |f: FaceHandle| {

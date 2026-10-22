@@ -22,6 +22,7 @@ mod mesh;
 pub mod offset_oracle;
 mod point_box_index;
 pub mod point_query;
+pub mod shading_contract;
 mod surface_delaunay_flip;
 mod tessellate;
 mod tilt_refine;
