@@ -1,7 +1,7 @@
 //! Trim-residue post-filters for Stage 1 records (split from
 //! `intersect.rs` under the 500-line structural budget): the
 //! op-aware kept-flank drop, boundary/redundancy honesty gates, and
-//! the residue-swarm cap (PK-465/PK-472).
+//! the closure witness (PK-465/PK-472/PK-473).
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::topology::FaceHandle;
@@ -159,26 +159,10 @@ pub(crate) fn drop_kept_flank_residues(
             } else {
                 (brep_b, r.face_b)
             };
-            let mut min_d = f64::MAX;
-            for eh in crate::clip_endpoint_refine::boundary_edges(own_brep, own_face) {
-                // An edge whose box is past the gate cannot bring the
-                // distance under it (PK-815: a disc face's 61 edges per
-                // residue).
-                if crate::clip::edge_box(own_brep, eh).is_some_and(|b| {
-                    crate::clip::box_distance(&b, &mid) >= boundary_gate.max(min_d)
-                }) {
-                    continue;
-                }
-                let Some(c) = own_brep.edges.get(eh).and_then(|e| e.curve.as_ref()) else {
-                    continue;
-                };
-                if let Some(t) = (&c.geometry as &dyn popkern_core::geometry::curve::CurveEval)
-                    .closest_point(&mid)
-                {
-                    let tc = t.clamp(c.t_start.min(c.t_end), c.t_start.max(c.t_end));
-                    min_d = min_d.min(c.geometry.point_at(tc).distance_to(&mid));
-                }
-            }
+            // An edge whose box is past the gate cannot bring the
+            // distance under it (PK-815: a disc face's 61 edges per
+            // residue).
+            let min_d = owner_boundary_distance(own_brep, own_face, &mid, boundary_gate);
             if min_d < boundary_gate {
                 if trace {
                     eprintln!(
@@ -260,53 +244,61 @@ pub(crate) fn drop_kept_flank_residues(
 
     dedupe_same_face_residues(records, tolerance);
 
-    // RESIDUE-SWARM CAP — temporary containment (PK-472, follow-up
-    // filed): a single owner face accumulating a SWARM of surviving
-    // residues is the many-face-imprint shape (measured: the
-    // impeller's flow-cavity floor collected 26+ owner-side residues,
-    // one per star wall, radiating inside an imprint outline already
-    // fully covered by ordinary records — the walk wove the swarm
-    // into the outline loops and a baseline-served boolean declined
-    // with a broken half-edge cycle). The measured load-bearing
-    // classes stay far under the cap (tap ≤ 8 per face, m6/rod ≤ 2).
-    // The commercial-grade replacement is a per-residue separation
-    // witness (does this slit separate a kept region from a
-    // discarded one), which needs region knowledge this stage does
-    // not have.
-    {
-        let mut per_face: std::collections::HashMap<(bool, FaceHandle), usize> =
-            std::collections::HashMap::new();
-        for r in records.iter() {
-            if let Some(owner_is_a) = r.residue_owner_a {
-                let f = if owner_is_a { r.face_a } else { r.face_b };
-                *per_face.entry((owner_is_a, f)).or_insert(0) += 1;
-            }
-        }
-        const RESIDUE_SWARM_CAP: usize = 16;
-        let swarmed: Vec<(bool, FaceHandle)> = per_face
-            .iter()
-            .filter(|&(_, &c)| c > RESIDUE_SWARM_CAP)
-            .map(|(&k, _)| k)
-            .collect();
-        if !swarmed.is_empty() {
-            if trace {
-                for (a, f) in &swarmed {
-                    eprintln!(
-                        "  [residue-drop] swarm cap: {} residues on {} face {f:?} exceed {RESIDUE_SWARM_CAP} — all dropped (many-face imprint shape)",
-                        per_face[&(*a, *f)],
-                        if *a { "A" } else { "B" },
-                    );
-                }
-            }
-            records.retain(|r| {
-                let Some(owner_is_a) = r.residue_owner_a else {
-                    return true;
-                };
-                let f = if owner_is_a { r.face_a } else { r.face_b };
-                !swarmed.contains(&(owner_is_a, f))
-            });
+    // CLOSURE WITNESS (PK-473): a residue separates nothing the
+    // ordinary records do not, unless its chain continues from an
+    // ordinary record end the face leaves open. The gate is the graph's
+    // junction-adoption distance (`insert_intersection_curves`), so ends
+    // meeting here share a node there.
+    let gate = tolerance.linear() * 20.0;
+    let rows = crate::intersect_residue_witness::retire_unwitnessed_residues(
+        records,
+        gate,
+        |owner_is_a, face, p| {
+            let brep = if owner_is_a { brep_a } else { brep_b };
+            owner_boundary_distance(brep, face, p, gate) < gate
+        },
+    );
+    if trace {
+        for row in rows.iter().filter(|row| row.retired > 0) {
+            eprintln!(
+                "  [residue-drop] closure witness: {} of {} residues on {} face {:?} retired ({} dangling ordinary ends)",
+                row.retired,
+                row.retired + row.kept,
+                if row.owner_is_a { "A" } else { "B" },
+                row.face,
+                row.dangling_ends
+            );
         }
     }
+}
+
+/// Distance from `p` to `face`'s trim boundary (outer and inner
+/// loops), skipping edges whose boxes lie past `cutoff`.
+fn owner_boundary_distance(
+    brep: &popkern_core::topology::BRep,
+    face: FaceHandle,
+    p: &popkern_core::geometry::Point3,
+    cutoff: f64,
+) -> f64 {
+    use popkern_core::geometry::curve::CurveEval as _;
+    let mut min_d = f64::MAX;
+    for eh in crate::clip_endpoint_refine::boundary_edges(brep, face) {
+        if crate::clip::edge_box(brep, eh)
+            .is_some_and(|b| crate::clip::box_distance(&b, p) >= cutoff.max(min_d))
+        {
+            continue;
+        }
+        let Some(c) = brep.edges.get(eh).and_then(|e| e.curve.as_ref()) else {
+            continue;
+        };
+        if let Some(t) =
+            (&c.geometry as &dyn popkern_core::geometry::curve::CurveEval).closest_point(p)
+        {
+            let tc = t.clamp(c.t_start.min(c.t_end), c.t_start.max(c.t_end));
+            min_d = min_d.min(c.geometry.point_at(tc).distance_to(p));
+        }
+    }
+    min_d
 }
 
 /// CROSS-PAIR residue dedupe (PK-487): different face pairs can each

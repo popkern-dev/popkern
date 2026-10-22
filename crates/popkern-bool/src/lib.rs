@@ -64,6 +64,7 @@ pub(crate) mod intersect_edge_face;
 pub(crate) mod intersect_edge_face_coincident;
 pub(crate) mod intersect_residue_filter;
 pub(crate) mod intersect_residue_split;
+pub(crate) mod intersect_residue_witness;
 pub(crate) mod merge;
 pub mod merge_fallback;
 mod pcurve_box;
