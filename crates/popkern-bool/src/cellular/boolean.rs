@@ -232,6 +232,32 @@ pub(crate) fn cellular_graph_merge(
         (&intersection_result.aabbs_a, &intersection_result.aabbs_b),
     )?;
 
+    // A mixed-sense pair wires as a same-sense pair (PK-913): B's kept
+    // fragments flip when every shared record says it winds opposite
+    // to A.
+    let mut selections = selections;
+    let b_far_carried = scopes.is_some_and(|s| s.carried(op).1.is_some());
+    let (winding, flipped_b) = super::operand_winding::agree_operand_winding(
+        &graph,
+        &fragments,
+        &mut selections,
+        b_far_carried,
+    );
+    if popkern_core::trace::trace_enabled("boolean") && winding.same > 0 {
+        eprintln!(
+            "  [cellular] shared winding: {} same, {} opposite; B {}",
+            winding.same,
+            winding.opposite,
+            if flipped_b {
+                "flipped to agree with A"
+            } else if b_far_carried {
+                "left (its far faces are carried)"
+            } else {
+                "left"
+            }
+        );
+    }
+
     // Order-independent assembly from selected fragments.
     let kept: Vec<usize> = (0..fragments.len())
         .filter(|&i| selections[i].keep)

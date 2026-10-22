@@ -29,6 +29,7 @@ pub(crate) mod fragment_propagation;
 pub(crate) mod fragment_sample_helpers;
 pub(crate) mod fragment_sampling;
 pub(crate) mod fragment_torus_sample;
+mod operand_winding;
 mod probe_clearance;
 mod record_rotation;
 pub mod select;

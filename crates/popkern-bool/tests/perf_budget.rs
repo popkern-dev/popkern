@@ -364,8 +364,12 @@ fn a_small_target_with_the_slotted_disc_as_tool_costs_as_its_mirror() {
     let union = |a: &BRep, b: &BRep| {
         boolean(BoolOperation::Union, a.clone(), b.clone(), tol, None).expect("union")
     };
+    let intersect = |a: &BRep, b: &BRep| {
+        boolean(BoolOperation::Intersection, a.clone(), b.clone(), tol, None).expect("intersection")
+    };
     // Interleaved, so both sides of the ratio see the same contention.
     let (mut mirror, mut symmetric) = (Duration::MAX, Duration::MAX);
+    let (mut disc_first, mut boss_first) = (Duration::MAX, Duration::MAX);
     for _ in 0..7 {
         let t0 = Instant::now();
         union(&body, &boss);
@@ -373,7 +377,25 @@ fn a_small_target_with_the_slotted_disc_as_tool_costs_as_its_mirror() {
         let t0 = Instant::now();
         union(&boss, &body);
         symmetric = symmetric.min(t0.elapsed());
+        let t0 = Instant::now();
+        intersect(&body, &boss);
+        disc_first = disc_first.min(t0.elapsed());
+        let t0 = Instant::now();
+        intersect(&boss, &body);
+        boss_first = boss_first.min(t0.elapsed());
     }
+    // The boss is an inward prism and the disc outward (PK-913): disc ∩
+    // boss declined on the cellular path and served only through the
+    // mixed-sense rescue rerun (17 ms against 6.5 for boss ∩ disc) until
+    // the shared records' winding flips the inward operand's fragments.
+    let crossed = disc_first.as_secs_f64() / boss_first.as_secs_f64().max(1e-9);
+    eprintln!(
+        "perf budget [mixed-sense intersection]: disc ∩ boss {disc_first:?}, boss ∩ disc {boss_first:?}, ratio {crossed:.2} (gate 1.25)"
+    );
+    assert!(
+        crossed <= 1.25,
+        "disc ∩ boss costs {crossed:.2}x boss ∩ disc ({disc_first:?} vs {boss_first:?}) > 1.25"
+    );
     let ratio = symmetric.as_secs_f64() / mirror.as_secs_f64().max(1e-9);
     eprintln!(
         "perf budget [disc as tool]: boss ∪ disc {symmetric:?}, disc ∪ boss {mirror:?}, ratio {ratio:.2} (gate 1.25)"
