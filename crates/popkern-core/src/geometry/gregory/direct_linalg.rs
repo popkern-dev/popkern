@@ -108,6 +108,60 @@ pub(crate) fn solve_dense(m: Vec<Vec<f64>>, b: Vec<f64>) -> Option<Vec<f64>> {
     solve_dense_scalar(m, b)
 }
 
+/// [`solve_dense`] for several right-hand sides of one matrix: the
+/// pivots and multipliers depend on `m` alone, so each solution is
+/// bit-identical to `solve_dense(m, b)` for its `b`, for one
+/// elimination instead of one per side (PK-600).
+pub(crate) fn solve_dense_sides(
+    mut m: Vec<Vec<f64>>,
+    mut sides: Vec<Vec<f64>>,
+) -> Option<Vec<Vec<f64>>> {
+    let n = m.len();
+    for i in 0..n {
+        let mut pivot = i;
+        let mut best = m[i][i].abs();
+        for (r, row) in m.iter().enumerate().skip(i + 1) {
+            let v = row[i].abs();
+            if v > best {
+                best = v;
+                pivot = r;
+            }
+        }
+        if best < 1e-14 {
+            return None;
+        }
+        if pivot != i {
+            m.swap(i, pivot);
+            for b in &mut sides {
+                b.swap(i, pivot);
+            }
+        }
+        let (pivot_rows, elimination_rows) = m.split_at_mut(i + 1);
+        let pivot_row = &pivot_rows[i];
+        for (offset, row) in elimination_rows.iter_mut().enumerate() {
+            let factor = row[i] / pivot_row[i];
+            for (c, pc) in pivot_row.iter().enumerate().skip(i) {
+                row[c] -= factor * pc;
+            }
+            for b in &mut sides {
+                b[i + 1 + offset] -= factor * b[i];
+            }
+        }
+    }
+    let back = |b: &[f64]| {
+        let mut x = vec![0.0_f64; n];
+        for i in (0..n).rev() {
+            let mut s = b[i];
+            for (c, xc) in x.iter().enumerate().skip(i + 1) {
+                s -= m[i][c] * xc;
+            }
+            x[i] = s / m[i][i];
+        }
+        x
+    };
+    Some(sides.iter().map(|b| back(b)).collect())
+}
+
 /// Scalar-elimination branch of [`solve_dense`]. The elimination's
 /// floating-point operation order is a contract: results are
 /// bit-identical to the pre-PK-289 clone-based loop (see the

@@ -112,6 +112,7 @@ mod kp20_bi6_assemble;
 mod kp20_bi6_cap;
 mod kp20_bi6_cc_ring;
 mod kp20_bi6_cnet;
+mod kp20_bi6_guide_axes;
 mod kp20_bi6_guide_build;
 mod kp20_bi6_guide_continuity;
 mod kp20_bi6_guide_lsq;

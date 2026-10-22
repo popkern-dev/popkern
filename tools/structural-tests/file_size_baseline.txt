@@ -23,7 +23,6 @@ crates/popkern-core/src/geometry/gregory/kp20_bi6_cc_ring_tests.rs 5074
 crates/popkern-core/src/geometry/gregory/kp20_bi6_cc_ring_tests_part1.rs 4190
 crates/popkern-core/src/geometry/gregory/kp20_bi6_cc_ring_tests_part2.rs 4154
 crates/popkern-core/src/geometry/gregory/kp20_bi6_cc_ring_tests_part3.rs 4187
-crates/popkern-core/src/geometry/gregory/kp20_bi6_guide_lsq.rs 503
 crates/popkern-core/src/geometry/gregory/kp20_bi6_guide_lsq_tests.rs 5255
 crates/popkern-core/src/geometry/gregory/kp20_bi6_guide_lsq_tests_part1.rs 4289
 crates/popkern-core/src/geometry/gregory/kp20_bi6_guide_lsq_tests_part2.rs 4299
@@ -40,7 +39,7 @@ crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part1
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part2.rs 4232
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part3.rs 4145
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part4.rs 2344
-crates/popkern-core/src/geometry/gregory/kp20_paper_guide.rs 684
+crates/popkern-core/src/geometry/gregory/kp20_paper_guide.rs 679
 crates/popkern-core/src/geometry/uv_projection.rs 502
 crates/popkern-core/src/topology/pcurve_recompute.rs 622
 crates/popkern-examples/src/dice_set.rs 1186

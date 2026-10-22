@@ -304,13 +304,13 @@ fn solve_kp20_guide_lsq_with_custom_rows_and_constraints(
         vec![0.0_f64; vars],
     ];
 
-    let mut kkt_condition_number: f64 = 0.0;
-    for (axis, solved_axis) in solved.iter_mut().enumerate() {
-        let rhs = residual_rhs(&rows, axis);
-        let fixed = axis_value(star_point, axis);
-        let axis_solution = solve_axis(vars, &rows, &rhs, &constraints, fixed)
-            .ok_or(Kp20GuideLsqError::SingularSystem(axis))?;
-        kkt_condition_number = kkt_condition_number.max(axis_solution.kkt_condition_number);
+    let rhs: [Vec<f64>; 3] = core::array::from_fn(|axis| residual_rhs(&rows, axis));
+    let center = core::array::from_fn(|axis| axis_value(star_point, axis));
+    let axes = [&rhs[0][..], &rhs[1][..], &rhs[2][..]];
+    let axes = solve_axes(vars, &rows, axes, &constraints, center)
+        .ok_or(Kp20GuideLsqError::SingularSystem(0))?;
+    let kkt_condition_number = axes[0].kkt_condition_number;
+    for (solved_axis, axis_solution) in solved.iter_mut().zip(axes) {
         *solved_axis = axis_solution.values;
     }
 

@@ -171,6 +171,30 @@ fn solve_dense_is_the_scalar_elimination_at_every_size() {
     }
 }
 
+/// PK-600: one elimination for several right-hand sides gives each
+/// side `solve_dense`'s bits exactly (the guide's three coordinates).
+#[test]
+fn shared_elimination_is_each_sides_solve_bit_for_bit() {
+    let mut state = 0x51de_u64;
+    for n in [1usize, 7, 61, 128] {
+        let (m, b0) = lcg_system(&mut state, n);
+        let sides: Vec<Vec<f64>> = (0..3)
+            .map(|k| b0.iter().map(|v| v * (1.0 + k as f64) - k as f64).collect())
+            .collect();
+        let shared = solve_dense_sides(m.clone(), sides.clone()).expect("solved");
+        for (k, (side, x)) in sides.into_iter().zip(&shared).enumerate() {
+            let alone = solve_dense(m.clone(), side).expect("solved");
+            assert_eq!(
+                alone.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                x.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                "n={n} side {k}"
+            );
+        }
+    }
+    let singular = vec![vec![1.0, 2.0], vec![2.0, 4.0]];
+    assert!(solve_dense_sides(singular, vec![vec![1.0, 0.0]]).is_none());
+}
+
 #[test]
 fn a_large_singular_system_declines() {
     // An all-zero column makes the chosen pivot exactly zero: a

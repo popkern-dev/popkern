@@ -29,7 +29,7 @@ use super::cc_characteristic_tensor_border::{
 };
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp20_bi6_guide_lsq::{
-    Kp20GuideLsqError, LinearRow, ResidualRows, independent_rows, solve_axis, var_index,
+    Kp20GuideLsqError, LinearRow, ResidualRows, independent_rows, solve_axes, var_index,
 };
 use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use super::kp20_bi6_math::hermite_to_bi5_corner_block;
@@ -213,22 +213,17 @@ fn solve_paper_guide_inner(
         vec![0.0_f64; vars],
         vec![0.0_f64; vars],
     ];
-    let mut kkt_condition_number = 0.0_f64;
-    for (axis, solved_axis) in solved.iter_mut().enumerate() {
-        let center = match axis {
-            0 => star_point.x,
-            1 => star_point.y,
-            _ => star_point.z,
-        };
-        let axis_solution = solve_axis(
-            vars,
-            &residuals,
-            &residuals.targets[axis],
-            &constraints,
-            center,
-        )
-        .ok_or(Kp20GuideLsqError::SingularSystem(axis))?;
-        kkt_condition_number = kkt_condition_number.max(axis_solution.kkt_condition_number);
+    let targets = [
+        &residuals.targets[0][..],
+        &residuals.targets[1][..],
+        &residuals.targets[2][..],
+    ];
+    let center = [star_point.x, star_point.y, star_point.z];
+    // The matrix is shared, so a singular system is singular on axis 0.
+    let axes = solve_axes(vars, &residuals, targets, &constraints, center)
+        .ok_or(Kp20GuideLsqError::SingularSystem(0))?;
+    let kkt_condition_number = axes[0].kkt_condition_number;
+    for (solved_axis, axis_solution) in solved.iter_mut().zip(axes) {
         *solved_axis = axis_solution.values;
     }
 

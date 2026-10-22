@@ -195,6 +195,88 @@ fn sparse_ldlt_solves_a_quasi_definite_system_under_any_ordering() {
     }
 }
 
+/// PK-600: dense blocks coupled by relation rows (the KP20 curvature
+/// system's shape) factor as wide supernodal panels and solve like LU
+/// under every ordering, including ones that interleave the blocks.
+#[test]
+fn sparse_ldlt_blocks_factor_as_wide_panels() {
+    use crate::PortableMath;
+    let (blocks, width, relations) = (3usize, 24usize, 5usize);
+    let nh = blocks * width;
+    let n = nh + relations;
+    let mut cols: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
+    for blk in 0..blocks {
+        for j in 0..width {
+            let c = blk * width + j;
+            for i in j..width {
+                let r = blk * width + i;
+                let v = if i == j {
+                    width as f64 + 1.0
+                } else {
+                    ((r * 3 + c) as f64 * 0.37).psin() * 0.5
+                };
+                cols[c].push((r, v));
+            }
+        }
+    }
+    // Each relation ties the last unknown of one block to the first of
+    // the next: the seams.
+    for r in 0..relations {
+        let (a, b) = ((r % blocks) * width + width - 1, ((r + 1) % blocks) * width);
+        let (lo, hi) = (a.min(b), a.max(b));
+        cols[lo].push((nh + r, 1.0));
+        cols[hi].push((nh + r, -1.0 - 0.1 * r as f64));
+        // −G well away from zero: a no-pivot order that eliminates a
+        // relation before its block grows elements by 1/G.
+        cols[nh + r].push((nh + r, -1e-3));
+    }
+    let mut col_ptr = vec![0usize];
+    let (mut rows, mut vals) = (Vec::new(), Vec::new());
+    for column in &mut cols {
+        column.sort_by_key(|&(r, _)| r);
+        for &(r, v) in column.iter() {
+            rows.push(r);
+            vals.push(v);
+        }
+        col_ptr.push(rows.len());
+    }
+    let dense = DenseMat::from_fn(n, n, |i, j| {
+        let (r, c) = (i.max(j), i.min(j));
+        (col_ptr[c]..col_ptr[c + 1])
+            .find(|&p| rows[p] == r)
+            .map_or(0.0, |p| vals[p])
+    });
+    let b: Vec<f64> = (0..n).map(|i| (i as f64 * 0.21).pcos()).collect();
+    let want = lu_solve(dense, DenseMat::from_fn(n, 1, |i, _| b[i])).expect("lu");
+    let natural: Vec<usize> = (0..n).collect();
+    let interleaved: Vec<usize> = (0..n).map(|k| (k * 5) % n).collect();
+    for (name, perm) in [("natural", natural), ("interleaved", interleaved)] {
+        let sym = LdltSymbolic::new(n, &col_ptr, &rows, perm).expect("symbolic");
+        if name == "natural" {
+            // Each dense block is one panel (plus the relation tail).
+            assert!(
+                sym.supernodes() <= blocks + relations,
+                "{}",
+                sym.supernodes()
+            );
+        }
+        let factor = sym.factor(&vals).expect("factor");
+        let mut x = b.clone();
+        sym.solve(&factor, &mut x);
+        for (i, xi) in x.iter().enumerate() {
+            assert!(
+                (xi - want.get(i, 0)).abs() < 1e-9 * (1.0 + want.get(i, 0).abs()),
+                "{name} x[{i}] {} vs {}",
+                xi,
+                want.get(i, 0)
+            );
+        }
+    }
+    // A zero pivot declines.
+    let sym = LdltSymbolic::new(1, &[0, 1], &[0], vec![0]).expect("symbolic");
+    assert!(sym.factor(&[0.0]).is_none());
+}
+
 #[test]
 fn sparse_ldlt_refuses_a_malformed_pattern() {
     // An upper-triangle entry where the lower triangle is expected.

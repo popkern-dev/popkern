@@ -11,15 +11,19 @@
 //! degree-raised from bi-3 to bi-5.
 
 use super::bernstein_tri6::{TRI6_CP_COUNT, flat_index};
+#[cfg(test)]
 use super::direct_linalg::{condition_number_dense, solve_dense};
 use super::kp_polar_boundary_input::TensorBorderBi3;
 use super::kp13_bi5_bi3_bi5_ops::degree_raise_1d_3_to_5;
+pub(crate) use super::kp20_bi6_guide_axes::solve_axes;
+#[cfg(test)]
+use super::kp20_bi6_guide_axes::{AxisSolution, accumulate_normal_row, add_lagrange_row};
 use super::kp20_bi6_guide_continuity::kp18_guide_join_weights;
 use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use crate::geometry::Point3;
 
 const DEGREE: usize = 6;
-const CENTER_FLAT: usize = 0;
+pub(super) const CENTER_FLAT: usize = 0;
 
 /// Error reported by the KP18 guide least-squares construction.
 #[derive(Debug, Clone, PartialEq)]
@@ -125,13 +129,14 @@ fn solve_kp20_guide_lsq_inner(
         vec![0.0_f64; vars],
     ];
 
-    let mut kkt_condition_number: f64 = 0.0;
-    for (axis, solved_axis) in solved.iter_mut().enumerate() {
-        let rhs = residual_rhs(&rows, axis);
-        let fixed = axis_value(star_point, axis);
-        let axis_solution = solve_axis(vars, &rows, &rhs, &constraints, fixed)
-            .ok_or(Kp20GuideLsqError::SingularSystem(axis))?;
-        kkt_condition_number = kkt_condition_number.max(axis_solution.kkt_condition_number);
+    let rhs: [Vec<f64>; 3] = core::array::from_fn(|axis| residual_rhs(&rows, axis));
+    let center = core::array::from_fn(|axis| axis_value(star_point, axis));
+    let axes = [&rhs[0][..], &rhs[1][..], &rhs[2][..]];
+    // The matrix is shared, so a singular system is singular on axis 0.
+    let axes = solve_axes(vars, &rows, axes, &constraints, center)
+        .ok_or(Kp20GuideLsqError::SingularSystem(0))?;
+    let kkt_condition_number = axes[0].kkt_condition_number;
+    for (solved_axis, axis_solution) in solved.iter_mut().zip(axes) {
         *solved_axis = axis_solution.values;
     }
 
@@ -330,73 +335,6 @@ fn eq(terms: &[(usize, usize, usize, usize, f64)]) -> LinearRow {
             .iter()
             .map(|&(s, _i, j, k, w)| (var_index(s, flat_index(DEGREE, j, k)), w))
             .collect(),
-    }
-}
-
-pub(crate) struct AxisSolution {
-    pub(crate) values: Vec<f64>,
-    pub(crate) kkt_condition_number: f64,
-}
-
-pub(crate) fn solve_axis(
-    vars: usize,
-    residuals: &ResidualRows,
-    rhs: &[f64],
-    constraints: &[LinearRow],
-    center: f64,
-) -> Option<AxisSolution> {
-    let size = vars + constraints.len() + 1;
-    let mut a = vec![vec![0.0_f64; size]; size];
-    let mut b = vec![0.0_f64; size];
-    for (row, &target) in residuals.rows.iter().zip(rhs) {
-        accumulate_normal_row(&mut a, &mut b, &row.terms, target, 1.0);
-    }
-    for (i, row) in a.iter_mut().enumerate().take(vars) {
-        row[i] += 1.0e-12;
-    }
-    add_lagrange_row(
-        vars,
-        &mut a,
-        &mut b,
-        &[(var_index(0, CENTER_FLAT), 1.0)],
-        center,
-    );
-    for (cidx, row) in constraints.iter().enumerate() {
-        add_lagrange_row(vars + 1 + cidx, &mut a, &mut b, &row.terms, 0.0);
-    }
-    let kkt_condition_number = condition_number_dense(&a)?.condition_number;
-    solve_dense(a, b).map(|x| AxisSolution {
-        values: x[..vars].to_vec(),
-        kkt_condition_number,
-    })
-}
-
-fn accumulate_normal_row(
-    a: &mut [Vec<f64>],
-    b: &mut [f64],
-    terms: &[(usize, f64)],
-    rhs: f64,
-    weight: f64,
-) {
-    for &(i, wi) in terms {
-        b[i] += weight * wi * rhs;
-        for &(j, wj) in terms {
-            a[i][j] += weight * wi * wj;
-        }
-    }
-}
-
-fn add_lagrange_row(
-    row_idx: usize,
-    a: &mut [Vec<f64>],
-    b: &mut [f64],
-    terms: &[(usize, f64)],
-    rhs: f64,
-) {
-    b[row_idx] = rhs;
-    for &(var, weight) in terms {
-        a[var][row_idx] += weight;
-        a[row_idx][var] += weight;
     }
 }
 

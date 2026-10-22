@@ -17,6 +17,7 @@
 mod eigen;
 mod factor;
 mod sparse_ldlt;
+mod sparse_ldlt_numeric;
 mod svd;
 
 pub use eigen::symmetric_eigenvalues;

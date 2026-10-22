@@ -129,6 +129,9 @@ jobs:
           cargo test --release -p popkern-part \
             --test perf_budget --test thread_determinism_gate -- --nocapture
 
+      - name: KP20 cap assembly perf budget
+        run: cargo test --release -p popkern-core --test kp20_cap_perf_budget -- --nocapture
+
       - name: Boolean perf budgets
         run: cargo test --release -p popkern-bool --test perf_budget -- --nocapture
 

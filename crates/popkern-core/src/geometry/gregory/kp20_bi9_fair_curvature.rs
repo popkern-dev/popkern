@@ -264,12 +264,19 @@ pub(super) fn fair_interior_curvature(
     let space = super::kp20_bi9_relations::relation_space(n, b).ok_or(D::RelationSpace)?;
     let gauss = crate::geometry::variational_cap::space::gauss_legendre(GAUSS_POINTS);
     let table = basis_table(&gauss);
-    let mut frozen = Vec::with_capacity(4 * n);
-    for sector in nets.iter() {
-        for net in sector {
-            frozen.push(curvature_piece_grams(net, &gauss, &table).ok_or(D::DegenerateFrame)?);
-        }
-    }
+    // Each piece's frozen Grams read only its own net: under the
+    // `parallel` feature they are formed concurrently, collected in
+    // piece order (identical results; PK-600: 0.18 s serial at n = 8).
+    let pieces: Vec<&Net> = nets.iter().flatten().collect();
+    let grams = |net: &&Net| curvature_piece_grams(net, &gauss, &table);
+    #[cfg(feature = "parallel")]
+    let frozen: Option<Vec<_>> = {
+        use rayon::prelude::*;
+        pieces.par_iter().map(grams).collect()
+    };
+    #[cfg(not(feature = "parallel"))]
+    let frozen: Option<Vec<_>> = pieces.iter().map(grams).collect();
+    let frozen = frozen.ok_or(D::DegenerateFrame)?;
     let guide: Vec<Vec<Vec<f64>>> = tau
         .pieces
         .iter()
