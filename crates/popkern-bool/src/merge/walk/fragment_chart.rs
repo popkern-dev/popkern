@@ -12,14 +12,16 @@ pub(super) type OrbitPolylines = HashMap<usize, ChartLoop>;
 
 /// A chart-walked fragment's loops as the walk embedded them: every
 /// loop (outer first, then the inner loops in order) is a
-/// material-on-LEFT orbit of the σ-oriented chart, σ self-calibrated
-/// from the face's stored trim ring (`chart_subdivision`). Consumers
+/// material-on-LEFT orbit of the σ-oriented chart, σ the face's
+/// orientation sign checked by its stored trim ring
+/// (`chart_subdivision`). Consumers
 /// that need the region's side read it here rather than re-deriving
 /// run directions: a closed ring's direction is the embedding's, and
 /// a re-sampled run can disagree with it.
 #[derive(Debug, Clone)]
 pub(crate) struct FragmentChart {
-    /// +1 when chart CCW is CCW about the outward normal, −1 otherwise.
+    /// +1 when chart CCW is CCW about the folded chart normal, −1
+    /// otherwise.
     pub sigma: f64,
     /// Orbit loops (one run per half-edge embedding), outer loop first.
     pub loops: Vec<ChartLoop>,

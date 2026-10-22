@@ -31,6 +31,14 @@ fn xy_plane() -> SurfaceGeometry {
 /// half-edges (bottom/top split at the trim feet) plus both trim
 /// directions, and the correct partition is exactly two four-loops.
 fn square_with_transversal_trim() -> (IntersectionGraph, FaceRef, Vec<usize>) {
+    square_with_transversal_trim_wound(true)
+}
+
+/// The same square, its boundary registered CCW in the chart or CW
+/// (as a face with `orientation == false` winds under the PK-772
+/// contract). CW reverses each boundary half-edge and the cycle;
+/// `hes[0]` is then bottom-left T→SW and `hes[1]` bottom-right SE→T.
+fn square_with_transversal_trim_wound(ccw: bool) -> (IntersectionGraph, FaceRef, Vec<usize>) {
     let mut g = IntersectionGraph::new();
     let face = FaceRef {
         operand: Operand::A,
@@ -46,9 +54,10 @@ fn square_with_transversal_trim() -> (IntersectionGraph, FaceRef, Vec<usize>) {
         g.add_node(p(0.5, 1.0), NodeSource::Intersection), // 4 top T
         g.add_node(p(0.0, 1.0), NodeSource::Intersection), // 5 NW
     ];
-    // Boundary CCW: only the face-side directions are registered.
+    // Only the face-side directions are registered.
     let mut hes = Vec::new();
     for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0)] {
+        let (a, b) = if ccw { (a, b) } else { (b, a) };
         let (fwd, _) = g.add_half_edge_pair(n[a], n[b], EdgeSource::OriginalA(eh), None);
         g.set_half_edge_face(fwd, face);
         hes.push(fwd);
@@ -133,23 +142,15 @@ fn walk_turns_onto_trim_at_boundary_t() {
     );
 }
 
-/// Orientation=false mirrors the turn: the same graph walked with a
-/// flipped chart pairs the bottom-left boundary with the OTHER trim
-/// direction's region.
+/// Orientation=false mirrors the turn. Under the PK-772 contract such
+/// a face's boundary winds CW in the chart, σ is the flag (−1), and
+/// the walk, material on the left in the V-mirrored frame, partitions
+/// the square into the same two halves: the west half takes T→SW and
+/// turns onto the trim's DOWN direction, never past it to SE→T.
 #[test]
 fn orientation_false_mirrors_the_partition() {
-    let (g, face, hes) = square_with_transversal_trim();
-    let sub_t = build_face_subdivision(
-        &g,
-        &face,
-        &hes,
-        &xy_plane(),
-        true,
-        &[],
-        &BRep::new(popkern_core::tolerance::Tolerance::default()),
-        &popkern_core::tolerance::Tolerance::default(),
-    );
-    let sub_f = build_face_subdivision(
+    let (g, face, hes) = square_with_transversal_trim_wound(false);
+    let sub = build_face_subdivision(
         &g,
         &face,
         &hes,
@@ -159,13 +160,19 @@ fn orientation_false_mirrors_the_partition() {
         &BRep::new(popkern_core::tolerance::Tolerance::default()),
         &popkern_core::tolerance::Tolerance::default(),
     );
-    // σ self-calibrates from the stored boundary winding, so BOTH
-    // orientations resolve to the same (correct) handedness — the
-    // flag is only the fallback when no boundary exists.
-    assert_eq!(sub_t.sigma, sub_f.sigma, "σ is boundary-calibrated");
-    let o_t = walk_chart_orbits(&sub_t, &g).expect("orbits");
-    let o_f = walk_chart_orbits(&sub_f, &g).expect("orbits");
-    assert_eq!(canonical_loops(&o_t), canonical_loops(&o_f));
+    // No stored ring reads on this synthetic face, so σ is the flag.
+    assert_eq!(sub.sigma, -1.0, "σ is the orientation sign");
+    assert!(sub.complete(), "I1–I5: {:?}", sub.report.issues);
+    let orbits = walk_chart_orbits(&sub, &g).expect("orbits");
+    assert_eq!(orbits.len(), 2, "one trim splits the square in two");
+    assert!(orbits.iter().all(|o| o.len() == 4));
+    // hes[0] = T→SW, hes[1] = SE→T, hes[7] = trim down (top→T).
+    let west = orbits
+        .iter()
+        .find(|o| o.contains(&hes[0]))
+        .expect("west fragment");
+    assert!(west.contains(&hes[7]), "west takes the trim down: {west:?}");
+    assert!(!west.contains(&hes[1]), "west never runs past the trim");
 }
 
 #[test]

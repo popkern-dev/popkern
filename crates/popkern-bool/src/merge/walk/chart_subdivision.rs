@@ -7,17 +7,14 @@
 //! across non-seam nodes; chart seam pairs assigned DETERMINISTICALLY
 //! to the border where their travel direction keeps the interior on
 //! the material side; only sub-period floating components keep a
-//! bounded two-way search — see `chart_branches`). σ is
-//! self-calibrated from the stored boundary's chart shoelace, with
-//! the orientation flag as fallback. No UV epsilon welding is
+//! bounded two-way search — see `chart_branches`). σ is the
+//! orientation flag, checked against the stored trim ring's winding
+//! where that reads. No UV epsilon welding is
 //! introduced — branch points are keyed (graph node, cluster index).
 
 use std::collections::BTreeMap;
 
-use super::chart_branches::{
-    anchor_periodic,
-    clustering::{balance_and_duplicates, boundary_shoelace_sigma},
-};
+use super::chart_branches::{anchor_periodic, clustering::balance_and_duplicates};
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
@@ -159,7 +156,8 @@ pub(crate) struct FaceChartSubdivision {
     pub end_bp: BTreeMap<usize, BranchPoint>,
     /// Half-edges departing each branch point (ascending he index).
     pub departures: BTreeMap<BranchPoint, Vec<usize>>,
-    /// +1 when chart CCW = CCW about the outward normal
+    /// +1 when chart CCW = CCW about the folded chart normal, the
+    /// normal the face's loops wind about under the PK-772 contract
     /// (`SurfaceOnFace.orientation == true`), −1 otherwise.
     pub sigma: f64,
     /// Chart u-period (rotational charts), for pole-azimuth rotation.
@@ -612,25 +610,21 @@ fn build_face_subdivision_inner(
         }
     }
 
-    // σ self-calibration source of truth (PK-480): the face's OWN
-    // stored trim ring's winding about its interior — the ring the
-    // containment parity tests read. The registered-run shoelace is
-    // the fallback proxy and the orientation flag the last resort
-    // (measured dishonest on extrude bottom caps — flag true, chart
-    // left-handed vs outward — which mirror-flipped every junction
-    // pick on the breached-bore cap face).
+    // σ authority (PK-691): the orientation flag. Under the PK-772
+    // contract a face's loop winds CCW about its folded chart normal,
+    // and `orientation` says which way that is. The face's own stored
+    // trim ring (the ring the containment parity tests read) confirms
+    // it where it reads, and outranks it on a contradiction. Measured
+    // over the whole workspace (2026-10-22, about 93k chart walks):
+    // the flag and the stored ring never disagreed. The registered
+    // runs' shoelace, the proxy that once filled in where the ring
+    // declines (faces with closed boundary edges), disagreed with
+    // both on about 600 faces, and where the ring declined it overrode
+    // an honest flag on 17. On the angled fitting's seat (18v1) that
+    // override mirrored both seam pairs onto the wrong border copies,
+    // and the seam-border rebalance reversed the honest full-period
+    // rim rings against their branch points to compensate.
     let ring_sigma = super::chart_branches::clustering::stored_ring_sigma(original_brep, face.face);
-    if popkern_core::trace::trace_enabled("boolean")
-        && let Some(rs) = ring_sigma
-    {
-        let proxy = boundary_shoelace_sigma(graph, &sub);
-        if proxy.is_some_and(|p| p != rs) {
-            eprintln!(
-                "  [sigma] {face:?}: stored-ring {rs:+.0} vs registered-run {:+.0}",
-                proxy.unwrap_or(0.0)
-            );
-        }
-    }
     match u_period {
         Some(period) => {
             if popkern_core::trace::trace_enabled("branch-pairing") {
@@ -639,7 +633,7 @@ fn build_face_subdivision_inner(
             anchor_periodic(graph, face, &mut sub, period, &ends, ring_sigma)
         }
         None => {
-            if let Some(s) = ring_sigma.or_else(|| boundary_shoelace_sigma(graph, &sub)) {
+            if let Some(s) = ring_sigma {
                 sub.sigma = s;
             }
             super::chart_branches::clustering::cluster_single_branch(&mut sub, &ends);

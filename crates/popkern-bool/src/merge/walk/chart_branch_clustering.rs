@@ -8,7 +8,6 @@ use popkern_math::PortableMath;
 use std::collections::BTreeMap;
 
 use super::super::chart_subdivision::{BranchPoint, FaceChartSubdivision, SubdivisionIssue};
-use crate::merge::graph::IntersectionGraph;
 
 /// Cluster endpoint u values per node; branch index ascends with u.
 ///
@@ -218,6 +217,24 @@ pub(crate) fn rebalance_seam_border_entries(
             if !node_balanced(&trial) {
                 continue;
             }
+            // A closed ring spanning one full period at the node has
+            // both ends here, and its embedding fixes which copy each
+            // takes (branches ascend with u). Flipping one would reverse
+            // the ring against its branch points. Measured (PK-691):
+            // every such flip compensated seam halves mirrored onto the
+            // wrong copies upstream (a period-aliased pole azimuth, or a
+            // σ proxy overriding an honest flag), and none survives
+            // those fixes anywhere in the workspace.
+            debug_assert!(
+                cand.iter().enumerate().all(|(bit, &ei)| {
+                    let h = entries[ei].0;
+                    let span = endpoint_u(h, false) - endpoint_u(h, true);
+                    (m >> bit) & 1 == 0
+                        || entries.iter().filter(|e| e.0 == h).count() != 2
+                        || (span.abs() - period).abs() >= lattice_eps
+                }),
+                "seam-border rebalance at node {node} flips a full-period closed ring"
+            );
             for &(h, is_start, b) in &trial {
                 let bp = BranchPoint { node, branch: b };
                 if is_start {
@@ -350,8 +367,7 @@ pub(crate) fn stored_ring_sigma(
     // shoelace (measured: the angled tap's bore wall read +1 from its
     // rims while the registered runs correctly said −1, and flipping
     // σ broke the thread stage's bottom rim assembly). Faces with
-    // closed boundary pieces keep the registered-run proxy, which the
-    // closed-side fidelity machinery already corrects.
+    // closed boundary pieces keep their orientation flag.
     for (heh, _) in &ring {
         let he = brep.half_edges.get(*heh)?;
         let twin = brep.half_edges.get(he.twin)?;
@@ -392,35 +408,6 @@ pub(crate) fn stored_ring_sigma(
         scale = scale.max(p.0.abs() + p.1.abs());
     }
     if area2.abs() < 1e-12 * (1.0 + scale * scale) {
-        None
-    } else {
-        Some(area2.signum())
-    }
-}
-
-/// Chart handedness from the graph-registered boundary runs — the
-/// historic proxy, kept as the fallback when the stored ring is
-/// unavailable (missing pcurves, degenerate area). See
-/// [`stored_ring_sigma`] for why the stored ring outranks this sum.
-pub(crate) fn boundary_shoelace_sigma(
-    graph: &IntersectionGraph,
-    sub: &FaceChartSubdivision,
-) -> Option<f64> {
-    use crate::merge::graph::EdgeSource;
-    let mut area2 = 0.0;
-    let mut any = false;
-    let mut scale = 0.0_f64;
-    for (&h, emb) in &sub.embeddings {
-        if matches!(graph.half_edges[h].source, EdgeSource::Shared { .. }) {
-            continue;
-        }
-        for w in emb.uv.windows(2) {
-            area2 += w[0].0 * w[1].1 - w[1].0 * w[0].1;
-            scale = scale.max(w[0].0.abs() + w[0].1.abs());
-            any = true;
-        }
-    }
-    if !any || area2.abs() < 1e-12 * (1.0 + scale * scale) {
         None
     } else {
         Some(area2.signum())

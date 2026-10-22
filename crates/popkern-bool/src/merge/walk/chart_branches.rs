@@ -3,8 +3,8 @@
 //! Split from `chart_subdivision.rs` to honour the 500-line budget:
 //! consensus anchoring of embedding components, deterministic seam
 //! border assignment (material-side rule), the bounded floating-
-//! component search, per-node branch clustering, and the boundary
-//! shoelace σ calibration.
+//! component search, per-node branch clustering, and the stored-ring
+//! σ check.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -13,8 +13,6 @@ mod anchoring;
 #[path = "chart_branch_clustering.rs"]
 pub(crate) mod clustering;
 use anchoring::ref_comp_of;
-
-use clustering::boundary_shoelace_sigma;
 
 use super::chart_subdivision::{FaceChartSubdivision, SubdivisionIssue};
 use crate::merge::graph::IntersectionGraph;
@@ -176,18 +174,14 @@ pub(super) fn anchor_periodic(
             }
         }
     }
-    // σ self-calibration (see the non-periodic branch): with seams
-    // provisionally assigned, the full stored boundary is closed in
-    // the chart and its shoelace sign is the true handedness. A
-    // contradiction flips σ AND the seam borders (the dv-rule
-    // mirrors with σ).
-    // The stored trim ring's winding outranks the registered-run sum
-    // (see `stored_ring_sigma`).
-    let shoelace = ring_sigma.or_else(|| boundary_shoelace_sigma(graph, sub));
+    // σ calibration (see `build_face_subdivision_inner`): the stored trim
+    // ring's winding, where it reads, outranks the orientation flag.
+    // A contradiction flips σ AND the seam borders (the dv-rule
+    // mirrors with σ). Where the ring declines, the flag stands.
     if seam_trace {
-        eprintln!("  [seam] shoelace {shoelace:?} vs provisional sigma {sigma:+.0}");
+        eprintln!("  [seam] stored ring {ring_sigma:?} vs provisional sigma {sigma:+.0}");
     }
-    if let Some(s) = shoelace
+    if let Some(s) = ring_sigma
         && s != sigma
     {
         sigma = s;
