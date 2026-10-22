@@ -18,11 +18,10 @@
 //! toggling their flips makes the pair wire as a same-sense pair. The
 //! result keeps A's sense. Any shared edge used in opposite directions
 //! (the matched case, or a genuine local conflict) leaves the
-//! selections alone, so a same-sense pair is untouched. The witness
-//! stands down when B's far faces are carried unflipped (a scoped
-//! union, PK-816): flipping B's fragments would split its sense
-//! between them and its far faces, and the rescue still covers that
-//! case.
+//! selections alone, so a same-sense pair is untouched. When B's far
+//! faces are carried (a scoped union, PK-816), the assembler reverses
+//! them in the same pass (PK-916), so B's sense never splits between
+//! its fragments and its far faces.
 
 use std::collections::BTreeMap;
 
@@ -101,16 +100,16 @@ pub(crate) fn shared_winding(
 }
 
 /// Toggle every kept B fragment's flip when the operands' windings
-/// disagree on every jointly used shared edge and B carries no far
-/// faces. Returns the tally and whether B was flipped.
+/// disagree on every jointly used shared edge. Returns the tally and
+/// whether B was flipped (the assembler then reverses B's carried far
+/// faces too).
 pub(crate) fn agree_operand_winding(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
     selections: &mut [FragmentSelection],
-    b_far_faces_carried: bool,
 ) -> (SharedWinding, bool) {
     let tally = shared_winding(graph, fragments, selections);
-    let flip_b = tally.operands_disagree() && !b_far_faces_carried;
+    let flip_b = tally.operands_disagree();
     if flip_b {
         for (frag, sel) in fragments.iter().zip(selections.iter_mut()) {
             if sel.keep && frag.face.operand == Operand::B {

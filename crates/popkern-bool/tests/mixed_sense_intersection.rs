@@ -14,6 +14,12 @@ use popkern_core::topology::BRep;
 /// Volume of an all-planar body with straight edges: the divergence
 /// theorem over each face's vertex fan.
 fn polyhedral_volume(brep: &BRep) -> f64 {
+    signed_volume(brep).abs()
+}
+
+/// [`polyhedral_volume`] signed by the body's winding: positive for an
+/// outward shell, negative for an inward one.
+fn signed_volume(brep: &BRep) -> f64 {
     let mut volume = 0.0;
     for face in brep.faces.values() {
         for l in std::iter::once(face.outer_loop).chain(face.inner_loops.iter().copied()) {
@@ -36,7 +42,7 @@ fn polyhedral_volume(brep: &BRep) -> f64 {
             }
         }
     }
-    volume.abs()
+    volume
 }
 
 fn boss(z0: f64, tol: Tolerance) -> BRep {
@@ -106,5 +112,53 @@ fn every_operation_on_the_mixed_sense_pair_validates_in_either_order() {
             (v - want).abs() < 1e-9 * want,
             "boss − disc (z0 {z0}): {v} vs {want}"
         );
+    }
+}
+
+/// PK-916: a mixed-sense union whose tool's far faces the scope
+/// carries (an inward 16-gon boss of radius 10 on an outward 2 x 2
+/// block) serves with the first operand's sense whole in either order:
+/// the carried far faces reverse with the tool's flipped fragments.
+/// Carried unreversed, the scoped union validated with the block's part
+/// outward and the boss's inward (signed volume -606.7, true 617.9).
+#[test]
+fn a_scoped_mixed_sense_union_keeps_one_sense_in_either_order() {
+    let tol = Tolerance::default();
+    let square = [
+        Point3::new(-1.0, -1.0, 0.0),
+        Point3::new(1.0, -1.0, 0.0),
+        Point3::new(1.0, 1.0, 0.0),
+        Point3::new(-1.0, 1.0, 0.0),
+    ];
+    let mut block = BRep::prism(&square, Vec3::new(0.0, 0.0, 1.0), 1.5, tol).expect("block");
+    block.reverse_body_orientation();
+    let boss_area = 16.0 * 0.5 * 100.0 * (std::f64::consts::TAU / 16.0).sin();
+    for z0 in [1.4, 0.5] {
+        let pts: Vec<Point3> = (0..16)
+            .map(|i| {
+                let t = std::f64::consts::TAU * i as f64 / 16.0;
+                Point3::new(10.0 * t.cos(), 10.0 * t.sin(), z0)
+            })
+            .collect();
+        let boss = BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss");
+        let want = 6.0 + 2.0 * boss_area - 4.0 * (1.5 - z0);
+        for (name, a, b) in [
+            ("block ∪ boss", &block, &boss),
+            ("boss ∪ block", &boss, &block),
+        ] {
+            let r = boolean(BoolOperation::Union, a.clone(), b.clone(), tol, None)
+                .unwrap_or_else(|e| panic!("{name} (z0 {z0}): {e}"));
+            assert!(
+                r.validate().is_ok(),
+                "{name} (z0 {z0}): {:?}",
+                r.validate().err()
+            );
+            let (v, sense) = (signed_volume(&r), signed_volume(a).signum());
+            assert!(
+                (v - sense * want).abs() < 1e-9 * want,
+                "{name} (z0 {z0}): signed volume {v} vs {}",
+                sense * want
+            );
+        }
     }
 }

@@ -5,7 +5,7 @@
 # frozen count. Shrink a file? Lower (or delete) its entry —
 # never raise one. New code must comply with the 500-line rule.
 
-crates/popkern-bool/src/cellular/assemble.rs 557
+crates/popkern-bool/src/cellular/assemble.rs 554
 crates/popkern-bool/src/cellular/boolean.rs 1128
 crates/popkern-bool/src/classify.rs 932
 crates/popkern-bool/src/clip/clip_uv.rs 709

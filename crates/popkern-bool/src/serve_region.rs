@@ -31,8 +31,9 @@ pub(crate) struct Carried {
     /// The edges built from `b`'s unsplit edges, recorded only when its
     /// far faces are carried (a scoped union, PK-816).
     pub(crate) b_edges: CarriedEdges,
-    /// The faces built from `b`'s unflipped kept fragments and carried
-    /// far faces, under the same condition.
+    /// The faces built from `b`'s kept fragments and carried far faces,
+    /// under the same condition, when they stand as in `b` (unflipped,
+    /// or all reversed together to agree with `a`, PK-916).
     pub(crate) b_faces: SecondaryMap<FaceHandle, ()>,
 }
 

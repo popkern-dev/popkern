@@ -234,24 +234,20 @@ pub(crate) fn cellular_graph_merge(
 
     // A mixed-sense pair wires as a same-sense pair (PK-913): B's kept
     // fragments flip when every shared record says it winds opposite
-    // to A.
+    // to A, and its carried far faces reverse with them (PK-916).
     let mut selections = selections;
-    let b_far_carried = scopes.is_some_and(|s| s.carried(op).1.is_some());
-    let (winding, flipped_b) = super::operand_winding::agree_operand_winding(
-        &graph,
-        &fragments,
-        &mut selections,
-        b_far_carried,
-    );
+    let (winding, flipped_b) =
+        super::operand_winding::agree_operand_winding(&graph, &fragments, &mut selections);
+    let (far_a, far_b) = scopes.map(|s| s.carried(op)).unwrap_or_default();
     if popkern_core::trace::trace_enabled("boolean") && winding.same > 0 {
         eprintln!(
             "  [cellular] shared winding: {} same, {} opposite; B {}",
             winding.same,
             winding.opposite,
-            if flipped_b {
+            if flipped_b && far_b.is_some() {
+                "flipped to agree with A, its carried far faces reversed"
+            } else if flipped_b {
                 "flipped to agree with A"
-            } else if b_far_carried {
-                "left (its far faces are carried)"
             } else {
                 "left"
             }
@@ -272,7 +268,11 @@ pub(crate) fn cellular_graph_merge(
         original_b,
         *tolerance,
         &mut carried,
-        scopes.map(|s| s.carried(op)).unwrap_or_default(),
+        super::assemble_far_carry::FarCarry {
+            a: far_a,
+            b: far_b,
+            b_reversed: flipped_b,
+        },
     )
     .map_err(|mut diag| {
         // ChartSubdivisionReport promotion (PK-106): a failed cellular

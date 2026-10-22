@@ -39,10 +39,7 @@ pub(crate) fn cellular_assemble(
     brep_b: &BRep,
     tolerance: Tolerance,
     carried: &mut crate::serve_region::Carried,
-    far: (
-        Option<&crate::scope::ActiveScope>,
-        Option<&crate::scope::ActiveScope>,
-    ),
+    far: super::assemble_far_carry::FarCarry<'_>,
 ) -> Result<BRep, BoolDiagnostics> {
     let mut carry = super::assemble_far_carry::Carry::new(far);
     let mut builder = BRepBuilder::new(tolerance);
