@@ -122,6 +122,32 @@ fn cap_fixtures_attribute_stripe_defects_to_surface_or_tessellation() {
         );
     }
 
+    // Mesh-view ratchets on the strip-support seams (PK-655), 1.25x
+    // the reading measured 2026-10-21. Every strip-support edge is G1
+    // to 0 rad and the G2 strips flat at their rails, so these readings
+    // are the display mesh's own crease: each halves when the frame
+    // doubles (a fixed jump in the normal's gradient, not instrument
+    // floor), and a 24-degree display mesh reads over the bars on the
+    // variable pentagon (1.51e-2) and the cube (1.74e-3). The variable
+    // pentagon's worst seam (1.06e-2; 9.45e-3 before PK-651) sits on a
+    // single rail needle 0.306 long and 0.0064 wide: neither a wider
+    // clearance band nor rows graded toward the rails lowered it.
+    let mesh_bars: &[(&str, f64)] = &[
+        ("pentagon_flagship", 1.99e-3),
+        ("pentagon5_blunt_g2", 9.15e-3),
+        ("pentagon5_variable_g2", 1.06e-2),
+        ("cube_corner", 9.20e-4),
+    ];
+    for &(name, slope) in mesh_bars {
+        let (_, m) = get(name).class("strip-support").expect("strip-support");
+        assert!(
+            m.slope_p50 <= 1.25 * slope,
+            "{name} strip-support: mesh slope {:.3e} (bar {:.3e})",
+            m.slope_p50,
+            1.25 * slope
+        );
+    }
+
     // Cap-cap seams are G1-exact (analytic g1 <= 2e-5 on all three,
     // `setback_rim_family_profile`): the surface view must read them
     // clean, and the display mesh owns most of their visible kink.
