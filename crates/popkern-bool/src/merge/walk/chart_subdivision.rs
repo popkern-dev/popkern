@@ -167,6 +167,9 @@ pub(crate) struct FaceChartSubdivision {
     /// +1 ⇒ smallest positive (u_arrive − u_depart) mod period wins,
     /// −1 ⇒ the mirrored order (σ and pole side folded in).
     pub poles: BTreeMap<usize, f64>,
+    /// The cut domain of a face wrapping both periods (PK-459): its
+    /// v window and v-seam halves; branch points split by v copy.
+    pub cut_domain: Option<super::chart_cut_domain::CutDomain>,
     /// Substrate diagnostics.
     pub report: ChartSubdivisionReport,
 }
@@ -214,8 +217,12 @@ pub(crate) fn build_face_subdivision(
     );
     if popkern_core::trace::trace_enabled("chart-dump") {
         eprintln!(
-            "  [chart] {face:?} sigma={} poles={:?} issues={:?} filtered={:?}",
-            sub.sigma, sub.poles, sub.report.issues, sub.report.filtered
+            "  [chart] {face:?} sigma={} poles={:?} cut_v={:?} issues={:?} filtered={:?}",
+            sub.sigma,
+            sub.poles,
+            sub.cut_domain.as_ref().map(|d| (d.v0, d.v0 + d.v_period)),
+            sub.report.issues,
+            sub.report.filtered
         );
         for (&h, emb) in &sub.embeddings {
             let (s0, e0) = (emb.uv[0], emb.uv[emb.uv.len() - 1]);
@@ -305,6 +312,7 @@ fn build_face_subdivision_inner(
     // band's records split across the seam and the walk read one wound
     // orbit — a loop left open by 0.87).
     let mut band_window = None;
+    let mut cut_corner = None;
     let cell_fold = if v_period.is_some() {
         match crate::clip::chart_cell::face_chart_cell(original_brep, face.face, tolerance) {
             Some(cell) => Some((cell, u_period, v_period)),
@@ -319,17 +327,26 @@ fn build_face_subdivision_inner(
             // face's outer — the wall classified Inside and the
             // serve kept two once-used rim circles). Faces wrapping
             // BOTH periods (a closed profile revolved full circle as
-            // one face) stay out of scope and decline.
-            None => match face_v_window(original_brep, face.face, v_period) {
-                Some(window) => {
+            // one face) take the cut domain when they carry a stored
+            // seam on each axis (`chart_seam_axes`), read before the
+            // sampled v window: a u-seam's full-period v run, sampled,
+            // leaves gaps that read as a band (measured 2026-10-22).
+            None => {
+                let corner = u_period.zip(v_period).and_then(|(pu, pv)| {
+                    super::chart_seam_axes::face_seam_axes(original_brep, face.face, (pu, pv))
+                        .corner()
+                        .map(|c| (c.1, pv, pu))
+                });
+                if corner.is_some() {
+                    cut_corner = corner;
+                } else if let Some(window) = face_v_window(original_brep, face.face, v_period) {
                     band_window = Some(window);
-                    None
-                }
-                None => {
+                } else {
                     sub.report.issues.push(SubdivisionIssue::VPeriodicChart);
                     return sub;
                 }
-            },
+                None
+            }
         }
     } else {
         None
@@ -372,6 +389,11 @@ fn build_face_subdivision_inner(
             pv,
             face,
         );
+    } else if let Some((v0, pv, pu)) = cut_corner {
+        let sigma = super::chart_branches::clustering::stored_ring_sigma(original_brep, face.face)
+            .unwrap_or(sub.sigma);
+        let domain = super::chart_cut_domain::fold_into_cut_domain(&mut sub, v0, pv, pu, sigma);
+        sub.cut_domain = Some(domain);
     } else if let Some(window) = band_window {
         super::chart_cell_fold::fold_embeddings_into_cell(
             graph,

@@ -10,10 +10,14 @@ pub(crate) mod chart_boundary_substitute_periodic;
 pub(crate) mod chart_branch_float;
 pub(crate) mod chart_branches;
 pub(crate) mod chart_cell_fold;
+pub(crate) mod chart_cut_domain;
+#[cfg(test)]
+mod chart_cut_domain_tests;
 pub(crate) mod chart_duplicate_cover;
 pub(crate) mod chart_embedding;
 pub(crate) mod chart_graze_filter;
 pub(crate) mod chart_poles;
+pub(crate) mod chart_seam_axes;
 pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;
 #[cfg(test)]

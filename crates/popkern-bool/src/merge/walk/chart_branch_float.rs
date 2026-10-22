@@ -99,9 +99,31 @@ pub(super) fn resolve_floating_and_cluster(
         }
         (u_start, u_end)
     };
+    // Cut-domain v keys (PK-459): the same near-end samples as u.
+    // Taken once: the border bumps below move runs in u only.
+    let v_keys: BTreeMap<usize, (f64, f64)> = sub
+        .embeddings
+        .iter()
+        .map(|(&h, emb)| {
+            let (uv, n) = (&emb.uv, emb.uv.len());
+            let (s, e) = if n > 2 { (1, n - 2) } else { (0, n - 1) };
+            (h, (uv[s].1, uv[e].1))
+        })
+        .collect();
+    let v_key = |h: usize, start: bool| -> f64 {
+        let (s, e) = v_keys.get(&h).copied().unwrap_or((0.0, 0.0));
+        if start { s } else { e }
+    };
+    let v_split = sub
+        .cut_domain
+        .as_ref()
+        .map(|d| d.v_period)
+        .map(|pv| (&v_key as &dyn Fn(usize, bool) -> f64, pv));
     let cluster_with = |bumped: &BTreeSet<usize>| {
         let (u_start, u_end) = base_maps(bumped);
-        cluster_branches(hes, ends, &u_start, &u_end, period, &sub.poles, wrap_nodes)
+        cluster_branches(
+            hes, ends, &u_start, &u_end, period, &sub.poles, wrap_nodes, v_split,
+        )
     };
     // Imbalance restricted to a node set.
     let balanced_at = |clustered: &(BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>),
@@ -230,7 +252,7 @@ pub(super) fn resolve_floating_and_cluster(
             u_end.insert(h, emb.uv[e_idx].0);
         }
         Some(cluster_branches(
-            hes, ends, &u_start, &u_end, period, &sub.poles, wrap_nodes,
+            hes, ends, &u_start, &u_end, period, &sub.poles, wrap_nodes, v_split,
         ))
     };
     let first_result: Option<(BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>)> = None;
@@ -289,11 +311,25 @@ pub(super) fn resolve_floating_and_cluster(
         let _ = h;
         node_branches.entry(bp.node).or_default().insert(bp.branch);
     }
+    // A cut domain's v-seam nodes split by v copy (PK-459).
+    let v_seam_nodes: BTreeSet<usize> = sub
+        .cut_domain
+        .iter()
+        .flat_map(|d| d.v_seam.iter())
+        .flat_map(|&h| {
+            let (a, b) = ends(h);
+            [a, b]
+        })
+        .collect();
     for (node, branches) in &node_branches {
         // Wrap nodes cluster as one branch by construction; any
         // remaining split there is the seam machinery's business,
         // not an off-seam defect.
-        if branches.len() > 1 && !seam_nodes.contains(node) && !wrap_nodes.contains(node) {
+        if branches.len() > 1
+            && !seam_nodes.contains(node)
+            && !wrap_nodes.contains(node)
+            && !v_seam_nodes.contains(node)
+        {
             sub.report
                 .issues
                 .push(SubdivisionIssue::BranchSplitOffSeam { node: *node });

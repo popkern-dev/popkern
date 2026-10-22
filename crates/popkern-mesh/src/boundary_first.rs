@@ -114,11 +114,11 @@ pub(crate) fn tessellate_face_boundary_first(
     // seam spine (a full sphere's meridian pair): its chart "polygon"
     // is two overlapping border lines that bound no interior, and
     // Delaunay on it emits only degenerate slivers (measured: the
-    // primitive sphere meshed 0/46 non-degenerate once its seam
-    // carried real arc geometry — the chord-era ring build failed and
-    // silently routed these faces to the pcurve-grid path,
-    // which handles the periodic rectangle directly). Keep that
-    // routing explicit.
+    // primitive sphere meshed 0/46). A torus face's seam SQUARE bounds
+    // its whole chart: with holes it meshes here (the pcurve grid cut a
+    // drilled torus's holes off its neighbours' samples, PK-459).
+    let seam_square =
+        matches!(surface.periodicity(), (Some(_), Some(_))) && !face.inner_loops.is_empty();
     {
         let mut edge_counts: HashMap<EdgeHandle, usize> = HashMap::new();
         let start = brep.loops.get(face.outer_loop)?.half_edge;
@@ -133,7 +133,7 @@ pub(crate) fn tessellate_face_boundary_first(
                 break;
             }
         }
-        if !edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2) {
+        if !seam_square && !edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2) {
             // PK-339: the two-apex revolution arm serves the classic
             // member of this class (a full sphere: two poles joined by
             // one meridian seam) by construction — attempt it before

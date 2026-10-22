@@ -20,7 +20,12 @@ use super::super::chart_subdivision::{BranchPoint, FaceChartSubdivision, Subdivi
 /// nut's bore-crest band 1-in/0-out + 0-in/1-out and both caps of
 /// the walk declined (PK-464). True seam nodes keep their split —
 /// the seam-edge pair owns the border crossing there.
-#[allow(clippy::type_complexity)]
+///
+/// `v_split`: on a cut domain (PK-459), each entry's v key and the
+/// v-period. A node's entries first split into v copies (gaps over
+/// half the period: a v-seam node's low and high border copies), and
+/// u clustering then runs within each copy.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(crate) fn cluster_branches(
     hes: &[usize],
     ends: &dyn Fn(usize) -> (usize, usize),
@@ -29,6 +34,7 @@ pub(crate) fn cluster_branches(
     period: f64,
     poles: &BTreeMap<usize, f64>,
     wrap_nodes: &std::collections::BTreeSet<usize>,
+    v_split: Option<(&dyn Fn(usize, bool) -> f64, f64)>,
 ) -> (BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>) {
     // node -> [(u, he, is_start)]
     let mut per_node: BTreeMap<usize, Vec<(f64, usize, bool)>> = BTreeMap::new();
@@ -40,7 +46,30 @@ pub(crate) fn cluster_branches(
     let mut start_bp = BTreeMap::new();
     let mut end_bp = BTreeMap::new();
     let trace = popkern_core::trace::trace_enabled("chart-branches");
-    for (node, mut entries) in per_node {
+    // Split each node's entries into v copies (one group off a cut
+    // domain); branch indices run on across a node's copies.
+    let mut groups: Vec<(usize, Vec<(f64, usize, bool)>)> = Vec::new();
+    for (node, entries) in per_node {
+        let Some((v_of, pv)) = v_split else {
+            groups.push((node, entries));
+            continue;
+        };
+        let mut keyed: Vec<(f64, (f64, usize, bool))> =
+            entries.into_iter().map(|e| (v_of(e.1, e.2), e)).collect();
+        keyed.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.1.cmp(&b.1.1)));
+        let mut prev: Option<f64> = None;
+        for (v, e) in keyed {
+            if prev.is_none_or(|p| v - p > pv * 0.5) {
+                groups.push((node, Vec::new()));
+            }
+            prev = Some(v);
+            if let Some(g) = groups.last_mut() {
+                g.1.push(e);
+            }
+        }
+    }
+    let mut next_branch: BTreeMap<usize, u32> = BTreeMap::new();
+    for (node, mut entries) in groups {
         if trace {
             for &(u, h, is_start) in &entries {
                 eprintln!(
@@ -98,7 +127,8 @@ pub(crate) fn cluster_branches(
             }
         }
         entries.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-        let mut branch = 0u32;
+        let first = next_branch.entry(node).or_insert(0);
+        let mut branch = *first;
         let mut prev_u: Option<f64> = None;
         for (u, h, is_start) in entries {
             if !is_pole
@@ -115,6 +145,7 @@ pub(crate) fn cluster_branches(
                 end_bp.insert(h, bp);
             }
         }
+        next_branch.insert(node, branch + 1);
     }
     (start_bp, end_bp)
 }
@@ -362,7 +393,7 @@ pub(crate) fn stored_ring_sigma(
     let ring = crate::clip::face_uv_boundary_chained(brep, face)?;
     // Scope: rings of OPEN edges only. A closed edge (rim circle,
     // both ends one vertex) carries a direction-untrustworthy pcurve
-    // (legacy producers store edge-aligned pcurves — the PK-478
+    // (older producers store edge-aligned pcurves — the PK-478
     // closed-side lesson), so its segment can silently mirror the
     // shoelace (measured: the angled tap's bore wall read +1 from its
     // rims while the registered runs correctly said −1, and flipping

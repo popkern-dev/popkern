@@ -47,12 +47,17 @@ pub(super) fn anchor_periodic(
         .iter()
         .copied()
         .filter(|&h| {
-            graph.seam_substitutes.contains(&(*face, h))
-                || (sub.embeddings[&h].seam_like
-                    && !matches!(
-                        graph.half_edges[h].source,
-                        crate::merge::graph::EdgeSource::Shared { .. }
-                    ))
+            // A cut domain's v-seam halves are v-border copies, placed
+            // by `fold_into_cut_domain`; for u they are ordinary runs.
+            !sub.cut_domain
+                .as_ref()
+                .is_some_and(|d| d.v_seam.contains(&h))
+                && (graph.seam_substitutes.contains(&(*face, h))
+                    || (sub.embeddings[&h].seam_like
+                        && !matches!(
+                            graph.half_edges[h].source,
+                            crate::merge::graph::EdgeSource::Shared { .. }
+                        )))
         })
         .collect();
     let seam_nodes: BTreeSet<usize> = seam_hes
