@@ -198,3 +198,45 @@ fn a_cube_unions_across_the_v_seam() {
     }
     assert_serves(&script, torus_volume() + 0.001 - overlap, "cube union");
 }
+
+/// PK-921: a blind drill's wall pierces the torus only where its
+/// FINITE wall does. Its unbounded cylinder also meets the outer
+/// equator (the v-seam) half a unit behind the drill's axial range;
+/// that hit split the seam, and the result carried phantom vertices
+/// of valence 2 there.
+#[test]
+fn a_blind_drill_splits_the_torus_only_where_it_pierces() {
+    for (theta, z0) in [(0.7, 0.0), (0.0, 0.0), (2.1, 0.0)] {
+        let mut host = ScriptHost::new();
+        let outcome = host
+            .run(&drill_script(theta, z0), "torus.rhai")
+            .unwrap_or_else(|e| panic!("{e}\n{}", e.payload));
+        let mut model = outcome.model.expect("model");
+        let part = model.to_part().expect("part");
+        let brep = part.brep();
+        let mut valence: std::collections::HashMap<_, usize> = Default::default();
+        for he in brep.half_edges.values() {
+            *valence.entry(he.origin).or_default() += 1;
+        }
+        let phantoms: Vec<_> = valence
+            .iter()
+            .filter(|&(_, &n)| n <= 2)
+            .map(|(v, _)| brep.vertices[*v].position)
+            .collect();
+        // A seam vertex on a closed edge reads one; only straight-through
+        // splits (two edges, one curve) are phantoms.
+        let straight = phantoms
+            .iter()
+            .filter(|p| (p.x * p.x + p.y * p.y).sqrt() > 0.45)
+            .filter(|p| {
+                let az = p.y.atan2(p.x);
+                let d = (az - theta).rem_euclid(std::f64::consts::TAU);
+                d > 1.0 && d < std::f64::consts::TAU - 1.0
+            })
+            .count();
+        assert_eq!(
+            straight, 0,
+            "drill u {theta}: far-side vertices {phantoms:?}"
+        );
+    }
+}

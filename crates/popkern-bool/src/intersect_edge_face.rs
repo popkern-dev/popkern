@@ -1,8 +1,8 @@
-//! Edge-face intersection detection (diagnostic only).
-//!
+//! Edge-face intersection detection: where an operand's edge pierces
+//! the other's face. The cellular merge splits graph edges at these
+//! hits (pierce nodes), so an accepted hit must lie on the face's trim.
 //! Split out of `intersect.rs` to keep the parent under the 500-line
-//! structural cap. These hits are informational and not yet integrated
-//! into the split pipeline.
+//! structural cap.
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::{
@@ -32,14 +32,14 @@ pub(crate) struct EdgeFaceHit {
     pub edge_of_a: bool,
 }
 
-/// Detect edge-face intersections between two solids (diagnostic only).
+/// Detect edge-face intersections between two solids.
 ///
 /// For each edge of solid A, checks if it intersects any face of solid B,
 /// and vice versa. Uses `intersect_surface_curve` with the edge's curve
 /// geometry and the face's surface geometry.
 ///
-/// Returns a list of [`EdgeFaceHit`] records. These are informational and
-/// are not yet integrated into the split pipeline.
+/// Returns a list of [`EdgeFaceHit`] records (the cellular merge's pierce
+/// nodes).
 pub(crate) fn detect_edge_face_intersections(
     a: &BRep,
     b: &BRep,
@@ -74,9 +74,9 @@ fn detect_edges_vs_faces(
     edge_of_a: bool,
     hits: &mut Vec<EdgeFaceHit>,
 ) {
-    use popkern_core::geometry::CurveEval;
     use popkern_core::geometry::intersection::SurfaceCurveIntersection;
     use popkern_core::geometry::intersection::surface_curve::intersect_surface_curve_dense;
+    use popkern_core::geometry::{CurveEval, SurfaceEval};
 
     use popkern_core::geometry::curve::CurveGeometry;
 
@@ -275,8 +275,8 @@ fn detect_edges_vs_faces(
             // so its vertex-derived box collapses and would reject
             // every legitimate hit (measured: star-socket corner
             // hits on a cylinder cap all filtered, 427 open edges).
-            // Fewer than 3 vertices → no verdict, keep the padded
-            // acceptance.
+            // Fewer than 3 vertices → the pcurve window instead
+            // (PK-921), or no verdict without pcurves.
             // Distinct-position guard (same reason as the widened u
             // window above): a closed wall's loop visits its 1–2 seam
             // vertices twice, so the RAW position count lies about
@@ -291,7 +291,7 @@ fn detect_edges_vs_faces(
                     ),
                 )
             } else {
-                None
+                crate::intersect_edge_face_coincident::pcurve_trim_box(face_brep, *face_h)
             };
             let uv_margin = tolerance.linear();
             // A face that carries its own SEAM (an edge whose two
@@ -384,7 +384,7 @@ fn detect_edges_vs_faces(
                             }
                         }
                         // The box is in the principal chart; on a
-                        // u-periodic surface the hit's u is tested
+                        // periodic surface the hit's u (and v) is tested
                         // modulo the period (measured, PK-681: the
                         // mouth-chamfer cone's seam edge pierced the
                         // nut's crest band at u = −0.0 against a box of
@@ -392,20 +392,20 @@ fn detect_edges_vs_faces(
                         // edge — and the rejected pierce left the crest
                         // record seam-crossing without a node; the
                         // cone's chart walk declined ChartOverwrap).
-                        let u_in_box = |lo: f64, hi: f64| {
-                            let inside = |uu: f64| uu >= lo - uv_margin && uu <= hi + uv_margin;
-                            match u_period {
+                        let v_period = SurfaceEval::parameter_periodicity(surface_on_face).1;
+                        let in_box = |x: f64, lo: f64, hi: f64, period: Option<f64>| {
+                            let inside = |y: f64| y >= lo - uv_margin && y <= hi + uv_margin;
+                            match period {
                                 Some(p) => {
-                                    let k = ((lo - u) / p).ceil();
-                                    inside(u + k * p) || inside(u + (k - 1.0) * p)
+                                    let k = ((lo - x) / p).ceil();
+                                    inside(x + k * p) || inside(x + (k - 1.0) * p)
                                 }
-                                None => inside(u),
+                                None => inside(x),
                             }
                         };
                         if let Some(((eu_min, eu_max), (ev_min, ev_max))) = trim_box
-                            && ((!full_turn && !u_in_box(eu_min, eu_max))
-                                || v < ev_min - uv_margin
-                                || v > ev_max + uv_margin)
+                            && ((!full_turn && !in_box(u, eu_min, eu_max, u_period))
+                                || !in_box(v, ev_min, ev_max, v_period))
                         {
                             if popkern_core::trace::trace_enabled("edge-face-hits") {
                                 eprintln!(

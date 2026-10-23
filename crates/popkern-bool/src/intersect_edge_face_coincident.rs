@@ -152,3 +152,36 @@ fn in_plane_extremes(
 #[cfg(test)]
 #[path = "intersect_edge_face_coincident_tests.rs"]
 mod tests;
+
+/// The trim box of a face whose loops visit fewer than three distinct
+/// vertices (rim-bounded walls and caps), from its loops' pcurves:
+/// their vertex box collapses to the seam vertices, and with no box
+/// every hit on the face's UNBOUNDED surface was accepted (measured,
+/// PK-921: a blind radial drill's wall split a torus's equator where
+/// its infinite cylinder met it, 0.5 behind the drill's axial range;
+/// the result carried two phantom degree-2 vertices). The pcurve
+/// window is sampled, so it is padded by a tenth of its extent per
+/// axis (a full circle sampled 9 times sits within 8% of its radius of
+/// the sample box). `None` unless every loop half-edge has a pcurve:
+/// the vertex fallback is the collapsed box this replaces.
+pub(crate) fn pcurve_trim_box(
+    brep: &popkern_core::topology::BRep,
+    face: popkern_core::topology::FaceHandle,
+) -> Option<((f64, f64), (f64, f64))> {
+    let f = brep.faces.get(face)?;
+    for l in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
+        let start = brep.loops.get(l)?.half_edge;
+        let mut he = start;
+        for _ in 0..=brep.half_edges.len() {
+            let h = brep.half_edges.get(he)?;
+            h.pcurve.as_ref()?;
+            he = h.next;
+            if he == start {
+                break;
+            }
+        }
+    }
+    let ((u0, u1), (v0, v1)) = brep.face_trim_uv_window(face)?;
+    let (pu, pv) = (0.1 * (u1 - u0), 0.1 * (v1 - v0));
+    Some(((u0 - pu, u1 + pu), (v0 - pv, v1 + pv)))
+}
