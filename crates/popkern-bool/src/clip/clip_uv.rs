@@ -1,3 +1,4 @@
+use super::clip_boundary_riding::rides_boundary_everywhere;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -378,6 +379,9 @@ pub(super) fn uv_clip_one_face(
             }
         }
         Some(crossings) => {
+            if is_closed && rides_boundary_everywhere(brep, face, curve_uv) {
+                return UvClipResult::Windows(vec![curve_uv.parameter_range()]);
+            }
             // THREE OR MORE crossings on a CLOSED record: the curve
             // enters and leaves the face repeatedly — the crossing
             // hull below would span regions outside the face

@@ -9,6 +9,7 @@
 
 pub(crate) mod chart_cell;
 mod chart_periods;
+mod clip_boundary_riding;
 mod clip_branch_normalize;
 mod clip_crossing_reports;
 mod clip_crossings_rescue;

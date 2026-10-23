@@ -133,8 +133,9 @@ impl BRep {
                 let mut prev_end: Option<f64> = None;
                 let mut first_start: Option<f64> = None;
                 let mut deltas: Vec<f64> = Vec::with_capacity(hes.len());
+                let mut pole_joints: Vec<usize> = Vec::new();
                 let mut complete = true;
-                for &heh in &hes {
+                for (i, &heh) in hes.iter().enumerate() {
                     let Some(pc) = self.half_edges[heh].pcurve.as_ref() else {
                         complete = false;
                         break;
@@ -163,6 +164,9 @@ impl BRep {
                     // meridian arcs off their authored branch.
                     let joint_degenerate = axis.partial_len(&surface_geom, joint_uv)
                         < 1.0e-4 * (axis.partial_len(&surface_geom, mid_uv) + 1.0e-12);
+                    if joint_degenerate {
+                        pole_joints.push(i);
+                    }
                     if let Some(pe) = prev_end {
                         if joint_degenerate {
                             // Chain break: keep this member's authored
@@ -216,9 +220,33 @@ impl BRep {
                         _ => false,
                     }
                 };
-                let pick = (0..hes.len())
-                    .find(|&i| reduces(i) && lies(hes[i]))
-                    .or_else(|| (0..hes.len()).find(|&i| reduces(i)));
+                let liar = (0..hes.len()).find(|&i| reduces(i) && lies(hes[i]));
+                // A pole joint (cone apex, sphere pole) is where a loop's
+                // winding legitimately jumps: the collapsed row between a
+                // seam's two sides carries the period no edge does. Absorb
+                // the net there, shifting the members after the pole by
+                // whole periods, rather than flipping a rim that runs the
+                // right way (measured: a cone's apex cap, rim -> seam up ->
+                // seam down, flipped its rim whenever the rim vertex sat
+                // off u = 0 and the rim's twin pcurves ran the same way,
+                // 1.0 apart on a unit cone, PK-929). A pole at the loop's
+                // closing joint already absorbs it. A liar with twin
+                // evidence is still flipped first.
+                if liar.is_none()
+                    && let Some(&j) = pole_joints.last()
+                {
+                    if j > 0 {
+                        let k = (net / period).round();
+                        for &heh in &hes[j..] {
+                            if let Some(pc_mut) = self.half_edges[heh].pcurve.as_mut() {
+                                *pc_mut = axis.shift(pc_mut, -k * period);
+                            }
+                        }
+                        continue;
+                    }
+                    break;
+                }
+                let pick = liar.or_else(|| (0..hes.len()).find(|&i| reduces(i)));
                 let mut flipped = false;
                 if let Some(i) = pick
                     && let Some(rev) = self.half_edges[hes[i]]
