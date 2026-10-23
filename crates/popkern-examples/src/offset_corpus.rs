@@ -444,11 +444,9 @@ pub fn sphere_capped_rod(tol: Tolerance) -> Result<CorpusFixture, CorpusError> {
         brep: result.brep().clone(),
         watertight: true,
         // Bottom cap + cylinder wall + sphere cap; edges: bottom rim,
-        // wall seam, junction circle, and the cap seam from the junction
-        // to the pole. The pins were 6/5 until PK-921: the cap seam was
-        // split where the rod's consumed top plane (r 0.387, z 1.2) and
-        // its unbounded cylinder (z 1.365, above the rod) met it, hits
-        // on no face's trim.
+        // wall seam, junction circle, cap seam (junction to pole). 6/5
+        // until PK-921 split the cap seam where the rod's consumed top
+        // plane and unbounded cylinder met it, on no face's trim.
         expected_faces: 3,
         expected_edges: 4,
         expected_vertices: 3,
