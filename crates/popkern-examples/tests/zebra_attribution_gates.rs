@@ -196,3 +196,37 @@ fn a_mesh_without_the_shading_contract_reads_over_the_mesh_bars() {
         );
     }
 }
+
+/// Display triangle counts the shading contract costs (PK-917, decided
+/// 2026-10-23: the growth over the pre-PK-914 meshes, 3052 / 3038 /
+/// 12554 / 1110, is the contract's price). Measured: the growth lies on
+/// the NURBS fillet strips at the strip-support seams (flagship +1184,
+/// all strips), and the direct rail-row splits alone cost +24.5% on the
+/// flagship, so no vertex-adding mechanism holds 10% with the slope bars
+/// above. The counts are ratcheted at 5% over the measurement so the
+/// cost cannot grow unseen.
+const DISPLAY_TRIANGLE_RATCHET: &[(&str, usize)] = &[
+    ("pentagon_flagship", 4266),
+    ("pentagon5_blunt_g2", 4028),
+    ("pentagon5_variable_g2", 13552),
+    ("cube_corner", 1274),
+];
+
+#[test]
+fn the_shading_contract_costs_no_more_display_triangles_than_measured() {
+    let options = popkern_mesh::TessellationOptions::display();
+    for fx in attribution_fixtures() {
+        let mesh = popkern_mesh::tessellate(&fx.brep, &options).expect("mesh");
+        let measured = DISPLAY_TRIANGLE_RATCHET
+            .iter()
+            .find(|(n, _)| *n == fx.name)
+            .map(|(_, c)| *c)
+            .expect("a count per fixture");
+        let n = mesh.triangles.len();
+        assert!(
+            n * 100 <= measured * 105,
+            "{}: {n} display triangles, ratchet {measured} (+5%)",
+            fx.name
+        );
+    }
+}
