@@ -163,6 +163,7 @@ pub(super) fn anchor_components(
     seam_nodes: BTreeSet<usize>,
     period: f64,
     ends: &dyn Fn(usize) -> (usize, usize),
+    u0: f64,
 ) -> (
     Vec<Vec<usize>>,
     BTreeSet<usize>,
@@ -189,13 +190,19 @@ pub(super) fn anchor_components(
         // nodes sit far off the lattice; the ALL-endpoints
         // requirement keeps the set surgical.
         let eps = period * 5.0e-4;
+        // The lattice is the face's own seam line, not u = 0: a part
+        // placed rotated carries its seam (and the thread builder's
+        // per-turn helix splits) at u = pi (measured, PK-919: the angled
+        // fitting's cap screw root found 1 lattice barrier of its 14 and
+        // kept a 41.4 span).
         node_us
             .iter()
             .filter(|(_, us)| {
                 us.len() > 1
-                    && us
-                        .iter()
-                        .all(|u| (u - period * (u / period).round()).abs() < eps)
+                    && us.iter().all(|u| {
+                        let w = u - u0;
+                        (w - period * (w / period).round()).abs() < eps
+                    })
             })
             .map(|(n, _)| *n)
             .collect()

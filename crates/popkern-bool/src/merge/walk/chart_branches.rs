@@ -68,6 +68,10 @@ pub(super) fn anchor_periodic(
         })
         .collect();
 
+    // The period lattice sits on the face's own seam line (PK-919).
+    let lattice_u0 = seam_hes
+        .first()
+        .map_or(0.0, |h| sub.embeddings[h].uv[0].0.rem_euclid(period));
     // Consensus anchoring: BFS over interior (non-seam) hes through
     // shared non-seam nodes, translating each newcomer by whole
     // periods to match the frame already established.
@@ -78,7 +82,7 @@ pub(super) fn anchor_periodic(
         .collect();
     let true_seam_nodes = seam_nodes.clone();
     let (components, seam_nodes, lattice_nodes, (lo, hi, span)) =
-        anchoring::anchor_components(sub, &interior, seam_nodes, period, ends);
+        anchoring::anchor_components(sub, &interior, seam_nodes, period, ends, lattice_u0);
     // Period-lattice junctions (whether or not the overwrap retry
     // barriered them), minus the true seam nodes: their border copies
     // are one azimuth and cluster as one branch (see

@@ -31,7 +31,15 @@ fn the_cap_screw_seats_on_the_inclined_face() {
             .find(|p| p.b == "angled_screw" || p.a == "angled_screw")
             .map(|p| p.status.clone())
     };
+    let _ = popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events();
     let seated = interference(&source);
+    // The screw's thread root (a band of several turns, placed with its
+    // seam at u = pi) walks its chart (PK-919).
+    let walked: Vec<String> = popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events()
+        .into_iter()
+        .map(|e| e.reason)
+        .collect();
+    assert!(walked.is_empty(), "3D-Newell fallbacks: {walked:?}");
     assert!(
         matches!(
             screw(&seated),

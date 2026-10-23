@@ -73,7 +73,17 @@ fn the_one_tool_cut_matches_the_sequential_cuts() {
         let t = 2.6 * d;
         for depth in [HoleDepth::Blind(1.7 * d), HoleDepth::Through] {
             let _ = super::take_tap_tool_fallbacks();
+            let _ = popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events();
             let one = tap(&block(d, t), &spec, 0.0, t, depth);
+            // Every face of the one-tool cut walks its chart (PK-919:
+            // the flat-end cut crossed the root band's period lattice
+            // with no node and the band walked 3D-Newell).
+            let walked: Vec<String> =
+                popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events()
+                    .into_iter()
+                    .map(|e| e.reason)
+                    .collect();
+            assert!(walked.is_empty(), "{designation} {depth:?}: {walked:?}");
             let fell_back = super::take_tap_tool_fallbacks();
             assert!(
                 fell_back.is_empty(),

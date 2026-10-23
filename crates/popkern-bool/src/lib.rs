@@ -60,6 +60,7 @@ pub mod history;
 pub mod imprint;
 pub mod instancing;
 pub(crate) mod intersect;
+pub(crate) mod intersect_band_lattice;
 pub(crate) mod intersect_edge_face;
 pub(crate) mod intersect_edge_face_coincident;
 pub(crate) mod intersect_residue_filter;

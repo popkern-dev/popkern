@@ -129,6 +129,11 @@ pub(crate) fn cellular_graph_merge(
         &intersection_result.aabbs_b,
         tolerance,
     );
+    // Multi-turn bands get a node where a record crosses their period
+    // lattice above the seam (PK-919).
+    let rotated = crate::intersect_band_lattice::split_records_at_band_lattice(
+        rotated, original_a, original_b,
+    );
     insert_intersection_curves(&mut graph, &rotated, snap_tol);
     let _ = &hit_nodes;
     // Split SHARED edges at record×record T-junctions: one record's
