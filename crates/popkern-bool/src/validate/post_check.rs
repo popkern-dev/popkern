@@ -109,6 +109,7 @@ pub(crate) fn post_check_gates(
     if structure_validated {
         let mut report = counted(result);
         push_curve_surface(&mut report, result, carried);
+        push_inner_loop_winding(&mut report, result);
         return report;
     }
     post_check_scoped(result, tolerance, false, false, carried)
@@ -242,6 +243,9 @@ fn post_check_scoped(
         });
     }
 
+    // Holes wind against their outer loops (PK-923).
+    push_inner_loop_winding(&mut report, result);
+
     if !diagnostics {
         return report;
     }
@@ -310,6 +314,24 @@ fn counted(result: &BRep) -> PostCheckReport {
         euler_characteristic: result.vertices.len() as i64 - result.edges.len() as i64
             + result.faces.len() as i64,
         ..Default::default()
+    }
+}
+
+/// The inner-loop winding gate (PK-923): a hole wound like its outer
+/// loop still twins with its neighbours, so every structural check
+/// passes while the material lies on opposite sides of it (measured: a
+/// mixed-sense scoped union served half inside out, signed volume
+/// -606.7 for +617.9; PK-916). An error, so the boolean declines and a
+/// mixed-sense pair falls to the PK-478 rescue instead of serving it.
+/// Only faces with holes are measured, from their pcurves.
+fn push_inner_loop_winding(report: &mut PostCheckReport, result: &BRep) {
+    for e in result.validate_inner_loop_winding_all() {
+        report.findings.push(PostCheckFinding {
+            severity: Severity::Error,
+            message: format!("Inner loop winding: {e}"),
+            error: Some(e),
+            measured_value: None,
+        });
     }
 }
 

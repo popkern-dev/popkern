@@ -211,6 +211,30 @@ pub enum ValidationError {
         winding_v: i64,
     },
 
+    /// A face's inner loop winds the same way as its outer loop: a hole
+    /// must keep the face's material on its left like every loop, so
+    /// it runs clockwise in UV when the orientation flag is `true`.
+    /// Twins still pair across such a loop, so the shell closes with
+    /// the material on opposite sides of it (measured: a block union
+    /// served half inside out, signed volume -606.7 for +617.9, joined
+    /// through a boss bottom's hole wound like its outer loop; PK-916,
+    /// PK-923).
+    #[error(
+        "Face {face:?}: inner loop {loop_:?} signed UV area {signed_uv_area:.3e} \
+         winds with the outer loop under orientation flag {orientation}"
+    )]
+    InnerLoopWinding {
+        /// The face holding the loop.
+        face: FaceHandle,
+        /// The inner loop wound like the outer loop.
+        loop_: LoopHandle,
+        /// Signed UV area of the inner loop in topological order
+        /// (positive = counter-clockwise).
+        signed_uv_area: f64,
+        /// The face's stored orientation flag.
+        orientation: bool,
+    },
+
     /// A face's surface normal reverses direction (surface folds over itself).
     #[error("Twisted surface on face {face:?}")]
     TwistedSurface {

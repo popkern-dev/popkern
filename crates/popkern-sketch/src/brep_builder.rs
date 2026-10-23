@@ -108,7 +108,8 @@ fn build_face_region(
     // BOTH faces a flag contradicting their loop (measured: a
     // rectangle lamina on XY, both faces `WindingDishonest`, and every
     // sketch→extrude body carried a dishonest base cap; PK-376).
-    let (front_face, back_face) = if loop_winding_about(brep, mef_face, ctx.plane.normal) >= 0.0 {
+    let mef_outer = brep.faces[mef_face].outer_loop;
+    let (front_face, back_face) = if loop_winding_about(brep, mef_outer, ctx.plane.normal) >= 0.0 {
         (mef_face, mvfs_face)
     } else {
         (mvfs_face, mef_face)
@@ -137,7 +138,7 @@ fn build_face_region(
     })
 }
 
-/// Signed winding of `face`'s outer loop about `normal`: the Newell
+/// Signed winding of loop `lh` about `normal`: the Newell
 /// normal of the loop's SAMPLED outline dotted with `normal` (positive
 /// = counter-clockwise seen from `+normal`). Every half-edge's curve is
 /// sampled in traversal direction — the vertex polygon alone is
@@ -146,13 +147,13 @@ fn build_face_region(
 /// toss (both `WindingDishonest`).
 fn loop_winding_about(
     brep: &popkern_core::topology::BRep,
-    face: FaceHandle,
+    lh: LoopHandle,
     normal: popkern_core::geometry::Vec3,
 ) -> f64 {
     use popkern_core::geometry::curve::CurveEval;
     const SAMPLES: usize = 16;
     let mut pts: Vec<popkern_core::geometry::Point3> = Vec::new();
-    let start_he = brep.loops[brep.faces[face].outer_loop].half_edge;
+    let start_he = brep.loops[lh].half_edge;
     let mut cursor = start_he;
     loop {
         let he = &brep.half_edges[cursor];
@@ -378,12 +379,30 @@ fn build_hole_loop(
     // Back face uses reversed twin half-edges.
     back_hes.reverse();
 
-    // Wire front hole as inner loop.
     let front_loop = wire_inner_loop(brep, &front_hes, front_face)?;
+    let back_loop = wire_inner_loop(brep, &back_hes, back_face)?;
 
-    // Wire back hole as inner loop.
-    wire_inner_loop(brep, &back_hes, back_face)?;
-
+    // A hole keeps the face's material on its left, so it winds
+    // clockwise about the front face's normal. The tracer's direction
+    // follows how the profile was drawn: a hole drawn counter-clockwise
+    // wound like the outer loop on both faces (PK-923: the lamina with
+    // a hole read signed UV areas +1 under flag true and -1 under
+    // false). Such a hole trades its two sides between the faces.
+    if loop_winding_about(brep, front_loop, ctx.plane.normal) > 0.0 {
+        brep.loops[front_loop].face = back_face;
+        brep.loops[back_loop].face = front_face;
+        for (face, from, to) in [
+            (front_face, front_loop, back_loop),
+            (back_face, back_loop, front_loop),
+        ] {
+            for l in brep.faces[face].inner_loops.iter_mut() {
+                if *l == from {
+                    *l = to;
+                }
+            }
+        }
+        return Ok(Some(back_loop));
+    }
     Ok(Some(front_loop))
 }
 

@@ -24,6 +24,7 @@ pub use self_intersection_trim::InteriorOverlapSample;
 mod canonical_forward;
 mod canonical_forward_arbitration;
 mod curve_window;
+mod inner_loop_winding;
 mod loop_period_winding;
 mod pcurve_consistency;
 mod pcurve_presence;
@@ -233,6 +234,9 @@ impl BRep {
         // Mid-pipeline states may carry transient dishonesty that
         // operator tails reconcile, so this is validate_all-only.
         errors.extend(self.validate_winding_honesty_all());
+        // Holes wind against the outer loop (PK-923): the audit above
+        // reads outer loops only.
+        errors.extend(self.validate_inner_loop_winding_all());
         // Pcurve presence (PK-331): a face with surface geometry but
         // pcurve-less loop half-edges is trim-unreadable — the winding
         // audit above defers to its tangency witness and the mesher

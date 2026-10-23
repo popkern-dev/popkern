@@ -193,6 +193,7 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         | ValidationError::LowValence { .. }
         | ValidationError::InconsistentOrientation { .. }
         | ValidationError::WindingDishonest { .. }
+        | ValidationError::InnerLoopWinding { .. }
         | ValidationError::CanonicalBackward { .. }
         | ValidationError::MissingPcurves { .. } => "topology_invariant_mismatch",
         ValidationError::Precision { .. } => "precision_budget_mismatch",
@@ -214,6 +215,7 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::ShellGap { .. } => "ShellGap",
         ValidationError::SelfIntersection { .. } => "SelfIntersection",
         ValidationError::WindingDishonest { .. } => "WindingDishonest",
+        ValidationError::InnerLoopWinding { .. } => "InnerLoopWinding",
         ValidationError::MissingPcurves { .. } => "MissingPcurves",
         ValidationError::TwistedSurface { .. } => "TwistedSurface",
         ValidationError::LoopPeriodWinding { .. } => "LoopPeriodWinding",
