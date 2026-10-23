@@ -487,6 +487,20 @@ fn build_face_subdivision_inner(
         );
     }
 
+    // EDGE-COINCIDENT substitutes (PK-920): records lying exactly on
+    // an edge curve of this face, on faces still imbalanced (the
+    // polyline test above cannot hold an arc).
+    if u_period.is_none() && super::chart_edge_substitute::imbalanced(&sub, &ends) {
+        super::chart_edge_substitute::resolve_edge_coincident_substitutes(
+            graph,
+            face,
+            &mut sub,
+            surface,
+            original_brep,
+            10.0 * tolerance.linear(),
+        );
+    }
+
     // GAP-SUBSTITUTE completion (non-periodic charts): the coincident
     // weld path can leave a face's boundary registration with a GAP
     // (a split middle piece missing) that an overlap-pair record

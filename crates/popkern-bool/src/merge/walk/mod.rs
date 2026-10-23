@@ -14,6 +14,7 @@ pub(crate) mod chart_cut_domain;
 #[cfg(test)]
 mod chart_cut_domain_tests;
 pub(crate) mod chart_duplicate_cover;
+mod chart_edge_substitute;
 pub(crate) mod chart_embedding;
 pub(crate) mod chart_graze_filter;
 pub(crate) mod chart_poles;
