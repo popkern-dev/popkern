@@ -185,3 +185,32 @@ pub(crate) fn pcurve_trim_box(
     let (pu, pv) = (0.1 * (u1 - u0), 0.1 * (v1 - v0));
     Some(((u0 - pu, u1 + pu), (v0 - pv, v1 + pv)))
 }
+
+/// The face's vertex trim box (exact over `positions`) with every axis on which it collapses
+/// (all the face's vertices at one coordinate) widened to the face's
+/// padded pcurve window there. Measured (PK-922): the merged half
+/// torus carries three distinct vertices, all on its outer equator, so
+/// its vertex box spanned v = 0 only and rejected every pierce of a
+/// radial drill's seam line through the tube walls; the drill wall's
+/// seam stayed unsplit at the record nodes and its chart walk declined.
+/// Faces whose vertices spread on both axes keep the vertex box.
+pub(crate) fn vertex_trim_box(
+    brep: &popkern_core::topology::BRep,
+    face: popkern_core::topology::FaceHandle,
+    positions: &[popkern_core::geometry::Point3],
+    surface: &SurfaceGeometry,
+) -> ((f64, f64), (f64, f64)) {
+    let vbox =
+        popkern_core::geometry::uv_projection::exact_bounded_parameter_range(positions, surface);
+    let collapsed = |(lo, hi): (f64, f64)| (hi - lo).abs() <= 1e-9 * (1.0 + lo.abs().max(hi.abs()));
+    if !collapsed(vbox.0) && !collapsed(vbox.1) {
+        return vbox;
+    }
+    let Some(window) = pcurve_trim_box(brep, face) else {
+        return vbox;
+    };
+    (
+        if collapsed(vbox.0) { window.0 } else { vbox.0 },
+        if collapsed(vbox.1) { window.1 } else { vbox.1 },
+    )
+}

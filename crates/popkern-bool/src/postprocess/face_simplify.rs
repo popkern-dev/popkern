@@ -122,21 +122,22 @@ fn find_merge_candidates_in(
         // contract as clipping and classification. Singly-periodic
         // surfaces (cylinder walls) keep the long-tuned unguarded
         // behavior.
+        //
+        // A face that wraps ONE axis through its own seam (a torus
+        // band round the tube, or either half of a cut-domain walk
+        // split at the u-seam, PK-922) has no chart cell; its span on
+        // that axis is the whole period and the other axis is bounded
+        // by its pcurve window. Such faces group with neighbours
+        // wrapping the same axis while the bounded axis stays strictly
+        // inside one period.
         let (u_period, v_period) = surf.geometry.periodicity();
-        let doubly_periodic = u_period.is_some() && v_period.is_some();
-        let mut group_span: Option<(f64, f64, f64, f64)> = None;
-        if doubly_periodic {
-            match crate::clip::chart_cell::face_chart_cell(brep, fh, tolerance) {
-                Some(cell) => {
-                    group_span = Some((
-                        cell.u_range.0,
-                        cell.u_range.1,
-                        cell.v_range.0,
-                        cell.v_range.1,
-                    ));
-                }
-                // A non-cell-resolvable periodic face (already
-                // winding) must not seed further growth.
+        let periods = u_period.zip(v_period);
+        let mut group_span: Option<ChartSpan> = None;
+        if let Some(periods) = periods {
+            match doubly_periodic_span(brep, fh, tolerance, periods) {
+                Some(span) => group_span = Some(span),
+                // A face wrapping both axes, or one with no readable
+                // span, must not seed further growth.
                 None => continue,
             }
         }
@@ -166,40 +167,18 @@ fn find_merge_candidates_in(
                         tolerance,
                     )
                 {
-                    if doubly_periodic {
-                        let Some((lo_u, hi_u, lo_v, hi_v)) = group_span else {
+                    if let Some(periods) = periods {
+                        let Some(span) = group_span else {
                             continue;
                         };
-                        let Some(ncell) =
-                            crate::clip::chart_cell::face_chart_cell(brep, neighbor, tolerance)
+                        let Some(nspan) = doubly_periodic_span(brep, neighbor, tolerance, periods)
                         else {
                             continue;
                         };
-                        // Align the neighbour's cell to the group's
-                        // branch (shift by whole periods toward the
-                        // group centre), then check the combined span.
-                        let align = |lo: f64, hi: f64, glo: f64, ghi: f64, period: f64| {
-                            let centre = 0.5 * (lo + hi);
-                            let gcentre = 0.5 * (glo + ghi);
-                            let shift = ((gcentre - centre) / period).round() * period;
-                            (lo + shift, hi + shift)
-                        };
-                        let (p_u, p_v) = match (u_period, v_period) {
-                            (Some(pu), Some(pv)) => (pu, pv),
-                            _ => continue,
-                        };
-                        let (nlo_u, nhi_u) =
-                            align(ncell.u_range.0, ncell.u_range.1, lo_u, hi_u, p_u);
-                        let (nlo_v, nhi_v) =
-                            align(ncell.v_range.0, ncell.v_range.1, lo_v, hi_v, p_v);
-                        let clo_u = lo_u.min(nlo_u);
-                        let chi_u = hi_u.max(nhi_u);
-                        let clo_v = lo_v.min(nlo_v);
-                        let chi_v = hi_v.max(nhi_v);
-                        if chi_u - clo_u >= p_u - 1.0e-9 || chi_v - clo_v >= p_v - 1.0e-9 {
+                        let Some(combined) = combine_spans(span, nspan, periods) else {
                             continue;
-                        }
-                        group_span = Some((clo_u, chi_u, clo_v, chi_v));
+                        };
+                        group_span = Some(combined);
                     }
                     group.push(neighbor);
                     visited.insert(neighbor, ());
@@ -214,6 +193,76 @@ fn find_merge_candidates_in(
     }
 
     report
+}
+
+/// A doubly-periodic face's chart span per axis, `None` on an axis the
+/// face wraps through its own seam.
+type ChartSpan = [Option<(f64, f64)>; 2];
+
+/// The chart span of `face` on a surface with periods `(pu, pv)`: its
+/// chart cell when it has one; else, when it wraps exactly one axis by
+/// its own seam (`chart_seam_axes`), its pcurve window on the other,
+/// which must lie strictly inside one period. `None` for a face
+/// wrapping both axes or with no readable span.
+fn doubly_periodic_span(
+    brep: &BRep,
+    face: FaceHandle,
+    tolerance: &Tolerance,
+    (pu, pv): (f64, f64),
+) -> Option<ChartSpan> {
+    if let Some(cell) = crate::clip::chart_cell::face_chart_cell(brep, face, tolerance) {
+        return Some([Some(cell.u_range), Some(cell.v_range)]);
+    }
+    let seams = crate::merge::walk::chart_seam_axes::face_seam_axes(brep, face, (pu, pv));
+    let ((u0, u1), (v0, v1)) = brep.face_trim_uv_window(face)?;
+    match (seams.u.is_some(), seams.v.is_some()) {
+        (true, false) if v1 - v0 < pv - 1.0e-9 => Some([None, Some((v0, v1))]),
+        (false, true) if u1 - u0 < pu - 1.0e-9 => Some([Some((u0, u1)), None]),
+        _ => None,
+    }
+}
+
+/// The span of two adjacent faces taken as one, or `None` when they
+/// wrap different axes or the merged span would reach a full period on
+/// an axis neither wraps. The neighbour's window is shifted by whole
+/// periods toward the group's before combining.
+fn combine_spans(group: ChartSpan, neighbor: ChartSpan, periods: (f64, f64)) -> Option<ChartSpan> {
+    let mut out = group;
+    for (k, period) in [periods.0, periods.1].into_iter().enumerate() {
+        out[k] = match (group[k], neighbor[k]) {
+            (None, None) => None,
+            (Some((glo, ghi)), Some((lo, hi))) => {
+                let shift = ((0.5 * (glo + ghi) - 0.5 * (lo + hi)) / period).round() * period;
+                let (clo, chi) = (glo.min(lo + shift), ghi.max(hi + shift));
+                if chi - clo >= period - 1.0e-9 {
+                    return None;
+                }
+                Some((clo, chi))
+            }
+            _ => return None,
+        };
+    }
+    Some(out)
+}
+
+/// After a KEF, make the survivor's loops chart-continuous when its
+/// surface is doubly periodic: each half kept its pcurves on its own
+/// branch, so the merged loop jumped a period at the old shared edge.
+/// Shifts are whole periods, so the pcurves stay exact. Other surfaces
+/// keep their pcurves.
+fn rechart_doubly_periodic(brep: &mut BRep, surviving: popkern_core::topology::LoopHandle) -> bool {
+    let Some(face) = brep.loops.get(surviving).map(|l| l.face) else {
+        return false;
+    };
+    let doubly = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .is_some_and(|s| matches!(s.geometry.periodicity(), (Some(_), Some(_))));
+    if doubly {
+        brep.normalize_loop_chart_continuity(&[face]);
+    }
+    true
 }
 
 /// Apply face simplification: merge co-surfacial adjacent faces via KEF.
@@ -309,7 +358,11 @@ pub(crate) fn apply_face_simplification_in(
 
             // Snapshot for rollback on validation regression.
             let snapshot = brep.clone();
-            if brep.kef(he_h).is_ok() && brep.validate().is_ok() {
+            let merged = brep
+                .kef(he_h)
+                .ok()
+                .is_some_and(|k| rechart_doubly_periodic(brep, k.surviving_loop));
+            if merged && brep.validate().is_ok() {
                 eliminated += 1;
                 merged_this_iter = true;
                 // Restart the outer loop so find_merge_candidates

@@ -53,6 +53,14 @@ pub(crate) struct ChartLoop {
 }
 
 impl ChartLoop {
+    /// Swap the loop's chart axes (a walk run on transposed axes,
+    /// PK-922).
+    pub(crate) fn transpose(&mut self) {
+        for p in &mut self.points {
+            std::mem::swap(&mut p.0, &mut p.1);
+        }
+    }
+
     /// The loop of `runs`, in walk order.
     pub(crate) fn from_runs<'a>(runs: impl IntoIterator<Item = &'a [(f64, f64)]>) -> Self {
         let mut points = Vec::new();

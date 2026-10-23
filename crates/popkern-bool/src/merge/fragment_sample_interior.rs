@@ -127,6 +127,29 @@ pub(crate) fn interior_step_sample(
         };
         runs.push((h, run));
     }
+    // Chart-continuous runs: each run shifts by whole periods to start
+    // where the previous one ended. A record's stored pcurve can sit a
+    // period off its neighbours (measured, PK-922: a drill hole's third
+    // record ran at u = 2pi on a band of [-pi/2, pi/2]); the polygon
+    // then read as wrapping, the medial search was skipped, and the
+    // hole disc sampled outside the drill and was kept.
+    let (run_pu, run_pv) = crate::clip::classification_chart_periods(surface);
+    for i in 1..runs.len() {
+        let (Some(&end), Some(&start)) = (runs[i - 1].1.last(), runs[i].1.first()) else {
+            continue;
+        };
+        let lift = |gap: f64, period: Option<f64>| match period {
+            Some(p) if p.is_finite() && p > 0.0 => (gap / p).round() * p,
+            _ => 0.0,
+        };
+        let (du, dv) = (lift(end.0 - start.0, run_pu), lift(end.1 - start.1, run_pv));
+        if du != 0.0 || dv != 0.0 {
+            for q in &mut runs[i].1 {
+                q.0 += du;
+                q.1 += dv;
+            }
+        }
+    }
     let polygon: Vec<(f64, f64)> = runs.iter().flat_map(|(_, r)| r.iter().copied()).collect();
     if polygon.len() < 3 {
         return None;

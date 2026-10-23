@@ -240,3 +240,46 @@ fn a_blind_drill_splits_the_torus_only_where_it_pierces() {
         );
     }
 }
+
+/// PK-922: the half torus is ONE torus face (the two pieces the cut
+/// domain walks either side of the u-seam merge back), and radial drills
+/// through that v-wrapped band serve with their exact volume.
+#[test]
+fn the_half_torus_is_one_face_and_takes_drills() {
+    let half = format!(
+        "{TORUS}b = b.intersect(m.tool(|t| t.profile(xy_at(-0.5)).rect(1.0, 2.0).at(0.5, 0.0).sketch(\"bx\").extrude(blind(1.0))));\n"
+    );
+    let mut host = ScriptHost::new();
+    let outcome = host
+        .run(&format!("{half}m\n"), "half.rhai")
+        .unwrap_or_else(|e| panic!("{e}"));
+    let mut model = outcome.model.expect("model");
+    let part = model.to_part().expect("part");
+    let tori = part
+        .brep()
+        .faces
+        .values()
+        .filter(|f| {
+            f.surface.as_ref().is_some_and(|s| {
+                matches!(
+                    s.geometry,
+                    popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+                )
+            })
+        })
+        .count();
+    assert_eq!(tori, 1, "the half torus carries one torus face");
+    for (theta, z0) in [(0.0, 0.03), (std::f64::consts::FRAC_PI_4, 0.0)] {
+        let (c, s) = (theta.cos(), theta.sin());
+        let script = format!(
+            "{half}b = b.subtract(m.tool(|t| t.profile(plane_at([{x}, {y}, {z0}], [{nx}, {ny}, 0.0])).circle({RD}).sketch(\"bore\").extrude(blind(0.4))));\nm\n",
+            x = 0.6 * c,
+            y = 0.6 * s,
+            nx = -c,
+            ny = -s
+        );
+        // The half torus minus the drill's exact chord volume.
+        let want = drilled_volume(z0) - 0.5 * torus_volume();
+        assert_serves(&script, want, &format!("half torus drill u {theta} z {z0}"));
+    }
+}

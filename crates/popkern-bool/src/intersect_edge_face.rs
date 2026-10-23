@@ -284,12 +284,12 @@ fn detect_edges_vs_faces(
             let face_positions =
                 crate::intersect_edge_face_coincident::trim_box_positions(face_brep, *face_h);
             let trim_box = if distinct_positions >= 3 {
-                Some(
-                    popkern_core::geometry::uv_projection::exact_bounded_parameter_range(
-                        &face_positions,
-                        surface_on_face,
-                    ),
-                )
+                Some(crate::intersect_edge_face_coincident::vertex_trim_box(
+                    face_brep,
+                    *face_h,
+                    &face_positions,
+                    surface_on_face,
+                ))
             } else {
                 crate::intersect_edge_face_coincident::pcurve_trim_box(face_brep, *face_h)
             };

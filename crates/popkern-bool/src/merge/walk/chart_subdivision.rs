@@ -172,6 +172,9 @@ pub(crate) struct FaceChartSubdivision {
     pub cut_domain: Option<super::chart_cut_domain::CutDomain>,
     /// Covered rim stubs `(kept, dropped)` a retry may drop (PK-928).
     pub covered_rim_stubs: Vec<(usize, usize)>,
+    /// The chart axes are swapped: a v-wrapped u-bounded band walked as
+    /// a u-closed wall (PK-922, `chart_period_axes`).
+    pub transposed: bool,
     /// Substrate diagnostics.
     pub report: ChartSubdivisionReport,
 }
@@ -315,6 +318,7 @@ fn build_face_subdivision_inner(
     // orbit — a loop left open by 0.87).
     let mut band_window = None;
     let mut cut_corner = None;
+    let mut transposed_window: Option<((f64, f64), f64)> = None;
     let cell_fold = if v_period.is_some() {
         match crate::clip::chart_cell::face_chart_cell(original_brep, face.face, tolerance) {
             Some(cell) => Some((cell, u_period, v_period)),
@@ -339,9 +343,15 @@ fn build_face_subdivision_inner(
                         .corner()
                         .map(|c| (c.1, pv, pu))
                 });
+                let band =
+                    |p| super::chart_period_axes::v_wrapped_band(original_brep, face.face, p);
                 if corner.is_some() {
                     cut_corner = corner;
-                } else if let Some(window) = face_v_window(original_brep, face.face, v_period) {
+                } else if let Some(w) = u_period.zip(v_period).and_then(band) {
+                    transposed_window = u_period.map(|pu| (w, pu));
+                } else if let Some(window) =
+                    super::chart_period_axes::face_v_window(original_brep, face.face, v_period)
+                {
                     band_window = Some(window);
                 } else {
                     sub.report.issues.push(SubdivisionIssue::VPeriodicChart);
@@ -353,7 +363,12 @@ fn build_face_subdivision_inner(
     } else {
         None
     };
-    let u_period = if cell_fold.is_some() { None } else { u_period };
+    sub.transposed = transposed_window.is_some();
+    let u_period = match (cell_fold.is_some(), sub.transposed) {
+        (true, _) => None,
+        (false, true) => v_period,
+        (false, false) => u_period,
+    };
 
     // I1: embed every registered half-edge; drop zero-extent records.
     for &h in he_indices {
@@ -380,6 +395,9 @@ fn build_face_subdivision_inner(
     }
     if !sub.report.issues.is_empty() {
         return sub;
+    }
+    if let Some((window, pu)) = transposed_window {
+        super::chart_period_axes::transpose(&mut sub, window, pu);
     }
     if let Some((cell, pu, pv)) = &cell_fold {
         super::chart_cell_fold::fold_embeddings_into_cell(
@@ -662,7 +680,8 @@ fn build_face_subdivision_inner(
     // override mirrored both seam pairs onto the wrong border copies,
     // and the seam-border rebalance reversed the honest full-period
     // rim rings against their branch points to compensate.
-    let ring_sigma = super::chart_branches::clustering::stored_ring_sigma(original_brep, face.face);
+    let ring_sigma = super::chart_branches::clustering::stored_ring_sigma(original_brep, face.face)
+        .map(|s| if sub.transposed { -s } else { s }); // the ring is read in the face's own chart
     match u_period {
         Some(period) => {
             if popkern_core::trace::trace_enabled("branch-pairing") {
@@ -705,47 +724,4 @@ pub(crate) fn face_surface<'a>(
     };
     let s = brep.faces.get(face.face)?.surface.as_ref()?;
     Some((&s.geometry, s.orientation))
-}
-
-/// The face's v window `(lo, hi)` when its boundary pcurves span
-/// strictly less than the surface's v-period: the face is a v-bounded
-/// band of a doubly-periodic surface, and its chart never needs the
-/// v-seam. The window is the smallest CIRCULAR arc covering every
-/// boundary sample (the complement of the largest gap between them,
-/// mod the period), so a band whose boundary lies on the v-seam, its
-/// samples split between 2π − ε and +ε by roundoff, still reads as one
-/// band (PK-774).
-fn face_v_window(
-    brep: &popkern_core::topology::BRep,
-    face: popkern_core::topology::FaceHandle,
-    v_period: Option<f64>,
-) -> Option<(f64, f64)> {
-    let period = v_period?;
-    let boundary = crate::clip::face_uv_boundary(brep, face)?;
-    let mut vs: Vec<f64> = Vec::new();
-    for contour in
-        std::iter::once(boundary).chain(crate::clip::face_uv_inner_boundaries(brep, face))
-    {
-        for (_he, pcurve) in &contour {
-            let (t0, t1) = pcurve.parameter_range();
-            for i in 0..=16 {
-                let q = pcurve.point_at(t0 + (t1 - t0) * i as f64 / 16.0);
-                if q.y.is_finite() {
-                    vs.push(q.y.rem_euclid(period));
-                }
-            }
-        }
-    }
-    vs.sort_by(f64::total_cmp);
-    let (first, last) = (*vs.first()?, *vs.last()?);
-    // The largest gap between consecutive samples, the wrap included.
-    let (mut gap, mut start) = (first + period - last, first);
-    for w in vs.windows(2) {
-        if w[1] - w[0] > gap {
-            gap = w[1] - w[0];
-            start = w[1];
-        }
-    }
-    let extent = period - gap;
-    (extent < period * (1.0 - 1.0e-6)).then_some((start, start + extent))
 }

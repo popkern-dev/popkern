@@ -17,6 +17,7 @@ pub(crate) mod chart_duplicate_cover;
 mod chart_edge_substitute;
 pub(crate) mod chart_embedding;
 pub(crate) mod chart_graze_filter;
+mod chart_period_axes;
 pub(crate) mod chart_poles;
 pub(crate) mod chart_seam_axes;
 pub(crate) mod chart_subdivision;
@@ -194,7 +195,7 @@ struct FaceWalk<'g, 'o> {
     carried_holes: Option<&'g HashSet<popkern_core::topology::LoopHandle>>,
     tolerance: &'g popkern_core::tolerance::Tolerance,
     fragments: &'o mut Vec<Fragment>,
-    chart_views: &'o mut std::collections::HashMap<FaceRef, (f64, fragment_chart::OrbitPolylines)>,
+    chart_views: &'o mut std::collections::HashMap<FaceRef, fragment_chart::WalkView>,
     walk_fallbacks: &'o mut Vec<(FaceRef, String)>,
 }
 
@@ -937,7 +938,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
     let chart_promoted = hole_nesting_chart::promote_chart_exterior_holes(
         &mut inner_loops_out,
         &outer_loop,
-        chart_views.get(face_ref).map(|(_, polylines)| polylines),
+        chart_views.get(face_ref).map(|(_, polylines, _)| polylines),
         chart_period,
     );
     for lp in promoted

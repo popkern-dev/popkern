@@ -10,6 +10,11 @@ use crate::periodic_chart_parity_torus::ChartLoop;
 /// smallest half-edge (loop identity survives rotation).
 pub(super) type OrbitPolylines = HashMap<usize, ChartLoop>;
 
+/// One face's chart-walk view: σ, the orbit polylines in the walk's
+/// chart, and whether that chart is the face's own with its axes
+/// swapped (a v-wrapped band walked as a u-closed wall, PK-922).
+pub(super) type WalkView = (f64, OrbitPolylines, bool);
+
 /// A chart-walked fragment's loops as the walk embedded them: every
 /// loop (outer first, then the inner loops in order) is a
 /// material-on-LEFT orbit of the σ-oriented chart, σ the face's
@@ -31,26 +36,32 @@ pub(crate) struct FragmentChart {
 /// from the walk's orbit polylines keyed by each orbit's smallest
 /// half-edge. `None` unless the chart walk produced every loop.
 fn fragment_chart_of(
-    (sigma, polylines): &(f64, OrbitPolylines),
+    (sigma, polylines, transposed): &WalkView,
     outer: &[usize],
     inners: &[Vec<usize>],
 ) -> Option<FragmentChart> {
-    let polyline = |lp: &[usize]| polylines.get(lp.iter().min()?).cloned();
+    // Fragment charts are read in the face's own chart (the torus
+    // sampler evaluates the surface at them): a transposed walk swaps
+    // back, and σ with it.
+    let polyline = |lp: &[usize]| {
+        let mut l = polylines.get(lp.iter().min()?).cloned()?;
+        if *transposed {
+            l.transpose();
+        }
+        Some(l)
+    };
     let loops = std::iter::once(outer)
         .chain(inners.iter().map(|l| l.as_slice()))
         .map(polyline)
         .collect::<Option<Vec<_>>>()?;
     Some(FragmentChart {
-        sigma: *sigma,
+        sigma: if *transposed { -sigma } else { *sigma },
         loops,
     })
 }
 
 /// The chart walk's handedness and orbit polylines for one face.
-pub(super) fn walk_view(
-    sub: &FaceChartSubdivision,
-    orbits: &[Vec<usize>],
-) -> (f64, OrbitPolylines) {
+pub(super) fn walk_view(sub: &FaceChartSubdivision, orbits: &[Vec<usize>]) -> WalkView {
     let polylines = orbits
         .iter()
         .filter_map(|o| {
@@ -61,14 +72,14 @@ pub(super) fn walk_view(
             Some((*o.iter().min()?, ChartLoop::from_runs(runs)))
         })
         .collect();
-    (sub.sigma, polylines)
+    (sub.sigma, polylines, sub.transposed)
 }
 
 /// Attach each fragment's chart view, for fragments of faces the chart
 /// walk produced (`views`, keyed by face).
 pub(super) fn attach(
     fragments: &mut [super::Fragment],
-    views: &HashMap<crate::merge::graph::FaceRef, (f64, OrbitPolylines)>,
+    views: &HashMap<crate::merge::graph::FaceRef, WalkView>,
 ) {
     for fragment in fragments {
         if let Some(view) = views.get(&fragment.face) {
