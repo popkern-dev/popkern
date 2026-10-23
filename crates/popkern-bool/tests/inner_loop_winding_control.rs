@@ -148,3 +148,38 @@ fn a_hole_wound_with_its_outer_loop_is_rejected() {
     assert!(!gate.is_ok());
     assert!(popkern_bool::validate::post_check::post_check(&body, &tol, false).is_ok());
 }
+
+/// PK-924: a seamless cylinder band, its top rim an inner ring of the
+/// lateral face (the seam killed by `kemr`, the form a STEP file may
+/// carry). The ring wraps the period, so it has no UV winding and the
+/// inner-loop check skips it, and the band validates clean. A side
+/// witness by even-odd trim containment was tried and FALSIFIED on
+/// exactly this body: ray parity across a seamless band reads its open
+/// UV polylines and called the honest band's interior "outside". The
+/// unmeasured class is a registry row (decline-class-registry.md,
+/// "Inner-loop sense on loops without UV winding"); this pin keeps any
+/// future witness honest on the band.
+#[test]
+fn a_seamless_band_validates_clean() {
+    let tol = Tolerance::default();
+    let mut band = BRep::cylinder(1.0, 1.0, tol).expect("cylinder");
+    let seam = band
+        .half_edges
+        .iter()
+        .find(|(_, h)| band.half_edges[h.twin].loop_ == h.loop_)
+        .map(|(k, _)| k)
+        .expect("seam half-edge");
+    let ring = band.kemr(seam).expect("kemr").inner_loop;
+    let lateral = band.loops[ring].face;
+    let s = band.faces[lateral]
+        .surface
+        .as_ref()
+        .expect("surface")
+        .geometry
+        .clone();
+    assert!(
+        band.loop_signed_uv_area(ring, &s).is_err(),
+        "the ring has no UV winding"
+    );
+    assert!(band.validate_all().is_empty(), "{:?}", band.validate_all());
+}
