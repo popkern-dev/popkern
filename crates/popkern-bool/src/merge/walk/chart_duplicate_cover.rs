@@ -26,8 +26,20 @@ pub(super) fn dedup_duplicate_covers(
         scale = scale.max((s.0 - e.0).abs() + (s.1 - e.1).abs());
     }
     let tol = 1e-7 * (1.0 + scale);
+    // On a u-periodic chart, runs are not yet anchored to one branch
+    // here: a closed rim and the record tracing it can sit a whole
+    // period apart in u, so u compares modulo the period (measured,
+    // PK-925: a cone's base rim on a coaxial cylinder wall and the
+    // record along it were never deduplicated, the face fell back to
+    // the 3D-Newell walk and served the rim as its own face).
+    let u_period = sub.u_period;
     let near = |a: (f64, f64), b: (f64, f64)| -> bool {
-        (a.0 - b.0).abs() < tol && (a.1 - b.1).abs() < tol
+        let du = a.0 - b.0;
+        let du = match u_period {
+            Some(p) if p > 0.0 => du - p * (du / p).round(),
+            _ => du,
+        };
+        du.abs() < tol && (a.1 - b.1).abs() < tol
     };
     let seg = |h: usize| -> ((f64, f64), (f64, f64), (f64, f64)) {
         let uv = &sub.embeddings[&h].uv;
