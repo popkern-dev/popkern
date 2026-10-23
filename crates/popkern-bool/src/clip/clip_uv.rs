@@ -93,9 +93,9 @@ pub(crate) fn clip_curve_to_crossings(
     if t1 - t0 < 1e-15 {
         return None;
     }
-    if curve.degree == 1 {
-        let p0 = curve.point_at(t0);
-        let p1 = curve.point_at(t1);
+    // Only a two-point line clips to its chord: a polyline splits (PK-930).
+    if curve.degree == 1 && curve.control_points.len() == 2 {
+        let (p0, p1) = (curve.point_at(t0), curve.point_at(t1));
         return Some(NurbsCurve {
             degree: 1,
             knots: vec![0.0, 0.0, 1.0, 1.0],
