@@ -148,3 +148,49 @@ pub(super) fn rides_face_boundary(
             .any(|w| to_segment((p.x, p.y), w[0], w[1]) < band)
     })
 }
+
+/// Whether the chart point `uv` of `face` lies within `band` (3-D
+/// distance) of the face's OUTER boundary, by each boundary edge's
+/// own curve. The polyline test above is sagitta-bound: 25 samples
+/// along a curved rim leave chords up to ~2.6e-3 off an r = 1 arc,
+/// so a record lying exactly on the rim failed a 1e-4 band and its
+/// stretches classified by containment coin flips (measured,
+/// PK-926: a D-bore's top rim on a coaxial tube wall kept 5% of the
+/// arc).
+pub(super) fn on_outer_boundary_exact(
+    brep: &BRep,
+    face: FaceHandle,
+    uv: (f64, f64),
+    band: f64,
+) -> bool {
+    use popkern_core::geometry::SurfaceEval;
+    let Some(f) = brep.faces.get(face) else {
+        return false;
+    };
+    let Some(surface) = f.surface.as_ref() else {
+        return false;
+    };
+    let p = surface.geometry.point_at(uv.0, uv.1);
+    let Some(lp) = brep.loops.get(f.outer_loop) else {
+        return false;
+    };
+    let start = lp.half_edge;
+    let mut h = start;
+    for _ in 0..=brep.half_edges.len() {
+        let Some(he) = brep.half_edges.get(h) else {
+            return false;
+        };
+        if let Some(c) = brep.edges.get(he.edge).and_then(|e| e.curve.as_ref()) {
+            let (lo, hi) = (c.t_start.min(c.t_end), c.t_start.max(c.t_end));
+            let t = popkern_core::geometry::curve::closest_point_in_window(&c.geometry, &p, lo, hi);
+            if c.geometry.point_at(t).distance_to(&p) < band {
+                return true;
+            }
+        }
+        h = he.next;
+        if h == start {
+            return false;
+        }
+    }
+    false
+}

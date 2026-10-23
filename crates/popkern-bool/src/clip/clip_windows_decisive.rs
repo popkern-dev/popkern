@@ -224,8 +224,9 @@ pub(super) fn decisive_windows(
         // verdicts are coin flips, so a hugging midpoint is treated
         // as on-face per interval; genuinely-outside spans have
         // clear midpoints and still drop.
-        // The per-interval keep demands a TIGHT band — 100× linear
-        // tolerance, not the 2 % heuristic clearance: a genuinely
+        // The per-interval keep demands a TIGHT band — the linear
+        // tolerance, exact (PK-926; was 100x against a polyline),
+        // not the 2 % heuristic clearance: a genuinely
         // flush span lies ON the boundary to roundoff, while tuned
         // holder/socket fixtures carry near-boundary spans well
         // inside the 2 % band that the downstream machinery expects
@@ -238,28 +239,34 @@ pub(super) fn decisive_windows(
         // traces) — keeping its hugging spans as windows starves the
         // completion machinery exactly as PK-114 measured for open
         // records. The nesting-lip class has no inside spans at all.
-        let any_inside = resolved.iter().any(|&r| r);
-        let tight = brep.tolerance.linear() * 100.0;
-        let tight_hug_at = |t: f64| -> bool {
-            if any_inside {
-                return false;
-            }
-            let Some((boundary_samples, _)) = boundary_clearance.as_ref() else {
-                return false;
-            };
-            let tt = if t > t_max { t - span } else { t };
-            let p = curve_uv.point_at(tt);
-            super::clip_windows_clearance::near_boundary(
-                boundary_samples,
-                tight,
-                (p.x, p.y),
-                (period_u, period_v),
-            )
+        // A span lying ON the boundary has a coin-flip verdict either
+        // way, so only intervals off the boundary count as genuinely
+        // inside. "On" is exact: five interior samples within the
+        // linear tolerance of an outer-boundary edge, by the edge's own
+        // curve (measured, PK-926: a D-bore's top rim on a coaxial tube
+        // wall; the rim stretch across the seam sampled "inside", the
+        // long one "outside", and a 25-sample polyline test could not
+        // see the rim within 1e-4 for its chords' 2.6e-3 sag).
+        let on_band = brep.tolerance.linear();
+        let tight_hug_at = |a: f64, b: f64| -> bool {
+            (1..=5).all(|k| {
+                let t = a + (b - a) * k as f64 / 6.0;
+                let tt = if t > t_max { t - span } else { t };
+                let p = curve_uv.point_at(tt);
+                super::clip_windows_clearance::on_outer_boundary_exact(
+                    brep,
+                    face,
+                    (p.x, p.y),
+                    on_band,
+                )
+            })
         };
-        let effective: Vec<bool> = intervals
+        let hugs: Vec<bool> = intervals.iter().map(|&(a, b)| tight_hug_at(a, b)).collect();
+        let any_inside = resolved.iter().zip(&hugs).any(|(&r, &h)| r && !h);
+        let effective: Vec<bool> = resolved
             .iter()
-            .zip(&resolved)
-            .map(|(&(a, b), &r)| r || tight_hug_at(a + (b - a) * 0.5))
+            .zip(&hugs)
+            .map(|(&r, &h)| r || (h && !any_inside))
             .collect();
         // PK-393 whole-curve flush rim: every interval outside while
         // every midpoint hugs within the tuned 2 % clearance.
