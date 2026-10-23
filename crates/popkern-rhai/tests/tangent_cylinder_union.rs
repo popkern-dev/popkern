@@ -152,6 +152,7 @@ fn a_stadium_box_tangent_to_two_rods_serves() {
 /// body, so |ΔV| ≤ tolerance × surface area bounds the volume.
 #[test]
 fn the_stadium_serves_through_tangency() {
+    let _ = popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events();
     let linear = popkern_core::tolerance::Tolerance::default().linear();
     let mut failures = Vec::new();
     // δ = −1e-2..−1e-4 put the box corner that far inside the rod rim
@@ -181,6 +182,14 @@ fn the_stadium_serves_through_tangency() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+    // Every face walks its chart (PK-928: a near-tangent secant flat's
+    // covered rim stub sent the walls to the 3D-Newell walk).
+    let fallbacks: Vec<String> =
+        popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events()
+            .into_iter()
+            .map(|e| format!("{:?} a={}: {}", e.face, e.operand_a, e.reason))
+            .collect();
+    assert!(fallbacks.is_empty(), "3D-Newell fallbacks: {fallbacks:#?}");
 }
 
 #[test]

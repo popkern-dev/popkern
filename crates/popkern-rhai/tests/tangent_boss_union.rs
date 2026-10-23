@@ -130,6 +130,7 @@ fn serves_near_extreme(cap_x: f64) -> Result<(), String> {
 
 #[test]
 fn the_tangent_boss_casting_serves_through_tangency() {
+    let _ = popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events();
     let mut failures = Vec::new();
     // delta -1e-6 (the boss a linear tolerance short of the web top):
     // the boss end rim lies on its face's rim pcurve, and the curve
@@ -150,6 +151,14 @@ fn the_tangent_boss_casting_serves_through_tangency() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+    // Every face walks its chart (PK-928: a near-tangent secant flat's
+    // covered rim stub sent the walls to the 3D-Newell walk).
+    let fallbacks: Vec<String> =
+        popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events()
+            .into_iter()
+            .map(|e| format!("{:?} a={}: {}", e.face, e.operand_a, e.reason))
+            .collect();
+    assert!(fallbacks.is_empty(), "3D-Newell fallbacks: {fallbacks:#?}");
 }
 
 #[test]

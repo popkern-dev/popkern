@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use super::chart_branches::{anchor_periodic, clustering::balance_and_duplicates};
+use super::chart_branches::clustering::balance_and_duplicates;
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
@@ -170,6 +170,8 @@ pub(crate) struct FaceChartSubdivision {
     /// The cut domain of a face wrapping both periods (PK-459): its
     /// v window and v-seam halves; branch points split by v copy.
     pub cut_domain: Option<super::chart_cut_domain::CutDomain>,
+    /// Covered rim stubs `(kept, dropped)` a retry may drop (PK-928).
+    pub covered_rim_stubs: Vec<(usize, usize)>,
     /// Substrate diagnostics.
     pub report: ChartSubdivisionReport,
 }
@@ -666,7 +668,9 @@ fn build_face_subdivision_inner(
             if popkern_core::trace::trace_enabled("branch-pairing") {
                 eprintln!("  [bp-face] {face:?}");
             }
-            anchor_periodic(graph, face, &mut sub, period, &ends, ring_sigma)
+            super::chart_boundary_substitute_periodic::anchor_with_stub_retry(
+                graph, face, &mut sub, period, &ends, ring_sigma,
+            )
         }
         None => {
             if let Some(s) = ring_sigma {

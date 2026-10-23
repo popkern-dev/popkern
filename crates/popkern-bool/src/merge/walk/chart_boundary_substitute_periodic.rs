@@ -186,7 +186,17 @@ pub(super) fn resolve_periodic_boundary_substitutes(
                 "      [bsub-periodic] {face:?} pair ({h},{tw}): on_boundary={on_boundary} covered={covered} agree={agree}"
             );
         }
-        if !on_boundary || covered {
+        if !on_boundary {
+            continue;
+        }
+        if covered {
+            // The I5 partial-cover class keeps both directions; the
+            // disagreeing one is a candidate for the anchoring retry.
+            match agree.cmp(&0) {
+                std::cmp::Ordering::Greater => sub.covered_rim_stubs.push((h, tw)),
+                std::cmp::Ordering::Less => sub.covered_rim_stubs.push((tw, h)),
+                std::cmp::Ordering::Equal => {}
+            }
             continue;
         }
         match agree.cmp(&0) {
@@ -203,5 +213,67 @@ pub(super) fn resolve_periodic_boundary_substitutes(
                 .filtered
                 .push(FilteredRecord::BoundarySubstituteDirection { dropped, kept });
         }
+    }
+}
+
+/// Periodic anchoring, retried once without the covered rim stubs'
+/// disagreeing directions when the seam balance search is exhausted.
+/// A rim stub a registered boundary piece already covers keeps both
+/// directions (the I5 partial-cover class), and its surplus direction
+/// can be exactly what leaves two branch points imbalanced (measured,
+/// PK-928: a near-tangent secant flat left a 2e-5 rad stub between nodes
+/// 1.2e-4 apart on the stadium's top rim, branch points 15 and 21 read
+/// 3 in / 2 out and 1 in / 2 out, and the wall fell back to the
+/// 3D-Newell walk). The imbalance is only visible after clustering, so
+/// the retry re-runs the anchoring from the saved embeddings and keeps
+/// the drop only when the chart then completes.
+pub(super) fn anchor_with_stub_retry(
+    graph: &IntersectionGraph,
+    face: &FaceRef,
+    sub: &mut FaceChartSubdivision,
+    period: f64,
+    ends: &dyn Fn(usize) -> (usize, usize),
+    ring_sigma: Option<f64>,
+) {
+    let saved = (sub.embeddings.clone(), sub.sigma, sub.report.filtered.len());
+    super::chart_branches::anchor_periodic(graph, face, sub, period, ends, ring_sigma);
+    let exhausted = sub.report.issues.iter().any(|i| {
+        matches!(
+            i,
+            super::chart_subdivision::SubdivisionIssue::SeamSearchExhausted
+        )
+    });
+    if !exhausted || sub.covered_rim_stubs.is_empty() {
+        return;
+    }
+    let first = (
+        std::mem::take(&mut sub.embeddings),
+        std::mem::take(&mut sub.report.issues),
+        std::mem::take(&mut sub.start_bp),
+        std::mem::take(&mut sub.end_bp),
+        std::mem::take(&mut sub.departures),
+        sub.sigma,
+    );
+    sub.embeddings = saved.0.clone();
+    sub.sigma = saved.1;
+    for &(kept, dropped) in &sub.covered_rim_stubs.clone() {
+        if sub.embeddings.remove(&dropped).is_some() {
+            sub.report
+                .filtered
+                .push(FilteredRecord::BoundarySubstituteDirection { dropped, kept });
+        }
+    }
+    super::chart_branches::anchor_periodic(graph, face, sub, period, ends, ring_sigma);
+    if !sub.report.issues.is_empty() {
+        // The retry did not complete the chart: keep the first verdict.
+        sub.report.filtered.truncate(saved.2);
+        (
+            sub.embeddings,
+            sub.report.issues,
+            sub.start_bp,
+            sub.end_bp,
+            sub.departures,
+            sub.sigma,
+        ) = first;
     }
 }
