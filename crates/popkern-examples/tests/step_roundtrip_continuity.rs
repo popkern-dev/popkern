@@ -323,7 +323,11 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
 /// 5e-2 gate, and OpenCASCADE's rewrite of them reads 5.7e-2 and
 /// 6.7e-2 at any refinement budget (1e-3 relative cap changes from the
 /// supernodal factorisation moved them off 4.89e-2 and 4.94e-2 on this
-/// leg). PK-915 traces why the rewrite moves near-gate seams that far.
+/// leg). PK-915: OCC writes 12 significant digits, and at that
+/// precision the conditioned corner block puts a certified curvature
+/// jump at the gate within 1.2e-4 of these seams' corner ends
+/// (geometric, pinned by `step_twelve_digit_corner`; see the decision
+/// record's 2026-10-23 addendum).
 const OCC_BASELINE_DROPS: usize = 35;
 
 fn as_drops(row: &[(&str, usize)]) -> Drops {
