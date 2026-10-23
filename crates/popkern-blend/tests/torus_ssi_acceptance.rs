@@ -314,45 +314,48 @@ fn validate_all_on_double_rim_filleted_tube_is_not_slower_under_analytic_arms() 
         "corpus part must carry tori, got {torus_faces}"
     );
 
-    // Analytic first (cold caches); marching second — any content-keyed
-    // validation memo warmed by the first pass only HELPS marching, so
-    // the comparison is conservative.
-    //
-    // LOAD-IMMUNE measurement (PK-489): a single-shot wall comparison
-    // of millisecond-scale passes flips under full-suite scheduler
-    // load (measured: 2 of 4 workspace runs on 2026-09-12 failed this
-    // gate while it passes unloaded in 0.038 s every time). Interleave
-    // the arms and keep each arm's MINIMUM over five runs — a load
-    // stall only ever inflates a sample, so minima converge to the
-    // true cost regardless of load.
-    let (analytic_verdicts, analytic_first) = time_once(|| part.validate_all());
-    let (marching_verdicts, marching_first) =
-        with_marching_pinned(|| time_once(|| part.validate_all()));
-    let mut analytic_wall = analytic_first;
-    let mut marching_wall = marching_first;
-    for _ in 0..4 {
-        let (_, a) = time_once(|| part.validate_all());
-        let (_, m) = with_marching_pinned(|| time_once(|| part.validate_all()));
-        analytic_wall = analytic_wall.min(a);
-        marching_wall = marching_wall.min(m);
-    }
-    eprintln!(
-        "[pk279] validate_all double-rim tube ({} faces, {} tori): analytic {analytic_wall:?} \
-         ({} verdicts), marching {marching_wall:?} ({} verdicts), ratio {:.1}×",
-        part.faces.len(),
-        torus_faces,
-        analytic_verdicts.len(),
-        marching_verdicts.len(),
-        marching_wall.as_secs_f64() / analytic_wall.as_secs_f64().max(1e-12),
-    );
+    // Verdict parity binds in every build.
+    let (analytic_verdicts, _) = time_once(|| part.validate_all());
+    let (marching_verdicts, _) = with_marching_pinned(|| time_once(|| part.validate_all()));
     assert_eq!(
         analytic_verdicts.len(),
         marching_verdicts.len(),
         "verdicts must match between SSI modes:\n  analytic: {analytic_verdicts:?}\n  marching: {marching_verdicts:?}"
     );
+
+    // The cost gate binds in release only, like every perf budget
+    // (enforced by the CI release perf job). In the debug suite the arms
+    // are ~7 ms apart by 1.2x unloaded, and a min-of-five interleave
+    // still flipped under full-workspace load (PK-489, then PK-918: 3 of
+    // 9 suite runs failed while 32 runs at 16-way load read 0.9..1.5x).
+    // The measure is the MEDIAN of back-to-back pair ratios: each pair
+    // sees one machine state, and a load burst spoils only the pairs it
+    // lands on (the PK-526 measure).
+    if cfg!(debug_assertions) {
+        eprintln!(
+            "[pk279] validate_all double-rim tube cost gate: skipped in debug — enforced by the CI release perf job"
+        );
+        return;
+    }
+    let mut ratios: Vec<f64> = (0..15)
+        .map(|_| {
+            let (_, a) = time_once(|| part.validate_all());
+            let (_, m) = with_marching_pinned(|| time_once(|| part.validate_all()));
+            a.as_secs_f64() / m.as_secs_f64().max(1e-12)
+        })
+        .collect();
+    ratios.sort_by(f64::total_cmp);
+    let median = ratios[ratios.len() / 2];
+    eprintln!(
+        "[pk279] validate_all double-rim tube ({} faces, {} tori): analytic/marching median pair ratio {median:.2} (range {:.2}..{:.2})",
+        part.faces.len(),
+        torus_faces,
+        ratios[0],
+        ratios[ratios.len() - 1],
+    );
     assert!(
-        analytic_wall.as_secs_f64() <= marching_wall.as_secs_f64() * 1.25,
-        "analytic arms regressed validate_all: {analytic_wall:?} vs {marching_wall:?}"
+        median <= 1.25,
+        "analytic arms regressed validate_all: median pair ratio {median:.2} (pairs {ratios:.2?})"
     );
 }
 
