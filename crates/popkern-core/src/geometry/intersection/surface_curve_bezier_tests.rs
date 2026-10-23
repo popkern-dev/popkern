@@ -90,3 +90,54 @@ fn a_near_duplicate_knot_takes_the_reference_path() {
         assert_eq!(a.control_points, b.control_points);
     }
 }
+
+#[test]
+fn knot_multiplicities_count_runs_and_near_duplicates() {
+    // Degree 2: a single knot (needs one insertion), a double knot
+    // (none), and a knot whose copy sits 1e-15 off it (one knot of
+    // multiplicity 2 — none). The binary-search count must agree with
+    // the scan it replaced (PK-931).
+    let knots = vec![
+        0.0,
+        0.0,
+        0.0,
+        0.25,
+        0.5,
+        0.5,
+        0.75,
+        0.75 + 1e-15,
+        1.0,
+        1.0,
+        1.0,
+    ];
+    let n = knots.len() - 3;
+    let c = NurbsCurve {
+        degree: 2,
+        knots,
+        control_points: (0..n).map(|i| Point3::new(i as f64, 0.0, 0.0)).collect(),
+        weights: vec![1.0; n],
+    };
+    let (interior, inserts) = interior_knots_and_insertions(&c);
+    assert_eq!(interior, vec![0.25, 0.5, 0.75]);
+    assert_eq!(inserts, vec![0.25]);
+}
+
+#[test]
+fn a_long_polyline_needs_no_insertions() {
+    // A fitted degree-1 pcurve of 4097 points: 4095 interior knots, all
+    // already at multiplicity 1 = degree. Quadratic counting made this
+    // the hot spot of a whole boolean (PK-931).
+    let n = 4097;
+    let mut knots = vec![0.0, 0.0];
+    knots.extend((1..n - 1).map(|i| i as f64 / (n - 1) as f64));
+    knots.extend([1.0, 1.0]);
+    let c = NurbsCurve {
+        degree: 1,
+        knots,
+        control_points: (0..n).map(|i| Point3::new(i as f64, 0.0, 0.0)).collect(),
+        weights: vec![1.0; n],
+    };
+    let (interior, inserts) = interior_knots_and_insertions(&c);
+    assert_eq!(interior.len(), n - 2);
+    assert!(inserts.is_empty());
+}

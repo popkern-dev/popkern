@@ -44,13 +44,29 @@ fn interior_knots_and_insertions(nurbs: &NurbsCurve) -> (Vec<f64>, Vec<f64>) {
             interior_knots.push(k);
         }
     }
+    // A knot vector is non-decreasing, so the knots within 1e-14 of `k`
+    // form one run: two binary searches count it. Counting by a scan
+    // per knot was quadratic, and a fitted pcurve of ~4000 knots spent
+    // minutes here inside the uv clip's crossing search (measured: a
+    // cone minus a box, 99% of a 480 s boolean). An unsorted vector
+    // keeps the scan.
+    let sorted = nurbs.knots.windows(2).all(|w| w[0] <= w[1]);
+    let mult_of = |k: f64| -> usize {
+        if sorted {
+            let lo = nurbs.knots.partition_point(|&v| v <= k - 1e-14);
+            let hi = nurbs.knots.partition_point(|&v| v < k + 1e-14);
+            hi.saturating_sub(lo)
+        } else {
+            nurbs
+                .knots
+                .iter()
+                .filter(|&&v| (v - k).abs() < 1e-14)
+                .count()
+        }
+    };
     let mut knots_to_insert: Vec<f64> = Vec::new();
     for &k in &interior_knots {
-        let mult = nurbs
-            .knots
-            .iter()
-            .filter(|&&v| (v - k).abs() < 1e-14)
-            .count();
+        let mult = mult_of(k);
         for _ in 0..nurbs.degree.saturating_sub(mult) {
             knots_to_insert.push(k);
         }
