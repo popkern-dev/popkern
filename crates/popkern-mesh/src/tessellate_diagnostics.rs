@@ -78,3 +78,40 @@ pub(crate) fn face_mesh_diagonal(fm: &crate::mesh::FaceMesh) -> f64 {
     }
     ((max[0] - min[0]).powi(2) + (max[1] - min[1]).powi(2) + (max[2] - min[2]).powi(2)).sqrt()
 }
+
+/// The trim-grid face's grid range and trim loops (the `trim` trace
+/// topic).
+pub(super) fn trim_trace(
+    face_handle: popkern_core::topology::FaceHandle,
+    rectangular: bool,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    trim_loops: &[crate::trim::TrimLoop],
+) {
+    if popkern_core::trace::trace_enabled("trim") {
+        eprintln!(
+            "  [trim] face {face_handle:?} rectangular={rectangular} grid u={u_range:?} v={v_range:?}"
+        );
+        for l in trim_loops {
+            let (mut bu, mut bv) = (
+                (f64::INFINITY, f64::NEG_INFINITY),
+                (f64::INFINITY, f64::NEG_INFINITY),
+            );
+            for &(u, v) in &l.points {
+                bu = (bu.0.min(u), bu.1.max(u));
+                bv = (bv.0.min(v), bv.1.max(v));
+            }
+            eprintln!(
+                "  [trim]   loop outer={} from_pcurves={} n={} bbox u={bu:?} v={bv:?}",
+                l.is_outer,
+                l.from_pcurves,
+                l.points.len()
+            );
+            if l.points.len() <= 8 {
+                for &(u, v) in &l.points {
+                    eprintln!("  [trim]     pt ({u:.4},{v:.4})");
+                }
+            }
+        }
+    }
+}

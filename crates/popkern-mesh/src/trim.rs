@@ -6,6 +6,7 @@
 
 // Items are pub(crate) for use by the trim pipeline modules.
 
+use crate::trim_pole_lift::{is_pole, lift_through_pole, signed_area};
 use crate::trim_sampling::sample_loop_with_samples;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -51,7 +52,9 @@ pub(crate) fn build_trim_loops_with_samples(
         return Vec::new();
     };
 
-    let (period_u, period_v) = surface.periodicity();
+    // The kernel flag: outer loops run counter-clockwise in the chart
+    // when set, holes the other way.
+    let orientation = face.surface.as_ref().is_none_or(|s| s.orientation);
     let mut result = Vec::new();
 
     // Outer loop.
@@ -59,9 +62,12 @@ pub(crate) fn build_trim_loops_with_samples(
         sample_loop_with_samples(brep, face.outer_loop, surface, chord_height, edge_samples);
     if outer_points.len() >= 3 {
         // Unwrap seam-crossing polygons on periodic surfaces.
-        if crosses_seam(&outer_points, period_u, period_v) {
-            unwrap_periodic(&mut outer_points, period_u, period_v);
-        }
+        unwrap_periodic_loop(
+            &mut outer_points,
+            &mut outer_points_3d,
+            surface,
+            orientation,
+        );
         // Canonical winding: outer loops CCW in UV. Half-edge order
         // around a face is CCW in 3D but its UV image winding depends
         // on the surface parameterization's handedness (measured:
@@ -82,9 +88,12 @@ pub(crate) fn build_trim_loops_with_samples(
         let (mut inner_points, mut inner_points_3d, inner_from_pcurves) =
             sample_loop_with_samples(brep, inner_loop, surface, chord_height, edge_samples);
         if inner_points.len() >= 3 {
-            if crosses_seam(&inner_points, period_u, period_v) {
-                unwrap_periodic(&mut inner_points, period_u, period_v);
-            }
+            unwrap_periodic_loop(
+                &mut inner_points,
+                &mut inner_points_3d,
+                surface,
+                !orientation,
+            );
             dedup_loop(&mut inner_points, &mut inner_points_3d);
             normalize_winding(&mut inner_points, &mut inner_points_3d, false);
             result.push(TrimLoop {
@@ -97,6 +106,32 @@ pub(crate) fn build_trim_loops_with_samples(
     }
 
     result
+}
+
+/// Make a loop contiguous on a periodic chart. A loop through a chart
+/// pole that crosses the seam, or winds against the face flag, gets
+/// explicit pole-row runs ([`lift_through_pole`]); a seam-crossing loop
+/// otherwise folds about its circular mean ([`unwrap_periodic`]).
+/// `ccw`: the loop must run counter-clockwise in the chart.
+fn unwrap_periodic_loop(
+    points: &mut Vec<(f64, f64)>,
+    points_3d: &mut Vec<Point3>,
+    surface: &SurfaceGeometry,
+    ccw: bool,
+) {
+    let (period_u, period_v) = surface.periodicity();
+    let crosses = crosses_seam(points, period_u, period_v);
+    let pole_period = period_u
+        .filter(|&p| period_v.is_none() && points.iter().any(|&(u, v)| is_pole(surface, u, v, p)));
+    if let Some(p) = pole_period
+        && (crosses || (signed_area(points) > 0.0) != ccw)
+        && lift_through_pole(points, points_3d, surface, p, ccw)
+    {
+        return;
+    }
+    if crosses {
+        unwrap_periodic(points, period_u, period_v);
+    }
 }
 
 /// Remove consecutive duplicate points (each half-edge contributes

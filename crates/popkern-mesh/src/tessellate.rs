@@ -15,8 +15,8 @@ mod tessellate_orientation;
 mod tessellate_pcurve_range;
 use crate::mesh::{FaceMesh, MeshVertex, TriMesh};
 use crate::{MeshError, TessellationOptions};
-use tessellate_diagnostics::deepchord_trace;
 pub(crate) use tessellate_diagnostics::face_mesh_diagonal;
+use tessellate_diagnostics::{deepchord_trace, trim_trace};
 use tessellate_orientation::orient_face_meshes_coherently;
 use tessellate_pcurve_range::pcurve_parameter_range;
 #[cfg(test)]
@@ -109,6 +109,13 @@ pub(crate) fn tessellate_face_with_samples(
         }
     }
     let trim_loops = trim_loops;
+    // A periodic axis's grid covers its outer trim, which a loop
+    // through a chart pole lifts off the pcurve box (PK-936). Not a
+    // seam spine's synthetic rectangle, which sits outside on purpose
+    // (widening to it tore a whole torus open: 128 open edges).
+    if !outer_loop_is_seam_spine(brep, face_handle) {
+        u_range = crate::trim_pole_lift::cover_outer_trim(u_range, &trim_loops, surface);
+    }
     // Pad by 2% unless the outer polygon is an axis-aligned rectangle
     // spanning the range (untrimmed faces keep the exact fast grid):
     // trim-polygon iso edges coinciding with grid lines degenerate
@@ -177,32 +184,7 @@ pub(crate) fn tessellate_face_with_samples(
             }
         }
     }
-    if popkern_core::trace::trace_enabled("trim") {
-        eprintln!(
-            "  [trim] face {face_handle:?} rectangular={rectangular} grid u={u_range:?} v={v_range:?}"
-        );
-        for l in &trim_loops {
-            let (mut bu, mut bv) = (
-                (f64::INFINITY, f64::NEG_INFINITY),
-                (f64::INFINITY, f64::NEG_INFINITY),
-            );
-            for &(u, v) in &l.points {
-                bu = (bu.0.min(u), bu.1.max(u));
-                bv = (bv.0.min(v), bv.1.max(v));
-            }
-            eprintln!(
-                "  [trim]   loop outer={} from_pcurves={} n={} bbox u={bu:?} v={bv:?}",
-                l.is_outer,
-                l.from_pcurves,
-                l.points.len()
-            );
-            if l.points.len() <= 8 {
-                for &(u, v) in &l.points {
-                    eprintln!("  [trim]     pt ({u:.4},{v:.4})");
-                }
-            }
-        }
-    }
+    trim_trace(face_handle, rectangular, u_range, v_range, &trim_loops);
 
     let max_subdivisions = crate::adaptive::effective_max_subdivisions(surface, options);
     // The uniform grid is chord-only for FALLBACK faces (ones the
