@@ -15,6 +15,22 @@ use crate::face_helpers::pcurve_uv_range;
 // Private geometry utilities
 // ---------------------------------------------------------------------------
 
+/// The face's mesh from the whole-body pipeline's boundary-first face
+/// pass, for measurement. The uniform-grid face mesher clips a folded
+/// periodic trim to the wrong region (a notched cone wall's notch: 0.61
+/// for 6.41; PK-934).
+fn measuring_mesh(
+    brep: &BRep,
+    face: FaceHandle,
+    opts: &TessellationOptions,
+) -> Result<popkern_mesh::FaceMesh, MeasureError> {
+    popkern_mesh::tessellate_faces(brep, &[face], opts)
+        .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?
+        .into_iter()
+        .find(|m| m.face == face)
+        .ok_or_else(|| MeasureError::TessellationFailed("face not meshed".into()))
+}
+
 /// Compute face area by tessellating and summing triangle areas.
 fn tessellate_area(
     brep: &BRep,
@@ -25,8 +41,7 @@ fn tessellate_area(
         chord_height: tolerance.linear().max(1e-4),
         ..TessellationOptions::default()
     };
-    let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
-        .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;
+    let face_mesh = measuring_mesh(brep, face, &opts)?;
     let area: f64 = face_mesh
         .triangles
         .iter()
@@ -39,6 +54,15 @@ fn tessellate_area(
         })
         .sum();
     Ok(area)
+}
+
+/// The face's uv bounding rectangle when its outer loop bounds exactly
+/// that rectangle; `None` otherwise. The closed-form areas integrate the
+/// rectangle, so any other region (a notched cone wall read 8.78 for a
+/// lateral area of at most 7.03; PK-934) is tessellated instead.
+fn rectangle(brep: &BRep, face: FaceHandle) -> Option<((f64, f64), (f64, f64))> {
+    pcurve_uv_range(brep, face)
+        .filter(|r| crate::face_helpers::outer_loop_matches_uv_rectangle(brep, face, *r))
 }
 
 /// Triangle area from three vertices.
@@ -82,7 +106,7 @@ pub fn face_area(
         }
         // Cylinder: area element = radius * du * dv.
         SurfaceGeometry::Cylinder { radius, .. } if face_data.inner_loops.is_empty() => {
-            if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
+            if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
                 Ok(radius * (u1 - u0).abs() * (v1 - v0).abs())
             } else {
                 tessellate_area(brep, face, tolerance)
@@ -90,7 +114,7 @@ pub fn face_area(
         }
         // Sphere: area element = r^2*sin(v) du dv -> r^2*|du|*|cos(v0)-cos(v1)|.
         SurfaceGeometry::Sphere { radius, .. } if face_data.inner_loops.is_empty() => {
-            if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
+            if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
                 Ok(radius * radius * (u1 - u0).abs() * (v0.pcos() - v1.pcos()).abs())
             } else {
                 tessellate_area(brep, face, tolerance)
@@ -99,7 +123,7 @@ pub fn face_area(
         // Cone: area element = v*tan(ha)/cos(ha) du dv.
         // Integrated: tan(ha)/cos(ha) * |du| * (v1^2-v0^2)/2.
         SurfaceGeometry::Cone { half_angle, .. } if face_data.inner_loops.is_empty() => {
-            if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
+            if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
                 let delta_v_sq = (v1 * v1 - v0 * v0).abs() / 2.0;
                 Ok(half_angle.ptan() / half_angle.pcos() * (u1 - u0).abs() * delta_v_sq)
             } else {
@@ -115,7 +139,7 @@ pub fn face_area(
             minor_radius,
             ..
         } if face_data.inner_loops.is_empty() => {
-            if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
+            if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
                 let du = (u1 - u0).abs();
                 let dv = (v1 - v0).abs();
                 // Guard: seam faces get inflated UV bbox (> half-period).
@@ -139,7 +163,7 @@ pub fn face_area(
         // integrating a UV bounding box would over-count triangular or
         // curved Gregory subdomains.
         SurfaceGeometry::Gregory(_) if face_data.inner_loops.is_empty() => {
-            if let Some(((u0, u1), (v0, v1))) = pcurve_uv_range(brep, face) {
+            if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
                 if crate::face_helpers::outer_loop_matches_uv_rectangle(
                     brep,
                     face,
@@ -301,8 +325,7 @@ pub fn face_centroid(
         chord_height: tolerance.linear().max(1e-4),
         ..TessellationOptions::default()
     };
-    let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
-        .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;
+    let face_mesh = measuring_mesh(brep, face, &opts)?;
 
     let mut cx = 0.0_f64;
     let mut cy = 0.0_f64;

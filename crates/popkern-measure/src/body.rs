@@ -209,8 +209,14 @@ fn tessellated_face_divergence_contribution(
         max_subdivisions: 128,
         ..Default::default()
     };
-    let face_mesh = popkern_mesh::tessellate_face(brep, face, &opts)
-        .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?;
+    // The boundary-first face pass, as `face_area` measures (the
+    // uniform-grid face mesher clips folded periodic trims to the wrong
+    // region; PK-934).
+    let face_mesh = popkern_mesh::tessellate_faces(brep, &[face], &opts)
+        .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?
+        .into_iter()
+        .find(|m| m.face == face)
+        .ok_or_else(|| MeasureError::TessellationFailed("face not meshed".into()))?;
     let mut v = 0.0_f64;
     for tri in &face_mesh.triangles {
         let v0 = to_vec3(face_mesh.vertices[tri[0]].position);

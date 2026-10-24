@@ -74,6 +74,8 @@ pub(crate) fn pcurve_uv_range(brep: &BRep, face: FaceHandle) -> Option<((f64, f6
 
 /// Returns true when the outer trim loop is the boundary of the supplied UV
 /// rectangle, so rectangular native surface integration is trim-equivalent.
+/// On a periodic chart a coordinate matches a side modulo the period
+/// (pcurves on different branches bound the same rectangle).
 pub(crate) fn outer_loop_matches_uv_rectangle(
     brep: &BRep,
     face: FaceHandle,
@@ -91,6 +93,19 @@ pub(crate) fn outer_loop_matches_uv_rectangle(
     }
 
     let tol = 1e-8_f64.max((u1 - u0).abs().max((v1 - v0).abs()) * 1e-8);
+    let (period_u, period_v) = face_data
+        .surface
+        .as_ref()
+        .map(|s| s.geometry.periodicity())
+        .unwrap_or((None, None));
+    let near = |x: f64, side: f64, period: Option<f64>| {
+        let d = x - side;
+        let d = match period {
+            Some(p) if p > 0.0 => d - p * (d / p).round(),
+            _ => d,
+        };
+        d.abs() <= tol
+    };
     let mut on_u_min = false;
     let mut on_u_max = false;
     let mut on_v_min = false;
@@ -105,10 +120,10 @@ pub(crate) fn outer_loop_matches_uv_rectangle(
         for i in 0..=8 {
             let t = t0 + (t1 - t0) * (i as f64 / 8.0);
             let uv = pcurve.point_at(t);
-            let near_u_min = (uv.x - u0).abs() <= tol;
-            let near_u_max = (uv.x - u1).abs() <= tol;
-            let near_v_min = (uv.y - v0).abs() <= tol;
-            let near_v_max = (uv.y - v1).abs() <= tol;
+            let near_u_min = near(uv.x, u0, period_u);
+            let near_u_max = near(uv.x, u1, period_u);
+            let near_v_min = near(uv.y, v0, period_v);
+            let near_v_max = near(uv.y, v1, period_v);
             if !(near_u_min || near_u_max || near_v_min || near_v_max) {
                 return false;
             }
