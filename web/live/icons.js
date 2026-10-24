@@ -45,9 +45,12 @@ const PATHS = {
   next: "m6 3.5 4.5 4.5L6 12.5",
 };
 
-// Filled marks (drawn with `fill`, no stroke).
+// Filled marks (drawn with `fill`, no stroke). The play mark sits
+// beside a label, so its triangle leans left in its box: centred by
+// extent it read a pixel right of its text (a label's box ends at its
+// ink, while the icon's box began 3.5 units before its own).
 const SOLID = {
-  play: "M5 3v10l8-5z",
+  play: "M2.5 2.5v11l9-5.5z",
 };
 
 // Operation names (the history's `operation_label`, an assembly

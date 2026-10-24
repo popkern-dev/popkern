@@ -66,7 +66,7 @@
       <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h4.5A1.5 1.5 0 0 1 8 4.5V13a1.5 1.5 0 0 0-1.5-1.5H2zM14 3H9.5A1.5 1.5 0 0 0 8 4.5V13a1.5 1.5 0 0 1 1.5-1.5H14z"/></svg><span class="bar-text">Guide</span>
     </a>
     <button id="cancel" class="bar-button icon-only" type="button" title="Stop the build and restart the kernel" aria-label="Stop"><svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1"/></svg></button>
-    <button id="run" class="primary" type="button" title="Build the script (Ctrl/Cmd+Enter). Edits also rebuild when typing pauses."><svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2.5v11l9-5.5z"/></svg>Build<kbd class="build-key">⌘↵</kbd></button>
+    <button id="run" class="primary" type="button" title="Build the script (Ctrl/Cmd+Enter). Edits also rebuild when typing pauses."><svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5v11l9-5.5z"/></svg>Build<kbd class="build-key">⌘↵</kbd></button>
     <!-- Settings (layout.js menus): the page's own preferences and the
          view options, in one place away from the model. -->
     <div class="menu-anchor">
@@ -93,7 +93,7 @@
       </div>
       <span class="save-state" aria-hidden="true"></span>
       <button id="migration-add" class="head-button rail-add" type="button" hidden title="Add a migration: a script that starts from previous() and edits the document" aria-label="Add a migration"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span class="rail-add-label">migration</span></button>
-      <button id="film-add" class="head-button rail-add" type="button" hidden title="Add a film: a script that animates the built model into a presentation video" aria-label="Add a film"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><svg class="icon solid rail-add-glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10l8-5z"/></svg><span class="rail-add-label">film</span></button>
+      <button id="film-add" class="head-button rail-add" type="button" hidden title="Add a film: a script that animates the built model into a presentation video" aria-label="Add a film"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><svg class="icon solid rail-add-glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 2.5v11l9-5.5z"/></svg><span class="rail-add-label">film</span></button>
       <button id="editor-collapse" class="head-button icon-only" type="button" title="Hide the script" aria-label="Hide the script" aria-expanded="true"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3.5-4.5 4.5 4.5 4.5"/></svg></button>
     </div>
     <div id="draft-notice" class="notice" hidden role="status">
@@ -116,6 +116,7 @@
   <!-- Splitters (panel-resize.js): drag, arrow keys, double-click to reset. -->
   <div id="split-editor" class="splitter splitter-editor" role="separator" aria-orientation="vertical" aria-label="Resize the script panel" tabindex="0" title="Drag to resize the script panel (double-click to reset)"></div>
   <div id="split-side" class="splitter splitter-side" role="separator" aria-orientation="vertical" aria-label="Resize the inspector" tabindex="0" title="Drag to resize the inspector (double-click to reset)"></div>
+  <div id="split-dock" class="splitter splitter-dock" role="separator" aria-orientation="horizontal" aria-label="Resize the history" tabindex="0" title="Drag to resize the history (double-click to reset)"></div>
   <section class="pane-viewer" aria-label="Model">
     <canvas id="viewer" aria-label="3D view of the model; drag to orbit, wheel or pinch to zoom, right-drag, shift-drag or two-finger drag to pan, arrow keys to orbit"></canvas>
     <div class="view-corner">

@@ -92,12 +92,13 @@ export function writeParamFilter(filter) {
 
 const PANEL_SIZES_KEY = "popkern-live-panels";
 
-/** The panel widths the visitor dragged to, in CSS px:
- *  `{ editor?, side? }` (a missing one keeps the layout's own). */
+/** The panel sizes the visitor dragged to, in CSS px:
+ *  `{ editor?, side?, dock?, sheet? }` (a missing one keeps the
+ *  layout's own). */
 export function readPanelSizes() {
   const stored = storage((s) => JSON.parse(s.getItem(PANEL_SIZES_KEY) ?? "null"));
   const sizes = {};
-  for (const key of ["editor", "side"]) if (Number.isFinite(stored?.[key])) sizes[key] = stored[key];
+  for (const key of ["editor", "side", "dock", "sheet"]) if (Number.isFinite(stored?.[key])) sizes[key] = stored[key];
   return sizes;
 }
 

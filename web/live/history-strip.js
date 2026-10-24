@@ -146,5 +146,12 @@ export class HistoryStrip {
     if (left < strip.scrollLeft || right > strip.scrollLeft + strip.clientWidth) {
       strip.scrollLeft = Math.max(0, left - (strip.clientWidth - card.offsetWidth) / 2);
     }
+    // A dock dragged to another height wraps the cards into rows that
+    // scroll down (panel-resize.js).
+    const top = card.offsetTop;
+    const bottom = top + card.offsetHeight;
+    if (top < strip.scrollTop || bottom > strip.scrollTop + strip.clientHeight) {
+      strip.scrollTop = Math.max(0, top - (strip.clientHeight - card.offsetHeight) / 2);
+    }
   }
 }

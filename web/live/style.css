@@ -135,7 +135,7 @@ body.busy #cancel { color: var(--bad); border-color: color-mix(in srgb, var(--ba
   /* The side columns take a dragged width (panel-resize.js) when there
      is one, else their own range. */
   grid-template-columns: var(--editor-w, minmax(20rem, 27rem)) minmax(0, 1fr) var(--side-w, minmax(16rem, 19.5rem));
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) var(--dock-h, auto);
   grid-template-areas: "editor viewer side" "dock dock dock";
   gap: var(--gap);
   padding: 0 var(--gap) var(--gap);
@@ -151,11 +151,14 @@ body.editor-collapsed .workbench { grid-template-columns: 2.75rem minmax(0, 1fr)
 .splitter { position: relative; z-index: 4; width: var(--gap); align-self: stretch; cursor: col-resize; touch-action: none; outline: none; }
 .splitter-editor { grid-area: editor; justify-self: end; margin-right: calc(-1 * var(--gap)); }
 .splitter-side { grid-area: side; justify-self: start; margin-left: calc(-1 * var(--gap)); }
+.splitter-dock { grid-area: dock; justify-self: stretch; align-self: start; width: auto; height: var(--gap); margin-top: calc(-1 * var(--gap)); cursor: row-resize; }
+.splitter-dock::after { top: 50%; bottom: auto; left: 0.75rem; right: 0.75rem; width: auto; height: 2px; margin: -1px 0 0; }
 .splitter::after { content: ""; position: absolute; top: 0.75rem; bottom: 0.75rem; left: 50%; width: 2px; margin-left: -1px; border-radius: 1px; background: transparent; transition: background 0.12s; }
 .splitter:hover::after, .splitter.dragging::after { background: var(--accent-line); }
 .splitter:focus-visible::after { background: var(--accent); }
 body.editor-collapsed .splitter-editor { display: none; }
 body.resizing { cursor: col-resize; user-select: none; }
+body.resizing-y { cursor: row-resize; }
 body.resizing .pane-viewer canvas, body.resizing iframe { pointer-events: none; }
 body.editor-collapsed .pane-editor { display: none; }
 .editor-rail { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 0.75rem; padding: 0.6rem 0; min-height: 0; border-radius: var(--radius); color: var(--muted); }

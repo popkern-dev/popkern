@@ -53,6 +53,9 @@
   .editor-rail, #editor-collapse, .splitter { display: none !important; }
   .pane-editor, .pane-side, .dock { grid-area: sheet; display: none; border-radius: 0; border-width: 0; box-shadow: none; padding-bottom: env(safe-area-inset-bottom); }
   body[data-sheet="history"] .dock { display: flex; }
+  /* A dragged sheet height: the History sheet scrolls what does not fit. */
+  body.sheet-sized .dock { overflow-y: auto; }
+  body.sheet-sized[data-sheet="history"] .workbench { grid-template-rows: minmax(12rem, 1fr) auto var(--sheet-h); }
   body[data-sheet="code"] .pane-editor { display: flex; }
   body[data-sheet="model"] .pane-side { display: flex; }
   body.editor-collapsed .pane-editor { display: none; }
@@ -65,7 +68,9 @@
   .pane-viewer canvas { border-radius: 0; }
   .sheet-tabs { grid-area: tabs; display: flex; flex-direction: column; position: relative; z-index: 7; padding: 0.55rem 0.75rem 0.35rem; background: var(--card); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -10px 30px var(--shadow); }
   .sheet-grabber { align-self: center; width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--line-strong); margin-bottom: 0.5rem; pointer-events: none; }
-  .sheet-size { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 6rem; height: 1.4rem; min-height: 0; padding: 0; background: transparent; border: 0; }
+  /* The grabber's strip: tap for taller or shorter, drag to any height
+     (panel-resize.js). */
+  .sheet-size { position: absolute; top: 0; left: 0; right: 0; width: 100%; height: 1.3rem; min-height: 0; padding: 0; background: transparent; border: 0; cursor: row-resize; touch-action: none; }
   .sheet-size:hover { background: transparent; }
   .sheet-tabs .tabs { padding: 0.25rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised); }
   .sheet-tabs .tab { flex: 1 1 0; min-height: 2.4rem; }
@@ -169,6 +174,7 @@
   .film-list-item { min-height: 2.1rem; }
   .sheet-tabs { padding-top: 0.45rem; padding-bottom: 0.25rem; }
   .sheet-grabber { margin-bottom: 0.35rem; }
+  .sheet-size { height: 1.05rem; }
   .sheet-tabs .tab { min-height: 2.1rem; }
 }
 /* Small phones: the guide keeps its icon and the brand goes (About is

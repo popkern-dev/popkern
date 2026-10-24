@@ -207,8 +207,20 @@ body.status-failed .status-dot { background: var(--bad); }
 #scrubber-range { width: 100%; margin: 0; height: 0.9rem; }
 .history-empty { display: flex; align-items: center; justify-content: center; text-align: center; gap: 0.75rem; min-height: 4.6rem; padding: 0 0.6rem; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); }
 .step-card { display: none; }
-/* No timeline: no playback to offer. */
-.dock:has(#scrubber[hidden]) .transport { visibility: hidden; }
+/* A dock dragged to a height (panel-resize.js): the step cards wrap
+   into rows and scroll in what the dock has; at its smallest only the
+   title row shows. */
+@media (min-width: 60.01rem) {
+  body.dock-sized .dock { grid-template-rows: auto minmax(0, 1fr); align-content: stretch; }
+  body.dock-sized .scrubber { min-height: 0; height: 100%; }
+  body.dock-sized .step-cards { flex: 1 1 auto; min-height: 0; flex-wrap: wrap; align-content: flex-start; overflow-y: auto; overflow-x: hidden; }
+  body.dock-sized .history-empty { min-height: 0; overflow: hidden; }
+  body.dock-short .scrubber, body.dock-short .history-empty { display: none; }
+}
+/* No timeline: no playback to offer, and the title takes the corner
+   (a hidden but present transport left it floating 7rem in). */
+.dock:has(#scrubber[hidden]) .transport { display: none; }
+.dock:has(#scrubber[hidden]) .dock-title { grid-column: 1 / -1; min-height: 2rem; }
 
 .migration-name .icon, .film-list-item .icon { width: 0.6rem; height: 0.6rem; color: var(--accent); }
 .migration-name { gap: 0.35rem; }
