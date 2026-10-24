@@ -250,7 +250,11 @@ pub(crate) fn weld_dead_end_shared_endpoints(
                 })
                 .fold(0.0f64, f64::max);
             let far_cap = (0.2 * rec_scale).max(band * 100.0);
-            let outward_dirs: Vec<popkern_core::geometry::Vec3> = incident[n]
+            type FacePair = (
+                popkern_core::topology::FaceHandle,
+                popkern_core::topology::FaceHandle,
+            );
+            let sourced_dirs: Vec<(Option<FacePair>, popkern_core::geometry::Vec3)> = incident[n]
                 .iter()
                 .filter_map(|&h| {
                     let he = &graph.half_edges[h];
@@ -269,8 +273,35 @@ pub(crate) fn weld_dead_end_shared_endpoints(
                     } else {
                         (c.t_end, c.t_end - span * 1e-3)
                     };
-                    (c.geometry.point_at(t_at) - c.geometry.point_at(t_in)).normalized()
+                    let dir =
+                        (c.geometry.point_at(t_at) - c.geometry.point_at(t_in)).normalized()?;
+                    let pair = match he.source {
+                        EdgeSource::Shared { face_a, face_b } => Some((face_a, face_b)),
+                        _ => None,
+                    };
+                    Some((pair, dir))
                 })
+                .collect();
+            // A record does not END in a direction its own face pair's
+            // record continues in: a closed record's start node joins
+            // its last piece to its first, smoothly, and both outward
+            // directions are covered by the other piece. Hauling such
+            // a pass-through slid the record's start along its own
+            // circle onto a seam junction 5.4e-2 away (measured,
+            // PK-940: a sphere drilled across its pole axis under the
+            // mixed rotation; both hole halves then ended where they
+            // began and the face served wound inside out). A record
+            // CROSSING a boundary continues on another face pair, and
+            // one stopping short has no continuation: both keep their
+            // directions.
+            let outward_dirs: Vec<popkern_core::geometry::Vec3> = sourced_dirs
+                .iter()
+                .filter(|(src, o)| {
+                    !sourced_dirs
+                        .iter()
+                        .any(|(other, q)| src.is_some() && other == src && o.dot(q) < -0.9)
+                })
+                .map(|&(_, o)| o)
                 .collect();
             let pair_surfaces = incident[n].iter().find_map(|&h| {
                 if let EdgeSource::Shared { face_a, face_b } = graph.half_edges[h].source {
