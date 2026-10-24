@@ -145,7 +145,7 @@ fn half_edge_moment(brep: &BRep, half_edge: HalfEdgeHandle, o: Point3) -> Option
 /// Open edges answer by their endpoints. A closed edge's endpoints
 /// coincide, so it answers by the PK-303 convention: the edge's
 /// canonical half-edge runs the stored curve forward.
-fn traverses_forward(
+pub(crate) fn traverses_forward(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
     curve: &CurveOnEdge,

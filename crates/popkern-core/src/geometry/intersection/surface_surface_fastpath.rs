@@ -144,9 +144,13 @@ pub(super) fn try_analytic_pair(
     // exact empty answer for the tangent / enclosed regimes. The
     // marching path re-marched a fillet strip × corner sphere tangent
     // circle from every one of ~2100 tangent seeds (PK-390).
-    if let Some(intersections) =
-        cylinder_sphere::try_cylinder_sphere(surface1, v1_range, surface2, v2_range, tolerance)
-    {
+    if let Some(intersections) = cylinder_sphere::try_cylinder_sphere(
+        surface1,
+        (u1_range, v1_range),
+        surface2,
+        (u2_range, v2_range),
+        tolerance,
+    ) {
         return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
     }
 

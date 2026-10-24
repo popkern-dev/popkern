@@ -42,23 +42,49 @@ pub(crate) fn contains_on_u_periodic_chart(
     v: f64,
     period: f64,
 ) -> bool {
+    contains_on_u_periodic_chart_with_poles(loops, u, v, period, &|_| false)
+}
+
+/// [`contains_on_u_periodic_chart`] on a chart with collapsed rows:
+/// `pole_row(v)` names the rows (a sphere's poles, a cone's apex) that
+/// are one 3D point. A step of whole periods along such a row is the
+/// loop walking it, a real boundary in the chart, and counts at its
+/// full length: a sphere face's outer loop runs both seam copies and
+/// joins them along its pole rows, and with those rows read as branch
+/// jumps the face's parity inverted and its holes read as material
+/// (PK-937).
+pub(crate) fn contains_on_u_periodic_chart_with_poles(
+    loops: &[&[(f64, f64)]],
+    u: f64,
+    v: f64,
+    period: f64,
+    pole_row: &dyn Fn(f64) -> bool,
+) -> bool {
     let mut crossings = 0usize;
     for poly in loops {
         let n = poly.len();
         for i in 0..n {
             let (u0, v0) = poly[i];
             let (u1_raw, v1) = poly[(i + 1) % n];
-            let du = u1_raw - u0;
-            let du = du - period * (du / period).round();
+            let raw = u1_raw - u0;
+            let wrapped = raw - period * (raw / period).round();
+            let along_pole = wrapped.abs() <= 1e-9 * period
+                && raw.abs() > 0.5 * period
+                && (v1 - v0).abs() <= 1e-9 * (1.0 + v0.abs())
+                && pole_row(v0);
+            let du = if along_pole { raw } else { wrapped };
             let u1 = u0 + du;
             if du == 0.0 {
                 continue;
             }
-            // The one lift of the ray's u within half a period of the
-            // segment start; |du| ≤ period/2 admits at most one
-            // straddling lift among it and its neighbours.
+            // The lifts of the ray's u within reach of the segment: a
+            // short step (|du| ≤ period/2) straddles at most one among
+            // the start's nearest and its neighbours; a pole row spans
+            // its whole length.
             let base = u + period * ((u0 - u) / period).round();
-            for x in [base - period, base, base + period] {
+            let reach = (du.abs() / period).ceil().max(1.0) as i64;
+            for k in -reach..=reach {
+                let x = base + k as f64 * period;
                 if (u0 > x) != (u1 > x) {
                     let t = (x - u0) / du;
                     if v0 + t * (v1 - v0) > v {
@@ -148,6 +174,36 @@ mod tests {
         assert!(contains_on_u_periodic_chart(&loops, 1.3, 1.5, TAU));
         assert!(!contains_on_u_periodic_chart(&loops, 1.3, 2.5, TAU));
         assert!(!contains_on_u_periodic_chart(&loops, 1.3, 0.5, TAU));
+    }
+
+    /// PK-937: a sphere face's outer loop as the chart walk embeds it,
+    /// up the u = 0 seam copy, along the north pole row, down the
+    /// u = 2π copy and back along the south row, holed at u = 1. Read
+    /// as branch jumps the pole rows bound nothing and the hole reads
+    /// as the material; read as the rows they are, the region is the
+    /// chart less the hole, on every branch.
+    #[test]
+    fn pole_rows_bound_a_sphere_face() {
+        use std::f64::consts::PI;
+        let outer = vec![(0.0, PI), (0.0, 0.0), (TAU, 0.0), (TAU, PI)];
+        let hole: Vec<(f64, f64)> = (0..16)
+            .map(|k| {
+                let t = -TAU * k as f64 / 16.0;
+                (1.0 + 0.3 * t.cos(), 1.5 + 0.3 * t.sin())
+            })
+            .collect();
+        let loops: [&[(f64, f64)]; 2] = [&outer, &hole];
+        let poles = |v: f64| v == 0.0 || v == PI;
+        for lift in [-TAU, 0.0, TAU] {
+            let inside = |u: f64, v: f64| {
+                contains_on_u_periodic_chart_with_poles(&loops, u + lift, v, TAU, &poles)
+            };
+            assert!(inside(3.0, 1.5) && inside(1.0, 0.5) && inside(5.9, 2.9));
+            assert!(!inside(1.0, 1.5), "the hole is not material");
+        }
+        // Without the pole rows the parity inverts: the reading this
+        // replaces.
+        assert!(contains_on_u_periodic_chart(&loops, 1.0, 1.5, TAU));
     }
 
     #[test]

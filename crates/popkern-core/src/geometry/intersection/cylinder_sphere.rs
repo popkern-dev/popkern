@@ -16,17 +16,20 @@
 //!   (measured 26 ms per seed, ~55 s per pair call, called three times
 //!   per chamfer reconcile pass — the PK-390 "hang").
 //! - `rs > rc`: two transversal circles at axial offset
-//!   `±sqrt(rs² − rc²)` from the centre. Emitted exactly when the
-//!   sphere chart's pole axis is parallel to the cylinder axis (the
-//!   circles are then constant-`v` lines in both charts); otherwise
-//!   the pair stays on the marching path, which handles transversal
-//!   seeds correctly.
+//!   `±sqrt(rs² − rc²)` from the centre. When the sphere chart's pole
+//!   axis is parallel to the cylinder axis the circles are
+//!   constant-`v` lines in both charts; otherwise the sphere pcurve is
+//!   the shared co-parameterised chart fit (`circle_curve_on`), and
+//!   the 3D circle stays exact. The marching path traced those circles
+//!   4-7e-8 off both surfaces (PK-937: a sphere drilled through its
+//!   centre across its pole axis), which no later pass recovers.
 //!
 //! Non-coaxial pairs return `None` and keep the marching path.
 
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::curve::CurveEval;
 use crate::geometry::curve_on_surface::CurveOnSurface;
+use crate::geometry::intersection::circle_of_revolution::circle_curve_on;
 use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::SurfaceGeometry;
@@ -41,9 +44,9 @@ use crate::tolerance::Tolerance;
 /// (see the module doc); `None` otherwise.
 pub(crate) fn try_cylinder_sphere(
     surface1: &SurfaceGeometry,
-    v1_range: (f64, f64),
+    (u1_range, v1_range): ((f64, f64), (f64, f64)),
     surface2: &SurfaceGeometry,
-    v2_range: (f64, f64),
+    (u2_range, v2_range): ((f64, f64), (f64, f64)),
     tolerance: &Tolerance,
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
     match (surface1, surface2) {
@@ -62,11 +65,11 @@ pub(crate) fn try_cylinder_sphere(
             *origin,
             *axis,
             *radius,
-            v1_range,
+            (u1_range, v1_range),
             *center,
             *sphere_radius,
-            surface1,
-            surface2,
+            (surface1, surface2),
+            (u2_range, v2_range),
             tolerance,
             false,
         ),
@@ -85,11 +88,11 @@ pub(crate) fn try_cylinder_sphere(
             *origin,
             *axis,
             *radius,
-            v2_range,
+            (u2_range, v2_range),
             *center,
             *sphere_radius,
-            surface2,
-            surface1,
+            (surface2, surface1),
+            (u1_range, v1_range),
             tolerance,
             true,
         ),
@@ -103,11 +106,11 @@ fn intersect_impl(
     origin: Point3,
     axis: Vec3,
     rc: f64,
-    cyl_v_range: (f64, f64),
+    cyl_windows: ((f64, f64), (f64, f64)),
     center: Point3,
     rs: f64,
-    cyl_surface: &SurfaceGeometry,
-    sphere_surface: &SurfaceGeometry,
+    (cyl_surface, sphere_surface): (&SurfaceGeometry, &SurfaceGeometry),
+    sphere_windows: ((f64, f64), (f64, f64)),
     tolerance: &Tolerance,
     swapped: bool,
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
@@ -128,15 +131,14 @@ fn intersect_impl(
     if rs < rc {
         return Some(Vec::new());
     }
-    // Transversal circles need the sphere chart's pole axis along the
-    // cylinder axis for an exact constant-v image.
+    // With the sphere chart's pole along the cylinder axis both
+    // images are constant-v lines; across it the sphere's is a fit.
     let pole = match sphere_surface {
         SurfaceGeometry::Sphere { axis, .. } => *axis,
         _ => return None,
     };
-    if axis_n.cross(&pole).length() > tolerance.angular() {
-        return None;
-    }
+    let iso_rows = axis_n.cross(&pole).length() <= tolerance.angular();
+    let cyl_v_range = cyl_windows.1;
     let h = (rs * rs - rc * rc).sqrt();
     let (p1, p2) = orthonormal_basis(axis_n);
     let mut curves = Vec::new();
@@ -145,6 +147,16 @@ fn intersect_impl(
             continue;
         }
         let circle_center = origin + axis_n * station;
+        if !iso_rows {
+            let (s1, w1, s2, w2) = if swapped {
+                (sphere_surface, sphere_windows, cyl_surface, cyl_windows)
+            } else {
+                (cyl_surface, cyl_windows, sphere_surface, sphere_windows)
+            };
+            let curve = circle_curve_on(s1, w1, s2, w2, circle_center, p1, p2, rc, tolerance)?;
+            curves.push(SurfaceSurfaceIntersection::Curve(curve));
+            continue;
+        }
         let curve_3d = nurbs_circle(circle_center, p1, p2, rc);
         let uv_cyl = uv_hline_of(cyl_surface, &curve_3d)?;
         let uv_sphere = uv_hline_of(sphere_surface, &curve_3d)?;

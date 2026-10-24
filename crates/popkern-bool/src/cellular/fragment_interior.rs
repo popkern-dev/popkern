@@ -51,13 +51,34 @@ pub(super) fn fragment_interior_sample(
         let poly: Vec<(f64, f64)> = runs.into_iter().flat_map(|(_, r)| r).collect();
         (poly.len() >= 3).then_some(poly)
     };
-    let outer = sample_loop(&fragment.outer_loop)?;
-    let inners: Vec<Vec<(f64, f64)>> = fragment
-        .inner_loops
-        .iter()
-        .filter_map(|l| sample_loop(l))
-        .collect();
-    if inners.len() != fragment.inner_loops.len() {
+    // The chart walk's own loops come first: their runs sit on the
+    // branches the walk embedded, pole rows included. Re-sampled, a
+    // seam split by a hole straddling it projects both copies onto
+    // one meridian (no pcurve survives an analytic split), the outer
+    // polygon collapses onto the hole outline, and the kept sphere
+    // face sampled inside its own hole (PK-937: a ball drilled across
+    // its pole axis left the cellular path on every orientation).
+    let (outer, inners) = match fragment
+        .chart
+        .as_ref()
+        .filter(|c| c.loops.len() == 1 + fragment.inner_loops.len())
+    {
+        Some(chart) => {
+            let mut loops = chart.loops.iter().map(|l| l.points().to_vec());
+            let outer = loops.next()?;
+            (outer, loops.collect::<Vec<_>>())
+        }
+        None => {
+            let outer = sample_loop(&fragment.outer_loop)?;
+            let inners: Vec<Vec<(f64, f64)>> = fragment
+                .inner_loops
+                .iter()
+                .filter_map(|l| sample_loop(l))
+                .collect();
+            (outer, inners)
+        }
+    };
+    if inners.len() != fragment.inner_loops.len() || outer.len() < 3 {
         return None;
     }
 
@@ -139,8 +160,9 @@ pub(super) fn fragment_interior_sample(
         // u = period copies). See `crate::periodic_chart_parity`.
         if surface.parameter_periodicity().1.is_none() {
             use crate::periodic_chart_parity::{
-                cancel_coincident_pairs, contains_on_u_periodic_chart,
+                cancel_coincident_pairs, contains_on_u_periodic_chart_with_poles,
             };
+            let pole_row = |v: f64| crate::merge::walk::chart_poles::row_collapses(surface, 0.0, v);
             let raw: Vec<f64> = outer_x
                 .iter()
                 .copied()
@@ -164,7 +186,8 @@ pub(super) fn fragment_interior_sample(
             let mut best: Option<(f64, f64)> = None;
             for (a, b) in arcs {
                 let mid = 0.5 * (a + b);
-                let material = contains_on_u_periodic_chart(&loops, mid, cv, p);
+                let material =
+                    contains_on_u_periodic_chart_with_poles(&loops, mid, cv, p, &pole_row);
                 if popkern_core::trace::trace_enabled("face-selection") {
                     eprintln!(
                         "      [selpoly-arc] [{a:.3},{b:.3}] mid={mid:.3} contains={material}"

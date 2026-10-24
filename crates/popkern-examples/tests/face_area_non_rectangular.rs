@@ -140,25 +140,45 @@ fn holed_cylinder_and_sphere_faces_measure_exactly() {
     }
 }
 
-/// A sphere (radius 0.5) drilled along x by a radius-0.2 bore: two caps
-/// of height 0.5 − √0.21 leave it. The boolean's hole arcs sit up to
-/// 7e-8 off both surfaces (marched, then promoted to arcs; PK-937), so
-/// the area is exact to that trim, 2e-7 relative.
+/// A sphere (radius 0.5) drilled through its centre by a radius-0.2
+/// bore: two caps of height 0.5 − √0.21 leave it (PK-937). Across the
+/// sphere's pole axis the hole circles were marched, 7e-8 off both
+/// surfaces, and the area read 2e-7 high; along it they were iso-rows.
+/// A hole straddling the sphere's seam meridian (turn 0 meets the bore
+/// seam there too, turn 0.2 does not) also left the cellular path:
+/// the kept face sampled its classification point inside its hole.
 #[test]
-fn a_drilled_sphere_measures_to_its_trim() {
+fn a_drilled_sphere_measures_exactly() {
     let tol = Tolerance::default();
-    let ball = BRep::sphere(0.5, tol).expect("sphere");
-    let bore = BRep::cylinder(0.2, 2.0, tol)
-        .and_then(|c| c.transform(&Transform3::translation(0.0, 0.0, -1.0)))
-        .and_then(|c| c.transform(&Transform3::rotation_y(PI / 2.0)))
-        .expect("bore");
-    let drilled = boolean(BoolOperation::Subtraction, ball, bore, tol, None).expect("drill");
     let want = PI - 2.0 * 2.0 * PI * 0.5 * (0.5 - 0.21_f64.sqrt());
-    let got = curved_area(&drilled, &tol, is_sphere);
-    assert!(
-        (got - want).abs() < 1e-6 * want,
-        "drilled sphere {got} vs {want}"
-    );
+    let across =
+        |turn: f64| Transform3::rotation_z(turn).compose(&Transform3::rotation_y(PI / 2.0));
+    for (bore_axis, tilt) in [
+        ("along the pole", Transform3::identity()),
+        ("across, on the seam", across(0.0)),
+        ("across, straddling the seam", across(0.2)),
+        ("across, clear of the seam", across(1.0)),
+    ] {
+        for (name, r) in rotations() {
+            let ball = BRep::sphere(0.5, tol).expect("sphere");
+            let bore = BRep::cylinder(0.2, 2.0, tol)
+                .and_then(|c| c.transform(&Transform3::translation(0.0, 0.0, -1.0)))
+                .and_then(|c| c.transform(&tilt))
+                .expect("bore");
+            let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+            let drilled = op(BoolOperation::Subtraction, ball, bore, &r, tol);
+            let fallbacks = popkern_bool::merge_fallback::take_merge_fallback_events();
+            assert!(
+                fallbacks.is_empty(),
+                "{bore_axis}, {name}: left the cellular path: {fallbacks:?}"
+            );
+            let got = curved_area(&drilled, &tol, is_sphere);
+            assert!(
+                (got - want).abs() < 1e-10 * want,
+                "{bore_axis}, {name}: drilled sphere {got} vs {want}"
+            );
+        }
+    }
 }
 
 #[test]

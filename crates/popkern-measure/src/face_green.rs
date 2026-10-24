@@ -24,6 +24,7 @@
 //! 1e-10 off). The area is exact to that trim's accuracy. Measured before: a notched cone wall and a 7/8
 //! sphere face read their measuring mesh, 1.4e-4 relative off.
 
+use crate::planar_area::traverses_forward;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::analytic_surfaces::analytic_signed_distance;
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
@@ -255,8 +256,16 @@ pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f6
                 if curve_off >= pcurve_off {
                     return None;
                 }
-                let (value, travel) =
-                    edge_integral(&surface.geometry, curve, e.half_edge == h, &g)?;
+                // The sense is the vertices', not the edge's owner: a
+                // drilled sphere's split hole arcs ran their curves
+                // backwards from their owning half-edge (PK-937).
+                let from = brep.vertices.get(he.origin)?.position;
+                let to = brep
+                    .vertices
+                    .get(brep.half_edges.get(he.next)?.origin)?
+                    .position;
+                let forward = traverses_forward(brep, h, curve, from, to);
+                let (value, travel) = edge_integral(&surface.geometry, curve, forward, &g)?;
                 let (t0, t1) = pc.parameter_range();
                 let pcurve_travel = pc.point_at(t1).x - pc.point_at(t0).x;
                 ((travel - pcurve_travel).abs() < TRAVEL_AGREEMENT).then_some(value)

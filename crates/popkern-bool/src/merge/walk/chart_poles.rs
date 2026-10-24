@@ -24,7 +24,7 @@ fn pole_shaped(surface: &SurfaceGeometry) -> bool {
 
 /// Whether the chart's u-row through `(u, v)` collapses to one point
 /// (a sphere pole, cone apex or a revolved profile on its axis).
-fn row_collapses(surface: &SurfaceGeometry, u: f64, v: f64) -> bool {
+pub(crate) fn row_collapses(surface: &SurfaceGeometry, u: f64, v: f64) -> bool {
     let p0 = surface.point_at(u, v);
     let p1 = surface.point_at(u + 1e-4, v);
     let scale = 1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
