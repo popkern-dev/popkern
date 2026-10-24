@@ -45,6 +45,26 @@ pub(super) fn dedup_duplicate_covers(
         let uv = &sub.embeddings[&h].uv;
         (uv[0], uv[uv.len() / 2], uv[uv.len() - 1])
     };
+    // The middle SAMPLE is a parameter statement: a record clipped
+    // from a closed circle samples its span non-uniformly, and its
+    // middle sample sat 5e-3 along the boundary edge it traces from
+    // the edge's own (measured, PK-942: a torus halved on its equator
+    // under rotation_z(0.75) kept all eight record duplicates and every
+    // face fell back to the 3D-Newell walk). Either middle lying on the
+    // other's polyline is the same statement made geometrically.
+    let on_polyline = |p: (f64, f64), h: usize| -> bool {
+        sub.embeddings[&h].uv.windows(2).any(|w| {
+            let (a, b) = (w[0], w[1]);
+            let pu = match u_period {
+                Some(per) if per > 0.0 => p.0 - per * ((p.0 - a.0) / per).round(),
+                _ => p.0,
+            };
+            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+            let l2 = (dx * dx + dy * dy).max(1e-300);
+            let t = (((pu - a.0) * dx + (p.1 - a.1) * dy) / l2).clamp(0.0, 1.0);
+            (pu - a.0 - dx * t).powi(2) + (p.1 - a.1 - dy * t).powi(2) < tol * tol
+        })
+    };
     let is_record = |h: usize| -> bool {
         matches!(
             graph.half_edges[h].source,
@@ -59,8 +79,9 @@ pub(super) fn dedup_duplicate_covers(
             }
             let (sa, ma, ea) = seg(a);
             let (sb, mb, eb) = seg(b);
-            let same = near(sa, sb) && near(ea, eb) && near(ma, mb);
-            let reversed = near(sa, eb) && near(ea, sb) && near(ma, mb);
+            let middles = near(ma, mb) || (on_polyline(ma, b) && on_polyline(mb, a));
+            let same = near(sa, sb) && near(ea, eb) && middles;
+            let reversed = near(sa, eb) && near(ea, sb) && middles;
             if !(same || reversed) {
                 continue;
             }

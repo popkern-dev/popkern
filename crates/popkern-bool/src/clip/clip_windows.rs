@@ -173,25 +173,13 @@ fn clip_curve_uv_space_tuned(
     // Chart-cell route (PK-304): doubly-periodic faces take
     // folded-containment windows (see `chart_cell`); everything else
     // keeps the tuned crossing machinery.
-    let cell_clip = super::chart_cell::cell_clip;
-    let clip_a = cell_clip(brep_a, face_a, &curve.curve_uv1).unwrap_or_else(|| {
-        uv_clip_one_face(
-            brep_a,
-            face_a,
-            &curve.curve_uv1,
-            curve.is_closed,
-            open_windows_allowed,
-        )
-    });
-    let clip_b = cell_clip(brep_b, face_b, &curve.curve_uv2).unwrap_or_else(|| {
-        uv_clip_one_face(
-            brep_b,
-            face_b,
-            &curve.curve_uv2,
-            curve.is_closed,
-            open_windows_allowed,
-        )
-    });
+    let closed = curve.is_closed;
+    let clip_one = |brep: &BRep, face: FaceHandle, uv| {
+        super::chart_cell::cell_clip(brep, face, uv, closed)
+            .unwrap_or_else(|| uv_clip_one_face(brep, face, uv, closed, open_windows_allowed))
+    };
+    let clip_a = clip_one(brep_a, face_a, &curve.curve_uv1);
+    let clip_b = clip_one(brep_b, face_b, &curve.curve_uv2);
 
     let name = |r: &UvClipResult| match r {
         UvClipResult::NoPcurves => "NoPcurves".to_string(),

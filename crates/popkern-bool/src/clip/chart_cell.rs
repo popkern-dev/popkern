@@ -35,6 +35,11 @@ pub(crate) struct ChartCell {
     /// True when the ring closes in the plane (no net period
     /// winding) — the precondition for even-odd containment.
     closes: bool,
+    /// True when the ring runs counter-clockwise (positive area).
+    counter_clockwise: bool,
+    /// Coincidence band for boundary riding (the model's linear
+    /// tolerance, read in uv): see `chart_cell_riding`.
+    band: f64,
 }
 
 /// Compute the chart cell for `face`, or `None` when the face is not
@@ -195,6 +200,8 @@ pub(crate) fn face_chart_cell(
         u_period,
         v_period,
         closes: true,
+        counter_clockwise: area2 > 0.0,
+        band: tolerance.linear(),
     })
 }
 
@@ -264,7 +271,8 @@ impl ChartCell {
 
 /// Windows of `curve_uv`'s parameter range that lie inside the cell,
 /// by dense sampling + bisection refinement at the in/out transitions.
-/// Returns `None` when the curve never enters the cell.
+/// A stretch riding the cell boundary takes one half-open verdict
+/// (`chart_cell_riding`). Empty when the curve never enters the cell.
 pub(crate) fn cell_windows(
     cell: &ChartCell,
     curve_uv: &popkern_core::geometry::nurbs_curve::NurbsCurve,
@@ -272,21 +280,19 @@ pub(crate) fn cell_windows(
     use popkern_core::geometry::curve::CurveEval as _;
     let (t0, t1) = curve_uv.parameter_range();
     let n = (curve_uv.control_points.len() * 4).clamp(96, 1024);
-    let at = |t: f64| {
+    let ts: Vec<f64> = (0..=n)
+        .map(|i| t0 + (t1 - t0) * (i as f64) / (n as f64))
+        .collect();
+    let nudges = chart_cell_riding::riding_nudges(cell, curve_uv, &ts);
+    let at = |t: f64, nudge: Option<(f64, f64)>| {
         let q = curve_uv.point_at(t);
-        cell.contains(q.x, q.y)
+        let (du, dv) = nudge.unwrap_or((0.0, 0.0));
+        cell.contains(q.x + du, q.y + dv)
     };
-    let mut windows: Vec<(f64, f64)> = Vec::new();
-    let mut inside_since: Option<f64> = None;
-    let mut prev_t = t0;
-    let mut prev_in = at(t0);
-    if prev_in {
-        inside_since = Some(t0);
-    }
-    let refine = |mut lo: f64, mut hi: f64, lo_in: bool| -> f64 {
+    let refine = |mut lo: f64, mut hi: f64, lo_in: bool, nudge: Option<(f64, f64)>| -> f64 {
         for _ in 0..40 {
             let mid = 0.5 * (lo + hi);
-            if at(mid) == lo_in {
+            if at(mid, nudge) == lo_in {
                 lo = mid;
             } else {
                 hi = mid;
@@ -294,11 +300,15 @@ pub(crate) fn cell_windows(
         }
         0.5 * (lo + hi)
     };
+    let mut windows: Vec<(f64, f64)> = Vec::new();
+    let mut prev_in = at(ts[0], nudges[0]);
+    let mut inside_since = prev_in.then_some(t0);
     for i in 1..=n {
-        let t = t0 + (t1 - t0) * (i as f64) / (n as f64);
-        let now_in = at(t);
+        let now_in = at(ts[i], nudges[i]);
         if now_in != prev_in {
-            let cross = refine(prev_t, t, prev_in);
+            // A transition at a riding stretch's end refines on the
+            // stretch's own (nudged) verdict.
+            let cross = refine(ts[i - 1], ts[i], prev_in, nudges[i - 1].or(nudges[i]));
             if prev_in {
                 if let Some(start) = inside_since.take() {
                     windows.push((start, cross));
@@ -307,7 +317,6 @@ pub(crate) fn cell_windows(
                 inside_since = Some(cross);
             }
         }
-        prev_t = t;
         prev_in = now_in;
     }
     if let Some(start) = inside_since {
@@ -317,14 +326,33 @@ pub(crate) fn cell_windows(
 }
 
 /// The pair-clip entry: cell-fold windows for a cell-resolvable face,
-/// `None` to keep the caller's tuned machinery.
+/// `None` to keep the caller's tuned machinery. On a CLOSED record a
+/// window through the record's parameter seam is ONE wrapped window
+/// (exit beyond the range end, the joint clip's convention): the cell
+/// of a face straddling the chart seam holds the arc of a u-circle
+/// whose parameter starts at u = 0 as two windows, and the pieces met
+/// at a junction no edge carries (measured, PK-942: a torus halved on
+/// its equator under rotation_z(0.7) served 8 curveless edges there).
 pub(crate) fn cell_clip(
     brep: &BRep,
     face: FaceHandle,
     uv: &popkern_core::geometry::nurbs_curve::NurbsCurve,
+    is_closed: bool,
 ) -> Option<super::clip_uv::UvClipResult> {
+    use popkern_core::geometry::curve::CurveEval as _;
     let cell = face_chart_cell(brep, face, &brep.tolerance)?;
-    let windows = cell_windows(&cell, uv);
+    let mut windows = cell_windows(&cell, uv);
+    let (t0, t1) = uv.parameter_range();
+    if is_closed
+        && windows.len() >= 2
+        && let (Some(&(first_in, first_out)), Some(&(last_in, last_out))) =
+            (windows.first(), windows.last())
+        && first_in == t0
+        && last_out == t1
+    {
+        windows.pop();
+        windows[0] = (last_in, first_out + (t1 - t0));
+    }
     if popkern_core::trace::trace_enabled("clip") {
         eprintln!(
             "  [cell-clip] {face:?} cell u[{:.3},{:.3}] v[{:.3},{:.3}] -> {} window(s)",
@@ -345,6 +373,9 @@ pub(crate) fn cell_clip(
 #[path = "chart_cell_crossings.rs"]
 mod chart_cell_crossings;
 pub(crate) use chart_cell_crossings::cell_crossings;
+
+#[path = "chart_cell_riding.rs"]
+mod chart_cell_riding;
 
 #[path = "chart_cell_dissolve.rs"]
 mod chart_cell_dissolve;
