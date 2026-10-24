@@ -66,6 +66,12 @@ pub(super) fn refine_record_junction_endpoints(
     }
     let (pu_a, pv_a) = surf_a.periodicity();
     let (pu_b, pv_b) = surf_b.periodicity();
+    let seam_of = |s: &SurfaceGeometry| {
+        use popkern_core::geometry::surface::SurfaceEval as _;
+        let ((u0, _), (v0, _)) = s.parameter_range();
+        (u0, v0)
+    };
+    let (seam_a, seam_b) = (seam_of(surf_a), seam_of(surf_b));
     let trace = popkern_core::trace::trace_enabled("boolean");
 
     for record in records.iter_mut() {
@@ -112,6 +118,23 @@ pub(super) fn refine_record_junction_endpoints(
                 consider(false, true, uv2.x, cell.u_range.1, pu_b);
                 consider(false, false, uv2.y, cell.v_range.0, pv_b);
                 consider(false, false, uv2.y, cell.v_range.1, pv_b);
+            }
+            // Each periodic chart's seam, where the fit segments a
+            // trace: a record ending on it is already exact. A face
+            // spanning its whole period has no cell, so its seam
+            // was no candidate, and a cylinder-seam end was dragged
+            // 1.1e-2 along the trim onto a torus patch boundary 0.037
+            // off in the chart, its curve hooking 1.1e-4 off both
+            // surfaces inside the end span (PK-941).
+            for (on_one, axis_u, coord, seam, period) in [
+                (true, true, uv1.x, seam_a.0, pu_a),
+                (true, false, uv1.y, seam_a.1, pv_a),
+                (false, true, uv2.x, seam_b.0, pu_b),
+                (false, false, uv2.y, seam_b.1, pv_b),
+            ] {
+                if period.is_some() {
+                    consider(on_one, axis_u, coord, seam, period);
+                }
             }
             let Some((gap, pin)) = best else { continue };
             if gap <= 1.0e-10 {
