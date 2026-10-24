@@ -9,6 +9,7 @@ mod error;
 
 pub use error::MeasureError;
 
+mod face_green;
 mod face_helpers;
 mod planar_area;
 

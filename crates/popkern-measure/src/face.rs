@@ -57,12 +57,29 @@ fn tessellate_area(
 }
 
 /// The face's uv bounding rectangle when its outer loop bounds exactly
-/// that rectangle; `None` otherwise. The closed-form areas integrate the
+/// that rectangle and the face has no holes; `None` otherwise. The closed-form areas integrate the
 /// rectangle, so any other region (a notched cone wall read 8.78 for a
 /// lateral area of at most 7.03; PK-934) is tessellated instead.
 fn rectangle(brep: &BRep, face: FaceHandle) -> Option<((f64, f64), (f64, f64))> {
+    let holed = brep
+        .faces
+        .get(face)
+        .is_none_or(|f| !f.inner_loops.is_empty());
+    if holed {
+        return None;
+    }
     pcurve_uv_range(brep, face)
         .filter(|r| crate::face_helpers::outer_loop_matches_uv_rectangle(brep, face, *r))
+}
+
+/// A trimmed cylinder, cone or sphere face's area: exact by its
+/// boundary integral (PK-935), its measuring mesh when a pcurve is
+/// missing.
+fn trimmed_area(brep: &BRep, face: FaceHandle, tolerance: &Tolerance) -> Result<f64, MeasureError> {
+    match crate::face_green::boundary_integral_area(brep, face) {
+        Some(area) => Ok(area),
+        None => tessellate_area(brep, face, tolerance),
+    }
 }
 
 /// Triangle area from three vertices.
@@ -77,11 +94,11 @@ fn triangle_area(a: Point3, b: Point3, c: Point3) -> f64 {
 /// Compute the surface area of a face.
 ///
 /// `Plane` faces are exact for any boundary: the area integral runs
-/// over the edge curves, holes included. Exact analytic formulas are
-/// used for `Cylinder`, `Sphere`, `Cone`, and `Torus` faces that have
-/// no inner-loop holes. For `Nurbs` and
-/// any curved face that contains holes, the face is tessellated and triangle
-/// areas are summed.
+/// over the edge curves, holes included. `Cylinder`, `Sphere` and
+/// `Cone` faces are exact for any trim: closed forms on uv rectangles,
+/// a boundary integral over the pcurves otherwise. `Torus` faces use
+/// their closed form on hole-free uv rectangles. Other faces are
+/// tessellated and their triangle areas summed.
 pub fn face_area(
     brep: &BRep,
     face: FaceHandle,
@@ -105,29 +122,29 @@ pub fn face_area(
                 })
         }
         // Cylinder: area element = radius * du * dv.
-        SurfaceGeometry::Cylinder { radius, .. } if face_data.inner_loops.is_empty() => {
+        SurfaceGeometry::Cylinder { radius, .. } => {
             if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
                 Ok(radius * (u1 - u0).abs() * (v1 - v0).abs())
             } else {
-                tessellate_area(brep, face, tolerance)
+                trimmed_area(brep, face, tolerance)
             }
         }
         // Sphere: area element = r^2*sin(v) du dv -> r^2*|du|*|cos(v0)-cos(v1)|.
-        SurfaceGeometry::Sphere { radius, .. } if face_data.inner_loops.is_empty() => {
+        SurfaceGeometry::Sphere { radius, .. } => {
             if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
                 Ok(radius * radius * (u1 - u0).abs() * (v0.pcos() - v1.pcos()).abs())
             } else {
-                tessellate_area(brep, face, tolerance)
+                trimmed_area(brep, face, tolerance)
             }
         }
         // Cone: area element = v*tan(ha)/cos(ha) du dv.
         // Integrated: tan(ha)/cos(ha) * |du| * (v1^2-v0^2)/2.
-        SurfaceGeometry::Cone { half_angle, .. } if face_data.inner_loops.is_empty() => {
+        SurfaceGeometry::Cone { half_angle, .. } => {
             if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
                 let delta_v_sq = (v1 * v1 - v0 * v0).abs() / 2.0;
                 Ok(half_angle.ptan() / half_angle.pcos() * (u1 - u0).abs() * delta_v_sq)
             } else {
-                tessellate_area(brep, face, tolerance)
+                trimmed_area(brep, face, tolerance)
             }
         }
         // Torus: area element = r*(R + r*cos(v)) du dv.
