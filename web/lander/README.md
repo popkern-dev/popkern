@@ -32,11 +32,12 @@ tools/                      logo, social-card and asset-stamp generators (not de
 
 ## Before announcing
 
-1. **Fill in the social links.** Search the tree for `#TODO-`:
-   `#TODO-x`, `#TODO-bluesky`, `#TODO-discord`. Unset links render with a small
-   `?` marker so they are obvious in the page; that marker comes from the
-   `a[href^="#TODO"]` rule in `assets/css/site.css` and disappears by itself
-   once the hrefs are real.
+1. **Social links are set** (2026-10-24): GitHub, Discord, Reddit, Bluesky
+   and X, in every page's nav (GitHub, Discord) and footer (all five), the
+   homepage's Community column and "Come and break it" card, and the help
+   lists on the support page and launch post. Any link still spelled
+   `#TODO-…` renders with a small `?` marker (the `a[href^="#TODO"]` rule in
+   `assets/css/site.css`).
 2. **Set the domain.** `popkern.dev` is assumed in the canonical tag, the
    `og:url`/`og:image` tags, `sitemap.xml`, `robots.txt` and `blog/feed.xml`.
    Change it everywhere if the real domain differs:

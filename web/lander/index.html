@@ -8,14 +8,9 @@
 <link rel="canonical" href="https://popkern.dev/">
 
 <!--
-  BEFORE YOU ANNOUNCE - fill these in (search for "#TODO-"):
-    #TODO-x         X / Twitter profile URL
-    #TODO-discord   Discord invite URL
-    #TODO-bluesky   Bluesky (or Mastodon) profile URL
-  Unset links render with a small "?" marker so they are easy to spot. That
-  marker lives in the a[href^="#TODO"] rule in assets/css/site.css and goes
-  away on its own once the hrefs are real.
-  Also update the domain in the canonical and og: tags below if it is not
+  BEFORE YOU ANNOUNCE: unset links ("#TODO-...") render with a small "?"
+  marker so they are easy to spot (the a[href^="#TODO"] rule in
+  assets/css/site.css). Also update the domain in the canonical and og: tags below if it is not
   popkern.dev, and in sitemap.xml, robots.txt and blog/feed.xml.
 -->
 
@@ -25,12 +20,13 @@
 <meta property="og:description" content="A free, open-source CAD kernel in Rust. Try it in your browser, install it in one line, and come break it.">
 <meta property="og:image" content="https://popkern.dev/assets/img/og.png">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:site" content="@popkerndev">
 
 <link rel="icon" href="assets/img/favicon.svg?v=3c8cd3cc" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="assets/css/site.css?v=f511bd3d">
+<link rel="stylesheet" href="assets/css/site.css?v=269cefcb">
 </head>
 <body>
 
@@ -41,6 +37,9 @@
   <symbol id="i-github" viewBox="0 0 24 24"><path d="M12 .5C5.73.5.66 5.58.66 11.85c0 5.01 3.25 9.26 7.75 10.76.57.1.78-.25.78-.55l-.02-1.94c-3.15.69-3.82-1.52-3.82-1.52-.52-1.32-1.26-1.67-1.26-1.67-1.03-.7.08-.69.08-.69 1.14.08 1.74 1.17 1.74 1.17 1.01 1.74 2.66 1.24 3.31.95.1-.74.4-1.24.72-1.53-2.52-.29-5.16-1.26-5.16-5.6 0-1.24.44-2.25 1.17-3.04-.12-.29-.51-1.44.11-3 0 0 .95-.31 3.12 1.16a10.8 10.8 0 0 1 5.68 0c2.17-1.47 3.12-1.16 3.12-1.16.62 1.56.23 2.71.11 3 .73.79 1.17 1.8 1.17 3.04 0 4.35-2.65 5.31-5.17 5.59.41.35.77 1.05.77 2.12l-.01 3.14c0 .3.2.66.79.55 4.5-1.5 7.74-5.75 7.74-10.76C23.34 5.58 18.27.5 12 .5Z"/></symbol>
   <symbol id="i-discord" viewBox="0 0 24 24"><path d="M20.32 4.9A19.8 19.8 0 0 0 15.43 3.4a13.9 13.9 0 0 0-.63 1.28 18.3 18.3 0 0 0-5.6 0c-.19-.44-.44-.98-.64-1.28A19.7 19.7 0 0 0 3.67 4.9C.57 9.52-.27 14.02.15 18.46a19.9 19.9 0 0 0 6 3.04c.49-.66.92-1.36 1.29-2.1-.71-.26-1.38-.59-2.02-.97.17-.13.34-.26.5-.4a14.2 14.2 0 0 0 12.16 0c.16.14.33.27.5.4-.64.38-1.32.71-2.03.98.37.73.8 1.44 1.29 2.09a19.8 19.8 0 0 0 6.01-3.04c.5-5.15-.85-9.6-3.53-13.56ZM8.02 15.73c-1.18 0-2.15-1.09-2.15-2.42s.94-2.42 2.15-2.42c1.2 0 2.17 1.09 2.15 2.42 0 1.33-.95 2.42-2.15 2.42Zm7.95 0c-1.18 0-2.15-1.09-2.15-2.42s.94-2.42 2.15-2.42c1.2 0 2.17 1.09 2.15 2.42 0 1.33-.94 2.42-2.15 2.42Z"/></symbol>
   <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13m-5-6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-bluesky" viewBox="0 0 24 24"><path d="M12 10.8c-1.087-2.114-4.046-6.053-6.798-7.995C2.566.944 1.561 1.266.902 1.565.139 1.908 0 3.08 0 3.768c0 .69.378 5.65.624 6.479.815 2.736 3.713 3.66 6.383 3.364.136-.02.275-.039.415-.056-.138.022-.276.04-.415.056-3.912.58-7.387 2.005-2.83 7.078 5.013 5.19 6.87-1.113 7.823-4.308.953 3.195 2.05 9.271 7.733 4.308 4.267-4.308 1.172-6.498-2.74-7.078a8.741 8.741 0 0 1-.415-.056c.14.017.279.036.415.056 2.67.297 5.568-.628 6.383-3.364.246-.828.624-5.79.624-6.478 0-.69-.139-1.861-.902-2.206-.659-.298-1.664-.62-4.3 1.24C16.046 4.748 13.087 8.687 12 10.8Z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/></symbol>
+  <symbol id="i-reddit" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="14.5" rx="8.5" ry="6"/><path d="M12 8.5l1.3-5.3 4.2 1"/><circle cx="19" cy="4.4" r="1.5"/><circle cx="3.9" cy="10.4" r="1.7"/><circle cx="20.1" cy="10.4" r="1.7"/><path d="M8.8 17.2c2 1.3 4.4 1.3 6.4 0"/></g><circle cx="9" cy="13.6" r="1.25"/><circle cx="15" cy="13.6" r="1.25"/></symbol>
 </svg>
 
 <!-- ===================== Nav ===================== -->
@@ -60,6 +59,7 @@
       <a href="blog/" data-wide>Blog</a>
       <span class="nav-icons">
         <a class="icon-link" href="https://github.com/popkern-dev/popkern" aria-label="popkern on GitHub"><svg><use href="#i-github"/></svg></a>
+        <a class="icon-link" href="https://discord.gg/38p9xBBwff" aria-label="popkern on Discord"><svg><use href="#i-discord"/></svg></a>
       </span>
       <a class="nav-cta" href="live/">Try it now!</a>
     </nav>
@@ -72,7 +72,7 @@
 <section class="hero">
   <div class="container hero-grid">
     <div>
-      <h1>A CAD kernel for<br><span class="grad">everyone who makes things.</span></h1>
+      <h1>A CAD <span class="nowrap">kernel for</span><br><span class="grad"><span class="nowrap">everyone who</span> <span class="nowrap">makes things.</span></span></h1>
 
       <p class="hero-sub">
         popkern is the geometry engine that sits underneath CAD: the part that
@@ -94,9 +94,9 @@
     </div>
 
     <figure class="hero-art">
-      <img src="assets/img/six-axis-arm.png?v=592ca7e6" width="1400" height="1200"
+      <img src="assets/img/six-axis-arm.png?v=bf3acaca" width="1400" height="1200"
            alt="A six-axis robot arm: a white base and shoulder, grey tube links, finned cycloidal joint housings at every axis, and an orange-jawed gripper on the tool flange.">
-      <figcaption>A six-axis arm in <a href="live/">popkern live</a>: 1,326 features, 57 parts</figcaption>
+      <figcaption>A six-axis arm in <a href="live/">popkern live</a>: 1,198 features, 57 parts</figcaption>
     </figure>
   </div>
 </section>
@@ -117,17 +117,17 @@
 
     <div class="gallery">
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/cycloidal-joints.png?v=12725cf0" alt="Three cycloidal joint modules of decreasing size, each a finned grey housing with a blue output flange." loading="lazy" width="900" height="668"></div>
+        <div class="shot-img"><img src="assets/img/cycloidal-joints.png?v=1e17d38e" alt="Three cycloidal joint modules of decreasing size, each a finned grey housing with a blue output flange." loading="lazy" width="900" height="668"></div>
         <figcaption><b>Cycloidal joints</b>The arm's three joint sizes, each a motor driving a cycloidal reducer: discs, ring pins, output pins and a cross-roller bearing.</figcaption>
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/planetary-gearbox.png?v=d53933f9" alt="A planetary gear set seen from above: an orange ring gear, green planets, a blue sun and a purple carrier." loading="lazy" width="900" height="784"></div>
+        <div class="shot-img"><img src="assets/img/planetary-gearbox.png?v=ab55b206" alt="A planetary gear set seen from above: an orange ring gear, green planets, a blue sun and a purple carrier." loading="lazy" width="900" height="784"></div>
         <figcaption><b>Planetary gearbox</b>A 4:1 set as an assembly, one color per part. Every involute tooth is computed in the script.</figcaption>
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/fastener-kit.png?v=a7d31b74" alt="A hex bolt and its nut, a socket-head cap screw and a countersunk screw, each in its own color, all with modeled threads." loading="lazy" width="900" height="762"></div>
+        <div class="shot-img"><img src="assets/img/fastener-kit.png?v=4bf35148" alt="A hex bolt with its nut threaded on, a socket-head cap screw and a countersunk screw, each in its own color, all with modeled threads." loading="lazy" width="900" height="917"></div>
         <figcaption><b>Real threads</b>An M6 bolt and nut, a cap screw and a countersunk screw: modeled ISO threads, not textures.</figcaption>
       </figure>
 
@@ -137,12 +137,12 @@
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/zebra-corner.png?v=65353874" alt="A rounded block corner in black and white zebra stripes that bend smoothly through the corner." loading="lazy" width="900" height="893"></div>
+        <div class="shot-img"><img src="assets/img/zebra-corner.png?v=6e9fbc7c" alt="A rounded block corner in black and white zebra stripes that bend smoothly through the corner." loading="lazy" width="900" height="913"></div>
         <figcaption><b>Smooth where rounds meet</b>Three different radii closing on one corner, in zebra view: the stripes flow through unbroken, certified curvature-continuous.</figcaption>
       </figure>
 
       <figure class="shot">
-        <div class="shot-img"><img src="assets/img/coil-springs.png?v=6e11e4bc" alt="Three coil springs: a compression spring, a tapered spring and a left-hand spring." loading="lazy" width="900" height="1053"></div>
+        <div class="shot-img"><img src="assets/img/coil-springs.png?v=fb557290" alt="Three coil springs: a compression spring, a tapered spring and a left-hand spring." loading="lazy" width="900" height="1054"></div>
         <figcaption><b>Three springs, one verb</b>Compression, tapered and left-hand springs, each swept along an exact helix.</figcaption>
       </figure>
     </div>
@@ -253,7 +253,7 @@ m</code></pre>
       <a class="btn btn-primary" href="https://github.com/popkern-dev/popkern">
         <svg><use href="#i-github"/></svg> popkern on GitHub
       </a>
-      <a class="btn btn-ghost" href="#TODO-discord">
+      <a class="btn btn-ghost" href="https://discord.gg/38p9xBBwff">
         <svg><use href="#i-discord"/></svg> Join the Discord
       </a>
     </div>
@@ -275,6 +275,7 @@ m</code></pre>
           popkern
         </a>
         <p>A free, open CAD kernel in Rust, for everyone who makes things.</p>
+        <span class="footer-social"><a class="icon-link" href="https://github.com/popkern-dev/popkern" aria-label="popkern on GitHub"><svg><use href="#i-github"/></svg></a><a class="icon-link" href="https://discord.gg/38p9xBBwff" aria-label="popkern on Discord"><svg><use href="#i-discord"/></svg></a><a class="icon-link" href="https://www.reddit.com/user/popkerndev" aria-label="popkern on Reddit"><svg><use href="#i-reddit"/></svg></a><a class="icon-link" href="https://bsky.app/profile/popkerndev.bsky.social" aria-label="popkern on Bluesky"><svg><use href="#i-bluesky"/></svg></a><a class="icon-link" href="https://x.com/popkerndev" aria-label="popkern on X"><svg><use href="#i-x"/></svg></a></span>
       </div>
 
       <div>
@@ -301,9 +302,10 @@ m</code></pre>
         <h4>Community</h4>
         <ul>
           <li><a href="https://github.com/popkern-dev/popkern/issues">Issues</a></li>
-          <li><a href="#TODO-discord">Discord</a></li>
-          <li><a href="#TODO-bluesky">Bluesky</a></li>
-          <li><a href="#TODO-x">X / Twitter</a></li>
+          <li><a href="https://discord.gg/38p9xBBwff">Discord</a></li>
+          <li><a href="https://www.reddit.com/user/popkerndev">Reddit</a></li>
+          <li><a href="https://bsky.app/profile/popkerndev.bsky.social">Bluesky</a></li>
+          <li><a href="https://x.com/popkerndev">X / Twitter</a></li>
         </ul>
       </div>
     </div>

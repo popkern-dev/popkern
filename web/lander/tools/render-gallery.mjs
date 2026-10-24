@@ -95,6 +95,10 @@ for (const job of jobs) {
     main.style.display = "block"; main.style.padding = "0";
     const pane = document.querySelector(".pane-viewer");
     pane.style.position = "fixed"; pane.style.inset = "0";
+    // The viewport's own graded ground and frame go too: only the
+    // canvas (transparent) is left.
+    pane.style.background = "none"; pane.style.border = "0"; pane.style.borderRadius = "0";
+    document.documentElement.style.background = "transparent";
     document.body.style.background = "transparent";
     document.body.style.backgroundImage = "none";
     await new Promise((r) => setTimeout(r, 300));

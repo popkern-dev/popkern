@@ -95,7 +95,9 @@ img { max-width: 100%; display: block; }
 a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 a:hover { color: var(--text); }
 
-h1, h2, h3, h4 { line-height: 1.15; letter-spacing: -.022em; margin: 0; font-weight: 650; }
+h1, h2, h3, h4 { line-height: 1.15; letter-spacing: -.022em; margin: 0; font-weight: 650; text-wrap: balance; }
+/* Paragraphs never end on a lone word. */
+p, li, figcaption { text-wrap: pretty; }
 
 :focus-visible {
   outline: 2px solid var(--brand);
@@ -259,6 +261,9 @@ section { padding-block: clamp(64px, 9vw, 116px); }
   letter-spacing: -.035em; font-weight: 690;
   margin-bottom: 22px;
 }
+/* The headline breaks between phrases only ("kernel for", "everyone
+   who", "makes things."): a free wrap stranded "for" at 320 px and
+   "things." from 414 to 480 px. */
 .hero h1 .grad {
   background: linear-gradient(96deg, var(--brand) 8%, var(--blue) 96%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
@@ -480,6 +485,12 @@ p code, li code, td code {
   font-size: .84rem; color: var(--text-faint);
 }
 .footer-bottom .spacer { margin-left: auto; }
+/* Where to find popkern: one icon per place, in the footer's colours
+   (the nav's icon links are dark-bar colours). */
+.footer-social { display: flex; flex-wrap: wrap; gap: 2px; }
+.footer-about .footer-social { margin: 14px 0 0 -8px; }
+.footer-social .icon-link { color: var(--text-dim); }
+.footer-social .icon-link:hover { color: var(--text); background: var(--surface); }
 
 /* ---- Placeholder link marker (unset socials) --------------------------- */
 a[href^="#TODO"] { position: relative; }
