@@ -78,3 +78,97 @@ fn render_sphere_produces_visible_pixels() {
         "sphere render should produce visible pixels"
     );
 }
+
+/// A closed box, wound outward (counter-clockwise seen from outside, as
+/// the tessellator emits faces) or inward, with its +Z face red, its
+/// -Z face blue and its sides grey.
+/// A box face: its outward normal, two in-plane axes with u x v = n,
+/// and its colour.
+type BoxFace = ([f32; 3], [f32; 3], [f32; 3], [f32; 4]);
+
+fn coloured_box(outward: bool) -> (Vec<mesh_data::MeshVertex>, Vec<u32>) {
+    let faces: [BoxFace; 6] = [
+        (
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0, 1.0],
+        ),
+        (
+            [0.0, 0.0, -1.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 1.0],
+        ),
+        (
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.5, 0.5, 0.5, 1.0],
+        ),
+        (
+            [-1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0],
+            [0.5, 0.5, 0.5, 1.0],
+        ),
+        (
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 0.0],
+            [0.5, 0.5, 0.5, 1.0],
+        ),
+        (
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.5, 0.5, 0.5, 1.0],
+        ),
+    ];
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    for (n, u, v, color) in faces {
+        let base = vertices.len() as u32;
+        // u x v = n, so these corners run counter-clockwise about n.
+        for (a, b) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+            let p = [
+                n[0] + a * u[0] + b * v[0],
+                n[1] + a * u[1] + b * v[1],
+                n[2] + a * u[2] + b * v[2],
+            ];
+            vertices.push(mesh_data::MeshVertex {
+                position: p,
+                normal: n,
+                color,
+            });
+        }
+        let quad = if outward {
+            [0, 1, 2, 0, 2, 3]
+        } else {
+            [0, 2, 1, 0, 3, 2]
+        };
+        indices.extend(quad.iter().map(|i| base + i));
+    }
+    (vertices, indices)
+}
+
+#[test]
+fn the_near_face_is_drawn_whatever_the_winding() {
+    // Seen from +Z (the Front preset: this camera is Y-up), a box shows
+    // its +Z face. Rasterization culled clockwise screen triangles, and
+    // an outward mesh lands clockwise on a y-down screen: every
+    // thumbnail drew the far side of its parts (the -Z face here, a
+    // bolt head's underside through its top).
+    let mut camera = Camera::default_iso();
+    camera.set_view_preset(ViewPreset::Front);
+    camera.fit_to_bounds(glam::Vec3::splat(-1.0), glam::Vec3::splat(1.0));
+    for outward in [true, false] {
+        let (vertices, indices) = coloured_box(outward);
+        let pixels = render_prepared(&vertices, &indices, &[], &camera, 32, 32, false);
+        let centre = &pixels[(16 * 32 + 16) * 4..(16 * 32 + 16) * 4 + 4];
+        assert!(
+            centre[0] > 100 && centre[2] < 60,
+            "outward {outward}: the +Z face (red) must face the camera, got {centre:?}"
+        );
+    }
+}

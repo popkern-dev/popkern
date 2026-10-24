@@ -1,4 +1,4 @@
-//! Scanline triangle rasterization with z-buffer and back-face culling.
+//! Scanline triangle rasterization with a z-buffer (no winding cull).
 //!
 //! Provides a software framebuffer and a triangle rasterizer that matches
 //! the GPU pipeline's winding-order convention (CCW = front-facing).
@@ -88,9 +88,15 @@ impl Framebuffer {
 
 /// Rasterize a single triangle into the framebuffer.
 ///
-/// Uses the standard edge-function approach with back-face culling:
-/// - CCW winding (positive signed area) = front-facing, drawn.
-/// - CW or degenerate (signed area <= 0) = culled.
+/// Edge functions over the triangle in either winding; only a
+/// degenerate (zero-area) triangle is skipped. Nothing is culled by
+/// winding: the z-buffer alone decides what is seen. Screen y runs
+/// down while clip-space y runs up, so an outward-wound (CCW from
+/// outside) mesh lands clockwise on screen, and the old "cull
+/// clockwise" rule threw away every front face: thumbnails showed
+/// the far side of each part (a bolt head's underside through its
+/// top, threads as hollow rings). A depth test is right whatever the
+/// mesh's winding; culling only saved time.
 ///
 /// Depth test: smaller z wins (closer to camera).
 pub fn rasterize_triangle(
@@ -101,8 +107,12 @@ pub fn rasterize_triangle(
 ) {
     // Signed area * 2 (cross product of screen-space edges).
     let area = (v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y);
-    if area <= 0.0 {
-        // Back-facing or degenerate — cull.
+    if area == 0.0 || !area.is_finite() {
+        return;
+    }
+    if area < 0.0 {
+        // The other winding: the same triangle with two corners swapped.
+        rasterize_triangle(fb, v0, v2, v1);
         return;
     }
     let inv_area = 1.0 / area;
@@ -257,8 +267,9 @@ mod tests {
     }
 
     #[test]
-    fn backface_culled() {
-        // CW triangle (negative signed area) → should be culled entirely.
+    fn either_winding_is_drawn() {
+        // The clockwise spelling of a triangle covers the same pixels:
+        // winding never hides a face, the z-buffer does.
         let mut fb = Framebuffer::new(10, 10);
         let red = [255, 0, 0, 255];
         let v0 = ScreenVertex {
@@ -280,15 +291,15 @@ mod tests {
             color: red,
         };
         rasterize_triangle(&mut fb, &v0, &v1, &v2);
+        assert_eq!(fb.pixel(5, 3), red, "inside the clockwise triangle");
+        assert_eq!(fb.pixel(0, 9), [0, 0, 0, 0], "outside it");
 
-        // All pixels should remain transparent.
+        // The counter-clockwise spelling fills the same pixels.
+        let mut ccw = Framebuffer::new(10, 10);
+        rasterize_triangle(&mut ccw, &v0, &v2, &v1);
         for y in 0..10 {
             for x in 0..10 {
-                assert_eq!(
-                    fb.pixel(x, y),
-                    [0, 0, 0, 0],
-                    "pixel ({x},{y}) should be untouched after backface cull"
-                );
+                assert_eq!(fb.pixel(x, y), ccw.pixel(x, y), "pixel ({x},{y})");
             }
         }
     }
