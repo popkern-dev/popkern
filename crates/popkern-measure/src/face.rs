@@ -72,7 +72,7 @@ fn rectangle(brep: &BRep, face: FaceHandle) -> Option<((f64, f64), (f64, f64))> 
         .filter(|r| crate::face_helpers::outer_loop_matches_uv_rectangle(brep, face, *r))
 }
 
-/// A trimmed cylinder, cone or sphere face's area: exact by its
+/// A trimmed cylinder, cone, sphere or torus face's area: exact by its
 /// boundary integral (PK-935), its measuring mesh when a pcurve is
 /// missing.
 fn trimmed_area(brep: &BRep, face: FaceHandle, tolerance: &Tolerance) -> Result<f64, MeasureError> {
@@ -95,10 +95,9 @@ fn triangle_area(a: Point3, b: Point3, c: Point3) -> f64 {
 ///
 /// `Plane` faces are exact for any boundary: the area integral runs
 /// over the edge curves, holes included. `Cylinder`, `Sphere` and
-/// `Cone` faces are exact for any trim: closed forms on uv rectangles,
-/// a boundary integral over the pcurves otherwise. `Torus` faces use
-/// their closed form on hole-free uv rectangles. Other faces are
-/// tessellated and their triangle areas summed.
+/// `Cone` and `Torus` faces are exact for any trim: closed forms on uv
+/// rectangles, a boundary integral over the pcurves otherwise. Other
+/// faces are tessellated and their triangle areas summed.
 pub fn face_area(
     brep: &BRep,
     face: FaceHandle,
@@ -150,28 +149,23 @@ pub fn face_area(
         // Torus: area element = r*(R + r*cos(v)) du dv.
         // Integrated: r * |du| * |R*(v1-v0) + r*(sin(v1)-sin(v0))|.
         // Only valid for rectangular UV patches (|du| <= pi, |dv| <= pi);
-        // seam-closing faces that span > half the period use tessellation.
+        // seam-closing faces that span > half the period integrate
+        // their boundary.
         SurfaceGeometry::Torus {
             major_radius,
             minor_radius,
             ..
-        } if face_data.inner_loops.is_empty() => {
-            if let Some(((u0, u1), (v0, v1))) = rectangle(brep, face) {
-                let du = (u1 - u0).abs();
-                let dv = (v1 - v0).abs();
-                // Guard: seam faces get inflated UV bbox (> half-period).
-                if du <= std::f64::consts::PI && dv <= std::f64::consts::PI {
-                    let r = *minor_radius;
-                    let big_r = *major_radius;
-                    let integral = (big_r * dv + r * (v1.psin() - v0.psin())).abs();
-                    Ok(r * du * integral)
-                } else {
-                    tessellate_area(brep, face, tolerance)
-                }
-            } else {
-                tessellate_area(brep, face, tolerance)
+        } => match rectangle(brep, face) {
+            Some(((u0, u1), (v0, v1)))
+                if (u1 - u0).abs() <= std::f64::consts::PI
+                    && (v1 - v0).abs() <= std::f64::consts::PI =>
+            {
+                let (r, big_r) = (*minor_radius, *major_radius);
+                let integral = (big_r * (v1 - v0).abs() + r * (v1.psin() - v0.psin())).abs();
+                Ok(r * (u1 - u0).abs() * integral)
             }
-        }
+            _ => trimmed_area(brep, face, tolerance),
+        },
         // §5.3 item #9 — Gregory-native surface-integral quadrature.
         // 8×8 Gauss-Legendre on the pcurve UV rectangle integrates
         // `|∂u × ∂v|` to ~1e-6 relative on smooth Gregory patches —

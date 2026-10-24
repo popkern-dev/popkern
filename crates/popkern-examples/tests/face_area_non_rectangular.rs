@@ -8,7 +8,7 @@
 //!
 //! PK-935: any other trim, holes included, integrates its area exactly
 //! over its boundary (it read the measuring mesh, 1.4e-4 relative off),
-//! in every orientation.
+//! in every orientation. PK-939: torus faces too.
 
 use popkern_bool::{BoolOperation, boolean};
 use popkern_core::geometry::Transform3;
@@ -35,6 +35,9 @@ fn is_sphere(g: &SurfaceGeometry) -> bool {
 }
 fn is_cylinder(g: &SurfaceGeometry) -> bool {
     matches!(g, SurfaceGeometry::Cylinder { .. })
+}
+fn is_torus(g: &SurfaceGeometry) -> bool {
+    matches!(g, SurfaceGeometry::Torus { .. })
 }
 
 fn rotations() -> Vec<(&'static str, Transform3)> {
@@ -191,4 +194,104 @@ fn a_rectangle_bounded_face_keeps_its_closed_form() {
         (got - want).abs() < 1e-12 * want,
         "cylinder wall {got} vs {want}"
     );
+}
+
+/// The torus of [`trimmed_torus_faces_measure_exactly`]: major and
+/// minor radius.
+const TORUS: (f64, f64) = (1.0, 0.3);
+
+/// The area of the torus region `cos u > k(v)` over `v ∈ [a, b]` (a
+/// hole about u = 0), `∫ r(R + r cos v)·2 acos k dv`. `k` reaches 1 at
+/// both ends, where the integrand has a square-root edge; the
+/// substitution `v = a + (b − a)(1 − cos θ)/2` smooths it, and
+/// Gauss–Legendre on 400 panels resolves it to roundoff.
+fn torus_hole(a: f64, b: f64, k: &dyn Fn(f64) -> f64) -> f64 {
+    const GL5: [(f64, f64); 5] = [
+        (-0.906_179_845_938_664, 0.236_926_885_056_189_1),
+        (-0.538_469_310_105_683, 0.478_628_670_499_366_5),
+        (0.0, 0.568_888_888_888_888_9),
+        (0.538_469_310_105_683, 0.478_628_670_499_366_5),
+        (0.906_179_845_938_664, 0.236_926_885_056_189_1),
+    ];
+    let (big_r, r) = TORUS;
+    let panels = 400;
+    let mut sum = 0.0;
+    for i in 0..panels {
+        let (t0, t1) = (
+            PI * i as f64 / panels as f64,
+            PI * (i + 1) as f64 / panels as f64,
+        );
+        for &(x, w) in &GL5 {
+            let theta = 0.5 * (t0 + t1) + 0.5 * (t1 - t0) * x;
+            let v = a + (b - a) * (1.0 - theta.cos()) / 2.0;
+            let dv = (b - a) * theta.sin() / 2.0;
+            let width = 2.0 * k(v).clamp(-1.0, 1.0).acos();
+            sum += 0.5 * (t1 - t0) * w * r * (big_r + r * v.cos()) * width * dv;
+        }
+    }
+    sum
+}
+
+/// PK-939: a trimmed torus face read its measuring mesh (~1e-4). It
+/// now integrates its boundary, its pcurves lifted in the periodic v.
+/// A plane through the centre, tilted 0.3 off the axis, halves the
+/// torus by point symmetry: exact to roundoff on its exact trims. A
+/// radius-0.15 bore parallel to the axis through the tube, and a
+/// radius-0.2 sphere centred on the outer equator, leave holes whose
+/// trims are marched (samples within 9e-7 of the surfaces, inside the
+/// linear tolerance): the area holds their accuracy, 3e-10 relative
+/// at worst, against a quadrature reference. Under rotation_y(-0.4)
+/// and the mixed rotation the bore and bite read 1.5e-7 and 1.1e-6 off
+/// until the hooked trims of PK-941 were fixed.
+#[test]
+fn trimmed_torus_faces_measure_exactly() {
+    let tol = Tolerance::default();
+    let (big_r, r) = TORUS;
+    let whole = 4.0 * PI * PI * r * big_r;
+    let rho = 0.15;
+    let bore_k = |v: f64| {
+        let p = big_r + r * v.cos();
+        (p * p + big_r * big_r - rho * rho) / (2.0 * p * big_r)
+    };
+    let bore = 2.0 * torus_hole((rho / r).acos(), (-rho / r).acos(), &bore_k);
+    let bite_r = 0.2;
+    let bite_k = |v: f64| {
+        let p = big_r + r * v.cos();
+        let reach = (big_r + r).powi(2) + big_r * big_r + 2.0 * big_r * r * v.cos() + r * r;
+        (reach - bite_r * bite_r) / (2.0 * p * (big_r + r))
+    };
+    let edge = 2.0 * (bite_r / (2.0 * r)).asin();
+    let bite = torus_hole(-edge, edge, &bite_k);
+    for (name, rot) in rotations() {
+        let torus = || BRep::torus(big_r, r, tol).expect("torus");
+        let half_space = BRep::unit_cube(tol)
+            .and_then(|c| c.transform(&Transform3::scale_uniform(4.0)))
+            .and_then(|c| c.transform(&Transform3::translation(0.0, -2.0, -2.0)))
+            .and_then(|c| c.transform(&Transform3::rotation_y(0.3)))
+            .expect("half space");
+        let halved = op(BoolOperation::Subtraction, torus(), half_space, &rot, tol);
+        let got = curved_area(&halved, &tol, is_torus);
+        assert!(
+            (got - 0.5 * whole).abs() < 1e-12 * whole,
+            "{name}: halved torus {got} vs {}",
+            0.5 * whole
+        );
+        let drill = BRep::cylinder(rho, 2.0, tol)
+            .and_then(|c| c.transform(&Transform3::translation(big_r, 0.0, -1.0)))
+            .expect("drill");
+        let bitten_by = BRep::sphere(bite_r, tol)
+            .and_then(|s| s.transform(&Transform3::translation(big_r + r, 0.0, 0.0)))
+            .expect("sphere");
+        for (case, tool, want) in [
+            ("drilled", drill, whole - bore),
+            ("bitten", bitten_by, whole - bite),
+        ] {
+            let cut = op(BoolOperation::Subtraction, torus(), tool, &rot, tol);
+            let got = curved_area(&cut, &tol, is_torus);
+            assert!(
+                (got - want).abs() < 1e-9 * want,
+                "{name}: {case} torus {got} vs {want}"
+            );
+        }
+    }
 }

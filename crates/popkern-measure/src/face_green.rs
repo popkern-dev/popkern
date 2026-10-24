@@ -1,4 +1,5 @@
-//! Exact area of a trimmed cylinder, cone or sphere face (PK-935).
+//! Exact area of a trimmed cylinder, cone, sphere or torus face
+//! (PK-935, PK-939).
 //!
 //! On these surfaces the area element depends on v alone, `g(v) du dv`,
 //! so by Green's theorem the area of a chart region is the boundary
@@ -14,6 +15,10 @@
 //!   nothing. A sphere's other pole row costs `G(π)·P = 4πr²`, the
 //!   whole sphere, per period it runs: the region's area is exact
 //!   modulo the sphere, and a face's area lies in (0, 4πr²].
+//! - A torus's `G = rR·v + r²·sin v` gains `2πrR` per period of its
+//!   periodic v: each pcurve is lifted in v to resume where the last
+//!   ended, and a loop winding the tube adds a term for its winding.
+//!   The area is exact modulo the torus, as the sphere's is.
 //!
 //! Each edge integrates by Gauss–Legendre on each knot span (on
 //! several panels for analytic curves) along whichever of its pcurve
@@ -58,6 +63,9 @@ enum Antiderivative {
     Cone(f64),
     /// `r²·(1 − cos v)`.
     Sphere(f64),
+    /// `rR·v + r²·sin v` for `(rR, r²)`: not periodic in the periodic
+    /// v, so loops integrate lifted (see [`Self::v_period_step`]).
+    Torus(f64, f64),
 }
 
 impl Antiderivative {
@@ -68,6 +76,15 @@ impl Antiderivative {
                 Some(Self::Cone(half_angle.ptan() / half_angle.pcos()))
             }
             SurfaceGeometry::Sphere { radius, .. } => Some(Self::Sphere(radius)),
+            // A spindle or horn torus has chart poles inside its tube.
+            SurfaceGeometry::Torus {
+                major_radius,
+                minor_radius,
+                ..
+            } if major_radius > minor_radius => Some(Self::Torus(
+                minor_radius * major_radius,
+                minor_radius * minor_radius,
+            )),
             _ => None,
         }
     }
@@ -77,6 +94,21 @@ impl Antiderivative {
             Self::Cylinder(r) => r * v,
             Self::Cone(k) => 0.5 * k * v * v,
             Self::Sphere(r) => r * r * (1.0 - v.pcos()),
+            Self::Torus(c, s) => c * v + s * v.psin(),
+        }
+    }
+
+    /// `G(v + 2π) − G(v)` on a chart periodic in v. A loop lifted
+    /// continuously that winds `n` times around v ends `n` periods up
+    /// from its start, and `−∮ G du` then misses `n·step·u₀` (`u₀` its
+    /// start): read on the strip `d ≤ v < d + 2π`, a cylinder where
+    /// `G du` is a form, the cut row's crossings and the jumps of the
+    /// wrapped v cancel to that term. A band around a torus's tube is
+    /// bounded by two such loops, `du = 0` along both.
+    fn v_period_step(self) -> Option<f64> {
+        match self {
+            Self::Torus(c, _) => Some(std::f64::consts::TAU * c),
+            _ => None,
         }
     }
 
@@ -85,6 +117,7 @@ impl Antiderivative {
     fn modulus(self) -> Option<f64> {
         match self {
             Self::Sphere(r) => Some(4.0 * std::f64::consts::PI * r * r),
+            Self::Torus(c, _) => Some(std::f64::consts::TAU * std::f64::consts::TAU * c),
             _ => None,
         }
     }
@@ -123,15 +156,16 @@ fn integrate(t0: f64, t1: f64, knots: Option<&[f64]>, f: impl Fn(f64) -> f64) ->
     if t1 < t0 { -sum } else { sum }
 }
 
-/// `∫ G(v) du` along `pc`.
-fn pcurve_integral(pc: &Pcurve, g: &dyn Fn(f64) -> f64) -> f64 {
+/// `∫ G(v + lift) du` along `pc`.
+fn pcurve_integral(pc: &Pcurve, lift: f64, g: &dyn Fn(f64) -> f64) -> f64 {
     let (t0, t1) = pc.parameter_range();
     let knots = pc.as_nurbs().map(|n| n.knots.as_slice());
-    integrate(t0, t1, knots, |t| g(pc.point_at(t).y) * du_dt(pc, t))
+    integrate(t0, t1, knots, |t| g(pc.point_at(t).y + lift) * du_dt(pc, t))
 }
 
 /// `∫ G(v) du` along the edge's 3D curve, traversed as `forward` says,
-/// and its u travel: `v` from the surface's inverse of each point and
+/// and its u travel: `v` from the surface's inverse of each point,
+/// lifted by `lift(f, v)` at the share `f` of the traversal, and
 /// `du/ds = C′·S_u / |S_u|²` (the charts are orthogonal; the rate does
 /// not depend on the u branch). `None` where the inverse fails or a
 /// point sits on the pole.
@@ -140,6 +174,7 @@ fn edge_integral(
     edge: &CurveOnEdge,
     forward: bool,
     g: &dyn Fn(f64) -> f64,
+    lift: &dyn Fn(f64, f64) -> f64,
 ) -> Option<(f64, f64)> {
     let (t0, t1) = if forward {
         (edge.t_start, edge.t_end)
@@ -163,6 +198,7 @@ fn edge_integral(
             failed.set(true);
             return (0.0, 0.0);
         }
+        let v = lift((s - t0) / (t1 - t0), v);
         (v, edge.geometry.derivative_at(s, 1).dot(&su) / len2)
     };
     let value = integrate(t0, t1, knots, |s| {
@@ -213,15 +249,18 @@ fn misfits(
 }
 
 /// The face's area by its boundary integral, or `None` when its surface
-/// has no v-only area element (plane, torus, NURBS) or a half-edge has
-/// no pcurve.
+/// has no v-only area element (plane, NURBS) or a half-edge has no
+/// pcurve.
 pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f64> {
     let f = brep.faces.get(face)?;
     let surface = f.surface.as_ref()?;
     let antiderivative = Antiderivative::of(&surface.geometry)?;
     let g = |v: f64| antiderivative.at(v);
-    let period = surface.geometry.parameter_periodicity().0?;
+    let (period, v_period) = surface.geometry.parameter_periodicity();
+    let period = period?;
     let wrap = |d: f64| d - period * (d / period).round();
+    // The whole periods that bring `v` nearest `near`, on a v-periodic chart.
+    let v_lift = |v: f64, near: f64| v_period.map_or(0.0, |p| p * ((near - v) / p).round());
     let mut total = 0.0;
     for l in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
         let start = brep.loops.get(l)?.half_edge;
@@ -236,7 +275,18 @@ pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f6
                 break;
             }
         }
+        // Each pcurve lifted in v to resume where the last one ended.
+        let (loop_start, mut lift, mut end_v) = {
+            let first = uses.first()?.2;
+            let p = first.point_at(first.parameter_range().0);
+            (p, 0.0, p.y)
+        };
         for (k, &(h, he, pc)) in uses.iter().enumerate() {
+            let (t0, t1) = pc.parameter_range();
+            if k > 0 {
+                let v0 = pc.point_at(t0).y;
+                lift = v_lift(v0, end_v);
+            }
             // The pcurve, unless the 3D curve sits nearer the true trim.
             let on_curve = brep.edges.get(he.edge).and_then(|e| {
                 let curve = e.curve.as_ref()?;
@@ -260,17 +310,25 @@ pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f6
                     .get(brep.half_edges.get(he.next)?.origin)?
                     .position;
                 let forward = traverses_forward(brep, h, curve, from, to);
-                let (value, travel) = edge_integral(&surface.geometry, curve, forward, &g)?;
-                let (t0, t1) = pc.parameter_range();
+                let near = |f: f64, v: f64| v + v_lift(v, pc.point_at(t0 + (t1 - t0) * f).y + lift);
+                let (value, travel) = edge_integral(&surface.geometry, curve, forward, &g, &near)?;
                 let pcurve_travel = pc.point_at(t1).x - pc.point_at(t0).x;
-                ((travel - pcurve_travel).abs() < TRAVEL_AGREEMENT).then_some(value)
+                // The next gap runs from the pcurve's end: the curve's
+                // own end is `pcurve_travel − travel` short of it.
+                let closure = g(pc.point_at(t1).y + lift) * (pcurve_travel - travel);
+                ((travel - pcurve_travel).abs() < TRAVEL_AGREEMENT).then_some(value + closure)
             });
-            total -= on_curve.unwrap_or_else(|| pcurve_integral(pc, &g));
+            total -= on_curve.unwrap_or_else(|| pcurve_integral(pc, lift, &g));
             // The iso-row from this pcurve's end to the next one's start.
             let next = uses[(k + 1) % uses.len()].2;
-            let end = pc.point_at(pc.parameter_range().1);
+            let end = pc.point_at(t1);
+            end_v = end.y + lift;
             let resume = next.point_at(next.parameter_range().0);
-            total -= g(end.y) * wrap(resume.x - end.x);
+            total -= g(end_v) * wrap(resume.x - end.x);
+        }
+        if let (Some(step), Some(p)) = (antiderivative.v_period_step(), v_period) {
+            let windings = ((end_v - loop_start.y) / p).round();
+            total += step * windings * loop_start.x;
         }
     }
     // The kernel flag: loops run counter-clockwise in the chart when
