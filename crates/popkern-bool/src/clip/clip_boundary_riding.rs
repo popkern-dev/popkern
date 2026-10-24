@@ -13,7 +13,12 @@
 //!
 //! Such a record lies in the face's closed region by construction, so
 //! the clip keeps it whole. The test is geometric: every sample of the
-//! record lies within the boundary band of some boundary pcurve.
+//! record lies within the boundary band of some boundary pcurve, on any
+//! period branch of a periodic chart (a coaxial flush tube's inner wall
+//! carries its bottom rim at u 2.80..9.08 under a general rotation while
+//! the record runs 0..2π: two thirds of the samples sat a period off
+//! the rim, the seam read as an exit, and half the rim was clipped away,
+//! PK-932).
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
@@ -87,9 +92,24 @@ pub(super) fn rides_boundary_everywhere(
         return false;
     }
     let band = super::clip_uv::uv_boundary_band(brep, curve_uv);
+    let (pu, pv) = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| {
+            use popkern_core::geometry::surface::SurfaceEval;
+            s.geometry.parameter_periodicity()
+        })
+        .unwrap_or((None, None));
+    let lifts = |p: Option<f64>| p.map_or(vec![0.0], |p| vec![0.0, p, -p]);
     let (t0, t1) = curve_uv.parameter_range();
     (0..RECORD_SAMPLES).all(|k| {
         let q = curve_uv.point_at(t0 + (t1 - t0) * (k as f64 + 0.5) / RECORD_SAMPLES as f64);
-        boundary.iter().any(|pc| distance_to(pc, q) < band)
+        lifts(pu).iter().any(|&du| {
+            lifts(pv).iter().any(|&dv| {
+                let q = popkern_core::geometry::Point3::new(q.x + du, q.y + dv, q.z);
+                boundary.iter().any(|pc| distance_to(pc, q) < band)
+            })
+        })
     })
 }
