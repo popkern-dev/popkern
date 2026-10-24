@@ -11,6 +11,7 @@ use popkern_core::geometry::Point3;
 use super::fragment_interior::{fragment_interior_sample, planar_outward_normal};
 use super::fragment_sample_helpers::{
     non_shared_chord_midpoints, point_near_any_edge, point_near_any_surface, sample_fragment_point,
+    within_loop_extent,
 };
 use crate::error::PointClassification;
 
@@ -196,6 +197,14 @@ pub(super) fn sample_and_classify(
         } else {
             Vec::new()
         };
+        // A cut fragment whose whole original boundary lies on the other
+        // body (the quadrant's seam in the box face): its midpoint
+        // shortcut decides nothing. A tangent contact puts the shortcut
+        // near the other body without that (the tangent boss castings).
+        let on_other_throughout = !mids.is_empty()
+            && mids
+                .iter()
+                .all(|p| point_near_any_surface(other.0, other.1, p, eps_probe * 10.0));
         let unanimous = mids.len() < 2 || {
             let first = classify_against(ctx, &mids[0], other.0, other.1, tolerance);
             matches!(
@@ -247,23 +256,30 @@ pub(super) fn sample_and_classify(
                     brep_b,
                 )
                 .unwrap_or(shortcut)
-            } else if !cut && point_near_any_surface(other.0, other.1, &shortcut, eps_probe * 10.0)
+            } else if point_near_any_surface(other.0, other.1, &shortcut, eps_probe * 10.0)
+                && (!cut || on_other_throughout)
             {
-                // An UNCUT fragment is one class throughout, but its
-                // boundary may lie ON the other body: a box face
-                // tangent to a rod along its own edge put the
-                // midpoint on the rod and classified the face Inside
-                // while its mirror twin sampled its far edge (PK-750).
-                // The interior sample can lie on that contact too: a
-                // web face a boss touches along its centre line
-                // sampled the line and read Inside (PK-887). One class
-                // throughout, so any point clear of the other body
+                // A fragment is one class throughout (a cut one too:
+                // its cut is its boundary, when its whole original
+                // boundary lies on the other body), but its boundary may
+                // lie ON the other body: a box face tangent to a rod along
+                // its own edge put the midpoint on the rod and
+                // classified the face Inside while its mirror twin
+                // sampled its far edge (PK-750); a cone's seam in a
+                // box face put a cut quadrant's seam midpoint 2e-3 off
+                // the face once rotated, and the quadrant inside the
+                // box read Outside (PK-931). The interior sample can
+                // lie on that contact too: a web face a boss touches
+                // along its centre line sampled the line and read
+                // Inside (PK-887). Any point clear of the other body
                 // decides — the boundary chord midpoints are next.
                 let interior = frag_surface
                     .as_ref()
                     .and_then(|(s, o)| fragment_interior_sample(graph, fragment, s, *o, true));
                 let clear =
                     |p: &Point3| !point_near_any_surface(other.0, other.1, p, eps_probe * 10.0);
+                let interior =
+                    interior.filter(|p| within_loop_extent(graph, &fragment.outer_loop, p));
                 interior
                     .into_iter()
                     .chain(non_shared_chord_midpoints(graph, &fragment.outer_loop, 6))

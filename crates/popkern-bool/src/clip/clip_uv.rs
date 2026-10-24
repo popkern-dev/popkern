@@ -348,13 +348,13 @@ pub(super) fn uv_clip_one_face(
             let (t_min, t_max) = curve_uv.parameter_range();
             let span = (t_max - t_min).max(1e-12);
             let inset = span * 1e-3;
-            let start_in = crate::split_inner_loop::point_inside_face_uv(
+            let start_in = super::clip_seam_inside::point_inside_face_uv_seam_aware(
                 brep,
                 face,
                 curve_uv.point_at(t_min + inset),
                 &brep.tolerance,
             );
-            let end_in = crate::split_inner_loop::point_inside_face_uv(
+            let end_in = super::clip_seam_inside::point_inside_face_uv_seam_aware(
                 brep,
                 face,
                 curve_uv.point_at(t_max - inset),

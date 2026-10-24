@@ -265,3 +265,33 @@ pub(super) fn point_near_any_surface(
                 .unwrap_or(false)
     })
 }
+
+/// Whether `p` lies within the 3D extent of the loop `loop_hes` (its
+/// nodes and edge midpoints, padded by a tenth of the extent's
+/// diagonal). An interior sample outside it is not on the fragment: a
+/// two-edge sliver of a tangent casting's boss wall sampled 98 units
+/// off its own span and flipped the sliver's class (PK-931).
+pub(super) fn within_loop_extent(
+    graph: &IntersectionGraph,
+    loop_hes: &[usize],
+    p: &popkern_core::geometry::Point3,
+) -> bool {
+    let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for &h in loop_hes {
+        for q in [
+            graph.nodes[graph.half_edges[h].origin].position,
+            he_curve_midpoint(graph, h),
+        ] {
+            for (k, x) in [q.x, q.y, q.z].into_iter().enumerate() {
+                lo[k] = lo[k].min(x);
+                hi[k] = hi[k].max(x);
+            }
+        }
+    }
+    let diagonal = (0..3).map(|k| (hi[k] - lo[k]).powi(2)).sum::<f64>().sqrt();
+    let pad = 0.1 * diagonal;
+    [p.x, p.y, p.z]
+        .into_iter()
+        .enumerate()
+        .all(|(k, x)| x >= lo[k] - pad && x <= hi[k] + pad)
+}

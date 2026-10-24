@@ -3,10 +3,11 @@
 //! Results can be:
 //! - **Circle** (plane perpendicular to cone axis)
 //! - **Ellipse** (plane oblique to axis, cutting a closed conic)
+//! - **Generator lines** (plane through the apex: `plane_cone_apex`)
 //! - **Empty** (plane misses the cone, or degenerate/hyperbola cases)
 //!
-//! Degenerate cases (plane through apex, parabola, hyperbola) return `None`
-//! from the top-level `try_plane_cone` so that the marching fallback is used.
+//! Parabola and hyperbola cases return `None` from the top-level
+//! `try_plane_cone` so that the marching fallback is used.
 
 use popkern_math::PortableMath;
 use std::f64::consts::FRAC_1_SQRT_2;
@@ -108,15 +109,22 @@ fn intersect_impl(
     ca: Vec3,
     half_angle: f64,
     _cur: (f64, f64),
-    _cvr: (f64, f64),
+    cvr: (f64, f64),
     tol: &Tolerance,
     swapped: bool,
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
-    // Check if the plane passes through (or very near) the apex.
+    // A plane through (or very near) the apex cuts generator lines.
     let apex_dist = (apex - po).dot(&pn).abs();
     if apex_dist < tol.linear() {
-        // Degenerate: plane through apex produces lines, not a conic.
-        return None;
+        return Some(plane_cone_apex::case_through_apex(
+            (po, pn, pu, pv),
+            apex,
+            ca,
+            half_angle,
+            cvr,
+            tol,
+            swapped,
+        ));
     }
 
     let cos_alpha = pn.dot(&ca).abs();
@@ -138,6 +146,8 @@ fn intersect_impl(
     }
 }
 
+#[path = "plane_cone_apex.rs"]
+mod plane_cone_apex;
 #[path = "plane_cone_oblique.rs"]
 mod plane_cone_oblique;
 use plane_cone_oblique::case_oblique;

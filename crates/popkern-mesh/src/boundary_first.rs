@@ -70,6 +70,8 @@ mod boundary_first_wrap_pair;
 #[path = "boundary_first_wrap_slit.rs"]
 mod boundary_first_wrap_slit;
 pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_edges};
+use boundary_first_fold::lift_to_chain;
+use boundary_first_pole_cap::{close_through_apex, resolve_pole_crossings};
 use boundary_first_wrap_pair::{join_wrapped_rings, stash_wrapped_ring};
 
 /// One boundary ring: ordered UV polygon with matched 3D positions
@@ -169,16 +171,10 @@ pub(crate) fn tessellate_face_boundary_first(
             // points and unaffected; cos/sin accept any branch).
             {
                 let (period_u, period_v) = surface.parameter_periodicity();
-                // Chart-degenerate samples (poles, apexes) and sphere
-                // pole crossings (`chart_degenerate`, `resolve_pole_crossings`).
+                // Chart-degenerate samples (poles, apexes); sphere pole crossings.
                 let mut u_degenerate =
                     boundary_first_unwrap::chart_degenerate(&ring, surface, period_u);
-                boundary_first_pole_cap::resolve_pole_crossings(
-                    &mut ring,
-                    &mut u_degenerate,
-                    surface,
-                    orientation,
-                );
+                resolve_pole_crossings(&mut ring, &mut u_degenerate, surface, orientation);
                 if let Some(p) = period_u
                     && !boundary_first_unwrap::unwrap_dir(
                         &mut ring,
@@ -204,8 +200,13 @@ pub(crate) fn tessellate_face_boundary_first(
                     {
                         return Some(fm);
                     }
-                    stash_wrapped_ring(ring, &mut wrapped_rings); // PK-468 band slit
-                    boundary_first_wrap_pair::record_wrap(&mut wrapped_period, (p, false))?;
+                    match close_through_apex(ring, &mut u_degenerate, surface, orientation, p) {
+                        Ok(lobes) => rings.extend(lobes), // PK-931 apex row
+                        Err(ring) => {
+                            stash_wrapped_ring(ring, &mut wrapped_rings); // PK-468 band slit
+                            boundary_first_wrap_pair::record_wrap(&mut wrapped_period, (p, false))?;
+                        }
+                    }
                     continue;
                 }
                 if let Some(p) = period_v
@@ -841,9 +842,7 @@ fn build_ring(
             // rounds, on every revolved-NURBS dimple cap).
             let (uu, vv) = match leg_shift {
                 Some(shift) if shift != (0.0, 0.0) => (uu + shift.0, vv + shift.1),
-                Some(_) => {
-                    boundary_first_fold::lift_to_chain((uu, vv), uv.last().copied(), ring_periods)
-                }
+                Some(_) => lift_to_chain((uu, vv), uv.last().copied(), ring_periods),
                 None => {
                     let shift = boundary_first_fold::fold_shift_for_leg(
                         &sof.geometry,
@@ -854,11 +853,7 @@ fn build_ring(
                     );
                     leg_shift = Some(shift);
                     if shift == (0.0, 0.0) {
-                        boundary_first_fold::lift_to_chain(
-                            (uu, vv),
-                            uv.last().copied(),
-                            ring_periods,
-                        )
+                        lift_to_chain((uu, vv), uv.last().copied(), ring_periods)
                     } else {
                         uv.push((uu, vv));
                         pos.push(boundary_first_fold::ring_point(target));

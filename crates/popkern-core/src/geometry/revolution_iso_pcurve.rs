@@ -181,10 +181,15 @@ impl ArcClass {
         if !(concentric && great && through_poles) {
             return None;
         }
+        // The polar angle by atan2, not acos: acos(z / r) loses half its
+        // digits at a pole (1e-16 in z / r reads 1.4e-8 in angle), so a
+        // meridian ENDING on a pole failed the fold check below and fell
+        // to the chart fit, whose pole end took an arbitrary azimuth
+        // (measured: the cube-corner union's octant arc ran its sphere
+        // pcurve to u = 2π at the pole instead of 3.84, PK-930).
         let polar = |t: f64| {
-            (sphere_to_local(&pole, curve.point_at(t) - center).z / radius)
-                .clamp(-1.0, 1.0)
-                .pacos()
+            let d = sphere_to_local(&pole, curve.point_at(t) - center);
+            (d.x * d.x + d.y * d.y).sqrt().patan2(d.z)
         };
         let mid = 0.5 * (range.0 + range.1);
         let (v0, v1, vm) = (polar(range.0), polar(range.1), polar(mid));

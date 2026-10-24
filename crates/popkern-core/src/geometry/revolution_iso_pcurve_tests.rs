@@ -85,6 +85,31 @@ fn sphere_meridian_arcs_are_v_lines_until_they_cross_a_pole() {
 }
 
 #[test]
+fn a_tilted_sphere_meridian_ending_on_its_pole_is_exact() {
+    // An intersection solver's arc centre sits a few ulps off the
+    // sphere's, so its end misses the pole by ~1e-16 in z / r; acos
+    // there lost half its digits and the fold check declined the
+    // meridian (PK-930). The polar angle is atan2 now.
+    let axis = Vec3::new(0.3, -0.4, 0.8).normalized().expect("axis");
+    let surface = SurfaceGeometry::Sphere {
+        center: Point3::new(1.0, 1.0, 1.0),
+        radius: 0.5,
+        axis,
+    };
+    let normal = axis
+        .cross(&Vec3::new(1.0, 0.0, 0.0))
+        .normalized()
+        .expect("normal");
+    let centre = Point3::new(1.0 + 2e-15, 1.0 - 1e-15, 1.0 + 1e-15);
+    let curve = arc(centre, normal, 0.5, 0.0, TAU);
+    let height = |t: f64| (curve.point_at(t) - centre).dot(&axis);
+    let phi = height(FRAC_PI_2).atan2(height(0.0));
+    for range in [(phi - 1.3, phi), (phi + PI, phi + PI + 1.1)] {
+        assert_exact(&surface, &curve, range);
+    }
+}
+
+#[test]
 fn torus_latitude_and_meridian_circles_are_chart_lines() {
     let axis = Vec3::new(0.0, 1.0, 0.0);
     let surface = SurfaceGeometry::Torus {

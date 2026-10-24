@@ -28,7 +28,7 @@ use super::BoundaryRing;
 mod pole_crossing;
 #[path = "boundary_first_pole_runs.rs"]
 mod pole_runs;
-pub(super) use pole_crossing::resolve_pole_crossings;
+pub(super) use pole_crossing::{close_through_apex, resolve_pole_crossings};
 pub(super) use pole_runs::{complement_through_poles, enclose_both_poles};
 
 /// The ring closed through the pole the face contains, or `None` when

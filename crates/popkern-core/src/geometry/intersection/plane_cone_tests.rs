@@ -355,8 +355,9 @@ fn swapped_ordering_works() {
 }
 
 #[test]
-fn degenerate_plane_through_apex_returns_none() {
-    // Plane at z=0 passes through the apex at origin.
+fn a_perpendicular_plane_through_the_apex_meets_only_the_apex() {
+    // Plane at z=0 passes through the apex at origin (generator lines
+    // for other planes through the apex: plane_cone_apex_tests).
     let plane = xy_plane(0.0);
     let cone = z_axis_cone();
     let tol = test_tolerance();
@@ -371,10 +372,10 @@ fn degenerate_plane_through_apex_returns_none() {
         &tol,
     );
 
-    // Should return None (degenerate, falls through to marching).
+    // Analytic, and empty: no curve, only the apex point.
     assert!(
-        result.is_none(),
-        "plane through apex should return None for marching fallback"
+        result.is_some_and(|r| r.is_empty()),
+        "a plane perpendicular to the axis through the apex cuts no curve"
     );
 }
 

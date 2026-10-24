@@ -65,7 +65,7 @@ pub(in crate::boundary_first) fn resolve_pole_crossings(
             // the boss plate; PK-626).
             if let Some(m) = degenerate_between(degenerate, i, j) {
                 let pole = if ring.uv[m].1 < FRAC_PI_2 { 0.0 } else { PI };
-                return (i, j, d, (d.abs() > POLE_VERTEX_GAP).then_some(pole));
+                return (i, j, d, Some(pole));
             }
             let pole = if vi < FRAC_PI_4 && vj < FRAC_PI_4 {
                 Some(0.0)
@@ -82,12 +82,33 @@ pub(in crate::boundary_first) fn resolve_pole_crossings(
         return false;
     }
     // Every choice of short/long way at each crossing; keep the one
-    // the flag names.
+    // the flag names. A pole VERTEX whose rims leave at one azimuth (a
+    // seam pair over the pole, up one copy and down its twin a period
+    // away) runs the row the short way (a slit), or a full period either
+    // way: offering only the short way left no winding-0 ring, and the
+    // winding-1 fallback chose the far pole's direction arbitrarily
+    // (PK-930: the cube-corner union served a third of its sphere once
+    // rotated about z).
+    let options = |k: usize| -> Vec<i32> {
+        let d = pairs[k].2;
+        if d.abs() <= POLE_VERTEX_GAP {
+            vec![0, 1, -1]
+        } else {
+            vec![0, if d > 0.0 { -1 } else { 1 }]
+        }
+    };
+    let combos: usize = crossings.iter().map(|&k| options(k).len()).product();
     let mut chosen: Option<(BoundaryRing, Vec<bool>)> = None;
     let mut fallback: Option<(BoundaryRing, Vec<bool>)> = None;
-    for mask in 0..(1u32 << crossings.len()) {
-        let (candidate, degen, total) =
-            assemble(ring, degenerate, surface, &pairs, &crossings, mask);
+    for code in 0..combos {
+        let mut turns = vec![0i32; pairs.len()];
+        let mut c = code;
+        for &k in &crossings {
+            let opts = options(k);
+            turns[k] = opts[c % opts.len()];
+            c /= opts.len();
+        }
+        let (candidate, degen, total) = assemble_turns(ring, degenerate, surface, &pairs, &turns);
         let winding = (total / TAU).round() as i64;
         if winding == 0 {
             if (signed_area(&candidate.uv) > 0.0) == orientation && chosen.is_none() {
@@ -105,6 +126,95 @@ pub(in crate::boundary_first) fn resolve_pole_crossings(
         }
         None => false,
     }
+}
+
+/// A cone ring that wraps a full period through its APEX vertex and
+/// that the structured revolution declined (PK-931): close it along
+/// the apex row into a winding-0 ring the face flag orients, ready for
+/// the general path. A cone minus a box whose corner edge runs down
+/// the cone's axis leaves the cone wall rim -> seam up -> apex -> seam
+/// down -> notch -> seam down: the notch makes the two seam sides
+/// unequal, the revolution declines, and the band path (two wrapped
+/// rings) has only one, so the wall fell to the uniform grid and meshed
+/// 0.18 of its 2.05 volume share. `Err` hands the ring back unchanged.
+pub(in crate::boundary_first) fn close_through_apex(
+    mut ring: BoundaryRing,
+    degenerate: &mut Vec<bool>,
+    surface: &SurfaceGeometry,
+    orientation: bool,
+    period: f64,
+) -> Result<Vec<BoundaryRing>, BoundaryRing> {
+    use std::f64::consts::TAU;
+    let SurfaceGeometry::Cone { .. } = surface else {
+        return Err(ring);
+    };
+    let n = ring.uv.len();
+    if n < 3 || degenerate.len() != n || (period - TAU).abs() > 1e-12 {
+        return Err(ring);
+    }
+    let regular: Vec<usize> = (0..n).filter(|&i| !degenerate[i]).collect();
+    if regular.len() < 2 {
+        return Err(ring);
+    }
+    let wrap = |d: f64| d - TAU * (d / TAU).round();
+    let pairs: Vec<(usize, usize, f64, Option<f64>)> = (0..regular.len())
+        .map(|k| {
+            let (i, j) = (regular[k], regular[(k + 1) % regular.len()]);
+            let d = wrap(ring.uv[j].0 - ring.uv[i].0);
+            let apex = degenerate_between(degenerate, i, j).map(|m| ring.uv[m].1);
+            (i, j, d, apex)
+        })
+        .collect();
+    let crossings: Vec<usize> = (0..pairs.len()).filter(|&k| pairs[k].3.is_some()).collect();
+    if crossings.is_empty() || crossings.len() > 3 {
+        return Err(ring);
+    }
+    // Each apex crossing runs the row by its short step or a full period
+    // either way (a seam pair meets the apex with no azimuth gap).
+    let mut chosen: Option<(BoundaryRing, Vec<bool>)> = None;
+    for code in 0..3u32.pow(crossings.len() as u32) {
+        let mut turns = vec![0i32; pairs.len()];
+        let mut c = code;
+        for &k in &crossings {
+            turns[k] = (c % 3) as i32 - 1;
+            c /= 3;
+        }
+        let (candidate, degen, total) = assemble_turns(&ring, degenerate, surface, &pairs, &turns);
+        if (total / TAU).round() as i64 == 0 && (signed_area(&candidate.uv) > 0.0) == orientation {
+            chosen = Some((candidate, degen));
+            break;
+        }
+    }
+    let Some((resolved, degen)) = chosen else {
+        return Err(ring);
+    };
+    ring = resolved;
+    *degenerate = degen;
+    Ok(super::super::boundary_first_slit::dissolve_pinches(ring)
+        .into_iter()
+        .filter(|lobe| lobe.uv.len() >= 3)
+        .collect())
+}
+
+/// [`assemble`] with each crossing's step its short step plus
+/// `turns[k]` whole periods.
+fn assemble_turns(
+    ring: &BoundaryRing,
+    degenerate: &[bool],
+    surface: &SurfaceGeometry,
+    pairs: &[(usize, usize, f64, Option<f64>)],
+    turns: &[i32],
+) -> (BoundaryRing, Vec<bool>, f64) {
+    use std::f64::consts::TAU;
+    let crossings: Vec<usize> = (0..pairs.len()).filter(|&k| pairs[k].3.is_some()).collect();
+    let shifted: Vec<(usize, usize, f64, Option<f64>)> = pairs
+        .iter()
+        .zip(turns)
+        .map(|(&(i, j, d, pole), &t)| (i, j, d + TAU * f64::from(t), pole))
+        .collect();
+    // `assemble` takes a crossing's step as given when its mask bit is
+    // clear, so the shifted steps pass through unchanged.
+    assemble(ring, degenerate, surface, &shifted, &crossings, 0)
 }
 
 /// The ring walked from its first regular sample with each pair's
