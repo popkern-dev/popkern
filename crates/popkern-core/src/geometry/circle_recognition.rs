@@ -205,16 +205,34 @@ pub fn arc_on_edge_oriented(
     fit: &CircleFit,
     normal: Vec3,
 ) -> CurveOnEdge {
-    let (e1, e2) = circle_basis(normal);
-    let angle = |p: Point3| {
-        let d = p - fit.center;
-        d.dot(&e2).patan2(d.dot(&e1))
-    };
     let same_way = normal.dot(&fit.normal) >= 0.0;
     let (start_point, end_point) = if same_way {
         (curve.point_at(range.0), curve.point_at(range.1))
     } else {
         (curve.point_at(range.1), curve.point_at(range.0))
+    };
+    arc_between(fit, normal, start_point, end_point)
+}
+
+/// The `Arc` on a recognised circle from `start_point` to `end_point`
+/// (each measured by its angle about the circle, so a point a little
+/// off it still reads its own place), running positively about
+/// `normal` in `circle_basis(normal)`, the evaluator's frame. A closed
+/// fit becomes the full turn from `start_point`. Callers that know
+/// the edge's vertices pass them (PK-944): a sampled curve's ends may
+/// sit 1e-9 along the circle from the vertex they meet, and an arc
+/// that starts there gives every iso-circle pcurve on it an end the
+/// neighbouring edge's pcurve does not share.
+pub fn arc_between(
+    fit: &CircleFit,
+    normal: Vec3,
+    start_point: Point3,
+    end_point: Point3,
+) -> CurveOnEdge {
+    let (e1, e2) = circle_basis(normal);
+    let angle = |p: Point3| {
+        let d = p - fit.center;
+        d.dot(&e2).patan2(d.dot(&e1))
     };
     // A start within angle noise of the frame origin is spelled AS
     // the origin: a full turn then reads `[0, 2π]`, the principal

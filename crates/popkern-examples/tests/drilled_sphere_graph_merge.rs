@@ -1,5 +1,5 @@
-//! A sphere drilled across its pole axis, served by graph-merge
-//! (PK-940).
+//! A sphere drilled across and along its pole axis, served by
+//! graph-merge (PK-940, PK-944).
 //!
 //! The cellular path serves this fixture (PK-937); graph-merge is its
 //! fallback and must serve it too. A hole circle is one closed record
@@ -11,6 +11,17 @@
 //! face's outer loop no longer chained, and the face served wound
 //! inside out. Before the fix 26 of these 315 cases declined and one
 //! served a valid body whose sphere area was 5.4e-7 off.
+//!
+//!
+//! A bore along the pole axis cuts two latitude rims, which the
+//! seam meridian and the chart's own seam split into pieces. The exact
+//! rim pass re-spells each piece as an arc anchored at the curve's
+//! ends, and those sat 4e-10 (2e-9 in angle) from the vertices they
+//! meet: on a piece whose forward half-edge runs its curve backward,
+//! the vertex anchoring missed and the rim's pcurve stopped short of
+//! the seam meridian's, so the face's parameter-space boundary did not
+//! close and the sphere area came out 3.4e-10 off under rotation_z(0.7)
+//! and 1e-10 under rotation_y(-0.4) (PK-944).
 //!
 //! This binary holds one test: it forces graph-merge for its whole
 //! process (nextest runs each test in its own process).
@@ -40,18 +51,29 @@ fn rotations() -> Vec<(&'static str, Transform3)> {
 }
 
 #[test]
-fn graph_merge_serves_a_sphere_drilled_across_its_pole_axis() {
+fn graph_merge_serves_a_sphere_drilled_across_and_along_its_pole_axis() {
     // SAFETY-adjacent note: set_var is fine here — this binary's only
     // test, and nextest runs it in its own process.
     unsafe { std::env::set_var("POPKERN_CELLULAR", "0") };
     let tol = Tolerance::default();
     // Two caps of height 0.5 - sqrt(0.21) leave the radius-0.5 sphere.
     let want = PI - 2.0 * 2.0 * PI * 0.5 * (0.5 - 0.21_f64.sqrt());
-    for k in 0..63 {
-        // The bore turns about the sphere's pole axis: at turn 0 its
-        // hole sits on the sphere's seam meridian.
+    // The bore turns about the sphere's pole axis: across it, at turn 0
+    // on the sphere's seam meridian (63 turns); along it, only the
+    // bore's own seam moves (16 turns).
+    let across = (0..63).map(|k| {
         let turn = 0.1 * f64::from(k);
         let tilt = Transform3::rotation_z(turn).compose(&Transform3::rotation_y(PI / 2.0));
+        (format!("across, turn {turn:.1}"), tilt)
+    });
+    let along = (0..16).map(|k| {
+        let turn = 0.1 * f64::from(k);
+        (
+            format!("along, turn {turn:.1}"),
+            Transform3::rotation_z(turn),
+        )
+    });
+    for (turn, tilt) in across.chain(along) {
         for (name, r) in rotations() {
             let ball = BRep::sphere(0.5, tol)
                 .and_then(|s| s.transform(&r))
@@ -62,10 +84,10 @@ fn graph_merge_serves_a_sphere_drilled_across_its_pole_axis() {
                 .and_then(|c| c.transform(&r))
                 .expect("bore");
             let drilled = boolean(BoolOperation::Subtraction, ball, bore, tol, None)
-                .unwrap_or_else(|e| panic!("turn {turn:.1}, {name}: {e}"));
+                .unwrap_or_else(|e| panic!("{turn}, {name}: {e}"));
             drilled
                 .validate()
-                .unwrap_or_else(|e| panic!("turn {turn:.1}, {name}: invalid: {e:?}"));
+                .unwrap_or_else(|e| panic!("{turn}, {name}: invalid: {e:?}"));
             let got: f64 = drilled
                 .faces
                 .iter()
@@ -78,7 +100,7 @@ fn graph_merge_serves_a_sphere_drilled_across_its_pole_axis() {
                 .sum();
             assert!(
                 (got - want).abs() < 1e-10 * want,
-                "turn {turn:.1}, {name}: drilled sphere {got} vs {want}"
+                "{turn}, {name}: drilled sphere {got} vs {want}"
             );
         }
     }

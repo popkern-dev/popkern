@@ -26,8 +26,10 @@
 //! converged to the antipodal ball, which an exact arc exposed and a
 //! NURBS rim only escaped by ULP luck).
 
-use popkern_core::geometry::circle_recognition::{arc_on_edge, recognize_circular};
+use popkern_core::geometry::Point3;
+use popkern_core::geometry::circle_recognition::{arc_between, arc_on_edge, recognize_circular};
 use popkern_core::geometry::curve::CurveGeometry;
+use popkern_core::geometry::curve::{CurveEval as _, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
@@ -78,9 +80,13 @@ pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimRep
         let Some(fit) = recognize_circular(&curve.geometry, range, gate) else {
             continue;
         };
-        // The arc runs the old curve's way: the edge's forward
-        // half-edge keeps traversing its curve forward.
-        let arc = arc_on_edge(&curve.geometry, range, &fit);
+        // The arc runs the old curve's way, from the vertex at its
+        // start to the vertex at its end: each half-edge keeps the
+        // sense it had along its curve.
+        let arc = match vertex_ends(brep, edge, &curve, gate) {
+            Some((start, end)) => arc_between(&fit, fit.normal, start, end),
+            None => arc_on_edge(&curve.geometry, range, &fit),
+        };
         match coparameterised_pcurves(brep, edge, &arc, gate * 10.0, tolerance) {
             Some(pcurves) => {
                 if popkern_core::trace::trace_enabled("exact-rims") {
@@ -116,6 +122,42 @@ pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimRep
         }
     }
     report
+}
+
+/// The edge's vertex positions at the curve's start and end, when
+/// each curve end lies within `gate` of one of the edge's two
+/// vertices: the arc is anchored at them (PK-944). The forward
+/// half-edge does not always run its curve forward (a graph-merge
+/// rim's does not), so the pairing is by distance, not by sense. The vertices are what the neighbouring edges share; a
+/// sampled curve's end can sit 2e-9 along the circle from its vertex
+/// (a sphere's rim split at its seam), and an arc started there gave
+/// the rim's iso-circle pcurve a u the seam meridian's pcurve did not
+/// reach, so the face's parameter-space boundary missed closing by
+/// that much and its area was 3.4e-10 off. A vertex farther than the
+/// gate is not this edge's end in any sense the arc can honour, and
+/// the curve's own ends stand.
+fn vertex_ends(
+    brep: &BRep,
+    edge: EdgeHandle,
+    curve: &CurveOnEdge,
+    gate: f64,
+) -> Option<(Point3, Point3)> {
+    let forward = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
+    let backward = brep.half_edges.get(forward.twin)?;
+    let a = brep.vertices.get(forward.origin)?.position;
+    let b = brep.vertices.get(backward.origin)?.position;
+    let (first, last) = (
+        curve.geometry.point_at(curve.t_start),
+        curve.geometry.point_at(curve.t_end),
+    );
+    let near = |v: Point3, p: Point3| v.distance_to(&p) <= gate;
+    if near(a, first) && near(b, last) {
+        Some((a, b))
+    } else if near(b, first) && near(a, last) {
+        Some((b, a))
+    } else {
+        None
+    }
 }
 
 /// The promotion's scope: an edge whose faces are analytic surfaces of
