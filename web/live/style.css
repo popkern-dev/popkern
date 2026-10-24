@@ -59,8 +59,12 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .chip-bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); border-color: transparent; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 10px 30px var(--shadow); }
 
-/* Top bar: three floating cards */
-.topbar { display: flex; align-items: center; justify-content: space-between; gap: var(--gap); padding: var(--gap); flex: none; }
+/* Top bar: three floating cards, the view card centred on the page
+   (the outer columns share what is left; one too wide for its half
+   keeps its width and the centre gives way). */
+.topbar { display: grid; grid-template-columns: minmax(max-content, 1fr) auto minmax(max-content, 1fr); align-items: center; gap: var(--gap); padding: var(--gap); flex: none; }
+.bar-document { justify-self: start; }
+.bar-build { justify-self: end; }
 .bar-card { display: flex; align-items: center; gap: 0.35rem; padding: 0.3rem; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); min-width: 0; }
 .bar-button { background: transparent; border-color: transparent; color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem; min-height: 2rem; padding: 0.25rem 0.6rem; border-radius: var(--radius-small); border: 1px solid transparent; }
 .bar-button:hover { background: var(--raised-hover); border-color: var(--line-strong); }
@@ -116,8 +120,9 @@ body.busy #cancel { color: var(--bad); border-color: color-mix(in srgb, var(--ba
    on (the corner's standard views follow under it). */
 .section-panel { display: flex; flex-direction: column; gap: 0.2rem; min-width: 14rem; padding: 0.35rem; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-small); box-shadow: 0 8px 24px var(--shadow); }
 .section-panel .menu-field { padding: 0.25rem 0.35rem; }
-.section-tools { display: flex; flex-direction: column; gap: 0.2rem; padding: 0 0.45rem 0.3rem; }
-.section-planes, .section-buttons { display: flex; gap: 0.3rem; }
+.section-tools { display: flex; flex-direction: column; gap: 0.4rem; padding: 0 0.45rem 0.3rem; }
+.section-planes, .section-buttons { display: flex; align-items: center; flex-wrap: wrap; gap: 0.3rem; }
+.section-buttons > span { margin-right: auto; }
 .section-planes button, .section-buttons button { min-height: 1.6rem; padding: 0 0.55rem; font-size: 0.85em; }
 .section-planes button[aria-pressed="true"] { border-color: var(--accent); color: var(--text); }
 .section-tools .menu-field { padding-left: 0; padding-right: 0; }
@@ -182,14 +187,20 @@ body:has(.dialog:not([hidden])) { overflow: hidden; }
 .project-text .muted { font-size: 0.85em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.danger:hover { border-color: var(--bad); color: var(--bad); }
 
-/* Medium widths: the view card's labels go, the inspector narrows. */
+/* Narrower screens: the top bar's outer cards shed text so the view
+   card stays centred — the view card's labels and the brand's name
+   (About keeps the mark), then the project's storage chip (the editor
+   tab's title and notices still say where it is kept and that an
+   example is read only). */
+@media (max-width: 96rem) {
+  .segment-label, .brand-name { display: none; }
+}
+/* Medium widths: the inspector narrows. */
 @media (max-width: 82rem) {
-  .segment-label { display: none; }
   .workbench { grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr) minmax(15rem, 17rem); }
-  .project-button { max-width: 15rem; }
   .build-key { display: none; }
 }
 @media (max-width: 70rem) {
-  .bar-text, .brand-name { display: none; }
+  .bar-text, #project-where { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

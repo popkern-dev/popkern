@@ -16,3 +16,6 @@ th, td { text-align: left; vertical-align: top; padding: 0.35rem 0.5rem; border-
 th { color: var(--muted); font-weight: 600; }
 ol, ul { padding-left: 1.4rem; }
 strong { font-weight: 650; }
+/* Narrow screens: a wide table scrolls in place instead of widening
+   the page. */
+@media (max-width: 40rem) { table { display: block; overflow-x: auto; } }

@@ -9,7 +9,7 @@
 .head-button:hover { color: var(--text); }
 .head-button.icon-only { width: 1.75rem; border-color: transparent; }
 .tabs { display: flex; gap: 0.2rem; padding: 0.3rem; border-bottom: 1px solid var(--line); flex: none; }
-.tab { flex: 1; min-width: 0; min-height: 1.9rem; padding: 0.25rem 0.35rem; background: transparent; border-color: transparent; color: var(--muted); font-weight: 600; }
+.tab { flex: 1 1 auto; min-width: 0; min-height: 1.9rem; padding: 0.25rem 0.35rem; background: transparent; border-color: transparent; color: var(--muted); font-weight: 600; }
 .tab:hover { color: var(--text); background: transparent; }
 .tab[aria-selected="true"] { background: var(--raised-hover); border-color: var(--line-strong); color: var(--text); }
 
@@ -138,6 +138,7 @@
 
 /* Parameters */
 .params { display: grid; gap: 0.65rem; }
+#params-empty { text-align: center; padding: 1rem 0.5rem; }
 .params-head { display: flex; justify-content: flex-end; margin-bottom: 0.4rem; }
 .params-filters { display: flex; gap: 0.75rem; font-size: 0.85em; color: var(--muted); }
 .params-filters label { display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; }
@@ -201,7 +202,7 @@ body.status-failed .status-dot { background: var(--bad); }
 .step.current .step-flag { color: var(--accent-ink); }
 .step.suppressed > button { opacity: 0.45; text-decoration: line-through; }
 #scrubber-range { width: 100%; margin: 0; height: 0.9rem; }
-.history-empty { display: flex; align-items: center; gap: 0.75rem; min-height: 4.6rem; padding: 0 0.6rem; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); }
+.history-empty { display: flex; align-items: center; justify-content: center; text-align: center; gap: 0.75rem; min-height: 4.6rem; padding: 0 0.6rem; border: 1px dashed var(--line-strong); border-radius: 8px; color: var(--muted); }
 .step-card { display: none; }
 /* No timeline: no playback to offer. */
 .dock:has(#scrubber[hidden]) .transport { visibility: hidden; }

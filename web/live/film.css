@@ -55,14 +55,24 @@ body.film-playing .film-play .icon-pause { display: block; }
 .film-export-state:empty { display: none; }
 
 /* The timeline: chapters (one per step) filled to the time, and a
-   playhead; a tall hit area around thin bars. */
-.film-timeline { position: relative; flex: 1 1 10rem; min-width: 6rem; height: 2rem; display: flex; align-items: center; cursor: pointer; touch-action: none; outline-offset: 2px; border-radius: 4px; }
+   playhead; a tall hit area around thin bars, inset by the playhead's
+   radius so the head never overhangs the time beside it at 0:00. */
+.film-timeline { position: relative; flex: 1 1 10rem; min-width: 6rem; height: 2rem; padding: 0 0.7rem; display: flex; align-items: center; cursor: pointer; touch-action: none; outline-offset: 2px; border-radius: 4px; }
 .film-chapters { display: flex; gap: 3px; width: 100%; align-items: center; }
 .film-chapter { position: relative; flex-basis: 0; min-width: 4px; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 16%, transparent); overflow: hidden; transition: height 0.12s ease; }
 .film-chapter i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--accent); }
 .film-chapter-title { background: color-mix(in srgb, var(--text) 26%, transparent); }
 .film-timeline:hover .film-chapter, .film-timeline-drag .film-chapter, .film-timeline:focus-visible .film-chapter { height: 8px; }
 .film-playhead { position: absolute; left: 0; top: 50%; width: 0.85rem; height: 0.85rem; margin: -0.425rem 0 0 -0.425rem; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent), 0 1px 4px rgba(0, 0, 0, 0.5); pointer-events: none; }
+
+/* A narrow model view (a 1024 px screen's middle column) drops the
+   step's title: it was squeezed to a letter and the timeline to a
+   stub. The caption on the frame still names the step. */
+.pane-viewer { container: viewer / inline-size; }
+@container viewer (max-width: 32rem) {
+  .film-step { display: none; }
+  .film-bar { gap: 0.55rem; }
+}
 
 /* The History sheet's film list is a phone's (mobile.css); a wide
    screen has the script card's rail. */

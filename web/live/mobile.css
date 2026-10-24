@@ -9,11 +9,16 @@
   body.sheet-tall { --sheet-h: 76dvh; }
 
   /* Top bar: one row of actions, then the view modes' card. */
-  .topbar { flex-wrap: wrap; padding: max(var(--gap), env(safe-area-inset-top)) max(var(--gap), env(safe-area-inset-right)) 0.4rem max(var(--gap), env(safe-area-inset-left)); gap: 0.4rem var(--gap); }
+  .topbar { display: flex; flex-wrap: wrap; padding: max(var(--gap), env(safe-area-inset-top)) max(var(--gap), env(safe-area-inset-right)) 0.4rem max(var(--gap), env(safe-area-inset-left)); gap: 0.4rem var(--gap); }
   .bar-document { flex: 1; order: 1; }
   .bar-build { order: 2; }
   .bar-view { order: 3; flex: 1 0 100%; gap: 0.35rem; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
   .bar-view::-webkit-scrollbar { display: none; }
+  /* The modes centre in their card while they fit and scroll from the
+     start when they do not (auto margins, unlike justify-content, never
+     push the first mode out of reach). */
+  .bar-view > .segment:first-child { margin-left: auto; }
+  .bar-view > .segment:last-child { margin-right: auto; }
   .brand { padding: 0 0.15rem 0 0.35rem; }
   .brand-name { display: none; }
   .project-button { flex: 1; min-width: 0; max-width: none; justify-content: flex-start; background: transparent; border-color: transparent; padding-left: 0.4rem; }
@@ -54,13 +59,16 @@
   body.editor-collapsed[data-sheet="code"] .pane-editor { display: flex; }
   .pane-viewer { margin: 0 var(--gap) var(--gap); overflow: hidden; }
   body.sheet-tall .view-orient, body.sheet-tall .pick { display: none; }
+  /* The standard views stay a small card on a phone's model view. */
+  .view-orient { padding: 2px; }
+  .view-orient button { min-width: 2.2rem; padding: 0 0.25rem; font-size: 0.64rem; }
   .pane-viewer canvas { border-radius: 0; }
   .sheet-tabs { grid-area: tabs; display: flex; flex-direction: column; position: relative; z-index: 7; padding: 0.55rem 0.75rem 0.35rem; background: var(--card); border: 1px solid var(--line); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -10px 30px var(--shadow); }
   .sheet-grabber { align-self: center; width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--line-strong); margin-bottom: 0.5rem; pointer-events: none; }
   .sheet-size { position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: 6rem; height: 1.4rem; min-height: 0; padding: 0; background: transparent; border: 0; }
   .sheet-size:hover { background: transparent; }
   .sheet-tabs .tabs { padding: 0.25rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--raised); }
-  .sheet-tabs .tab { min-height: 2.4rem; }
+  .sheet-tabs .tab { flex: 1 1 0; min-height: 2.4rem; }
   .pane-editor, .pane-side, .dock { background: var(--card); border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
   .pane-side > .tabs { margin: 0 0.6rem; border: 0; padding: 0.35rem 0 0.25rem; }
 
@@ -148,9 +156,27 @@
   .tree-open { opacity: 1; }
   input[type="number"] { min-height: 2.5rem; font-size: 16px; }
 }
+/* Short phones: the History sheet tightens so the model keeps room. */
+@media (max-width: 60rem) and (max-height: 50rem) {
+  .dock { gap: 0.45rem; padding-top: 0.45rem; }
+  .step > button { min-height: 3.9rem; padding: 0.3rem 0.45rem; gap: 0.2rem; }
+  .step-card { padding: 0.4rem 0.6rem; }
+  .step-card-icon { width: 2rem; height: 2rem; }
+  .transport { gap: 0.9rem; }
+  .round { width: 2.4rem; height: 2.4rem; }
+  #scrubber-play { width: 2.9rem; height: 2.9rem; }
+  .film-list-item { min-height: 2.1rem; }
+  .sheet-tabs { padding-top: 0.45rem; padding-bottom: 0.25rem; }
+  .sheet-grabber { margin-bottom: 0.35rem; }
+  .sheet-tabs .tab { min-height: 2.1rem; }
+}
 /* Small phones: the guide keeps its icon and the brand goes (About is
-   in the Projects dialog) so the project name fits. */
+   in the Projects dialog) so the project name fits, and the view modes
+   tighten so all six fit a 360 px screen. */
 @media (max-width: 28rem) {
+  .mode { padding: 0.2rem 0.35rem; font-size: 0.92em; }
+  .bar-view { gap: 0.25rem; }
+  .segment + .segment { padding-left: 0.25rem; }
   .brand { display: none; }
   .guide-link .bar-text { display: none; }
   .guide-link { width: 2.5rem; padding: 0; justify-content: center; }
