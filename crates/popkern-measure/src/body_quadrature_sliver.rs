@@ -277,3 +277,7 @@ pub(super) fn sliver_term(
     let sum = fine + (fine - fan(&coarse)) / 3.0;
     sum.is_finite().then_some(sum)
 }
+
+#[cfg(test)]
+#[path = "body_quadrature_sliver_tests.rs"]
+mod tests;

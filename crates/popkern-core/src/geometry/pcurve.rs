@@ -279,9 +279,10 @@ impl Pcurve {
         }
     }
 
-    /// First-order tangent at parameter `t`. Returns the analytic
-    /// derivative for `Linear`, `Elliptical`, and `Sinusoidal`;
-    /// defers to NURBS de Boor otherwise.
+    /// The first derivative `d(u, v)/dt` at parameter `t`, for every
+    /// variant: a rate, not a direction (NURBS pcurves returned the
+    /// unit tangent, and Newton steps and `∫ du` read it as a rate,
+    /// PK-938). [`Self::unit_tangent_at`] is the direction.
     pub fn tangent_at(&self, t: f64) -> Vec3 {
         match &self.geometry {
             PcurveGeometry::Linear { start, end } => {
@@ -322,7 +323,7 @@ impl Pcurve {
             }
             PcurveGeometry::Nurbs(n) => {
                 use crate::geometry::curve::CurveEval;
-                n.tangent_at(t)
+                n.derivative_at(t, 1)
             }
             PcurveGeometry::CylinderArcViaRationalQuad {
                 theta_a, theta_b, ..
@@ -357,6 +358,11 @@ impl Pcurve {
                 Vec3::new(dtheta_dt, 0.0, 0.0)
             }
         }
+    }
+
+    /// The unit tangent at `t`, or `None` where the pcurve is stationary.
+    pub fn unit_tangent_at(&self, t: f64) -> Option<Vec3> {
+        self.tangent_at(t).normalized()
     }
 
     fn normalised_t(&self, t: f64) -> f64 {

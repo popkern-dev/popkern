@@ -90,14 +90,9 @@ impl Antiderivative {
     }
 }
 
-/// `du/dt` along `pc`. `Pcurve::tangent_at` is the derivative for the
-/// analytic variants but the UNIT tangent for NURBS, so NURBS pcurves
-/// take their first derivative directly.
+/// `du/dt` along `pc`.
 fn du_dt(pc: &Pcurve, t: f64) -> f64 {
-    match pc.as_nurbs() {
-        Some(n) => n.derivative_at(t, 1).x,
-        None => pc.tangent_at(t).x,
-    }
+    pc.tangent_at(t).x
 }
 
 /// `∫ f` over `[t0, t1]` (either order), by Gauss–Legendre on each

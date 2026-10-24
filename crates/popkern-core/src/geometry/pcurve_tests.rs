@@ -239,3 +239,29 @@ fn is_analytic_distinguishes_variants() {
     let p: Pcurve = n.into();
     assert!(!p.is_analytic());
 }
+
+/// PK-938: a NURBS pcurve's `tangent_at` is its rate, like every
+/// other variant's: a rim pcurve sweeping 2π of u over t ∈ [0, 1]
+/// moves 2π per unit t, where the unit tangent read 1.
+#[test]
+fn nurbs_tangent_is_the_rate() {
+    let tau = std::f64::consts::TAU;
+    let rim = Pcurve {
+        geometry: PcurveGeometry::Nurbs(NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.0, 0.3, 0.0), Point3::new(tau, 0.3, 0.0)],
+            weights: vec![1.0, 1.0],
+        }),
+        t_start: 0.0,
+        t_end: 1.0,
+    };
+    let linear = Pcurve::linear((0.0, 0.3), (tau, 0.3), 0.0, 1.0);
+    for t in [0.0, 0.4, 1.0] {
+        let (n, l) = (rim.tangent_at(t), linear.tangent_at(t));
+        assert!((n.x - tau).abs() < 1e-12 && n.y.abs() < 1e-12, "{n:?}");
+        assert!((n.x - l.x).abs() < 1e-12);
+        let unit = rim.unit_tangent_at(t).map(|u| (u.x, u.y));
+        assert_eq!(unit, Some((1.0, 0.0)));
+    }
+}
