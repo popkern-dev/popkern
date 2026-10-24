@@ -135,7 +135,17 @@ fn locate(trim: &Trim<'_>, q: (f64, f64), periods: (Option<f64>, Option<f64>)) -
             break;
         }
         let step = ((p.0 - q.0) * d.x + (p.1 - q.1) * d.y) / dd;
-        t = (t - step).clamp(trim.lo, trim.hi);
+        // A closed trim's parameter is periodic: a chord end at its
+        // parameter seam steps across it. Clamping pinned such an end
+        // to the far extreme, the chord matched no trim, and its sliver
+        // went missing (measured: a cube ∩ sphere under a rotation that
+        // put two cap circles' parameter seams on mesh chords, 1.6e-6
+        // of the volume; PK-933).
+        t = if trim.closed && trim.hi > trim.lo {
+            trim.lo + (t - step - trim.lo).rem_euclid(trim.hi - trim.lo)
+        } else {
+            (t - step).clamp(trim.lo, trim.hi)
+        };
     }
     let p = trim.pcurve.point_at(t);
     (t, uv_distance(aligned((p.x, p.y), q, periods), q))
