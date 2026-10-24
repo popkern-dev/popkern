@@ -66,6 +66,7 @@ fn fillet_single_cube_edge_produces_valid_brep() {
             matches!(
                 e,
                 popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::LoopJunctionMismatch { .. }
                     | popkern_core::error::ValidationError::BrokenTwin { .. }
                     | popkern_core::error::ValidationError::InconsistentVertex { .. }
                     | popkern_core::error::ValidationError::NonManifoldEdge { .. }
@@ -114,6 +115,7 @@ fn chamfer_single_cube_edge_produces_valid_brep() {
             matches!(
                 e,
                 popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::LoopJunctionMismatch { .. }
                     | popkern_core::error::ValidationError::BrokenTwin { .. }
                     | popkern_core::error::ValidationError::InconsistentVertex { .. }
                     | popkern_core::error::ValidationError::NonManifoldEdge { .. }

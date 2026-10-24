@@ -359,6 +359,16 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         } => {
             vec![EntityRef::HalfEdge(*half_edge), EntityRef::Loop(*loop_)]
         }
+        ValidationError::LoopJunctionMismatch {
+            half_edge,
+            next,
+            loop_,
+            ..
+        } => vec![
+            EntityRef::HalfEdge(*half_edge),
+            EntityRef::HalfEdge(*next),
+            EntityRef::Loop(*loop_),
+        ],
         ValidationError::InconsistentVertex {
             vertex, half_edge, ..
         } => {

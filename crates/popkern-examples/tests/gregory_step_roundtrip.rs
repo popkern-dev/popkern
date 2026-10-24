@@ -176,6 +176,7 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
             matches!(
                 e,
                 ValidationError::BrokenCycle { .. }
+                    | ValidationError::LoopJunctionMismatch { .. }
                     | ValidationError::BrokenTwin { .. }
                     | ValidationError::NonManifoldEdge { .. }
             )

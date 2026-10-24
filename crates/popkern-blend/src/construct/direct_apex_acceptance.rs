@@ -26,7 +26,9 @@ pub(super) fn native_gregory_apex_rebuild_error(brep: &BRep) -> Option<String> {
                 }
                 Some(format!("{err:?}"))
             }
-            ValidationError::BrokenCycle { .. } => Some(format!("{err:?}")),
+            ValidationError::BrokenCycle { .. } | ValidationError::LoopJunctionMismatch { .. } => {
+                Some(format!("{err:?}"))
+            }
             ValidationError::OpenLoop { loop_, .. } => {
                 if crate::direct_apex_trace::enabled() {
                     trace_loop_for_acceptance_failure(brep, loop_);

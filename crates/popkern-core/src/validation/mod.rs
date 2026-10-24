@@ -50,6 +50,7 @@ impl BRep {
         self.validate_euler_poincare_any_genus()?;
         self.validate_half_edge_pairing()?;
         self.validate_half_edge_cycles()?;
+        self.validate_loop_junctions()?;
         self.validate_vertex_consistency()?;
         self.validate_manifold_edges()?;
         self.validate_vertex_valence()?;
@@ -108,6 +109,9 @@ impl BRep {
             errors.push(e);
         }
         if let Err(e) = self.validate_half_edge_cycles() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_loop_junctions() {
             errors.push(e);
         }
         if let Err(e) = self.validate_vertex_consistency() {
@@ -213,6 +217,9 @@ impl BRep {
             errors.push(e);
         }
         if let Err(e) = self.validate_half_edge_cycles() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_loop_junctions() {
             errors.push(e);
         }
         if let Err(e) = self.validate_vertex_consistency() {

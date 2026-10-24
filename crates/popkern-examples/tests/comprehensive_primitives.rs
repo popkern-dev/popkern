@@ -25,6 +25,7 @@ fn assert_no_structural_errors(brep: &BRep) {
             matches!(
                 e,
                 ValidationError::BrokenCycle { .. }
+                    | ValidationError::LoopJunctionMismatch { .. }
                     | ValidationError::BrokenTwin { .. }
                     | ValidationError::InconsistentVertex { .. }
                     | ValidationError::NonManifoldEdge { .. }

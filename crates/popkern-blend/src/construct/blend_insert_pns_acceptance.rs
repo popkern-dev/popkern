@@ -342,6 +342,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
             matches!(
                 error,
                 ValidationError::BrokenCycle { .. }
+                    | ValidationError::LoopJunctionMismatch { .. }
                     | ValidationError::ShellGap { .. }
                     | ValidationError::OpenLoop { .. }
             )

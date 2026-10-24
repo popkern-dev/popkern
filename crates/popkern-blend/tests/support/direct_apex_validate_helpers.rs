@@ -24,6 +24,7 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
             | ValidationError::DanglingReference { .. }
             | ValidationError::BrokenTwin { .. }
             | ValidationError::BrokenCycle { .. }
+            | ValidationError::LoopJunctionMismatch { .. }
             | ValidationError::InconsistentVertex { .. }
             | ValidationError::NonManifoldEdge { .. }
             | ValidationError::LowValence { .. } => out.structural += 1,

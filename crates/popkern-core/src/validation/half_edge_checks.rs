@@ -85,6 +85,40 @@ impl BRep {
         Ok(())
     }
 
+    /// Check 3b: every half-edge ends where its successor starts —
+    /// its twin's origin is `next`'s origin. The cycle check proves
+    /// only that `next` returns to the start; a loop whose successors
+    /// are permuted still cycles, pairs its twins and closes its
+    /// first and last ends, so every other structural check passed it
+    /// (measured, PK-943: a graph-merge sphere face jumped 0.4 at
+    /// three of its six junctions). Boundary half-edges (no twin)
+    /// and construction residuals are out of scope, as for the cycle
+    /// check.
+    pub fn validate_loop_junctions(&self) -> Result<(), ValidationError> {
+        for (he_handle, he) in &self.half_edges {
+            if self.boundary_edges.contains(&he.edge)
+                || self.half_edge_is_construction_residual_for_cycle_validation(he)
+            {
+                continue;
+            }
+            let (Some(twin), Some(next)) =
+                (self.half_edges.get(he.twin), self.half_edges.get(he.next))
+            else {
+                continue; // pairing and cycle checks own missing handles
+            };
+            if twin.origin != next.origin {
+                return Err(ValidationError::LoopJunctionMismatch {
+                    half_edge: he_handle,
+                    next: he.next,
+                    loop_: he.loop_,
+                    end: twin.origin,
+                    next_origin: next.origin,
+                });
+            }
+        }
+        Ok(())
+    }
+
     fn half_edge_is_construction_residual_for_cycle_validation(
         &self,
         half_edge: &crate::topology::HalfEdge,

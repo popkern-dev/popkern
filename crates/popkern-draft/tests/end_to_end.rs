@@ -33,6 +33,7 @@ fn assert_structurally_valid(brep: &BRep) {
             matches!(
                 e,
                 ValidationError::BrokenCycle { .. }
+                    | ValidationError::LoopJunctionMismatch { .. }
                     | ValidationError::BrokenTwin { .. }
                     | ValidationError::InconsistentVertex { .. }
                     | ValidationError::NonManifoldEdge { .. }

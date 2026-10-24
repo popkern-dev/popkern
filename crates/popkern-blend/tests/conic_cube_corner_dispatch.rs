@@ -160,6 +160,7 @@ fn conic_and_variable_cube_corners_serve_structurally_sound() {
                 | ValidationError::DanglingReference { .. }
                 | ValidationError::BrokenTwin { .. }
                 | ValidationError::BrokenCycle { .. }
+                | ValidationError::LoopJunctionMismatch { .. }
                 | ValidationError::InconsistentVertex { .. }
                 | ValidationError::NonManifoldEdge { .. }
                 | ValidationError::OpenLoop { .. }

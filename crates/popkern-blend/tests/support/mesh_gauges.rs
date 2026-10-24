@@ -161,6 +161,7 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
             | ValidationError::DanglingReference { .. }
             | ValidationError::BrokenTwin { .. }
             | ValidationError::BrokenCycle { .. }
+            | ValidationError::LoopJunctionMismatch { .. }
             | ValidationError::InconsistentVertex { .. }
             | ValidationError::NonManifoldEdge { .. }
             | ValidationError::LowValence { .. } => structural += 1,

@@ -202,6 +202,7 @@ fn subtraction_result_has_valid_half_edge_loops() {
             matches!(
                 e,
                 popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::LoopJunctionMismatch { .. }
                     | popkern_core::error::ValidationError::OpenLoop { .. }
             )
         })
@@ -275,6 +276,7 @@ fn chained_subtraction_result_validates() {
             matches!(
                 e,
                 popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::LoopJunctionMismatch { .. }
                     | popkern_core::error::ValidationError::OpenLoop { .. }
             )
         })
@@ -308,6 +310,7 @@ fn chained_subtraction_result_validates() {
             matches!(
                 e,
                 popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::LoopJunctionMismatch { .. }
                     | popkern_core::error::ValidationError::OpenLoop { .. }
             )
         })

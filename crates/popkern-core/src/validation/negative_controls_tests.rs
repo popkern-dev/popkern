@@ -19,6 +19,7 @@ fn variants(errors: &[ValidationError]) -> Vec<&'static str> {
             ValidationError::EulerPoincare { .. } => "EulerPoincare",
             ValidationError::BrokenTwin { .. } => "BrokenTwin",
             ValidationError::BrokenCycle { .. } => "BrokenCycle",
+            ValidationError::LoopJunctionMismatch { .. } => "LoopJunctionMismatch",
             ValidationError::InconsistentVertex { .. } => "InconsistentVertex",
             ValidationError::NonManifoldEdge { .. } => "NonManifoldEdge",
             ValidationError::InconsistentOrientation { .. } => "InconsistentOrientation",
@@ -48,6 +49,35 @@ fn a_flipped_coedge_is_rejected() {
     b.half_edges[he].origin = b.half_edges[twin].origin;
     let found = variants(&b.validate_all());
     assert!(found.contains(&"InconsistentVertex"), "{found:?}");
+}
+
+#[test]
+fn a_permuted_loop_is_rejected() {
+    // One face's loop a -> b -> c -> d rewired a -> c -> b -> d: it
+    // still cycles through all four and closes, but jumps at its
+    // junctions (PK-943).
+    let mut b = cube();
+    let f = b.faces.keys().next().unwrap_or_else(|| panic!("face"));
+    let a = b.loops[b.faces[f].outer_loop].half_edge;
+    let hb = b.half_edges[a].next;
+    let hc = b.half_edges[hb].next;
+    let hd = b.half_edges[hc].next;
+    b.half_edges[a].next = hc;
+    b.half_edges[hc].next = hb;
+    b.half_edges[hb].next = hd;
+    b.half_edges[hc].prev = a;
+    b.half_edges[hb].prev = hc;
+    b.half_edges[hd].prev = hb;
+    assert!(
+        b.validate_half_edge_cycles().is_ok(),
+        "the cycle still closes"
+    );
+    let found = variants(&b.validate_all());
+    assert!(found.contains(&"LoopJunctionMismatch"), "{found:?}");
+    assert!(matches!(
+        b.validate(),
+        Err(ValidationError::LoopJunctionMismatch { .. })
+    ));
 }
 
 #[test]

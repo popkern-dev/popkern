@@ -188,6 +188,7 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         | ValidationError::DanglingReference { .. }
         | ValidationError::BrokenTwin { .. }
         | ValidationError::BrokenCycle { .. }
+        | ValidationError::LoopJunctionMismatch { .. }
         | ValidationError::InconsistentVertex { .. }
         | ValidationError::NonManifoldEdge { .. }
         | ValidationError::LowValence { .. }
@@ -206,6 +207,7 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::DanglingReference { .. } => "DanglingReference",
         ValidationError::BrokenTwin { .. } => "BrokenTwin",
         ValidationError::BrokenCycle { .. } => "BrokenCycle",
+        ValidationError::LoopJunctionMismatch { .. } => "LoopJunctionMismatch",
         ValidationError::InconsistentVertex { .. } => "InconsistentVertex",
         ValidationError::NonManifoldEdge { .. } => "NonManifoldEdge",
         ValidationError::LowValence { .. } => "LowValence",

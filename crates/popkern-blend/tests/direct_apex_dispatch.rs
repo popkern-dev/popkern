@@ -156,6 +156,7 @@ fn direct_apex_dispatch_mixed_radius_geometry_is_structurally_valid() {
                 popkern_core::error::ValidationError::EulerPoincare { .. }
                     | popkern_core::error::ValidationError::BrokenTwin { .. }
                     | popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::LoopJunctionMismatch { .. }
                     | popkern_core::error::ValidationError::InconsistentVertex { .. }
                     | popkern_core::error::ValidationError::NonManifoldEdge { .. }
                     | popkern_core::error::ValidationError::LowValence { .. }

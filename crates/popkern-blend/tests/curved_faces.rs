@@ -21,6 +21,7 @@ fn assert_no_structural_errors(brep: &BRep, label: &str) {
             matches!(
                 e,
                 popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::LoopJunctionMismatch { .. }
                     | popkern_core::error::ValidationError::BrokenTwin { .. }
                     | popkern_core::error::ValidationError::InconsistentVertex { .. }
                     | popkern_core::error::ValidationError::NonManifoldEdge { .. }

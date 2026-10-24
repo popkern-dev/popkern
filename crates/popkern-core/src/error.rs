@@ -42,6 +42,29 @@ pub enum ValidationError {
         loop_: LoopHandle,
     },
 
+    /// A loop's half-edge ends at a different vertex than its
+    /// successor starts at: following `next` returns to the start, so
+    /// the cycle check passes, but the loop jumps between vertices
+    /// (measured: graph-merge served a sphere face whose outer loop
+    /// jumped at three of its six junctions, 0.4 apart, through every
+    /// structural check; PK-940, PK-943).
+    #[error(
+        "Half-edge {half_edge:?} in loop {loop_:?} ends at {end:?} but its successor \
+         {next:?} starts at {next_origin:?}"
+    )]
+    LoopJunctionMismatch {
+        /// The half-edge whose end misses its successor.
+        half_edge: HalfEdgeHandle,
+        /// The successor (`next`) half-edge.
+        next: HalfEdgeHandle,
+        /// The loop holding both.
+        loop_: LoopHandle,
+        /// Where `half_edge` ends (its twin's origin).
+        end: VertexHandle,
+        /// Where `next` starts.
+        next_origin: VertexHandle,
+    },
+
     /// Vertex's outgoing half-edge doesn't originate from it.
     #[error("Vertex {vertex:?} outgoing half-edge {half_edge:?} does not originate from it")]
     InconsistentVertex {

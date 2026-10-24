@@ -132,6 +132,7 @@ fn first_structural_validation_error(brep: &BRep) -> Option<String> {
         matches!(
             err,
             popkern_core::error::ValidationError::BrokenCycle { .. }
+                | popkern_core::error::ValidationError::LoopJunctionMismatch { .. }
                 | popkern_core::error::ValidationError::BrokenTwin { .. }
                 | popkern_core::error::ValidationError::InconsistentVertex { .. }
                 | popkern_core::error::ValidationError::NonManifoldEdge { .. }

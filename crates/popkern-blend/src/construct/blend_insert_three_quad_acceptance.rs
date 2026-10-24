@@ -76,6 +76,7 @@ pub(super) fn accept_three_quad_result(
             matches!(
                 error,
                 ValidationError::BrokenCycle { .. }
+                    | ValidationError::LoopJunctionMismatch { .. }
                     | ValidationError::ShellGap { .. }
                     | ValidationError::OpenLoop { .. }
             )
