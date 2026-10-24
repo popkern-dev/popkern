@@ -51,6 +51,9 @@
   }
   body.editor-collapsed .workbench { grid-template-columns: minmax(0, 1fr); }
   .editor-rail, #editor-collapse, .splitter { display: none !important; }
+  /* The corner tools are icons on a phone (the status chip shares the row). */
+  .tool-label { display: none; }
+  .float-button:has(.tool-label) { width: var(--tool); padding: 0; }
   .pane-editor, .pane-side, .dock { grid-area: sheet; display: none; border-radius: 0; border-width: 0; box-shadow: none; padding-bottom: env(safe-area-inset-bottom); }
   body[data-sheet="history"] .dock { display: flex; }
   /* A dragged sheet height: the History sheet scrolls what does not fit. */

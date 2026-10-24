@@ -52,6 +52,11 @@ input[type="checkbox"] { accent-color: var(--accent); }
 .icon { width: 1rem; height: 1rem; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .icon.solid { fill: currentColor; stroke: none; }
 .icon.chevron { width: 0.8rem; height: 0.8rem; opacity: 0.7; }
+/* The play triangle beside a label: its box is trimmed to the ink
+   (it is 9 of 16 units wide), so the label keeps the button's usual
+   gap and the pair centres as drawn (Build read 1.6 px right of centre
+   with the whole box, and wide-spaced with the triangle pushed left). */
+.icon.play-mark { margin-inline: -0.22rem; }
 .icon-only { padding: 0; width: 2rem; }
 .chip { display: inline-flex; align-items: center; padding: 0.05rem 0.45rem; border-radius: 999px; background: var(--raised); border: 1px solid var(--line-strong); color: var(--muted); font: 0.78rem/1.4 var(--mono); white-space: nowrap; }
 .chip-ok { color: var(--ok); background: var(--accent-soft); border-color: transparent; }
@@ -172,6 +177,8 @@ body.editor-collapsed .pane-editor { display: none; }
 .view-corner { position: absolute; top: 0.4rem; right: 0.4rem; z-index: 5; display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem; }
 .view-tools { display: flex; gap: 0.35rem; }
 .float-button { width: var(--tool); height: var(--tool); min-height: 0; padding: 0; background: var(--card); border-color: var(--line); }
+/* On a wide screen the corner tools carry their names. */
+.float-button:has(.tool-label) { width: auto; padding: 0 0.65rem 0 0.55rem; gap: 0.4rem; font-weight: 600; }
 /* An unfolded view cube: one clustered card of standard views. */
 .view-orient { display: grid; grid-template-columns: repeat(3, auto); gap: 2px; padding: 3px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-small); }
 .view-orient button { min-height: 1.6rem; min-width: 2.6rem; padding: 0 0.35rem; font: 600 0.7rem/1 var(--ui); color: var(--muted); background: transparent; border-color: transparent; border-radius: 5px; }

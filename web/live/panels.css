@@ -223,5 +223,6 @@ body.status-failed .status-dot { background: var(--bad); }
 .dock:has(#scrubber[hidden]) .dock-title { grid-column: 1 / -1; min-height: 2rem; }
 
 .migration-name .icon, .film-list-item .icon { width: 0.6rem; height: 0.6rem; color: var(--accent); }
+.migration-name .icon.play-mark, .film-list-item .icon.play-mark { margin-inline: -0.13rem; }
 .migration-name { gap: 0.35rem; }
 #section-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }

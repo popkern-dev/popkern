@@ -45,12 +45,9 @@ const PATHS = {
   next: "m6 3.5 4.5 4.5L6 12.5",
 };
 
-// Filled marks (drawn with `fill`, no stroke). The play mark sits
-// beside a label, so its triangle leans left in its box: centred by
-// extent it read a pixel right of its text (a label's box ends at its
-// ink, while the icon's box began 3.5 units before its own).
+// Filled marks (drawn with `fill`, no stroke).
 const SOLID = {
-  play: "M2.5 2.5v11l9-5.5z",
+  play: "M3.5 2.5v11l9-5.5z",
 };
 
 // Operation names (the history's `operation_label`, an assembly
@@ -84,7 +81,7 @@ export function iconName(operation) {
 
 /** An icon's SVG markup (constant text, safe to assign as HTML). */
 export function iconSvg(name) {
-  if (SOLID[name]) return `<svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><path d="${SOLID[name]}"/></svg>`;
+  if (SOLID[name]) return `<svg class="icon solid${name === "play" ? " play-mark" : ""}" viewBox="0 0 16 16" aria-hidden="true"><path d="${SOLID[name]}"/></svg>`;
   const d = PATHS[name] ?? PATHS.step;
   return `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${d}"/></svg>`;
 }
