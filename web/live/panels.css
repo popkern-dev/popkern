@@ -24,11 +24,13 @@
    tab row keeps its tabs readable (PK-871: at 1280 px the film tab's
    name hid behind "+ migration  + film"). */
 .editor-head { container-type: inline-size; }
-.rail-add-glyph { display: none; font-size: 0.7em; margin-left: 0.1em; color: var(--accent); }
+.rail-add { gap: 0.3rem; }
+.rail-add .icon { width: 0.8rem; height: 0.8rem; }
+.rail-add .rail-add-glyph { display: none; width: 0.6rem; height: 0.6rem; margin-left: -0.15rem; color: var(--accent); }
 @container (max-width: 30rem) {
   .rail-add { padding-inline: 0.45rem; }
   .rail-add .rail-add-label { display: none; }
-  .rail-add .rail-add-glyph { display: inline; }
+  .rail-add .rail-add-glyph { display: block; }
 }
 /* The open file's save state beside the tabs (projects.js sets it). */
 .save-state { flex: none; font: 0.75rem var(--mono); color: var(--muted); white-space: nowrap; }
@@ -39,6 +41,7 @@
 .migration-name { min-height: 1.75rem; padding: 0.1rem 0.5rem; background: none; border: 0; font: 0.85rem var(--mono); color: var(--muted); }
 .migration.open .migration-name { color: var(--text); }
 .migration-tool { display: none; min-height: 1.5rem; padding: 0 0.3rem; background: none; border: none; color: var(--faint); }
+.migration-tool .icon { width: 0.8rem; height: 0.8rem; }
 .migration.open .migration-tool { display: inline-flex; }
 .migration-tool:hover { color: var(--text); background: none; }
 .badge { font: 0.7rem var(--mono); padding: 0 0.3rem; border-radius: 4px; color: var(--muted); margin-right: 0.15rem; }
@@ -207,5 +210,6 @@ body.status-failed .status-dot { background: var(--bad); }
 /* No timeline: no playback to offer. */
 .dock:has(#scrubber[hidden]) .transport { visibility: hidden; }
 
-.migration-film .migration-name::before { content: "▶ "; color: var(--accent); }
+.migration-name .icon, .film-list-item .icon { width: 0.6rem; height: 0.6rem; color: var(--accent); }
+.migration-name { gap: 0.35rem; }
 #section-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }

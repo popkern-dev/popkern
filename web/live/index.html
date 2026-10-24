@@ -92,8 +92,8 @@
         <div id="migrations-rail" class="migrations-rail" hidden aria-label="Migrations"><ul id="migrations-list" class="migrations-list"></ul></div>
       </div>
       <span class="save-state" aria-hidden="true"></span>
-      <button id="migration-add" class="head-button rail-add" type="button" hidden title="Add a migration: a script that starts from previous() and edits the document" aria-label="Add a migration">+<span class="rail-add-label"> migration</span></button>
-      <button id="film-add" class="head-button rail-add" type="button" hidden title="Add a film: a script that animates the built model into a presentation video" aria-label="Add a film">+<span class="rail-add-glyph" aria-hidden="true">▶</span><span class="rail-add-label"> film</span></button>
+      <button id="migration-add" class="head-button rail-add" type="button" hidden title="Add a migration: a script that starts from previous() and edits the document" aria-label="Add a migration"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><span class="rail-add-label">migration</span></button>
+      <button id="film-add" class="head-button rail-add" type="button" hidden title="Add a film: a script that animates the built model into a presentation video" aria-label="Add a film"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg><svg class="icon solid rail-add-glyph" viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3v10l8-5z"/></svg><span class="rail-add-label">film</span></button>
       <button id="editor-collapse" class="head-button icon-only" type="button" title="Hide the script" aria-label="Hide the script" aria-expanded="true"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3.5-4.5 4.5 4.5 4.5"/></svg></button>
     </div>
     <div id="draft-notice" class="notice" hidden role="status">
@@ -113,6 +113,9 @@
     <div id="editor"></div>
   </section>
   <button id="editor-expand" class="card editor-rail" type="button" title="Show the script" aria-label="Show the script" hidden><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg><span>Script</span></button>
+  <!-- Splitters (panel-resize.js): drag, arrow keys, double-click to reset. -->
+  <div id="split-editor" class="splitter splitter-editor" role="separator" aria-orientation="vertical" aria-label="Resize the script panel" tabindex="0" title="Drag to resize the script panel (double-click to reset)"></div>
+  <div id="split-side" class="splitter splitter-side" role="separator" aria-orientation="vertical" aria-label="Resize the inspector" tabindex="0" title="Drag to resize the inspector (double-click to reset)"></div>
   <section class="pane-viewer" aria-label="Model">
     <canvas id="viewer" aria-label="3D view of the model; drag to orbit, wheel or pinch to zoom, right-drag, shift-drag or two-finger drag to pan, arrow keys to orbit"></canvas>
     <div class="view-corner">

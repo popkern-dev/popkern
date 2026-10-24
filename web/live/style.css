@@ -132,7 +132,9 @@ body.busy #cancel { color: var(--bad); border-color: color-mix(in srgb, var(--ba
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(20rem, 27rem) minmax(0, 1fr) minmax(16rem, 19.5rem);
+  /* The side columns take a dragged width (panel-resize.js) when there
+     is one, else their own range. */
+  grid-template-columns: var(--editor-w, minmax(20rem, 27rem)) minmax(0, 1fr) var(--side-w, minmax(16rem, 19.5rem));
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas: "editor viewer side" "dock dock dock";
   gap: var(--gap);
@@ -144,7 +146,17 @@ body.busy #cancel { color: var(--bad); border-color: color-mix(in srgb, var(--ba
 .pane-side { grid-area: side; }
 .dock { grid-area: dock; }
 .sheet-tabs { display: none; }
-body.editor-collapsed .workbench { grid-template-columns: 2.75rem minmax(0, 1fr) minmax(16rem, 19.5rem); }
+body.editor-collapsed .workbench { grid-template-columns: 2.75rem minmax(0, 1fr) var(--side-w, minmax(16rem, 19.5rem)); }
+/* Splitters: the gap beside a side panel, a line on hover and drag. */
+.splitter { position: relative; z-index: 4; width: var(--gap); align-self: stretch; cursor: col-resize; touch-action: none; outline: none; }
+.splitter-editor { grid-area: editor; justify-self: end; margin-right: calc(-1 * var(--gap)); }
+.splitter-side { grid-area: side; justify-self: start; margin-left: calc(-1 * var(--gap)); }
+.splitter::after { content: ""; position: absolute; top: 0.75rem; bottom: 0.75rem; left: 50%; width: 2px; margin-left: -1px; border-radius: 1px; background: transparent; transition: background 0.12s; }
+.splitter:hover::after, .splitter.dragging::after { background: var(--accent-line); }
+.splitter:focus-visible::after { background: var(--accent); }
+body.editor-collapsed .splitter-editor { display: none; }
+body.resizing { cursor: col-resize; user-select: none; }
+body.resizing .pane-viewer canvas, body.resizing iframe { pointer-events: none; }
 body.editor-collapsed .pane-editor { display: none; }
 .editor-rail { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 0.75rem; padding: 0.6rem 0; min-height: 0; border-radius: var(--radius); color: var(--muted); }
 .editor-rail span { writing-mode: vertical-rl; font: 0.75rem var(--mono); letter-spacing: 0.08em; }
@@ -194,10 +206,12 @@ button.danger:hover { border-color: var(--bad); color: var(--bad); }
    example is read only). */
 @media (max-width: 96rem) {
   .segment-label, .brand-name { display: none; }
+  .brand { padding: 0.2rem 0.5rem; }
 }
 /* Medium widths: the inspector narrows. */
 @media (max-width: 82rem) {
-  .workbench { grid-template-columns: minmax(18rem, 23rem) minmax(0, 1fr) minmax(15rem, 17rem); }
+  .workbench { grid-template-columns: var(--editor-w, minmax(18rem, 23rem)) minmax(0, 1fr) var(--side-w, minmax(15rem, 17rem)); }
+  body.editor-collapsed .workbench { grid-template-columns: 2.75rem minmax(0, 1fr) var(--side-w, minmax(15rem, 17rem)); }
   .build-key { display: none; }
 }
 @media (max-width: 70rem) {

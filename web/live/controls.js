@@ -7,6 +7,7 @@ import { wireSection } from "./section-controls.js";
 import { dismissDraft, restoreDraft } from "./drafts.js";
 import { downloadModel, showModelCode } from "./exports.js";
 import { wireLayout } from "./layout.js";
+import { wirePanelResize } from "./panel-resize.js";
 import { wireViewOrient } from "./view-orient.js";
 import { wireTheme } from "./theme.js";
 
@@ -26,6 +27,7 @@ export function wireControls(page) {
     if (await page.ensureLive()) $("scrubber").focus();
   });
   wireLayout(page);
+  wirePanelResize();
   $("edges").addEventListener("change", (e) => page.viewer.toggleEdges(e.target.checked));
   $("explode").addEventListener("input", (e) => page.viewer.setExplode(Number(e.target.value)));
   wireSection(page);

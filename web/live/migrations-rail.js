@@ -9,6 +9,7 @@
 import { NEXT_MIGRATION, insertAfterMigration, insertAfterName, insertAfterPartMigration } from "./migration-templates.js";
 import { migrationPaths } from "./project-store.js";
 import { NEW_FILM, filmName, filmPath } from "./film-files.js";
+import { iconLabel, iconSvg } from "./icons.js";
 
 const $ = (id) => document.getElementById(id);
 
@@ -61,7 +62,7 @@ export class MigrationsRail {
       b.className = "film-list-item";
       b.dataset.path = path;
       b.classList.toggle("open", path === openPath);
-      b.textContent = `▶ ${filmName(path)}`;
+      b.replaceChildren(...iconLabel("play", filmName(path)));
       b.title = `play the film ${filmName(path)}`;
       b.addEventListener("click", () => this.open(path));
       box.append(b);
@@ -104,18 +105,19 @@ export class MigrationsRail {
         li.append(badge);
       }
       if (!p.readOnly) {
-        for (const [label, title, act, hidden] of [
-          ["↑", "move earlier", () => this.move(path, -1), i === 0],
-          ["↓", "move later", () => this.move(path, 1), i === paths.length - 1],
-          ["✎", "rename", () => this.rename(path), false],
-          ["×", "delete this migration", () => this.remove(path), false],
+        for (const [icon, title, act, hidden] of [
+          ["up", "move earlier", () => this.move(path, -1), i === 0],
+          ["down", "move later", () => this.move(path, 1), i === paths.length - 1],
+          ["rename", "rename", () => this.rename(path), false],
+          ["close", "delete this migration", () => this.remove(path), false],
         ]) {
           if (hidden) continue;
           const b = document.createElement("button");
           b.type = "button";
           b.className = "migration-tool";
-          b.textContent = label;
+          b.innerHTML = iconSvg(icon);
           b.title = title;
+          b.setAttribute("aria-label", title);
           b.addEventListener("click", act);
           li.append(b);
         }
@@ -130,20 +132,21 @@ export class MigrationsRail {
       const open = document.createElement("button");
       open.type = "button";
       open.className = "migration-name";
-      open.textContent = filmName(path);
+      open.replaceChildren(...iconLabel("play", filmName(path)));
       open.title = `play the film ${filmName(path)} (films/${filmName(path)}.rhai)`;
       open.addEventListener("click", () => this.open(path));
       li.append(open);
       if (!p.readOnly) {
-        for (const [label, title, act] of [
-          ["✎", "rename", () => this.renameFilm(path)],
-          ["×", "delete this film", () => this.removeFilm(path)],
+        for (const [icon, title, act] of [
+          ["rename", "rename", () => this.renameFilm(path)],
+          ["close", "delete this film", () => this.removeFilm(path)],
         ]) {
           const b = document.createElement("button");
           b.type = "button";
           b.className = "migration-tool";
-          b.textContent = label;
+          b.innerHTML = iconSvg(icon);
           b.title = title;
+          b.setAttribute("aria-label", title);
           b.addEventListener("click", act);
           li.append(b);
         }

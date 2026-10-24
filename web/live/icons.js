@@ -34,6 +34,20 @@ const PATHS = {
   section: "M2.5 2.5h11v11h-11zM2.5 13.5 13.5 2.5M5.5 13.5l8-8M2.5 10.5l8-8",
   "section-off": "M2.5 2.5h11v11h-11z",
   "eye-off": "M2 2l12 12M6.6 3.7A6.6 6.6 0 0 1 8 3.5c4.1 0 6.5 4.5 6.5 4.5a11 11 0 0 1-1.9 2.4M4.2 5.1A11 11 0 0 0 1.5 8s2.4 4.5 6.5 4.5c1 0 1.9-.3 2.7-.7",
+  // Interface marks: drawn, not typed, so they sit centred in their
+  // buttons whatever font the device has (a typed ✎ × ▶ › rode the
+  // font's own metrics, and ▶ can render as a colour emoji).
+  rename: "M10.5 2.5l3 3-8 8h-3v-3z",
+  close: "M4 4l8 8M12 4l-8 8",
+  up: "M8 13V3M4.5 6.5 8 3l3.5 3.5",
+  down: "M8 3v10M4.5 9.5 8 13l3.5-3.5",
+  plus: "M8 3v10M3 8h10",
+  next: "m6 3.5 4.5 4.5L6 12.5",
+};
+
+// Filled marks (drawn with `fill`, no stroke).
+const SOLID = {
+  play: "M5 3v10l8-5z",
 };
 
 // Operation names (the history's `operation_label`, an assembly
@@ -67,8 +81,19 @@ export function iconName(operation) {
 
 /** An icon's SVG markup (constant text, safe to assign as HTML). */
 export function iconSvg(name) {
+  if (SOLID[name]) return `<svg class="icon solid" viewBox="0 0 16 16" aria-hidden="true"><path d="${SOLID[name]}"/></svg>`;
   const d = PATHS[name] ?? PATHS.step;
   return `<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${d}"/></svg>`;
+}
+
+/** A label after an icon: `<icon><span>text</span>` as nodes, the
+ *  text set as text (never parsed as HTML). */
+export function iconLabel(name, text) {
+  const box = document.createElement("template");
+  box.innerHTML = iconSvg(name);
+  const label = document.createElement("span");
+  label.textContent = text;
+  return [box.content.firstChild, label];
 }
 
 /** The SVG markup for history operation `operation`. */

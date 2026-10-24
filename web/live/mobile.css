@@ -50,7 +50,7 @@
     padding: 0;
   }
   body.editor-collapsed .workbench { grid-template-columns: minmax(0, 1fr); }
-  .editor-rail, #editor-collapse { display: none !important; }
+  .editor-rail, #editor-collapse, .splitter { display: none !important; }
   .pane-editor, .pane-side, .dock { grid-area: sheet; display: none; border-radius: 0; border-width: 0; box-shadow: none; padding-bottom: env(safe-area-inset-bottom); }
   body[data-sheet="history"] .dock { display: flex; }
   body[data-sheet="code"] .pane-editor { display: flex; }
@@ -118,7 +118,8 @@
   .step-card-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .step-card-name { font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .step-card-what { color: var(--muted); font-size: 0.85em; }
-  .step-card-line { background: transparent; border-color: transparent; color: var(--accent); font-family: var(--mono); min-height: 2.25rem; }
+  .step-card-line { gap: 0.2rem; background: transparent; border-color: transparent; color: var(--accent); font-family: var(--mono); min-height: 2.25rem; }
+  .step-card-line .icon { width: 0.8rem; height: 0.8rem; }
   .history-empty { min-height: 4.4rem; flex-wrap: wrap; padding: 0.5rem 0.7rem; }
 
   /* Dialogs fill the screen. */

@@ -6,7 +6,7 @@
 // a phone the step card under the strip (the step, its operation and a
 // jump to its script line); and the empty state when there is no
 // history to step through.
-import { operationIcon } from "./icons.js";
+import { iconSvg, operationIcon } from "./icons.js";
 
 const $ = (id) => document.getElementById(id);
 // Operations drawn as minor (narrow) cards.
@@ -129,7 +129,11 @@ export class HistoryStrip {
     card.querySelector(".step-card-what").textContent = `${operationTitle(s.operation)} · ${at}/${steps.length}${where}`;
     const jump = $("step-card-line");
     jump.hidden = line == null;
-    jump.textContent = line == null ? "" : `line ${line} ›`;
+    if (line == null) jump.replaceChildren();
+    else {
+      jump.textContent = `line ${line}`;
+      jump.insertAdjacentHTML("beforeend", iconSvg("next"));
+    }
     jump.dataset.line = line == null ? "" : String(line);
   }
 
