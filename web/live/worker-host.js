@@ -167,6 +167,17 @@ export class WorkerHost {
     return this.request({ type: "set_visible", path, visible });
   }
 
+  /** Solve an analysis setup (setup file text) on the current part
+   *  (PK-948): `{simulation, meshes}`. */
+  simulate(setup) {
+    return this.request({ type: "simulate", setup });
+  }
+
+  /** The material presets a simulation setup may name. */
+  materials() {
+    return this.request({ type: "materials" });
+  }
+
   /** The zebra analysis mesh of the current model (PK-577). */
   analysisMesh() {
     return this.request({ type: "analysis_mesh" });

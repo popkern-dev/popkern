@@ -46,7 +46,7 @@ pub fn protocol_version() -> String {
 /// A popkern live session as the page holds it.
 #[wasm_bindgen]
 pub struct LiveSession {
-    session: Session,
+    pub(crate) session: Session,
     bodies: Vec<BodyMesh>,
     /// The zebra analysis meshes of the current model (PK-577), built on
     /// the first `analysis_mesh` request after a run.
@@ -54,6 +54,9 @@ pub struct LiveSession {
     /// The bodies of the last `step_meshes` answer, by row (`None`: the
     /// page already holds that key).
     step: Vec<Option<BodyMesh>>,
+    /// The field meshes of the last `simulate` answer (PK-948), read by
+    /// index right after it (`bindings_simulate`).
+    pub(crate) simulation: Vec<crate::session_simulate::FieldMesh>,
 }
 
 #[wasm_bindgen]
@@ -74,6 +77,7 @@ impl LiveSession {
             bodies: Vec::new(),
             analysis: Vec::new(),
             step: Vec::new(),
+            simulation: Vec::new(),
         })
     }
 

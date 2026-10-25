@@ -155,6 +155,35 @@ export function createHandler(pkg, loadModule) {
           delete stats.ok;
           return { reply: { id, ok: true, stats, buffers }, transfer };
         }
+        case "simulate": {
+          // Analysis (PK-948): the setup file text in, the summary and
+          // one field mesh per solid out (positions in model units,
+          // fields per vertex), shaped as the native protocol's reply.
+          const reply = JSON.parse(session.simulate(String(message.setup ?? "")));
+          if (!reply.ok) {
+            return { reply: { id, ok: false, outcome: reply.outcome }, transfer: [] };
+          }
+          const transfer = [];
+          const meshes = reply.meshes.map((mesh, i) => {
+            const out = {
+              body: mesh.body,
+              field_names: mesh.field_names,
+              positions: session.simulation_f32(i, "positions"),
+              indices: session.simulation_u32(i, "indices"),
+              displacement: session.simulation_f32(i, "displacement"),
+              fields: {},
+            };
+            transfer.push(out.positions.buffer, out.indices.buffer, out.displacement.buffer);
+            for (const name of mesh.field_names) {
+              out.fields[name] = session.simulation_f32(i, `fields.${name}`);
+              transfer.push(out.fields[name].buffer);
+            }
+            return out;
+          });
+          return { reply: { id, ok: true, simulation: reply.simulation, meshes }, transfer };
+        }
+        case "materials":
+          return { reply: { id, ok: true, materials: JSON.parse(session.materials()) }, transfer: [] };
         case "run_project":
           // A project (live-projects-and-history.md): text files by
           // path in `files`, binary ones base64 in `base64`.

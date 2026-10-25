@@ -23,6 +23,9 @@ popkern-script = { path = "../popkern-script" }
 serde = { workspace = true }
 slotmap = { workspace = true }
 popkern-history = { path = "../popkern-history" }
+popkern-analysis = { path = "../popkern-analysis" }
+popkern-analysis-brep = { path = "../popkern-analysis-brep" }
+popkern-analysis-setup = { path = "../popkern-analysis-setup" }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 

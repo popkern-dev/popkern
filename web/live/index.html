@@ -207,6 +207,7 @@
     </div>
     <div id="film-caption" class="film-caption" hidden aria-live="polite"><strong></strong><span></span></div>
     <span id="pick" class="pick">click a face or edge to see its stable name</span>
+    <div id="sim-legend" class="sim-legend" hidden aria-label="Field legend"><span id="sim-legend-title" class="sim-legend-title"></span><span id="sim-legend-bar" class="sim-legend-bar"></span><span class="sim-legend-ends"><span id="sim-legend-min"></span><span id="sim-legend-max"></span></span></div>
     <span class="scrubbed-note" aria-hidden="true">history · read only</span>
     <div id="overlay" class="overlay" hidden role="alert">
       <div class="overlay-head"><span id="overlay-class" class="overlay-class"></span><button id="overlay-goto" type="button" hidden>go to line</button></div>
@@ -219,6 +220,7 @@
       <button type="button" role="tab" class="tab" data-inspect="features" aria-selected="false">Features</button>
       <button type="button" role="tab" class="tab" data-inspect="params" aria-selected="false">Params</button>
       <button type="button" role="tab" class="tab" data-inspect="checks" aria-selected="false">Checks</button>
+      <button type="button" role="tab" class="tab" data-inspect="simulate" aria-selected="false">Simulate</button>
     </div>
     <div class="inspector" data-inspect="parts">
       <div id="assembly-open" class="assembly-open" hidden><span>Part <strong id="assembly-open-name"></strong></span><button id="assembly-close" type="button" title="Back to the whole assembly">all parts</button></div>
@@ -252,6 +254,35 @@
         <ul id="checks-list" class="checks"></ul>
         <p id="clearance-summary" class="panel-summary muted" hidden></p>
         <ul id="clearance-list" class="tree" hidden></ul>
+      </div>
+      <div class="inspect-panel" data-panel="simulate">
+        <p class="panel-summary muted">How the part bends and where it is most stressed, or how hot it runs.</p>
+        <div class="sim-fields">
+          <label>Analysis <select id="sim-analysis" aria-label="Analysis"><option value="structural">Strength</option><option value="thermal">Heat</option></select></label>
+          <label>Material <select id="sim-material" aria-label="Material"></select></label>
+        </div>
+        <div class="sim-faces">
+          <div class="sim-face-head"><strong id="sim-hold-title">Held faces</strong><button id="sim-pick-hold" type="button" title="Click faces in the view to hold them; press again when done">+ pick</button></div>
+          <ul id="sim-hold" class="tree"></ul>
+          <div class="sim-face-head"><strong id="sim-load-title">Loaded faces</strong><button id="sim-pick-load" type="button" title="Click faces in the view to load them; press again when done">+ pick</button></div>
+          <ul id="sim-load" class="tree"></ul>
+        </div>
+        <div id="sim-structural" class="sim-fields">
+          <label>Force <input id="sim-force" type="number" value="10" step="any" aria-label="Force in newtons"> N</label>
+          <label>Direction <select id="sim-direction" aria-label="Load direction"><option value="-z">−Z</option><option value="+z">+Z</option><option value="-x">−X</option><option value="+x">+X</option><option value="-y">−Y</option><option value="+y">+Y</option><option value="face_normal">along the face normal</option></select></label>
+        </div>
+        <div id="sim-thermal" class="sim-fields" hidden>
+          <label>Held at <input id="sim-temperature" type="number" value="20" step="any" aria-label="Held temperature in degrees Celsius"> °C</label>
+          <label>Heat in <input id="sim-power" type="number" value="1" step="any" aria-label="Heat input in watts"> W</label>
+        </div>
+        <div class="panel-foot sim-actions"><button id="sim-solve" class="primary" type="button" title="Solve on the live model">Solve</button><button id="sim-clear" type="button" title="Remove the result from the view">Clear</button></div>
+        <p id="sim-summary" class="panel-summary" aria-live="polite"></p>
+        <ul id="sim-card" class="sim-card"></ul>
+        <div id="sim-view" class="sim-fields" hidden>
+          <label>Show <select id="sim-field" aria-label="Field to show"></select></label>
+          <label id="sim-deform-row" title="Draw the part in its deformed shape, exaggerated so the largest deflection is a tenth of the part's size">Deform <input id="sim-deform" type="range" min="0" max="1" step="0.05" value="0" aria-label="Deformation"></label>
+        </div>
+        <p class="muted sim-assumptions">A linear preview: small deflections, solid infill, isotropic material with printed-layer strength checks. Thin walls and print quality can lower real strength.</p>
       </div>
     </div>
   </section>

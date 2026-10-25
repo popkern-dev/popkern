@@ -191,3 +191,9 @@
   .guide-link .bar-text { display: none; }
   .guide-link { width: 2.5rem; padding: 0; justify-content: center; }
 }
+
+/* The simulation legend on a phone's short viewport (PK-948). */
+@media (max-width: 60rem) {
+  .sim-legend { min-width: 9rem; font-size: 0.72rem; padding: 0.25rem 0.45rem; }
+  .sim-legend-bar { height: 0.45rem; }
+}

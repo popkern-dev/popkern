@@ -30,6 +30,7 @@ import { SocketWorker } from "./socket-worker.js";
 import { FilmPlayer } from "./film-player.js";
 import { wireFilmBar } from "./film-bar.js";
 import { Scrubber } from "./scrubber.js";
+import { SimulatePanel } from "./simulate-panel.js";
 import { MigrationsRail } from "./migrations-rail.js";
 import { wireProjects } from "./projects-dialog.js";
 import { renderReport } from "./report-table.js";
@@ -102,6 +103,10 @@ class Page {
     this.viewer.onShown = () => this.film.rebound();
     // A project's migration files beside the editor.
     this.rail = new MigrationsRail(this);
+    // The Simulate tab (PK-948): a field solved for one model is never
+    // drawn on the next.
+    this.simulate = new SimulatePanel(this);
+    this.viewer.beforeShow.push(() => this.simulate.modelChanged());
     wireControls(this);
     wireFilmBar(this);
     wireProjects(this);
@@ -125,6 +130,7 @@ class Page {
       })
       .then((info) => {
         this.kernelReadyMs = performance.now();
+        this.simulate.loadMaterials();
         if (!this.lastGood) this.status(`kernel ready in ${this.kernelReadyMs.toFixed(0)} ms (protocol ${info.protocol_version}${info.clock_available ? "" : ", no clock: wall budget off"})`);
         if (this.pendingLive) this.run({ live: true });
       })

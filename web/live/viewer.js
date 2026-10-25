@@ -70,6 +70,9 @@ export class Viewer {
     this.hovered = null;
     this.showEdges = true;
     this.fitted = false;
+    // Called before every show: anything drawn for the previous model
+    // (the simulation overlay) clears itself.
+    this.beforeShow = [];
     this.raycaster = new THREE.Raycaster();
     this.orbit = new Orbit(this.camera, canvas, () => this.render());
     this.section = new Section(this);
@@ -129,6 +132,7 @@ export class Viewer {
   /** `ghosts`: indices of bodies drawn see-through (a history step's
    *  tool bodies, which a later step consumes). */
   show(bodies, displayBuffers, assembly = null, ghosts = null) {
+    for (const clear of this.beforeShow) clear();
     this.lastShown = { bodies, buffers: displayBuffers, assembly, ghosts };
     const buffers =
       this.mode === "zebra" && this.analysis?.length === bodies.length ? this.analysis : displayBuffers;

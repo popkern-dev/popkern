@@ -13,6 +13,7 @@ use popkern_core::time::monotonic_clock_available;
 use crate::envelope::{BodyMesh, Envelope};
 use crate::session::{RunOptions, Session};
 use crate::session_project::{base64_decode, decode_project_files};
+use crate::session_simulate::FieldMesh;
 
 /// One bulk buffer of a reply.
 #[derive(Debug, Clone, PartialEq)]
@@ -92,6 +93,33 @@ fn body_attachments(prefix: &str, bodies: &[BodyMesh], curvature: bool) -> Vec<A
         if curvature {
             out.push(at("gaussian", Buffer::F32(b.gaussian.clone())));
             out.push(at("mean", Buffer::F32(b.mean.clone())));
+        }
+    }
+    out
+}
+
+/// A field mesh's JSON beside its buffers: the body and field names.
+fn field_mesh_json(m: &FieldMesh) -> Value {
+    json!({ "body": m.body, "field_names": m.fields.keys().collect::<Vec<_>>() })
+}
+
+/// `meshes.<i>.positions`, `.indices`, `.displacement` and
+/// `.fields.<name>` of each field mesh.
+fn field_attachments(meshes: &[FieldMesh]) -> Vec<Attachment> {
+    let mut out = Vec::new();
+    for (i, m) in meshes.iter().enumerate() {
+        let at = |field: String, buffer| Attachment {
+            path: format!("meshes.{i}.{field}"),
+            buffer,
+        };
+        out.push(at("positions".into(), Buffer::F32(m.positions.clone())));
+        out.push(at("indices".into(), Buffer::U32(m.indices.clone())));
+        out.push(at(
+            "displacement".into(),
+            Buffer::F32(m.displacement.clone()),
+        ));
+        for (name, values) in &m.fields {
+            out.push(at(format!("fields.{name}"), Buffer::F32(values.clone())));
         }
     }
     out
@@ -256,6 +284,16 @@ impl Protocol {
                     Err(outcome) => failed(outcome),
                 }
             }
+            "simulate" => match session.simulate(&text("setup", "")) {
+                Ok(result) => Reply {
+                    json: json!({ "id": id, "ok": true, "simulation": result.summary,
+                        "meshes": result.meshes.iter().map(field_mesh_json).collect::<Vec<_>>() }),
+                    attachments: field_attachments(&result.meshes),
+                },
+                Err(outcome) => failed(outcome),
+            },
+            "materials" => Reply::plain(json!({ "id": id, "ok": true,
+                "materials": crate::session_simulate::materials() })),
             "interference" => match session.interference(number("clearance")) {
                 Ok(report) => Reply::plain(json!({ "id": id, "ok": true, "report": report })),
                 Err(outcome) => failed(outcome),

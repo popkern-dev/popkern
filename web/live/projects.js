@@ -119,6 +119,8 @@ export class Projects {
     this.showName();
     this.page.rail?.setVersions(null);
     this.page.viewer.fitted = false;
+    // The project's saved simulation setup, if any (PK-948).
+    this.page.simulate?.restore(project.files);
     // The model on screen is the previous project's until this one builds.
     this.page.geometryKey = null;
     if (build) this.page.run();

@@ -1,6 +1,6 @@
 # popkern live bundle-size baseline (tools/live-size-gate.sh).
 # Measured on the shipped (unoptimised) bundle; ceilings are baseline + 5%. Update with --update.
-raw_bytes=19633732
-gzip_bytes=6472390
-raw_ceiling=20615418
-gzip_ceiling=6796009
+raw_bytes=22838561
+gzip_bytes=7596758
+raw_ceiling=23980489
+gzip_ceiling=7976595

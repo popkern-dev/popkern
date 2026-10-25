@@ -388,6 +388,45 @@ try {
   out.export_pkn_bytes = out.export_pkn_b64 ? Buffer.from(out.export_pkn_b64, "base64").length : -1;
   out.show_code_lines = out.show_code ? out.show_code.split("\n").length : -1;
 
+  // PK-948: the Simulate tab on the live boss plate: the plate's
+  // underside held, the boss top pushed down, faces by stable name.
+  out.simulate = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const body = page.lastGood.envelope.bodies[0];
+    const b = page.lastGood.buffers[0];
+    const mean = new Map();
+    for (let t = 0; t < b.face_ids.length; t++) {
+      const f = b.face_ids[t];
+      const m = mean.get(f) ?? [0, 0];
+      for (let k = 0; k < 3; k++) m[0] += b.positions[3 * b.indices[3 * t + k] + 2];
+      m[1] += 3;
+      mean.set(f, m);
+    }
+    const z = [...mean].map(([f, [sum, count]]) => [f, sum / count]).sort((x, y) => x[1] - y[1]);
+    page.simulate.hold = [body.face_labels[z[0][0]]];
+    page.simulate.load = [body.face_labels[z[z.length - 1][0]]];
+    document.getElementById("sim-material").value = "PLA (FDM)";
+    document.getElementById("sim-force").value = "20";
+    const started = performance.now();
+    const reply = await page.simulate.solve();
+    const shown = {
+      status: reply?.simulation?.status ?? reply?.outcome?.detail ?? null,
+      kind: reply?.simulation?.error?.kind ?? null,
+      materials: document.getElementById("sim-material").options.length,
+      overlay: page.simulate.overlay.active,
+      bodies_hidden: page.viewer.bodies.every((m) => !m.visible),
+      legend: !document.getElementById("sim-legend").hidden,
+      legend_max: document.getElementById("sim-legend-max").textContent,
+      rows: [...document.querySelectorAll("#sim-card li")].map((li) => li.textContent),
+      fields: [...document.getElementById("sim-field").options].map((o) => o.value),
+      solve_ms: performance.now() - started,
+    };
+    // A re-show (any rebuild, a history step) clears the field.
+    page.viewer.show(page.viewer.lastShown.bodies, page.viewer.lastShown.buffers);
+    shown.cleared = !page.simulate.overlay.active && document.getElementById("sim-legend").hidden;
+    return shown;
+  })()`);
+
   // Runaway script: the page's cancel path stops the worker.
   await evaluate(`window.popkernLive.editor.value = "let m = model();\\nloop {}\\n"`);
   const cancelStarted = Date.now();

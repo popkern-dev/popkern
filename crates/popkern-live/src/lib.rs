@@ -32,10 +32,13 @@ pub mod session_film;
 mod session_joints;
 pub mod session_project;
 pub mod session_section;
+pub mod session_simulate;
 pub mod session_timeline;
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod bindings;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod bindings_simulate;
 
 pub use envelope::{AssemblyView, BodyMesh, DefinitionView, Envelope, InstanceView, WallBudget};
 pub use popkern_rhai::{HostOptions, Outcome};

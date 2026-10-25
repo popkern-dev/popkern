@@ -23,6 +23,8 @@ use std::process::Command;
 
 #[path = "support/page_rows.rs"]
 mod page_rows;
+#[path = "support/sim_rows.rs"]
+mod sim_rows;
 mod support;
 
 use popkern_live::mesh_buffers::fnv1a_u32;
@@ -238,6 +240,7 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
     page_rows::assert_arm_rows(&out);
     page_rows::assert_open_step(&out);
     page_rows::assert_view_rows(&out);
+    sim_rows::assert_simulate(&out);
     // Broken script: overlay with class + position, line marked, last good model kept.
     assert_eq!(out["broken"]["outcome"], "script_error");
     assert_eq!(out["broken"]["kind"], "SyntaxError");

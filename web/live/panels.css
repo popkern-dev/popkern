@@ -87,7 +87,8 @@
 .inspector[data-inspect="parts"] [data-panel="parts"],
 .inspector[data-inspect="features"] [data-panel="features"],
 .inspector[data-inspect="params"] [data-panel="params"],
-.inspector[data-inspect="checks"] [data-panel="checks"] { display: flex; }
+.inspector[data-inspect="checks"] [data-panel="checks"],
+.inspector[data-inspect="simulate"] [data-panel="simulate"] { display: flex; }
 .inspect-panel p { margin: 0 0 0.5rem; }
 .panel-summary { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; color: var(--muted); font-size: 0.9em; }
 .panel-foot { margin-top: auto; padding-top: 0.6rem; border-top: 1px solid var(--line); }
@@ -226,3 +227,31 @@ body.status-failed .status-dot { background: var(--bad); }
 .migration-name .icon.play-mark, .film-list-item .icon.play-mark { margin-inline: -0.13rem; }
 .migration-name { gap: 0.35rem; }
 #section-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+
+/* The Simulate tab (PK-948). */
+.sim-fields { display: flex; flex-wrap: wrap; gap: 0.4rem 0.75rem; align-items: center; margin: 0 0 0.5rem; }
+.sim-fields label { display: inline-flex; align-items: center; gap: 0.35rem; }
+.sim-fields input[type="number"] { width: 5.5rem; }
+.sim-faces { margin: 0 0 0.5rem; }
+.sim-face-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin: 0.25rem 0; }
+.sim-face-head button.armed { background: var(--accent); color: var(--accent-ink, #fff); }
+.sim-faces .tree { margin: 0 0 0.35rem; }
+.sim-faces .tree-name { overflow-wrap: anywhere; }
+.sim-remove { margin-left: auto; padding: 0 0.4rem; line-height: 1.4; }
+.sim-actions { display: flex; gap: 0.5rem; }
+.sim-assumptions { font-size: 0.8em; margin-top: auto; }
+.sim-legend { position: absolute; z-index: 2; left: 0.4rem; bottom: 0.4rem; display: flex; flex-direction: column; gap: 0.2rem; min-width: 12rem; max-width: calc(100% - 2rem); padding: 0.35rem 0.6rem; border-radius: var(--radius-small); background: var(--glass); font-size: 0.8rem; pointer-events: none; }
+.sim-legend-title { text-align: center; font-weight: 600; }
+.sim-legend-bar { display: block; height: 0.6rem; border-radius: 0.3rem; }
+.sim-legend-ends { display: flex; justify-content: space-between; gap: 1rem; font-variant-numeric: tabular-nums; }
+/* While a field is shown its legend takes the pick hint's corner (the
+   hint is for picking, and picking clears the field). */
+body.sim-shown .pick { display: none; }
+.sim-card { list-style: none; margin: 0 0 0.75rem; padding: 0; display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 0.75rem; }
+.sim-card li { display: contents; }
+.sim-card .sim-what { color: var(--muted); }
+.sim-card .sim-value { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+/* Five inspector tabs: a little smaller, and a label that cannot fit
+   ellipsises instead of running past the card. */
+.pane-side .tabs { gap: 0.1rem; }
+.pane-side .tabs .tab { font-size: 0.84rem; padding-inline: 0.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
