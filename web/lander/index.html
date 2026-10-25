@@ -109,17 +109,17 @@
     <div class="gallery">
       <figure class="shot">
         <div class="shot-img"><img src="assets/img/cycloidal-joints.png?v=1e17d38e" alt="Three cycloidal joint modules of decreasing size, each a finned grey housing with a blue output flange." loading="lazy" width="900" height="668"></div>
-        <figcaption><b>Cycloidal joints</b>The arm's three joint sizes, each a motor driving a cycloidal reducer: discs, ring pins, output pins and a cross-roller bearing.</figcaption>
+        <figcaption><b>Cycloidal joints</b>The arm's three joint sizes, each a motor driving a cycloidal reducer, including discs, ring pins, output pins and a cross-roller bearing.</figcaption>
       </figure>
 
       <figure class="shot">
         <div class="shot-img"><img src="assets/img/planetary-gearbox.png?v=ab55b206" alt="A planetary gear set seen from above: an orange ring gear, green planets, a blue sun and a purple carrier." loading="lazy" width="900" height="784"></div>
-        <figcaption><b>Planetary gearbox</b>A 4:1 set as an assembly, one color per part. Every involute tooth is computed in the script.</figcaption>
+        <figcaption><b>Planetary gearbox</b>A 4:1 set as an assembly. Every involute tooth is computed in the script.</figcaption>
       </figure>
 
       <figure class="shot">
         <div class="shot-img"><img src="assets/img/fastener-kit.png?v=4bf35148" alt="A hex bolt with its nut threaded on, a socket-head cap screw and a countersunk screw, each in its own color, all with modeled threads." loading="lazy" width="900" height="917"></div>
-        <figcaption><b>Real threads</b>An M6 bolt and nut, a cap screw and a countersunk screw: modeled ISO threads, not textures.</figcaption>
+        <figcaption><b>Real threads</b>An M6 bolt and nut, a cap screw and a countersunk screw. All threads are not textures, but actual modelled ISO threads.</figcaption>
       </figure>
 
       <figure class="shot">
@@ -129,12 +129,12 @@
 
       <figure class="shot">
         <div class="shot-img"><img src="assets/img/zebra-corner.png?v=6e9fbc7c" alt="A rounded block corner in black and white zebra stripes that bend smoothly through the corner." loading="lazy" width="900" height="913"></div>
-        <figcaption><b>Smooth where rounds meet</b>Three different radii closing on one corner, in zebra view: the stripes flow through unbroken, certified curvature-continuous.</figcaption>
+        <figcaption><b>Smooth where rounds meet</b>Three different radii closing on one corner. The stripes of the zebra view flow through unbroken, thanks to a certified curvature-continuous cap.</figcaption>
       </figure>
 
       <figure class="shot">
         <div class="shot-img"><img src="assets/img/coil-springs.png?v=fb557290" alt="Three coil springs: a compression spring, a tapered spring and a left-hand spring." loading="lazy" width="900" height="1054"></div>
-        <figcaption><b>Three springs, one verb</b>Compression, tapered and left-hand springs, each swept along an exact helix.</figcaption>
+        <figcaption><b>Three springs from one verb</b>Compression, tapered and left-hand springs, each swept along an exact helix.</figcaption>
       </figure>
     </div>
   </div>
@@ -153,12 +153,11 @@
         script builds the same part in your browser or on your own machine.
       </p>
       <p>
-        Bigger parts grow as projects. A project is a folder of numbered migrations, each
+        Bigger parts grow as projects. A project is a folder of numbered migration scripts, each
         picking up where the last one left off, much like database
         migrations. A later step can reach back and change an earlier
         feature, and the history scrubber replays the part one step at a
-        time. A project is just a folder of text files, so it lives happily
-        in git, and <code>popkern build</code> turns it into a
+        time. Projects are git friendly and <code>popkern build</code> turns it into a
         <code>.pkn</code> document or a STEP file from the command line.
       </p>
     </div>
@@ -215,7 +214,7 @@ m</code></pre>
       <p>
         popkern is written by AI agents, working from published research
         under human direction. Every change has to pass thousands of
-        automated tests and the kernel's own validation before it lands, and
+        automated tests and the kernel's own validation before it is committed, and
         results are cross-checked against OpenCASCADE wherever the two can be
         compared. When an operation can't produce a valid solid, it declines
         and says why, rather than handing back something broken.
