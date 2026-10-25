@@ -64,12 +64,12 @@
       <div class="article-body">
         <section class="support" aria-labelledby="help">
           <h2 class="support-title" id="help">How to help</h2>
-          <p>All of it matters. None of it has to be money.</p>
+          <p>Thank you for your support!</p>
           <ul>
             <li><b><a href="https://github.com/popkern-dev/popkern">Star the repo.</a></b> Help bring attention to popkern!</li>
             <li><b><a href="../live/">Use it.</a></b> Build a part, then tell people it exists.</li>
             <li><b>Break it.</b> If popkern can't do it, we'll fix it!</li>
-            <li><b><a href="../support/">Chip in.</a></b> Help me cover my costs.</li>
+            <li><b><a href="../support/">Chip in.</a></b> Help me cover the project's costs.</li>
             <li><b><a href="https://discord.gg/38p9xBBwff">Join the Discord.</a></b> Come say hi and show us what you build.</li>
             <li><b>Follow along.</b> On <a href="https://bsky.app/profile/popkerndev.bsky.social">Bluesky</a>, <a href="https://x.com/popkerndev">X</a> and <a href="https://www.reddit.com/user/popkerndev">Reddit</a>.</li>
             <li><b>Pass it on.</b> To anyone who makes things.</li>
@@ -80,9 +80,8 @@
           At the end of 2023, I lost somebody I loved to cancer, somebody who
           lived to think and create and play and invent. The world was always a
           little brighter when she made things, and my grief has clarified how
-          personally important it is to empower people to make others' lives
-          easier, more joyous, and more colorful through the awesome power of
-          creation.
+          personally important it is to empower people to bring joy, utility, and positivity to others 
+          through the awesome power of creation.
         </p>
 
         <p>
@@ -116,7 +115,12 @@
           On the open side, <a href="https://occt3d.com/">OpenCASCADE (OCCT)</a> has carried an enormous load for
           a long time. <a href="https://www.freecad.org/">FreeCAD</a>, <a href="https://github.com/CadQuery/cadquery">CadQuery</a>, <a href="https://github.com/gumyr/build123d">build123d</a>, and a long list of research
           tools depend on it. Similar kernels, such as the more modern <a href="https://github.com/ricosjp/truck">Truck</a>
-          kernel, also exist. <a href="https://openscad.org/">OpenSCAD</a> is another popular free engine, where one
+          kernel, also exist. On 8 October 2026, NVIDIA open sourced its
+          long-commercial <a href="https://github.com/NVIDIA-Omniverse/usd-brep">SMLib</a> kernel under Apache 2.0 as part of USD BRep,
+          and it is now being translated into Rust as <a href="https://solidcraft.io/solidcore/">SolidCore</a> for the
+          <a href="https://solidcraft.io/">SolidCraft</a> CAD application. That is a massive contribution, with
+          much useful logic inside, and we should all be thankful for it.
+          <a href="https://openscad.org/">OpenSCAD</a> is another popular free engine, where one
           programmatically creates and manipulates meshes instead of
           orchestrating parameterized solids with BReps.
         </p>
@@ -152,7 +156,7 @@
           value I did manage to create belonged to the people it was meant to
           empower, forever. From my perspective, no existing candidate project I
           could contribute to, rewrite, or fork from was licensed appropriately for my
-          goals.
+          goals, and if one day relicensing better serves the community's needs, that is possible.
         </p>
 
         <h2>The hardest part is the corners</h2>
@@ -169,7 +173,7 @@
           what happens where three or more rounded edges meet at a corner.
           There, the surface has to bend smoothly in every direction at once,
           without a visible crease or bump. Those corners are where much of the
-          research effort has gone, and they are why the best CAD kernels could
+          research effort has gone, and they are one reason why the best CAD kernels could
           only be built as commercial endeavors for so long. Implementing the math is just incredibly difficult and tedious.
         </p>
 
@@ -200,7 +204,7 @@
         </p>
 
         <p>
-          Smoothness is certified, not eyeballed. A certifier computes rigorous
+          Smoothness is certified. A certifier computes rigorous
           bounds along the whole of each seam rather than at a handful of
           sample points, so a crease can't hide between samples. Corner patches
           also have to be fair on the inside, so a cap that meets its
@@ -272,7 +276,7 @@
           test software, where hardening has only just begun, poor
           architecture choices have been allowed to persist, unoptimized code
           is abundant, etc. Loads of features that you might expect to exist
-          probably don't. I promise I am constantly working on it!
+          probably don't. I promise I am constantly working to make steady improvements!
         </p>
 
         <p>
@@ -293,7 +297,7 @@
           While popkern is predominantly the core math for building solids,
           it also comes with popkern live, a tool for creating models. You can
           try it entirely in your browser at <a href="../live/">the live page</a>,
-          or install it on your preferred OS (an install guide is coming soon).
+          or <a href="../install/">install it on your preferred OS</a>.
           The kernel itself is a set of Rust crates, if you would rather build
           on it directly.
         </p>
