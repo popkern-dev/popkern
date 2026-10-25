@@ -105,6 +105,12 @@ tar -C web/lander \
   --exclude './.gitignore' \
   --exclude '*.swp' --exclude '*.swo' --exclude '*~' \
   -cf - . | tar -C "$LANDER_STAGE" -xf -
+# The pages ask for site.css?v=<stamp>; stamp it from the stylesheet's
+# own content, so a CSS change is a new URL and no cache (the phone's,
+# the tunnel's) can pair new pages with an old stylesheet.
+CSS_STAMP=$(sha256sum web/lander/assets/css/site.css | cut -c1-8)
+find "$LANDER_STAGE" -name '*.html' -exec \
+  sed -i -E "s/site\.css\?v=[0-9a-f]+/site.css?v=$CSS_STAMP/g" {} +
 # Replace the root's lander entries (never live/ or the stage itself),
 # then move the staged ones in: each entry swaps by rename.
 find "$SITE" -mindepth 1 -maxdepth 1 ! -name live ! -name "$(basename "$LANDER_STAGE")" \
@@ -212,6 +218,11 @@ if ! curl -s "$SITE_URL/" | grep -q 'href="live/"'; then
   exit 1
 fi
 echo "  ok the lander links to live/"
+if ! curl -s "$SITE_URL/blog/announcing-popkern.html" | grep -q "site.css?v=$CSS_STAMP"; then
+  echo "FAIL the blog does not ask for site.css?v=$CSS_STAMP: a cache could serve it an old stylesheet" >&2
+  exit 1
+fi
+echo "  ok pages ask for the current stylesheet (v=$CSS_STAMP)"
 for legacy in "${LEGACY_ROUTE_NAMES[@]}"; do
   if ! curl -s "$LOCAL_BASE/routes/$legacy/" | grep -q "url=../$ROUTE_NAME/live/"; then
     echo "FAIL /routes/$legacy/ does not redirect to the site's live/" >&2
