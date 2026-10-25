@@ -64,15 +64,14 @@
       <div class="article-body">
         <section class="support" aria-labelledby="help">
           <h2 class="support-title" id="help">How to help</h2>
-          <p>Thank you for your support!</p>
           <ul>
-            <li><b><a href="https://github.com/popkern-dev/popkern">Star the repo.</a></b> Help bring attention to popkern!</li>
-            <li><b><a href="../live/">Use it.</a></b> Build a part, then tell people it exists.</li>
-            <li><b>Break it.</b> If popkern can't do it, we'll fix it!</li>
-            <li><b><a href="../support/">Chip in.</a></b> Help me cover the project's costs.</li>
-            <li><b><a href="https://discord.gg/38p9xBBwff">Join the Discord.</a></b> Come say hi and show us what you build.</li>
-            <li><b>Follow along.</b> On <a href="https://bsky.app/profile/popkerndev.bsky.social">Bluesky</a>, <a href="https://x.com/popkerndev">X</a> and <a href="https://www.reddit.com/user/popkerndev">Reddit</a>.</li>
-            <li><b>Pass it on.</b> To anyone who makes things.</li>
+            <li><b><a href="https://github.com/popkern-dev/popkern">Star the repo.</a></b><span>Help bring attention to popkern!</span></li>
+            <li><b><a href="../live/">Use it.</a></b><span>Build a part, then tell people it exists.</span></li>
+            <li><b>Break it.</b><span>If popkern can't do it, we'll fix it!</span></li>
+            <li><b><a href="../support/">Chip in.</a></b><span>Help me cover the project's costs.</span></li>
+            <li><b><a href="https://discord.gg/38p9xBBwff">Join the Discord.</a></b><span>Come say hi and show us what you build.</span></li>
+            <li><b>Follow along.</b><span>On <a href="https://bsky.app/profile/popkerndev.bsky.social">Bluesky</a>, <a href="https://x.com/popkerndev">X</a> and <a href="https://www.reddit.com/user/popkerndev">Reddit</a>.</span></li>
+            <li><b>Pass it on.</b><span>To anyone who makes things.</span></li>
           </ul>
         </section>
 
@@ -216,14 +215,20 @@
         <h2>On agentic AI</h2>
 
         <p>
-          Some may wonder how popkern managed to implement these algorithms if they
+          Turning a CAGD paper into tested code is long, careful, and unglamorous work. Reparameterizations, coefficient tables, and boundary conditions, followed by weeks of mentally taxing debugging. There
+          is a lot of it, and that cost is much of why so few kernels exist,
+          and why commercial kernels with a long lineage are the best available.
+        </p>
+
+        <p>
+          Some may then naturally wonder how popkern managed to implement these algorithms if they
           are so hard to write.
         </p>
 
         <p>
           Every line of popkern was guided by me, but written by AI agents.
           I don't believe that is a detail to be left to a footnote.
-          It is the reason a project of this ambition can exist at all, alongside the hours
+          It is the reason a project of this ambition can exist at all, alongside the countless hours
           I have spent curating research, evaluating different methods, reviewing failures,
           and choosing which experiments to pursue towards this project's goals.
           Nothing an agent writes is trusted on its own: every change has to pass
@@ -232,32 +237,29 @@
         </p>
 
         <p>
-          Turning a CAGD paper into tested code is long, careful, and unglamorous work. Reparameterizations, coefficient tables, and boundary conditions, followed by weeks of mentally taxing debugging. There
-          is a lot of it, and that cost is much of why so few kernels exist,
-          and why commercial kernels with a long lineage are the best available.
-        </p>
-
-        <p>
-          popkern began on March 14, 2026. It wasn't made over a weekend.
+	  However, popkern was not built over a week against an existing product.
+          popkern began on March 14, 2026, and has been developed nearly 24/7 since.
           Seven months and over 4,000 commits in, most of that time went into
-          the parts nobody sees: smooth corners where fillets meet took most of
+          the parts no application UI would show. Smooth corners where fillets meet took most of
           April through July on their own. There are some great projects being
           built quickly with agents, and I'm glad they exist. popkern is a
           slower bet, where most of the work is checking.
         </p>
 
         <figure class="timeline" aria-labelledby="timeline-caption">
-          <ol>
-            <li style="--commits:.85"><span class="tl-month">Mar</span><span class="tl-bar"></span><span class="tl-text">Project begins on the 14th. Topology and NURBS core, then first booleans, tessellation, STEP in and out, sweeps, shells, sketches and feature history.</span></li>
-            <li style="--commits:1"><span class="tl-month">Apr</span><span class="tl-bar"></span><span class="tl-text">Tolerance system. Corners where three or more fillets meet, and polyhedral-spline patches.</span></li>
-            <li style="--commits:.75"><span class="tl-month">May</span><span class="tl-bar"></span><span class="tl-text">The mathematics behind G&sup2; corner patches, and certified fallbacks.</span></li>
-            <li style="--commits:.51"><span class="tl-month">Jun</span><span class="tl-bar"></span><span class="tl-text">Corner patches pushed to paper grade. Determinism checks.</span></li>
-            <li style="--commits:.62"><span class="tl-month">Jul</span><span class="tl-bar"></span><span class="tl-text">Setback vertex blends work end to end. Curved sketches.</span></li>
-            <li style="--commits:.34"><span class="tl-month">Aug</span><span class="tl-bar"></span><span class="tl-text">Robustness and test infrastructure. Scripting and browser design.</span></li>
-            <li style="--commits:.37"><span class="tl-month">Sep</span><span class="tl-bar"></span><span class="tl-text">Rhai scripting, a first browser workbench, threads and fasteners, certified seam continuity, STEP round-trip audits.</span></li>
-            <li style="--commits:.69"><span class="tl-month">Oct</span><span class="tl-bar"></span><span class="tl-text">Assemblies, popkern live, projects, hinges, a six-axis arm, and simulation.</span></li>
+          <div class="tl-weeks" role="img" aria-label="Commits every week from March 14 to October 25, 2026, between 5 and 457 a week"><i style="--h:0.030"></i><i style="--h:1.000"></i><i style="--h:0.694"></i><i style="--h:0.083"></i><i style="--h:0.497"></i><i style="--h:0.368"></i><i style="--h:0.621"></i><i style="--h:0.348"></i><i style="--h:0.427"></i><i style="--h:0.184"></i><i style="--h:0.179"></i><i style="--h:0.309"></i><i style="--h:0.274"></i><i style="--h:0.186"></i><i style="--h:0.210"></i><i style="--h:0.098"></i><i style="--h:0.241"></i><i style="--h:0.206"></i><i style="--h:0.361"></i><i style="--h:0.175"></i><i style="--h:0.096"></i><i style="--h:0.144"></i><i style="--h:0.142"></i><i style="--h:0.114"></i><i style="--h:0.212"></i><i style="--h:0.158"></i><i style="--h:0.063"></i><i style="--h:0.142"></i><i style="--h:0.234"></i><i style="--h:0.324"></i><i style="--h:0.462"></i><i style="--h:0.289"></i><i style="--h:0.057"></i></div>
+          <div class="tl-axis" aria-hidden="true"><span style="--at:0.000">Mar</span><span style="--at:0.080">Apr</span><span style="--at:0.213">May</span><span style="--at:0.351">Jun</span><span style="--at:0.484">Jul</span><span style="--at:0.622">Aug</span><span style="--at:0.760">Sep</span><span style="--at:0.893">Oct</span></div>
+          <ol class="tl-lanes">
+            <li style="--from:0.031"><span class="tl-label">Core topology, booleans, tessellation, STEP</span><span class="tl-track"><span class="tl-span"></span></span></li>
+            <li style="--from:0.044"><span class="tl-label">Fillets and smooth corners</span><span class="tl-track"><span class="tl-span"></span></span></li>
+            <li style="--from:0.062"><span class="tl-label">Sketches, constraints and feature history</span><span class="tl-track"><span class="tl-span"></span></span></li>
+            <li style="--from:0.342"><span class="tl-label">Certified smoothness</span><span class="tl-track"><span class="tl-span"></span></span></li>
+            <li style="--from:0.747"><span class="tl-label">Scripting and the browser</span><span class="tl-track"><span class="tl-span"></span></span></li>
+            <li style="--from:0.787"><span class="tl-label">Threads and fasteners</span><span class="tl-track"><span class="tl-span"></span></span></li>
+            <li style="--from:0.902"><span class="tl-label">Assemblies, hinges and popkern live</span><span class="tl-track"><span class="tl-span"></span></span></li>
+            <li style="--from:0.933"><span class="tl-label">Simulation</span><span class="tl-track"><span class="tl-span"></span></span></li>
           </ol>
-          <figcaption id="timeline-caption">Roughly when things started working, 2026. Bars show commits per month (October to the 25th).</figcaption>
+          <figcaption id="timeline-caption">March 14 to October 25, 2026. Top: commits each week, 4,071 in all, with none missed. Below: when each area began. Each one is still being worked on.</figcaption>
         </figure>
 
         <p>

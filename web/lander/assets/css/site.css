@@ -533,32 +533,48 @@ a[href^="#TODO"]::after {
   border-left: 2px solid var(--brand); color: var(--text-dim); font-style: italic;
 }
 
-/* A month-by-month timeline in a post: label, a bar sized by --commits
-   (0..1), and what happened. */
+/* A project timeline in a post. The weekly commit histogram, the month
+   axis and the lanes share one horizontal scale: --at and --from are
+   fractions of the whole span, --h a week's share of the busiest. */
 .timeline {
   margin: 28px 0 32px; padding: 20px 22px 18px;
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--surface);
 }
-.timeline ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
-.timeline li {
-  display: grid; grid-template-columns: 2.6rem 5.5rem 1fr; gap: 12px;
-  align-items: start; margin: 0; font-size: .92rem; line-height: 1.45;
+.tl-weeks {
+  display: flex; align-items: flex-end; gap: 2px; height: 56px;
 }
-.tl-month { font-family: var(--mono); font-size: .8rem; line-height: 1.65; color: var(--text); }
-.tl-bar {
-  height: 8px; margin-top: .45em; border-radius: 4px;
-  width: calc(var(--commits) * 100%);
+.tl-weeks i {
+  flex: 1; height: calc(var(--h) * 100%); min-height: 2px;
+  border-radius: 2px 2px 0 0; background: var(--brand);
+}
+.tl-axis {
+  position: relative; height: 1.4em; margin: 6px 0 14px;
+  border-top: 1px solid var(--border-strong);
+  font-family: var(--mono); font-size: .72rem; color: var(--text-faint);
+}
+.tl-axis span { position: absolute; left: calc(var(--at) * 100%); top: 4px; }
+.timeline .tl-lanes { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+.timeline .tl-lanes li { margin: 0; display: grid; gap: 3px; }
+.tl-label { font-size: .84rem; line-height: 1.3; color: var(--text-dim); }
+.tl-track {
+  position: relative; height: 6px; border-radius: 3px;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+.tl-span {
+  position: absolute; inset: 0 0 0 calc(var(--from) * 100%);
+  min-width: 6px; border-radius: 3px;
   background: linear-gradient(to right, var(--brand-ink), var(--brand));
 }
-.tl-text { color: var(--text-dim); }
 .timeline figcaption {
-  margin-top: 16px; font-size: .82rem; color: var(--text-faint);
+  margin-top: 16px; font-size: .82rem; line-height: 1.5; color: var(--text-faint);
 }
 @media (max-width: 560px) {
-  .timeline { padding: 16px; }
-  .timeline li { grid-template-columns: 2.4rem 1fr; row-gap: 4px; }
-  .tl-text { grid-column: 1 / -1; }
+  .timeline { padding: 16px 14px 14px; }
+  .tl-weeks { gap: 1px; height: 44px; }
+  .tl-axis { font-size: .64rem; }
+  /* The project starts mid-March: its label would run into April's. */
+  .tl-axis span:first-child { display: none; }
 }
 
 /* High-visibility "how to help" callout at the top of a post. */
@@ -575,14 +591,18 @@ a[href^="#TODO"]::after {
 .support > p {
   margin: 0 0 16px; font-size: .9rem; color: var(--text-faint);
 }
-.support ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 11px; }
+.support ul {
+  list-style: none; margin: 14px 0 0; padding: 0;
+  display: grid; grid-template-columns: max-content 1fr; gap: 11px 20px;
+}
 .support li {
-  display: flex; gap: 11px; align-items: baseline;
+  display: grid; grid-template-columns: subgrid; grid-column: 1 / -1;
   margin: 0; font-size: .95rem; color: var(--text-dim); line-height: 1.5;
 }
-.support li::before {
-  content: ""; flex: none; width: 5px; height: 5px; border-radius: 50%;
-  background: var(--brand); transform: translateY(-2px);
+@media (max-width: 560px) {
+  .support { padding: 18px 18px 20px; }
+  .support ul { grid-template-columns: 1fr; gap: 12px; }
+  .support li { grid-template-columns: 1fr; gap: 1px; }
 }
 .support b { color: var(--text); font-weight: 580; }
 
