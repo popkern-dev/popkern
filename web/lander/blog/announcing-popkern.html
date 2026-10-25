@@ -94,7 +94,7 @@
 
         <p>
           popkern is an <strong>open-source parametric boundary representation CAD kernel
-          written in Rust</strong>: the math that builds and edits precise solid
+          written in Rust</strong>, AKA the math that builds and edits precise solid
           models, with a tool for creating them on top. It is AGPL-3.0 licensed,
           with an exception that leaves your creations yours. It is public and
           available as of today.
@@ -178,7 +178,7 @@
 
         <p>
           popkern builds those corners from the best of that research. For the
-          curious: the main construction is Kar&ccaron;iauskas and Peters' G&sup2;
+          curious, the main construction is Kar&ccaron;iauskas and Peters' G&sup2;
           vertex-blend macro cap from 2020, built on a small region carved back
           from the corner (a &ldquo;setback&rdquo;) so the cap has room to
           blend smoothly into each fillet. Underneath sit their earlier bi-6
@@ -190,7 +190,7 @@
 
         <p>
           When that cap can't be built cleanly, popkern doesn't quietly settle
-          for something worse. It falls back to a variational fit: a spline
+          for something worse. It falls back to a variational fit, which is a spline
           patch over the same corner, pinned to meet every fillet smoothly and
           then pulled as fair as it will go by minimizing bending and
           curvature variation. That draws on Loop and Schaefer's G&sup2; splines
@@ -226,12 +226,12 @@
         </p>
 
         <p>
-          Every line of popkern was guided by me, but written by AI agents.
+          Every line of popkern was guided by me, but ultimately written by AI agents.
           I don't believe that is a detail to be left to a footnote.
           It is the reason a project of this ambition can exist at all, alongside the countless hours
           I have spent curating research, evaluating different methods, reviewing failures,
           and choosing which experiments to pursue towards this project's goals.
-          Nothing an agent writes is trusted on its own: every change has to pass
+          Nothing an agent writes is trusted on its own. Every change has to pass
           a suite of thousands of automated tests, and results are checked
           against OpenCASCADE wherever the two can be compared.
         </p>
@@ -240,10 +240,10 @@
 	  However, popkern was not built over a week against an existing product.
           popkern began on March 14, 2026, and has been developed nearly 24/7 since.
           Seven months and over 4,000 commits in, most of that time went into
-          the parts no application UI would show. Smooth corners where fillets meet took most of
-          April through July on their own. There are some great projects being
-          built quickly with agents, and I'm glad they exist. popkern is a
-          slower bet, where most of the work is checking.
+          the places no application UI would show. Smooth corners where fillets meet took most of
+          April through July on their own! There are some great projects being
+          built quickly with agents, and I'm cheering them on too. popkern is a
+          slower bet, where most of the work is checking. I expect to work on popkern for many, many years.
         </p>
 
         <figure class="timeline" aria-labelledby="timeline-caption">
@@ -283,10 +283,10 @@
           for sketches, and a solved sketch can be turned straight into a body.
           Tessellation is watertight, and STEP and IGES go in and out, checked
           against OpenCASCADE in testing. On top of all that sits a full
-          feature tree: roll back, suppress and reorder features, undo and
+          feature tree. Roll back, suppress and reorder features, undo and
           redo, and your selections keep pointing at the right faces and edges
           after a rebuild. You can even run structural and thermal simulations
-          right in popkern live: pick the faces to hold and load, and see
+          right in popkern live! Pick the faces to hold and load, along with a material, and see
           stress, deflection and safety factors on your part in seconds.
         </p>
 
@@ -307,8 +307,7 @@
         </p>
 
         <p>
-          Specifically: modeling is script-only for now, with no point-and-click
-          editing. Complex parts can be slow to build. Some shapes still fail:
+          Complex parts can be slow to build. Some shapes still fail, including
           certain arrangements of holes cut through a part, fillets that run
           into other fillets at awkward corners, and curved surfaces that nearly
           touch can all trip up the kernel. That list is
@@ -340,14 +339,28 @@
 
         <p>
           The kernel is AGPL-3.0-only with an additional permission for user
-          scripts and produced geometry. Everything you make with it is yours alone:
-          your part scripts and <code>.pkn</code> documents are covered by the exception, as
+          scripts and produced geometry. Everything you make with it is yours alone.
+          Your part scripts and <code>.pkn</code> documents are covered by the exception, as
           are all models, meshes, and STEP files you produce with popkern.
-          The AGPL applies to the kernel itself: if you modify it, or build
+          The AGPL applies to the kernel itself, meaning if you modify it, or build
           software on top of it, and then share that software or run it for
           other people over a network, you have to offer those people its
           source under the same license. That keeps improvements to the kernel
           open, and they can always find their way back.
+        </p>
+
+        <h2>What's next</h2>
+
+        <p>
+	  Getting to this point has felt like such a push that it has been honestly difficult
+	  to see past making this ready for public eyes.
+        </p>
+
+        <p>
+	  That said, I already know what requires the most attention; booleans and fillets,
+	  of course! Specifically, adding a non-manifold representation to booleans is my top priority,
+	  along with more fillet special cases and kinds. Fuzz testing booleans, fillets, and surface healing
+	  would help harden popkern tremendously and will also be a major focus soon.
         </p>
 
         <h2>Come and break it</h2>

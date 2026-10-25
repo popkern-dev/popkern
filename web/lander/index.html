@@ -4,15 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>popkern - a free CAD kernel for everyone who makes things</title>
-<meta name="description" content="popkern is a free, open-source CAD kernel written in Rust: booleans, fillets with properly smooth corners, sweeps, shelling, and STEP and IGES. Try it in your browser or install it in one line.">
+<meta name="description" content="popkern is a free, open-source parametric BRep kernel written in Rust, supporting booleans, fillets with properly smooth corners, sweeps, shelling, and STEP and IGES. Try it in your browser or install it in one line.">
 <link rel="canonical" href="https://popkern.dev/">
-
-<!--
-  BEFORE YOU ANNOUNCE: unset links ("#TODO-...") render with a small "?"
-  marker so they are easy to spot (the a[href^="#TODO"] rule in
-  assets/css/site.css). Also update the domain in the canonical and og: tags below if it is not
-  popkern.dev, and in sitemap.xml, robots.txt and blog/feed.xml.
--->
 
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://popkern.dev/">
@@ -106,11 +99,9 @@
     <div class="section-head">
       <h2>Made with popkern</h2>
       <p>
-        Every one of these is an example in <a href="live/">popkern live</a>, rendered there:
-        open one and the same script builds the same model in your browser.
-        Each had to serve watertight to ship. The colors are the page's own
-        views: a part's own finish, one color per part, or zebra stripes
-        that show how smoothly surfaces meet.
+        Every one of these is an example in <a href="live/">popkern live</a>, rendered there.
+        Open one and the same script builds the same model in your browser.
+        Each had to be proven watertight to ship.
       </p>
     </div>
 
@@ -161,7 +152,7 @@
         script builds the same part in your browser or on your own machine.
       </p>
       <p>
-        Bigger parts grow as projects: a folder of numbered migrations, each
+        Bigger parts grow as projects. A project is a folder of numbered migrations, each
         picking up where the last one left off, much like database
         migrations. A later step can reach back and change an earlier
         feature, and the history scrubber replays the part one step at a
@@ -232,7 +223,7 @@ m</code></pre>
       <p>
         The kernel is AGPL-3.0, so improvements to it stay open. An
         <a href="https://github.com/popkern-dev/popkern/blob/main/LICENSE-EXCEPTION">exception</a>
-        covers everything you make with it: your scripts, your models, your
+        covers everything you make with it, including your scripts, your models, your
         STEP files. Those are yours, full stop.
       </p>
     </div>
