@@ -93,15 +93,53 @@ jobs:
       # --all-targets also compiled AND executed the criterion
       # benches on every leg; a separate `cargo build --all-targets`
       # immediately before was a fully redundant invocation.
+      # PK-948: the physics crates have their own job (physics, below);
+      # this leg builds none of their test binaries but the BRep
+      # adapter's, whose unit tests are the kernel suite's smoke set.
       - name: Test
-        run: cargo nextest run --workspace --lib --bins --tests --profile ci
+        run: |
+          cargo nextest run --workspace --lib --bins --tests --profile ci \
+            --exclude popkern-analysis --exclude popkern-analysis-cli --exclude popkern-analysis-setup \
+            --exclude popkern-analysis-fixtures --exclude popkern-analysis-wasm-bench
 
       - name: Doc tests
-        run: cargo test --doc --workspace
+        run: |
+          cargo test --doc --workspace \
+            --exclude popkern-analysis --exclude popkern-analysis-brep --exclude popkern-analysis-cli --exclude popkern-analysis-setup \
+            --exclude popkern-analysis-fixtures --exclude popkern-analysis-wasm-bench
 
       - name: Doc build
         if: matrix.rust == 'pinned' && matrix.os == 'ubuntu-latest'
         run: cargo doc --no-deps --document-private-items
+
+  # PK-948: the physics suite (thermal and structural analysis) runs on
+  # its own, in parallel with the kernel legs: 30-60 minutes of solver
+  # gates over frozen STEP fixtures (tests/fixtures/analysis).
+  physics:
+    name: Physics suite
+    runs-on: ubuntu-latest
+    env:
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /opt/hostedtoolcache /usr/local/lib/android \
+            /usr/share/dotnet /opt/ghc /usr/local/.ghcup
+          df -h /
+
+      - name: Install the pinned toolchain (wasm target included)
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      - name: Physics suite
+        run: tools/quality-check.sh --physics
 
   perf:
     # PK-190 performance gate: absolute wall-clock budgets (measured

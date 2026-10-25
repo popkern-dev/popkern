@@ -1,0 +1,15 @@
+[package]
+name = "popkern-analysis-fixtures"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Generates the frozen STEP fixtures the physics suite reads"
+publish = false
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-bool = { path = "../popkern-bool" }
+popkern-part = { path = "../popkern-part" }
+popkern-io = { path = "../popkern-io" }
+popkern-hinge = { path = "../popkern-hinge" }
+thiserror.workspace = true

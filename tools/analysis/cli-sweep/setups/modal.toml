@@ -1,0 +1,12 @@
+# PH-105 sweep setup (tools/cli-sweep/sweep.py): faces by raw id so it fits any part.
+units = "mm"
+material = "PLA (FDM)"
+[faces]
+held = { id = 0 }
+[[support]]
+faces = ["held"]
+kind = "fixed"
+[modal]
+modes = 3
+[options]
+max_active_cells = 3000

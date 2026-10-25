@@ -1,0 +1,22 @@
+# PH-028 run fixture: the dimpled block held at 30 °C on its base, with
+# a 2 W heat flux into the dimple and natural convection elsewhere.
+analysis = "thermal"
+units = "mm"
+material = "Aluminium 6061-T6"
+
+[faces]
+base = { plane = { normal = [0, 0, -1], through = [0, 0, 0] } }
+dimple = { sphere = { centre = [5, 5, 11], radius = 3 } }
+
+[[fixed_temperature]]
+faces = ["base"]
+temperature_c = 30
+
+[[heat_flux]]
+faces = ["dimple"]
+power_w = 2
+
+[[convection]]
+faces = "all_other"
+preset = "fan"
+ambient_c = 22

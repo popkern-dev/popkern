@@ -1,0 +1,20 @@
+[package]
+name = "popkern-analysis-wasm-bench"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Solver build for wasm32: DT1 (native = wasm bits) and E3 (browser timing)"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+popkern-analysis = { path = "../../crates/popkern-analysis" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# Pinned to the installed wasm-bindgen CLI (the two must match).
+wasm-bindgen = "=0.2.114"
+
+[dev-dependencies]
+popkern-analysis-cli = { path = "../../crates/popkern-analysis-cli" }

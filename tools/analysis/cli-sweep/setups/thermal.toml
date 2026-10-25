@@ -1,0 +1,18 @@
+# PH-105 sweep setup (tools/cli-sweep/sweep.py): faces by raw id so it fits any part.
+analysis = "thermal"
+units = "mm"
+material = "Aluminium 6061-T6"
+[faces]
+cold = { id = 0 }
+[[fixed_temperature]]
+faces = ["cold"]
+temperature_c = 20
+[[heat_source]]
+power_w = 1
+[[convection]]
+faces = "all_other"
+h = 10
+ambient_c = 20
+emittance = "material"
+[options]
+max_active_cells = 4000

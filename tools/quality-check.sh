@@ -8,22 +8,28 @@ cd "$ROOT"
 mode="${1:---full}"
 
 case "$mode" in
-    --full|--fast|--perf)
+    --full|--fast|--perf|--physics)
         ;;
     -h|--help)
         cat <<'USAGE'
-Usage: tools/quality-check.sh [--full|--fast|--perf]
+Usage: tools/quality-check.sh [--full|--fast|--perf|--physics]
 
---full  Run fmt, semantic-name scan, structural tests, clippy, and all tests.
---fast  Run fmt, semantic-name scan, structural tests, and cargo check.
---perf  Run the release-mode performance budget gate (PK-190): the
-        wall-clock budget suites and the §17 cancellation-latency
-        test — the same gate CI's perf job enforces.
+--full     Run fmt, semantic-name scan, structural tests, clippy, and the
+           kernel suite (every crate's tests except the physics crates',
+           which keep only the BRep adapter's unit tests as a smoke set).
+--fast     Run fmt, semantic-name scan, structural tests, and cargo check.
+--perf     Run the release-mode performance budget gate (PK-190): the
+           wall-clock budget suites and the §17 cancellation-latency
+           test — the same gate CI's perf job enforces.
+--physics  Run the physics suite (PK-948): the analysis crates' tests
+           and doctests and the solver's wasm32 clippy, in their own
+           target dir (target/physics) so it can run beside the kernel
+           suite without swapping its test binaries.
 USAGE
         exit 0
         ;;
     *)
-        echo "Usage: tools/quality-check.sh [--full|--fast|--perf]" >&2
+        echo "Usage: tools/quality-check.sh [--full|--fast|--perf|--physics]" >&2
         exit 2
         ;;
 esac
@@ -60,6 +66,30 @@ if [[ "$mode" == "--perf" ]]; then
     exit 0
 fi
 
+# The physics crates (PK-948): their suite runs on its own, and the
+# kernel suite builds none of their test binaries but the adapter's.
+physics_packages=(popkern-analysis popkern-analysis-cli popkern-analysis-setup popkern-analysis-fixtures popkern-analysis-wasm-bench)
+physics_only=()
+kernel_excludes=()
+for package in "${physics_packages[@]}"; do
+    physics_only+=(-p "$package")
+    kernel_excludes+=(--exclude "$package")
+done
+
+if [[ "$mode" == "--physics" ]]; then
+    export CARGO_TARGET_DIR="$ROOT/target/physics"
+    if rustup target list --installed 2>/dev/null | grep -qx wasm32-unknown-unknown; then
+        run_step "solver clippy on wasm32" \
+            cargo clippy --target wasm32-unknown-unknown -p popkern-analysis -- -D warnings
+    fi
+    run_step "physics tests (nextest)" \
+        cargo nextest run --profile physics "${physics_only[@]}" -p popkern-analysis-brep
+    run_step "physics doc tests" \
+        cargo test --doc "${physics_only[@]}" -p popkern-analysis-brep
+    echo "Quality gate passed ($mode)."
+    exit 0
+fi
+
 run_step "format" cargo fmt --check
 run_step "semantic names" tools/check-semantic-names.sh
 run_step "structural tests" cargo test -p popkern-structural-tests
@@ -77,12 +107,14 @@ else
     # a --doc leg always follows.
     # PK-270: explicit --lib --bins --tests matches CI's test leg.
     if command -v cargo-nextest >/dev/null 2>&1; then
-        run_step "workspace tests (nextest)" cargo nextest run --workspace --lib --bins --tests
+        run_step "workspace tests (nextest)" \
+            cargo nextest run --workspace "${kernel_excludes[@]}" --lib --bins --tests
     else
         echo "note: cargo-nextest not installed (https://nexte.st) — falling back to serial cargo test" >&2
-        run_step "workspace tests" cargo test --workspace --lib --bins --tests
+        run_step "workspace tests" \
+            cargo test --workspace "${kernel_excludes[@]}" --lib --bins --tests
     fi
-    run_step "doc tests" cargo test --doc --workspace
+    run_step "doc tests" cargo test --doc --workspace "${kernel_excludes[@]}" --exclude popkern-analysis-brep
 fi
 
 echo "Quality gate passed ($mode)."

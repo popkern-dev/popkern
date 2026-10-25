@@ -39,6 +39,20 @@ test-threads = 12
 # exhausted RAM and swap and hung the host for 3.5 h. Containment for
 # the next such regression: at most two run concurrently; everything
 # else still uses the 12 threads around them.
+# Two suites (PK-948, docs/architecture/analysis-integration.md). The
+# default profile (and every profile inheriting it: ci) is the kernel
+# suite: it leaves out the physics crates, whose own suite runs 30-60
+# minutes, and keeps the adapter's unit tests (seconds) as the smoke
+# set that catches a kernel change breaking the BRep -> AnalysisModel
+# seam. The physics profile below runs the physics crates only:
+#   cargo nextest run --workspace --profile physics
+# A `-p` on the default profile intersects with this filter, so
+# `-p popkern-analysis` there selects nothing; use --profile physics.
+default-filter = """
+    not package(/^popkern-analysis/)
+    | (package(popkern-analysis-brep) & kind(lib))
+"""
+
 [[profile.default.overrides]]
 filter = """
     binary(/^six_axis_arm/)
@@ -56,6 +70,17 @@ whole-arm = { max-threads = 2 }
 # CI wants the complete failure picture in one run.
 fail-fast = false
 failure-output = "immediate-final"
+
+# The physics suite: the analysis solver, the BRep adapter, the CLI's
+# fixture and corpus gates, the fixture generator and the wasm bench.
+# It reads frozen STEP fixtures (tests/fixtures/analysis), so a kernel
+# commit moves it only through import, tessellation and measurement;
+# run it when an analysis crate changes, when the fixtures are
+# regenerated, and before a push that touches popkern-io, -mesh,
+# -measure or -core.
+[profile.physics]
+default-filter = "package(/^popkern-analysis/)"
+fail-fast = false
 
 # Ranking-identity audit harness for the kp20_bi6 candidate-ranking
 # battery (PK-291). Runs only the battery and stores every test's

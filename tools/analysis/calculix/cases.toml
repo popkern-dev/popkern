@@ -1,0 +1,32 @@
+# PH-050 cases: each part's setup is cases/<part>.setup.toml (our own
+# format; oracle.py reads the same file). `roi` bounds the region where
+# peaks are compared, clear of the clamp's edge singularity;
+# `feature_radius` is the radius of the stress raiser there (mm), so
+# radius / h is the resolution the C-series gates are stated in.
+# `meshes` are CalculiX (Gmsh) meshes [max size, points per 2*pi of
+# curvature], coarse to fine; the finest is the reference. `cell_sizes`
+# are our solves beyond the default budget.
+
+[[case]]
+part = "bored_block"
+load = "tension past a filleted through-bore"
+roi = { lo = [-0.3, -9.0, -9.0], hi = [0.3, 9.0, 9.0] }
+feature_radius = 0.18
+meshes = [[0.06, 24], [0.03, 48]]
+cell_sizes = [0.18, 0.09, 0.06, 0.045]
+
+[[case]]
+part = "boss_plate"
+load = "boss bent sideways off a clamped plate"
+roi = { lo = [-9.0, -9.0, 0.2], hi = [9.0, 9.0, 9.0] }
+feature_radius = 0.08
+meshes = [[0.12, 24], [0.10, 36]]
+cell_sizes = [0.02]
+
+[[case]]
+part = "tapered_fillet"
+load = "cantilever with tapered edge fillets, tip load"
+roi = { lo = [-0.45, -9.0, -9.0], hi = [9.0, 9.0, 9.0] }
+feature_radius = 0.047
+meshes = [[0.06, 24], [0.04, 48]]
+cell_sizes = [0.0117]

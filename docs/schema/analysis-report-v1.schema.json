@@ -1,0 +1,403 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "popkern-analysis-report/1",
+  "title": "popkern-analysis run report, version 1",
+  "type": "object",
+  "required": ["schema", "popkern_commit", "status"],
+  "properties": {
+    "schema": { "const": "popkern-analysis-report/1" },
+    "popkern_commit": { "type": "string" },
+    "status": { "enum": ["solved", "declined"] },
+    "analysis": { "enum": ["structural", "thermal"] },
+    "input": {
+      "type": "object",
+      "required": ["step_sha256", "setup_sha256"],
+      "properties": {
+        "step_sha256": { "type": "string" },
+        "setup_sha256": { "type": "string" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "required": ["solids", "faces", "concave_edges", "inferred_fillets"],
+      "properties": {
+        "solids": { "type": "integer" },
+        "faces": { "type": "integer" },
+        "concave_edges": { "type": "integer" },
+        "inferred_fillets": { "type": "integer" }
+      }
+    },
+    "thermal_solve": {
+      "type": "object",
+      "required": ["setup", "setup_sha256", "max_temperature_c"],
+      "properties": {
+        "setup": { "type": "string" },
+        "setup_sha256": { "type": "string" },
+        "max_temperature_c": { "type": "number" }
+      }
+    },
+    "error": {
+      "type": "object",
+      "required": ["kind", "message"],
+      "properties": {
+        "kind": { "type": "string" },
+        "message": { "type": "string" }
+      }
+    },
+    "solve": {
+      "type": "object",
+      "required": ["options", "cell_size", "resolved_faces", "cells_active", "cells_cut",
+                   "cells_aggregated", "dof", "levels", "level_dofs", "cg_iterations",
+                   "residual_history", "volume_parity", "force_balance",
+                   "eas_disabled_cells", "moment_fallback_cells", "split_cells", "split_cells_lattice_moments",
+                   "spr_fallbacks", "warnings"],
+      "properties": {
+        "options": { "type": "object" },
+        "cell_size": { "type": ["number", "null"] },
+        "resolved_faces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "faces"],
+            "properties": {
+              "name": { "type": "string" },
+              "faces": { "type": "array", "items": { "type": "integer" } }
+            }
+          }
+        },
+        "cells_active": { "type": "integer" },
+        "cells_cut": { "type": "integer" },
+        "cells_aggregated": { "type": "integer" },
+        "dof": { "type": "integer" },
+        "levels": { "type": "integer" },
+        "level_dofs": { "type": "array", "items": { "type": "integer" } },
+        "cg_iterations": { "type": "integer" },
+        "residual_history": { "type": "array", "items": { "type": "number" } },
+        "volume_parity": { "type": "array", "items": { "type": "object" } },
+        "force_balance": { "type": ["object", "null"] },
+        "eas_disabled_cells": { "type": "integer" },
+        "moment_fallback_cells": { "type": "integer" },
+        "split_cells": { "type": "integer" },
+        "split_cells_lattice_moments": { "type": "integer" },
+        "spr_fallbacks": { "type": "integer" },
+        "radiation_passes": { "type": "integer" },
+        "lanczos_steps": { "type": "integer" },
+        "lanczos_runs": { "type": "integer" },
+        "infill_core_volume": { "type": "number" },
+        "infill_density": { "type": ["number", "null"] },
+        "warnings": { "type": "array" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": ["material"],
+      "properties": {
+        "material": { "type": "string" },
+        "max_displacement_mm": { "type": "number" },
+        "build_direction_used": { "type": "boolean" },
+        "infill": {
+          "type": ["object", "null"],
+          "required": ["pattern", "density", "walls_mm", "core_youngs_mpa", "core_poisson"],
+          "properties": {
+            "pattern": { "const": "gyroid" },
+            "density": { "type": "number" },
+            "walls_mm": { "type": "number" },
+            "line_width_mm": { "type": "number" },
+            "gyroid_cell_mm": { "type": "number" },
+            "core_youngs_mpa": { "type": "number" },
+            "core_poisson": { "type": "number" }
+          }
+        },
+        "thermal": {
+          "type": ["object", "null"],
+          "required": ["reference_c", "alpha_per_k", "uniform_c"],
+          "properties": {
+            "reference_c": { "type": "number" },
+            "alpha_per_k": { "type": ["number", "null"] },
+            "uniform_c": { "type": ["number", "null"] }
+          }
+        },
+        "build_direction": { "type": ["array", "null"], "items": { "type": "number" } },
+        "refinement": {
+          "type": ["object", "null"],
+          "required": ["status", "cell_size"],
+          "properties": {
+            "status": { "enum": ["solved", "declined"] },
+            "cell_size": { "type": "number" },
+            "dof": { "type": "integer" },
+            "growth": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["ratio", "moved_cells"],
+                "properties": {
+                  "ratio": { "type": "number" },
+                  "moved_cells": { "type": "number" }
+                }
+              }
+            },
+            "error": { "type": "object" }
+          }
+        },
+        "submodels": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["face", "radius"],
+            "properties": {
+              "face": { "type": "integer" },
+              "radius": { "type": "number" },
+              "coarse_peak": { "type": "number" },
+              "peak_von_mises": { "type": "number" },
+              "peak_principal": { "type": "number" },
+              "peak_heat_flux": { "type": "number" },
+              "position": { "type": "array", "items": { "type": "number" } },
+              "cell_size": { "type": "number" },
+              "cells_active": { "type": "integer" },
+              "lo": { "type": "array", "items": { "type": "number" } },
+              "hi": { "type": "array", "items": { "type": "number" } },
+              "error": { "type": "object" }
+            }
+          }
+        },
+        "samples": {
+          "type": ["object", "null"],
+          "required": ["count"],
+          "properties": { "count": { "type": "integer" } }
+        },
+        "global_error": { "type": ["number", "null"] },
+        "face_reactions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "force_n"],
+            "properties": {
+              "name": { "type": "string" },
+              "force_n": { "type": "array", "items": { "type": "number" } }
+            }
+          }
+        },
+        "assessment": {
+          "type": "object",
+          "required": ["options", "peaks", "fillets", "bores", "safety"],
+          "properties": {
+            "options": { "type": "object" },
+            "peaks": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["von_mises", "max_principal", "von_mises_quantile", "peak_ratio", "singularity"],
+                "properties": {
+                  "von_mises": { "$ref": "#/$defs/peak" },
+                  "max_principal": { "$ref": "#/$defs/peak" },
+                  "von_mises_quantile": { "type": "number" },
+                  "peak_ratio": { "type": ["number", "null"] },
+                  "singularity": { "type": ["object", "null"] }
+                }
+              }
+            },
+            "fillets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["face", "radius", "cells", "peak_von_mises", "status"],
+                "properties": {
+                  "face": { "type": "integer" },
+                  "radius": { "type": "number" },
+                  "cells": { "type": "number" },
+                  "peak_von_mises": { "type": "number" },
+                  "status": { "type": ["string", "object"] }
+                }
+              }
+            },
+            "bores": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["face", "radius", "cells", "peak_von_mises", "status"],
+                "properties": {
+                  "face": { "type": "integer" },
+                  "radius": { "type": "number" },
+                  "cells": { "type": "number" },
+                  "peak_von_mises": { "type": "number" },
+                  "status": { "type": ["string", "object"] }
+                }
+              }
+            },
+            "local_yielding": {
+              "type": ["object", "null"],
+              "required": ["elastic_peak_mpa", "yield_mpa", "at", "yielded_fraction", "local",
+                           "local_stress_mpa", "local_strain", "plastic_strain", "estimated", "note"],
+              "properties": {
+                "elastic_peak_mpa": { "type": "number" },
+                "yield_mpa": { "type": "number" },
+                "at": { "type": "array" },
+                "yielded_fraction": { "type": "number" },
+                "local": { "type": "boolean" },
+                "local_stress_mpa": { "type": ["number", "null"] },
+                "local_strain": { "type": ["number", "null"] },
+                "plastic_strain": { "type": ["number", "null"] },
+                "estimated": { "const": true },
+                "note": { "type": "string" }
+              }
+            },
+            "safety": {
+              "type": "object",
+              "required": ["checks", "governing", "estimated", "note"],
+              "properties": {
+                "checks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["check", "allowable", "allowable_low", "stress", "factor", "band", "error", "at", "gaps"],
+                    "properties": {
+                      "check": { "enum": ["InPlaneYield", "InPlaneParaboloidalYield", "InPlaneBrittle", "InPlaneCoulombMohr", "InterLayer", "InterLayerShear", "InfillCore"] },
+                      "allowable": { "type": "number" },
+                      "allowable_low": { "type": "number" },
+                      "stress": { "type": "number" },
+                      "factor": { "type": ["number", "null"] },
+                      "band": { "type": ["array", "null"] },
+                      "error": { "type": ["number", "null"] },
+                      "at": { "type": "array" },
+                      "gaps": { "type": "array", "items": { "enum": ["ScatterUnsourced", "NoErrorEstimate", "ErrorTooLarge"] } }
+                    }
+                  }
+                },
+                "governing": { "type": ["integer", "null"] },
+                "estimated": { "const": true },
+                "note": { "type": "string" }
+              }
+            }
+          }
+        },
+        "mass_kg": { "type": "number" },
+        "compliance_nmm": { "type": "number" },
+        "volume_fraction": { "type": "number" },
+        "kept_fraction": { "type": "number" },
+        "iterations": { "type": "integer" },
+        "converged": { "type": "boolean" },
+        "grey_fraction": { "type": "number" },
+        "unsupported_fraction": { "type": ["number", "null"] },
+        "member_thickness_mm": { "type": "number" },
+        "eroded_compliance_nmm": { "type": ["number", "null"] },
+        "cell_size": { "type": "number" },
+        "entries": { "type": "integer" },
+        "design_mesh": {
+          "type": "object",
+          "required": ["triangles", "volume_mm3", "closed"],
+          "properties": {
+            "triangles": { "type": "integer" },
+            "volume_mm3": { "type": "number" },
+            "closed": { "type": "boolean" },
+            "path": { "type": "string" }
+          }
+        },
+        "design_check": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": { "enum": ["solved", "declined"] },
+            "max_displacement_mm": { "type": "number" },
+            "kind": { "type": "string" },
+            "message": { "type": "string" }
+          }
+        },
+        "history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["compliance", "volume_fraction", "change", "cg_iterations"],
+            "properties": {
+              "compliance": { "type": "number" },
+              "volume_fraction": { "type": "number" },
+              "change": { "type": "number" },
+              "cg_iterations": { "type": "integer" },
+              "beta": { "type": "number" }
+            }
+          }
+        },
+        "free": { "type": "boolean" },
+        "modes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["frequency_hz", "omega_squared", "residual"],
+            "properties": {
+              "frequency_hz": { "type": "number" },
+              "omega_squared": { "type": "number" },
+              "residual": { "type": "number" }
+            }
+          }
+        },
+        "max_temperature_c": { "type": "number" },
+        "max_heat_flux_w_per_m2": { "type": "number" },
+        "png": {
+          "type": "object",
+          "required": ["field", "min", "max"],
+          "properties": {
+            "field": { "enum": ["von_mises_mpa", "temperature_c", "mode_shape"] },
+            "min": { "type": "number" },
+            "max": { "type": "number" }
+          }
+        },
+        "convection": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["faces", "h_w_per_m2k", "source", "ambient_c"],
+            "properties": {
+              "faces": { "type": ["array", "string"] },
+              "h_w_per_m2k": { "type": "number" },
+              "source": {
+                "enum": ["value", "still_air_matte", "still_air_bright_metal", "fan", "strong_airflow"]
+              },
+              "ambient_c": { "type": "number" },
+              "emittance": { "type": ["number", "string"] }
+            }
+          }
+        },
+        "transient": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["time_s", "max_temperature_c", "stored_j", "heat_out_w", "imbalance"],
+            "properties": {
+              "time_s": { "type": "number" },
+              "max_temperature_c": { "type": "number" },
+              "stored_j": { "type": "number" },
+              "heat_out_w": { "type": "number" },
+              "imbalance": { "type": "number" }
+            }
+          }
+        },
+        "flux_in_w": { "type": "number" },
+        "source_w": { "type": "number" },
+        "face_heat": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "heat_out_w"],
+            "properties": {
+              "name": { "type": "string" },
+              "heat_out_w": { "type": "number" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "peak": {
+      "type": "object",
+      "required": ["solid", "position", "face", "face_names", "value", "error"],
+      "properties": {
+        "solid": { "type": "integer" },
+        "position": { "type": "array", "items": { "type": "number" } },
+        "face": { "type": "integer" },
+        "face_names": { "type": "array", "items": { "type": "string" } },
+        "value": { "type": "number" },
+        "error": { "type": ["number", "null"] }
+      }
+    }
+  }
+}

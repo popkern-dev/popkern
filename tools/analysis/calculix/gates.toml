@@ -1,0 +1,58 @@
+# PH-075: CalculiX gate cases (gate.py). `mesh` is CalculiX's Gmsh mesh
+# [max size, points per 2π of curvature] (PH-050: the coarse and fine
+# meshes agree to 0.3% in displacement and 0.2% in peak); `cell_size`
+# ours (default budget when absent). Each check's `ratio` is ours over
+# CalculiX as recorded (gate.py --record) and must stay within
+# `tolerance`. Recorded 2026-10-12 (PH-075); the PH-050 table in the
+# map has the same parts against the finer meshes.
+
+[[case]]
+name = "bored_block"
+kind = "structural"
+step = "tests/fixtures/analysis/gallery/bored_block.step"
+setup = "tools/analysis/calculix/cases/bored_block.setup.toml"
+mesh = [0.06, 24]
+roi = { lo = [-0.3, -9.0, -9.0], hi = [0.3, 9.0, 9.0] }
+checks.displacement = { ratio = 0.9970, tolerance = 0.01 }
+checks.peak = { ratio = 0.9429, tolerance = 0.02 }
+
+[[case]]
+name = "boss_plate"
+kind = "structural"
+step = "tests/fixtures/analysis/gallery/boss_plate.step"
+setup = "tools/analysis/calculix/cases/boss_plate.setup.toml"
+mesh = [0.12, 24]
+cell_size = 0.02
+roi = { lo = [-9.0, -9.0, 0.2], hi = [9.0, 9.0, 9.0] }
+checks.displacement = { ratio = 1.0057, tolerance = 0.01 }
+checks.peak = { ratio = 0.9220, tolerance = 0.02 }
+
+[[case]]
+name = "tapered_fillet"
+kind = "structural"
+step = "tests/fixtures/analysis/gallery/tapered_fillet.step"
+setup = "tools/analysis/calculix/cases/tapered_fillet.setup.toml"
+mesh = [0.06, 24]
+roi = { lo = [-0.45, -9.0, -9.0], hi = [9.0, 9.0, 9.0] }
+checks.displacement = { ratio = 1.0018, tolerance = 0.01 }
+checks.peak = { ratio = 0.9968, tolerance = 0.02 }
+
+[[case]]
+name = "block_two_bores"
+kind = "structural"
+step = "tests/fixtures/analysis/block_two_bores.step"
+setup = "tests/fixtures/analysis/block_two_bores.setup.toml"
+mesh = [0.5, 24]
+roi = { lo = [-1.0, -1.0, 2.0], hi = [11.0, 11.0, 8.0] }
+checks.displacement = { ratio = 0.9956, tolerance = 0.01 }
+checks.peak = { ratio = 0.9897, tolerance = 0.02 }
+
+[[case]]
+name = "bored_block_thermal"
+kind = "thermal"
+step = "tests/fixtures/analysis/gallery/bored_block.step"
+setup = "tools/analysis/calculix/cases/bored_block.thermal.setup.toml"
+mesh = [0.06, 24]
+cell_size = 0.06
+surface = 3
+checks.bore_flux = { ratio = 0.9844, tolerance = 0.02 }

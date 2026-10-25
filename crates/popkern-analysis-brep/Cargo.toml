@@ -1,0 +1,17 @@
+[package]
+name = "popkern-analysis-brep"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "popkern BRep to AnalysisModel adapter and face-selector resolution"
+
+[dependencies]
+popkern-analysis = { path = "../popkern-analysis" }
+popkern-math = { path = "../popkern-math" }
+popkern-core = { path = "../popkern-core" }
+popkern-mesh = { path = "../popkern-mesh" }
+popkern-measure = { path = "../popkern-measure" }
+thiserror.workspace = true
+
+[dev-dependencies]
+popkern-bool = { path = "../popkern-bool" }

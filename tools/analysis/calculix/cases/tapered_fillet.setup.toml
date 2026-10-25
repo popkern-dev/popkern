@@ -1,0 +1,17 @@
+# PH-050: the tapered-fillet bar as a cantilever, clamped at x = -0.75
+# and loaded down on its free end.
+units = "mm"
+material = "PLA (FDM)"
+
+[faces]
+root = { plane = { normal = [-1, 0, 0], through = [-0.75, 0, 0] } }
+tip = { plane = { normal = [1, 0, 0], through = [0.75, 0, 0] } }
+
+[[support]]
+faces = ["root"]
+kind = "fixed"
+
+[[load]]
+faces = ["tip"]
+force_n = 1
+direction = [0, 0, -1]

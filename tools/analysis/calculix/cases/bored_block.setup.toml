@@ -1,0 +1,17 @@
+# PH-050: the bored block pulled along x past its filleted through-bore
+# (2r/D = 0.45, Kt about 2.2), clamped on the other end.
+units = "mm"
+material = "PLA (FDM)"
+
+[faces]
+clamp = { plane = { normal = [-1, 0, 0], through = [-0.6, 0, 0] } }
+pull = { plane = { normal = [1, 0, 0], through = [0.6, 0, 0] } }
+
+[[support]]
+faces = ["clamp"]
+kind = "fixed"
+
+[[load]]
+faces = ["pull"]
+force_n = 10
+direction = [1, 0, 0]

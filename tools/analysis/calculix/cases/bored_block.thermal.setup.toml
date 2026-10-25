@@ -1,0 +1,18 @@
+# PH-064/PH-065: heat along bored_block past its insulated through-bore
+# (the thermal analogue of the pull case): the clamp end held at 20 C,
+# 1 W into the other end, every other face insulated.
+analysis = "thermal"
+units = "mm"
+material = "Aluminium 6061-T6"
+
+[faces]
+cold = { plane = { normal = [-1, 0, 0], through = [-0.6, 0, 0] } }
+hot = { plane = { normal = [1, 0, 0], through = [0.6, 0, 0] } }
+
+[[fixed_temperature]]
+faces = ["cold"]
+temperature_c = 20
+
+[[heat_flux]]
+faces = ["hot"]
+power_w = 1
