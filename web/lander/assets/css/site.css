@@ -533,6 +533,34 @@ a[href^="#TODO"]::after {
   border-left: 2px solid var(--brand); color: var(--text-dim); font-style: italic;
 }
 
+/* A month-by-month timeline in a post: label, a bar sized by --commits
+   (0..1), and what happened. */
+.timeline {
+  margin: 28px 0 32px; padding: 20px 22px 18px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface);
+}
+.timeline ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+.timeline li {
+  display: grid; grid-template-columns: 2.6rem 5.5rem 1fr; gap: 12px;
+  align-items: start; margin: 0; font-size: .92rem; line-height: 1.45;
+}
+.tl-month { font-family: var(--mono); font-size: .8rem; line-height: 1.65; color: var(--text); }
+.tl-bar {
+  height: 8px; margin-top: .45em; border-radius: 4px;
+  width: calc(var(--commits) * 100%);
+  background: linear-gradient(to right, var(--brand-ink), var(--brand));
+}
+.tl-text { color: var(--text-dim); }
+.timeline figcaption {
+  margin-top: 16px; font-size: .82rem; color: var(--text-faint);
+}
+@media (max-width: 560px) {
+  .timeline { padding: 16px; }
+  .timeline li { grid-template-columns: 2.4rem 1fr; row-gap: 4px; }
+  .tl-text { grid-column: 1 / -1; }
+}
+
 /* High-visibility "how to help" callout at the top of a post. */
 .support {
   margin: 0 0 44px;

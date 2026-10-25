@@ -238,6 +238,29 @@
         </p>
 
         <p>
+          popkern began on March 14, 2026. It wasn't made over a weekend.
+          Seven months and over 4,000 commits in, most of that time went into
+          the parts nobody sees: smooth corners where fillets meet took most of
+          April through July on their own. There are some great projects being
+          built quickly with agents, and I'm glad they exist. popkern is a
+          slower bet, where most of the work is checking.
+        </p>
+
+        <figure class="timeline" aria-labelledby="timeline-caption">
+          <ol>
+            <li style="--commits:.85"><span class="tl-month">Mar</span><span class="tl-bar"></span><span class="tl-text">Project begins on the 14th. Topology and NURBS core, then first booleans, tessellation, STEP in and out, sweeps, shells, sketches and feature history.</span></li>
+            <li style="--commits:1"><span class="tl-month">Apr</span><span class="tl-bar"></span><span class="tl-text">Tolerance system. Corners where three or more fillets meet, and polyhedral-spline patches.</span></li>
+            <li style="--commits:.75"><span class="tl-month">May</span><span class="tl-bar"></span><span class="tl-text">The mathematics behind G&sup2; corner patches, and certified fallbacks.</span></li>
+            <li style="--commits:.51"><span class="tl-month">Jun</span><span class="tl-bar"></span><span class="tl-text">Corner patches pushed to paper grade. Determinism checks.</span></li>
+            <li style="--commits:.62"><span class="tl-month">Jul</span><span class="tl-bar"></span><span class="tl-text">Setback vertex blends work end to end. Curved sketches.</span></li>
+            <li style="--commits:.34"><span class="tl-month">Aug</span><span class="tl-bar"></span><span class="tl-text">Robustness and test infrastructure. Scripting and browser design.</span></li>
+            <li style="--commits:.37"><span class="tl-month">Sep</span><span class="tl-bar"></span><span class="tl-text">Rhai scripting, a first browser workbench, threads and fasteners, certified seam continuity, STEP round-trip audits.</span></li>
+            <li style="--commits:.69"><span class="tl-month">Oct</span><span class="tl-bar"></span><span class="tl-text">Assemblies, popkern live, projects, hinges, a six-axis arm, and simulation.</span></li>
+          </ol>
+          <figcaption id="timeline-caption">Roughly when things started working, 2026. Bars show commits per month (October to the 25th).</figcaption>
+        </figure>
+
+        <p>
           I understand not everybody is on board with the use of generative models,
           and that discussion is worth making plenty of space for. My intention with popkern is to demonstrate
           good stewardship through community-first principles. I hope to create the fully capable, fully open source kernel I could only dream of for years.
