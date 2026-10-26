@@ -20,7 +20,12 @@ async function loadModule() {
   return exports?.memory ?? null;
 }
 
-const handle = createHandler(pkg, loadModule);
+// node's port, resolved once (progress is posted mid-request).
+const nodePort = inBrowser ? null : (await import("node:worker_threads")).parentPort;
+// Progress messages go out while a request still runs.
+const notify = inBrowser ? (message) => self.postMessage(message) : (message) => nodePort.postMessage(message);
+
+const handle = createHandler(pkg, loadModule, notify);
 
 if (inBrowser) {
   self.addEventListener("message", async (event) => {
@@ -28,9 +33,8 @@ if (inBrowser) {
     self.postMessage(reply, transfer);
   });
 } else {
-  const { parentPort } = await import("node:worker_threads");
-  parentPort.on("message", async (message) => {
+  nodePort.on("message", async (message) => {
     const { reply, transfer } = await handle(message);
-    parentPort.postMessage(reply, transfer);
+    nodePort.postMessage(reply, transfer);
   });
 }

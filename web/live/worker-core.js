@@ -13,11 +13,15 @@ function gateFailure(id, step, detail) {
  * `pkg` is the wasm-bindgen module namespace (`init`, `LiveSession`,
  * `protocol_version`); `loadModule` performs the one-time wasm
  * instantiation (browser: `pkg.default()`, node: `initSync`).
+ * `notify(message)` posts a message that is not a reply (a build's
+ * generative progress) while a request runs; absent, none are sent.
  */
-export function createHandler(pkg, loadModule) {
+export function createHandler(pkg, loadModule, notify = null) {
   let session = null;
   let loaded = false;
   let wasmMemory = null;
+  // The request a build's progress belongs to.
+  let running = null;
 
   async function init(message) {
     if (!loaded) {
@@ -31,6 +35,9 @@ export function createHandler(pkg, loadModule) {
     const clock = pkg.init();
     const options = message.options ?? {};
     session = new pkg.LiveSession(JSON.stringify(options));
+    if (notify && typeof session.set_progress === "function") {
+      session.set_progress((json) => notify({ type: "progress", id: running, progress: JSON.parse(json) }));
+    }
     return { id: message.id, ok: true, protocol_version: version, clock_available: clock };
   }
 
@@ -93,8 +100,19 @@ export function createHandler(pkg, loadModule) {
         return { reply: gateFailure(id, "worker", "send init before any other request"), transfer: [] };
       }
       switch (message.type) {
-        case "run":
-          return envelopeReply(id, session.run(String(message.source ?? ""), String(message.name ?? "script.rhai")));
+        case "run": {
+          // A generative re-solve (PK-956): this one build may solve the
+          // designs it meets; every other build declines them unsolved.
+          const solve = message.generative === "solve";
+          running = id;
+          if (solve) session.set_generative_solve(true);
+          try {
+            return envelopeReply(id, session.run(String(message.source ?? ""), String(message.name ?? "script.rhai")));
+          } finally {
+            if (solve) session.set_generative_solve(false);
+            running = null;
+          }
+        }
         case "set_budget":
           try {
             const budget = JSON.parse(session.set_budget(JSON.stringify(message.options ?? {})));
@@ -104,8 +122,19 @@ export function createHandler(pkg, loadModule) {
           }
         case "open_step":
           return envelopeReply(id, session.open_step(new Uint8Array(message.bytes ?? []), String(message.name ?? "model")));
+        case "seed_generative":
+          try {
+            return { reply: { id, ok: true, added: session.seed_generative(String(message.designs ?? "")) }, transfer: [] };
+          } catch (raised) {
+            return { reply: { id, ok: false, outcome: parseOutcome(raised) }, transfer: [] };
+          }
         case "set_param":
-          return envelopeReply(id, session.set_param(String(message.name), Number(message.value)));
+          running = id;
+          try {
+            return envelopeReply(id, session.set_param(String(message.name), Number(message.value)));
+          } finally {
+            running = null;
+          }
         case "set_joints":
           return envelopeReply(id, session.set_joints(JSON.stringify(message.values ?? {})));
         case "certify":

@@ -20,7 +20,8 @@ its budgets, and a hostile script must not be able to wedge the page.
 |---|---|---|
 | `init` | `options: { max_operations: number \| null, timeout_ms: number \| null, continuity_certification?: "Inline" \| "Deferred" }` | `{ ok, protocol_version, clock_available }` |
 | `set_budget` | `options: { max_operations: number \| null, timeout_ms: number \| null }` | `{ ok: true, budget: { max_operations, timeout_ms } }` or `{ ok: false, outcome }` — replaces the budgets for later runs (the page's time limit); the certification mode and the model are kept |
-| `run` | `source: string`, `name: string` | envelope reply |
+| `run` | `source: string`, `name: string`, `generative?: "solve"` | envelope reply — with `generative: "solve"` this one build may solve generative designs (see below) and runs free of the budgets |
+| `seed_generative` | `designs: string` (a bake's `generative`, JSON text) | `{ ok: true, added }` or `{ ok: false, outcome }` — adds solved generative designs to the worker, so builds serve them without solving (PK-956) |
 | `open_step` | `bytes: ArrayBuffer`, `name: string` | envelope reply — a STEP file's product structure as a view-only assembly (assemblies.md §8.3): imported parts with no recipe, re-exportable and savable; `printed` carries the import summary and anything left out |
 | `set_param` | `name: string`, `value: number` | envelope reply |
 | `set_joints` | `values: { [name]: number }` | envelope reply — several placement-only assembly parameters (joints) set with one mate solve and one placement envelope (a film frame's pose); when any name is not a joint, each is set in turn as by `set_param` and the reply is the last envelope or the first failure |
@@ -46,6 +47,27 @@ the host clock (`performance.now`) and creates the session under the
 budgets. `clock_available` is `false` only where the worker has no
 `performance` object — then the wall-clock budget cannot fire and the
 envelope's `wall_budget` says `unavailable`.
+
+## Generative designs (PK-956)
+
+A generative design takes minutes to solve in the browser, so the
+worker never solves one on its own: a `run` or `set_param` that meets a
+design it has not solved declines it (`kernel_decline`, `FeatureFailed`
+with `payload.error.kind = "GenerativeDeclined"` and
+`payload.error.generative_kind = "NeedsSolve"`), and the page keeps the
+model it shows. The page's re-solve is a `run` with `generative:
+"solve"`. While it solves, the worker posts messages that are not
+replies, one per optimisation update:
+
+    { type: "progress", id, progress: { count, max, compliance_nmm, volume_fraction, change } }
+
+`id` is the request's. A design once solved is kept by the worker, so
+later builds whose design inputs are unchanged serve it without
+solving. A gallery bake carries the designs its native run solved
+(`generative` in its header); the page hands them to the worker with
+`seed_generative`, so building the baked example live (a slider on
+another feature, Simulate, an export) solves nothing. A native session
+(`popkern serve`) solves as it builds.
 
 ## Deferred continuity certification
 

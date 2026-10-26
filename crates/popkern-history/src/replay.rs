@@ -19,6 +19,8 @@ mod replay_blend;
 mod replay_fastener;
 #[path = "replay_fns.rs"]
 pub(crate) mod replay_fns;
+#[path = "replay_generative.rs"]
+mod replay_generative;
 #[path = "replay_hinge.rs"]
 mod replay_hinge;
 #[path = "replay_sweep.rs"]
@@ -232,6 +234,9 @@ pub(crate) fn execute_feature(
             let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
             Ok(ExecuteSideEffects::reported(evidence))
+        }
+        Feature::Generative { spec } => {
+            replay_generative::execute_generative(brep, spec, tracking, param_table)
         }
         Feature::Transform { motion } => {
             let t = motion.resolve(brep, param_table)?;

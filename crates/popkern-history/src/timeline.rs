@@ -114,6 +114,7 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
         Feature::Shell {
             faces_to_remove, ..
         } => faces_to_remove.iter().collect(),
+        Feature::Generative { spec } => spec.entity_names(),
         Feature::Draft {
             faces,
             neutral_plane,

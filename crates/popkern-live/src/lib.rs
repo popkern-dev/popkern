@@ -38,6 +38,8 @@ pub mod session_timeline;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 pub mod bindings;
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod bindings_generative;
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 mod bindings_simulate;
 
 pub use envelope::{AssemblyView, BodyMesh, DefinitionView, Envelope, InstanceView, WallBudget};

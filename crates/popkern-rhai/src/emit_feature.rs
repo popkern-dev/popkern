@@ -17,10 +17,14 @@ use popkern_history::node::FeatureNode;
 use popkern_script::Model;
 
 use crate::emit::EmitError;
-use crate::emit_spelling::{Speller, float, plane, quoted, scalar, shape, vec3};
+use crate::emit_spelling::{
+    Speller, float, label_option, options, plane, quoted, scalar, shape, vec3,
+};
 
 #[path = "emit_feature_fastener.rs"]
 mod emit_feature_fastener;
+#[path = "emit_feature_generative.rs"]
+mod emit_feature_generative;
 #[path = "emit_feature_hinge.rs"]
 mod emit_feature_hinge;
 
@@ -31,19 +35,6 @@ pub struct Statement {
     pub call: String,
     /// `true` when the call starts a body (`m.profile(..)...sketch(..)`).
     pub starts_body: bool,
-}
-
-pub(super) fn options(pairs: Vec<(&str, String)>) -> String {
-    if pairs.is_empty() {
-        String::new()
-    } else {
-        let inner: Vec<String> = pairs.iter().map(|(k, v)| format!("{k}: {v}")).collect();
-        format!(", #{{ {} }}", inner.join(", "))
-    }
-}
-
-pub(super) fn label_option(label: &str) -> (&'static str, String) {
-    ("label", quoted(label))
 }
 
 fn fillet_options(
@@ -369,6 +360,9 @@ pub fn statement(
         }
         Feature::Fastener { .. } => {
             return emit_feature_fastener::fastener_statement(tree, context, label, &node.feature);
+        }
+        Feature::Generative { spec } => {
+            emit_feature_generative::generative_call(tree, context, label, spell, spec)?
         }
         Feature::Hinge { .. } | Feature::LivingHinge { .. } => {
             return emit_feature_hinge::hinge_statement(tree, context, label, &node.feature);

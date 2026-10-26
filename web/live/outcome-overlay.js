@@ -7,11 +7,19 @@ import { setStatus } from "./status-line.js";
 
 const $ = (id) => document.getElementById(id);
 
+/** Whether `outcome` is a generative design this build did not solve
+ *  (the browser solves one only on request, PK-956). */
+export function needsSolve(outcome) {
+  return outcome?.payload?.error?.generative_kind === "NeedsSolve";
+}
+
 /** Show `outcome` (a non-served envelope or a failed reply's outcome)
  *  over the viewport, mark its line in `editor`, and state it on the
  *  status line. `timeLimit` words the budget remediation;
- *  `keptModel` says the last good model is still on screen. */
-export function showOutcome(outcome, { editor, timeLimit, keptModel, openScript = null }) {
+ *  `keptModel` says the last good model is still on screen;
+ *  `resolve`, when given, is the re-solve a deferred generative design
+ *  offers. */
+export function showOutcome(outcome, { editor, timeLimit, keptModel, openScript = null, resolve = null }) {
   const overlay = $("overlay");
   overlay.hidden = false;
   const lines = [];
@@ -28,6 +36,20 @@ export function showOutcome(outcome, { editor, timeLimit, keptModel, openScript 
     lines.push("", `in ${failed.migration}${failed.line ? `, line ${failed.line}` : ""}`);
     if (failed.upstream_changed?.length) lines.push(`changed upstream since it last built: ${failed.upstream_changed.join(", ")}`);
   }
+  if (resolve) {
+    lines.push(
+      "",
+      "This edit changes a generative design. Solving one takes minutes in the browser, so it runs only on request:",
+      "press re-solve (its progress shows on the status line; stop cancels it), or keep editing.",
+    );
+  }
+  $("overlay-resolve").hidden = !resolve;
+  $("overlay-resolve").onclick = resolve
+    ? () => {
+        $("overlay").hidden = true;
+        resolve();
+      }
+    : null;
   if (outcome.kind === "BudgetExceeded" || outcome.step === "cancelled") {
     lines.push("", timeLimit == null ? "Press run to try again." : `The time limit is ${describeLimit(timeLimit)}: raise it in the top bar and run again.`);
   }

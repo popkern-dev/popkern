@@ -40,7 +40,7 @@ use super::{ElasticProblem, internal};
 use blocks::{Block, Blocks, sensitivity_blocks};
 pub use filter::{DensityFilter, DesignEntry, design_entries};
 use keep::keep_floors;
-pub use optimise::{Design, Iteration, optimise};
+pub use optimise::{Design, Iteration, Progress, optimise, optimise_observed};
 pub use options::{GenerativeOptions, UpdateMethod};
 
 /// The share of a part's volume thinner than the filter's smallest

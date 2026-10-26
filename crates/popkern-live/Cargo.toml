@@ -26,6 +26,7 @@ popkern-history = { path = "../popkern-history" }
 popkern-analysis = { path = "../popkern-analysis" }
 popkern-analysis-brep = { path = "../popkern-analysis-brep" }
 popkern-analysis-setup = { path = "../popkern-analysis-setup" }
+popkern-generative = { path = "../popkern-generative" }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 

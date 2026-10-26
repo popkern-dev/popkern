@@ -191,6 +191,37 @@ pub struct FeatureReport {
     pub fallbacks: Vec<FallbackRecord>,
     /// Work the operation declined while still serving.
     pub skipped: Vec<SkipRecord>,
+    /// What a served generative design came to — `Some` for every
+    /// served generative feature, `None` for every other feature.
+    #[serde(default)]
+    pub generative: Option<GenerativeRecord>,
+}
+
+/// What a served generative design came to (PK-956).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerativeRecord {
+    /// Compliance of the design, N·mm (lower is stiffer).
+    pub compliance_nmm: f64,
+    /// Material kept over the design space (the density field's).
+    pub volume_fraction: f64,
+    /// The body's volume over the design space's.
+    pub body_fraction: f64,
+    /// Optimisation updates run.
+    pub iterations: usize,
+    /// Whether the design settled before the update cap.
+    pub converged: bool,
+    /// Non-discreteness of the density field, 0 for solid-and-void.
+    pub grey_fraction: f64,
+    /// Thinnest members, mm (10% quantile).
+    pub member_thickness_mm: f64,
+    /// Unsupported share along the build direction, when one is given.
+    pub unsupported_fraction: Option<f64>,
+    /// Analysis cell size, mm.
+    pub cell_mm: f64,
+    /// The body's faces.
+    pub faces: usize,
+    /// Whether the design came from the cache (no solve this build).
+    pub cached: bool,
 }
 
 impl FeatureReport {
@@ -212,6 +243,7 @@ impl FeatureReport {
             blend: None,
             fallbacks: Vec::new(),
             skipped: Vec::new(),
+            generative: None,
         }
     }
 
@@ -223,6 +255,9 @@ impl FeatureReport {
         }
         self.fallbacks.extend(evidence.fallbacks);
         self.skipped.extend(evidence.skipped);
+        if evidence.generative.is_some() {
+            self.generative = evidence.generative;
+        }
         self
     }
 
@@ -290,6 +325,8 @@ pub enum RecordSource {
     /// Reference resolution: a recorded name rebound by provenance
     /// (this crate, PK-677).
     Naming,
+    /// Generative design (`popkern-generative`).
+    Generative,
 }
 
 /// A non-fatal kernel warning that is neither a fallback nor a skip.

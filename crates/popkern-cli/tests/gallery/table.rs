@@ -274,4 +274,16 @@ pub(crate) const GALLERY: &[(&str, &str, &str, usize, &str)] = &[
          length, assembly-parameter drives, swing to first contact, \
          interference, fasteners, tapped holes, thread mating, part appearance",
     ),
+    (
+        "generative_bracket",
+        "Generative bracket",
+        "A wall bracket carved by generative design: a solid block bolted to the \
+         wall and loaded at its eye, reduced to the stiffest quarter of its \
+         material that prints on its side without supports. The design was \
+         solved when the gallery was built; an edit that changes it asks before \
+         re-solving in the browser.",
+        18,
+        "generative design: supports, loads and kept faces by label, volume \
+         fraction, filter, build direction; the design as a faceted body",
+    ),
 ];

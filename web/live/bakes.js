@@ -90,5 +90,8 @@ export function decode(arrayBuffer) {
     mean: take(Float32Array, counts.mean),
   }));
   if (offset !== arrayBuffer.byteLength) return null;
-  return { source: header.source, envelope: header.envelope, buffers, native: header.native };
+  // A bake of a generative design carries the designs it solved
+  // (PK-956), as text for the worker.
+  const generative = header.generative ? JSON.stringify(header.generative) : null;
+  return { source: header.source, envelope: header.envelope, buffers, native: header.native, generative };
 }

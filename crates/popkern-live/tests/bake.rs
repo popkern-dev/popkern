@@ -47,7 +47,7 @@ fn a_certified_boss_plate_bakes_and_decodes_with_aligned_buffers() {
             break step.report.expect("the final step carries the report");
         }
     };
-    let bytes = bake::encode(&source, &envelope, report.clone(), TIMINGS).expect("bake");
+    let bytes = bake::encode(&source, &envelope, report.clone(), TIMINGS, None).expect("bake");
     assert_eq!(&bytes[..8], MAGIC);
     let (header, start) = bake::decode_header(&bytes).expect("header");
     assert_eq!(start % 4, 0, "buffers start aligned");
@@ -83,6 +83,7 @@ fn only_served_models_bake() {
         &envelope,
         serde_json::Value::Null,
         TIMINGS,
+        None,
     );
     assert!(matches!(error, Err(bake::BakeError::NotServed(_))));
     assert!(bake::decode_header(b"not a bake").is_none());

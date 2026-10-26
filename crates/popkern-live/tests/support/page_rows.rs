@@ -10,6 +10,10 @@ pub use arm_rows::assert_arm_rows;
 mod view_rows;
 pub use view_rows::{assert_storage_owned, assert_view_rows};
 
+#[path = "overlay_rows.rs"]
+mod overlay_rows;
+pub use overlay_rows::assert_overlay_rows;
+
 /// The time limit: presets up to "no limit", default 24 s (20 s kernel
 /// budget + the page's grace), "no limit" lifts both budgets. Pre-built
 /// examples, when the bundle was baked (`tools/bake-live.sh`):

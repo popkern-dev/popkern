@@ -27,6 +27,21 @@ pub fn quoted(text: &str) -> String {
     format!("{text:?}")
 }
 
+/// An options map argument (`, #{ k: v, .. }`), or nothing when empty.
+pub fn options(pairs: Vec<(&str, String)>) -> String {
+    if pairs.is_empty() {
+        String::new()
+    } else {
+        let inner: Vec<String> = pairs.iter().map(|(k, v)| format!("{k}: {v}")).collect();
+        format!(", #{{ {} }}", inner.join(", "))
+    }
+}
+
+/// The `label` option pair.
+pub fn label_option(label: &str) -> (&'static str, String) {
+    ("label", quoted(label))
+}
+
 /// The scalar argument that re-binds parameter `id`: `p("name")` for
 /// a parameter reference, `expr("…")` for a driven parameter, else the
 /// literal in the parameter's display unit.

@@ -337,6 +337,14 @@
       "title": "Six-axis arm"
     },
     {
+      "blurb": "A wall bracket carved by generative design: a solid block bolted to the wall and loaded at its eye, reduced to the stiffest quarter of its material that prints on its side without supports. The design was solved when the gallery was built; an edit that changes it asks before re-solving in the browser.",
+      "demonstrates": "generative design: supports, loads and kept faces by label, volume fraction, filter, build direction; the design as a faceted body",
+      "features": 18,
+      "file": "generative_bracket.rhai",
+      "thumbnail": "examples/generative_bracket.png",
+      "title": "Generative bracket"
+    },
+    {
       "blurb": "The boss plate as a project: plate, boss, rounds — each migration starts from the document the earlier ones built.",
       "demonstrates": "projects, previous(), migrations",
       "features": 6,

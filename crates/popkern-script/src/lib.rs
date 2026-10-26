@@ -18,6 +18,7 @@
 pub mod bodies;
 pub mod body;
 pub mod body_fastener;
+pub mod body_generative;
 pub mod body_hinge;
 pub mod body_recipes;
 pub mod body_seam_hinge;
@@ -43,6 +44,7 @@ pub use body::{Body, End, RevolveEnd};
 pub use body_fastener::{
     ClearanceFitArg, ClearanceHoleArgs, FastenerOptions, TapHoleOptions, ThreadSpecArg,
 };
+pub use body_generative::{GenerativeLoad, GenerativeSpec};
 pub use body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
 pub use body_sweep::{HelixParams, LoftOptions};
 pub use error::{ProjectReason, ScriptError, SelectionKind};

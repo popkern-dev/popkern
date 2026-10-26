@@ -189,3 +189,40 @@ fn a_loose_update_tolerance_ends_on_an_exact_solve() {
     };
     assert!(optimise(&model, &problem, &bad, &[], &options(0.5)).is_err());
 }
+
+/// The observer sees every update, in order, with the densities the
+/// update produced; it changes no bits, and a `Break` stops the run as
+/// `Cancelled` with the updates done.
+#[test]
+fn an_observer_sees_every_update_and_can_stop_the_run() {
+    let (model, problem) = cantilever();
+    let mut g = GenerativeOptions::new(0.4, 0.75);
+    g.method = UpdateMethod::Mma;
+    g.max_iterations = 12;
+    let o = options(1.0);
+    let plain = optimise(&model, &problem, &g, &[FaceId(1)], &o).unwrap_or_else(|e| panic!("{e}"));
+    let mut seen: Vec<(usize, f64, Vec<f64>)> = Vec::new();
+    let observed = optimise_observed(&model, &problem, &g, &[FaceId(1)], &o, &mut |p| {
+        seen.push((p.count, p.iteration.compliance, p.densities.to_vec()));
+        std::ops::ControlFlow::Continue(())
+    })
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(observed, plain);
+    assert_eq!(seen.len(), plain.history.len());
+    for (k, (count, compliance, densities)) in seen.iter().enumerate() {
+        assert_eq!(*count, k + 1);
+        assert_eq!(compliance.to_bits(), plain.history[k].compliance.to_bits());
+        assert_eq!(densities.len(), plain.entries.len());
+    }
+    let stopped = optimise_observed(&model, &problem, &g, &[FaceId(1)], &o, &mut |p| {
+        if p.count == 3 {
+            std::ops::ControlFlow::Break(())
+        } else {
+            std::ops::ControlFlow::Continue(())
+        }
+    });
+    assert!(
+        matches!(stopped, Err(AnalysisError::Cancelled { iterations: 3 })),
+        "{stopped:?}"
+    );
+}

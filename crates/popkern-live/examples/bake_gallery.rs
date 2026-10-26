@@ -35,7 +35,10 @@ fn bake_one(out: &Path, file: &str, source: &str) -> Value {
         track_sources: false,
     });
     let run = Stopwatch::start();
+    // The designs this run solves go into its bake (PK-956).
+    let _ = popkern_generative::export_touched();
     let envelope = session.run(source, file);
+    let generative = popkern_generative::export_touched();
     let run_ms = ms(&run);
     if !envelope.outcome.is_served() {
         let outcome = serde_json::to_value(&envelope.outcome).unwrap_or(Value::Null);
@@ -62,7 +65,7 @@ fn bake_one(out: &Path, file: &str, source: &str) -> Value {
         }
     };
     let timings = BakeTimings { run_ms, certify_ms };
-    let bytes = match bake::encode(source, &envelope, report, timings) {
+    let bytes = match bake::encode(source, &envelope, report, timings, generative.as_deref()) {
         Ok(bytes) => bytes,
         Err(error) => {
             return json!({ "file": file, "source_key": key, "declined": error.to_string() });

@@ -138,3 +138,81 @@ fn a_triangle_outside_the_grid_is_an_error() {
         Err(ClipError::OutsideGrid { .. })
     ));
 }
+
+/// A block along z with a round bore, its end faces fanned from the
+/// bore's ring out to the square's boundary (as a display tessellation
+/// fans a holed face): `segments` around, the square's corners among
+/// them (a multiple of 8).
+fn bored_block(half: f64, r: f64, length: f64, segments: usize) -> SolidMesh {
+    let mut vertices: Vec<[f64; 3]> = Vec::new();
+    let angle = |i: usize| 2.0 * std::f64::consts::PI * i as f64 / segments as f64;
+    use popkern_math::PortableMath;
+    // Rings: bore at z 0 and length, square at z 0 and length.
+    for (ring, z) in [(0, 0.0), (0, length), (1, 0.0), (1, length)] {
+        for i in 0..segments {
+            let (c, s) = (angle(i).pcos(), angle(i).psin());
+            let p = if ring == 0 {
+                [r * c, r * s]
+            } else {
+                let m = c.abs().max(s.abs());
+                [half * c / m, half * s / m]
+            };
+            vertices.push([p[0], p[1], z]);
+        }
+    }
+    let n = segments as u32;
+    let at = |ring: u32, i: usize| ring * n + (i % segments) as u32;
+    let mut triangles = Vec::new();
+    let mut triangle_face = Vec::new();
+    for i in 0..segments {
+        let quads = [
+            // Bore wall (faces the axis), end at z = 0 (faces −z), end
+            // at z = length (+z), outer wall (outward).
+            ([at(0, i), at(1, i), at(1, i + 1), at(0, i + 1)], 0),
+            ([at(0, i), at(0, i + 1), at(2, i + 1), at(2, i)], 1),
+            ([at(1, i), at(3, i), at(3, i + 1), at(1, i + 1)], 1),
+            ([at(2, i), at(2, i + 1), at(3, i + 1), at(3, i)], 2),
+        ];
+        for (q, f) in quads {
+            triangles.push([q[0], q[1], q[2]]);
+            triangles.push([q[0], q[2], q[3]]);
+            triangle_face.extend([FaceId(f), FaceId(f)]);
+        }
+    }
+    SolidMesh {
+        id: crate::model::SolidId(0),
+        name: None,
+        vertices,
+        triangles,
+        triangle_face,
+        exact_volume: None,
+    }
+}
+
+/// PK-963 reproduction: a bored block whose far end face fans from the
+/// bore's ring, one ulp below the grid plane z = 10, out to the square,
+/// exactly on it (the bracket's end face as the boolean left it,
+/// PK-956). The fan's pieces near its on-plane corners have every
+/// clipped vertex on the plane, and the half-open tie rule gives them to
+/// the next cell, which clipped the triangle whole against that plane
+/// first and holds only a sliver: a third of their area is lost and the
+/// rasterised volume reads low. Ignored until the clipping is
+/// order-independent under rounding.
+#[test]
+#[ignore = "known gap: PK-963 facets an ulp off a grid plane lose pieces to the tie rule"]
+fn a_facet_one_ulp_off_a_grid_plane_keeps_every_piece() {
+    let mut mesh = bored_block(4.0, 1.5, 10.0, 48);
+    let below = f64::from_bits(10.0f64.to_bits() - 1);
+    for v in mesh.vertices[48..96].iter_mut() {
+        v[2] = below;
+    }
+    let exact = mesh.enclosed_volume();
+    assert!(exact > 0.0, "{exact}");
+    let grid =
+        Grid::covering([-5.0, -5.0, -1.0], [5.0, 5.0, 11.0], 1.0).unwrap_or_else(|e| panic!("{e}"));
+    let clipped = clip_solid(&grid, &mesh).unwrap_or_else(|e| panic!("{e}"));
+    let m = crate::moments::rasterise_solid(&grid, mesh.id, &clipped, 3)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let rel = (m.volume - exact) / exact;
+    assert!(rel.abs() < 1e-12, "rasterised volume off by {rel:e}");
+}

@@ -561,3 +561,48 @@ fn hinge_sits_in_the_operations_tier() {
         );
     }
 }
+
+/// popkern-generative (PK-956) sits between Part and History: it uses
+/// part (the polyhedral body builder), mesh and the analysis crates,
+/// and nothing above; only history and the layers above it use it.
+#[test]
+fn generative_sits_between_part_and_history() {
+    let cargo_toml =
+        fs::read_to_string(workspace_root().join("crates/popkern-generative/Cargo.toml"))
+            .expect("Could not read popkern-generative/Cargo.toml");
+    let deps = cargo_toml.split("[dev-dependencies]").next().unwrap_or("");
+    for above in [
+        "popkern-history",
+        "popkern-script",
+        "popkern-assembly",
+        "popkern-rhai",
+        "popkern-project",
+        "popkern-live",
+        "popkern-server",
+        "popkern-cli",
+        "popkern-viz",
+    ] {
+        assert!(
+            !declares_dependency(deps, above),
+            "popkern-generative must not depend on {above} (it sits below History)"
+        );
+    }
+    for below in [
+        "popkern-math",
+        "popkern-core",
+        "popkern-bool",
+        "popkern-mesh",
+        "popkern-measure",
+        "popkern-part",
+        "popkern-analysis",
+        "popkern-analysis-brep",
+        "popkern-analysis-setup",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !declares_dependency(&toml, "popkern-generative"),
+            "{below} must not depend on popkern-generative"
+        );
+    }
+}

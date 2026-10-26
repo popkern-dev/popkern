@@ -427,6 +427,43 @@ try {
     return shown;
   })()`);
 
+  // A generative design (PK-956): a plain build declines it unsolved
+  // and the overlay offers re-solve; re-solve streams the optimisation's
+  // progress to the status line and serves the design.
+  const generativeScript = [
+    "let m = model();",
+    'let b = m.profile(yz()).rect(4.0, 4.0).sketch("block").extrude(blind(12.0));',
+    "b = b.generative(#{",
+    '    supports: [#{ faces: faces().facing_neg("x") }],',
+    '    loads: [#{ faces: faces().facing("x"), force: 10.0, direction: [0.0, 0.0, -1.0] }],',
+    '    keep: [faces().facing_neg("x"), faces().facing("x")],',
+    "    volume_fraction: 0.5, filter: 1.5, keep_depth: 1.0, cell: 1.0, max_iterations: 150,",
+    "});",
+    "m",
+    "",
+  ].join("\n");
+  await evaluate(`window.popkernLive.editor.value = ${JSON.stringify(generativeScript)}`);
+  const deferred = await evaluate(`window.popkernLive.run().then((r) => ({ outcome: r.envelope?.outcome ?? r.outcome?.outcome, kind: r.envelope?.payload?.error?.generative_kind ?? null }))`);
+  out.generative = {
+    deferred,
+    resolve_visible: await evaluate(`getComputedStyle(document.getElementById("overlay-resolve")).display !== "none"`),
+    overlay_text: await evaluate(`document.getElementById("overlay-text").textContent`),
+  };
+  out.generative.resolved = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    document.getElementById("overlay-resolve").click();
+    let progress = null;
+    const started = Date.now();
+    while (Date.now() - started < 300000) {
+      await new Promise((r) => setTimeout(r, 100));
+      const text = document.getElementById("status").textContent;
+      if (!progress && text.includes("solving the generative design")) progress = text;
+      if (!page.running && Date.now() - started > 500) break;
+    }
+    const row = [...document.querySelectorAll("#report tr")].map((r) => r.textContent).find((t) => t.includes("generative")) ?? null;
+    return { progress, live: page.live, overlay_hidden: document.getElementById("overlay").hidden, row, bodies: page.viewer.bodies.length };
+  })()`);
+
   // Runaway script: the page's cancel path stops the worker.
   await evaluate(`window.popkernLive.editor.value = "let m = model();\\nloop {}\\n"`);
   const cancelStarted = Date.now();

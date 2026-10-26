@@ -10,8 +10,9 @@
 //! - among the analysis crates only `popkern-analysis-cli` and
 //!   `popkern-analysis-fixtures` see `popkern-io` (files and STEP);
 //! - no kernel crate depends on an analysis crate except the hosts
-//!   above the adapter: `popkern-live`, `popkern-server`, `popkern-cli`
-//!   and `popkern-examples`.
+//!   above the adapter: `popkern-generative` (generative design as a
+//!   Part-tier feature, PK-956), `popkern-live`, `popkern-server`,
+//!   `popkern-cli` and `popkern-examples`.
 //!
 //! The check reads `[dependencies]` (normal dependencies). Dev
 //! dependencies are test-only and do not cross the boundary.
@@ -33,7 +34,8 @@ const ADAPTER_POPKERN_ALLOWED: [&str; 5] = [
 ];
 const IO_ALLOWED: [&str; 2] = ["popkern-analysis-cli", "popkern-analysis-fixtures"];
 /// The kernel crates allowed to depend on an analysis crate.
-const ANALYSIS_HOSTS: [&str; 4] = [
+const ANALYSIS_HOSTS: [&str; 5] = [
+    "popkern-generative",
     "popkern-live",
     "popkern-server",
     "popkern-cli",

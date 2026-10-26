@@ -294,6 +294,13 @@ impl Protocol {
             },
             "materials" => Reply::plain(json!({ "id": id, "ok": true,
                 "materials": crate::session_simulate::materials() })),
+            // A native session solves generative designs as it builds;
+            // a bake's designs still save it the solve (PK-956).
+            "seed_generative" => match session.seed_generative(&text("designs", "")) {
+                Ok(added) => Reply::plain(json!({ "id": id, "ok": true, "added": added })),
+                Err(detail) => Reply::plain(json!({ "id": id, "ok": false,
+                    "outcome": { "outcome": "gate_failure", "step": "seed_generative", "detail": detail } })),
+            },
             "interference" => match session.interference(number("clearance")) {
                 Ok(report) => Reply::plain(json!({ "id": id, "ok": true, "report": report })),
                 Err(outcome) => failed(outcome),

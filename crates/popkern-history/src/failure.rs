@@ -74,6 +74,15 @@ pub enum FeatureFailure {
         /// Why it was rejected.
         reason: String,
     },
+    /// A generative design declined (PK-956): the solver's or the
+    /// faceting's typed kind.
+    GenerativeDeclined {
+        /// The decline's kind (`KeptVolumeExceedsTarget`,
+        /// `CellBudgetExceeded`, `DesignBody`, ...).
+        generative_kind: String,
+        /// The message.
+        detail: String,
+    },
     /// The operation was cancelled by the caller.
     Cancelled,
     /// A failure with no richer class (reference resolution details,
@@ -165,6 +174,7 @@ impl FeatureFailure {
             FeatureFailure::DraftFailed { .. } => "DraftFailed",
             FeatureFailure::ValidationFailed { .. } => "ValidationFailed",
             FeatureFailure::InvalidParameter { .. } => "InvalidParameter",
+            FeatureFailure::GenerativeDeclined { .. } => "GenerativeDeclined",
             FeatureFailure::Cancelled => "Cancelled",
             FeatureFailure::Other { .. } => "Other",
         }
@@ -194,6 +204,7 @@ impl std::fmt::Display for FeatureFailure {
             | FeatureFailure::ShellFailed { detail, .. }
             | FeatureFailure::DraftFailed { detail }
             | FeatureFailure::ValidationFailed { detail, .. }
+            | FeatureFailure::GenerativeDeclined { detail, .. }
             | FeatureFailure::Other { detail } => f.write_str(detail),
             FeatureFailure::InvalidParameter {
                 parameter,

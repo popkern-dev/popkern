@@ -41,6 +41,14 @@ pub enum Feature {
         /// What produced it.
         origin: SnapshotOrigin,
     },
+    /// Replace the body (the design space) with the stiffest design at
+    /// a volume fraction under the recipe's supports and loads (PK-956):
+    /// a planar-faced body, its kept faces modified from the design
+    /// space's.
+    Generative {
+        /// The recipe.
+        spec: Box<crate::feature_generative::GenerativeDesc>,
+    },
     /// Extrude a face by sweeping it along a direction.
     Extrude {
         /// The face to extrude, identified by stable name.
@@ -461,35 +469,9 @@ pub enum Vec3Desc {
     Negated(Box<Vec3Desc>),
 }
 
-/// Boolean set-operation kind.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum BoolOpKind {
-    /// Unite (add) two bodies.
-    Union,
-    /// Retain only the intersection of two bodies.
-    Intersection,
-    /// Subtract the tool body from the target.
-    Subtraction,
-}
-
 pub use crate::feature_shell_kinds::{JoinStyleKind, ShellDirectionKind, TrimPolicyKind};
 
-/// Controls whether an operation creates new geometry or merges with the
-/// active body.
-///
-/// `NewBody` is the default and creates an independent solid.  `Boss` and
-/// `Cut` automatically union or subtract from the nearest host body,
-/// mirroring the behaviour of direct-modelling "Boss" and "Cut" operations.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub enum OperationMode {
-    /// Create a new, independent body (default).
-    #[default]
-    NewBody,
-    /// Unite the result with the host body (additive).
-    Boss,
-    /// Subtract the result from the host body (subtractive).
-    Cut,
-}
+pub use crate::feature_kinds::{BoolOpKind, OperationMode};
 
 pub use crate::feature_extrude::{AxisDesc, ExtrudeEnd, ExtrudeSecondDir, RevolveEnd};
 

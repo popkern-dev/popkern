@@ -21,7 +21,7 @@ import { downloadModel, showModelCode } from "./exports.js";
 import { fetchDefaultFilm, fetchDefaultScript } from "./gallery.js";
 import { adoptPlaygroundKeys } from "./local-store.js";
 import { drawModel, showBake, showPlaced, showServed } from "./model-display.js";
-import { showOutcome } from "./outcome-overlay.js";
+import { needsSolve, showOutcome } from "./outcome-overlay.js";
 import { renderModelPanel } from "./model-panel.js";
 import { renderParams, wireParamFilter } from "./params-panel.js";
 import { hostMode } from "./host-mode.js";
@@ -44,6 +44,13 @@ import { WorkerHost } from "./worker-host.js";
 const IDLE_RUN_MS = 900;
 
 const $ = (id) => document.getElementById(id);
+
+/** The status line while a build runs: a generative design's update
+ *  when one is solving (PK-956), else plain building. */
+function describeProgress(p) {
+  if (!p) return "building…";
+  return `solving the generative design: update ${p.count} of up to ${p.max}, compliance ${p.compliance_nmm.toPrecision(4)} N·mm, change ${p.change.toFixed(3)} ·`;
+}
 
 class Page {
   constructor() {
@@ -68,6 +75,8 @@ class Page {
     this.viewToken = 0;
     this.runDone = Promise.resolve();
     this.host.onCrash = (detail) => this.status(`worker error: ${detail}`, true);
+    // A generative design's updates while a build solves it (PK-956).
+    this.host.onProgress = (update) => (this.generativeProgress = update);
     this.viewer = new Viewer($("viewer"), (pick) => this.showPick(pick));
     // The assembly tree: selection and visibility are view state here
     // (a rebuild keeps them); "open" scopes the inspector to one part.
@@ -167,7 +176,7 @@ class Page {
    *  prepared instead (film-player.js `prepare`: it builds the
    *  project's geometry through here with `forFilm`, then runs the
    *  film). */
-  async run({ live = false, forFilm = false } = {}) {
+  async run({ live = false, forFilm = false, solve = false } = {}) {
     clearTimeout(this.idleTimer);
     const filmOpen = this.projects.filmOpen;
     if (filmOpen && !forFilm) return this.film.prepare(this.projects.path, { live });
@@ -207,16 +216,18 @@ class Page {
     let finished;
     this.runDone = new Promise((resolve) => (finished = resolve));
     const started = performance.now();
-    const tick = () => this.status(`building… ${this.clock(started)}`);
+    this.generativeProgress = null;
+    const tick = () => this.status(`${describeProgress(this.generativeProgress)} ${this.clock(started)}`);
     tick();
     this.clockTimer = setInterval(tick, 1000);
-    if (this.timeLimit != null) {
+    // An explicit re-solve runs as long as it takes (stop cancels it).
+    if (this.timeLimit != null && !solve) {
       this.cancelTimer = setTimeout(() => this.cancel(`no answer within the ${describeLimit(this.timeLimit)} time limit: the worker was stopped`), this.timeLimit * 1000);
     }
     const request = this.projects.buildRequest(source);
     const reply = request?.kind === "project"
       ? await this.host.request({ type: "run_project", files: request.files })
-      : await this.host.run(source, request?.name ?? "script.rhai");
+      : await this.host.run(source, request?.name ?? "script.rhai", solve ? { generative: "solve" } : {});
     clearTimeout(this.cancelTimer);
     clearInterval(this.clockTimer);
     this.running = false;
@@ -235,7 +246,7 @@ class Page {
       this.live = false;
     }
     finished();
-    if (this.rerun) return this.run({ forFilm });
+    if (this.rerun) return this.run({ forFilm, solve });
     // A superseded build was not shown: say so to a waiting film.
     return token === this.viewToken ? reply : null;
   }
@@ -317,6 +328,9 @@ class Page {
       editor: this.editor,
       timeLimit: this.timeLimit,
       keptModel: this.lastGood != null,
+      // A generative design this build did not solve: the page solves
+      // only on request (minutes in the browser).
+      resolve: needsSolve(outcome) ? () => this.run({ live: true, solve: true }) : null,
       // A project failure names its migration: show that file first.
       openScript: (file) => {
         const path = `migrations/${file}`;
@@ -360,7 +374,12 @@ class Page {
   // The page's other actions stay on the Page (the harness and the
   // console reach them here); each lives with the module that owns it.
   setTimeLimit(limit) { return applyTimeLimit(this, limit); }
-  showBake(bake, source) { showBake(this, bake, source); }
+  showBake(bake, source) {
+    // Its solved generative designs go to the worker, so building it
+    // live (a slider, Simulate, an export) needs no solve (PK-956).
+    if (bake.generative) this.host.seedGenerative(bake.generative);
+    showBake(this, bake, source);
+  }
   showModel(envelope, buffers) { drawModel(this, envelope, buffers); }
   ensureAnalysisMesh() { return ensureAnalysisMesh(this); }
   certify(envelope) { return certifyContinuity(this, envelope); }

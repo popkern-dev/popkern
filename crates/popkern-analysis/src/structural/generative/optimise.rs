@@ -77,6 +77,35 @@ pub fn optimise(
     keep: &[crate::model::FaceId],
     options: &AnalysisOptions,
 ) -> Result<Design, AnalysisError> {
+    optimise_observed(model, problem, design, keep, options, &mut |_| {
+        std::ops::ControlFlow::Continue(())
+    })
+}
+
+/// One update as an observer sees it: its record and the physical
+/// densities it moved the design to (one per entry, the order of
+/// [`Design::entries`]).
+#[derive(Debug, Clone, Copy)]
+pub struct Progress<'a> {
+    /// The update's record.
+    pub iteration: &'a Iteration,
+    /// Updates so far, this one included.
+    pub count: usize,
+    /// The design after the update.
+    pub densities: &'a [f64],
+}
+
+/// [`optimise`] reporting each update to `observer`, which may stop the
+/// run: `Break` declines it as [`AnalysisError::Cancelled`]. The
+/// observer reads only; the design is the same bits as without it.
+pub fn optimise_observed(
+    model: &AnalysisModel,
+    problem: &ElasticProblem,
+    design: &GenerativeOptions,
+    keep: &[crate::model::FaceId],
+    options: &AnalysisOptions,
+    observer: &mut dyn FnMut(Progress<'_>) -> std::ops::ControlFlow<()>,
+) -> Result<Design, AnalysisError> {
     let mut evaluator = Evaluator::new(model, problem, *design, keep, options)?;
     let volumes: Vec<f64> = evaluator.entries().iter().map(|d| d.volume).collect();
     let total: f64 = volumes.iter().sum();
@@ -167,6 +196,18 @@ pub fn optimise(
             cg_iterations: eval.cg_iterations,
             beta,
         });
+        if let Some(iteration) = history.last() {
+            let progress = Progress {
+                iteration,
+                count: history.len(),
+                densities: &trial.physical,
+            };
+            if observer(progress).is_break() {
+                return Err(AnalysisError::Cancelled {
+                    iterations: history.len(),
+                });
+            }
+        }
         x = next;
         eval = trial;
         since_raise += 1;

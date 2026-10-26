@@ -57,6 +57,12 @@ pub struct LiveSession {
     /// The field meshes of the last `simulate` answer (PK-948), read by
     /// index right after it (`bindings_simulate`).
     pub(crate) simulation: Vec<crate::session_simulate::FieldMesh>,
+    /// Whether builds may solve generative designs here (PK-956): off in
+    /// the browser, where a design takes minutes, except for the
+    /// page's explicit re-solve (`bindings_generative`).
+    pub(crate) generative_solve: bool,
+    /// The page's progress callback for generative solves.
+    pub(crate) progress: Option<js_sys::Function>,
 }
 
 #[wasm_bindgen]
@@ -78,6 +84,8 @@ impl LiveSession {
             analysis: Vec::new(),
             step: Vec::new(),
             simulation: Vec::new(),
+            generative_solve: false,
+            progress: None,
         })
     }
 
@@ -105,7 +113,7 @@ impl LiveSession {
     /// Run a script; the envelope as JSON. Body buffers are then
     /// readable by index until the next run or parameter edit.
     pub fn run(&mut self, source: &str, name: &str) -> String {
-        let envelope = self.session.run(source, name);
+        let envelope = self.building(|s| s.run(source, name));
         let json = envelope.to_json().to_string();
         self.bodies = envelope.bodies;
         self.analysis.clear();
@@ -130,7 +138,7 @@ impl LiveSession {
     /// persist across calls; buffers readable by index as after `run`.
     pub fn run_project(&mut self, files_json: &str) -> String {
         let envelope = match crate::session_project::decode_project_files(files_json) {
-            Ok(files) => self.session.run_project(files),
+            Ok(files) => self.building(|s| s.run_project(files)),
             Err(detail) => {
                 return serde_json::json!({
                     "outcome": "gate_failure", "step": "project", "detail": detail,
@@ -147,7 +155,7 @@ impl LiveSession {
 
     /// Set a declared parameter and replay; the envelope as JSON.
     pub fn set_param(&mut self, name: &str, value: f64) -> String {
-        let envelope = self.session.set_param(name, value);
+        let envelope = self.building(|s| s.set_param(name, value));
         let json = envelope.to_json().to_string();
         // A joint moves placements only: the meshes (and their analysis
         // and step meshes) stay as they are.
@@ -171,7 +179,7 @@ impl LiveSession {
                         .collect()
                 })
                 .unwrap_or_default();
-        let envelope = self.session.set_joints(&values);
+        let envelope = self.building(|s| s.set_joints(&values));
         let json = envelope.to_json().to_string();
         if !envelope.bodies_unchanged {
             self.bodies = envelope.bodies;

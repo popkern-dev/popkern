@@ -232,6 +232,19 @@ pub fn solve_generative_setup(
     setup: &StructuralSetup,
     resolved: &[ResolvedFace],
 ) -> Result<(super::generative::Design, &'static Material), AnalysisError> {
+    solve_generative_setup_observed(model, setup, resolved, &mut |_| {
+        std::ops::ControlFlow::Continue(())
+    })
+}
+
+/// [`solve_generative_setup`] reporting each update to `observer`
+/// ([`super::generative::optimise_observed`]: progress, a stop).
+pub fn solve_generative_setup_observed(
+    model: &AnalysisModel,
+    setup: &StructuralSetup,
+    resolved: &[ResolvedFace],
+    observer: &mut dyn FnMut(super::generative::Progress<'_>) -> std::ops::ControlFlow<()>,
+) -> Result<(super::generative::Design, &'static Material), AnalysisError> {
     let spec = setup
         .generative
         .as_ref()
@@ -260,7 +273,8 @@ pub fn solve_generative_setup(
         design.robust = Some(ROBUST_ETA);
     }
     let options = generative_cells(model, spec.filter_mm, &setup.options)?;
-    let mut result = super::generative::optimise(model, &problem, &design, &keep, &options)?;
+    let mut result =
+        super::generative::optimise_observed(model, &problem, &design, &keep, &options, observer)?;
     result.report.resolved_faces = resolved.to_vec();
     Ok((result, material))
 }

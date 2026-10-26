@@ -65,6 +65,11 @@ pub(crate) fn for_each_entity_name_mut(feature: &mut Feature, f: &mut dyn FnMut(
                 f(name);
             }
         }
+        Feature::Generative { spec } => {
+            for name in spec.entity_names_mut() {
+                f(name);
+            }
+        }
         Feature::Draft {
             faces,
             neutral_plane,

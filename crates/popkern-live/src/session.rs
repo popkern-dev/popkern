@@ -101,6 +101,17 @@ impl Session {
         }
     }
 
+    /// Adds solved generative designs (a bake's `generative`, as JSON)
+    /// to the process's cache, so builds serve them without solving
+    /// (PK-956). Returns how many were added.
+    ///
+    /// # Errors
+    ///
+    /// The text is not an exported design set.
+    pub fn seed_generative(&mut self, designs: &str) -> Result<usize, String> {
+        popkern_generative::import_cache(designs)
+    }
+
     /// The budgets in force.
     pub fn options(&self) -> HostOptions {
         self.options

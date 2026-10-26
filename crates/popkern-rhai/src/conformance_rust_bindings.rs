@@ -47,6 +47,7 @@ pub const RUST_BINDINGS: &[(&str, &str)] = &[
     ("hinge", "fn hinge"),
     ("hinge_component", "fn hinge_component"),
     ("living_hinge", "fn living_hinge"),
+    ("generative", "fn generative"),
     ("tapped_hole", "fn tapped_hole"),
     ("clearance_hole", "fn clearance_hole"),
     ("union", "fn union"),

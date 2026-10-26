@@ -85,6 +85,7 @@ fn static_param_ids(feature: &Feature) -> Vec<(&'static str, ParameterId)> {
         }
         Feature::Transform { motion } => motion.param_ids(),
         Feature::Shell { thickness, .. } => vec![("thickness", *thickness)],
+        Feature::Generative { spec } => spec.param_ids(),
         Feature::Thicken { thickness, .. } => vec![("thickness", *thickness)],
         Feature::OffsetSolid { distance, .. } => vec![("distance", *distance)],
         Feature::Draft { angle, .. } => vec![("angle", *angle)],
@@ -239,6 +240,7 @@ impl Feature {
             Feature::Chamfer { .. } => "chamfer",
             Feature::Boolean { .. } => "boolean",
             Feature::Shell { .. } => "shell",
+            Feature::Generative { .. } => "generative",
             Feature::Transform { .. } => "transform",
             Feature::Thicken { .. } => "thicken",
             Feature::OffsetSolid { .. } => "offset_solid",

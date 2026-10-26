@@ -43,6 +43,7 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Boolean { .. }
         | Feature::Transform { .. }
         | Feature::Shell { .. }
+        | Feature::Generative { .. }
         | Feature::Thicken { .. }
         | Feature::OffsetSolid { .. }
         | Feature::Draft { .. }

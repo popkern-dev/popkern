@@ -1094,6 +1094,66 @@
       ]
     },
     {
+      "name": "generative",
+      "section": "5",
+      "mark": "preview",
+      "signature": "generative(supports, loads, volume_fraction, filter, keep?, material?, keep_depth?, cell?, build_direction?, max_iterations?, robust?, max_cells?, label?)",
+      "parameters": [
+        {
+          "name": "supports",
+          "optional": false
+        },
+        {
+          "name": "loads",
+          "optional": false
+        },
+        {
+          "name": "volume_fraction",
+          "optional": false
+        },
+        {
+          "name": "filter",
+          "optional": false
+        },
+        {
+          "name": "keep",
+          "optional": true
+        },
+        {
+          "name": "material",
+          "optional": true
+        },
+        {
+          "name": "keep_depth",
+          "optional": true
+        },
+        {
+          "name": "cell",
+          "optional": true
+        },
+        {
+          "name": "build_direction",
+          "optional": true
+        },
+        {
+          "name": "max_iterations",
+          "optional": true
+        },
+        {
+          "name": "robust",
+          "optional": true
+        },
+        {
+          "name": "max_cells",
+          "optional": true
+        },
+        {
+          "name": "label",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "helical_sweep",
       "section": "5",
       "mark": "stable",
@@ -2050,6 +2110,8 @@
         "bool_kind",
         "detail",
         "feature",
+        "detail",
+        "generative_kind",
         "detail",
         "detail",
         "report"

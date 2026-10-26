@@ -39,6 +39,8 @@ pub(crate) struct FeatureEvidence {
     pub fallbacks: Vec<FallbackRecord>,
     /// Skip records.
     pub skipped: Vec<SkipRecord>,
+    /// A served generative design's record.
+    pub generative: Option<crate::replay_report::GenerativeRecord>,
 }
 
 impl FeatureEvidence {

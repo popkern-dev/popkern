@@ -1,6 +1,7 @@
 // The feature tree: one row per feature of the build report with its
 // operation, outcome and time. A blend row states the continuity it
-// measured against the continuity asked for, and how it knows.
+// measured against the continuity asked for, and how it knows; a
+// generative row what its design came to (PK-956).
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,6 +31,13 @@ export function renderReport(envelope, part) {
       verdict = downgraded
         ? `downgraded: ${continuity.achieved} ${how}, ${continuity.requested} requested`
         : `${outcome} · ${continuity.achieved} ${how}`;
+    }
+    const design = f.generative ?? null;
+    if (design) {
+      // Kept material, stiffness, and whether this build solved it.
+      const kept = `${(100 * design.body_fraction).toFixed(0)}% kept`;
+      const settled = design.converged ? "" : `, ${design.iterations} updates (not settled)`;
+      verdict = `${outcome} · ${kept}, compliance ${design.compliance_nmm.toPrecision(3)} N·mm${settled}${design.cached ? " · solved before" : ""}`;
     }
     const shown = scoped && part == null && f.part ? `${f.part}: ${label}` : label;
     // Labels and messages come from the script: text, never markup.

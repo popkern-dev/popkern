@@ -255,18 +255,9 @@ fn page_serves_the_boss_plate_in_headless_chrome_when_a_browser_is_present() {
         "{}",
         out["broken"]["status"]
     );
-    // Kernel decline: class, position and remediation in the overlay.
-    assert_eq!(out["decline"]["outcome"], "kernel_decline");
-    assert_eq!(out["decline"]["kind"], "FeatureFailed");
-    assert_eq!(out["decline"]["overlay_class"], "kernel decline");
-    assert_eq!(out["decline"]["marked_line"], 3);
-    assert!(
-        out["decline"]["overlay_text"]
-            .as_str()
-            .is_some_and(|t| t.contains("ReduceRadius")),
-        "remediation shown: {}",
-        out["decline"]["overlay_text"]
-    );
+    // Kernel declines: class, position and remediation in the overlay;
+    // a generative design's re-solve (PK-956).
+    page_rows::assert_overlay_rows(&out);
     // Blend rows state measured continuity and how it was measured
     // (sampled while certification is pending, certified, or measured
     // where a certificate could not decide); a downgrade is flagged.

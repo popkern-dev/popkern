@@ -21,6 +21,9 @@ use popkern_core::topology::*;
 
 use crate::error::PartError;
 
+#[path = "poly_components.rs"]
+mod components;
+
 /// Hull-membership epsilon on unit-scale canonical coordinates.
 const HULL_EPS: f64 = 1e-9;
 
@@ -322,6 +325,7 @@ pub fn build_polyhedron_brep(
         })?;
         brep.half_edges[he].twin = twin;
     }
+    components::split_components(&mut brep, solid_h, shell_h);
 
     // Analytic line curves.
     let edge_handles: Vec<EdgeHandle> = brep.edges.keys().collect();

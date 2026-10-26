@@ -66,12 +66,15 @@ pub enum BakeError {
 
 /// Encode a bake of `source` from its served `envelope`, whose report
 /// is `certified_report` (the report once every deferred seam has been
-/// certified).
+/// certified). `generative` is the run's solved generative designs
+/// (`popkern_generative::export_touched`), handed to the page's worker
+/// so it serves them without solving (PK-956).
 pub fn encode(
     source: &str,
     envelope: &Envelope,
     certified_report: Value,
     timings: BakeTimings,
+    generative: Option<&str>,
 ) -> Result<Vec<u8>, BakeError> {
     if !envelope.outcome.is_served() || envelope.report.is_none() {
         let outcome = serde_json::to_value(&envelope.outcome).unwrap_or(Value::Null);
@@ -80,7 +83,7 @@ pub fn encode(
     let mut described = envelope.to_json();
     described["report"] = certified_report;
     let counts: Vec<Value> = envelope.bodies.iter().map(buffer_counts).collect();
-    let header = json!({
+    let mut header = json!({
         "format": FORMAT,
         "source_key": source_key(source),
         "source": source,
@@ -88,6 +91,9 @@ pub fn encode(
         "buffers": counts,
         "native": { "run_ms": timings.run_ms, "certify_ms": timings.certify_ms },
     });
+    if let Some(designs) = generative {
+        header["generative"] = serde_json::from_str(designs)?;
+    }
     let mut text = serde_json::to_vec(&header)?;
     while text.len() % 4 != 0 {
         text.push(b' ');

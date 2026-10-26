@@ -22,6 +22,9 @@ export class WorkerHost {
     this.generation = 0;
     this.restarts = 0;
     this.info = null;
+    // Solved generative designs from bakes (PK-956): sent to every
+    // worker this host starts, so a replaced worker keeps them.
+    this.seeds = [];
   }
 
   /** Start (or restart) the worker and wait for `init`. */
@@ -42,6 +45,7 @@ export class WorkerHost {
     this.ready = this.request({ type: "init", options: this.options }).then((reply) => {
       if (!reply.ok) throw new Error(reply.outcome?.detail ?? "init failed");
       this.info = reply;
+      for (const designs of this.seeds) this.request({ type: "seed_generative", designs });
       return reply;
     });
     return this.ready;
@@ -59,6 +63,11 @@ export class WorkerHost {
   }
 
   #deliver(reply) {
+    // A build's generative progress (PK-956) is not a reply.
+    if (reply?.type === "progress") {
+      if (this.onProgress) this.onProgress(reply.progress, reply.id);
+      return;
+    }
     const entry = this.pending.get(reply.id);
     if (!entry) return;
     this.pending.delete(reply.id);
@@ -108,13 +117,24 @@ export class WorkerHost {
     return this.start();
   }
 
+  /** Hand the worker a bake's solved generative designs (`designs`:
+   *  the bake's `generative`, as JSON text) so builds serve them
+   *  without solving; kept for any worker started later. */
+  seedGenerative(designs) {
+    if (this.seeds.includes(designs)) return Promise.resolve({ ok: true, added: 0 });
+    this.seeds.push(designs);
+    return this.info ? this.request({ type: "seed_generative", designs }) : Promise.resolve({ ok: true, added: 0 });
+  }
+
   /** Replace the operation and wall-clock budgets for later runs. */
   setBudget(options) {
     return this.request({ type: "set_budget", options: { max_operations: options.max_operations, timeout_ms: options.timeout_ms } });
   }
 
-  run(source, name) {
-    return this.request({ type: "run", source, name });
+  /** Build `source`; `options.generative === "solve"` lets this one
+   *  build solve generative designs (the page's re-solve, PK-956). */
+  run(source, name, options = {}) {
+    return this.request({ type: "run", source, name, ...(options.generative ? { generative: options.generative } : {}) });
   }
 
   /** Open a STEP file's bytes (an ArrayBuffer) as a view-only assembly. */

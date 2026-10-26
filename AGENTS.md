@@ -24,6 +24,7 @@ crates/popkern-shell       Shell and offset operations (depends: core, blend, bo
 crates/popkern-measure     Measurement queries (depends: core, mesh)
 crates/popkern-viz         Debug visualization + headless render + surface analysis (depends: core, mesh, measure)
 crates/popkern-part        Code-first part API (depends: core..shell, io, mesh)
+crates/popkern-generative  Generative design as a part feature: density design -> faceted body (depends: part, mesh, analysis, analysis-brep, analysis-setup)
 crates/popkern-history     Parametric feature tree (depends: most of the above)
 crates/popkern-script      Scripting-surface recorder (depends: core..history, part)
 crates/popkern-assembly    Assemblies: part definitions + placed instances, STEP product structure, .pkn v5 (depends: script, io)
@@ -44,13 +45,14 @@ crates/popkern-analysis-fixtures  Frozen STEP fixture generator for the physics 
 
 Dependencies flow forward only: Math → Core/Constraint →
 Bool/Draft/Blend/IO/Mesh/Sketch → Sweep/Shell/Fastener/Measure/Viz →
-Hinge → Part/History → Script → Assembly → Rhai → Project → Live →
-Server → CLI/Examples. No reverse imports. Enforced by
-`tools/structural-tests/tests/structural_dep_direction.rs`.
+Hinge → Part → Generative → History → Script → Assembly → Rhai →
+Project → Live → Server → CLI/Examples. No reverse imports. Enforced
+by `tools/structural-tests/tests/structural_dep_direction.rs`.
 
 The analysis crates sit beside this chain: the solver at the Math tier,
-the adapter at the Measure tier, and only live, server, cli and
-examples may depend on them (`structural_analysis_dep_direction.rs`).
+the adapter at the Measure tier, and only generative (the Part-tier
+feature), live, server, cli and examples may depend on them
+(`structural_analysis_dep_direction.rs`).
 
 ## Quality Gates (run before every commit)
 

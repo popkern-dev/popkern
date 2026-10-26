@@ -168,6 +168,14 @@ pub enum AnalysisError {
         target: f64,
     },
 
+    /// The caller stopped the run (a generative design's observer
+    /// answered break).
+    #[error("cancelled after {iterations} updates")]
+    Cancelled {
+        /// Updates finished before the stop.
+        iterations: usize,
+    },
+
     /// An internal invariant failed. Never expected; reported rather
     /// than hidden.
     #[error("internal error in {stage}: {detail}")]
@@ -212,6 +220,7 @@ impl AnalysisError {
             AnalysisError::Unsupported { .. } => "Unsupported",
             AnalysisError::InvalidGenerative { .. } => "InvalidGenerative",
             AnalysisError::KeptVolumeExceedsTarget { .. } => "KeptVolumeExceedsTarget",
+            AnalysisError::Cancelled { .. } => "Cancelled",
             AnalysisError::Internal { .. } => "Internal",
             AnalysisError::DegenerateGeometry { .. } => "DegenerateGeometry",
         }
