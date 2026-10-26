@@ -25,7 +25,6 @@ target
 
 # Generated example output (STEP files, PNG renders)
 examples/output/
-docs/reports/kernel-analysis/
 
 # Personal prompt log (not committed)
 .prompt-log/
@@ -33,22 +32,32 @@ docs/reports/kernel-analysis/
 # Local task ledger (schema/tooling is committed; state is intentionally local)
 .popkern/
 
-# Flowchart databases and generated JSON (regenerated from seeds/)
-flowcharts/*.db
-flowcharts/*.db-wal
-flowcharts/*.db-shm
-flowcharts/json/
-
-# Combined/generated spec files
-docs/requirements/boolean_engine_spec_combined.md
-
-# Papers
+# Maintainer-local material: research papers and books, design notes,
+# journals and generated reports. Kept on the maintainer's machine, not
+# published. Tracked files under docs/architecture/ and docs/reference/
+# stay tracked; a new public doc there needs `git add -f`.
 docs/papers/
 docs/books/
 docs/code/
-docs/requirements/old/
-docs/images/input/
+docs/architecture/
+docs/reference/
+docs/atlas/
+docs/decisions/
+docs/journal/
+docs/notes/
+docs/reports/
+docs/requirements/
+docs/superpowers/
+docs/images/
+flowcharts/
+probes/
+
+# Local coding-agent state (the shared guide is AGENTS.md)
+.claude/
+.codex/
+
 __pycache__/
+*.swp
 core.[0-9]*
 
 # Local Telegram notifier and its credentials.
