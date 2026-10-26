@@ -301,6 +301,55 @@ impl Protocol {
                 Err(detail) => Reply::plain(json!({ "id": id, "ok": false,
                     "outcome": { "outcome": "gate_failure", "step": "seed_generative", "detail": detail } })),
             },
+            // Generative designs converging (PK-959): a bake's design
+            // file, a design's records, a mesh among them or its space.
+            "seed_design_history" => match base64_decode(&text("bytes_b64", "")) {
+                Ok(bytes) => match crate::designs::seed(&bytes) {
+                    Ok(added) => Reply::plain(json!({ "id": id, "ok": true, "added": added })),
+                    Err(detail) => gate_failure(&id, "seed_design_history", &detail),
+                },
+                Err(detail) => gate_failure(&id, "seed_design_history", &detail),
+            },
+            "design_history" => {
+                let design = text("design", "");
+                match crate::designs::summary(&design) {
+                    Some(history) => {
+                        Reply::plain(json!({ "id": id, "ok": true, "history": history }))
+                    }
+                    None => Reply::plain(
+                        json!({ "id": id, "ok": false, "outcome": crate::designs::missing(&design) }),
+                    ),
+                }
+            }
+            "design_mesh" => {
+                let design = text("design", "");
+                let space = message
+                    .get("space")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                match crate::designs::mesh(&design, (!space).then(|| number("at"))) {
+                    Some(mesh) => Reply {
+                        json: json!({ "id": id, "ok": true, "mesh": {} }),
+                        attachments: vec![
+                            Attachment {
+                                path: "mesh.positions".into(),
+                                buffer: Buffer::F32(mesh.positions),
+                            },
+                            Attachment {
+                                path: "mesh.normals".into(),
+                                buffer: Buffer::F32(mesh.normals),
+                            },
+                            Attachment {
+                                path: "mesh.indices".into(),
+                                buffer: Buffer::U32(mesh.indices),
+                            },
+                        ],
+                    },
+                    None => Reply::plain(
+                        json!({ "id": id, "ok": false, "outcome": crate::designs::missing(&design) }),
+                    ),
+                }
+            }
             "interference" => match session.interference(number("clearance")) {
                 Ok(report) => Reply::plain(json!({ "id": id, "ok": true, "report": report })),
                 Err(outcome) => failed(outcome),

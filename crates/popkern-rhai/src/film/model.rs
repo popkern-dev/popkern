@@ -210,4 +210,15 @@ pub enum Channel {
         /// The selection.
         target: String,
     },
+    /// A generative design converging (PK-959): its layer shows the
+    /// design at an update easing from `from` to `to`, spread evenly
+    /// over the designs its solve recorded.
+    Evolve {
+        /// The design's selector, `"design <label>"`.
+        target: String,
+        /// Update at the start (0: the first recorded design).
+        from: f64,
+        /// Update at the end.
+        to: f64,
+    },
 }

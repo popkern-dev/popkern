@@ -451,9 +451,10 @@ film
 <tr><td><code>s.explode(from, to)</code></td><td>the explode factor</td></tr>
 <tr><td><code>s.section(#{ from, to, from_at, to_at, combine })</code></td><td>a section plane: <code>"x"</code>, <code>"y"</code>, <code>"z"</code> at 0..1 across the model, <code>#{ normal, offset }</code>, or <code>"off"</code></td></tr>
 <tr><td><code>s.fade(target, from, to)</code> / <code>s.show(target, visible)</code> / <code>s.highlight(target)</code></td><td>opacity, visibility, emphasis</td></tr>
+<tr><td><code>s.evolve(label, #{ from, to })</code></td><td>a generative design converging: the design of the generative feature <code>label</code> from update <code>from</code> (default 0) to <code>to</code> (default <code>"end"</code>), over its design space drawn faint; the time spreads over the designs the solve recorded, which are denser early. Its layer is the target <code>"design label"</code>; the intermediate designs are display only, never bodies</td></tr>
 <tr><td><code>doc.instances()</code>, <code>doc.joints()</code>, <code>doc.value(name)</code>, <code>doc.bodies</code>, <code>doc.kind</code></td><td>what the document holds</td></tr>
 </table>
-<p>A target is an occurrence path (<code>"pair_1"</code> moves everything under it, <code>"pair_1/high"</code> one pin), <code>"body N"</code> in a part document, or <code>"all"</code>. A name the document does not have is an <code>ArgumentError</code> at its line that lists the names it does have.</p>
+<p>A target is an occurrence path (<code>"pair_1"</code> moves everything under it, <code>"pair_1/high"</code> one pin), <code>"body N"</code> in a part document, <code>"design label"</code> for a generative design's layer, or <code>"all"</code>. A name the document does not have is an <code>ArgumentError</code> at its line that lists the names it does have.</p>
 <h2>15. Cheat-sheet</h2>
 <pre class="lang-text"><code>model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
 m.profile(PLANE).rect|circle|polygon|path…close().at(cx, cy).sketch(label)

@@ -140,8 +140,24 @@ fn digest(bytes: &[u8]) -> Key {
     [a, b]
 }
 
+/// A key as the design id hosts see: 32 hex digits.
+pub(crate) fn design_id(key: Key) -> String {
+    format!("{:016x}{:016x}", key[0], key[1])
+}
+
+/// The key a [`design_id`] spells.
+fn parse_design_id(id: &str) -> Option<Key> {
+    if id.len() != 32 || !id.is_ascii() {
+        return None;
+    }
+    Some([
+        u64::from_str_radix(&id[..16], 16).ok()?,
+        u64::from_str_radix(&id[16..], 16).ok()?,
+    ])
+}
+
 /// Everything a solve reads, digested.
-fn key(prepared: &Prepared, request: &GenerativeRequest, space: &BRep) -> Key {
+pub(crate) fn key(prepared: &Prepared, request: &GenerativeRequest, space: &BRep) -> Key {
     let mut k = Vec::new();
     for solid in &prepared.named.model.solids {
         for v in &solid.vertices {
@@ -205,6 +221,9 @@ pub fn generate_cached(
                 space.tolerance,
                 &mut observer,
             )?;
+            if let Some(history) = solved.history {
+                histories::keep(k, history);
+            }
             let entry = Arc::new(Entry {
                 brep: solved.brep,
                 sources: solved.sources,
@@ -233,6 +252,7 @@ pub fn generate_cached(
             brep: entry.brep.clone(),
             sources: prepared.handles(&entry.sources),
             report: entry.report.clone(),
+            design: design_id(k),
         },
         hit,
     ))
@@ -241,3 +261,7 @@ pub fn generate_cached(
 #[path = "cache_store.rs"]
 mod store;
 pub use store::{export_cache, export_touched, import_cache};
+
+#[path = "cache_history.rs"]
+mod histories;
+pub use histories::{design_history, export_histories, import_histories, touched_designs};

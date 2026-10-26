@@ -69,6 +69,22 @@ solving. A gallery bake carries the designs its native run solved
 another feature, Simulate, an export) solves nothing. A native session
 (`popkern serve`) solves as it builds.
 
+A solve also keeps its design's history (PK-959): the density field at
+the first dozen updates, then about every 15%, and the final design. A
+film showing the design converge (`s.evolve`) reads it by the design's
+id (its feature report's `generative.design`, also in the film
+context's `designs`):
+
+| type | fields | reply |
+| --- | --- | --- |
+| `seed_design_history` | `bytes: ArrayBuffer` (a bake's `<stem>.designs.bin`, listed as `designs` in the bake index) | `{ ok: true, added }` or `{ ok: false, outcome }` |
+| `design_history` | `design: string` | `{ ok: true, history: { design, updates, cell, frames: [{ update, compliance_nmm, volume_fraction }] } }`, or `{ ok: false, outcome }` when the worker holds no history for it |
+| `design_mesh` | `design: string`, `at: number` (a position among the records: 0 the first, `frames.length - 1` the final design, between them two records blended), `space: boolean` (the design space instead) | `{ ok: true, mesh: { positions, normals, indices } }` in the design body's units, or `{ ok: false, outcome }` |
+
+A gallery bake writes its designs' histories beside it; the page
+fetches the file only when a film needs it, and hands it to every
+worker it starts later.
+
 ## Deferred continuity certification
 
 Certifying a fillet's seams (interval bounds over each whole seam) can

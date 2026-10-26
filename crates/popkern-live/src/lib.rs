@@ -21,6 +21,7 @@
 pub const PROTOCOL_VERSION: &str = "1";
 
 pub mod bake;
+pub mod designs;
 pub mod envelope;
 pub mod mesh_buffers;
 pub mod protocol;

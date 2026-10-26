@@ -341,6 +341,12 @@
       "demonstrates": "generative design: supports, loads and kept faces by label, volume fraction, filter, build direction; the design as a faceted body",
       "features": 18,
       "file": "generative_bracket.rhai",
+      "films": [
+        {
+          "file": "generative_bracket.carve.film.rhai",
+          "name": "carve"
+        }
+      ],
       "thumbnail": "examples/generative_bracket.png",
       "title": "Generative bracket"
     },

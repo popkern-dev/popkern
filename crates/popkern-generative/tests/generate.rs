@@ -14,8 +14,9 @@ use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 use popkern_generative::{
-    GenerativeError, GenerativeRequest, LoadGroup, SupportGroup, SupportKind, defer_with, generate,
-    generate_cached, name_design, observe_with,
+    DisplayMesh, GenerativeError, GenerativeRequest, LoadGroup, SupportGroup, SupportKind,
+    defer_with, design_history, export_histories, generate, generate_cached, import_histories,
+    name_design, observe_with,
 };
 
 fn tol() -> Tolerance {
@@ -334,4 +335,88 @@ fn a_design_space_that_reads_short_on_the_grid_is_solved_on_a_shifted_one() {
         .map(|p| p.x.abs())
         .fold(0.0f64, f64::max);
     assert!(worst < 0.005, "the wall moved {worst} mm");
+}
+
+fn mesh_volume(mesh: &DisplayMesh) -> f64 {
+    let p = |i: u32| {
+        let i = 3 * i as usize;
+        [0, 1, 2].map(|d| f64::from(mesh.positions[i + d]))
+    };
+    mesh.indices
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .map(|t| {
+            let [a, b, c] = t.map(p);
+            (a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0])
+                + a[2] * (b[0] * c[1] - b[1] * c[0]))
+                / 6.0
+        })
+        .sum()
+}
+
+/// Every directed edge is matched by its reverse once: closed and
+/// consistently oriented.
+fn closed(mesh: &DisplayMesh) -> bool {
+    let mut edges: Vec<(u32, u32)> = mesh
+        .indices
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .flat_map(|t| [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])])
+        .collect();
+    edges.sort_unstable();
+    !edges.windows(2).any(|w| w[0] == w[1])
+        && edges
+            .iter()
+            .all(|&(a, b)| edges.binary_search(&(b, a)).is_ok())
+}
+
+/// A solved design keeps its history under its id (PK-959): records
+/// from the first update to the last, each a closed surface; the first
+/// shows little more than the kept material, the last about the body;
+/// the space is the design space; and the history survives its bytes.
+#[test]
+fn a_solved_design_keeps_its_history_under_its_id() {
+    let space = block();
+    let r = request(&space, 0.4);
+    let (result, _) = generate_cached(&space, &r).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(result.design.len(), 32);
+    let history = design_history(&result.design).unwrap_or_else(|| panic!("no history"));
+    let updates: Vec<usize> = history.frames.iter().map(|f| f.update).collect();
+    assert_eq!(updates.first(), Some(&1));
+    assert_eq!(updates.last(), Some(&result.report.iterations));
+    assert_eq!(history.updates, result.report.iterations);
+    assert!(updates.windows(2).all(|w| w[1] > w[0]), "{updates:?}");
+    assert!(
+        history
+            .frames
+            .iter()
+            .all(|f| f.material.len() == history.active.len())
+    );
+    let last = (history.frames.len() - 1) as f64;
+    let volumes: Vec<f64> = [0.0, 0.5 * last, last]
+        .iter()
+        .map(|&at| {
+            let mesh = history.frame(at);
+            assert!(closed(&mesh), "frame {at}");
+            mesh_volume(&mesh)
+        })
+        .collect();
+    let body = result.report.facet.mesh_volume;
+    assert!(volumes[0] < 0.5 * body, "{volumes:?} body {body}");
+    assert!(
+        (volumes[2] / body - 1.0).abs() < 0.15,
+        "{volumes:?} body {body}"
+    );
+    assert!((mesh_volume(&history.space) - 12.0 * 4.0 * 4.0).abs() < 1e-6);
+    // The same id from the uncached path; the history through bytes.
+    let (uncached, _) =
+        generate(&space, &r, &mut |_| ControlFlow::Continue(())).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(uncached.design, result.design);
+    let bytes = export_histories(std::slice::from_ref(&result.design))
+        .unwrap_or_else(|| panic!("nothing exported"));
+    assert_eq!(import_histories(&bytes), Ok(1));
+    assert_eq!(design_history(&result.design).as_deref(), Some(&*history));
+    assert!(export_histories(&["0".repeat(32)]).is_none());
 }

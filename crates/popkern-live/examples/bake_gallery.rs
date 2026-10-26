@@ -2,7 +2,9 @@
 //! (`web/live/default.rhai`) and every example in
 //! `web/live/examples.json` natively with no budgets, certify every deferred seam, and write
 //! `web/live/bakes/<stem>.bin` plus `bakes/index.json` (see
-//! `popkern_live::bake`). An existing bake is reused when the
+//! `popkern_live::bake`), and `bakes/<stem>.designs.bin` for an example
+//! whose build solved generative designs (their histories, which its
+//! films show; PK-959). An existing bake is reused when the
 //! index records the same kernel identity and source key.
 //!
 //! `cargo run --profile live -p popkern-live --example bake_gallery -- <kernel-id> [jobs]`
@@ -38,6 +40,7 @@ fn bake_one(out: &Path, file: &str, source: &str) -> Value {
     // The designs this run solves go into its bake (PK-956).
     let _ = popkern_generative::export_touched();
     let envelope = session.run(source, file);
+    let designs = popkern_generative::touched_designs();
     let generative = popkern_generative::export_touched();
     let run_ms = ms(&run);
     if !envelope.outcome.is_served() {
@@ -75,14 +78,25 @@ fn bake_one(out: &Path, file: &str, source: &str) -> Value {
     if let Err(error) = std::fs::write(out.join(&name), &bytes) {
         return json!({ "file": file, "source_key": key, "declined": error.to_string() });
     }
-    json!({
+    let mut record = json!({
         "file": file,
         "source_key": key,
         "bake": name,
         "bytes": bytes.len(),
         "run_ms": run_ms,
         "certify_ms": certify_ms,
-    })
+    });
+    // The histories of the designs it solved, for its films (PK-959):
+    // fetched only when a film shows a design converging.
+    if let Some(histories) = popkern_generative::export_histories(&designs) {
+        let name = format!("{stem}.designs.bin");
+        if let Err(error) = std::fs::write(out.join(&name), &histories) {
+            return json!({ "file": file, "source_key": key, "declined": error.to_string() });
+        }
+        record["designs"] = json!(name);
+        record["designs_bytes"] = json!(histories.len());
+    }
+    record
 }
 
 fn main() {
@@ -133,10 +147,8 @@ fn main() {
             .as_array()?
             .iter()
             .find(|r| r["file"] == file && r["source_key"] == key)?;
-        match record["bake"].as_str() {
-            Some(name) => out.join(name).exists().then(|| record.clone()),
-            None => Some(record.clone()),
-        }
+        let present = |field: &str| record[field].as_str().is_none_or(|n| out.join(n).exists());
+        (present("bake") && present("designs")).then(|| record.clone())
     };
     let queue = Mutex::new(files.iter().enumerate().collect::<Vec<_>>());
     let results = Mutex::new(Vec::<(usize, Value)>::new());
@@ -186,7 +198,8 @@ fn main() {
     // change) are deleted, so the directory holds exactly the index.
     let keep: Vec<String> = results
         .iter()
-        .filter_map(|(_, record)| record["bake"].as_str().map(str::to_string))
+        .flat_map(|(_, record)| [&record["bake"], &record["designs"]])
+        .filter_map(|name| name.as_str().map(str::to_string))
         .collect();
     if let Ok(entries) = std::fs::read_dir(&out) {
         for path in entries.filter_map(|e| e.ok().map(|e| e.path())) {
@@ -196,7 +209,10 @@ fn main() {
             }
         }
     }
-    let baked = keep.len();
+    let baked = results
+        .iter()
+        .filter(|(_, r)| r["bake"].is_string())
+        .count();
     let index = json!({
         "format": FORMAT,
         "kernel": kernel,

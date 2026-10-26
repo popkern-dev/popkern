@@ -3,7 +3,7 @@
 // page_film.rs. Exits non-zero with the failing check's message;
 // prints the check count on success.
 import assert from "node:assert/strict";
-import { CAPTION_FADE, cameraAt, captionAt, ease, frameTimes, sectionAt, selects, stateAt } from "../film-state.js";
+import { CAPTION_FADE, cameraAt, captionAt, designsAt, ease, frameTimes, recordPosition, sectionAt, selects, stateAt } from "../film-state.js";
 
 let checks = 0;
 const check = (name, fn) => {
@@ -142,6 +142,39 @@ check("frame times cover the film at its fps", () => {
   assert.equal(times.length, 75);
   near(times[74], 74 / 30);
   assert.equal(frameTimes(f, 15).length, 38);
+});
+
+// A design converging (PK-959): records at updates 1, 2, 4, 10.
+const records = [1, 2, 4, 10].map((update) => ({ update }));
+check("an update's position among the records is piecewise linear and clamped", () => {
+  near(recordPosition(records, 0), 0);
+  near(recordPosition(records, 1), 0);
+  near(recordPosition(records, 3), 1.5);
+  near(recordPosition(records, 7), 2.5);
+  near(recordPosition(records, 10), 3);
+  near(recordPosition(records, 50), 3);
+  near(recordPosition([{ update: 5 }], 9), 0);
+  near(recordPosition([], 9), 0);
+});
+
+check("evolve spreads its time over the records, holding before and after", () => {
+  const f = film([
+    track(2, 4, { kind: "evolve", target: "design carve", from: 0, to: 10 }),
+    track(8, 1, { kind: "evolve", target: "design carve", from: 10, to: 4 }),
+  ]);
+  const at = (t) => designsAt(f, t, (selector) => (selector === "design carve" ? records : null)).get("design carve");
+  near(at(0), 0);
+  near(at(4), 1.5);
+  near(at(6), 3);
+  near(at(7), 3);
+  near(at(8.5), 2.5);
+  near(at(10), 2);
+  // A design whose records are not loaded has no position.
+  assert.equal(designsAt(f, 4, () => null).size, 0);
+  // Its layer is a selector like any body's: fades reach it.
+  const state = stateAt(film([track(0, 2, { kind: "fade", target: "design carve", from: 1, to: 0 })]), 1, ["design carve", "body 0"]);
+  near(state.items.get("design carve").opacity, 0.5);
+  near(state.items.get("body 0").opacity, 1);
 });
 
 console.log(JSON.stringify({ checks }));

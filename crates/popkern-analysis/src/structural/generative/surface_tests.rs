@@ -166,3 +166,29 @@ fn a_column_keeps_its_section_where_it_meets_the_part_boundary() {
     let v = m.volume();
     assert!(v > 0.8 * 24.0 && v <= 24.0, "{v}");
 }
+
+/// The material grid marches to the design's own surface (a host
+/// marching a recorded design sees what the solver's surface shows),
+/// and a grid whose material does not fill its dimensions marches to
+/// nothing rather than reading out of bounds.
+#[test]
+fn a_material_grid_marches_to_the_design_surface() {
+    let design = box_design(
+        [6, 3, 3],
+        0.5,
+        |[i, j, _]| if i + j < 5 { 0.9 } else { 0.2 },
+    );
+    let grid = MaterialGrid::new(&design.entries, &design.densities, design.cell_size)
+        .unwrap_or_else(|| panic!("no grid"));
+    assert_eq!(grid.dims, [8, 5, 5]);
+    assert_eq!(grid_surface(&grid, 0.5), design_surface(&design, 0.5));
+    let mut short = grid.clone();
+    short.material.pop();
+    assert!(grid_surface(&short, 0.5).triangles.is_empty());
+    let flat = MaterialGrid {
+        dims: [1, 5, 5],
+        material: vec![1.0; 25],
+        ..grid
+    };
+    assert!(grid_surface(&flat, 0.5).triangles.is_empty());
+}

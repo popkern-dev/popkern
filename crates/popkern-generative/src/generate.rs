@@ -124,6 +124,10 @@ pub struct GenerativeResult {
     pub sources: Vec<Option<FaceHandle>>,
     /// What the design came to.
     pub report: GenerativeReport,
+    /// The design's id: a digest of everything its solve reads (32 hex
+    /// digits), the same for the same design in any process; it names
+    /// the design's history ([`crate::design_history`]).
+    pub design: String,
 }
 
 /// A design space meshed for the solver and the setup built on it.
@@ -188,6 +192,8 @@ pub(crate) struct Solved {
     pub sources: Vec<Option<u32>>,
     pub report: GenerativeReport,
     pub surface: crate::cache::StoredSurface,
+    /// The fields the solve went through (PK-959).
+    pub history: Option<crate::history::DesignHistory>,
 }
 
 /// Optimises `prepared`, then facets the design's body in the design
@@ -200,6 +206,9 @@ pub(crate) fn solve(
 ) -> Result<(Solved, Design), GenerativeError> {
     let model = &prepared.named.model;
     let faces = &prepared.resolution.faces;
+    let mut recorder = crate::history::Recorder::default();
+    let mut recording = recorder.observing(observer);
+    let observer = &mut recording;
     // A design space whose facets sit an ulp off grid planes (round
     // coordinates a boolean left a hair off) reads short in the solver's
     // clipping and declines VolumeMismatch (PK-963). Recorded fallback:
@@ -221,6 +230,8 @@ pub(crate) fn solve(
             }
             other => (other?.0, None),
         };
+    drop(recording);
+    let history = recorder.finish(&design, model, mm_per_unit);
     let closing = crate::surface::body_surface(&design);
     let surface = &closing.mesh;
     let body = design_model(model, surface, design.cell_size);
@@ -322,6 +333,7 @@ pub(crate) fn solve(
                 owners,
                 faces,
             },
+            history,
         },
         design,
     ))
@@ -352,12 +364,14 @@ pub fn generate(
     observer: &mut dyn FnMut(Progress<'_>) -> ControlFlow<()>,
 ) -> Result<(GenerativeResult, Design), GenerativeError> {
     let prepared = prepare(space, request)?;
+    let id = crate::cache::design_id(crate::cache::key(&prepared, request, space));
     let (solved, design) = solve(&prepared, request.mm_per_unit, space.tolerance, observer)?;
     Ok((
         GenerativeResult {
             sources: prepared.handles(&solved.sources),
             brep: solved.brep,
             report: solved.report,
+            design: id,
         },
         design,
     ))

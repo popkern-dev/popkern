@@ -712,10 +712,12 @@ that come `from` an offset end on the real assembly.
 | `s.explode(from, to)` | the explode factor |
 | `s.section(#{ from, to, from_at, to_at, combine })` | a section plane: `"x"`, `"y"`, `"z"` at 0..1 across the model, `#{ normal, offset }`, or `"off"` |
 | `s.fade(target, from, to)` / `s.show(target, visible)` / `s.highlight(target)` | opacity, visibility, emphasis |
+| `s.evolve(label, #{ from, to })` | a generative design converging: the design of the generative feature `label` from update `from` (default 0) to `to` (default `"end"`), over its design space drawn faint; the time spreads over the designs the solve recorded, which are denser early. Its layer is the target `"design label"`; the intermediate designs are display only, never bodies |
 | `doc.instances()`, `doc.joints()`, `doc.value(name)`, `doc.bodies`, `doc.kind` | what the document holds |
 
 A target is an occurrence path (`"pair_1"` moves everything under it,
-`"pair_1/high"` one pin), `"body N"` in a part document, or `"all"`.
+`"pair_1/high"` one pin), `"body N"` in a part document, `"design label"` for a generative
+design's layer, or `"all"`.
 A name the document does not have is an `ArgumentError` at its line
 that lists the names it does have.
 

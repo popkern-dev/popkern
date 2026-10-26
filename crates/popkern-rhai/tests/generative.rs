@@ -81,6 +81,21 @@ fn a_carved_cantilever_serves_named_and_round_trips_as_code() {
         design["unsupported_fraction"], 0.0,
         "printable along +z: {r}"
     );
+    // A film sees the design by its label, and its history is held
+    // under the id the report gives (PK-959).
+    let id = design["design"].as_str().unwrap_or_default().to_string();
+    let mut doc = popkern_assembly::Document::Part(Box::new(m.clone()));
+    let context = popkern_rhai::film::FilmContext::from_document(&mut doc);
+    assert_eq!(
+        context.designs,
+        vec![popkern_rhai::film::FilmDesign {
+            label: "carve".into(),
+            design: id.clone(),
+            updates: design["iterations"].as_u64().unwrap_or(0) as usize,
+        }]
+    );
+    assert!(context.selects("design carve") && !context.selects("design other"));
+    assert!(popkern_generative::design_history(&id).is_some());
 
     // Show-as-code spells the feature, and the emitted script rebuilds
     // the same body (the second build is the cache's).

@@ -8,6 +8,7 @@
 import * as THREE from "./vendor/three.module.min.js";
 import { cameraAt, sectionAt, stateAt } from "./film-state.js";
 import { FilmLook } from "./film-look.js";
+import { DesignLayers } from "./film-design.js";
 
 const HIGHLIGHT = new THREE.Color(0x3b82f6);
 
@@ -22,6 +23,8 @@ export class FilmPlayer {
     this.page = page;
     this.film = null;
     this.look = new FilmLook(page.viewer);
+    // Generative designs converging (PK-959).
+    this.designs = new DesignLayers(page);
     this.time = 0;
     this.playing = false;
     this.frame = 0;
@@ -138,6 +141,9 @@ export class FilmPlayer {
       page.status("building the assembly live for the film's joints…");
       if (!(await page.ensureLive())) return { ok: false };
     }
+    // A design converging needs its solve's history in the worker.
+    const missing = await this.designs.prepare(reply.film, reply.context);
+    if (missing) page.status(`film ${reply.film.name}: ${missing}`, true);
     this.open(reply.film, reply.context);
     page.status(`film ${reply.film.name}: ${reply.film.steps.length} step(s), ${reply.film.duration.toFixed(1)} s`);
     return reply;
@@ -167,6 +173,8 @@ export class FilmPlayer {
     viewer.setExplode(0);
     this.look.apply(film, viewer.visibleBounds());
     this.capture();
+    // The ground goes under a design's space too, which holds the body.
+    if (this.designs.active) this.look.placeGround(this.bounds);
     this.jointsApplied = {};
     this.time = sameFilm ? Math.min(this.time, film.duration) : 0;
     document.body.classList.add("film-open");
@@ -193,10 +201,22 @@ export class FilmPlayer {
       visible: (object.userData.filmVisible ??= object.visible),
     }));
     for (const { object } of this.objects) object.matrixAutoUpdate = false;
-    this.selectors = [...new Set(viewer.bodies.map(selectorOf))];
+    // Design layers (film-design.js) animate as bodies do, from where
+    // they are drawn.
+    for (const { object, mesh } of this.designs.objects()) {
+      this.objects.push({ object, mesh, autoUpdate: false, base: new THREE.Matrix4(), visible: true });
+    }
+    const layers = this.designs.objects().map(({ mesh }) => mesh);
+    this.selectors = [...new Set([...viewer.bodies.map(selectorOf), ...this.designs.selectors()])];
     this.bounds = viewer.visibleBounds();
+    for (const mesh of layers) {
+      const [lo, hi] = mesh.userData.body.bounds;
+      this.bounds = this.bounds
+        ? [this.bounds[0].map((v, i) => Math.min(v, lo[i])), this.bounds[1].map((v, i) => Math.max(v, hi[i]))]
+        : [lo, hi];
+    }
     this.targetBounds = new Map();
-    for (const mesh of viewer.bodies) {
+    for (const mesh of [...viewer.bodies, ...new Set(layers)]) {
       const [lo, hi] = mesh.userData.body.bounds;
       const box = new THREE.Box3(new THREE.Vector3(...lo), new THREE.Vector3(...hi)).applyMatrix4(mesh.matrixWorld);
       const path = selectorOf(mesh);
@@ -231,6 +251,7 @@ export class FilmPlayer {
       if (object.material.emissive) object.material.emissive.setHex(0);
     }
     this.film = null;
+    this.designs.remove();
     document.body.classList.remove("film-open");
     this.look.remove();
     viewer.section.linkFrozen = false;
@@ -295,10 +316,14 @@ export class FilmPlayer {
       object.matrix.multiplyMatrices(m, base);
       object.matrixWorldNeedsUpdate = true;
       object.visible = entry.visible && item.visible && item.opacity > 0.001;
-      this.setOpacity(object, item.opacity);
+      this.setOpacity(object, item.opacity * (object.userData.opacityScale ?? 1));
       if (object.material.emissive) object.material.emissive.copy(HIGHLIGHT).multiplyScalar(0.45 * item.highlight);
     }
     viewer.group.updateMatrixWorld(true);
+    await this.designs.apply(film, this.time);
+    // Closed, or another film opened, while the design meshed.
+    if (this.film !== film) return;
+    this.designs.group?.updateMatrixWorld(true);
     this.applySection(state.section);
     this.caption = state.caption;
     this.frameCamera(camera, aspect);

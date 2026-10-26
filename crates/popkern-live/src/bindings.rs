@@ -63,6 +63,9 @@ pub struct LiveSession {
     pub(crate) generative_solve: bool,
     /// The page's progress callback for generative solves.
     pub(crate) progress: Option<js_sys::Function>,
+    /// The last `design_mesh` answer (PK-959), read right after it
+    /// (`bindings_generative`).
+    pub(crate) design_mesh: popkern_generative::DisplayMesh,
 }
 
 #[wasm_bindgen]
@@ -86,6 +89,7 @@ impl LiveSession {
             simulation: Vec::new(),
             generative_solve: false,
             progress: None,
+            design_mesh: Default::default(),
         })
     }
 

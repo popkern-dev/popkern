@@ -17,8 +17,8 @@
 //! vertices are shared by edge, so the mesh is watertight; each
 //! triangle faces away from the material.
 
-use super::Design;
 use super::cells::CellField;
+use super::{Design, DesignEntry};
 
 /// A triangle mesh, mm.
 #[derive(Debug, Clone, PartialEq)]
@@ -73,20 +73,66 @@ const TETS: [[usize; 4]; 6] = [
     [0, 4, 6, 7],
 ];
 
+/// A design's material on its grid: a dense block of cells over the
+/// design's bounding box with a zero layer around it, each cell's value
+/// the smaller of its density and its fill (0 outside the part). It is
+/// what [`design_surface`] marches, kept apart so a host can march a
+/// design it recorded mid-solve (a film of the design converging,
+/// PK-959).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MaterialGrid {
+    /// Cell size, mm.
+    pub cell_size: f64,
+    /// Cells along each axis, the zero layer included.
+    pub dims: [usize; 3],
+    /// The lower corner of cell (0, 0, 0), mm.
+    pub corner: [f64; 3],
+    /// Per cell (x fastest, then y, then z): its material, 0..1.
+    pub material: Vec<f64>,
+}
+
+impl MaterialGrid {
+    /// The grid of `entries` at `densities` on cells of size
+    /// `cell_size`; `None` without entries or with a size not positive.
+    pub fn new(entries: &[DesignEntry], densities: &[f64], cell_size: f64) -> Option<MaterialGrid> {
+        let cells = CellField::new(entries, densities, cell_size)?;
+        Some(MaterialGrid {
+            cell_size,
+            dims: cells.dims,
+            corner: cells.corner,
+            material: (0..cells.len()).map(|c| cells.material(c)).collect(),
+        })
+    }
+}
+
 /// The iso-surface of `design` at material fraction `iso` (½ for the
 /// design's outline).
 pub fn design_surface(design: &Design, iso: f64) -> SurfaceMesh {
-    let Some(cells) = CellField::new(&design.entries, &design.densities, design.cell_size) else {
+    match MaterialGrid::new(&design.entries, &design.densities, design.cell_size) {
+        Some(grid) => grid_surface(&grid, iso),
+        None => SurfaceMesh {
+            vertices: Vec::new(),
+            triangles: Vec::new(),
+        },
+    }
+}
+
+/// The iso-surface of `grid` at material fraction `iso`: empty for a
+/// grid under two cells along an axis or whose material does not match
+/// its dimensions.
+pub fn grid_surface(grid: &MaterialGrid, iso: f64) -> SurfaceMesh {
+    let cdims = grid.dims;
+    if cdims.iter().any(|&d| d < 2) || grid.material.len() != cdims[0] * cdims[1] * cdims[2] {
         return SurfaceMesh {
             vertices: Vec::new(),
             triangles: Vec::new(),
         };
-    };
+    }
     // The field is sampled at the cell centres (the dual grid).
-    let cdims = cells.dims;
-    let nodes: Vec<f64> = (0..cells.len()).map(|c| cells.material(c)).collect();
-    let node_index = |q: [usize; 3]| cells.index(q);
-    let position = |q: [usize; 3]| cells.centre(q);
+    let nodes = &grid.material;
+    let node_index = |q: [usize; 3]| q[0] + cdims[0] * (q[1] + cdims[1] * q[2]);
+    let h = grid.cell_size;
+    let position = |q: [usize; 3]| [0, 1, 2].map(|a| grid.corner[a] + h * (q[a] as f64 + 0.5));
     let mut vertices: Vec<[f64; 3]> = Vec::new();
     // Edge (node a, node b), a < b, to its vertex: looked up only, never
     // iterated, so the vertex order is the cubes' order.

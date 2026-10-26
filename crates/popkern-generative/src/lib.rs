@@ -9,17 +9,21 @@ pub mod cache;
 pub mod components;
 pub mod facet;
 pub mod generate;
+pub mod history;
+mod history_store;
 pub mod naming;
 pub mod request;
 pub mod surface;
 
 pub use cache::{
-    Update, defer_with, export_cache, export_touched, generate_cached, import_cache, observe_with,
+    Update, defer_with, design_history, export_cache, export_histories, export_touched,
+    generate_cached, import_cache, import_histories, observe_with, touched_designs,
 };
 pub use generate::{
     GenerativeError, GenerativeReport, GenerativeRequest, GenerativeResult, LoadGroup,
     SupportGroup, generate,
 };
+pub use history::{DesignHistory, DisplayMesh, HistoryFrame};
 pub use naming::name_design;
 
 /// The support kinds a request uses (the analysis setup's).

@@ -5,6 +5,7 @@
 mod actions;
 mod api;
 mod context;
+mod design;
 mod fastener;
 pub mod model;
 mod overlap;
@@ -16,7 +17,7 @@ use std::rc::Rc;
 use rhai::{Dynamic, Scope};
 
 pub use api::{ScriptFilm, ScriptFilmDocument, ScriptStep};
-pub use context::FilmContext;
+pub use context::{FilmContext, FilmDesign};
 pub use fastener::FastenerAxis;
 pub use model::{CameraKey, CameraTo, Channel, Ease, Film, FilmStep, SectionKey, Track};
 pub use overlap::{FilmOverlap, film_overlaps, occurrence_motion};

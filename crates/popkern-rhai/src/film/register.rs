@@ -197,6 +197,18 @@ pub fn register(engine: &mut Engine, context: Rc<FilmContext>, name: &str) {
         |ctx: NativeCallContext, s: &mut ScriptStep, p: Dynamic| highlight(ctx, s, p, None),
     );
     engine.register_fn(
+        "evolve",
+        |ctx: NativeCallContext, s: &mut ScriptStep, d: Dynamic| {
+            super::design::evolve(ctx, s, d, None)
+        },
+    );
+    engine.register_fn(
+        "evolve",
+        |ctx: NativeCallContext, s: &mut ScriptStep, d: Dynamic, o: Dynamic| {
+            super::design::evolve(ctx, s, d, Some(o))
+        },
+    );
+    engine.register_fn(
         "highlight",
         |ctx: NativeCallContext, s: &mut ScriptStep, p: Dynamic, o: Dynamic| {
             highlight(ctx, s, p, Some(o))

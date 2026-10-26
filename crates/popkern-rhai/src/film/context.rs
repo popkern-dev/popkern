@@ -33,6 +33,28 @@ pub struct FilmContext {
     /// empty for a part).
     #[serde(default)]
     pub fasteners: std::collections::BTreeMap<String, super::fastener::FastenerAxis>,
+    /// A part's generative designs, by feature (`s.evolve`, the
+    /// `"design <label>"` selector; PK-959).
+    #[serde(default)]
+    pub designs: Vec<FilmDesign>,
+}
+
+/// A generative design a film may show converging.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FilmDesign {
+    /// The generative feature's label (`carve`).
+    pub label: String,
+    /// The design's id, which names its history in the host.
+    pub design: String,
+    /// Updates its solve ran.
+    pub updates: usize,
+}
+
+impl FilmDesign {
+    /// The film selector of the design's display layer.
+    pub fn selector(&self) -> String {
+        format!("design {}", self.label)
+    }
 }
 
 impl FilmContext {
@@ -48,6 +70,19 @@ impl FilmContext {
                     .iter()
                     .map(|p| (p.name.clone(), p.unit.from_si(p.value)))
                     .collect();
+                let designs = model
+                    .report()
+                    .features
+                    .iter()
+                    .filter_map(|f| {
+                        let g = f.generative.as_ref()?;
+                        (!g.design.is_empty()).then(|| FilmDesign {
+                            label: f.label.clone(),
+                            design: g.design.clone(),
+                            updates: g.iterations,
+                        })
+                    })
+                    .collect();
                 FilmContext {
                     kind: "part".into(),
                     name: "part".into(),
@@ -62,6 +97,7 @@ impl FilmContext {
                     params,
                     values,
                     fasteners: Default::default(),
+                    designs,
                 }
             }
             Document::Assembly(assembly) => {
@@ -92,6 +128,7 @@ impl FilmContext {
                     params,
                     values,
                     fasteners: super::fastener::fastener_axes(assembly),
+                    designs: Vec::new(),
                 }
             }
         }
@@ -104,6 +141,9 @@ impl FilmContext {
         if target == "all" {
             return true;
         }
+        if target.starts_with("design ") {
+            return self.design(target).is_some();
+        }
         if let Some(n) = target.strip_prefix("body ") {
             return self.kind == "part" && n.parse::<usize>().is_ok_and(|n| n < self.bodies);
         }
@@ -114,11 +154,18 @@ impl FilmContext {
         })
     }
 
+    /// The design `selector` (`"design <label>"`) names.
+    pub fn design(&self, selector: &str) -> Option<&FilmDesign> {
+        let label = selector.strip_prefix("design ")?;
+        self.designs.iter().find(|d| d.label == label)
+    }
+
     /// What may be named, for an error message.
     pub fn known_targets(&self) -> String {
         let mut names: Vec<String> = vec!["all".into()];
         if self.kind == "part" {
             names.extend((0..self.bodies).map(|i| format!("body {i}")));
+            names.extend(self.designs.iter().map(FilmDesign::selector));
         } else {
             names.extend(self.paths.iter().take(24).cloned());
             if self.paths.len() > 24 {

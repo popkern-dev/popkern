@@ -118,6 +118,7 @@ pub(crate) fn execute_generative(
         cell_mm: r.cell_mm,
         faces: body.faces.len(),
         cached,
+        design: result.design.clone(),
     });
     *brep = body;
     Ok(ExecuteSideEffects::reported(evidence))

@@ -128,6 +128,31 @@ export function createHandler(pkg, loadModule, notify = null) {
           } catch (raised) {
             return { reply: { id, ok: false, outcome: parseOutcome(raised) }, transfer: [] };
           }
+        case "seed_design_history":
+          // A bake's design histories (PK-959), for films of a design
+          // converging.
+          try {
+            return { reply: { id, ok: true, added: session.seed_design_history(new Uint8Array(message.bytes ?? [])) }, transfer: [] };
+          } catch (raised) {
+            return { reply: { id, ok: false, outcome: parseOutcome(raised) }, transfer: [] };
+          }
+        case "design_history": {
+          const history = JSON.parse(session.design_history(String(message.design ?? "")));
+          if (!history.ok) return { reply: { id, ok: false, outcome: history.outcome }, transfer: [] };
+          delete history.ok;
+          return { reply: { id, ok: true, history }, transfer: [] };
+        }
+        case "design_mesh": {
+          // The design at a position among its records, or its space.
+          const made = JSON.parse(session.design_mesh(String(message.design ?? ""), Number(message.at ?? 0), Boolean(message.space)));
+          if (!made.ok) return { reply: { id, ok: false, outcome: made.outcome }, transfer: [] };
+          const mesh = {
+            positions: session.design_mesh_f32("positions"),
+            normals: session.design_mesh_f32("normals"),
+            indices: session.design_mesh_indices(),
+          };
+          return { reply: { id, ok: true, mesh }, transfer: [mesh.positions.buffer, mesh.normals.buffer, mesh.indices.buffer] };
+        }
         case "set_param":
           running = id;
           try {

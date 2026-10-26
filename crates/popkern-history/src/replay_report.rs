@@ -222,6 +222,10 @@ pub struct GenerativeRecord {
     pub faces: usize,
     /// Whether the design came from the cache (no solve this build).
     pub cached: bool,
+    /// The design's id (`popkern_generative::GenerativeResult::design`):
+    /// it names the design's history, which a film shows (PK-959).
+    #[serde(default)]
+    pub design: String,
 }
 
 impl FeatureReport {

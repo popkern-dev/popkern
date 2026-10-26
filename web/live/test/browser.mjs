@@ -438,6 +438,7 @@ try {
     '    loads: [#{ faces: faces().facing("x"), force: 10.0, direction: [0.0, 0.0, -1.0] }],',
     '    keep: [faces().facing_neg("x"), faces().facing("x")],',
     "    volume_fraction: 0.5, filter: 1.5, keep_depth: 1.0, cell: 1.0, max_iterations: 150,",
+    '    label: "carve",',
     "});",
     "m",
     "",
@@ -462,6 +463,35 @@ try {
     }
     const row = [...document.querySelectorAll("#report tr")].map((r) => r.textContent).find((t) => t.includes("generative")) ?? null;
     return { progress, live: page.live, overlay_hidden: document.getElementById("overlay").hidden, row, bodies: page.viewer.bodies.length };
+  })()`);
+  // The design converging (PK-959): the re-solve kept its history in
+  // the worker, so a film evolves it over its faint design space, the
+  // body hidden meanwhile and shown after, and closing removes it.
+  out.generative.film = await evaluate(`(async () => {
+    const page = window.popkernLive;
+    const film = page.film;
+    const source = ${JSON.stringify([
+      "let film = storyboard(#{ size: [320, 180], fps: 10 });",
+      'film.step("Carve", 2.0, |s| { s.show("body 0", false); s.evolve("carve", #{ duration: 1.5 }); });',
+      'film.step("Body", 1.0, |s| { s.fade("design carve", 1.0, 0.0, #{ duration: 0.5 }); s.show("body 0", true); });',
+      "film",
+    ].join("\n"))};
+    const reply = await film.run(source, "films/carve.rhai");
+    const layer = film.designs.layers.get("design carve");
+    const at = async (t) => {
+      await film.seek(t);
+      return {
+        triangles: (layer?.carved.geometry.index?.count ?? 0) / 3,
+        carved: layer?.carved.visible ?? null,
+        space: layer ? layer.ghost.visible && layer.ghost.material.opacity : null,
+        body: page.viewer.bodies[0]?.visible ?? null,
+      };
+    };
+    const result = { ok: reply.ok, records: layer?.frames.length ?? 0, start: await at(0), end: await at(1.75), after: await at(3) };
+    result.in_scene = !!page.viewer.scene.getObjectByName("film-designs");
+    film.close();
+    result.removed = !page.viewer.scene.getObjectByName("film-designs");
+    return result;
   })()`);
 
   // Runaway script: the page's cancel path stops the worker.

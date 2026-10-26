@@ -30,4 +30,5 @@ popkern-mesh = { path = "../popkern-mesh" }
 popkern-measure = { path = "../popkern-measure" }
 popkern-bool = { path = "../popkern-bool" }
 popkern-blend = { path = "../popkern-blend" }
+popkern-generative = { path = "../popkern-generative" }
 rayon = { workspace = true }

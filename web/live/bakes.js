@@ -41,6 +41,28 @@ export class Bakes {
 
 
 
+  /** Every bake's design-history file (PK-959), as ArrayBuffers, one
+   *  at a time: a film looks for its design's history among them (the
+   *  design is named by its own digest, not by a script). */
+  async *designFiles() {
+    await this.ready;
+    for (const entry of this.entries.values()) {
+      if (!entry.designs) continue;
+      let bytes = this.cache.get(entry.designs);
+      if (!bytes) {
+        try {
+          const response = await fetch(`./bakes/${entry.designs}`);
+          if (!response.ok) continue;
+          bytes = await response.arrayBuffer();
+        } catch {
+          continue;
+        }
+        this.cache.set(entry.designs, bytes);
+      }
+      yield bytes;
+    }
+  }
+
   /** The bake of exactly `source`: `{ envelope, buffers, native }`,
    *  or null when there is none (or it cannot be read). */
   async find(source) {

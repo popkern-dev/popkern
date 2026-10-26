@@ -30,6 +30,57 @@ impl LiveSession {
             .map_err(|e| JsValue::from_str(&e))
     }
 
+    /// Adds the design histories `bytes` hold (a bake's
+    /// `<stem>.designs.bin`, PK-959). Returns how many, or throws the
+    /// reason.
+    pub fn seed_design_history(&mut self, bytes: &[u8]) -> Result<usize, JsValue> {
+        crate::designs::seed(bytes).map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// Design `design`'s recorded designs as JSON (`{ok: true, design,
+    /// updates, cell, frames}`), or `{ok: false, outcome}` when its
+    /// history is not held here.
+    pub fn design_history(&self, design: &str) -> String {
+        match crate::designs::summary(design) {
+            Some(mut summary) => {
+                summary["ok"] = true.into();
+                summary.to_string()
+            }
+            None => serde_json::json!({ "ok": false, "outcome": crate::designs::missing(design) })
+                .to_string(),
+        }
+    }
+
+    /// Meshes design `design` at position `at` among its records (or
+    /// its design space with `space`), kept for
+    /// [`LiveSession::design_mesh_f32`] and
+    /// [`LiveSession::design_mesh_indices`]. JSON `{ok: true,
+    /// triangles}`, or `{ok: false, outcome}`.
+    pub fn design_mesh(&mut self, design: &str, at: f64, space: bool) -> String {
+        match crate::designs::mesh(design, (!space).then_some(at)) {
+            Some(mesh) => {
+                let triangles = mesh.indices.len() / 3;
+                self.design_mesh = mesh;
+                serde_json::json!({ "ok": true, "triangles": triangles }).to_string()
+            }
+            None => serde_json::json!({ "ok": false, "outcome": crate::designs::missing(design) })
+                .to_string(),
+        }
+    }
+
+    /// The last design mesh's `"positions"` or `"normals"`.
+    pub fn design_mesh_f32(&self, field: &str) -> Vec<f32> {
+        match field {
+            "normals" => self.design_mesh.normals.clone(),
+            _ => self.design_mesh.positions.clone(),
+        }
+    }
+
+    /// The last design mesh's triangle indices.
+    pub fn design_mesh_indices(&self) -> Vec<u32> {
+        self.design_mesh.indices.clone()
+    }
+
     /// The function called with each generative update during a build,
     /// as JSON `{"count", "max", "compliance_nmm", "volume_fraction",
     /// "change"}` (`null` clears it).

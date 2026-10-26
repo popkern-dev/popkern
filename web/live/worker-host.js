@@ -25,6 +25,8 @@ export class WorkerHost {
     // Solved generative designs from bakes (PK-956): sent to every
     // worker this host starts, so a replaced worker keeps them.
     this.seeds = [];
+    // Design histories from bakes (PK-959), likewise.
+    this.historySeeds = [];
   }
 
   /** Start (or restart) the worker and wait for `init`. */
@@ -46,6 +48,7 @@ export class WorkerHost {
       if (!reply.ok) throw new Error(reply.outcome?.detail ?? "init failed");
       this.info = reply;
       for (const designs of this.seeds) this.request({ type: "seed_generative", designs });
+      for (const bytes of this.historySeeds) this.request({ type: "seed_design_history", bytes });
       return reply;
     });
     return this.ready;
@@ -124,6 +127,27 @@ export class WorkerHost {
     if (this.seeds.includes(designs)) return Promise.resolve({ ok: true, added: 0 });
     this.seeds.push(designs);
     return this.info ? this.request({ type: "seed_generative", designs }) : Promise.resolve({ ok: true, added: 0 });
+  }
+
+  /** Hand the worker a bake's design histories (`bytes`: an
+   *  ArrayBuffer of `<stem>.designs.bin`, PK-959); kept for any worker
+   *  started later. */
+  seedDesignHistory(bytes) {
+    if (!this.historySeeds.includes(bytes)) this.historySeeds.push(bytes);
+    return this.request({ type: "seed_design_history", bytes });
+  }
+
+  /** Design `design`'s recorded designs: `{ ok, history: { design,
+   *  updates, cell, frames } }`, or `ok: false` when the worker holds
+   *  no history for it. */
+  designHistory(design) {
+    return this.request({ type: "design_history", design });
+  }
+
+  /** Design `design` at position `at` among its records (or its design
+   *  space with `space`): `{ ok, mesh: { positions, normals, indices } }`. */
+  designMesh(design, at, space = false) {
+    return this.request({ type: "design_mesh", design, at, space });
   }
 
   /** Replace the operation and wall-clock budgets for later runs. */

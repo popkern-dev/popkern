@@ -150,6 +150,39 @@ export function stateAt(film, t, paths) {
   return { items, joints, explode, section, caption: captionAt(film, t) };
 }
 
+/** The position among a design's records (`frames`: `[{ update }]`,
+ *  ascending) of update `update`: piecewise linear between the records
+ *  either side, clamped to the first and the last (PK-959). */
+export function recordPosition(frames, update) {
+  const last = frames.length - 1;
+  if (last <= 0 || !(update > frames[0].update)) return 0;
+  if (update >= frames[last].update) return last;
+  let i = 0;
+  while (frames[i + 1].update < update) i += 1;
+  const a = frames[i].update;
+  const b = frames[i + 1].update;
+  return i + (update - a) / (b - a);
+}
+
+/** Each evolving design's position among its records at `t`: a Map of
+ *  selector ("design carve") to position. `framesOf(selector)` gives a
+ *  design's records. As with fades, the latest evolve track that has
+ *  started holds; before any has, the earliest one's start. The time
+ *  spreads evenly over the records, which are denser early, where the
+ *  design changes most. */
+export function designsAt(film, t, framesOf) {
+  const out = new Map();
+  const tracks = film.tracks.filter((tr) => kind(tr) === "evolve");
+  for (const target of new Set(tracks.map((tr) => tr.channel.target))) {
+    const frames = framesOf(target);
+    if (!frames?.length) continue;
+    const at = latest(tracks.filter((tr) => tr.channel.target === target), t);
+    const { from, to } = at.track.channel;
+    out.set(target, lerp(recordPosition(frames, from), recordPosition(frames, to), at.k));
+  }
+  return out;
+}
+
 /** Seconds a caption takes to fade in and out. */
 export const CAPTION_FADE = 0.35;
 

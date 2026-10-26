@@ -3723,6 +3723,7 @@ dependencies = [
  "popkern-bool",
  "popkern-core",
  "popkern-fastener",
+ "popkern-generative",
  "popkern-history",
  "popkern-math",
  "popkern-measure",

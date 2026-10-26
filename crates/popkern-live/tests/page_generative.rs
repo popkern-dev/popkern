@@ -7,8 +7,11 @@
 //! export (the wasm cache key is the native one, bit for bit, and the
 //! body the same), re-solves a variant on request with a progress
 //! message per update, and serves that from its cache on the next
-//! plain build. Needs the web bundle (`tools/build-live.sh --web`) and
-//! node; the native leg runs regardless.
+//! plain build. The design's history (PK-959) travels as the bake's
+//! design file: once seeded, the worker meshes the design among its
+//! records exactly as the native session does, and a film evolves it.
+//! Needs the web bundle (`tools/build-live.sh --web`) and node; the
+//! native leg runs regardless.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -67,7 +70,24 @@ fn a_bake_carries_its_design_to_the_browser_which_otherwise_solves_only_on_reque
     assert_eq!(native["outcome"], "served", "{native}");
     let native_row = row(&native);
     assert_eq!(native_row["generative"]["cached"], false, "{native_row}");
+    let touched = popkern_generative::touched_designs();
     let designs = popkern_generative::export_touched().expect("the run's design");
+    let histories = popkern_generative::export_histories(&touched).expect("its history");
+    let design = native_row["generative"]["design"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    assert_eq!(touched, vec![design.clone()]);
+    // Natively, a film evolves the design the build solved.
+    let film = session
+        .film(
+            "let film = storyboard();\nfilm.step(\"Carve\", 4.0, |s| { s.evolve(\"carve\"); });\nfilm",
+            "films/carve.rhai",
+            None,
+        )
+        .unwrap_or_else(|outcome| panic!("{outcome:?}"));
+    assert_eq!(film.context.designs.len(), 1);
+    assert_eq!(film.context.designs[0].design, design);
     let parsed: Value = serde_json::from_str(&designs).expect("JSON");
     assert_eq!(parsed["entries"].as_array().map(Vec::len), Some(1));
     // A second native build is served from the cache.
@@ -90,17 +110,19 @@ fn a_bake_carries_its_design_to_the_browser_which_otherwise_solves_only_on_reque
     }
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("pk956");
     std::fs::create_dir_all(&dir).expect("tmp");
-    let (script_path, designs_path, variant_path) = (
+    let (script_path, designs_path, variant_path, histories_path) = (
         dir.join("generative.rhai"),
         dir.join("designs.json"),
         dir.join("variant.rhai"),
+        dir.join("designs.bin"),
     );
+    std::fs::write(&histories_path, &histories).expect("write");
     std::fs::write(&script_path, &source).expect("write");
     std::fs::write(&designs_path, &designs).expect("write");
     std::fs::write(&variant_path, script(0.45)).expect("write");
     let output = Command::new("node")
         .arg(page.join("test/generative.test.mjs"))
-        .args([&script_path, &designs_path, &variant_path])
+        .args([&script_path, &designs_path, &variant_path, &histories_path])
         .output()
         .expect("node");
     assert!(
@@ -134,6 +156,50 @@ fn a_bake_carries_its_design_to_the_browser_which_otherwise_solves_only_on_reque
     // And the next plain build serves it from the worker's cache.
     assert_eq!(out["cached"]["outcome"], "served", "{out}");
     assert_eq!(out["cached"]["generative"]["cached"], true, "{out}");
+
+    // The design converging (PK-959): a seeded design's history is not
+    // in the worker until the bake's design file is; a re-solved one's
+    // is. The worker's meshes are the native session's, to the bit
+    // (the same f32 positions sum the same in the same order).
+    assert_eq!(out["history_missing"], false, "{out}");
+    assert_eq!(out["history_seed"]["added"], 1, "{out}");
+    assert_eq!(out["variant_history"], true, "{out}");
+    let frames = out["history"]["frames"].as_u64().unwrap_or(0) as usize;
+    assert!(frames >= 10, "{out}");
+    assert_eq!(
+        out["history"]["updates"],
+        native_row["generative"]["iterations"]
+    );
+    let native_mesh = |at: Option<f64>| {
+        let mesh = popkern_live::designs::mesh(&design, at).expect("native history");
+        let sum: f64 = mesh.positions.iter().map(|&v| f64::from(v)).sum();
+        (mesh.indices.len() / 3, sum)
+    };
+    let last = (frames - 1) as f64;
+    for (name, at) in [
+        ("first", Some(0.0)),
+        ("middle", Some(last / 2.0)),
+        ("last", Some(last)),
+        ("space", None),
+    ] {
+        let (triangles, sum) = native_mesh(at);
+        let wasm = &out["meshes"][name];
+        assert_eq!(
+            wasm["triangles"].as_u64(),
+            Some(triangles as u64),
+            "{name}: {out}"
+        );
+        assert_eq!(wasm["sum"].as_f64(), Some(sum), "{name}: {out}");
+    }
+    // The design grows from the kept faces to the final design.
+    let triangles = |name: &str| out["meshes"][name]["triangles"].as_u64().unwrap_or(0);
+    assert!(triangles("last") > 0 && triangles("space") > 0, "{out}");
+    assert_eq!(
+        out["film"]["designs"][0]["design"],
+        design.as_str(),
+        "{out}"
+    );
+    assert_eq!(out["film"]["evolve"][0]["target"], "design carve", "{out}");
 }
 
 /// The stable names of the faces lying on the plane x = `x` (within
