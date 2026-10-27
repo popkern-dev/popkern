@@ -43,7 +43,7 @@ tools/                      logo, social-card and asset-stamp generators (not de
    Change it everywhere if the real domain differs:
    `grep -rl popkern.dev . --exclude-dir=.git`
 3. **Check the launch post.** `blog/announcing-popkern.html` is a full draft,
-   not a stub. Read it before it goes out. The date (30 Oct 2026) appears in
+   not a stub. Read it before it goes out. The date (28 Oct 2026) appears in
    the post, the blog index, and the feed.
 4. **Fill in the sponsor links** on `support/index.html`
    (`#TODO-sponsor-monthly`, `#TODO-sponsor-once`).
