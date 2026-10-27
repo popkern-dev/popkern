@@ -253,4 +253,3 @@ on top of it is yours.
 **Third-party dependencies.** Every crate in the dependency graph is
 under a permissive license (see `THIRD-PARTY-NOTICES.md`, regenerated
 by `cargo about generate`); `deny.toml` enforces the allowlist in CI.
-See `docs/decisions/2026-08-30-user-scripts-and-output-license-exception.md`.
