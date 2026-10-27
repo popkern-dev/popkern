@@ -73,7 +73,7 @@ gradient_text(80 * SS, 374 * SS, "makes things.", hf)
 
 sf = inter_r(23)
 d.text((80 * SS, 428 * SS), "Free and open source, written in Rust.", font=sf, fill=DIM, anchor="ls")
-d.text((80 * SS, 462 * SS), "Booleans, fillets, sweeps, shells, STEP and IGES.", font=sf, fill=DIM, anchor="ls")
+d.text((80 * SS, 462 * SS), "Booleans, fillets, sweeps, shells, STEP in and out.", font=sf, fill=DIM, anchor="ls")
 
 d.line([(80 * SS, 540 * SS), (1120 * SS, 540 * SS)], fill=(38, 44, 51), width=SS)
 mf = mono(19)
