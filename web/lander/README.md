@@ -66,9 +66,15 @@ The README, `tools/` and editor swap files stay behind.
 tools/deploy-site-routes.sh --no-build   # lander edits only: reuse the built live bundle
 ```
 
-A public host (GitHub Pages, Cloudflare Pages) needs the same assembled tree,
-so its build has to run `tools/build-live.sh --web` and `tools/bake-live.sh`
-first; this folder on its own is no longer the whole site.
+The public site, **popkern.dev**, is Cloudflare Pages (project `popkern`).
+`tools/deploy-pages.sh` runs the routes deploy above first, then publishes
+that same tree: the bakes go gzipped to the R2 bucket `popkern-site` (Pages
+caps a file at 25 MiB; the arm's bake is 105 MB) and a Pages Function serves
+them on the site's own origin. The script's header has the details.
+
+```sh
+tools/deploy-pages.sh --no-build         # lander edits only: reuse the built live bundle
+```
 
 > `404.html` is the one file using root-absolute paths (`/assets/…`), because
 > a 404 can be served from any depth. Every other page uses relative paths and
