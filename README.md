@@ -172,9 +172,9 @@ Where the kernel declines, it's supposed to decline loudly and tell you
 the numbers. If it ever fails quietly, that's a bug and I want to hear
 about it!
 
-Next up: a non-manifold representation for booleans is my top priority,
-along with more fillet special cases and kinds and improved surface
-healing. Fuzz testing booleans, fillets and surface healing will be a
+Next up: adding non-manifold topology to booleans is my top priority,
+along with more exact geometry cases, more fillet special cases and
+kinds, and improved surface healing. Fuzz testing booleans, fillets and surface healing will be a
 big focus soon too.
 
 ## Agent-built, test-verified
