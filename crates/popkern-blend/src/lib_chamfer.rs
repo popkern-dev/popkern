@@ -308,6 +308,17 @@ fn chamfer_pipeline(
     )
     .map_err(|failure| BlendError::partial_failure(specs.len(), brep.clone(), vec![failure]))?;
     apply_result.repair_report.bevel_pair_corners = pair.corners_settled;
+    // Truncated apex corners (PK-997): bevels that cut the whole cone
+    // of a vertex with a sharp edge leave it off their planes; move it
+    // to its planes' point, or split it into their ridge tree.
+    let apex = construct::truncated_apex::settle_truncated_apexes(
+        brep,
+        &mut apply_result.brep,
+        &edge_geometries,
+        &tolerance,
+    )
+    .map_err(|failure| BlendError::partial_failure(specs.len(), brep.clone(), vec![failure]))?;
+    apply_result.repair_report.truncated_apex_corners = apex.corners_settled;
 
     if popkern_core::trace::trace_enabled("fillet") {
         eprintln!(

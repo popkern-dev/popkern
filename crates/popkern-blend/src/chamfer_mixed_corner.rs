@@ -188,6 +188,7 @@ pub(crate) fn chamfer_fills_first(
     result.corner_patches = patches;
     result.repair_report.mitre_apex_corners += filled.repair_report.mitre_apex_corners;
     result.repair_report.bevel_pair_corners += filled.repair_report.bevel_pair_corners;
+    result.repair_report.truncated_apex_corners += filled.repair_report.truncated_apex_corners;
     Ok(result)
 }
 

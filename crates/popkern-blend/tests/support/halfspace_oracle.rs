@@ -95,6 +95,11 @@ fn clip_solid(faces: &[Poly], n: Vec3, c: f64) -> Vec<Poly> {
             if da <= 0.0 {
                 g.push(a);
             }
+            // A kept vertex ON the plane bounds the cap too (a bevel
+            // through an earlier bevel's corner).
+            if da.abs() < 1e-12 {
+                cut.push(a);
+            }
             if (da < 0.0 && db > 0.0) || (da > 0.0 && db < 0.0) {
                 let q = a + (b - a) * (da / (da - db));
                 g.push(q);

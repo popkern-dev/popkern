@@ -25,6 +25,10 @@ pub struct BlendRepairReport {
     /// edge whose planes do not concur, rebuilt with the exact
     /// connector edge.
     pub bevel_pair_corners: usize,
+    /// PK-997: corners whose planar bevels cut the whole vertex cone
+    /// while an edge stays sharp, rebuilt at the exact point or ridge
+    /// tree of their face planes.
+    pub truncated_apex_corners: usize,
     /// Whole-blend support-face seam relocation diagnostics.
     pub support_seam_relocation: SupportSeamRelocationReport,
     /// Straight edge curves reauthored to terminate at their owning topology
