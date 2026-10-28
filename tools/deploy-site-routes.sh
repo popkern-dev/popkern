@@ -111,6 +111,9 @@ tar -C web/lander \
 CSS_STAMP=$(sha256sum web/lander/assets/css/site.css | cut -c1-8)
 find "$LANDER_STAGE" -name '*.html' -exec \
   sed -i -E "s/site\.css\?v=[0-9a-f]+/site.css?v=$CSS_STAMP/g" {} +
+# The agent-readable copies: llms.txt and a .md beside each page, made
+# from the staged pages so they always match what is served.
+python3 web/lander/tools/make-markdown.py "$LANDER_STAGE"
 # Replace the root's lander entries (never live/ or the stage itself),
 # then move the staged ones in: each entry swaps by rename.
 find "$SITE" -mindepth 1 -maxdepth 1 ! -name live ! -name "$(basename "$LANDER_STAGE")" \
@@ -213,6 +216,8 @@ site_check "" "text/html"
 site_check "install/" "text/html"
 site_check "blog/" "text/html"
 site_check "assets/css/site.css" "text/css"
+site_check "llms.txt" "text/plain"
+site_check "blog/announcing-popkern.md" "text/"
 if ! curl -s "$SITE_URL/" | grep -q 'href="live/"'; then
   echo "FAIL $SITE_URL/ no longer links to live/: the lander and the deploy disagree" >&2
   exit 1

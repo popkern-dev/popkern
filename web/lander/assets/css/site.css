@@ -631,3 +631,10 @@ a[href^="#TODO"]::after {
 .article-body .cards { margin: 0 0 28px; }
 .article-body .card p { font-size: .95rem; }
 .card .btn { margin-top: 18px; }
+
+/* Present in the markup for agents and text tools, never drawn (the
+   llms.txt pointer at the top of each page's body). */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}

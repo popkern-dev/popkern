@@ -169,6 +169,9 @@ check "live/v/$STAMP/pkg/popkern_live_bg.wasm" "application/wasm"
 check "live/v/$STAMP/bakes/index.json" "application/json"
 check "install.sh" "text/plain"
 check "install.ps1" "text/plain"
+check "llms.txt" "text/plain"
+check "index.md" "text/markdown"
+check "blog/announcing-popkern.md" "text/markdown"
 for file in install.sh install.ps1; do
   curl -fsS "$SITE_URL/$file" | cmp -s - "web/lander/$file" ||
     { echo "FAIL $SITE_URL/$file does not match web/lander/$file" >&2; exit 1; }
