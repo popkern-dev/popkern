@@ -86,6 +86,28 @@ impl BRep {
         }
 
         const GRID: usize = 6;
+        // The wedge integral of a closed surface is the same about any
+        // centre, but the coarse grid leaves a residual ∫n dA ≠ 0 that
+        // the centre multiplies: about the world origin, a thin body
+        // far from it reads the residual times its offset (measured: a
+        // 0.04-radius bore at x = 0.61 read FoldedInward at two of
+        // eight holes and the cell complex kept the plate's outside).
+        // About the component's boundary-sample centroid the residual
+        // scales with the body, not its placement.
+        let centre = {
+            let mut sum = crate::geometry::Vec3::new(0.0, 0.0, 0.0);
+            let mut count = 0usize;
+            for &face in &component {
+                for p in self.face_boundary_sample_points(face, 2) {
+                    sum = sum + crate::geometry::Vec3::new(p.x, p.y, p.z);
+                    count += 1;
+                }
+            }
+            if count == 0 {
+                return None;
+            }
+            sum * (1.0 / count as f64)
+        };
         let mut wedge = 0.0;
         let mut sampled = 0usize;
         for &face in &component {
@@ -148,7 +170,8 @@ impl BRep {
                     let n = su.cross(&sv);
                     let folded = if sof.orientation { n } else { n * -1.0 };
                     // p · n dA with n dA = folded * du * dv.
-                    let contribution = (p.x * folded.x + p.y * folded.y + p.z * folded.z) * du * dv;
+                    let (x, y, z) = (p.x - centre.x, p.y - centre.y, p.z - centre.z);
+                    let contribution = (x * folded.x + y * folded.y + z * folded.z) * du * dv;
                     wedge += contribution;
                     sampled += 1;
                 }

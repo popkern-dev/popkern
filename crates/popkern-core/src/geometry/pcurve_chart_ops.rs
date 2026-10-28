@@ -183,4 +183,54 @@ impl Pcurve {
         }
         true
     }
+
+    /// Reflect the U coordinate of the whole pcurve: the same parameter
+    /// lands on `delta - u` afterwards, V unchanged.
+    ///
+    /// A reflection of the body maps a rotational chart's anchor basis
+    /// to the opposite handedness about the new axis (the derived
+    /// basis stays right-handed), so the angle `u` of a point becomes
+    /// `delta - u` (`BRep::transform`). Returns `false` for a form
+    /// that cannot carry a reversed U at the same parameter (a sinusoid
+    /// is `u_offset + t` by construction); the pcurve is untouched then
+    /// and the caller must re-author it.
+    #[must_use]
+    pub fn reflect_u(&mut self, delta: f64) -> bool {
+        match &mut self.geometry {
+            PcurveGeometry::Linear { start, end } => {
+                start.0 = delta - start.0;
+                end.0 = delta - end.0;
+            }
+            PcurveGeometry::Elliptical {
+                center,
+                rotation,
+                start_angle,
+                end_angle,
+                ..
+            } => {
+                // Mirroring the local frame: rotation -> -rotation and
+                // the sweep angle alpha -> pi - alpha.
+                center.0 = delta - center.0;
+                *rotation = -*rotation;
+                *start_angle = std::f64::consts::PI - *start_angle;
+                *end_angle = std::f64::consts::PI - *end_angle;
+            }
+            PcurveGeometry::Sinusoidal { .. } => return false,
+            PcurveGeometry::Nurbs(c) => {
+                for cp in &mut c.control_points {
+                    cp.x = delta - cp.x;
+                }
+            }
+            PcurveGeometry::CylinderArcViaRationalQuad {
+                theta_a, theta_b, ..
+            } => {
+                // theta(t) = theta_m + atan2(sin(alpha)(2t-1), cos(alpha))
+                // is odd in alpha about theta_m: reflecting both ends
+                // reflects every point.
+                *theta_a = delta - *theta_a;
+                *theta_b = delta - *theta_b;
+            }
+        }
+        true
+    }
 }
