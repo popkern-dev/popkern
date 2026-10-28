@@ -152,6 +152,40 @@ pub enum BoolError {
     /// per-stage iteration limit exceeded, etc.
     #[error("system error: {0}")]
     SystemError(String),
+
+    /// The result would be non-manifold: the operands touch along an
+    /// edge or at a point, so the result has zero-thickness contacts
+    /// (PK-964, decision D1: decline by default). The input model is
+    /// unchanged; move a body or overlap it to merge the contact.
+    #[error(
+        "result would be non-manifold: {} zero-thickness contact(s), first at ({:.6}, {:.6}, {:.6})",
+        contacts.len(),
+        contacts.first().map_or(0.0, |c| c.location.x),
+        contacts.first().map_or(0.0, |c| c.location.y),
+        contacts.first().map_or(0.0, |c| c.location.z)
+    )]
+    NonManifoldResult {
+        /// Where the result would touch itself, for highlighting.
+        contacts: Vec<NonManifoldContact>,
+    },
+}
+
+/// The kind of a zero-thickness contact in a non-manifold result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContactKind {
+    /// More than two result faces would meet at an edge.
+    Edge,
+    /// The result faces at a vertex would form more than one fan.
+    Vertex,
+}
+
+/// One zero-thickness contact of a non-manifold result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NonManifoldContact {
+    /// Edge or vertex contact.
+    pub kind: ContactKind,
+    /// A point on the contact (the vertex, or the edge's midpoint).
+    pub location: popkern_core::geometry::Point3,
 }
 
 /// Per-stage timing and counter sample (§16 telemetry).

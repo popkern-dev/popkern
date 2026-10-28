@@ -1,6 +1,7 @@
 //! Post-processing for boolean results: redundant edge removal and face simplification.
 
 pub mod collinear_vertex;
+pub(crate) mod contact_record;
 pub(crate) mod curveless_edge;
 pub mod exact_rims;
 pub mod face_simplify;
@@ -14,10 +15,12 @@ pub mod quality;
 pub(crate) mod redundant_chain;
 pub mod redundant_edge;
 pub mod self_twin_stub;
+pub(crate) mod shell_contact;
 pub mod slit_retire;
 pub mod slit_seam;
 pub mod sliver_removal;
 pub mod spur_edge;
+pub(crate) mod zero_thickness;
 
 #[cfg(test)]
 #[path = "postprocess_tests.rs"]

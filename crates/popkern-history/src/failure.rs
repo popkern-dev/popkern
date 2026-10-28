@@ -117,6 +117,7 @@ impl FeatureFailure {
             BoolError::OpenShellNotSupported { .. } => ("OpenShellNotSupported", None),
             BoolError::InterferenceFailed(_) => ("InterferenceFailed", None),
             BoolError::SystemError(_) => ("SystemError", None),
+            BoolError::NonManifoldResult { .. } => ("NonManifoldResult", None),
         };
         FeatureFailure::BooleanFailed {
             operation: operation.to_string(),

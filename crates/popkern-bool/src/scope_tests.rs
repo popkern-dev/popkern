@@ -99,6 +99,7 @@ fn the_scoped_merge_assembles_the_unscoped_body() {
             BoolOperation::Subtraction,
             &tol,
             s.as_ref(),
+            crate::complex::serve::SelectionSource::Cellular,
         )
     };
     let (unscoped, _) = merge(None).expect("unscoped merge");

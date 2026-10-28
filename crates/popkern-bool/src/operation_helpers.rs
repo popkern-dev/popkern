@@ -27,11 +27,20 @@ pub(crate) fn combine_breps(a: BRep, b: BRep) -> Result<BRep, BoolError> {
 /// inner void shell for hollow-solid subtraction. Flipping the flags alone
 /// left every void face winding-dishonest — its loop still wound as the
 /// tool's outside while its flag said the void's (PK-879).
-pub(crate) fn copy_brep_into(
+pub(crate) fn copy_brep_into(a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, BoolError> {
+    copy_brep_into_mapped(a, b, flip_b_normals).map(|(body, _)| body)
+}
+
+/// Where each of `b`'s faces went in a [`copy_brep_into_mapped`].
+pub(crate) type FaceMap =
+    HashMap<popkern_core::topology::FaceHandle, popkern_core::topology::FaceHandle>;
+
+/// [`copy_brep_into`], also returning where each of `b`'s faces went.
+pub(crate) fn copy_brep_into_mapped(
     mut a: BRep,
     mut b: BRep,
     flip_b_normals: bool,
-) -> Result<BRep, BoolError> {
+) -> Result<(BRep, FaceMap), BoolError> {
     if flip_b_normals {
         b.reverse_body_orientation();
     }
@@ -206,7 +215,23 @@ pub(crate) fn copy_brep_into(
         a.solids[new_h].shell = sh_map.get(&s.shell).copied().unwrap_or_default();
     }
 
-    Ok(a)
+    // B's recorded contacts come along with its entities (PK-964).
+    use popkern_core::topology::ContactEntity;
+    for contact in &b.topology_contacts {
+        let mut moved = contact.clone();
+        moved.entities = contact
+            .entities
+            .iter()
+            .filter_map(|e| match *e {
+                ContactEntity::Vertex(v) => v_map.get(&v).map(|&v| ContactEntity::Vertex(v)),
+                ContactEntity::Edge(x) => e_map.get(&x).map(|&x| ContactEntity::Edge(x)),
+                ContactEntity::Face(f) => f_map.get(&f).map(|&f| ContactEntity::Face(f)),
+            })
+            .collect();
+        a.topology_contacts.push(moved);
+    }
+
+    Ok((a, f_map))
 }
 
 /// the boolean trace topic helper: endpoint/chord dump of every intersection
@@ -255,41 +280,6 @@ pub(crate) fn trace_records(records: &[crate::intersect::IntersectionRecord], n_
     }
 }
 
-/// Verify a claimed whole-body containment directly against the
-/// ORIGINAL operands: every vertex of `inner` must classify Inside
-/// or OnBoundary of `outer`. The empty-selection shortcut's claim
-/// comes from seed-propagated face classifications, and a silently
-/// under-split operand poisons every seed (measured: a rim-straddling
-/// key subtract left the disc's top/bottom faces unsplit, one seed
-/// wiped each side, and the "contained" flange came back as an EMPTY
-/// body that passed every downstream gate vacuously — PK-173).
-pub(super) fn verify_whole_body_containment(inner: &BRep, outer: &BRep) -> bool {
-    use crate::classify::point_in_solid_final;
-    use crate::error::PointClassification;
-    use crate::intersect::compute_face_aabbs;
-    let aabbs = compute_face_aabbs(outer);
-    let tolerance = outer.tolerance;
-    // Vertices alone under-cover analytic bodies (a plain cylinder
-    // has only its two seam vertices — both can sit inside a partial
-    // tool while most of the body is outside), so every face's
-    // boundary is curve-sampled as well.
-    let mut probes: Vec<popkern_core::geometry::Point3> =
-        inner.vertices.values().map(|v| v.position).collect();
-    for face in inner.faces.keys() {
-        probes.extend(inner.face_outer_loop_sample_positions(face, 8));
-    }
-    if probes.is_empty() {
-        return false;
-    }
-    for probe in &probes {
-        match point_in_solid_final(probe, outer, &aabbs, &tolerance) {
-            Ok(PointClassification::Inside) | Ok(PointClassification::OnBoundary) => {}
-            _ => return false,
-        }
-    }
-    true
-}
-
 /// Pre-serve retirements and the empty-serve lie gate (PK-465), run
 /// after loop-chart normalization and before `post_check`.
 pub(super) fn pre_check_retire_and_empty_gate(
@@ -318,29 +308,8 @@ pub(super) fn pre_check_retire_and_empty_gate(
         eprintln!("[boolean] pre-check: {slit_pairs} same-face slit pair(s) excised");
     }
 
-    // EMPTY-SERVE LIE GATE (PK-465): an empty subtraction result is
-    // legitimate ONLY when A is wholly inside B; an empty union
-    // never is. A garbage walk that classifies every fragment away
-    // otherwise SERVES an empty body (measured: the coarse 1e-2
-    // sphere−cube envelope pin walked the sphere chart into a fused
-    // mega-orbit and served volume 0.0 against truth 0.202).
     if result.faces.is_empty() {
-        let legitimate = match op {
-            crate::error::BoolOperation::Subtraction => {
-                verify_whole_body_containment(original_a, original_b)
-            }
-            crate::error::BoolOperation::Intersection => true,
-            crate::error::BoolOperation::Union => false,
-        };
-        if !legitimate {
-            return Err(crate::error::BoolError::MergeFailed {
-                stage: "Merge".to_string(),
-                reason: "empty result from operands that are not in the containment \
-                         configuration an empty result requires; declining rather than \
-                         serving a vanished body"
-                    .to_string(),
-            });
-        }
+        super::empty::certify_empty_result(op, original_a, original_b)?;
     }
 
     Ok(point_loops + slit_faces + slit_pairs)

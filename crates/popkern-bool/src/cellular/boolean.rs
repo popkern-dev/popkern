@@ -15,7 +15,8 @@ use super::record_rotation::rotate_closed_record_to_hits;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::error::{BoolDiagnostics, BoolOperation};
+use crate::complex::serve::SelectionSource;
+use crate::error::{BoolDiagnostics, BoolError, BoolOperation};
 use crate::intersect::IntersectionResult;
 use crate::merge::graph::{IntersectionGraph, Operand};
 use crate::merge::graph_duplicates::remove_collinear_duplicates;
@@ -49,6 +50,7 @@ pub(crate) fn cellular_graph_merge(
     op: BoolOperation,
     tolerance: &Tolerance,
     scopes: Option<&crate::scope::OperandScopes>,
+    source: SelectionSource,
 ) -> Result<(BRep, crate::serve_region::Carried), BoolDiagnostics> {
     let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
@@ -225,24 +227,59 @@ pub(crate) fn cellular_graph_merge(
         crate::chart_walk_fallback::record_chart_walk_fallback(face_ref, reason);
     }
 
-    // Phase 6 (CELLULAR): Classify fragments by cell membership.
-    let selections = super::classify_fragments::classify_fragments_cellular(
-        &fragments,
-        &graph,
-        original_a,
-        original_b,
-        op,
+    let complex_input = crate::complex::pipeline::ComplexInput {
+        graph: &graph,
+        fragments: &fragments,
+        operands: [original_a, original_b],
+        boxes: [&intersection_result.aabbs_a, &intersection_result.aabbs_b],
+        overlaps: &overlap_pairs,
         tolerance,
-        &intersection_result.coincidence.face_overlaps,
-        (&intersection_result.aabbs_a, &intersection_result.aabbs_b),
-    )?;
-
-    // A mixed-sense pair wires as a same-sense pair (PK-913): B's kept
-    // fragments flip when every shared record says it winds opposite
-    // to A, and its carried far faces reverse with them (PK-916).
-    let mut selections = selections;
-    let (winding, flipped_b) =
-        super::operand_winding::agree_operand_winding(&graph, &fragments, &mut selections);
+    };
+    let cellular = || -> Result<_, BoolDiagnostics> {
+        // Phase 6 (CELLULAR): Classify fragments by cell membership.
+        let mut selections = super::classify_fragments::classify_fragments_cellular(
+            &fragments,
+            &graph,
+            original_a,
+            original_b,
+            op,
+            tolerance,
+            &intersection_result.coincidence.face_overlaps,
+            (&intersection_result.aabbs_a, &intersection_result.aabbs_b),
+        )?;
+        // A mixed-sense pair wires as a same-sense pair (PK-913): B's
+        // kept fragments flip when every shared record says it winds
+        // opposite to A, and its carried far faces reverse with them
+        // (PK-916).
+        let (winding, flipped_b) =
+            super::operand_winding::agree_operand_winding(&graph, &fragments, &mut selections);
+        if crate::complex_shadow::shadow_enabled() && scopes.is_none() {
+            crate::complex::shadow_compare::shadow_compare(&complex_input, &selections, op);
+        }
+        Ok((selections, winding, flipped_b))
+    };
+    // The cell complex decides every fragment (PK-976): region
+    // membership by propagation, one skin per same-domain face, one
+    // folded-normal convention (no winding vote).
+    let (selections, winding, flipped_b) = match source {
+        SelectionSource::Complex => {
+            let selections = crate::complex::serve::complex_selections(&complex_input, op)?;
+            (selections, Default::default(), false)
+        }
+        SelectionSource::ComplexFirst => {
+            match crate::complex::serve::complex_selections(&complex_input, op) {
+                Ok(selections) => (selections, Default::default(), false),
+                Err(diag) if matches!(diag.error, Some(BoolError::NonManifoldResult { .. })) => {
+                    return Err(diag);
+                }
+                Err(diag) => {
+                    crate::complex_shadow::record_complex_primary_fallback(op, &diag);
+                    cellular()?
+                }
+            }
+        }
+        SelectionSource::Cellular => cellular()?,
+    };
     let (far_a, far_b) = scopes.map(|s| s.carried(op)).unwrap_or_default();
     if popkern_core::trace::trace_enabled("boolean") && winding.same > 0 {
         eprintln!(

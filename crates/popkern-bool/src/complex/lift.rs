@@ -1,0 +1,439 @@
+//! Lifting the chart walk's fragments into the cell complex (PK-972).
+//!
+//! The intersection graph already shares vertex and edge identity
+//! between the two operands: a record (intersection curve) is ONE
+//! graph half-edge pair used by up to four fragments, and operand
+//! edges are pairs used by the fragments of their two faces. The lift
+//! keeps that identity — one complex edge per graph edge key
+//! (`min(half-edge, twin)`), one fin per fragment loop entry — and adds
+//! what the graph lacks:
+//!
+//! - **Same-domain faces.** A coincident patch is walked once on each
+//!   operand's face; the two fragments bound the same edge set. They
+//!   become ONE complex face owned by both operands, so the coincident
+//!   pair can never form a zero-thickness wedge (Gursoz 1990 §4.6:
+//!   overlapping faces detected by connectivity and merged).
+//! - **Material sense.** Fragment loops wind counter-clockwise about
+//!   their source face's folded normal (the assembler keeps the
+//!   source orientation flag for an unflipped fragment); whether that
+//!   normal points out of the material comes from the operand's
+//!   material sense, decided once per closed component.
+
+use std::collections::{BTreeMap, HashMap};
+
+use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::topology::{BRep, FaceHandle};
+use popkern_core::validation::MaterialSense;
+
+use super::ids::{EdgeId, FaceId, VertexId};
+use super::model::{CellComplex, FaceOwner};
+use super::spans::{SpanRep, unify_spans};
+use crate::merge::graph::{FaceRef, IntersectionGraph, Operand};
+use crate::merge::walk::Fragment;
+
+/// Why the lift declined.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum LiftDecline {
+    /// A fragment's source face has no surface.
+    MissingSurface {
+        /// The fragment.
+        fragment: usize,
+    },
+    /// An operand component's material sense could not be decided.
+    UnknownMaterialSense {
+        /// Operand index.
+        operand: usize,
+        /// A face of the component.
+        face: FaceHandle,
+    },
+    /// A fragment's outer loop is empty after removing degenerate
+    /// (zero-length, curveless) edges.
+    EmptyOuterLoop {
+        /// The fragment.
+        fragment: usize,
+    },
+}
+
+/// A lifted complex and its correspondence with the fragments.
+#[derive(Debug, Clone)]
+pub(crate) struct Lift {
+    /// The complex (faces, loops, fins, edges, vertices; no shells).
+    pub complex: CellComplex,
+    /// Operand A's folded-normal convention (folded normals point out
+    /// of its material): the result keeps it.
+    pub output_folded_outward: bool,
+}
+
+/// Operand index of a graph operand tag.
+pub(crate) fn operand_index(op: Operand) -> usize {
+    match op {
+        Operand::A => 0,
+        Operand::B => 1,
+    }
+}
+
+/// The source BRep of a face reference.
+pub(crate) fn operand_brep(operands: [&BRep; 2], face: FaceRef) -> &BRep {
+    operands[operand_index(face.operand)]
+}
+
+/// Whether a graph edge is degenerate residue: coincident endpoint
+/// nodes and no curve with extent (the assembler's rule — a genuine
+/// closed rim carries its circle).
+pub(crate) fn is_degenerate_key(graph: &IntersectionGraph, key: usize) -> bool {
+    use popkern_core::geometry::curve::CurveEval;
+    let twin = graph.half_edges[key].twin;
+    let na = graph.half_edges[key].origin;
+    let nb = graph.half_edges[twin].origin;
+    let (pa, pb) = (graph.nodes[na].position, graph.nodes[nb].position);
+    if pa.distance_to(&pb) >= 1.0e-9 {
+        return false;
+    }
+    let curve = graph.half_edges[key]
+        .curve
+        .as_ref()
+        .or(graph.half_edges[twin].curve.as_ref());
+    match curve {
+        None => true,
+        Some(c) => {
+            let pm = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+            pm.distance_to(&pa) < 1.0e-9
+        }
+    }
+}
+
+/// Closed components of `brep` (faces reachable over shared edges),
+/// each sorted, in order of their lowest face.
+fn components(brep: &BRep) -> Vec<Vec<FaceHandle>> {
+    let mut seen = std::collections::HashSet::new();
+    let mut faces: Vec<FaceHandle> = brep.faces.keys().collect();
+    faces.sort();
+    let mut out = Vec::new();
+    for seed in faces {
+        if seen.contains(&seed) {
+            continue;
+        }
+        let mut component = Vec::new();
+        let mut stack = vec![seed];
+        while let Some(f) = stack.pop() {
+            if !seen.insert(f) {
+                continue;
+            }
+            component.push(f);
+            let Some(face) = brep.faces.get(f) else {
+                continue;
+            };
+            for &l in std::iter::once(&face.outer_loop).chain(face.inner_loops.iter()) {
+                let Some(start) = brep.loops.get(l).map(|l| l.half_edge) else {
+                    continue;
+                };
+                let mut he = start;
+                for _ in 0..brep.half_edges.len() {
+                    let Some(h) = brep.half_edges.get(he) else {
+                        break;
+                    };
+                    if let Some(tw) = brep.half_edges.get(h.twin)
+                        && let Some(tl) = brep.loops.get(tw.loop_)
+                        && !seen.contains(&tl.face)
+                    {
+                        stack.push(tl.face);
+                    }
+                    he = h.next;
+                    if he == start {
+                        break;
+                    }
+                }
+            }
+        }
+        component.sort();
+        out.push(component);
+    }
+    out
+}
+
+/// Material sense of every face of `brep`: whether its folded normal
+/// points out of the material, decided once per closed component.
+///
+/// A single-component operand takes the sign of its folded-normal
+/// volume integral (`component_material_sense`). That sign is the
+/// WRONG test for a cavity shell — correctly oriented, its folded
+/// normals point into the cavity and its volume integral is negative —
+/// so a multi-component operand decides each component by one point
+/// classification just off a face, falling back to the volume sign
+/// only where the probe lands on the boundary.
+fn material_senses(
+    brep: &BRep,
+    operand: usize,
+    boxes: &[(
+        FaceHandle,
+        popkern_core::geometry::intersection::surface_subdivision::Aabb,
+    )],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<HashMap<FaceHandle, bool>, LiftDecline> {
+    let comps = components(brep);
+    let mut out = HashMap::new();
+    for component in &comps {
+        let Some(&seed) = component.first() else {
+            continue;
+        };
+        let by_volume = || {
+            brep.component_material_sense(seed)
+                .map(|s| matches!(s, MaterialSense::FoldedOutward))
+        };
+        let outward = if comps.len() == 1 {
+            by_volume()
+        } else {
+            probe_sense(brep, component, boxes, tolerance).or_else(by_volume)
+        }
+        .ok_or(LiftDecline::UnknownMaterialSense {
+            operand,
+            face: seed,
+        })?;
+        for &f in component {
+            out.insert(f, outward);
+        }
+    }
+    Ok(out)
+}
+
+/// Whether the folded normals of `component` point out of `brep`'s
+/// material, by classifying a point just off one of its faces.
+fn probe_sense(
+    brep: &BRep,
+    component: &[FaceHandle],
+    boxes: &[(
+        FaceHandle,
+        popkern_core::geometry::intersection::surface_subdivision::Aabb,
+    )],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<bool> {
+    let scale = boxes
+        .iter()
+        .map(|(_, b)| (b.max - b.min).length())
+        .fold(0.0_f64, f64::max);
+    let eps = (scale * 1.0e-5).max(tolerance.linear() * 50.0);
+    for &fh in component.iter().take(4) {
+        let surf = brep.faces.get(fh)?.surface.as_ref()?;
+        let sample = crate::classify::pick_sample_point(brep, fh);
+        let (u, v) = surf.geometry.closest_point(&sample)?;
+        let n = surf.folded_normal(u, v)?;
+        let probe = surf.geometry.point_at(u, v) + n * eps;
+        match crate::classify::point_in_solid_final(&probe, brep, boxes, tolerance) {
+            Ok(crate::error::PointClassification::Inside) => return Some(false),
+            Ok(crate::error::PointClassification::Outside) => return Some(true),
+            _ => continue,
+        }
+    }
+    None
+}
+
+/// The edge keys a fragment's loops use, degenerate keys removed:
+/// the same-domain signature.
+fn signature(
+    graph: &IntersectionGraph,
+    frag: &Fragment,
+    reps: &BTreeMap<usize, SpanRep>,
+) -> Vec<usize> {
+    let mut keys: Vec<usize> = frag
+        .outer_loop
+        .iter()
+        .chain(frag.inner_loops.iter().flatten())
+        .filter_map(|&h| reps.get(&h.min(graph.half_edges[h].twin)))
+        .map(|rep| rep.key)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
+/// Outward normals of two coincident faces agree at the fragment's
+/// first boundary node.
+fn same_outward(
+    operands: [&BRep; 2],
+    senses: &[HashMap<FaceHandle, bool>; 2],
+    a: FaceRef,
+    b: FaceRef,
+    at: popkern_core::geometry::Point3,
+) -> Option<bool> {
+    let outward = |f: FaceRef| {
+        let face = operand_brep(operands, f).faces.get(f.face)?;
+        let surf = face.surface.as_ref()?;
+        let (u, v) = surf.geometry.closest_point(&at)?;
+        let n = surf.folded_normal(u, v)?;
+        let out = *senses[operand_index(f.operand)].get(&f.face)?;
+        Some(if out { n } else { n * -1.0 })
+    };
+    Some(outward(a)?.dot(&outward(b)?) > 0.0)
+}
+
+/// Lift `fragments` of `graph` into a complex. `overlaps` are the
+/// coincident face pairs (operand A face, operand B face); only
+/// fragments of such pairs are candidates for same-domain merging.
+pub(crate) fn lift_fragments(
+    graph: &IntersectionGraph,
+    fragments: &[Fragment],
+    operands: [&BRep; 2],
+    boxes: [&[(
+        FaceHandle,
+        popkern_core::geometry::intersection::surface_subdivision::Aabb,
+    )]; 2],
+    overlaps: &[(FaceHandle, FaceHandle)],
+    tol: &popkern_core::tolerance::Tolerance,
+) -> Result<Lift, LiftDecline> {
+    let tolerance = tol.linear();
+    let reps = unify_spans(graph, fragments, tolerance);
+    let senses = [
+        material_senses(operands[0], 0, boxes[0], tol)?,
+        material_senses(operands[1], 1, boxes[1], tol)?,
+    ];
+    let output_folded_outward = operands[0]
+        .faces
+        .keys()
+        .min()
+        .and_then(|f| senses[0].get(&f).copied())
+        .unwrap_or(true);
+
+    // Same-domain groups: fragments of an overlapping face pair with
+    // equal boundary signatures. Group order follows the lowest
+    // fragment index, and A's fragment leads (it is the primary owner,
+    // as the cellular rules keep A's copy of a shared skin).
+    let overlap_set: std::collections::BTreeSet<(FaceHandle, FaceHandle)> =
+        overlaps.iter().copied().collect();
+    let mut by_signature: BTreeMap<Vec<usize>, Vec<usize>> = BTreeMap::new();
+    for (i, frag) in fragments.iter().enumerate() {
+        by_signature
+            .entry(signature(graph, frag, &reps))
+            .or_default()
+            .push(i);
+    }
+    let mut group_of = vec![usize::MAX; fragments.len()];
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for i in 0..fragments.len() {
+        if group_of[i] != usize::MAX {
+            continue;
+        }
+        let gi = groups.len();
+        let mut group = vec![i];
+        group_of[i] = gi;
+        let sig = signature(graph, &fragments[i], &reps);
+        if !sig.is_empty() {
+            for &j in &by_signature[&sig] {
+                if j == i || group_of[j] != usize::MAX {
+                    continue;
+                }
+                let (fa, fb) = (fragments[i].face, fragments[j].face);
+                let pair = match (fa.operand, fb.operand) {
+                    (Operand::A, Operand::B) => Some((fa.face, fb.face)),
+                    (Operand::B, Operand::A) => Some((fb.face, fa.face)),
+                    _ => None,
+                };
+                if pair.is_some_and(|p| overlap_set.contains(&p)) {
+                    group.push(j);
+                    group_of[j] = gi;
+                }
+            }
+        }
+        group.sort_by_key(|&k| (operand_index(fragments[k].face.operand), k));
+        groups.push(group);
+    }
+
+    let mut complex = CellComplex::new(2);
+    let mut vertex_of_node: BTreeMap<usize, VertexId> = BTreeMap::new();
+    let mut edge_of_key: BTreeMap<usize, EdgeId> = BTreeMap::new();
+    let mut face_of_fragment = vec![FaceId::from_index(usize::MAX); fragments.len()];
+
+    for group in &groups {
+        let primary = group[0];
+        let frag = &fragments[primary];
+        let pref = frag.face;
+        let pi = operand_index(pref.operand);
+        let source = operand_brep(operands, pref);
+        if source
+            .faces
+            .get(pref.face)
+            .and_then(|f| f.surface.as_ref())
+            .is_none()
+        {
+            return Err(LiftDecline::MissingSurface { fragment: primary });
+        }
+        let folded_is_outward =
+            *senses[pi]
+                .get(&pref.face)
+                .ok_or(LiftDecline::UnknownMaterialSense {
+                    operand: pi,
+                    face: pref.face,
+                })?;
+        let anchor = frag
+            .outer_loop
+            .first()
+            .map(|&h| graph.nodes[graph.half_edges[h].origin].position);
+        let mut owners = vec![FaceOwner {
+            operand: pi,
+            face: pref.face,
+            same_sense: true,
+        }];
+        for &other in &group[1..] {
+            let oref = fragments[other].face;
+            let same = anchor
+                .and_then(|p| same_outward(operands, &senses, pref, oref, p))
+                .unwrap_or(true);
+            owners.push(FaceOwner {
+                operand: operand_index(oref.operand),
+                face: oref.face,
+                same_sense: same,
+            });
+        }
+        let face = complex.add_face(owners, folded_is_outward, group.clone());
+        for &k in group {
+            face_of_fragment[k] = face;
+        }
+        for (li, lp) in std::iter::once(&frag.outer_loop)
+            .chain(frag.inner_loops.iter())
+            .enumerate()
+        {
+            let mut uses = Vec::with_capacity(lp.len());
+            for &h in lp {
+                let raw = h.min(graph.half_edges[h].twin);
+                let Some(&rep) = reps.get(&raw) else {
+                    continue;
+                };
+                let key = rep.key;
+                let twin = graph.half_edges[key].twin;
+                let edge = match edge_of_key.get(&key) {
+                    Some(&e) => e,
+                    None => {
+                        let mut vertex = |node: usize, c: &mut CellComplex| {
+                            *vertex_of_node.entry(node).or_insert_with(|| {
+                                c.add_vertex(graph.nodes[node].position, tolerance, Some(node))
+                            })
+                        };
+                        let start = vertex(graph.half_edges[key].origin, &mut complex);
+                        let end = vertex(
+                            graph.half_edges[graph.half_edges[key].twin].origin,
+                            &mut complex,
+                        );
+                        let curve = graph.half_edges[key]
+                            .curve
+                            .clone()
+                            .or_else(|| graph.half_edges[twin].curve.clone());
+                        let e = complex.add_edge(start, end, curve, tolerance, Some(key));
+                        edge_of_key.insert(key, e);
+                        e
+                    }
+                };
+                uses.push((edge, (h == raw) == rep.same_dir, Some(h)));
+            }
+            if uses.is_empty() {
+                if li == 0 {
+                    return Err(LiftDecline::EmptyOuterLoop { fragment: primary });
+                }
+                continue;
+            }
+            complex.add_loop(face, &uses, li == 0);
+        }
+    }
+
+    Ok(Lift {
+        complex,
+        output_folded_outward,
+    })
+}

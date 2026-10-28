@@ -42,7 +42,7 @@ use crate::merge::graph::IntersectionGraph;
 use crate::merge::graph_duplicates::closest_on_piece;
 
 /// Registered spans: `(start, end, midpoint, edge key)`.
-pub(super) struct SpanRegistry {
+pub(crate) struct SpanRegistry {
     exact: HashMap<(usize, usize, i64, i64, i64), usize>,
     spans: Vec<(Point3, Point3, Point3, usize)>,
     /// Span indices by the grid cell (side 4·`gate`) of their first
@@ -60,7 +60,7 @@ impl SpanRegistry {
     /// midpoints are the same point; `coincide` (the linear tolerance)
     /// is the band within which one span's midpoint lies on the other's
     /// curve piece.
-    pub(super) fn new(gate: f64, coincide: f64) -> Self {
+    pub(crate) fn new(gate: f64, coincide: f64) -> Self {
         Self {
             exact: HashMap::new(),
             spans: Vec::new(),
@@ -78,7 +78,7 @@ impl SpanRegistry {
 
     /// The key of a registered span coincident with graph pair `key`'s
     /// span `(a, b, mid)`, in either direction.
-    pub(super) fn prior_for(
+    pub(crate) fn prior_for(
         &self,
         graph: &IntersectionGraph,
         key: usize,
@@ -121,7 +121,7 @@ impl SpanRegistry {
     }
 
     /// Register a span under `key`.
-    pub(super) fn register(
+    pub(crate) fn register(
         &mut self,
         nodes: (usize, usize),
         a: Point3,

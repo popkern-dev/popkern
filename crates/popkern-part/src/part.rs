@@ -205,19 +205,72 @@ impl Part {
         )
     }
 
+    /// A boolean under explicit [`popkern_bool::BoolOptions`]: with
+    /// `NonManifoldPolicy::SplitToManifold`, parts that only touch
+    /// combine into manifold pieces meeting at recorded contacts
+    /// instead of declining.
+    ///
+    /// # Errors
+    ///
+    /// [`PartError::Boolean`] with the kernel diagnostics.
+    pub fn boolean_with(
+        &self,
+        other: &Part,
+        op: popkern_bool::BoolOperation,
+        options: &popkern_bool::BoolOptions,
+    ) -> Result<Part, PartError> {
+        let name = match op {
+            popkern_bool::BoolOperation::Union => "union",
+            popkern_bool::BoolOperation::Subtraction => "subtract",
+            popkern_bool::BoolOperation::Intersection => "intersect",
+        };
+        self.combine_by(other, name, |a, b, tolerance| {
+            popkern_bool::boolean_with_options(op, a, b, tolerance, None, options)
+        })
+    }
+
+    /// The material in exactly one of the two parts (A ⊕ B). Where the
+    /// parts overlap, the two differences meet with zero thickness, so
+    /// this serves only under `NonManifoldPolicy::SplitToManifold`
+    /// (see [`popkern_bool::symmetric_difference`]).
+    ///
+    /// # Errors
+    ///
+    /// [`PartError::Boolean`] with the kernel diagnostics.
+    pub fn symmetric_difference(
+        &self,
+        other: &Part,
+        options: &popkern_bool::BoolOptions,
+    ) -> Result<Part, PartError> {
+        self.combine_by(other, "symmetric_difference", |a, b, tolerance| {
+            popkern_bool::symmetric_difference(a, b, tolerance, options)
+        })
+    }
+
     fn combine(
         &self,
         other: &Part,
         op: popkern_bool::BoolOperation,
         name: &'static str,
     ) -> Result<Part, PartError> {
+        self.combine_by(other, name, |a, b, tolerance| {
+            popkern_bool::boolean(op, a, b, tolerance, None)
+        })
+    }
+
+    fn combine_by(
+        &self,
+        other: &Part,
+        name: &'static str,
+        run: impl FnOnce(BRep, BRep, Tolerance) -> Result<BRep, popkern_bool::BoolError>,
+    ) -> Result<Part, PartError> {
         let tolerance = finer(self.tolerance, other.tolerance);
-        let result =
-            popkern_bool::boolean(op, self.brep.clone(), other.brep.clone(), tolerance, None)
-                .map_err(|source| PartError::Boolean {
-                    operation: name,
-                    source,
-                })?;
+        let result = run(self.brep.clone(), other.brep.clone(), tolerance).map_err(|source| {
+            PartError::Boolean {
+                operation: name,
+                source,
+            }
+        })?;
         let mut part = Part::from_validated(
             result,
             tolerance,

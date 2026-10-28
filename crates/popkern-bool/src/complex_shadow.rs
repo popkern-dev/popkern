@@ -1,0 +1,151 @@
+//! Shadow comparison of the cell complex against the cellular
+//! classifier (PK-976, plan Stage 7a).
+//!
+//! With `POPKERN_COMPLEX_SHADOW=1` every cellular boolean also
+//! classifies its fragments through the cell complex and records how
+//! the two verdicts compare. Nothing served changes. The registry is
+//! process-global and drained by [`take_complex_shadow_events`]; the
+//! suite-wide measurement (walk completeness, agreement, ray counts)
+//! reads it.
+
+use std::sync::Mutex;
+
+use crate::error::BoolOperation;
+
+/// How the complex verdict compared with the cellular one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComplexShadowOutcome {
+    /// Identical keep/flip for every fragment.
+    Agree,
+    /// The verdicts differ on these fragments.
+    Disagree {
+        /// Fragment indices whose keep or flip differ.
+        fragments: Vec<usize>,
+    },
+    /// The complex declined; the decline's debug form.
+    Declined(String),
+}
+
+/// One shadow comparison.
+#[derive(Debug, Clone)]
+pub struct ComplexShadowEvent {
+    /// The operation.
+    pub operation: BoolOperation,
+    /// Agreement.
+    pub outcome: ComplexShadowOutcome,
+    /// Fragment count.
+    pub fragments: usize,
+    /// Point classifications the complex needed (the cellular path
+    /// casts at least one per sampled fragment).
+    pub classifications: usize,
+    /// Non-manifold edges and vertices the complex found in the
+    /// result of its own selection.
+    pub nonmanifold: (usize, usize),
+}
+
+static EVENTS: Mutex<Vec<ComplexShadowEvent>> = Mutex::new(Vec::new());
+
+/// What the complex did where the cellular classifier could not serve.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComplexRescueOutcome {
+    /// It served the boolean.
+    Served,
+    /// Its selected boundary is non-manifold: the boolean declines
+    /// unless graph-merge produces a body `validate_all` accepts.
+    NonManifold,
+    /// It declined (the decline's display form); graph-merge follows.
+    Declined(String),
+    /// Its body failed the cellular acceptance; graph-merge follows.
+    Invalid(String),
+}
+
+/// One complex rescue attempt.
+#[derive(Debug, Clone)]
+pub struct ComplexRescueEvent {
+    /// The operation.
+    pub operation: BoolOperation,
+    /// What happened.
+    pub outcome: ComplexRescueOutcome,
+}
+
+static RESCUES: Mutex<Vec<ComplexRescueEvent>> = Mutex::new(Vec::new());
+
+/// Record a rescue attempt (and say it once on stderr: a rescue changes
+/// which classifier served the result).
+pub(crate) fn record_complex_rescue(operation: BoolOperation, outcome: ComplexRescueOutcome) {
+    eprintln!("[boolean] complex rescue ({operation:?}): {outcome:?}");
+    if let Ok(mut events) = RESCUES.lock() {
+        events.push(ComplexRescueEvent { operation, outcome });
+    }
+}
+
+/// Record that the complex, serving as the primary classifier, declined
+/// and the cellular classifier decided instead (plan Stage 7c; its
+/// counter must read 0 before the cellular classifier retires).
+pub(crate) fn record_complex_primary_fallback(
+    operation: BoolOperation,
+    diag: &crate::error::BoolDiagnostics,
+) {
+    let reason = diag
+        .error
+        .as_ref()
+        .map_or_else(|| "no error".to_string(), |e| e.to_string());
+    if popkern_core::trace::trace_enabled("complex") {
+        eprintln!("[complex] primary declined ({operation:?}), cellular decides: {reason}");
+    }
+    if let Some(path) = std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let test = std::thread::current().name().unwrap_or("?").to_string();
+            let _ = writeln!(f, "{test}\tPrimaryFallback {operation:?} {reason}");
+        }
+    }
+}
+
+/// Drain every rescue attempt recorded since the last call.
+pub fn take_complex_rescue_events() -> Vec<ComplexRescueEvent> {
+    RESCUES
+        .lock()
+        .map(|mut events| std::mem::take(&mut *events))
+        .unwrap_or_default()
+}
+
+/// Whether shadow comparison is on for this process.
+pub(crate) fn shadow_enabled() -> bool {
+    std::env::var_os("POPKERN_COMPLEX_SHADOW").is_some_and(|v| v == "1")
+}
+
+/// Record one comparison. With `POPKERN_COMPLEX_SHADOW_LOG=<path>` the
+/// event is also appended to that file as one line, so a whole
+/// test-suite run (one process per test) can be measured at once.
+pub(crate) fn record_complex_shadow(event: ComplexShadowEvent) {
+    if popkern_core::trace::trace_enabled("complex") {
+        eprintln!("[complex] shadow {event:?}");
+    }
+    if let Some(path) = std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG") {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            let test = std::thread::current().name().unwrap_or("?").to_string();
+            let _ = writeln!(f, "{test}\t{event:?}");
+        }
+    }
+    if let Ok(mut events) = EVENTS.lock() {
+        events.push(event);
+    }
+}
+
+/// Drain every shadow comparison recorded since the last call.
+pub fn take_complex_shadow_events() -> Vec<ComplexShadowEvent> {
+    EVENTS
+        .lock()
+        .map(|mut events| std::mem::take(&mut *events))
+        .unwrap_or_default()
+}

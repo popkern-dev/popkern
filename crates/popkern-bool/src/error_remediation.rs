@@ -208,6 +208,14 @@ impl BoolError {
                  collision reach, or run with the Decline trim policy \
                  to inspect the detected regions.",
             ),
+            BoolError::NonManifoldResult { .. } => Remediation::new(
+                RemediationAction::NoAction,
+                "The bodies touch along an edge or at a point, so the \
+                 result would have zero-thickness geometry there. Move \
+                 one body so they overlap (or separate them), or make \
+                 the contact a shared face. The contact locations are \
+                 in the error.",
+            ),
         }
     }
 }

@@ -185,7 +185,7 @@ pub(crate) fn orient_pcurve_to_half_edge(
 }
 
 /// Midpoint-of-curve sample used by the span-unification registry.
-pub(super) fn span_sample_points(
+pub(crate) fn span_sample_points(
     graph: &IntersectionGraph,
     key: usize,
 ) -> ((usize, usize), Point3, Point3, Point3) {

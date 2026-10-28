@@ -186,6 +186,20 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
 - **Seam edges** — edges where `face_1 == face_2` (e.g., cylinder seam). Can't be filleted. The fillet analysis rejects them, but other operations should also check.
 - **`validate()` vs `validate_all()`** — `validate()` is the fast path (structural + geometric, no self-intersection). `validate_all()` adds the expensive O(n^2) self-intersection check. Don't call `validate_all()` in hot paths.
 - **`find_starting_points` queue cap** — capped at 50k pairs. Near-coincident NURBS surfaces may produce incomplete results (missing branches). The coincident fast path in `intersect_surfaces` handles the common case.
+- **Non-manifold boolean results decline** — operands touching only
+  along an edge, a line or at a point make a result with zero-thickness
+  contacts. `boolean()` returns `BoolError::NonManifoldResult` with the
+  contact locations instead of serving coincident duplicate edges or
+  vertices, or separate shells that touch. `boolean_with_options` with
+  `NonManifoldPolicy::SplitToManifold` serves manifold pieces instead,
+  each contact recorded in `BRep::topology_contacts`; `validate_all`
+  excuses recorded contacts only. The cell complex
+  (`popkern-bool/src/complex/`) decides membership by region:
+  `POPKERN_COMPLEX=0` disables its rescue of cellular declines,
+  `POPKERN_COMPLEX_PRIMARY=1` makes it the primary classifier,
+  `POPKERN_COMPLEX_SHADOW=1` (with `POPKERN_COMPLEX_SHADOW_LOG=<file>`)
+  records its agreement with the cellular classifier on every boolean,
+  and `POPKERN_COMPLEX_ARTIFACT=<dir>` dumps a declined complex as JSON.
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks

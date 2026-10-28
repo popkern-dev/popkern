@@ -17,6 +17,8 @@ mod contact;
 mod contact_rim;
 #[path = "operation_containment.rs"]
 mod containment;
+#[path = "operation_empty.rs"]
+mod empty;
 #[path = "operation_postprocess.rs"]
 mod postprocess;
 #[path = "operation_postprocess_gate.rs"]
@@ -101,7 +103,24 @@ pub(crate) fn execute_boolean(
     b: &BRep,
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolError> {
-    execute_boolean_full(op, a, b, tolerance, &mut Vec::new(), None, None)
+    execute_boolean_with_policy(
+        op,
+        a,
+        b,
+        tolerance,
+        crate::options::NonManifoldPolicy::Decline,
+    )
+}
+
+/// [`execute_boolean`] under an explicit non-manifold policy.
+pub(crate) fn execute_boolean_with_policy(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+    policy: crate::options::NonManifoldPolicy,
+) -> Result<BRep, BoolError> {
+    execute_boolean_full(op, a, b, tolerance, &mut Vec::new(), None, None, policy)
 }
 
 /// Execute a boolean and populate `metrics` with per-stage timing samples.
@@ -114,7 +133,16 @@ pub(crate) fn execute_boolean_with_metrics(
     tolerance: &Tolerance,
     metrics: &mut Vec<PhaseMetric>,
 ) -> Result<BRep, BoolError> {
-    execute_boolean_full(op, a, b, tolerance, metrics, None, None)
+    execute_boolean_full(
+        op,
+        a,
+        b,
+        tolerance,
+        metrics,
+        None,
+        None,
+        crate::options::NonManifoldPolicy::Decline,
+    )
 }
 
 /// The staged boolean pipeline body (intersect → split → classify →
@@ -123,6 +151,7 @@ pub(crate) fn execute_boolean_with_metrics(
 /// takes copies (PK-815: the late cut of a 255-face disc copied it twice
 /// per boolean); the mixed-sense rescue orchestration lives in
 /// [`sense_rescue::execute_boolean_full`].
+#[allow(clippy::too_many_arguments)]
 pub(super) fn execute_boolean_pipeline(
     op: BoolOperation,
     a: &BRep,
@@ -131,6 +160,7 @@ pub(super) fn execute_boolean_pipeline(
     metrics: &mut Vec<PhaseMetric>,
     cancel: Option<&CancellationToken>,
     mut progress: Option<&mut dyn ProgressReporter>,
+    policy: crate::options::NonManifoldPolicy,
 ) -> Result<BRep, BoolError> {
     check_cancel(cancel)?;
     if popkern_core::trace::trace_enabled("boolean") {
@@ -203,7 +233,7 @@ pub(super) fn execute_boolean_pipeline(
 
     // Coincident-body containment shortcut — verified geometrically
     // (see `operation_containment.rs`).
-    if containment::coincident_containment_applies(a, b, &intersection_result, tolerance) {
+    if containment::coincident_containment_applies(op, a, b, &intersection_result, tolerance) {
         return handle_no_intersection(
             op,
             a.clone(),
@@ -234,6 +264,7 @@ pub(super) fn execute_boolean_pipeline(
         tolerance,
         metrics,
         &mut progress,
+        policy,
     )
 }
 
@@ -250,7 +281,7 @@ impl BoolDiagnostics {
 /// First face with surface geometry whose loop half-edges are missing
 /// a pcurve — the cellular acceptance gate's completeness scan
 /// (PK-463). `None` = trim inventory complete.
-fn first_missing_pcurve_face(r: &BRep) -> Option<popkern_core::topology::FaceHandle> {
+pub(crate) fn first_missing_pcurve_face(r: &BRep) -> Option<popkern_core::topology::FaceHandle> {
     for (fh, fd) in &r.faces {
         if fd.surface.is_none() {
             continue;

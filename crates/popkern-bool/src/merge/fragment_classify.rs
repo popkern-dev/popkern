@@ -24,7 +24,7 @@ use crate::intersect::compute_face_aabbs;
 use fragment_classify_deferred::apply_deferred_on_overrides;
 
 /// Selection decision for a fragment.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct FragmentSelection {
     /// Whether to include this fragment in the result.
     pub keep: bool,

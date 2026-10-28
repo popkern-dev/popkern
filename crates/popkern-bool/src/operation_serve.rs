@@ -37,6 +37,7 @@ pub(super) fn free_half_edges(brep: &BRep) -> usize {
 /// Select fragments (cellular first, graph-merge on fallback) and
 /// serve the result through the post-merge tail and the closure
 /// postcondition (see the module docs).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn select_and_serve(
     original_a: &BRep,
     original_b: &BRep,
@@ -45,6 +46,7 @@ pub(super) fn select_and_serve(
     tolerance: &Tolerance,
     metrics: &mut Vec<PhaseMetric>,
     progress: &mut Option<&mut dyn ProgressReporter>,
+    policy: crate::options::NonManifoldPolicy,
 ) -> Result<BRep, BoolError> {
     // Stage 5: Cellular graph merge — order-independent fragment selection.
     // Falls back to standard graph-merge if cellular fails or produces
@@ -68,6 +70,7 @@ pub(super) fn select_and_serve(
                 op,
                 tolerance,
                 scopes,
+                crate::complex::serve::primary_source(),
             )
         };
         let attempt = |scopes: &crate::scope::OperandScopes| match merge(Some(scopes)) {
@@ -164,6 +167,31 @@ pub(super) fn select_and_serve(
         );
         None
     };
+    // The cell complex (PK-976): where the cellular classifier could
+    // not serve, the complex classifies the same graph and walk by
+    // region membership. A non-manifold verdict is held: graph-merge
+    // gets one try, and its body serves only if `validate_all` finds
+    // no self-touching (today's pseudo-manifold serves fail it);
+    // otherwise the boolean declines with the contacts (D1).
+    let mut nonmanifold: Option<BoolError> = None;
+    let cellular_result = match cellular_result {
+        None if cellular_enabled && crate::complex::serve::complex_rescue_enabled() => {
+            match crate::complex::serve::rescue(
+                original_a,
+                original_b,
+                intersection_result,
+                op,
+                tolerance,
+            ) {
+                Ok(served) => served,
+                Err(error) => {
+                    nonmanifold = Some(error);
+                    None
+                }
+            }
+        }
+        other => other,
+    };
     let closed_operands = free_half_edges(original_a) == 0 && free_half_edges(original_b) == 0;
     let graph = || {
         graph_merge(original_a, original_b, intersection_result, op, tolerance)
@@ -174,7 +202,10 @@ pub(super) fn select_and_serve(
     // a graph-merge one does not.
     let (result, carried, validated) = match cellular_result {
         Some((r, carried)) => (r, carried, true),
-        None => (graph()?, crate::serve_region::Carried::default(), false),
+        None => match graph() {
+            Ok(r) => (r, crate::serve_region::Carried::default(), false),
+            Err(e) => return Err(nonmanifold.unwrap_or(e)),
+        },
     };
     let merged = (result, t_merge.elapsed());
     let served = serve(
@@ -186,7 +217,26 @@ pub(super) fn select_and_serve(
         original_b,
         metrics,
         progress,
-    )?;
+    );
+    let served = match (served, nonmanifold) {
+        (Ok(body), Some(nm)) => {
+            if body.validate_all().is_empty() {
+                return Ok(body);
+            }
+            // Graph-merge splits the contacts into coincident copies;
+            // under the split policy that body serves once every
+            // contact is recorded and `validate_all` accepts it.
+            return match policy {
+                crate::options::NonManifoldPolicy::Decline => Err(nm),
+                crate::options::NonManifoldPolicy::SplitToManifold => {
+                    crate::postprocess::contact_record::accept_split(body, tolerance)
+                        .map_err(|_| nm)
+                }
+            };
+        }
+        (Err(_), Some(nm)) => return Err(nm),
+        (served, None) => served?,
+    };
     let open = free_half_edges(&served);
     if !closed_operands || open == 0 {
         return Ok(served);
@@ -275,6 +325,14 @@ fn serve(
         tolerance,
         &region,
     )?);
+    // A certified empty result (the gate above declines the rest) is
+    // served as a bare `BRep::new`, like every other empty path — not
+    // as the builder's solid and shell with nothing in them (a
+    // line-contact intersection served one shell of zero faces,
+    // PK-966).
+    if result.faces.is_empty() {
+        return Ok(BRep::new(*tolerance));
+    }
 
     // §12.5 / §7.3: gated post-validation. Run the boolean-specific
     // post-check (manifold, Euler, half-edge cycles, watertightness).
@@ -342,6 +400,14 @@ fn serve(
              max imprecision {:.1e}; declining rather than serving it",
             result.max_imprecision
         )));
+    }
+
+    // The output repairs can remove the last faces (a zero-height
+    // sliver ring is all a line contact keeps): the same certificate
+    // decides whether that emptiness is the answer.
+    if result.faces.is_empty() {
+        super::empty::certify_empty_result(op, original_a, original_b)?;
+        return Ok(BRep::new(*tolerance));
     }
 
     // Debug/the boolean trace topic diagnostics on the SERVED result. This runs
