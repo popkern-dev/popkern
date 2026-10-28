@@ -126,3 +126,62 @@ fn the_scoped_merge_assembles_the_unscoped_body() {
         .unwrap_or(true);
     assert!(declined, "a blind scope must not assemble the cut body");
 }
+
+/// A far hole's rim bounds the scope even when the face inside the
+/// hole is active: the rim's half-edge on the holed face never enters
+/// the graph, the inner face's does (measured: a pipped die's dimple
+/// rims, whose dimple faces stayed active, read as free edges in the
+/// cell complex).
+#[test]
+fn a_far_hole_rim_bounds_the_scope() {
+    let tol = Tolerance::default();
+    let block = BRep::prism(
+        &[
+            Point3::new(-1.0, -1.0, 0.0),
+            Point3::new(1.0, -1.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(-1.0, 1.0, 0.0),
+        ],
+        Vec3::new(0.0, 0.0, 1.0),
+        1.0,
+        tol,
+    )
+    .expect("block");
+    let pocket = BRep::cylinder(0.3, 1.0, tol)
+        .expect("pocket")
+        .transform(&popkern_core::geometry::transform::Transform3::translation(
+            0.0, 0.0, 0.5,
+        ))
+        .expect("placed");
+    let body =
+        crate::boolean(BoolOperation::Subtraction, block, pocket, tol, None).expect("pocket cut");
+    let (top, hole) = body
+        .faces
+        .iter()
+        .find_map(|(f, face)| face.inner_loops.first().map(|&l| (f, l)))
+        .expect("the top face carries the pocket's rim as a hole");
+    let mut scope = super::ActiveScope {
+        active: body.faces.keys().collect(),
+        ..Default::default()
+    };
+    let rim: Vec<_> = body
+        .edges
+        .keys()
+        .filter(|&e| {
+            let he = body.edges[e].half_edge;
+            [he, body.half_edges[he].twin]
+                .iter()
+                .any(|&h| body.half_edges[h].loop_ == hole)
+        })
+        .collect();
+    assert!(!rim.is_empty());
+    // Every face active, no far hole: nothing bounds the scope.
+    assert!(body.edges.keys().all(|e| !scope.bounds(&body, e)));
+    scope.far_holes.insert(top, vec![hole]);
+    let bounding: Vec<_> = body
+        .edges
+        .keys()
+        .filter(|&e| scope.bounds(&body, e))
+        .collect();
+    assert_eq!(bounding, rim);
+}

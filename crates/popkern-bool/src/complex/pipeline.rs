@@ -196,7 +196,12 @@ pub(crate) fn classify_with_complex(
     }
     let staged = (|| {
         checked(&lift.complex)?;
-        let half = super::record_use::half_registered_records(&lift.complex, input.graph);
+        let half = super::record_use::half_registered_records(
+            &lift.complex,
+            input.graph,
+            input.operands,
+            linear,
+        );
         if !half.is_empty() {
             return Err(ComplexDecline::HalfRegisteredRecords(half));
         }

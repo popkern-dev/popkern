@@ -227,13 +227,11 @@ pub(crate) fn cellular_graph_merge(
         crate::chart_walk_fallback::record_chart_walk_fallback(face_ref, reason);
     }
 
-    let mut frontier = frontier_keys(&graph, original_a, &hemap_a, scope);
-    frontier.extend(frontier_keys(
+    let frontier = frontier_keys(
         &graph,
-        original_b,
-        &hemap_b,
-        scopes.and_then(|s| s.b.as_ref()),
-    ));
+        [original_a, original_b],
+        [scope, scopes.and_then(|s| s.b.as_ref())],
+    );
     let complex_input = crate::complex::pipeline::ComplexInput {
         graph: &graph,
         fragments: &fragments,
@@ -352,25 +350,32 @@ pub(crate) fn cellular_graph_merge(
     Ok((result, carried))
 }
 
-/// Graph edge keys (`min(half-edge, twin)`) of `scope`'s frontier
-/// edges: the active face's half-edge entered the graph, the far
-/// face's did not, so the complex sees one fin there by design.
+/// Graph edge keys (`min(half-edge, twin)`) of the edges bounding
+/// each operand's scope, split pieces included: one side's half-edge
+/// entered the graph, the other's did not, so the complex sees one fin
+/// there by design. That is an active face against a far face, or
+/// against a far hole of an active face (measured: a pipped die's
+/// dimple rims, carried as far holes of the face they cut, around
+/// dimple faces that stayed active). Read from each graph edge's
+/// provenance, which names every piece of a split edge.
 fn frontier_keys(
     graph: &IntersectionGraph,
-    brep: &BRep,
-    hemap: &std::collections::HashMap<popkern_core::topology::HalfEdgeHandle, usize>,
-    scope: Option<&crate::scope::ActiveScope>,
+    operands: [&BRep; 2],
+    scopes: [Option<&crate::scope::ActiveScope>; 2],
 ) -> std::collections::BTreeSet<usize> {
-    let Some(scope) = scope else {
-        return Default::default();
+    use crate::merge::graph::EdgeSource;
+    let bounds = |k: usize, e: &popkern_core::topology::EdgeHandle| {
+        scopes[k].is_some_and(|s| s.bounds(operands[k], *e))
     };
-    scope
-        .frontier
+    graph
+        .half_edges
         .iter()
-        .filter_map(|&e| brep.edges.get(e).map(|edge| edge.half_edge))
-        .flat_map(|he| [Some(he), brep.half_edges.get(he).map(|h| h.twin)])
-        .flatten()
-        .filter_map(|he| hemap.get(&he).copied())
-        .filter_map(|h| Some(h.min(graph.half_edges.get(h)?.twin)))
+        .enumerate()
+        .filter(|(_, he)| match &he.source {
+            EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => bounds(0, e),
+            EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => bounds(1, e),
+            EdgeSource::Shared { .. } => false,
+        })
+        .map(|(h, he)| h.min(he.twin))
         .collect()
 }
