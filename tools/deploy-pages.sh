@@ -171,6 +171,7 @@ check "install.sh" "text/plain"
 check "install.ps1" "text/plain"
 check "llms.txt" "text/plain"
 check "index.md" "text/markdown"
+check "scripting-guide.md" "text/markdown"
 check "blog/announcing-popkern.md" "text/markdown"
 for file in install.sh install.ps1; do
   curl -fsS "$SITE_URL/$file" | cmp -s - "web/lander/$file" ||

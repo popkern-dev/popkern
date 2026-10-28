@@ -1,0 +1,88 @@
+# popkern
+
+> $tagline
+
+popkern is an open-source parametric boundary-representation (BRep) CAD
+kernel in Rust. Parts are short Rhai scripts that record a feature tree;
+the same script builds the same part in the browser (popkern live) or
+natively. Booleans, fillets and chamfers (with G2 corner caps), sweeps,
+revolves, lofts, shelling, constrained sketches, assemblies and STEP in
+and out. When an operation cannot produce a valid solid it declines with
+a structured error instead of returning a broken one. License: AGPL-3.0
+for the kernel, with an exception that leaves user scripts, models and
+STEP files to their authors.
+
+## Install
+
+macOS and Linux:
+
+```sh
+curl -fsSL ${base}install.sh | sh
+```
+
+Windows (PowerShell):
+
+```powershell
+irm ${base}install.ps1 | iex
+```
+
+This installs the `popkern` command, which includes popkern live served
+locally. Nothing to install to try it: ${base}live/ runs the kernel in
+the browser (compiled to WebAssembly).
+
+## Quick start
+
+```sh
+popkern new my-parts/bracket     # scaffold a project: popkern.toml + migrations/001_base.rhai
+popkern serve my-parts           # popkern live on http://127.0.0.1:7690, projects from my-parts/
+popkern run part.rhai --step part.step --png part.png   # one script straight to STEP and a render
+popkern build my-parts/bracket --step bracket.step      # a project's migrations, in order, to STEP
+```
+
+A part script (a plate with a boss, rounded; from the scripting guide,
+where every code block runs in the test suite):
+
+```rhai
+$example
+```
+
+`popkern run` exit codes: 0 served, 2 script error, 3 kernel decline,
+4 gate or export failure, 5 project structure error, 6 diverged history
+under `--strict`. `--json` prints the report as JSON.
+
+A project is a folder of numbered migration scripts
+(`migrations/001_plate.rhai`, `002_boss.rhai`, ...), each starting from
+the previous one's model with `previous()`. Projects are plain files and
+build to one `.pkn` document or a STEP file.
+
+## Use popkern from an AI agent (MCP)
+
+`popkern serve` also answers the Model Context Protocol at `/mcp`
+(JSON-RPC over HTTP). For Claude Code:
+
+```sh
+claude mcp add --transport http popkern http://127.0.0.1:7690/mcp
+```
+
+Tools: `list_projects`, `read_project`, `create_project`, `write_file`
+(a migration or `popkern.toml`), `delete_file`, `build_project` (outcome,
+per-migration status, failures, parameters, and per body its face count,
+bounds and watertightness), `run_script` (try a loose script without
+saving) and `export_step`. The server binds to loopback only and has no
+authentication.
+
+## API and documentation
+
+- [Scripting guide](${base}scripting-guide.md): the whole Rhai API on one page: mental model, planes, sketches, every feature verb, edge and face selectors, parameters, reading the model back, migrations and projects, error classes, assemblies, films, and a cheat-sheet. Read this first.
+- [Scripting surface specification](https://github.com/popkern-dev/popkern/blob/main/docs/architecture/scripting-surface.md): the normative, language-agnostic contract behind the script API, MCP tools and GUI; every operation, parameter and error class, with stability marks.
+- [Research citations](https://github.com/popkern-dev/popkern/blob/main/docs/reference/citations.md): which papers each kernel algorithm implements.
+- [README](https://github.com/popkern-dev/popkern/blob/main/README.md): building from source.
+- [AGENTS.md](https://github.com/popkern-dev/popkern/blob/main/AGENTS.md): the crate map, dependency rules and quality gates, for building on the kernel directly from Rust or contributing.
+
+$pages
+
+## Project
+
+- [Source code](https://github.com/popkern-dev/popkern): the kernel, CLI and popkern live
+- [Issues](https://github.com/popkern-dev/popkern/issues): bug reports; a part popkern cannot build becomes a test case
+- [Discord](https://discord.gg/38p9xBBwff): questions and show-and-tell

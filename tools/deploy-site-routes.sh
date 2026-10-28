@@ -111,9 +111,10 @@ tar -C web/lander \
 CSS_STAMP=$(sha256sum web/lander/assets/css/site.css | cut -c1-8)
 find "$LANDER_STAGE" -name '*.html' -exec \
   sed -i -E "s/site\.css\?v=[0-9a-f]+/site.css?v=$CSS_STAMP/g" {} +
-# The agent-readable copies: llms.txt and a .md beside each page, made
-# from the staged pages so they always match what is served.
-python3 web/lander/tools/make-markdown.py "$LANDER_STAGE"
+# The agent-readable copies: a .md beside each page, the scripting guide
+# as scripting-guide.md, and llms.txt, made from the staged pages and
+# the guide's source so they always match what is served.
+python3 web/lander/tools/make-markdown.py "$LANDER_STAGE" docs/reference/scripting-guide.md
 # Replace the root's lander entries (never live/ or the stage itself),
 # then move the staged ones in: each entry swaps by rename.
 find "$SITE" -mindepth 1 -maxdepth 1 ! -name live ! -name "$(basename "$LANDER_STAGE")" \

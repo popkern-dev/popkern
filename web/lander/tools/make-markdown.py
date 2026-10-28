@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Write the site's agent-readable copies: one Markdown file per page and
-/llms.txt, the index that lists them.
+"""Write the site's agent-readable copies: one Markdown file per page, a
+copy of the scripting guide, and /llms.txt, the guide for agents that
+links them.
 
-    python3 tools/make-markdown.py <site-dir> [<base-url>]
+    python3 tools/make-markdown.py <site-dir> <scripting-guide.md> [<base-url>]
 
 Each page in PAGES gets a .md beside it (index.html -> index.md,
 blog/announcing-popkern.html -> blog/announcing-popkern.md) holding its
@@ -11,10 +12,18 @@ blog/announcing-popkern.html -> blog/announcing-popkern.md) holding its
 The pages name their copy with <link rel="alternate" type="text/markdown">,
 and a hidden block at the top of each body points to llms.txt.
 
+The scripting guide (docs/reference/scripting-guide.md, the source popkern
+live's guide.html is rendered from) is copied to /scripting-guide.md with
+its repo-relative links pointed at GitHub. llms.txt is tools/llms.txt.in
+filled in: the homepage tagline, the guide's boss-plate script as the
+example, and the list of page copies.
+
 Run by tools/deploy-site-routes.sh on the staged tree, never on the source:
-the copies are derived from the HTML, so they cannot drift from it. Exits
-non-zero if a page is missing, has no <main>, or converts to nothing.
-Standard library only.
+the copies are derived from the HTML and the guide, so they cannot drift
+from them. Exits non-zero if a page is missing, has no <main>, or converts
+to nothing; if the guide's example is gone; or if a shell command in
+llms.txt is not also on the install page (the install page is the one
+that is reviewed). Standard library only.
 """
 
 import html
@@ -22,6 +31,7 @@ import re
 import sys
 from html.parser import HTMLParser
 from pathlib import Path
+from string import Template
 from urllib.parse import urljoin
 
 # (page, section in llms.txt). Order is the order llms.txt lists them.
@@ -34,15 +44,11 @@ PAGES = [
     ("blog/announcing-popkern.html", "Blog"),
 ]
 
-# Off-site references an agent needs as much as the pages themselves.
-PROJECT_LINKS = [
-    ("Source code", "https://github.com/popkern-dev/popkern",
-     "the kernel, CLI and popkern live, AGPL-3.0 with a user-script exception"),
-    ("Documentation", "https://github.com/popkern-dev/popkern/tree/main/docs",
-     "design docs and references"),
-    ("Issues", "https://github.com/popkern-dev/popkern/issues",
-     "bug reports; a part popkern cannot build becomes a test case"),
-]
+REPO_BLOB = "https://github.com/popkern-dev/popkern/blob/main/"
+# The guide's worked example, quoted into llms.txt.
+EXAMPLE_SECTION = "## 3. The boss plate, line by line"
+# Lines of llms.txt that must match the install page word for word.
+INSTALL_COMMAND = re.compile(r"(curl |irm |claude mcp add )")
 
 SKIP = {"svg", "button", "script", "style", "template", "nav"}
 BLOCK = {"p", "div", "section", "article", "header", "figure", "figcaption",
@@ -213,11 +219,11 @@ def head_meta(source):
 
 
 def main(argv):
-    if len(argv) not in (2, 3):
+    if len(argv) not in (3, 4):
         print(__doc__, file=sys.stderr)
         return 2
-    site = Path(argv[1])
-    base = (argv[2] if len(argv) == 3 else "https://popkern.dev").rstrip("/") + "/"
+    site, guide_path = Path(argv[1]), Path(argv[2])
+    base = (argv[3] if len(argv) == 4 else "https://popkern.dev").rstrip("/") + "/"
     sections = {}
     for page, section in PAGES:
         path = site / page
@@ -243,22 +249,39 @@ def main(argv):
         sections.setdefault(section, []).append(
             f"- [{title}]({urljoin(base, md_path(page))}): {desc}")
 
-    index_title, index_desc = head_meta((site / "index.html").read_text("utf-8"))
-    lines = [
-        "# popkern",
-        "",
-        f"> {index_desc}",
-        "",
-        "Every page below is the Markdown copy of a page on this site; the "
-        "HTML page is at the same path without `.md`. popkern live, the "
-        f"in-browser editor, is at {base}live/ (an app, not a document).",
-    ]
+    _, tagline = head_meta((site / "index.html").read_text("utf-8"))
+    guide = guide_path.read_text(encoding="utf-8")
+    # The guide's links are relative to docs/reference/ in the repo.
+    guide_copy = re.sub(
+        r"\]\((?!https?:|#)([^)]+)\)",
+        lambda m: "](" + urljoin(REPO_BLOB + "docs/reference/", m.group(1)) + ")",
+        guide)
+    (site / "scripting-guide.md").write_text(guide_copy, encoding="utf-8")
+
+    example = re.search(re.escape(EXAMPLE_SECTION) + r"\s+```rhai\n(.*?)\n```",
+                        guide, re.S)
+    if not example:
+        print(f"make-markdown: {guide_path} has no rhai block under "
+              f"'{EXAMPLE_SECTION}'", file=sys.stderr)
+        return 1
+    page_list = []
     for section, entries in sections.items():
-        lines += ["", f"## {section}", "", *entries]
-    lines += ["", "## Project", ""]
-    lines += [f"- [{name}]({url}): {note}" for name, url, note in PROJECT_LINKS]
-    (site / "llms.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"make-markdown: {len(PAGES)} pages and llms.txt in {site}")
+        page_list += [f"## {section} pages (Markdown copies)", "", *entries, ""]
+    template = Template(
+        (Path(__file__).parent / "llms.txt.in").read_text(encoding="utf-8"))
+    llms = template.substitute(base=base, tagline=tagline,
+                               example=example.group(1),
+                               pages="\n".join(page_list).rstrip())
+    install_page = html.unescape(
+        (site / "install/index.html").read_text(encoding="utf-8"))
+    for command in llms.splitlines():
+        if INSTALL_COMMAND.match(command) and command not in install_page:
+            print(f"make-markdown: llms.txt says `{command}` but the install "
+                  "page does not", file=sys.stderr)
+            return 1
+    (site / "llms.txt").write_text(llms, encoding="utf-8")
+    print(f"make-markdown: {len(PAGES)} pages, the scripting guide and "
+          f"llms.txt in {site}")
     return 0
 
 
