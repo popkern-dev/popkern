@@ -117,6 +117,9 @@ impl BRep {
             }
         }
 
+        // Recorded zero-thickness contacts are adjacencies (PK-964).
+        adjacent.extend(self.contact_index_pairs(&face_keys));
+
         // ------------------------------------------------------------------ //
         // 2. Compute face AABBs via 5×5 sampling; build BVH                  //
         // ------------------------------------------------------------------ //

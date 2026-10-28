@@ -329,6 +329,9 @@ impl crate::topology::BRep {
         for (_, vertex) in &mut result.vertices {
             vertex.position = t.apply_point(&vertex.position);
         }
+        for contact in &mut result.topology_contacts {
+            contact.location = t.apply_point(&contact.location);
+        }
         // Rotational charts (cylinder/cone/sphere/torus) anchor U to
         // orthonormal_basis(axis) — a convention of the axis
         // direction, not of the material. A rigid rotation moves the

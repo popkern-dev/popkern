@@ -32,7 +32,9 @@ pub use vertex::Vertex;
 
 pub mod brep;
 pub use brep::BRep;
+pub mod contact;
 pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
+pub use contact::{ContactEntity, TopologyContact, TopologyContactKind};
 pub mod coherence;
 pub use coherence::{
     CoherenceReport, CoherenceValidationScope, L2Disagreement, PendingCoherenceMarker,
