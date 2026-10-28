@@ -64,9 +64,8 @@ pub fn chamfer_edges_cancellable(
     }
 }
 
-/// Shared chamfer entry: the pipeline, with declines at mixed
-/// concave/convex corners restated to name the corner
-/// ([`crate::chamfer_decline`]).
+/// Shared chamfer entry: one pass, or fills first when a concave and a
+/// convex chamfer end at one vertex ([`crate::chamfer_mixed_corner`]).
 fn chamfer_edges_internal(
     brep: &BRep,
     specs: &[ChamferSpec],
@@ -75,8 +74,19 @@ fn chamfer_edges_internal(
     tracking: Option<&mut TrackingContext>,
     cancel: Option<&cancellation::CancellationToken>,
 ) -> Result<BlendResult, BlendError> {
-    chamfer_pipeline(brep, specs, options, tolerance, tracking, cancel)
-        .map_err(|error| crate::chamfer_decline::explain_mixed_corners(brep, specs, error))
+    let mixed = crate::chamfer_mixed_corner::mixed_corners(brep, specs);
+    if mixed.is_empty() {
+        return chamfer_pipeline(brep, specs, options, tolerance, tracking, cancel);
+    }
+    crate::chamfer_mixed_corner::chamfer_fills_first(
+        brep,
+        specs,
+        tolerance,
+        tracking,
+        cancel,
+        &mixed,
+        |body, stage, cancel| chamfer_pipeline(body, stage, options, tolerance, None, cancel),
+    )
 }
 
 /// Shared chamfer pipeline: cooperative polls between stages and the

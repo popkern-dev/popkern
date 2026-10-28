@@ -11,6 +11,8 @@
 //!   The bevels mitre; when the four planes do not concur (hexagon,
 //!   slanted ramp) the corner needs an extra connector edge.
 //!
+//! Mixed corners (PK-996) are `chamfer_mixed_corners.rs`.
+//!
 //! Every gate here is numeric: validation (structure, check 9, open
 //! loops, self-intersection) plus the exact volume, from a closed form
 //! for orthogonal fixtures and from an independent half-space clip for
@@ -18,105 +20,19 @@
 //! with the bevel half-spaces). Scale and rotation sweeps show the
 //! constructions are not fixture-specific.
 
+#[path = "support/chamfer_fixtures.rs"]
+#[allow(dead_code)] // not every fixture is used here
+mod chamfer_fixtures;
 #[path = "support/mesh_gauges.rs"]
 #[allow(dead_code)] // the welded-mesh gauge is not used here
 mod mesh_gauges;
 
-use popkern_blend::{
-    BlendError, BlendFailure, ChamferKind, ChamferOptions, ChamferSpec, chamfer_edges,
-};
+use chamfer_fixtures::*;
+use popkern_blend::{ChamferKind, ChamferOptions, ChamferSpec, chamfer_edges};
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle};
-
-const D: f64 = 0.1;
-
-fn p(x: f64, y: f64, z: f64) -> Point3 {
-    Point3::new(x, y, z)
-}
-
-/// A prism over the CCW outline `xy` from `z0` up `h`.
-fn prism(xy: &[(f64, f64)], z0: f64, h: f64) -> BRep {
-    let outline: Vec<Point3> = xy.iter().map(|&(x, y)| p(x, y, z0)).collect();
-    BRep::prism(&outline, Vec3::new(0.0, 0.0, 1.0), h, Tolerance::default()).expect("prism")
-}
-
-fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<(f64, f64)> {
-    vec![(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-}
-
-fn subtract(body: BRep, tool: BRep) -> BRep {
-    popkern_bool::subtraction(body, tool, Tolerance::default(), None).expect("fixture subtract")
-}
-
-/// The 2 × 2 × 1 block with a 1 × 1 × 0.5 pocket in its top.
-fn pocket_block() -> BRep {
-    subtract(
-        prism(&rect(-1.0, -1.0, 1.0, 1.0), 0.0, 1.0),
-        prism(&rect(-0.5, -0.5, 0.5, 0.5), 0.5, 1.0),
-    )
-}
-
-/// The edge with endpoints `a` and `b` (either order).
-fn edge(brep: &BRep, a: Point3, b: Point3) -> EdgeHandle {
-    let gate = 1e-9 * (1.0 + a.distance_to(&b));
-    brep.edges
-        .iter()
-        .find(|(_, e)| {
-            let he = &brep.half_edges[e.half_edge];
-            let (o, d) = (
-                brep.vertices[he.origin].position,
-                brep.vertices[brep.half_edges[he.twin].origin].position,
-            );
-            (o.distance_to(&a) < gate && d.distance_to(&b) < gate)
-                || (o.distance_to(&b) < gate && d.distance_to(&a) < gate)
-        })
-        .map(|(h, _)| h)
-        .unwrap_or_else(|| panic!("no edge {a:?} – {b:?}"))
-}
-
-fn chamfer(brep: &BRep, edges: &[(Point3, Point3)], d: f64) -> Result<BRep, BlendError> {
-    let specs: Vec<ChamferSpec> = edges
-        .iter()
-        .map(|&(a, b)| ChamferSpec {
-            edge: edge(brep, a, b),
-            kind: ChamferKind::Equal(d),
-        })
-        .collect();
-    chamfer_edges(
-        brep,
-        &specs,
-        &ChamferOptions::default(),
-        Tolerance::default(),
-        None,
-    )
-    .map(|r| r.brep)
-}
-
-/// Valid by every validator and exactly `expected` in volume.
-fn assert_exact(label: &str, brep: &BRep, expected: f64) {
-    brep.validate()
-        .unwrap_or_else(|e| panic!("{label}: invalid: {e}"));
-    assert_eq!(
-        mesh_gauges::brep_open_defects(brep),
-        (0, 0, 0),
-        "{label}: validate_all defects"
-    );
-    let volume = mesh_gauges::mesh_volume(brep);
-    let rel = (volume - expected).abs() / expected;
-    assert!(
-        rel < 1e-9,
-        "{label}: volume {volume:.12} vs exact {expected:.12} (rel {rel:.1e})"
-    );
-}
-
-/// Removed volume of an equal-distance chamfer ring around a
-/// rectangular opening `w × h` (four reflex corners): the frustum of
-/// the inset rectangles minus the opening's own prism.
-fn opening_ring(w: f64, h: f64, d: f64) -> f64 {
-    (w + h) * d * d + 4.0 * d * d * d / 3.0
-}
+use popkern_core::topology::BRep;
 
 #[test]
 fn pocket_rim_edge_ends_flush_with_the_pocket_walls() {
@@ -304,7 +220,8 @@ fn slanted_ramp_top_edges_non_concurrent() {
     }
 }
 
-/// The reflex pocket-rim pair and the non-concurrent hexagon pair at
+/// The reflex pocket-rim pair, the non-concurrent hexagon pair and the
+/// mixed L corner at
 /// other scales and rotated off every axis: the same corners, so the
 /// volume scales as s³ (and matches the clip of the placed body).
 #[test]
@@ -343,63 +260,14 @@ fn reflex_pair_scale_and_rotation_sweep() {
         let out = chamfer(&body, &edges, D * s).unwrap_or_else(|e| panic!("hex scale {s}: {e}"));
         let exact = halfspace_oracle::chamfered_volume(&body, &edges, D * s);
         assert_exact(&format!("hexagon pair, scale {s}"), &out, exact);
-    }
-}
-
-/// A concave (fill) chamfer and a convex (cut) chamfer ending at the
-/// same vertex have no construction: the decline names the corner and
-/// points at chamfering them separately, and hands the input back.
-#[test]
-fn mixed_corner_declines_naming_the_corner() {
-    let l = prism(
-        &[
-            (0.0, 0.0),
-            (2.0, 0.0),
-            (2.0, 1.0),
-            (1.0, 1.0),
-            (1.0, 2.0),
-            (0.0, 2.0),
-        ],
-        0.0,
-        0.5,
-    );
-    let err = chamfer(
-        &l,
-        &[
-            (p(1.0, 1.0, 0.0), p(1.0, 1.0, 0.5)),
-            (p(2.0, 1.0, 0.5), p(1.0, 1.0, 0.5)),
-        ],
-        D,
-    )
-    .expect_err("mixed corner declines");
-    let BlendError::PartialFailure {
-        failures,
-        partial_result,
-        ..
-    } = err
-    else {
-        panic!("expected a per-edge decline, got {err:?}");
-    };
-    assert_eq!(
-        partial_result.faces.len(),
-        l.faces.len(),
-        "input handed back"
-    );
-    assert!(!failures.is_empty());
-    for (_, failure) in &failures {
-        let BlendFailure::VertexBlendFailed {
-            reason, location, ..
-        } = failure
-        else {
-            panic!("expected the corner to be named, got {failure:?}");
-        };
-        assert!(reason.starts_with("mixed chamfer corner"), "{reason}");
-        assert!(location.is_some_and(|q| q.distance_to(&p(1.0, 1.0, 0.5)) < 1e-9));
-        let hint = failure.remediation_hint();
-        assert!(
-            hint.rationale.contains("separate operations"),
-            "{}",
-            hint.rationale
-        );
+        // The mixed (fills-first) corner, placed the same way.
+        let body = l_prism().transform(&place).expect("placed L");
+        let edges = [
+            (at(p(1.0, 1.0, 0.0)), at(p(1.0, 1.0, 0.5))),
+            (at(p(2.0, 1.0, 0.5)), at(p(1.0, 1.0, 0.5))),
+        ];
+        let out = chamfer(&body, &edges, D * s).unwrap_or_else(|e| panic!("L scale {s}: {e}"));
+        let unit_l = 1.5 + fill(0.5) - cut_against_fill(1.0);
+        assert_exact(&format!("L mixed, scale {s}"), &out, unit_l * s * s * s);
     }
 }

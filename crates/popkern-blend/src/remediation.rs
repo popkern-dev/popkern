@@ -309,16 +309,17 @@ impl BlendFailure {
                 }
             }
             BlendFailure::VertexBlendFailed { reason, .. }
-                if reason.starts_with(crate::chamfer_decline::MIXED_CORNER) =>
+                if reason.starts_with(crate::chamfer_mixed_corner::MIXED_CORNER) =>
             {
                 Remediation::new(
                     RemediationAction::Precheck,
                     format!(
                         "A concave chamfer and a convex chamfer end at the same \
-                         vertex ({reason}), and that corner has no construction \
-                         in one operation. Chamfer the concave edges and the \
-                         convex edges in separate operations: each then sees \
-                         the other's result."
+                         vertex; the corner is built fills first (the concave \
+                         chamfers, then the convex ones against them) and that \
+                         declined ({reason}). Chamfer the convex edges first in a \
+                         separate operation (the other order), or reduce the \
+                         distances."
                     ),
                 )
             }
