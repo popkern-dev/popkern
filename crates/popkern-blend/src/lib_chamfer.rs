@@ -64,10 +64,25 @@ pub fn chamfer_edges_cancellable(
     }
 }
 
+/// Shared chamfer entry: the pipeline, with declines at mixed
+/// concave/convex corners restated to name the corner
+/// ([`crate::chamfer_decline`]).
+fn chamfer_edges_internal(
+    brep: &BRep,
+    specs: &[ChamferSpec],
+    options: &ChamferOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    cancel: Option<&cancellation::CancellationToken>,
+) -> Result<BlendResult, BlendError> {
+    chamfer_pipeline(brep, specs, options, tolerance, tracking, cancel)
+        .map_err(|error| crate::chamfer_decline::explain_mixed_corners(brep, specs, error))
+}
+
 /// Shared chamfer pipeline: cooperative polls between stages and the
 /// per-edge loop; `cancel` also rides into the apply phase's per-stage
 /// and per-corner polls.
-fn chamfer_edges_internal(
+fn chamfer_pipeline(
     brep: &BRep,
     specs: &[ChamferSpec],
     options: &ChamferOptions,
@@ -194,7 +209,7 @@ fn chamfer_edges_internal(
                         .map(|s| {
                             (
                                 s.edge,
-                                BlendFailure::InvalidTopology {
+                                BlendFailure::InconsistentGeometry {
                                     reason: format!(
                                         "rim chain chamfer failed post-validation: {}",
                                         structural
@@ -273,6 +288,16 @@ fn chamfer_edges_internal(
     )
     .map_err(|failure| BlendError::partial_failure(specs.len(), brep.clone(), vec![failure]))?;
     apply_result.repair_report.mitre_apex_corners = mitre.corners_settled;
+    // Bevel-pair corners (PK-994): two bevels and a sharp edge whose
+    // planes do not concur get their exact connector. Transactional.
+    let pair = construct::bevel_pair_corner::settle_bevel_pair_corners(
+        brep,
+        &mut apply_result.brep,
+        &edge_geometries,
+        &tolerance,
+    )
+    .map_err(|failure| BlendError::partial_failure(specs.len(), brep.clone(), vec![failure]))?;
+    apply_result.repair_report.bevel_pair_corners = pair.corners_settled;
 
     if popkern_core::trace::trace_enabled("fillet") {
         eprintln!(
@@ -349,7 +374,7 @@ fn chamfer_edges_internal(
                 .map(|s| {
                     (
                         s.edge,
-                        BlendFailure::InvalidTopology {
+                        BlendFailure::InconsistentGeometry {
                             reason: format!(
                                 "chamfer result failed curve-surface validation: {deviation}"
                             ),

@@ -9,6 +9,8 @@ use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
+#[path = "perp_anchor_collinear_chain.rs"]
+mod perp_anchor_collinear_chain;
 #[path = "perp_anchor_positions.rs"]
 mod perp_anchor_positions;
 #[path = "perp_anchor_rail_proximity.rs"]

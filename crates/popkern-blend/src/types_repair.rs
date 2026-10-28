@@ -21,6 +21,10 @@ pub struct BlendRepairReport {
     /// was chamfered with concurrent planar bevels and the per-edge
     /// cluster was rebuilt as an exact mitre apex.
     pub mitre_apex_corners: usize,
+    /// PK-994: valence-3 corners where two planar bevels meet a sharp
+    /// edge whose planes do not concur, rebuilt with the exact
+    /// connector edge.
+    pub bevel_pair_corners: usize,
     /// Whole-blend support-face seam relocation diagnostics.
     pub support_seam_relocation: SupportSeamRelocationReport,
     /// Straight edge curves reauthored to terminate at their owning topology

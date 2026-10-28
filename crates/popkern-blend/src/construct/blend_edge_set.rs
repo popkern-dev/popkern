@@ -5,7 +5,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use popkern_core::geometry::NurbsCurve;
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::topology::{EdgeHandle, FaceHandle};
 
 use super::EdgeGeometry;
@@ -17,6 +18,8 @@ pub(crate) struct BlendEdgeSet {
     rails: HashMap<(EdgeHandle, FaceHandle), NurbsCurve>,
     faces: HashMap<EdgeHandle, (FaceHandle, FaceHandle)>,
     concave: HashSet<EdgeHandle>,
+    /// Planar strips (chamfer bevels) as `(origin, normal)`.
+    bevels: HashMap<EdgeHandle, (Point3, Vec3)>,
 }
 
 impl BlendEdgeSet {
@@ -34,6 +37,9 @@ impl BlendEdgeSet {
                 .insert(e, (eg.analysis.face_1, eg.analysis.face_2));
             if eg.analysis.convexity == crate::analysis::Convexity::Concave {
                 set.concave.insert(e);
+            }
+            if let SurfaceGeometry::Plane { origin, normal, .. } = &eg.surface {
+                set.bevels.insert(e, (*origin, *normal));
             }
         }
         set
@@ -62,6 +68,26 @@ impl BlendEdgeSet {
         (self.concave.contains(&edge) && self.concave.contains(&neighbour))
             .then(|| self.rail(neighbour, face))
             .flatten()
+    }
+
+    /// The bevel plane of `edge` when it is blended with a planar
+    /// strip (a chamfer).
+    pub(crate) fn bevel(&self, edge: EdgeHandle) -> Option<(Point3, Vec3)> {
+        self.bevels.get(&edge).copied()
+    }
+
+    /// Whether every edge at `vertex` of `brep` is blended by this
+    /// operation (a corner chamfered all round belongs to the mitre
+    /// apex stage, not to the bevel-pair mitre).
+    pub(crate) fn blends_every_edge_at(
+        &self,
+        brep: &popkern_core::topology::BRep,
+        vertex: popkern_core::topology::VertexHandle,
+    ) -> bool {
+        brep.half_edges
+            .values()
+            .filter(|he| he.origin == vertex)
+            .all(|he| self.edges.contains(&he.edge))
     }
 
     /// The support `edge`'s strip lays on other than `face`.

@@ -32,7 +32,7 @@ use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 
 /// The point where three planes meet, `None` when they share a line or
 /// two are parallel.
-fn three_plane_point(a: &Plane, b: &Plane, c: &Plane) -> Option<Point3> {
+pub(super) fn three_plane_point(a: &Plane, b: &Plane, c: &Plane) -> Option<Point3> {
     let (n1, n2, n3) = (a.1, b.1, c.1);
     let det = n1.dot(&n2.cross(&n3));
     if det.abs() < 1e-9 {
