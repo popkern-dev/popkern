@@ -34,14 +34,15 @@ pub(crate) fn complex_artifact_json(c: &CellComplex) -> String {
         let radial: Vec<String> = e.radial.iter().map(|f| f.0.to_string()).collect();
         let _ = write!(
             s,
-            "{{\"id\":{i},\"v\":[{},{}],\"curve\":{},\"tol\":{:e},\"radial\":[{}],\"ordered\":{},\"key\":{}}}",
+            "{{\"id\":{i},\"v\":[{},{}],\"curve\":{},\"tol\":{:e},\"radial\":[{}],\"ordered\":{},\"key\":{},\"frontier\":{}}}",
             e.start.0,
             e.end.0,
             e.curve.is_some(),
             e.tolerance,
             radial.join(","),
             e.radial_ordered,
-            opt(e.source_key)
+            opt(e.source_key),
+            e.frontier
         );
     }
     s.push_str("],\"fins\":[");

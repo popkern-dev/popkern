@@ -227,6 +227,13 @@ pub(crate) fn cellular_graph_merge(
         crate::chart_walk_fallback::record_chart_walk_fallback(face_ref, reason);
     }
 
+    let mut frontier = frontier_keys(&graph, original_a, &hemap_a, scope);
+    frontier.extend(frontier_keys(
+        &graph,
+        original_b,
+        &hemap_b,
+        scopes.and_then(|s| s.b.as_ref()),
+    ));
     let complex_input = crate::complex::pipeline::ComplexInput {
         graph: &graph,
         fragments: &fragments,
@@ -234,6 +241,7 @@ pub(crate) fn cellular_graph_merge(
         boxes: [&intersection_result.aabbs_a, &intersection_result.aabbs_b],
         overlaps: &overlap_pairs,
         tolerance,
+        frontier: &frontier,
     };
     let cellular = || -> Result<_, BoolDiagnostics> {
         // Phase 6 (CELLULAR): Classify fragments by cell membership.
@@ -253,7 +261,7 @@ pub(crate) fn cellular_graph_merge(
         // (PK-916).
         let (winding, flipped_b) =
             super::operand_winding::agree_operand_winding(&graph, &fragments, &mut selections);
-        if crate::complex_shadow::shadow_enabled() && scopes.is_none() {
+        if crate::complex_shadow::shadow_enabled() {
             crate::complex::shadow_compare::shadow_compare(&complex_input, &selections, op);
         }
         Ok((selections, winding, flipped_b))
@@ -342,4 +350,27 @@ pub(crate) fn cellular_graph_merge(
         super::assemble_cleanup::build_face_provenance(&result, &kept, &fragments, &selections);
 
     Ok((result, carried))
+}
+
+/// Graph edge keys (`min(half-edge, twin)`) of `scope`'s frontier
+/// edges: the active face's half-edge entered the graph, the far
+/// face's did not, so the complex sees one fin there by design.
+fn frontier_keys(
+    graph: &IntersectionGraph,
+    brep: &BRep,
+    hemap: &std::collections::HashMap<popkern_core::topology::HalfEdgeHandle, usize>,
+    scope: Option<&crate::scope::ActiveScope>,
+) -> std::collections::BTreeSet<usize> {
+    let Some(scope) = scope else {
+        return Default::default();
+    };
+    scope
+        .frontier
+        .iter()
+        .filter_map(|&e| brep.edges.get(e).map(|edge| edge.half_edge))
+        .flat_map(|he| [Some(he), brep.half_edges.get(he).map(|h| h.twin)])
+        .flatten()
+        .filter_map(|he| hemap.get(&he).copied())
+        .filter_map(|h| Some(h.min(graph.half_edges.get(h)?.twin)))
+        .collect()
 }

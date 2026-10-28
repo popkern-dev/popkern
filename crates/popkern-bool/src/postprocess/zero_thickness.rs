@@ -11,7 +11,8 @@
 //!
 //! Detection is direct and route-independent: distinct vertices within
 //! the linear tolerance of each other that no edge joins, and distinct
-//! edges whose end points and midpoints coincide.
+//! edges whose end points and midpoints coincide, and one vertex
+//! shared by separate fans (`pinched_vertex`).
 //!
 //! Contacts that share no topology at all leave the result as separate
 //! shells that merely touch, which neither test sees: those are
@@ -145,6 +146,9 @@ pub(crate) fn zero_thickness_findings(
             }
         }
     }
+    // One vertex shared by separate fans: the contact the result
+    // carries without a coincident copy.
+    out.extend(super::pinched_vertex::pinched_vertices(brep));
     out
 }
 

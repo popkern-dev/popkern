@@ -168,7 +168,7 @@ fn check_radial(c: &CellComplex, out: &mut Vec<ComplexFinding>) {
                 out.push(ComplexFinding::RadialMembership { edge, fin });
             }
         }
-        if e.radial.len() == 1 {
+        if e.radial.len() == 1 && !e.frontier {
             out.push(ComplexFinding::FreeEdge { edge });
         }
     }

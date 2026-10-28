@@ -51,6 +51,10 @@ pub(crate) struct ComplexEdge {
     /// The intersection-graph edge key (`min(half-edge, twin)`) this
     /// edge lifts, if any.
     pub source_key: Option<usize>,
+    /// Whether the edge lies on a scoped operand's frontier: the face
+    /// across it was carried whole and never entered the graph, so its
+    /// one fin bounds the scoped region instead of leaving a gap.
+    pub frontier: bool,
 }
 
 /// One face's use of one edge, inside one loop of that face (Lee &
@@ -202,6 +206,7 @@ impl CellComplex {
             radial: Vec::new(),
             radial_ordered: false,
             source_key,
+            frontier: false,
         });
         EdgeId::from_index(self.edges.len() - 1)
     }

@@ -10,6 +10,7 @@ pub mod keyhole_loop;
 pub mod loop_repair;
 pub(crate) mod merge_rechart;
 pub mod parallel_weld;
+pub(crate) mod pinched_vertex;
 pub mod point_loop_retire;
 pub mod quality;
 pub(crate) mod redundant_chain;

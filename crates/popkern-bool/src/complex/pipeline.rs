@@ -64,6 +64,9 @@ pub(crate) struct ComplexInput<'a> {
     pub overlaps: &'a [(FaceHandle, FaceHandle)],
     /// Model tolerance.
     pub tolerance: &'a Tolerance,
+    /// Graph edge keys on a scoped operand's frontier (between an
+    /// active face and a carried far face); empty for unscoped runs.
+    pub frontier: &'a std::collections::BTreeSet<usize>,
 }
 
 fn checked(c: &CellComplex) -> Result<(), ComplexDecline> {
@@ -186,6 +189,11 @@ pub(crate) fn classify_with_complex(
         input.tolerance,
     )
     .map_err(ComplexDecline::Lift)?;
+    for edge in &mut lift.complex.edges {
+        edge.frontier = edge
+            .source_key
+            .is_some_and(|key| input.frontier.contains(&key));
+    }
     let staged = (|| {
         checked(&lift.complex)?;
         let half = super::record_use::half_registered_records(&lift.complex, input.graph);
