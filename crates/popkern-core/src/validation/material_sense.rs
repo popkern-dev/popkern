@@ -86,6 +86,14 @@ impl BRep {
         }
 
         const GRID: usize = 6;
+        // The trim classifier's parametric boundary band
+        // (`face_trim_classify_uv`).
+        let band = self
+            .tolerance
+            .parametric_base()
+            .max(self.tolerance.linear())
+            .max(1.0e-9)
+            * 10.0;
         // The wedge integral of a closed surface is the same about any
         // centre, but the coarse grid leaves a residual ∫n dA ≠ 0 that
         // the centre multiplies: about the world origin, a thin body
@@ -109,6 +117,7 @@ impl BRep {
             sum * (1.0 / count as f64)
         };
         let mut wedge = 0.0;
+        let mut magnitude = 0.0;
         let mut sampled = 0usize;
         for &face in &component {
             let Some(sof) = self.faces.get(face).and_then(|f| f.surface.as_ref()) else {
@@ -133,14 +142,18 @@ impl BRep {
             // but a face whose boundary lies entirely on the seam IS
             // the full wrap (the 1-face sphere's meridian, a closed
             // torus chart), so the exact window is the full period.
+            // "Zero width" is the trim classifier's boundary band: the
+            // seam's projections scatter by ulps (measured: a pip
+            // sphere's window 2.2e-15 wide, past an ε·period cutoff),
+            // and a window inside the band has no interior to sample.
             let (period_u, period_v) = sof.geometry.parameter_periodicity();
             if let Some(p) = period_u
-                && (u1 - u0).abs() < f64::EPSILON * p.max(1.0)
+                && (u1 - u0).abs() < band
             {
                 u1 = u0 + p;
             }
             if let Some(p) = period_v
-                && (v1 - v0).abs() < f64::EPSILON * p.max(1.0)
+                && (v1 - v0).abs() < band
             {
                 v1 = v0 + p;
             }
@@ -173,6 +186,7 @@ impl BRep {
                     let (x, y, z) = (p.x - centre.x, p.y - centre.y, p.z - centre.z);
                     let contribution = (x * folded.x + y * folded.y + z * folded.z) * du * dv;
                     wedge += contribution;
+                    magnitude += contribution.abs();
                     sampled += 1;
                 }
             }
@@ -180,10 +194,13 @@ impl BRep {
         if sampled == 0 {
             return None;
         }
-        // Indeterminate when the integral is numerically tiny for the
-        // body's scale.
-        let scale = self.tolerance.linear() * 100.0;
-        if wedge.abs() < scale * scale * scale {
+        // Indeterminate when the integral cancels to a sliver of its
+        // own terms (an open sheet, a degenerate body), or encloses
+        // less than a tolerance cube. The floor is relative: an
+        // absolute (100 · linear)³ read a 0.34-volume cone as
+        // indeterminate at a 1e-2 tolerance.
+        let linear = self.tolerance.linear();
+        if wedge.abs() < 1e-6 * magnitude || wedge.abs() < linear * linear * linear {
             return None;
         }
         Some(if wedge > 0.0 {
