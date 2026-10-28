@@ -12,6 +12,7 @@
 
 use super::mitre_apex_corner::{Plane, plane_distance};
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 use std::collections::BTreeSet;
 
 /// A tree node: its position and the planes it lies on.
@@ -167,4 +168,98 @@ pub(super) fn planes_through(planes: &[Plane], p: &Point3, tol: f64) -> Vec<usiz
     (0..planes.len())
         .filter(|&i| plane_distance(&planes[i], p) <= tol)
         .collect()
+}
+
+/// Split the fan of `vertex` (outgoing `half_edges` in successor order,
+/// edge `k` between planes `k` and `k + 1`) into a ridge tree whose
+/// first `half_edges.len()` nodes are the fan's edges as leaves: the
+/// first interior node stays `vertex`, every interior ridge on planes
+/// `(i, j)` is one `split_vertex` moving the contiguous sector of fan
+/// edges between them to the new node at `positions[node]`. Returns
+/// each node's vertex (`None` for leaves); the inner `Err` = a ridge
+/// that does not separate a contiguous sector (nothing split yet only
+/// when it is the first), the outer `Err` = an operator failure.
+pub(super) fn split_fan(
+    out: &mut BRep,
+    half_edges: &[HalfEdgeHandle],
+    vertex: VertexHandle,
+    positions: &[Point3],
+    ridges: &[Ridge],
+) -> Result<Result<Vec<Option<VertexHandle>>, String>, String> {
+    let m = half_edges.len();
+    let Some(root) = (m < positions.len()).then_some(m) else {
+        return Ok(Err("the tree has no interior node".into()));
+    };
+    let mut built: Vec<Option<VertexHandle>> = vec![None; positions.len()];
+    built[root] = Some(vertex);
+    let mut pending: Vec<Ridge> = ridges
+        .iter()
+        .copied()
+        .filter(|&(a, b, _)| a >= m && b >= m)
+        .collect();
+    let sector = |from: usize, to: usize| -> BTreeSet<usize> {
+        let mut s = BTreeSet::new();
+        let mut k = from;
+        while k != to {
+            s.insert(k);
+            k = (k + 1) % m;
+        }
+        s
+    };
+    while !pending.is_empty() {
+        let Some(pos) = pending
+            .iter()
+            .position(|e| built[e.0].is_some() || built[e.1].is_some())
+        else {
+            return Ok(Err("the ridge tree is not connected".into()));
+        };
+        let (p, q, (i, j)) = pending.remove(pos);
+        let (u, w) = if built[p].is_some() { (p, q) } else { (q, p) };
+        let side = subtree_leaves(ridges, w, u, m);
+        // The child's sector: fan edges i..j or j..i, whichever it owns.
+        let (first, last) = if sector(i, j) == side {
+            (i, (j + m - 1) % m)
+        } else if sector(j, i) == side {
+            (j, (i + m - 1) % m)
+        } else {
+            return Ok(Err(format!(
+                "ridge on planes {i}/{j} does not separate a contiguous sector"
+            )));
+        };
+        let split = out
+            .split_vertex(half_edges[first], half_edges[last], positions[w])
+            .map_err(|e| format!("split_vertex ridge {i}/{j}: {e}"))?;
+        built[w] = Some(split.vertex);
+    }
+    Ok(Ok(built))
+}
+
+/// Leaf indices in the subtree of `node` entered from `parent`.
+fn subtree_leaves(
+    ridges: &[Ridge],
+    node: usize,
+    parent: usize,
+    leaf_count: usize,
+) -> BTreeSet<usize> {
+    let mut leaves = BTreeSet::new();
+    let mut stack = vec![(node, parent)];
+    while let Some((at, from)) = stack.pop() {
+        if at < leaf_count {
+            leaves.insert(at);
+            continue;
+        }
+        for &(a, b, _) in ridges {
+            let next = if a == at {
+                b
+            } else if b == at {
+                a
+            } else {
+                continue;
+            };
+            if next != from {
+                stack.push((next, at));
+            }
+        }
+    }
+    leaves
 }

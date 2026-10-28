@@ -64,8 +64,9 @@ pub fn chamfer_edges_cancellable(
     }
 }
 
-/// Shared chamfer entry: one pass, or fills first when a concave and a
-/// convex chamfer end at one vertex ([`crate::chamfer_mixed_corner`]).
+/// Shared chamfer entry: one pass (grown from a smaller size when its
+/// bevels consume a face), or fills first when a concave and a convex
+/// chamfer end at one vertex ([`crate::chamfer_mixed_corner`]).
 fn chamfer_edges_internal(
     brep: &BRep,
     specs: &[ChamferSpec],
@@ -76,7 +77,30 @@ fn chamfer_edges_internal(
 ) -> Result<BlendResult, BlendError> {
     let mixed = crate::chamfer_mixed_corner::mixed_corners(brep, specs);
     if mixed.is_empty() {
-        return chamfer_pipeline(brep, specs, options, tolerance, tracking, cancel);
+        let mut tracking = tracking;
+        return match chamfer_pipeline(
+            brep,
+            specs,
+            options,
+            tolerance,
+            tracking.as_deref_mut(),
+            cancel,
+        ) {
+            Ok(result) => Ok(result),
+            // Bevels that consume a face: grow them from a smaller
+            // size ([`crate::chamfer_grown`]).
+            Err(declined) => crate::chamfer_grown::chamfer_grown(
+                brep,
+                specs,
+                tolerance,
+                tracking,
+                cancel,
+                declined,
+                |body, stage, cancel| {
+                    chamfer_pipeline(body, stage, options, tolerance, None, cancel)
+                },
+            ),
+        };
     }
     crate::chamfer_mixed_corner::chamfer_fills_first(
         brep,

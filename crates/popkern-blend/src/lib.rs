@@ -187,6 +187,7 @@ mod fillet_pipeline_pcurve_backstop;
 mod fillet_serving_retry;
 mod rolling_ball_corner;
 pub(crate) use fillet_serving_retry::fillet_edges_internal;
+mod chamfer_grown;
 mod chamfer_mixed_corner;
 #[path = "lib_chamfer.rs"]
 mod lib_chamfer;

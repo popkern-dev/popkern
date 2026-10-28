@@ -73,6 +73,7 @@ mod surface_pair_march;
 pub(crate) mod territory_consistency;
 pub(crate) use post_pipeline::determinism_trace_mod::trace_trim_endpoints as post_pipeline_trace_trim_endpoints;
 pub(crate) mod bevel_end_absorb;
+pub(crate) mod bevel_growth;
 pub(crate) mod bevel_pair_corner;
 pub(crate) mod mitre_apex_corner;
 pub(crate) mod mitre_apex_scaffold;

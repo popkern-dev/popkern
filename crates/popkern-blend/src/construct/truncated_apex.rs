@@ -43,8 +43,9 @@
 //! collapse, a tree with other leaves, a node that overshoots) is
 //! restored and left for the serve gate's structured check-9 decline;
 //! an operator failure restores the corner's snapshot and declines the
-//! operation naming the vertex. A bevel pair that consumes a whole
-//! face between them is outside the class (PK-1001). **Locality:** the
+//! operation naming the vertex. Bevels that consume a whole face
+//! decline earlier, in the face trims, and are served by growth from a
+//! smaller size (`bevel_growth`, PK-1001). **Locality:** the
 //! cluster is grown only through off-plane vertices, seeded at the
 //! corner (or the off-plane vertex nearest it within half its shortest
 //! edge). **Tolerance:** the caller's blend tolerance; positions gate
@@ -56,7 +57,7 @@ mod fan;
 use super::EdgeGeometry;
 use super::mitre_apex_corner::{destination, outgoing, plane_distance};
 use super::mitre_apex_scaffold::three_plane_point;
-use super::plane_ridge_tree::{RidgeNode, ridge_tree};
+use super::plane_ridge_tree::{RidgeNode, ridge_tree, split_fan};
 use crate::error::BlendFailure;
 use fan::{Corner, Fan, corner_vertex, off_plane, plane_of, read_fan, stale_cluster};
 use popkern_core::geometry::Point3;
@@ -263,55 +264,11 @@ fn settle_one(
         }
     }
     let interior: Vec<usize> = (m..nodes.len()).collect();
-    let Some(&root) = interior.first() else {
-        return Ok(Err("the tree has no interior node".into()));
+    let positions: Vec<Point3> = nodes.iter().map(|n| n.position).collect();
+    let built = match split_fan(out, &fan.half_edges, fan.vertex, &positions, &ridges)? {
+        Ok(built) => built,
+        Err(why) => return Ok(Err(why)),
     };
-    // Grow the tree from the root: each interior ridge is one split.
-    let mut built: Vec<Option<VertexHandle>> = vec![None; nodes.len()];
-    built[root] = Some(fan.vertex);
-    let mut pending: Vec<(usize, usize, (usize, usize))> = ridges
-        .iter()
-        .copied()
-        .filter(|&(a, b, _)| a >= m && b >= m)
-        .collect();
-    while !pending.is_empty() {
-        let Some(pos) = pending
-            .iter()
-            .position(|e| built[e.0].is_some() || built[e.1].is_some())
-        else {
-            return Ok(Err("the ridge tree is not connected".into()));
-        };
-        let (p, q, (i, j)) = pending.remove(pos);
-        let (u, w) = if built[p].is_some() { (p, q) } else { (q, p) };
-        let side = subtree_leaves(&ridges, w, u, m);
-        // The child's sector: fan edges i..j or j..i, whichever it owns.
-        let sector = |from: usize, to: usize| -> Vec<usize> {
-            let mut s = Vec::new();
-            let mut k = from;
-            while k != to {
-                s.push(k);
-                k = (k + 1) % m;
-            }
-            s
-        };
-        let (first, last) = if sector(i, j).iter().copied().collect::<BTreeSet<_>>() == side {
-            (i, (j + m - 1) % m)
-        } else if sector(j, i).iter().copied().collect::<BTreeSet<_>>() == side {
-            (j, (i + m - 1) % m)
-        } else {
-            return Ok(Err(format!(
-                "ridge on planes {i}/{j} does not separate a contiguous sector"
-            )));
-        };
-        let split = out
-            .split_vertex(
-                fan.half_edges[first],
-                fan.half_edges[last],
-                nodes[w].position,
-            )
-            .map_err(|e| format!("split_vertex ridge {i}/{j}: {e}"))?;
-        built[w] = Some(split.vertex);
-    }
     for &k in &interior {
         let v = built[k].ok_or("an interior node was never built")?;
         out.vertices.get_mut(v).ok_or("stale tree vertex")?.position = nodes[k].position;
@@ -357,36 +314,6 @@ fn removed_sides(fan: &Fan, gate: f64) -> Option<Vec<f64>> {
         sides.push(-sign);
     }
     Some(sides)
-}
-
-/// Leaf indices in the subtree of `node` entered from `parent`.
-fn subtree_leaves(
-    ridges: &[(usize, usize, (usize, usize))],
-    node: usize,
-    parent: usize,
-    leaf_count: usize,
-) -> BTreeSet<usize> {
-    let mut leaves = BTreeSet::new();
-    let mut stack = vec![(node, parent)];
-    while let Some((at, from)) = stack.pop() {
-        if at < leaf_count {
-            leaves.insert(at);
-            continue;
-        }
-        for &(a, b, _) in ridges {
-            let next = if a == at {
-                b
-            } else if b == at {
-                a
-            } else {
-                continue;
-            };
-            if next != from {
-                stack.push((next, at));
-            }
-        }
-    }
-    leaves
 }
 
 /// Author the edge of `he` as the straight segment between its
