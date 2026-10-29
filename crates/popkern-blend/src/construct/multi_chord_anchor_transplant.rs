@@ -61,3 +61,19 @@ pub(super) fn transplant_spur_anchor_pair(
     *brep = candidate;
     Some((out[0], out[1]))
 }
+
+/// The faces around `v` (from its outgoing half-edges), for traces.
+pub(super) fn faces_at(
+    brep: &BRep,
+    v: popkern_core::topology::VertexHandle,
+) -> Vec<popkern_core::topology::FaceHandle> {
+    let mut out = std::collections::BTreeSet::new();
+    for (_, he) in brep.half_edges.iter() {
+        if he.origin == v
+            && let Some(l) = brep.loops.get(he.loop_)
+        {
+            out.insert(l.face);
+        }
+    }
+    out.into_iter().collect()
+}

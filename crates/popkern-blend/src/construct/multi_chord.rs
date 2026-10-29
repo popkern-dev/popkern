@@ -197,34 +197,38 @@ pub(super) fn apply_multi_chord_for_face(
                     target = Some(tf);
                 }
             }
-            let sub_midpoint = {
-                let p_a = brep.vertices[start_v].position;
-                let p_b = brep.vertices[end_v].position;
-                Some(Point3::new(
-                    (p_a.x + p_b.x) * 0.5,
-                    (p_a.y + p_b.y) * 0.5,
-                    (p_a.z + p_b.z) * 0.5,
-                ))
+            // An anchor an earlier trim's spur re-home replaced (the
+            // trims' anchors are fixed before any surgery): the trim
+            // fails cleanly and the request declines.
+            let (Some(p_a), Some(p_b)) = (
+                brep.vertices.get(start_v).map(|v| v.position),
+                brep.vertices.get(end_v).map(|v| v.position),
+            ) else {
+                failures.push((
+                    fillet_edge,
+                    BlendFailure::InvalidTopology {
+                        reason: format!(
+                            "multi-chord sub-chord anchor on {original_face:?} was removed by \
+                             an earlier trim"
+                        ),
+                        location: None,
+                    },
+                ));
+                sub_chord_failed = true;
+                break;
             };
+            let sub_midpoint = Some(Point3::new(
+                (p_a.x + p_b.x) * 0.5,
+                (p_a.y + p_b.y) * 0.5,
+                (p_a.z + p_b.z) * 0.5,
+            ));
             let Some(target) = target else {
                 if popkern_core::trace::trace_enabled("multi-chord") {
-                    let pa = brep.vertices.get(start_v).map(|v| v.position);
-                    let pb = brep.vertices.get(end_v).map(|v| v.position);
-                    let faces_of = |v: popkern_core::topology::VertexHandle| -> Vec<popkern_core::topology::FaceHandle> {
-                        let mut out = std::collections::BTreeSet::new();
-                        for (_, he) in brep.half_edges.iter() {
-                            if he.origin == v
-                                && let Some(l) = brep.loops.get(he.loop_)
-                            {
-                                out.insert(l.face);
-                            }
-                        }
-                        out.into_iter().collect()
-                    };
+                    use super::multi_chord_anchor_transplant::faces_at;
                     eprintln!(
-                        "[mc] sub-chord {start_v:?}@{pa:?} faces {:?} -> {end_v:?}@{pb:?} faces {:?}; sub_faces {sub_faces:?}",
-                        faces_of(start_v),
-                        faces_of(end_v)
+                        "[mc] sub-chord {start_v:?}@{p_a:?} faces {:?} -> {end_v:?}@{p_b:?} faces {:?}; sub_faces {sub_faces:?}",
+                        faces_at(brep, start_v),
+                        faces_at(brep, end_v)
                     );
                 }
                 failures.push((
@@ -239,8 +243,6 @@ pub(super) fn apply_multi_chord_for_face(
                 sub_chord_failed = true;
                 break;
             };
-            let p_a = brep.vertices[start_v].position;
-            let p_b = brep.vertices[end_v].position;
             // #136 slice 6 / PK-139: the sub-chord's 3-D trim is the
             // SUB-SPAN of the fillet's actual trim curve, not the
             // straight chord between the anchors — a by-points
