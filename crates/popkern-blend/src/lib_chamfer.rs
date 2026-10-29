@@ -64,10 +64,59 @@ pub fn chamfer_edges_cancellable(
     }
 }
 
+/// Shared chamfer entry: one pass (grown from a smaller size when its
+/// bevels consume a face), or fills first when a concave and a convex
+/// chamfer end at one vertex ([`crate::chamfer_mixed_corner`]).
+fn chamfer_edges_internal(
+    brep: &BRep,
+    specs: &[ChamferSpec],
+    options: &ChamferOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    cancel: Option<&cancellation::CancellationToken>,
+) -> Result<BlendResult, BlendError> {
+    let mixed = crate::chamfer_mixed_corner::mixed_corners(brep, specs);
+    if mixed.is_empty() {
+        let mut tracking = tracking;
+        return match chamfer_pipeline(
+            brep,
+            specs,
+            options,
+            tolerance,
+            tracking.as_deref_mut(),
+            cancel,
+        ) {
+            Ok(result) => Ok(result),
+            // Bevels that consume a face: grow them from a smaller
+            // size ([`crate::chamfer_grown`]).
+            Err(declined) => crate::chamfer_grown::chamfer_grown(
+                brep,
+                specs,
+                tolerance,
+                tracking,
+                cancel,
+                declined,
+                |body, stage, cancel| {
+                    chamfer_pipeline(body, stage, options, tolerance, None, cancel)
+                },
+            ),
+        };
+    }
+    crate::chamfer_mixed_corner::chamfer_fills_first(
+        brep,
+        specs,
+        tolerance,
+        tracking,
+        cancel,
+        &mixed,
+        |body, stage, cancel| chamfer_pipeline(body, stage, options, tolerance, None, cancel),
+    )
+}
+
 /// Shared chamfer pipeline: cooperative polls between stages and the
 /// per-edge loop; `cancel` also rides into the apply phase's per-stage
 /// and per-corner polls.
-fn chamfer_edges_internal(
+fn chamfer_pipeline(
     brep: &BRep,
     specs: &[ChamferSpec],
     options: &ChamferOptions,
@@ -108,12 +157,29 @@ fn chamfer_edges_internal(
         // Per-edge cancellation point (§17).
         check_cancel!();
         match compute_chamfer_geometry(&analyses[i], &spec.kind, brep, &tolerance) {
-            Ok(geom) => edge_geometries.push(geom),
+            // Another feature inside the strip the bevel removes: the
+            // trims would run under it (PK-1003).
+            Ok(geom) => {
+                match crate::chamfer_rail_obstruction::obstructed_strip(brep, &geom, &tolerance) {
+                    Some(failure) => failures.push((spec.edge, failure)),
+                    None => edge_geometries.push(geom),
+                }
+            }
             Err(failure) => failures.push((spec.edge, failure)),
         }
     }
 
-    if edge_geometries.is_empty() && !failures.is_empty() {
+    // All or nothing: an edge whose geometry failed is never dropped
+    // while the rest serve (that served a cone's two-edge request with
+    // one bevel, a validator-clean wrong body).
+    // Rails that cross past a face's side: the face is consumed or
+    // swept, which bevel growth serves (PK-1006).
+    if let Some(failure) =
+        crate::chamfer_face_consumption::consumed_face(brep, &edge_geometries, &tolerance)
+    {
+        failures.extend(specs.iter().map(|s| (s.edge, failure.clone())));
+    }
+    if !failures.is_empty() {
         return Err(BlendError::partial_failure(
             specs.len(),
             brep.clone(),
@@ -133,6 +199,34 @@ fn chamfer_edges_internal(
     let chains = construct::rim_chain_chamfer::detect_closed_rim_chains(brep, &edge_geometries);
     let chain_edge_count: usize = chains.iter().map(|c| c.geometry_indices().count()).sum();
     if !chains.is_empty() && chain_edge_count == edge_geometries.len() && failures.is_empty() {
+        // A ring whose bevels consume its cap declines whole (bevel
+        // growth then serves it from a smaller ring, PK-1001).
+        if let Some((cap, reason)) = chains.iter().find_map(|chain| {
+            construct::rim_chain_chamfer::chain_consumes_cap(
+                brep,
+                chain,
+                &edge_geometries,
+                &tolerance,
+            )
+            .map(|reason| (chain.cap_face(), reason))
+        }) {
+            return Err(BlendError::partial_failure(
+                specs.len(),
+                brep.clone(),
+                specs
+                    .iter()
+                    .map(|s| {
+                        (
+                            s.edge,
+                            BlendFailure::InvalidTopology {
+                                reason: format!("rim chain chamfer around {cap:?}: {reason}"),
+                                location: None,
+                            },
+                        )
+                    })
+                    .collect(),
+            ));
+        }
         let mut result = brep.clone();
         let mut chain_error: Option<(FaceHandle, String)> = None;
         for chain in &chains {
@@ -194,7 +288,7 @@ fn chamfer_edges_internal(
                         .map(|s| {
                             (
                                 s.edge,
-                                BlendFailure::InvalidTopology {
+                                BlendFailure::InconsistentGeometry {
                                     reason: format!(
                                         "rim chain chamfer failed post-validation: {}",
                                         structural
@@ -211,28 +305,16 @@ fn chamfer_edges_internal(
                 ));
             }
             Some((cap, reason)) => {
-                // Declined chain construction is a hard, transactional
-                // error: the pre-batch per-edge path is measured-broken
-                // for closed chains, so falling through would ship
-                // corrupt topology.
-                return Err(BlendError::partial_failure(
-                    specs.len(),
-                    brep.clone(),
-                    specs
-                        .iter()
-                        .map(|s| {
-                            (
-                                s.edge,
-                                BlendFailure::InvalidTopology {
-                                    reason: format!(
-                                        "rim chain chamfer around {cap:?} declined: {reason}"
-                                    ),
-                                    location: None,
-                                },
-                            )
-                        })
-                        .collect(),
-                ));
+                // Outside the ring surgery's class (setbacks that differ
+                // where walls meet the cap at different angles): the
+                // per-edge path and its corner stages serve it, under
+                // the same serve gate (a hexagonal prism's side rings,
+                // exact on every face).
+                if popkern_core::trace::trace_enabled("fillet") {
+                    eprintln!(
+                        "  [chamfer] rim chain around {cap:?} declined ({reason}); per-edge path"
+                    );
+                }
             }
         }
     }
@@ -273,6 +355,27 @@ fn chamfer_edges_internal(
     )
     .map_err(|failure| BlendError::partial_failure(specs.len(), brep.clone(), vec![failure]))?;
     apply_result.repair_report.mitre_apex_corners = mitre.corners_settled;
+    // Bevel-pair corners (PK-994): two bevels and a sharp edge whose
+    // planes do not concur get their exact connector. Transactional.
+    let pair = construct::bevel_pair_corner::settle_bevel_pair_corners(
+        brep,
+        &mut apply_result.brep,
+        &edge_geometries,
+        &tolerance,
+    )
+    .map_err(|failure| BlendError::partial_failure(specs.len(), brep.clone(), vec![failure]))?;
+    apply_result.repair_report.bevel_pair_corners = pair.corners_settled;
+    // Truncated apex corners (PK-997): bevels that cut the whole cone
+    // of a vertex with a sharp edge leave it off their planes; move it
+    // to its planes' point, or split it into their ridge tree.
+    let apex = construct::truncated_apex::settle_truncated_apexes(
+        brep,
+        &mut apply_result.brep,
+        &edge_geometries,
+        &tolerance,
+    )
+    .map_err(|failure| BlendError::partial_failure(specs.len(), brep.clone(), vec![failure]))?;
+    apply_result.repair_report.truncated_apex_corners = apex.corners_settled;
 
     if popkern_core::trace::trace_enabled("fillet") {
         eprintln!(
@@ -349,7 +452,7 @@ fn chamfer_edges_internal(
                 .map(|s| {
                     (
                         s.edge,
-                        BlendFailure::InvalidTopology {
+                        BlendFailure::InconsistentGeometry {
                             reason: format!(
                                 "chamfer result failed curve-surface validation: {deviation}"
                             ),

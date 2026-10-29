@@ -2,7 +2,7 @@
 //! (PK-185/PK-186 reflex hole-corner gate). Split from
 //! `perp_anchor_positions.rs` (file-size limit).
 
-use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 
 /// Minimum distance from `point` to the trim curve, through the
 /// refined foot of [`closest_point_on_curve`]: a bare sample grid
@@ -224,4 +224,83 @@ pub(super) fn bevel_plane_crossing(
         (1.0 - s) * edge_len
     };
     ((0.001..0.999).contains(&s) && from_vertex > 1e-9 && from_vertex <= radius * 8.0).then_some(s)
+}
+
+/// Where a PLANAR bevel (chamfer) ends at a reflex face corner, and how
+/// the anchor lands there.
+pub(super) enum BevelReflexEnd {
+    /// The neighbour edge is sharp: the rail ends where it crosses the
+    /// neighbour edge's line beyond the corner, on the end face's
+    /// plane. Interior to the support face; landed by a spur and
+    /// recorded as a reflex end, whose terminal stage grows the end
+    /// face to the bevel.
+    Rail(Point3),
+    /// The neighbour edge is chamfered too: both rails meet at their
+    /// mitre point (support ∩ both bevels), shared by the two strips.
+    Mitre(Point3),
+}
+
+/// The corner-end placement for a planar bevel `(po, pn)` on the
+/// planar support `face`, walking the neighbour edge `p0 → p1` from
+/// the corner (`forward`: the corner is `p0`). A corner whose face
+/// interior angle is below 180° has the bevel crossing the neighbour
+/// AHEAD of the corner (the ordinary crossing anchor); above 180° the
+/// crossing lies BEHIND it, on the neighbour's extension, and the walk
+/// would land on the void side (measured: a pocket rim's top rail at
+/// y = 0.4 over the hole where it runs at y = 0.6, the strip's end
+/// boundary then off its bevel by d/√2). `None` when the corner is not
+/// reflex for this bevel, the geometry is degenerate, or the end lies
+/// further than 8 chamfer distances from the corner (the same
+/// near-parallel cap as [`bevel_plane_crossing`]). With a chamfered
+/// neighbour at a `partial_corner` (some edge at the corner stays
+/// sharp) the two rails' mitre point is returned for convex corners
+/// too.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn bevel_reflex_end(
+    support: Option<crate::construct::mitre_apex_corner::Plane>,
+    (po, pn): (Point3, Vec3),
+    neighbour_bevel: Option<(Point3, Vec3)>,
+    p0: Point3,
+    p1: Point3,
+    forward: bool,
+    edge_len: f64,
+    radius: f64,
+    partial_corner: bool,
+) -> Option<BevelReflexEnd> {
+    let support = support?;
+    let denom = pn.dot(&(p1 - p0));
+    if denom.abs() <= 1e-12 * pn.length() * edge_len {
+        return None;
+    }
+    let s = pn.dot(&(po - p0)) / denom;
+    let from_vertex = if forward {
+        s * edge_len
+    } else {
+        (1.0 - s) * edge_len
+    };
+    // Strictly behind the corner by a resolvable amount.
+    let reflex = from_vertex < -1e-9 * edge_len.max(radius) && -from_vertex <= radius * 8.0;
+    // At a corner where another edge stays sharp, two bevels meeting on
+    // this support mitre at their rails' crossing whether the corner is
+    // convex or reflex (a box's L of two top edges: the vertical edge
+    // stays). A corner chamfered all round is the mitre apex stage's.
+    let fellow_mitre = neighbour_bevel.is_some() && partial_corner;
+    if !reflex && !fellow_mitre {
+        return None;
+    }
+    let corner = if forward { p0 } else { p1 };
+    match neighbour_bevel {
+        Some((no, nn)) => {
+            let own = (po, pn.normalized()?);
+            let other = (no, nn.normalized()?);
+            let mitre =
+                crate::construct::mitre_apex_scaffold::three_plane_point(&support, &own, &other)?;
+            (mitre.distance_to(&corner) <= radius * 8.0).then_some(BevelReflexEnd::Mitre(mitre))
+        }
+        None => Some(BevelReflexEnd::Rail(Point3::new(
+            p0.x + s * (p1.x - p0.x),
+            p0.y + s * (p1.y - p0.y),
+            p0.z + s * (p1.z - p0.z),
+        ))),
+    }
 }

@@ -9,6 +9,10 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use popkern_core::geometry::curve::CurveEval;
 
+#[path = "anchor_exact_landing.rs"]
+mod exact_landing;
+use exact_landing::land_on_boundary_exactly;
+
 /// Insert a new vertex at `position` in the mutable BRep by finding
 /// the descendant sub-edge currently containing it and splitting it.
 /// Appends `(old_edge, edge_a, edge_b)` to `edge_splits` so the
@@ -317,16 +321,23 @@ pub(in crate::construct) fn land_anchor(
     edge_splits: &mut Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
     reflex_ends: &mut Vec<ReflexEndAnchor>,
 ) -> Result<VertexHandle, String> {
+    let on_boundary = |brep: &mut BRep, splits: &mut Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>| {
+        if placement.exact {
+            land_on_boundary_exactly(brep, requested, tolerance, splits)
+        } else {
+            insert_anchor_at_position(brep, requested, splits)
+        }
+    };
     if placement.junction {
         // The partner strip may have landed this section contact
         // already (vertex reuse); otherwise spur in from the junction.
-        if let Ok(v) = insert_anchor_at_position(brep, requested, edge_splits) {
+        if let Ok(v) = on_boundary(brep, edge_splits) {
             return Ok(v);
         }
         return insert_interior_rail_spur(brep, face, corner, requested, tolerance);
     }
     if placement.interior_rail {
-        if let Ok(v) = insert_anchor_at_position(brep, requested, edge_splits) {
+        if let Ok(v) = on_boundary(brep, edge_splits) {
             return Ok(v);
         }
         let v = insert_interior_rail_spur(brep, face, corner, requested, tolerance)?;
@@ -336,6 +347,16 @@ pub(in crate::construct) fn land_anchor(
             corner,
             spur_tip: v,
         });
+        return Ok(v);
+    }
+    // An exact anchor on a straight edge or a vertex lands within the
+    // linear band: the loose reuse below snapped a bevel's rail end
+    // onto the other bevel's crossing 3.2e-4 away on the same sharp
+    // edge (a 96° bevel-pair corner at d = 0.1), building the corner
+    // as concurrent with a mitre 1.9e-4 off its plane.
+    if placement.exact
+        && let Ok(v) = land_on_boundary_exactly(brep, requested, tolerance, edge_splits)
+    {
         return Ok(v);
     }
     insert_anchor_at_position(brep, requested, edge_splits)
