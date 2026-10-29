@@ -157,12 +157,22 @@ fn chamfer_pipeline(
         // Per-edge cancellation point (§17).
         check_cancel!();
         match compute_chamfer_geometry(&analyses[i], &spec.kind, brep, &tolerance) {
-            Ok(geom) => edge_geometries.push(geom),
+            // Another feature inside the strip the bevel removes: the
+            // trims would run under it (PK-1003).
+            Ok(geom) => {
+                match crate::chamfer_rail_obstruction::obstructed_strip(brep, &geom, &tolerance) {
+                    Some(failure) => failures.push((spec.edge, failure)),
+                    None => edge_geometries.push(geom),
+                }
+            }
             Err(failure) => failures.push((spec.edge, failure)),
         }
     }
 
-    if edge_geometries.is_empty() && !failures.is_empty() {
+    // All or nothing: an edge whose geometry failed is never dropped
+    // while the rest serve (that served a cone's two-edge request with
+    // one bevel, a validator-clean wrong body).
+    if !failures.is_empty() {
         return Err(BlendError::partial_failure(
             specs.len(),
             brep.clone(),

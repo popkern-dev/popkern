@@ -26,16 +26,21 @@ pub(super) fn sweep_guard(
         for (v, vertex) in start.vertices.iter() {
             if faces_at(start, v).contains(&face)
                 || moves(start, motion, v)
+                || moves(out, motion, v)
                 || !out.vertices.contains_key(v)
             {
                 continue;
             }
             let p = vertex.position;
             let h = (p - begin.0).dot(&n);
+            // Start and end planes included: a far vertex the bevel
+            // only touches (its rail through a boss's corner) is met
+            // too. Vertices that end on the bevel face move and were
+            // skipped above.
             let inside_slab = if depth < 0.0 {
-                h < -gate && h > depth + gate
+                h <= gate && h >= depth - gate
             } else {
-                h > gate && h < depth - gate
+                h >= -gate && h <= depth + gate
             };
             if inside_slab && in_hull(&hull, &p, &n, gate) {
                 return Err(format!("the bevel sweeps through a far vertex at {p:?}"));
@@ -94,7 +99,8 @@ fn planar_hull(points: &[Point3], n: &Vec3) -> Vec<(f64, f64)> {
     hull
 }
 
-/// Whether `p` projects strictly inside `hull` (by more than `gate`).
+/// Whether `p` projects inside `hull` or onto its boundary (within
+/// `gate`): a vertex the grown rail passes through is met.
 fn in_hull(hull: &[(f64, f64)], p: &Point3, n: &Vec3, gate: f64) -> bool {
     if hull.len() < 3 {
         return false;
@@ -105,6 +111,6 @@ fn in_hull(hull: &[(f64, f64)], p: &Point3, n: &Vec3, gate: f64) -> bool {
     (0..hull.len()).all(|k| {
         let (a, b) = (hull[k], hull[(k + 1) % hull.len()]);
         let len = ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2)).sqrt();
-        len > 0.0 && ((b.0 - a.0) * (q.1 - a.1) - (b.1 - a.1) * (q.0 - a.0)) / len > gate
+        len > 0.0 && ((b.0 - a.0) * (q.1 - a.1) - (b.1 - a.1) * (q.0 - a.0)) / len >= -gate
     })
 }
