@@ -172,6 +172,13 @@ fn chamfer_pipeline(
     // All or nothing: an edge whose geometry failed is never dropped
     // while the rest serve (that served a cone's two-edge request with
     // one bevel, a validator-clean wrong body).
+    // Rails that cross past a face's side: the face is consumed or
+    // swept, which bevel growth serves (PK-1006).
+    if let Some(failure) =
+        crate::chamfer_face_consumption::consumed_face(brep, &edge_geometries, &tolerance)
+    {
+        failures.extend(specs.iter().map(|s| (s.edge, failure.clone())));
+    }
     if !failures.is_empty() {
         return Err(BlendError::partial_failure(
             specs.len(),
