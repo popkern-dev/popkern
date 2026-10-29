@@ -24,6 +24,7 @@
 
 pub(crate) mod artifact;
 pub(crate) mod fans;
+pub(crate) mod hole_phantoms;
 pub(crate) mod ids;
 pub(crate) mod lift;
 pub(crate) mod model;

@@ -274,7 +274,16 @@ pub(crate) fn lift_fragments(
         .and_then(|f| senses[0].get(&f).copied())
         .unwrap_or(true);
 
-    let groups = super::same_domain::same_domain_groups(graph, fragments, &reps, overlaps);
+    // Fragments filling their own face's holes bound no material: they
+    // neither become complex faces nor own a partner's (the selection
+    // never keeps them).
+    let hole_fillers =
+        super::hole_phantoms::hole_filling_fragments(graph, fragments, operands, &reps);
+    let mut groups = super::same_domain::same_domain_groups(graph, fragments, &reps, overlaps);
+    for g in &mut groups {
+        g.retain(|&k| !hole_fillers[k]);
+    }
+    groups.retain(|g| !g.is_empty());
 
     let mut complex = CellComplex::new(2);
     let mut vertex_of_node: BTreeMap<usize, VertexId> = BTreeMap::new();
