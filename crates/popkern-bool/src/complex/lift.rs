@@ -27,7 +27,7 @@ use popkern_core::validation::MaterialSense;
 
 use super::ids::{EdgeId, FaceId, VertexId};
 use super::model::{CellComplex, FaceOwner};
-use super::spans::{SpanRep, unify_spans};
+use super::spans::unify_spans;
 use crate::merge::graph::{FaceRef, IntersectionGraph, Operand};
 use crate::merge::walk::Fragment;
 
@@ -227,24 +227,6 @@ fn probe_sense(
     None
 }
 
-/// The edge keys a fragment's loops use, degenerate keys removed:
-/// the same-domain signature.
-fn signature(
-    graph: &IntersectionGraph,
-    frag: &Fragment,
-    reps: &BTreeMap<usize, SpanRep>,
-) -> Vec<usize> {
-    let mut keys: Vec<usize> = frag
-        .outer_loop
-        .iter()
-        .chain(frag.inner_loops.iter().flatten())
-        .filter_map(|&h| reps.get(&h.min(graph.half_edges[h].twin)))
-        .map(|rep| rep.key)
-        .collect();
-    keys.sort_unstable();
-    keys
-}
-
 /// Outward normals of two coincident faces agree at the fragment's
 /// first boundary node.
 fn same_outward(
@@ -292,49 +274,7 @@ pub(crate) fn lift_fragments(
         .and_then(|f| senses[0].get(&f).copied())
         .unwrap_or(true);
 
-    // Same-domain groups: fragments of an overlapping face pair with
-    // equal boundary signatures. Group order follows the lowest
-    // fragment index, and A's fragment leads (it is the primary owner,
-    // as the cellular rules keep A's copy of a shared skin).
-    let overlap_set: std::collections::BTreeSet<(FaceHandle, FaceHandle)> =
-        overlaps.iter().copied().collect();
-    let mut by_signature: BTreeMap<Vec<usize>, Vec<usize>> = BTreeMap::new();
-    for (i, frag) in fragments.iter().enumerate() {
-        by_signature
-            .entry(signature(graph, frag, &reps))
-            .or_default()
-            .push(i);
-    }
-    let mut group_of = vec![usize::MAX; fragments.len()];
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    for i in 0..fragments.len() {
-        if group_of[i] != usize::MAX {
-            continue;
-        }
-        let gi = groups.len();
-        let mut group = vec![i];
-        group_of[i] = gi;
-        let sig = signature(graph, &fragments[i], &reps);
-        if !sig.is_empty() {
-            for &j in &by_signature[&sig] {
-                if j == i || group_of[j] != usize::MAX {
-                    continue;
-                }
-                let (fa, fb) = (fragments[i].face, fragments[j].face);
-                let pair = match (fa.operand, fb.operand) {
-                    (Operand::A, Operand::B) => Some((fa.face, fb.face)),
-                    (Operand::B, Operand::A) => Some((fb.face, fa.face)),
-                    _ => None,
-                };
-                if pair.is_some_and(|p| overlap_set.contains(&p)) {
-                    group.push(j);
-                    group_of[j] = gi;
-                }
-            }
-        }
-        group.sort_by_key(|&k| (operand_index(fragments[k].face.operand), k));
-        groups.push(group);
-    }
+    let groups = super::same_domain::same_domain_groups(graph, fragments, &reps, overlaps);
 
     let mut complex = CellComplex::new(2);
     let mut vertex_of_node: BTreeMap<usize, VertexId> = BTreeMap::new();

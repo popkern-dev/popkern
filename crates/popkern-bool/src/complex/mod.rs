@@ -32,6 +32,7 @@ pub(crate) mod pipeline;
 pub(crate) mod radial;
 pub(crate) mod record_use;
 pub(crate) mod regions;
+pub(crate) mod same_domain;
 pub(crate) mod select;
 pub(crate) mod serve;
 pub(crate) mod shadow_compare;
