@@ -9,6 +9,11 @@ description = "The `popkern` command: run a Rhai model script, report, export ST
 name = "popkern"
 path = "src/main.rs"
 
+[features]
+default = ["h264"]
+# MP4 output through OpenH264 (see the note above `openh264`).
+h264 = ["dep:openh264"]
+
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-part = { path = "../popkern-part" }
@@ -29,6 +34,16 @@ glam = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# Native film rendering (cli-render-export.md §5): caption glyphs, GIF
+# and MP4 encoding. H.264 (OpenH264, built from source) is the default
+# `h264` feature: OpenH264's patent licence covers Cisco's binaries
+# only, so a distributor can build without it.
+fontdue = "0.9"
+gif = "0.14"
+mp4 = "0.14"
+bytes = "1"
+openh264 = { version = "0.9", optional = true }
+image = { workspace = true }
 
 # musl's allocator ran the six-axis arm 2.25x slower than glibc's
 # (71.6 s vs 31.8 s, 2026-10-14); the static release builds use

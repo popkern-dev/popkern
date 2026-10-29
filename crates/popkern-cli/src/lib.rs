@@ -18,6 +18,11 @@
 pub mod args;
 pub mod film;
 mod film_browser;
+mod film_caption;
+pub mod film_encode;
+mod film_native;
+mod film_out;
+pub mod film_scene;
 pub mod project;
 pub mod render;
 pub mod report;
@@ -77,6 +82,7 @@ pub fn main_with(args: &[String]) -> ExitCode {
         Command::New => ExitCode::from(project::new_command(&cli)),
         Command::Serve => ExitCode::from(serve_command(&cli)),
         Command::Film => ExitCode::from(film::film_command(&cli)),
+        Command::Render => ExitCode::from(film_out::render_command(&cli)),
         Command::Run => {
             if cli.watch {
                 return watch::watch_loop(&cli);

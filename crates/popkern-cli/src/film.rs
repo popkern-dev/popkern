@@ -134,9 +134,34 @@ pub fn load(path: &Path) -> Result<FilmSource, String> {
     })
 }
 
+/// A built document and the films run against it.
+pub struct FilmRun {
+    /// The session holding the built document.
+    pub session: Session,
+    /// The build's envelope (the display meshes and placements).
+    pub envelope: popkern_live::Envelope,
+    /// Each selected film: its report (`--json`) and its storyboard.
+    pub films: Vec<(Value, popkern_rhai::film::Film)>,
+}
+
+/// The built-in turntable (cli-render-export.md §5) as the film of a
+/// script or project that has none.
+pub fn with_turntable(source: &mut FilmSource) {
+    if !source.films.is_empty() {
+        return;
+    }
+    let path = "films/turntable.rhai".to_string();
+    let title = crate::film_native::title_of(&source.id);
+    source.files.push((
+        path.clone(),
+        crate::film_native::turntable_script(&title).into_bytes(),
+    ));
+    source.films.push(("turntable".into(), path));
+}
+
 /// Build the document and run every selected film natively: the
 /// storyboards, or the exit code and message of the first failure.
-pub fn run_films(cli: &Cli, source: &FilmSource) -> Result<Vec<Value>, (u8, String)> {
+pub fn run_films(cli: &Cli, source: &FilmSource) -> Result<FilmRun, (u8, String)> {
     let mut session = Session::new(HostOptions {
         max_operations: cli.max_ops,
         timeout: cli.timeout,
@@ -202,13 +227,16 @@ pub fn run_films(cli: &Cli, source: &FilmSource) -> Result<Vec<Value>, (u8, Stri
                     }
                     _ => Vec::new(),
                 };
-                out.push(json!({
-                    "name": name,
-                    "path": path,
-                    "film": reply.film,
-                    "printed": reply.printed,
-                    "warnings": warnings,
-                }));
+                out.push((
+                    json!({
+                        "name": name,
+                        "path": path,
+                        "film": reply.film,
+                        "printed": reply.printed,
+                        "warnings": warnings,
+                    }),
+                    reply.film,
+                ));
             }
             Err(outcome) => {
                 return Err((
@@ -221,25 +249,35 @@ pub fn run_films(cli: &Cli, source: &FilmSource) -> Result<Vec<Value>, (u8, Stri
             }
         }
     }
-    Ok(out)
+    Ok(FilmRun {
+        session,
+        envelope,
+        films: out,
+    })
 }
 
 /// `popkern film`: exit code.
 pub fn film_command(cli: &Cli) -> u8 {
     let source = match load(&cli.script) {
-        Ok(source) => source,
+        Ok(mut source) => {
+            if cli.out.is_some() {
+                with_turntable(&mut source);
+            }
+            source
+        }
         Err(message) => {
             eprintln!("popkern film: {message}");
             return 5;
         }
     };
-    let films = match run_films(cli, &source) {
-        Ok(films) => films,
+    let mut run = match run_films(cli, &source) {
+        Ok(run) => run,
         Err((code, message)) => {
             eprintln!("popkern film: {message}");
             return code;
         }
     };
+    let films: Vec<Value> = run.films.iter().map(|(v, _)| v.clone()).collect();
     if cli.json {
         println!(
             "{}",
@@ -292,21 +330,20 @@ pub fn film_command(cli: &Cli) -> u8 {
         return 2;
     }
     let path = films[0]["path"].as_str().unwrap_or_default().to_string();
-    match crate::film_browser::render(cli, &source, &path) {
-        Ok(bytes) => match std::fs::write(out, &bytes) {
-            Ok(()) => {
-                println!(
-                    "wrote {} ({:.1} MB)",
-                    out.display(),
-                    bytes.len() as f64 / 1e6
-                );
-                0
-            }
-            Err(e) => {
-                eprintln!("popkern film: {}: {e}", out.display());
-                4
-            }
-        },
+    let rendered = if cli.browser {
+        crate::film_browser::render(cli, &source, &path)
+    } else {
+        crate::film_out::render_native(cli, &mut run, 0)
+    };
+    match rendered.and_then(|bytes| {
+        crate::render::create_parent(out)?;
+        std::fs::write(out, &bytes).map_err(|e| format!("{}: {e}", out.display()))?;
+        Ok(bytes.len())
+    }) {
+        Ok(len) => {
+            println!("wrote {} ({:.1} MB)", out.display(), len as f64 / 1e6);
+            0
+        }
         Err(message) => {
             eprintln!("popkern film: {message}");
             4
