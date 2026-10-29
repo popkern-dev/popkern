@@ -45,7 +45,7 @@ pub fn fitted_camera(brep: &BRep, width: u32, height: u32) -> Camera {
     camera
 }
 
-fn create_parent(path: &Path) -> Result<(), String> {
+pub(crate) fn create_parent(path: &Path) -> Result<(), String> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {

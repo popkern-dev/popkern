@@ -37,3 +37,5 @@ thiserror = { workspace = true }
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]
+# STL tests gate the export's volume on the BRep's own.
+popkern-measure = { path = "../popkern-measure" }

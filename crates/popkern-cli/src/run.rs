@@ -105,6 +105,27 @@ pub fn execute(cli: &Cli) -> RunSummary {
         }
         summary.outputs.push(path.clone());
     }
+    if let Some(path) = &cli.stl {
+        let options = crate::stl::options(cli.stl_chord, cli.stl_angle);
+        let written = crate::stl::document_stl(&mut document, &options).and_then(|(bytes, s)| {
+            crate::render::create_parent(path)?;
+            std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+            Ok(s)
+        });
+        match written {
+            Ok(s) => {
+                summary.stl = Some(s);
+                summary.outputs.push(path.clone());
+            }
+            Err(detail) => {
+                summary.outcome = Outcome::GateFailure {
+                    step: "stl".into(),
+                    detail,
+                };
+                return summary;
+            }
+        }
+    }
     if cli.step.is_some() || cli.png.is_some() {
         // An assembly validates and renders per definition: its plain
         // thumbnail instances each body's mesh (PK-759). A part

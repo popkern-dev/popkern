@@ -22,6 +22,7 @@ pub mod project;
 pub mod render;
 pub mod report;
 pub mod run;
+pub mod stl;
 pub mod watch;
 
 pub use args::{Cli, Command, parse_args};

@@ -7,7 +7,7 @@ use std::time::Duration;
 /// Usage text.
 pub const USAGE: &str = "\
 usage: popkern run <script.rhai> [options]
-       popkern build <project-dir> [--pkn <path>] [--step <path>] [--json]
+       popkern build <project-dir> [--pkn <path>] [--step <path>] [--stl <path>] [--json]
                      [--strict] [--rebuild] [--max-ops <n>] [--timeout <s>]
        popkern new <project-dir> [--name <text>]
        popkern serve <projects-dir> [--page <dir>] [--port <n>] [--bind <addr>]
@@ -34,6 +34,9 @@ projects, e.g.  claude mcp add --transport http popkern http://127.0.0.1:7690/mc
 run options:
 
   --step <path>        export the model as STEP (every body)
+  --stl <path>         export every visible body as one binary STL (also build)
+  --stl-chord <len>    STL chord height, document units (default 0.005)
+  --stl-angle <deg>    STL facet angle bound (default 12)
   --png <path>         render the active body to PNG
   --pkn <path>         save the document
   --json               print the report as JSON instead of text
@@ -92,6 +95,12 @@ pub struct Cli {
     pub step: Option<PathBuf>,
     /// PNG render path.
     pub png: Option<PathBuf>,
+    /// STL export path.
+    pub stl: Option<PathBuf>,
+    /// STL chord height override (document units).
+    pub stl_chord: Option<f64>,
+    /// STL facet angle bound override (degrees).
+    pub stl_angle: Option<f64>,
     /// Document save path.
     pub pkn: Option<PathBuf>,
     /// JSON report.
@@ -152,6 +161,9 @@ impl Default for Cli {
             script: PathBuf::new(),
             step: None,
             png: None,
+            stl: None,
+            stl_chord: None,
+            stl_angle: None,
             pkn: None,
             json: false,
             params: Vec::new(),
@@ -199,6 +211,15 @@ fn number<T: std::str::FromStr>(flag: &str, text: &str) -> Result<T, UsageError>
         .map_err(|_| UsageError(format!("{flag}: '{text}' is not a number")))
 }
 
+fn positive(flag: &str, text: &str) -> Result<f64, UsageError> {
+    let v: f64 = number(flag, text)?;
+    if v.is_finite() && v > 0.0 {
+        Ok(v)
+    } else {
+        Err(UsageError(format!("{flag}: '{text}' must be positive")))
+    }
+}
+
 /// Parse the arguments after the program name.
 pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
     let mut cli = Cli::default();
@@ -225,6 +246,9 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
         match arg.as_str() {
             "--step" => cli.step = Some(PathBuf::from(value(arg, &mut iter)?)),
             "--png" => cli.png = Some(PathBuf::from(value(arg, &mut iter)?)),
+            "--stl" => cli.stl = Some(PathBuf::from(value(arg, &mut iter)?)),
+            "--stl-chord" => cli.stl_chord = Some(positive(arg, value(arg, &mut iter)?)?),
+            "--stl-angle" => cli.stl_angle = Some(positive(arg, value(arg, &mut iter)?)?),
             "--pkn" => cli.pkn = Some(PathBuf::from(value(arg, &mut iter)?)),
             "--json" => cli.json = true,
             "--strict" => cli.strict = true,

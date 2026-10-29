@@ -32,6 +32,9 @@ pub struct RunSummary {
     /// Zebra render disagreement, when `--zebra` rendered the PNG.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zebra: Option<crate::render::ZebraSummary>,
+    /// What `--stl` wrote.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stl: Option<crate::stl::StlSummary>,
 }
 
 impl RunSummary {
@@ -45,6 +48,7 @@ impl RunSummary {
             features: 0,
             outputs: Vec::new(),
             zebra: None,
+            stl: None,
         }
     }
 
@@ -120,6 +124,9 @@ pub fn text(summary: &RunSummary) -> String {
     for path in &summary.outputs {
         out.push_str(&format!("wrote {}\n", path.display()));
     }
+    if let Some(s) = &summary.stl {
+        out.push_str(&stl_line(s));
+    }
     if let Some(z) = &summary.zebra {
         out.push_str(&format!(
             "zebra ({} normals, {} stripes, {}° facets): mesh vs surface normal max {:.3}° mean {:.4}° p99 {:.3}° over {} px ({} ray hits; {} seam, {} silhouette px apart); worst {} at {:?}; {} px change band; facet accuracy max {:.3}° p99 {:.3}°\n",
@@ -141,6 +148,22 @@ pub fn text(summary: &RunSummary) -> String {
         ));
     }
     out
+}
+
+/// The `--stl` census line.
+pub fn stl_line(s: &crate::stl::StlSummary) -> String {
+    format!(
+        "stl: {} triangle(s) from {} bod{}, {}, volume {:.6}\n",
+        s.triangles,
+        s.bodies,
+        if s.bodies == 1 { "y" } else { "ies" },
+        if s.open_edges == 0 {
+            "watertight".to_string()
+        } else {
+            format!("{} open edge(s)", s.open_edges)
+        },
+        s.volume,
+    )
 }
 
 /// Print the summary as the CLI asked (text to stdout, or JSON).
