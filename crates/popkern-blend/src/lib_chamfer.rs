@@ -182,6 +182,34 @@ fn chamfer_pipeline(
     let chains = construct::rim_chain_chamfer::detect_closed_rim_chains(brep, &edge_geometries);
     let chain_edge_count: usize = chains.iter().map(|c| c.geometry_indices().count()).sum();
     if !chains.is_empty() && chain_edge_count == edge_geometries.len() && failures.is_empty() {
+        // A ring whose bevels consume its cap declines whole (bevel
+        // growth then serves it from a smaller ring, PK-1001).
+        if let Some((cap, reason)) = chains.iter().find_map(|chain| {
+            construct::rim_chain_chamfer::chain_consumes_cap(
+                brep,
+                chain,
+                &edge_geometries,
+                &tolerance,
+            )
+            .map(|reason| (chain.cap_face(), reason))
+        }) {
+            return Err(BlendError::partial_failure(
+                specs.len(),
+                brep.clone(),
+                specs
+                    .iter()
+                    .map(|s| {
+                        (
+                            s.edge,
+                            BlendFailure::InvalidTopology {
+                                reason: format!("rim chain chamfer around {cap:?}: {reason}"),
+                                location: None,
+                            },
+                        )
+                    })
+                    .collect(),
+            ));
+        }
         let mut result = brep.clone();
         let mut chain_error: Option<(FaceHandle, String)> = None;
         for chain in &chains {
@@ -260,28 +288,16 @@ fn chamfer_pipeline(
                 ));
             }
             Some((cap, reason)) => {
-                // Declined chain construction is a hard, transactional
-                // error: the pre-batch per-edge path is measured-broken
-                // for closed chains, so falling through would ship
-                // corrupt topology.
-                return Err(BlendError::partial_failure(
-                    specs.len(),
-                    brep.clone(),
-                    specs
-                        .iter()
-                        .map(|s| {
-                            (
-                                s.edge,
-                                BlendFailure::InvalidTopology {
-                                    reason: format!(
-                                        "rim chain chamfer around {cap:?} declined: {reason}"
-                                    ),
-                                    location: None,
-                                },
-                            )
-                        })
-                        .collect(),
-                ));
+                // Outside the ring surgery's class (setbacks that differ
+                // where walls meet the cap at different angles): the
+                // per-edge path and its corner stages serve it, under
+                // the same serve gate (a hexagonal prism's side rings,
+                // exact on every face).
+                if popkern_core::trace::trace_enabled("fillet") {
+                    eprintln!(
+                        "  [chamfer] rim chain around {cap:?} declined ({reason}); per-edge path"
+                    );
+                }
             }
         }
     }
