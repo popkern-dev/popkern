@@ -271,3 +271,44 @@ fn reflex_pair_scale_and_rotation_sweep() {
         assert_exact(&format!("L mixed, scale {s}"), &out, unit_l * s * s * s);
     }
 }
+
+/// A quadrilateral prism whose top corners are 93° and 96°: a bevel
+/// pair's two rails cross the sharp top edge 0.14% and 0.55% of `d`
+/// apart, so the corner is non-concurrent by less than 1e-3. Every
+/// subset of its four edges serves exactly at three sizes (before
+/// PK-1008 the second rail end snapped onto the first through the
+/// loose anchor reuse, building the corner as concurrent with a mitre
+/// 1.9e-4 off its plane: a decline at d = 0.1).
+#[test]
+fn nearly_orthogonal_bevel_pairs_stay_non_concurrent() {
+    let q = [
+        (-0.042953069041007465, -1.4393661841422616),
+        (1.4140660281527422, -0.27209786147014325),
+        (-0.18693179576301835, 1.427822286534676),
+        (-1.4295605077637037, 0.17313790120790618),
+    ];
+    let h = 1.1882629623909862;
+    let body = prism(&q, 0.0, h);
+    let at = |k: usize, z: f64| p(q[k].0, q[k].1, z);
+    let all = [
+        (at(3, 0.0), at(3, h)),
+        (at(1, h), at(2, h)),
+        (at(0, 0.0), at(0, h)),
+        (at(3, h), at(0, h)),
+    ];
+    for mask in 1..16usize {
+        let edges: Vec<(Point3, Point3)> = (0..4)
+            .filter(|i| mask & (1 << i) != 0)
+            .map(|i| all[i])
+            .collect();
+        for d in [0.03, 0.1, 0.475] {
+            let label = format!("quad edges {mask:04b}, d = {d}");
+            let out = chamfer(&body, &edges, d).unwrap_or_else(|e| panic!("{label}: {e}"));
+            assert_exact(
+                &label,
+                &out,
+                halfspace_oracle::chamfered_volume(&body, &edges, d),
+            );
+        }
+    }
+}
