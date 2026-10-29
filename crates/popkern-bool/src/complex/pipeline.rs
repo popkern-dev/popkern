@@ -152,14 +152,24 @@ fn classify_shell(
         let on_face = mid + into * (len * 1e-2).max(linear * 100.0);
         let (u2, v2) = surf.geometry.closest_point(&on_face)?;
         let base = surf.geometry.point_at(u2, v2);
-        let n2 = surf.folded_normal(u2, v2)?;
-        let outward = if f.folded_is_outward { n2 } else { n2 * -1.0 };
-        let toward = if side == SideIndex::Ahead {
-            outward
+        // Membership asks only about operands that bound none of the
+        // class's faces, and a face of another operand has the same
+        // membership on both sides: classify the point on the face. An
+        // offset probe crosses any gap thinner than the offset
+        // (measured: a pin 0.002 clear of its bore, probed 0.03 out,
+        // read inside the plate and the intersection kept the pin).
+        let probe = if owner.operand != operand {
+            base
         } else {
-            outward * -1.0
+            let n2 = surf.folded_normal(u2, v2)?;
+            let outward = if f.folded_is_outward { n2 } else { n2 * -1.0 };
+            let toward = if side == SideIndex::Ahead {
+                outward
+            } else {
+                outward * -1.0
+            };
+            base + toward * (len * 1e-3).max(linear * 50.0)
         };
-        let probe = base + toward * (len * 1e-3).max(linear * 50.0);
         match crate::classify::point_in_solid_final(
             &probe,
             input.operands[operand],
@@ -232,3 +242,7 @@ pub(crate) fn classify_with_complex(
         classifications,
     })
 }
+
+#[cfg(test)]
+#[path = "pipeline_tests.rs"]
+mod tests;
