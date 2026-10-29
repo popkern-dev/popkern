@@ -19,8 +19,9 @@
 //! one anchor and is merged into its bevel by the caller's existing
 //! anchor pass.
 
-use super::mitre_apex_corner::{Plane, outgoing, plane_distance};
-use popkern_core::geometry::{Point3, Vec3};
+use super::mitre_apex_corner::{Plane, outgoing};
+use super::plane_ridge_tree::{planes_through, ridge_tree};
+use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 use std::collections::BTreeSet;
 
@@ -28,36 +29,8 @@ use std::collections::BTreeSet;
 #[derive(Debug, Clone)]
 struct Node {
     position: Point3,
-    bevels: BTreeSet<usize>,
     /// The cluster vertex of an inset leaf.
     vertex: Option<VertexHandle>,
-}
-
-fn solve3(planes: [&Plane; 3]) -> Option<Point3> {
-    let rows: Vec<([f64; 3], f64)> = planes
-        .iter()
-        .map(|(o, n)| ([n.x, n.y, n.z], n.x * o.x + n.y * o.y + n.z * o.z))
-        .collect();
-    let det = |m: [[f64; 3]; 3]| {
-        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
-            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
-            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
-    };
-    let m = [rows[0].0, rows[1].0, rows[2].0];
-    let d = det(m);
-    // Unit normals: a determinant this small is a common line.
-    if d.abs() < 1e-9 {
-        return None;
-    }
-    let mut x = [0.0; 3];
-    for (col, xc) in x.iter_mut().enumerate() {
-        let mut mc = m;
-        for row in 0..3 {
-            mc[row][col] = rows[row].1;
-        }
-        *xc = det(mc) / d;
-    }
-    Some(Point3::new(x[0], x[1], x[2]))
 }
 
 /// The mitre tree of a corner: `(nodes, edges as node index pairs,
@@ -74,100 +47,25 @@ fn mitre_tree(
         .iter()
         .map(|(o, n)| (corner - *o).dot(n).signum())
         .collect();
-    let feasible = |p: &Point3| {
-        bevels
-            .iter()
-            .zip(&side)
-            .all(|((o, n), s)| (*p - *o).dot(n) * s <= tol)
-    };
-    let mut nodes: Vec<Node> = Vec::new();
+    let mut leaves = Vec::new();
     for &(vertex, position) in insets {
-        let on: BTreeSet<usize> = (0..bevels.len())
-            .filter(|&k| plane_distance(&bevels[k], &position) <= tol)
-            .collect();
-        if on.len() != 2 {
+        let on = planes_through(bevels, &position, tol);
+        let [i, j] = on.as_slice() else {
             return Err(format!(
                 "inset corner {vertex:?} lies on {} bevels, expected 2",
                 on.len()
             ));
-        }
-        nodes.push(Node {
-            position,
-            bevels: on,
-            vertex: Some(vertex),
-        });
+        };
+        leaves.push((position, (*i, *j)));
     }
-    let reach = insets
-        .iter()
-        .map(|(_, p)| p.distance_to(&corner))
-        .fold(0.0f64, f64::max);
-    let n = bevels.len();
-    for i in 0..n {
-        for j in i + 1..n {
-            for k in j + 1..n {
-                let Some(t) = solve3([&bevels[i], &bevels[j], &bevels[k]]) else {
-                    continue;
-                };
-                // A feasible triple point of THIS corner lies within the
-                // corner's own reach (the insets bound its bevel pieces).
-                if !feasible(&t) || t.distance_to(&corner) > 2.0 * reach {
-                    continue;
-                }
-                if let Some(node) = nodes
-                    .iter_mut()
-                    .skip(insets.len())
-                    .find(|node| node.position.distance_to(&t) <= tol)
-                {
-                    node.bevels.extend([i, j, k]);
-                } else {
-                    nodes.push(Node {
-                        position: t,
-                        bevels: [i, j, k].into_iter().collect(),
-                        vertex: None,
-                    });
-                }
-            }
-        }
-    }
-    // Ridges: along each bevel pair's line, consecutive nodes on it.
-    let mut edges = Vec::new();
-    for i in 0..n {
-        for j in i + 1..n {
-            let mut on: Vec<usize> = (0..nodes.len())
-                .filter(|&k| nodes[k].bevels.contains(&i) && nodes[k].bevels.contains(&j))
-                .collect();
-            if on.len() < 2 {
-                continue;
-            }
-            let dir: Vec3 = bevels[i].1.cross(&bevels[j].1);
-            let origin = nodes[on[0]].position;
-            on.sort_by(|&a, &b| {
-                let ta = (nodes[a].position - origin).dot(&dir);
-                let tb = (nodes[b].position - origin).dot(&dir);
-                ta.total_cmp(&tb)
-            });
-            for w in on.windows(2) {
-                edges.push((w[0], w[1], (i, j)));
-            }
-        }
-    }
-    // A tree whose leaves are exactly the insets.
-    if edges.len() + 1 != nodes.len() {
-        return Err(format!(
-            "mitre graph has {} nodes and {} edges, not a tree",
-            nodes.len(),
-            edges.len()
-        ));
-    }
-    for (k, node) in nodes.iter().enumerate() {
-        let degree = edges.iter().filter(|e| e.0 == k || e.1 == k).count();
-        if node.vertex.is_some() != (degree == 1) {
-            return Err(format!(
-                "mitre tree node at {:?} has degree {degree}",
-                node.position
-            ));
-        }
-    }
+    let (nodes, edges) = ridge_tree(corner, bevels, &side, &leaves, tol)?;
+    let nodes = nodes
+        .into_iter()
+        .map(|node| Node {
+            position: node.position,
+            vertex: node.leaf.map(|k| insets[k].0),
+        })
+        .collect();
     Ok((nodes, edges))
 }
 
@@ -215,7 +113,11 @@ pub(super) fn build_mitre_tree(
         nodes
             .iter()
             .find(|node| node.vertex == Some(v))
-            .map(|node| node.bevels.clone())
+            .map(|node| {
+                planes_through(bevels, &node.position, tol)
+                    .into_iter()
+                    .collect::<BTreeSet<usize>>()
+            })
     };
     let mut anchor_of_bevel = vec![None; bevels.len()];
     for &a in anchors {

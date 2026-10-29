@@ -15,6 +15,7 @@ pub mod commands;
 pub mod cpu_render;
 pub mod curvature_map;
 pub mod error;
+pub mod film_frame;
 pub mod headless;
 pub mod imprecision;
 pub mod loader;

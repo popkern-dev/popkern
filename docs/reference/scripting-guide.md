@@ -432,6 +432,11 @@ over with `model()` is refused (`DocumentError`, reason
   later runs only the new migrations.
 - If an applied migration changed since, the document is rebuilt from
   the folder (`--strict` refuses instead).
+- `popkern build my-bracket --stl bracket.stl` (or `popkern run
+  part.rhai --stl part.stl`) writes every visible body as one binary
+  STL for a slicer, at the display tessellation unless `--stl-chord`
+  and `--stl-angle` refine it; the report says whether it is
+  watertight.
 - `popkern new my-bracket` creates a project to start from.
 
 **When an upstream edit breaks a later migration** (a label it selects
@@ -667,7 +672,14 @@ keeps any number of them as `films/<name>.rhai` beside `migrations/`
 in popkern live, **+ film** adds one and its tab plays it, and Export
 writes MP4 (Slides, Discord, social), vertical MP4, WebM, GIF or a PNG.
 `popkern film <project | script> --out guide.mp4` renders one from the
-command line.
+command line, natively with no browser or GPU: MP4, GIF or a PNG frame
+(`--preset mp4-1080p | mp4-vertical | mp4-720p | gif | png`, `--at`
+for the frame); a script or project without a film renders a 12 s
+turntable; `--browser` renders with popkern live's page in headless
+Chrome instead (WebM too). `popkern render <project | script> --out
+view.png` draws one still in a film look (`--look`, `--azimuth`,
+`--elevation`, `--zoom`, `--background`, `--width`, `--height`), or a
+film's frame with `--film` and `--at`.
 
 The film below plays on the pins assembly above: `document()` is the
 built document, `storyboard()` the film, and each step's closure adds

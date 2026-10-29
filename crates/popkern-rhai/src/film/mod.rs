@@ -10,6 +10,7 @@ mod fastener;
 pub mod model;
 mod overlap;
 mod register;
+pub mod state;
 
 use std::cell::RefCell;
 use std::rc::Rc;

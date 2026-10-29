@@ -100,3 +100,27 @@ accepted = ["AGPL-3.0-only"]
 
 [popkern-structural-tests]
 accepted = ["AGPL-3.0-only"]
+
+[popkern-analysis]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-analysis-brep]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-analysis-cli]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-analysis-fixtures]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-analysis-setup]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-analysis-wasm-bench]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-generative]
+accepted = ["AGPL-3.0-only"]
+
+[popkern-hinge]
+accepted = ["AGPL-3.0-only"]

@@ -29,6 +29,7 @@ serde.workspace = true
 serde_json.workspace = true
 slotmap.workspace = true
 glam.workspace = true
+rayon.workspace = true
 bytemuck = { version = "1", features = ["derive"] }
 image.workspace = true
 wgpu = { version = "24", optional = true }

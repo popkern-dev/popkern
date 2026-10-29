@@ -97,6 +97,30 @@ allow = ["OFL-1.1", "Ubuntu-font-1.0"]
 [bans]
 multiple-versions = "allow"
 wildcards = "allow"
+[[licenses.exceptions]]
+crate = "popkern-hinge"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-generative"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-analysis"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-analysis-brep"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-analysis-setup"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-analysis-cli"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-analysis-fixtures"
+allow = ["AGPL-3.0-only"]
+[[licenses.exceptions]]
+crate = "popkern-analysis-wasm-bench"
+allow = ["AGPL-3.0-only"]
 
 [sources]
 unknown-registry = "deny"

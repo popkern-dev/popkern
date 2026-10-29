@@ -103,7 +103,9 @@ popkern serve my-parts
 Open http://127.0.0.1:7690 and start building. Everything stays on your
 machine. If you'd rather stay on the command line,
 `popkern run part.rhai --step part.step` builds a script straight to a
-STEP file.
+STEP file (`--stl part.stl` for a slicer), `popkern render part.rhai
+--out part.png` draws it, and `popkern film part.rhai --out part.mp4`
+renders its film, or a turntable when it has none, with no browser.
 
 ### Using an AI agent?
 

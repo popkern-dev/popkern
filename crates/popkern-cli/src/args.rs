@@ -7,13 +7,17 @@ use std::time::Duration;
 /// Usage text.
 pub const USAGE: &str = "\
 usage: popkern run <script.rhai> [options]
-       popkern build <project-dir> [--pkn <path>] [--step <path>] [--json]
+       popkern build <project-dir> [--pkn <path>] [--step <path>] [--stl <path>] [--json]
                      [--strict] [--rebuild] [--max-ops <n>] [--timeout <s>]
        popkern new <project-dir> [--name <text>]
        popkern serve <projects-dir> [--page <dir>] [--port <n>] [--bind <addr>]
                      [--compute native|browser]
        popkern film <project-dir | script.rhai> [--film <name>] [--json]
-                     [--out <file> [--preset <name>] [--at <s>] [--chrome <path>] [--page <dir>]]
+                     [--out <file> [--preset <name>] [--at <s>] [--font <file>]
+                      [--browser [--chrome <path>] [--page <dir>]]]
+       popkern render <project-dir | script.rhai> --out <file.png> [--width <px>] [--height <px>]
+                     [--look studio|toon|cad] [--azimuth <deg>] [--elevation <deg>] [--zoom <k>]
+                     [--background #rrggbb] [--film <name> --at <s>] [--font <file>]
        popkern --version
 
 popkern build runs a project's migrations (migrations/NNN_name.rhai) in
@@ -34,6 +38,9 @@ projects, e.g.  claude mcp add --transport http popkern http://127.0.0.1:7690/mc
 run options:
 
   --step <path>        export the model as STEP (every body)
+  --stl <path>         export every visible body as one binary STL (also build)
+  --stl-chord <len>    STL chord height, document units (default 0.005)
+  --stl-angle <deg>    STL facet angle bound (default 12)
   --png <path>         render the active body to PNG
   --pkn <path>         save the document
   --json               print the report as JSON instead of text
@@ -55,9 +62,17 @@ run options:
 
 popkern film runs a project's films (films/<name>.rhai) or a script's
 (stem.<name>.film.rhai beside it) against the built document: --json
-prints the storyboards. --out renders one film to a file with headless
-Chrome (--chrome or POPKERN_CHROME): presets mp4-1080p (default),
-mp4-vertical, mp4-720p, webm, gif, png (one frame, at --at seconds).
+prints the storyboards. --out renders one film to a file natively (no
+browser; a script or project without a film renders a turntable):
+presets mp4-1080p (default), mp4-vertical, mp4-720p, gif, png (one
+frame, at --at seconds). Captions use --font or a system font.
+--browser renders with popkern live's page in headless Chrome instead
+(--chrome or POPKERN_CHROME), which also offers webm.
+
+popkern render draws one image of what a script or project builds, in
+a film look (default studio, azimuth -35, elevation 25, zoom 1, white),
+--width x --height (default 800x600); --film and --at draw that frame
+of a film instead.
 
 exit codes: 0 served, 2 script error, 3 kernel decline, 4 gate or export failure,
             5 project structure error, 6 diverged history under --strict";
@@ -75,6 +90,8 @@ pub enum Command {
     Serve,
     /// `popkern film <dir | script>`.
     Film,
+    /// `popkern render <dir | script>`.
+    Render,
     /// `popkern help` / `--help`.
     Help,
     /// `popkern --version` / `version`.
@@ -92,6 +109,12 @@ pub struct Cli {
     pub step: Option<PathBuf>,
     /// PNG render path.
     pub png: Option<PathBuf>,
+    /// STL export path.
+    pub stl: Option<PathBuf>,
+    /// STL chord height override (document units).
+    pub stl_chord: Option<f64>,
+    /// STL facet angle bound override (degrees).
+    pub stl_angle: Option<f64>,
     /// Document save path.
     pub pkn: Option<PathBuf>,
     /// JSON report.
@@ -143,6 +166,20 @@ pub struct Cli {
     pub chrome: Option<PathBuf>,
     /// `popkern film --at`: the time of a `png` frame, seconds.
     pub at: f64,
+    /// `popkern film --browser`: render with headless Chrome.
+    pub browser: bool,
+    /// Caption font file.
+    pub font: Option<PathBuf>,
+    /// `popkern render --look`.
+    pub look: Option<String>,
+    /// `popkern render --azimuth` (degrees).
+    pub azimuth: f64,
+    /// `popkern render --elevation` (degrees).
+    pub elevation: f64,
+    /// `popkern render --zoom`.
+    pub zoom: f64,
+    /// `popkern render --background` (`#rrggbb`).
+    pub background: Option<String>,
 }
 
 impl Default for Cli {
@@ -152,6 +189,9 @@ impl Default for Cli {
             script: PathBuf::new(),
             step: None,
             png: None,
+            stl: None,
+            stl_chord: None,
+            stl_angle: None,
             pkn: None,
             json: false,
             params: Vec::new(),
@@ -177,6 +217,13 @@ impl Default for Cli {
             preset: "mp4-1080p".into(),
             chrome: None,
             at: 0.0,
+            browser: false,
+            font: None,
+            look: None,
+            azimuth: -35.0,
+            elevation: 25.0,
+            zoom: 1.0,
+            background: None,
         }
     }
 }
@@ -199,6 +246,15 @@ fn number<T: std::str::FromStr>(flag: &str, text: &str) -> Result<T, UsageError>
         .map_err(|_| UsageError(format!("{flag}: '{text}' is not a number")))
 }
 
+fn positive(flag: &str, text: &str) -> Result<f64, UsageError> {
+    let v: f64 = number(flag, text)?;
+    if v.is_finite() && v > 0.0 {
+        Ok(v)
+    } else {
+        Err(UsageError(format!("{flag}: '{text}' must be positive")))
+    }
+}
+
 /// Parse the arguments after the program name.
 pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
     let mut cli = Cli::default();
@@ -209,6 +265,7 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
         Some("new") => cli.command = Command::New,
         Some("serve") => cli.command = Command::Serve,
         Some("film") => cli.command = Command::Film,
+        Some("render") => cli.command = Command::Render,
         Some("help") | Some("--help") | Some("-h") => {
             cli.command = Command::Help;
             return Ok(cli);
@@ -225,6 +282,9 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
         match arg.as_str() {
             "--step" => cli.step = Some(PathBuf::from(value(arg, &mut iter)?)),
             "--png" => cli.png = Some(PathBuf::from(value(arg, &mut iter)?)),
+            "--stl" => cli.stl = Some(PathBuf::from(value(arg, &mut iter)?)),
+            "--stl-chord" => cli.stl_chord = Some(positive(arg, value(arg, &mut iter)?)?),
+            "--stl-angle" => cli.stl_angle = Some(positive(arg, value(arg, &mut iter)?)?),
             "--pkn" => cli.pkn = Some(PathBuf::from(value(arg, &mut iter)?)),
             "--json" => cli.json = true,
             "--strict" => cli.strict = true,
@@ -247,6 +307,28 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
             "--preset" => cli.preset = value(arg, &mut iter)?.clone(),
             "--chrome" => cli.chrome = Some(PathBuf::from(value(arg, &mut iter)?)),
             "--at" => cli.at = number(arg, value(arg, &mut iter)?)?,
+            "--browser" => cli.browser = true,
+            "--font" => cli.font = Some(PathBuf::from(value(arg, &mut iter)?)),
+            "--look" => {
+                let v = value(arg, &mut iter)?;
+                if !["studio", "toon", "cad"].contains(&v.as_str()) {
+                    return Err(UsageError(format!(
+                        "--look is studio, toon or cad, not '{v}'"
+                    )));
+                }
+                cli.look = Some(v.clone());
+            }
+            "--azimuth" => cli.azimuth = number(arg, value(arg, &mut iter)?)?,
+            "--elevation" => cli.elevation = number(arg, value(arg, &mut iter)?)?,
+            "--zoom" => cli.zoom = positive(arg, value(arg, &mut iter)?)?,
+            "--background" => {
+                let v = value(arg, &mut iter)?;
+                let hex = v.strip_prefix('#').unwrap_or("");
+                if hex.len() != 6 || u32::from_str_radix(hex, 16).is_err() {
+                    return Err(UsageError(format!("--background is #rrggbb, not '{v}'")));
+                }
+                cli.background = Some(v.clone());
+            }
             "--watch" => cli.watch = true,
             "--no-edges" => cli.edges = false,
             "--param" => {
@@ -282,7 +364,7 @@ pub fn parse_args(args: &[String]) -> Result<Cli, UsageError> {
     let what = match cli.command {
         Command::Build | Command::New => "missing project folder",
         Command::Serve => "missing projects folder",
-        Command::Film => "missing project folder or script",
+        Command::Film | Command::Render => "missing project folder or script",
         _ => "missing script path",
     };
     cli.script = script.ok_or_else(|| UsageError(what.into()))?;

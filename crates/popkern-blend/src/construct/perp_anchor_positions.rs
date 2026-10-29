@@ -31,6 +31,10 @@ pub(in crate::construct) struct AnchorPlacement {
     /// interior to the face, shared by both strips, landed by a spur
     /// from the corner — never a reflex end (no terminal disc).
     pub(in crate::construct) junction: bool,
+    /// The position is an exact plane intersection (a chamfer bevel's
+    /// anchor): it lands on existing topology only within the linear
+    /// band, never through the loose sagitta-scaled reuse gates.
+    pub(in crate::construct) exact: bool,
 }
 
 /// Compute the 3D positions of the two perpendicular anchors for
@@ -94,6 +98,12 @@ pub(super) fn compute_perp_anchor_positions_for_face(
         _ => None,
     };
 
+    let support_plane = match face_data.surface.as_ref().map(|s| &s.geometry) {
+        Some(SurfaceGeometry::Plane { origin, normal, .. }) => {
+            normal.normalized().map(|n| (*origin, n))
+        }
+        _ => None,
+    };
     let mut loop_handles: Vec<LoopHandle> = Vec::with_capacity(1 + face_data.inner_loops.len());
     loop_handles.push(face_data.outer_loop);
     loop_handles.extend(face_data.inner_loops.iter().copied());
@@ -136,13 +146,17 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                 }
             }
         }
-        let seg_of = |heh: popkern_core::topology::HalfEdgeHandle| -> Option<(Point3, Point3)> {
-            let he = brep.half_edges.get(heh)?;
-            let next_he = brep.half_edges.get(he.next)?;
-            let p0 = brep.vertices.get(he.origin)?.position;
-            let p1 = brep.vertices.get(next_he.origin)?.position;
-            Some((p0, p1))
-        };
+        let loop_segs: Vec<Option<(Point3, Point3)>> = loop_hes
+            .iter()
+            .map(|&heh| {
+                let he = brep.half_edges.get(heh)?;
+                let next_he = brep.half_edges.get(he.next)?;
+                Some((
+                    brep.vertices.get(he.origin)?.position,
+                    brep.vertices.get(next_he.origin)?.position,
+                ))
+            })
+            .collect();
 
         let mut cursor = start_he;
         let mut iters = 0;
@@ -362,6 +376,40 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                             return;
                         }
                     }
+                    // PLANAR-BEVEL reflex end (chamfers, PK-994): see
+                    // `bevel_reflex_end`.
+                    let nb_bevel = blend_edges
+                        .bevel(he.edge)
+                        .filter(|_| blend_edges.contains(&he.edge));
+                    if let Some(b) = bevel_plane
+                        && let Some(end) = bevel_reflex_end(
+                            support_plane,
+                            b,
+                            nb_bevel,
+                            p0,
+                            p1,
+                            forward,
+                            edge_len,
+                            radius,
+                            nb_bevel.is_some()
+                                && !blend_edges.blends_every_edge_at(
+                                    brep,
+                                    if forward { origin } else { dest },
+                                ),
+                        )
+                    {
+                        let placed = match end {
+                            BevelReflexEnd::Mitre(p) => (p, REFLEX_MITRE),
+                            BevelReflexEnd::Rail(p) => (p, 0),
+                        };
+                        if slot.is_none_or(|(_, q)| q < placed.1) {
+                            *slot = Some(placed);
+                            if trace {
+                                eprintln!("[anchor] face={face:?} bevel reflex end {placed:?}");
+                            }
+                        }
+                        return;
+                    }
                     if slot_quality >= 1 {
                         return;
                     }
@@ -379,76 +427,20 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                         *slot = Some((along(s), 1));
                         return;
                     }
-                    // COLLINEAR-CHAIN CONTINUATION: when the anchor
-                    // distance overshoots this edge, the true anchor
-                    // lies on a collinear continuation — a prior
-                    // boolean may have split the support rim mid-span
-                    // (measured: an L-bracket union splits the base
-                    // top rim 2.0 from the corner; radius 4 clamped
-                    // the anchor onto the junction vertex, the strip
-                    // side trim slanted to it, the terminal stub
-                    // settle declined on the off-cylinder anchor, and
-                    // the stale corner stub shipped with deviation
-                    // exactly r(√2−1) — check-9 catch, PK-171). Walk
-                    // the loop while edges stay collinear, trying the
-                    // trim crossing on each piece and spending the
-                    // remaining radius.
-                    if radius >= edge_len * 0.999 {
-                        let dir0 = (p1 - p0) * (1.0 / edge_len);
-                        let mut remaining = radius - edge_len;
-                        let n = loop_hes.len();
-                        for step in 1..n {
-                            let j = if forward {
-                                (loop_index + step) % n
-                            } else {
-                                (loop_index + n - step) % n
-                            };
-                            let Some((q0, q1)) = seg_of(loop_hes[j]) else {
-                                break;
-                            };
-                            // Orient the piece along the walk.
-                            let (a, b) = if forward { (q0, q1) } else { (q1, q0) };
-                            let len = a.distance_to(&b);
-                            if len <= 1e-15 {
-                                continue;
-                            }
-                            let dir = (b - a) * (1.0 / len);
-                            let walk_dir = if forward { dir0 } else { dir0 * -1.0 };
-                            if dir.dot(&walk_dir) < 1.0 - 1e-9 {
-                                break; // chain ends at a genuine corner
-                            }
-                            if anchor_on_trim
-                                && let Some(curve) = analytic_curve
-                                && let Some((s, _)) =
-                                    crate::construct::cyl_plane_intersect::intersect_curve_with_segment(
-                                        curve, q0, q1,
-                                    )
-                                && (0.001..0.999).contains(&s)
-                            {
-                                *slot = Some((
-                                    Point3::new(
-                                        q0.x + s * (q1.x - q0.x),
-                                        q0.y + s * (q1.y - q0.y),
-                                        q0.z + s * (q1.z - q0.z),
-                                    ),
-                                    2,
-                                ));
-                                return;
-                            }
-                            if remaining <= len * 0.999 {
-                                let f = (remaining / len).max(0.001);
-                                *slot = Some((
-                                    Point3::new(
-                                        a.x + f * (b.x - a.x),
-                                        a.y + f * (b.y - a.y),
-                                        a.z + f * (b.z - a.z),
-                                    ),
-                                    1,
-                                ));
-                                return;
-                            }
-                            remaining -= len;
-                        }
+                    // COLLINEAR-CHAIN CONTINUATION (PK-171): see
+                    // `collinear_chain_anchor`.
+                    if radius >= edge_len * 0.999
+                        && let Some(placed) = collinear_chain_anchor(
+                            &loop_segs,
+                            loop_index,
+                            forward,
+                            (p0, p1),
+                            radius,
+                            analytic_curve.filter(|_| anchor_on_trim),
+                        )
+                    {
+                        *slot = Some(placed);
+                        return;
                     }
                     if perp_accept {
                         *slot = Some((along(t_perp), 1));
@@ -481,6 +473,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
             position,
             interior_rail: quality == 0,
             junction: quality == JUNCTION_SECTION || quality == REFLEX_MITRE,
+            exact: bevel_plane.is_some(),
         })
         .ok_or_else(|| format!("no perpendicular edge found at v_start on face {face:?}"))?;
     let end_pos = perp_end
@@ -488,11 +481,14 @@ pub(super) fn compute_perp_anchor_positions_for_face(
             position,
             interior_rail: quality == 0,
             junction: quality == JUNCTION_SECTION || quality == REFLEX_MITRE,
+            exact: bevel_plane.is_some(),
         })
         .ok_or_else(|| format!("no perpendicular edge found at v_end on face {face:?}"))?;
     Ok((start_pos, end_pos))
 }
 
+use super::perp_anchor_collinear_chain::collinear_chain_anchor;
 use super::perp_anchor_rail_proximity::{
-    ReflexMitreQuery, bevel_plane_crossing, closest_point_on_curve, distance_to_curve, reflex_mitre,
+    BevelReflexEnd, ReflexMitreQuery, bevel_plane_crossing, bevel_reflex_end,
+    closest_point_on_curve, distance_to_curve, reflex_mitre,
 };

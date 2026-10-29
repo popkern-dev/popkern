@@ -187,6 +187,10 @@ mod fillet_pipeline_pcurve_backstop;
 mod fillet_serving_retry;
 mod rolling_ball_corner;
 pub(crate) use fillet_serving_retry::fillet_edges_internal;
+mod chamfer_face_consumption;
+mod chamfer_grown;
+mod chamfer_mixed_corner;
+mod chamfer_rail_obstruction;
 #[path = "lib_chamfer.rs"]
 mod lib_chamfer;
 pub use lib_chamfer::{chamfer_edges, chamfer_edges_cancellable};

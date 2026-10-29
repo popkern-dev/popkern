@@ -179,6 +179,7 @@ fn run_build(cli: &Cli) -> Result<Summary, ProjectError> {
     let mut outputs = Vec::new();
     let mut code = 0;
     let mut error_value = Value::Null;
+    let mut stl = None;
     if let Some(error) = &build.error {
         lines.push(render_error(error));
         error_value = error_json(error);
@@ -203,6 +204,15 @@ fn run_build(cli: &Cli) -> Result<Summary, ProjectError> {
             write(path, &bytes)?;
             outputs.push(path.display().to_string());
         }
+        if let Some(path) = &cli.stl {
+            let options = crate::stl::options(cli.stl_chord, cli.stl_angle);
+            let (bytes, s) = crate::stl::document_stl(document, &options)
+                .map_err(|detail| ProjectError::Document { detail })?;
+            write(path, &bytes)?;
+            outputs.push(path.display().to_string());
+            lines.push(crate::report::stl_line(&s).trim_end().to_string());
+            stl = Some(s);
+        }
         lines.push(format!(
             "built: {} migration(s) applied",
             build.record.migrations.len()
@@ -217,6 +227,7 @@ fn run_build(cli: &Cli) -> Result<Summary, ProjectError> {
         "versions": versions,
         "error": error_value,
         "outputs": outputs,
+        "stl": stl,
     });
     Ok(Summary { lines, json, code })
 }

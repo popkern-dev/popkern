@@ -185,6 +185,20 @@ pub(super) fn author_reflex_end_discs(
             match carve_disc(
                 result, strip, re.corner, p_v, p_b, p_a, &end, span_sign, p_far, tolerance, trace,
             ) {
+                Ok(disc) if matches!(eg.surface, SurfaceGeometry::Plane { .. }) => {
+                    // A chamfer's terminal triangle lies in the end
+                    // face's plane: it extends that face (PK-994).
+                    match super::bevel_end_absorb::absorb_bevel_end_triangle(
+                        result, disc, re.corner, tolerance,
+                    ) {
+                        Ok(true) => {}
+                        Ok(false) => discs.push(disc),
+                        Err(reason) => {
+                            failures.push(fail(reason, Some(p_v)));
+                            break;
+                        }
+                    }
+                }
                 Ok(disc) => discs.push(disc),
                 Err(reason) => {
                     failures.push(fail(reason, Some(p_v)));

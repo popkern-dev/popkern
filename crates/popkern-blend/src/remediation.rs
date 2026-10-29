@@ -308,6 +308,21 @@ impl BlendFailure {
                     .with_parameter("linear")
                 }
             }
+            BlendFailure::VertexBlendFailed { reason, .. }
+                if reason.starts_with(crate::chamfer_mixed_corner::MIXED_CORNER) =>
+            {
+                Remediation::new(
+                    RemediationAction::Precheck,
+                    format!(
+                        "A concave chamfer and a convex chamfer end at the same \
+                         vertex; the corner is built fills first (the concave \
+                         chamfers, then the convex ones against them) and that \
+                         declined ({reason}). Chamfer the convex edges first in a \
+                         separate operation (the other order), or reduce the \
+                         distances."
+                    ),
+                )
+            }
             BlendFailure::VertexBlendFailed { reason, .. } if reason.contains("mitre declined") => {
                 Remediation::new(
                     RemediationAction::Precheck,
@@ -347,7 +362,7 @@ impl BlendFailure {
                 RemediationAction::HealInput,
                 format!(
                     "The edge's surrounding topology is not usable by \
-                     the fillet engine ({reason}). Heal the input BRep \
+                     the blend engine ({reason}). Heal the input BRep \
                      (close gaps, fix non-manifold edges, split seams) \
                      before retrying."
                 ),
@@ -405,9 +420,9 @@ impl BlendFailure {
                     "The blend built geometry that is not a valid solid \
                      ({reason}): an edge it created or trimmed leaves its \
                      faces. The input was handed back unchanged. Try a \
-                     different radius or continuity, or fillet fewer edges \
-                     at once; the named edge locates the construction that \
-                     could not be settled exactly."
+                     different radius, distance or continuity, or blend fewer \
+                     edges at once; the named edge locates the construction \
+                     that could not be settled exactly."
                 ),
             ),
             BlendFailure::CornerCapUnavailable {

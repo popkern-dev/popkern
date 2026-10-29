@@ -26,6 +26,8 @@ assets/css/site.css         the whole design system, one file
 assets/js/site.js           copy buttons + footer year, nothing else
 assets/img/                 gallery cutouts, OG card, favicon
 _headers                    Cloudflare Pages cache/security headers
+llms.txt, *.md              NOT in this folder: the deploy writes them (see below)
+tools/llms.txt.in           llms.txt's prose
 .nojekyll                   stops GitHub Pages running Jekyll over the tree
 tools/                      logo, social-card and asset-stamp generators (not deployed)
 ```
@@ -61,6 +63,19 @@ folder to the site root and live to `live/`, and verifies the served copy. It
 publishes to `~/code/.routes/static/popkern/`, which the routes server serves
 at **`/routes/popkern/`** (locally on port 7681, and on the tunnel hostname).
 The README, `tools/` and editor swap files stay behind.
+
+The deploy also writes the site's agent-readable copies into the staged
+tree with `tools/make-markdown.py`: a Markdown version of each page beside
+it (`index.md`, `blog/announcing-popkern.md`, ...), the scripting guide
+(`docs/reference/scripting-guide.md`) as `/scripting-guide.md`, and
+`/llms.txt`, the page for agents: install, quick start, MCP setup and
+tools, and the API docs, then the page copies. Its prose is
+`tools/llms.txt.in`; the example script is quoted from the guide, and the
+deploy fails if an install or MCP command in it differs from the install
+page's. Each page names its copy with
+`<link rel="alternate" type="text/markdown">` and opens its body with a
+hidden (`sr-only`, `aria-hidden`) pointer to `llms.txt`. A new page goes
+in the script's `PAGES` list and gets the same two tags.
 
 ```sh
 tools/deploy-site-routes.sh --no-build   # lander edits only: reuse the built live bundle

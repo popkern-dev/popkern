@@ -22,8 +22,12 @@
 //! plan) for anything outside the class — non-planar cap or walls,
 //! curved edges, partial loops, vertices with valence ≠ 3, or
 //! near-180° corners — and the caller falls through to the per-edge
-//! pipeline. **Rollback**: the caller applies this on a clone and
-//! discards it on `Err`.
+//! pipeline. A chain whose bevels consume the cap
+//! ([`chain_consumes_cap`]) declines whole and grows from a smaller
+//! ring (PK-1001); one whose corner setbacks differ (walls meeting the
+//! cap at different angles) also falls through to the per-edge path.
+//! **Rollback**: the caller applies this on a clone and discards it on
+//! `Err`.
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
@@ -32,6 +36,10 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use super::EdgeGeometry;
+
+#[path = "rim_chain_cap.rs"]
+mod cap;
+pub(crate) use cap::chain_consumes_cap;
 
 /// One edge of a detected chain, in cap-loop traversal order.
 struct RimChainEntry {
@@ -281,6 +289,11 @@ pub(crate) fn apply_rim_chain_chamfer(
     // wall-side trims meet the corner edge at W_i.
     let mut inset_corners = Vec::with_capacity(n); // C_i
     let mut wall_corners = Vec::with_capacity(n); // W_i
+    // Corner edges, read while every corner still has valence 3: after
+    // the spurs, "the edge that is not a rim edge" is ambiguous (the
+    // ring walk can meet the spur first, leaving the corner edge's
+    // curve at the vertex's old position).
+    let mut corner_edges = Vec::with_capacity(n);
     for i in 0..n {
         let prev = &plan.entries[(i + n - 1) % n];
         let cur = &plan.entries[i];
@@ -295,12 +308,13 @@ pub(crate) fn apply_rim_chain_chamfer(
         let c = line_intersection(cap_line_prev, cap_line_cur, join_tol)
             .ok_or_else(|| format!("corner {i}: cap trims do not meet (near-180° corner?)"))?;
 
-        let (_, corner_line) = corner_edge_line(
+        let (corner_edge, corner_line) = corner_edge_line(
             brep,
             cur.corner_vertex,
             eg_prev.analysis.edge,
             eg_cur.analysis.edge,
         )?;
+        corner_edges.push(corner_edge);
         let wall_line_prev = trim_line(wall_prev, join_tol)
             .ok_or_else(|| format!("edge {i}: wall trim not a line"))?;
         let wall_line_cur = trim_line(wall_cur, join_tol)
@@ -369,14 +383,7 @@ pub(crate) fn apply_rim_chain_chamfer(
             inset_corners[(i + 1) % n],
             lin_tol,
         )?;
-        let (corner_edge, _) = corner_edge_line(
-            brep,
-            entry.corner_vertex,
-            edge_geometries[plan.entries[(i + n - 1) % n].geometry_index]
-                .analysis
-                .edge,
-            eg.analysis.edge,
-        )?;
+        let corner_edge = corner_edges[i];
         let (sv, ev) = edge_vertices(brep, corner_edge)
             .ok_or_else(|| format!("corner edge {corner_edge:?} endpoints unavailable"))?;
         let (p0, p1) = (brep.vertices[sv].position, brep.vertices[ev].position);
