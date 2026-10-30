@@ -67,6 +67,8 @@ pub(crate) mod intersect;
 pub(crate) mod intersect_band_lattice;
 pub(crate) mod intersect_edge_face;
 pub(crate) mod intersect_edge_face_coincident;
+pub(crate) mod intersect_edge_in_face;
+pub(crate) mod intersect_edge_in_face_spans;
 pub(crate) mod intersect_residue_filter;
 pub(crate) mod intersect_residue_split;
 pub(crate) mod intersect_residue_witness;

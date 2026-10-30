@@ -296,6 +296,17 @@ pub(crate) fn find_intersections_with_aabbs(
         }
     }
 
+    // Edges lying in the other operand's face: the face is imprinted
+    // along them even where the solver dropped the boundary curve.
+    crate::intersect_edge_in_face::recover_edge_in_face_records(
+        a,
+        b,
+        aabbs_a,
+        aabbs_b,
+        &mut records,
+        tolerance,
+    );
+
     // §4.2 branch-point labeling: if two intersection-curve endpoints
     // are coincident within tolerance, mark both as `OnBranchPoint`.
     // The label is informational today (downstream consumers are
