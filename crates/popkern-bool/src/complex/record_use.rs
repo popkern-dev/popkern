@@ -18,8 +18,11 @@
 //! the unsplit face's operand: a phantom split, harmless to membership
 //! (measured: a keyway slot's wall split along the block's bottom plane
 //! across the bore, where the bottom face has its hole). Only a piece
-//! wholly outside the unused face's trim is exempt; one on its rim
-//! should have merged with the rim edge and is still reported.
+//! outside the unused face's trim is exempt; one running along its rim
+//! should have merged with the rim edge and is still reported. The
+//! piece's ends may lie on the rim: a record leaving the face does
+//! (measured: a tangent boss's records through a web's notch in a ring
+//! wall, ending on the notch rim at the tangent point).
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
@@ -80,9 +83,9 @@ pub(crate) fn half_registered_records(
     out
 }
 
-/// Whether `edge` touches `face`'s trim (inside or on its rim) at any
-/// of its ends and quarter points: `None` when the face or a sample cannot be
-/// classified.
+/// Whether `edge` touches `face`'s trim at any of its ends (strictly
+/// inside) or quarter points (inside or on its rim): `None` when the
+/// face or a sample cannot be classified.
 fn passes_through(
     c: &CellComplex,
     edge: &ComplexEdge,
@@ -108,9 +111,12 @@ fn passes_through(
         if surface.point_at(u, v).distance_to(&p) > linear {
             return None;
         }
-        // On the face's rim the record should have merged with the rim
-        // edge: no evidence it misses the face.
-        if brep.face_uv_trim_containment(face, surface, u, v)? != FaceUvContainment::Outside {
+        // Along the face's rim the record should have merged with the
+        // rim edge: no evidence it misses the face. An END on the rim is
+        // where any record leaving the face lies, and says nothing.
+        let at = brep.face_uv_trim_containment(face, surface, u, v)?;
+        let end = s == 0.0 || s == 1.0;
+        if at == FaceUvContainment::Interior || (!end && at != FaceUvContainment::Outside) {
             return Some(true);
         }
     }
