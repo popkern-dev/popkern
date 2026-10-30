@@ -83,9 +83,10 @@ pub(crate) fn half_registered_records(
     out
 }
 
-/// Whether `edge` touches `face`'s trim at any of its ends (strictly
-/// inside) or quarter points (inside or on its rim): `None` when the
-/// face or a sample cannot be classified.
+/// Whether `edge` passes through `face`'s trim: a sample strictly
+/// inside it, or every quarter point inside or on its rim (a piece
+/// riding the rim). `None` when the face or a sample cannot be
+/// classified.
 fn passes_through(
     c: &CellComplex,
     edge: &ComplexEdge,
@@ -98,6 +99,7 @@ fn passes_through(
         c.vertices[edge.start.index()].position,
         c.vertices[edge.end.index()].position,
     );
+    let mut along_rim = true;
     for s in [0.0, 0.25, 0.5, 0.75, 1.0] {
         let p = match &edge.curve {
             Some(cv) => cv
@@ -111,16 +113,20 @@ fn passes_through(
         if surface.point_at(u, v).distance_to(&p) > linear {
             return None;
         }
-        // Along the face's rim the record should have merged with the
-        // rim edge: no evidence it misses the face. An END on the rim is
-        // where any record leaving the face lies, and says nothing.
         let at = brep.face_uv_trim_containment(face, surface, u, v)?;
-        let end = s == 0.0 || s == 1.0;
-        if at == FaceUvContainment::Interior || (!end && at != FaceUvContainment::Outside) {
+        if at == FaceUvContainment::Interior {
             return Some(true);
         }
+        if s != 0.0 && s != 1.0 && at == FaceUvContainment::Outside {
+            along_rim = false;
+        }
     }
-    Some(false)
+    // Along the face's rim the record should have merged with the rim
+    // edge: no evidence it misses the face. Its ends on the rim are where
+    // any record leaving the face lies, and a piece outside the trim
+    // that only touches the rim between them is tangent to it there;
+    // neither says anything.
+    Some(along_rim)
 }
 
 #[cfg(test)]

@@ -23,6 +23,8 @@
 //! (plan §4.13; pinned by `structural_complex_module_boundary`).
 
 pub(crate) mod artifact;
+#[cfg(test)]
+pub(crate) mod casting_scenes;
 pub(crate) mod fans;
 pub(crate) mod hole_phantoms;
 pub(crate) mod ids;

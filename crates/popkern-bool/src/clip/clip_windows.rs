@@ -478,6 +478,16 @@ fn clip_curve_uv_space_tuned(
         };
         if !wrapped {
             pin_junction_ends(&mut piece, t_enter, t_exit);
+            if open_windows_allowed && pierce_scope {
+                super::clip_junction_pins::pin_shallow_crossing_ends(
+                    &mut piece,
+                    (brep_a, face_a),
+                    (brep_b, face_b),
+                    curve,
+                    surfs,
+                    cache,
+                );
+            }
         }
         out.push(piece);
     }
