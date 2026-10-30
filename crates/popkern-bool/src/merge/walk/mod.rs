@@ -26,7 +26,7 @@ pub(crate) mod chart_walk;
 mod chart_walk_tests;
 mod fragment;
 mod fragment_chart;
-mod hole_nesting;
+pub(crate) mod hole_nesting;
 mod hole_nesting_chart;
 mod identity;
 mod identity_peel;

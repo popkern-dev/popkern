@@ -226,6 +226,16 @@ pub(crate) fn cellular_graph_merge(
     for (face_ref, reason) in &walk_fallbacks {
         crate::chart_walk_fallback::record_chart_walk_fallback(face_ref, reason);
     }
+    // A face's own hole the walk filed apart rejoins the piece around
+    // it, for every classifier: served as a piece it is an inverted
+    // patch over a face that lost its hole.
+    let fragments = crate::complex::hole_phantoms::rejoin_own_holes(
+        &graph,
+        &fragments,
+        [original_a, original_b],
+        tolerance.linear(),
+    )
+    .unwrap_or(fragments);
 
     let frontier = frontier_keys(
         &graph,

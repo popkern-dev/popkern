@@ -50,3 +50,44 @@ fn a_disc_over_a_faces_own_bore_bounds_nothing() {
         }
     }
 }
+
+/// The box [x0,x1]×[y0,y1]×[z0,z1].
+fn block(lo: (f64, f64, f64), hi: (f64, f64, f64), tol: Tolerance) -> BRep {
+    let profile = [
+        Point3::new(lo.0, lo.1, lo.2),
+        Point3::new(hi.0, lo.1, lo.2),
+        Point3::new(hi.0, hi.1, lo.2),
+        Point3::new(lo.0, hi.1, lo.2),
+    ];
+    BRep::prism(
+        &profile,
+        popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+        hi.2 - lo.2,
+        tol,
+    )
+    .expect("block")
+}
+
+/// A box with a tab on its back face (the face keeps the tab's
+/// footprint as a hole), crossed by a slab whose ends lie on the box's
+/// sides (a coincident interface): the slab splits the back face into
+/// three, and the footprint lies outside the largest, which the walk
+/// elects outer. The walk files the footprint ring apart; the complex
+/// puts it back as the hole of the piece around it (measured on the
+/// print-in-place hinge's swung lid: three knuckle footprints left
+/// twelve free edges).
+#[test]
+fn a_hole_ring_filed_apart_rejoins_the_piece_around_it() {
+    let tol = Tolerance::default();
+    let body = block((0.0, 0.0, 0.0), (80.0, 50.0, 30.0), tol);
+    let tab = block((60.0, 50.0, 27.0), (72.0, 52.0, 29.0), tol);
+    let tabbed = crate::boolean(BoolOperation::Union, body, tab, tol, None).expect("tabbed box");
+    let slab = block((0.0, 45.0, 19.0), (80.0, 55.0, 21.0), tol);
+    for op in [BoolOperation::Intersection, BoolOperation::Union] {
+        let ix = crate::intersect::find_intersections(&tabbed, &slab, &tol).expect("intersections");
+        let served =
+            crate::complex::serve::rescue(&tabbed, &slab, &ix, op, &tol).expect("manifold");
+        let (body, _) = served.unwrap_or_else(|| panic!("the complex serves the {op:?}"));
+        body.validate().expect("valid");
+    }
+}
