@@ -91,12 +91,10 @@ fn strip_crossing_cutter(tol: Tolerance) -> BRep {
         .expect("translate")
 }
 
-/// Single-bite cutter: one wall (x = 0.4) through the fillet strip.
-/// Both SSI modes currently FAIL this boolean identically (split
-/// endpoint 1.848e-5 off the rim arc vs the 1e-5 insertion band — a
-/// pre-existing clip-sag defect, filed as its own task); the pin here
-/// is MODE PARITY, so the analytic arms can neither cause nor mask
-/// the defect.
+/// Single-bite cutter: one wall (x = 0.4) through the fillet strip,
+/// the fillet's chart seam inside the bite. Both SSI modes serve it
+/// (the y < 0 oval's closure crossing, PK-1021); the parity pin below
+/// keeps the analytic arms from flipping the outcome in one mode.
 fn single_bite_cutter(tol: Tolerance) -> BRep {
     BRep::unit_cube(tol)
         .expect("cube")
@@ -360,10 +358,9 @@ fn validate_all_on_double_rim_filleted_tube_is_not_slower_under_analytic_arms() 
 }
 
 /// Mode-parity pin for the single-bite configuration: both SSI modes
-/// must produce the SAME boolean outcome (today: the identical
-/// pre-existing SplitFailed; after the filed clip-sag fix lands:
-/// success in both). The analytic arms must never flip this outcome
-/// in one mode only.
+/// must produce the SAME boolean outcome (success in both since
+/// PK-1021). The analytic arms must never flip this outcome in one
+/// mode only.
 #[test]
 fn single_bite_boolean_outcome_is_mode_independent() {
     let _guard = ENV_LOCK.lock().expect("env lock");
@@ -407,9 +404,53 @@ fn single_bite_boolean_outcome_is_mode_independent() {
         );
     }
     eprintln!(
-        "[pk279] single-bite outcomes: analytic {:?}, marching {:?} (known clip-sag defect \
-         when failing; filed as its own boolean task)",
+        "[pk279] single-bite outcomes: analytic {:?}, marching {:?}",
         analytic.as_ref().map(|_| "ok").map_err(|e| format!("{e}")),
         marching.as_ref().map(|_| "ok").map_err(|e| format!("{e}")),
+    );
+}
+
+/// The single bite puts the rim fillet's chart seam inside the bite,
+/// and the x = 0.4 wall cuts the fillet in two ovals; the one at y < 0
+/// starts on the fillet's v = 0 rim and winds once around the tube.
+/// Its closure point is a boundary crossing a v period from its start
+/// (PK-1021): without it the fillet kept no piece of the oval, the
+/// cellular walk produced an open loop and the complex a fragment
+/// spanning the bite. Both classifiers now decide the cut: the cellular
+/// serve stands (no rescue) and the complex agrees with it.
+#[test]
+fn single_bite_cut_is_decided_by_both_classifiers() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let tol = Tolerance::default();
+    let part = rim_filleted_cylinder(tol);
+    let cutter = single_bite_cutter(tol);
+    let _ = popkern_bool::complex_shadow::take_complex_shadow_events();
+    let _ = popkern_bool::complex_shadow::take_complex_rescue_events();
+    // The cellular classifier serves and the complex shadows it, whatever
+    // mode the run is in (a primary-mode suite records no shadow).
+    let primary = std::env::var_os("POPKERN_COMPLEX_PRIMARY");
+    // SAFETY: serialized by ENV_LOCK; restored right after the call.
+    unsafe {
+        std::env::remove_var("POPKERN_COMPLEX_PRIMARY");
+        std::env::set_var("POPKERN_COMPLEX_SHADOW", "1");
+    }
+    let cut = boolean(BoolOperation::Subtraction, part, cutter, tol, None);
+    unsafe {
+        std::env::remove_var("POPKERN_COMPLEX_SHADOW");
+        if let Some(v) = primary {
+            std::env::set_var("POPKERN_COMPLEX_PRIMARY", v);
+        }
+    }
+    let body = cut.expect("the single bite serves");
+    assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
+    let rescues = popkern_bool::complex_shadow::take_complex_rescue_events();
+    assert!(rescues.is_empty(), "cellular declined: {rescues:?}");
+    let shadow = popkern_bool::complex_shadow::take_complex_shadow_events();
+    assert!(
+        !shadow.is_empty()
+            && shadow
+                .iter()
+                .all(|e| e.outcome == popkern_bool::complex_shadow::ComplexShadowOutcome::Agree),
+        "{shadow:?}"
     );
 }

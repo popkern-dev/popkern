@@ -167,10 +167,18 @@ fn a_rotor_geared_at_minus_n_interferes() {
         source.contains("ratio: -(s.n * 1.0) }"),
         "the rotor ratio moved"
     );
-    assert!(
-        first_contact(&source).is_some(),
-        "the wrong ratio must hit the pins"
-    );
+    let (deg, hits) = first_contact(&source).expect("the wrong ratio must hit the pins");
+    // Each overlap is built, not just detected: a pin standing a few
+    // thousandths into a flank is a shallow lens whose cap arcs read
+    // outside the disc faces at every tuned sample, and the
+    // intersection declined (PK-1022).
+    let declined: Vec<_> = hits
+        .iter()
+        .filter(|(_, _, status)| {
+            status.starts_with("Interfering") && !status.contains("decline: None")
+        })
+        .collect();
+    assert!(declined.is_empty(), "at {deg}°: {declined:?}");
 }
 
 /// The script's own part functions (layout, flank fit, disc and rod

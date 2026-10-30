@@ -93,17 +93,7 @@ pub(crate) fn record_complex_primary_fallback(
     if popkern_core::trace::trace_enabled("complex") {
         eprintln!("[complex] primary declined ({operation:?}), cellular decides: {reason}");
     }
-    if let Some(path) = std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG") {
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
-            let test = std::thread::current().name().unwrap_or("?").to_string();
-            let _ = writeln!(f, "{test}\tPrimaryFallback {operation:?} {reason}");
-        }
-    }
+    append_log_line(&format!("PrimaryFallback {operation:?} {reason}"));
 }
 
 /// Drain every rescue attempt recorded since the last call.
@@ -119,6 +109,39 @@ pub(crate) fn shadow_enabled() -> bool {
     std::env::var_os("POPKERN_COMPLEX_SHADOW").is_some_and(|v| v == "1")
 }
 
+/// The label a log line carries: the test thread's name, or, on a
+/// thread the test spawned (a bigger stack, a worker pool), the test
+/// the process was started for: nextest runs each test in its own
+/// process, naming it as the first non-flag argument.
+fn log_label() -> String {
+    if let Some(name) = std::thread::current().name()
+        && name != "main"
+    {
+        return name.to_string();
+    }
+    std::env::args()
+        .skip(1)
+        .find(|a| !a.starts_with('-'))
+        .unwrap_or_else(|| "?".to_string())
+}
+
+/// Append `line` to `POPKERN_COMPLEX_SHADOW_LOG`, when set, labelled
+/// with the test it ran under, so a whole test-suite run (one process
+/// per test) can be measured at once.
+pub(crate) fn append_log_line(line: &str) {
+    let Some(path) = std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG") else {
+        return;
+    };
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{}\t{line}", log_label());
+    }
+}
+
 /// Record one comparison. With `POPKERN_COMPLEX_SHADOW_LOG=<path>` the
 /// event is also appended to that file as one line, so a whole
 /// test-suite run (one process per test) can be measured at once.
@@ -126,17 +149,7 @@ pub(crate) fn record_complex_shadow(event: ComplexShadowEvent) {
     if popkern_core::trace::trace_enabled("complex") {
         eprintln!("[complex] shadow {event:?}");
     }
-    if let Some(path) = std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG") {
-        use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-        {
-            let test = std::thread::current().name().unwrap_or("?").to_string();
-            let _ = writeln!(f, "{test}\t{event:?}");
-        }
-    }
+    append_log_line(&format!("{event:?}"));
     if let Ok(mut events) = EVENTS.lock() {
         events.push(event);
     }

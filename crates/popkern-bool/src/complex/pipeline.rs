@@ -80,8 +80,16 @@ fn checked(c: &CellComplex) -> Result<(), ComplexDecline> {
 
 /// With `POPKERN_COMPLEX_ARTIFACT=<dir>`, write the declined complex
 /// and its decline to `<dir>` as one JSON file, so the failure can be
-/// inspected without rerunning the boolean.
-fn emit_decline_artifact(c: &CellComplex, decline: &ComplexDecline) {
+/// inspected without rerunning the boolean, and both operands beside it
+/// (`….operand0.json`, `….operand1.json`, serde BReps), so it can be
+/// replayed alone: a decline inside a script, an assembly or a worker
+/// pool reproduces without the code that built its operands.
+fn emit_decline_artifact(
+    c: &CellComplex,
+    decline: &ComplexDecline,
+    op: BoolOperation,
+    operands: [&BRep; 2],
+) {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
     let Some(dir) = std::env::var_os("POPKERN_COMPLEX_ARTIFACT") else {
@@ -91,12 +99,17 @@ fn emit_decline_artifact(c: &CellComplex, decline: &ComplexDecline) {
     let path =
         std::path::Path::new(&dir).join(format!("complex-decline-{}-{n}.json", std::process::id()));
     let body = format!(
-        "{{\"decline\":{:?},\"complex\":{}}}",
+        "{{\"decline\":{:?},\"operation\":\"{op:?}\",\"complex\":{}}}",
         format!("{decline:?}"),
         super::artifact::complex_artifact_json(c)
     );
     if std::fs::write(&path, body).is_ok() {
         eprintln!("[complex] decline artifact: {}", path.display());
+    }
+    for (k, operand) in operands.iter().enumerate() {
+        if let Ok(json) = serde_json::to_vec(operand) {
+            let _ = std::fs::write(path.with_extension(format!("operand{k}.json")), json);
+        }
     }
 }
 
@@ -231,7 +244,7 @@ pub(crate) fn classify_with_complex(
     let classifications = match staged {
         Ok(n) => n,
         Err(decline) => {
-            emit_decline_artifact(&lift.complex, &decline);
+            emit_decline_artifact(&lift.complex, &decline, op, input.operands);
             return Err(decline);
         }
     };
