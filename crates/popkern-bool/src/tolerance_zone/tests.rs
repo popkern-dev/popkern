@@ -22,7 +22,7 @@ pub(super) fn cube() -> BRep {
     BRep::unit_cube(Tolerance::default()).expect("cube")
 }
 
-fn vertex(operand: usize, vertex: VertexHandle, at: Point3) -> CandidateVertex {
+pub(super) fn vertex(operand: usize, vertex: VertexHandle, at: Point3) -> CandidateVertex {
     CandidateVertex {
         position: at,
         radius: TOL,

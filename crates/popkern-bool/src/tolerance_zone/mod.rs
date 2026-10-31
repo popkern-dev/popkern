@@ -26,6 +26,7 @@ pub(crate) mod consequences;
 pub(crate) mod face_path;
 pub(crate) mod face_side;
 pub(crate) mod incidence;
+pub(crate) mod record_order;
 pub(crate) mod region;
 pub(crate) mod resolve;
 pub(crate) mod shadow;
@@ -39,5 +40,7 @@ mod consequence_tests;
 mod face_path_tests;
 #[cfg(test)]
 mod face_side_tests;
+#[cfg(test)]
+mod record_order_tests;
 #[cfg(test)]
 mod tests;

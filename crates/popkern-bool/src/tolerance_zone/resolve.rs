@@ -19,7 +19,10 @@
 //! - two points on one face on opposite sides of a boundary edge of it
 //!   (`face_side`);
 //! - two points on one face separated along it, after period
-//!   correction, by more than their zones (`face_path`).
+//!   correction, by more than their zones (`face_path`);
+//! - a point joining a vertex across another vertex's point of a
+//!   record they share, which would reverse the record's order
+//!   (`record_order`).
 //!
 //! Incompatibility is a hard constraint; proximity never overrides it.
 //!
@@ -70,6 +73,12 @@ pub(crate) enum Incompatibility {
         /// Surface length between them.
         length: f64,
     },
+    /// Joining them would put another vertex's point of `record`
+    /// between two points of one vertex (`record_order`).
+    OutOfRecordOrder {
+        /// The record.
+        record: usize,
+    },
 }
 
 /// One resolved vertex.
@@ -118,6 +127,10 @@ pub(crate) struct Resolution {
     pub components: usize,
     /// Pairs of one component kept apart, with the rule that did it.
     pub separations: Vec<(usize, usize, Incompatibility)>,
+    /// Candidates that started a vertex inside another vertex's span
+    /// along a record, as (group, candidate, record): an order the
+    /// canonical-order partition could not keep (`record_order`).
+    pub order_conflicts: Vec<(usize, usize, usize)>,
 }
 
 /// The operands and records the candidates' incidences refer to.
@@ -347,6 +360,18 @@ pub(crate) fn resolve(
                     res.separations.push((m, c, why));
                     continue;
                 }
+                let component_groups = &res.groups[first_group..];
+                if let Some((w, record)) = super::record_order::reversal(
+                    cands,
+                    ctx.records,
+                    component_groups,
+                    Some(g - first_group),
+                    c,
+                ) {
+                    res.separations
+                        .push((w, c, Incompatibility::OutOfRecordOrder { record }));
+                    continue;
+                }
                 let anchor = &cands[group.anchor];
                 let needed = group
                     .tolerance
@@ -374,6 +399,15 @@ pub(crate) fn resolve(
                     needed,
                     cap: options.growth_cap,
                 });
+            }
+            if let Some((w, record)) = super::record_order::reversal(
+                cands,
+                ctx.records,
+                &res.groups[first_group..],
+                None,
+                c,
+            ) {
+                res.order_conflicts.push((res.group_of[w], c, record));
             }
             res.group_of[c] = res.groups.len();
             res.groups.push(VertexGroup {

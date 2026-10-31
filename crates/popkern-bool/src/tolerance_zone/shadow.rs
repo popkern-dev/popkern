@@ -67,6 +67,13 @@ pub(crate) struct ResolutionShadow {
     /// Candidate pairs the period rule kept apart, with the largest
     /// surface length between a pair (`face_path`).
     pub face_path_separations: (usize, f64),
+    /// Candidate pairs the record-order rule kept apart
+    /// (`record_order`).
+    pub record_order_separations: usize,
+    /// Candidates that started a vertex inside another vertex's span
+    /// along a record: orders the canonical-order partition could not
+    /// keep.
+    pub record_order_conflicts: usize,
     /// Records lying along an operand edge for their whole length
     /// (both ends and the middle on one edge): common blocks, one edge
     /// that today enters the graph twice (the record and the edge).
@@ -357,6 +364,17 @@ pub(crate) fn run(
         shadow.branch_separations = separated(super::resolve::Incompatibility::DistinctBranches);
         shadow.face_side_separations =
             separated(super::resolve::Incompatibility::OppositeFaceSides);
+        shadow.record_order_separations = res
+            .separations
+            .iter()
+            .filter(|(_, _, why)| {
+                matches!(
+                    why,
+                    super::resolve::Incompatibility::OutOfRecordOrder { .. }
+                )
+            })
+            .count();
+        shadow.record_order_conflicts = res.order_conflicts.len();
         for (_, _, why) in &res.separations {
             if let super::resolve::Incompatibility::SeparatedAlongFace { length } = *why {
                 shadow.face_path_separations.0 += 1;
