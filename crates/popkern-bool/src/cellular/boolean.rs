@@ -136,6 +136,7 @@ pub(crate) fn cellular_graph_merge(
     let rotated = crate::intersect_band_lattice::split_records_at_band_lattice(
         rotated, original_a, original_b,
     );
+    let mut graph_splits_junctions = true;
     let table_ends = crate::tolerance_zone::table::table_enabled()
         .then(|| {
             let table = crate::tolerance_zone::table::build(
@@ -151,6 +152,8 @@ pub(crate) fn cellular_graph_merge(
                     table.resolution.as_ref().err()
                 ));
             }
+            graph_splits_junctions = ends.is_none()
+                || table.has_common_blocks([original_a, original_b], &rotated, tolerance.linear());
             ends
         })
         .flatten();
@@ -162,9 +165,13 @@ pub(crate) fn cellular_graph_merge(
     // walk cannot route the junction without a node-split there
     // (measured: the rail's floor strip never became a fragment and
     // the carve went non-manifold). Every node is a candidate — the
-    // splitter skips nodes not on a shared edge's interior.
-    let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
-    split_shared_edges_at_nodes(&mut graph, &all_nodes, snap_tol);
+    // splitter skips nodes not on a shared edge's interior. With the
+    // table deciding vertices the records arrived split at its paves,
+    // and the pass serves only common-block scenes (plan §4.4).
+    if graph_splits_junctions {
+        let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
+        split_shared_edges_at_nodes(&mut graph, &all_nodes, snap_tol);
+    }
     if popkern_core::trace::trace_enabled("boolean") {
         let mut i = 0;
         while i < graph.half_edges.len() {

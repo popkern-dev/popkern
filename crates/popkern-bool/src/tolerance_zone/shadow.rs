@@ -81,6 +81,10 @@ pub(crate) struct ResolutionShadow {
     /// 12 booleans, every one in a scene with common blocks (same-domain
     /// overlaps, plan §4.4); none in the scenes without.
     pub unpredicted: (usize, f64),
+    /// (node, record edge) junctions of the finished graph the graph's
+    /// own splitting pass would still split: with the table deciding,
+    /// the junctions its paves missed.
+    pub junctions_unpaved: usize,
     /// The resolution's decline, if it declined.
     pub declined: Option<String>,
 }
@@ -319,6 +323,8 @@ pub(crate) fn run(
         2.0 * linear,
         20.0 * linear,
     );
+    shadow.junctions_unpaved =
+        crate::merge::graph_split_at_nodes::unsplit_junctions(graph, 2.0 * linear);
     if let Ok(res) = &table.resolution {
         shadow.common_blocks = super::common_blocks::common_block_records(
             &table.cands,

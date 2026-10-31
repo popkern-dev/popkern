@@ -63,6 +63,7 @@ pub(crate) fn insert_intersection_curves_at(
             tolerance * 20.0
         }
     };
+    let mut paved: Vec<(usize, &[(f64, popkern_core::geometry::Point3)])> = Vec::new();
     for (ri, record) in records.iter().enumerate() {
         let curve_3d = &record.curve.curve_3d;
         let (t_start, t_end) = curve_3d.parameter_range();
@@ -226,6 +227,11 @@ pub(crate) fn insert_intersection_curves_at(
             pcurve_a,
             pcurve_b,
         );
+        if let Some(at) = placed
+            && !at.paves.is_empty()
+        {
+            paved.push((fwd, &at.paves));
+        }
 
         let face_a_ref = FaceRef {
             operand: Operand::A,
@@ -257,6 +263,9 @@ pub(crate) fn insert_intersection_curves_at(
         graph.face_edges.entry(face_a_ref).or_default().push(twin);
         graph.face_edges.entry(face_b_ref).or_default().push(fwd);
     }
+    // Once every record's end nodes exist, a pave finds its node
+    // rather than minting a twin of it.
+    super::graph_paves::split_records_at_paves(graph, &paved, tolerance);
 }
 
 impl IntersectionGraph {

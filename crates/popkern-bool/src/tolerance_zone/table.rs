@@ -16,8 +16,8 @@ use crate::intersect::{IntersectionRecord, IntersectionResult};
 /// radius, so the table never identifies what the graph would not.
 const GROWTH_CAP_FACTOR: f64 = 20.0;
 
-/// Where a record's ends lie, as the table decided them.
-#[derive(Debug, Clone, Copy)]
+/// Where a record's vertices lie, as the table decided them.
+#[derive(Debug, Clone)]
 pub(crate) struct RecordEnds {
     /// The start's vertex: the anchor of the group it resolved into.
     pub start: Point3,
@@ -26,6 +26,11 @@ pub(crate) struct RecordEnds {
     /// The larger of the two vertices' tolerances: what decides a
     /// record whose ends share a node (`consequences::collapse_of`).
     pub tolerance: f64,
+    /// The record's T-junctions: each group holding an interior
+    /// incidence on the record, as (record parameter, the group's
+    /// anchor), by parameter. The record's edge is split there at
+    /// insertion (a pave on the record, plan §4.3).
+    pub paves: Vec<(f64, Point3)>,
 }
 
 /// The candidates and their resolution.
@@ -86,15 +91,70 @@ impl VertexTable {
             let anchor = self.cands[group.anchor].position;
             *ends.get_mut(record)?.get_mut(usize::from(end))? = Some((anchor, group.tolerance));
         }
+        let mut paves = self.record_paves(res, records);
         ends.into_iter()
-            .map(|[s, e]| {
+            .zip(paves.iter_mut())
+            .map(|([s, e], paves)| {
                 let ((start, ts), (end, te)) = (s?, e?);
                 Some(RecordEnds {
                     start,
                     end,
                     tolerance: ts.max(te),
+                    paves: std::mem::take(paves),
                 })
             })
             .collect()
+    }
+
+    /// Each record's interior paves, one per group however many of its
+    /// candidates fall on the record, at the parameter of the first. A
+    /// group holding one of the record's own ends is that end, not a
+    /// pave.
+    fn record_paves(&self, res: &Resolution, records: usize) -> Vec<Vec<(f64, Point3)>> {
+        let mut seen = std::collections::BTreeSet::new();
+        for (record, ends) in super::consequences::record_end_candidates(&self.cands, records)
+            .into_iter()
+            .enumerate()
+        {
+            for c in ends.into_iter().flatten() {
+                seen.insert((record, res.group_of[c]));
+            }
+        }
+        let mut paves: Vec<Vec<(f64, Point3)>> = vec![Vec::new(); records];
+        for (i, c) in self.cands.iter().enumerate() {
+            let group = res.group_of[i];
+            for inc in &c.incidence {
+                if let &Incidence::Record {
+                    record,
+                    s,
+                    end: None,
+                } = inc
+                    && record < records
+                    && seen.insert((record, group))
+                {
+                    let anchor = self.cands[res.groups[group].anchor].position;
+                    paves[record].push((s, anchor));
+                }
+            }
+        }
+        for p in &mut paves {
+            p.sort_by(|a, b| a.0.total_cmp(&b.0));
+        }
+        paves
+    }
+
+    /// Whether some record is a common block with an operand edge: a
+    /// same-domain overlap (plan §4.4), where the graph's own splitting
+    /// still decides the junctions until the join does.
+    pub(crate) fn has_common_blocks(
+        &self,
+        operands: [&BRep; 2],
+        records: &[IntersectionRecord],
+        linear: f64,
+    ) -> bool {
+        self.resolution.as_ref().is_ok_and(|res| {
+            !super::common_blocks::common_block_records(&self.cands, res, operands, records, linear)
+                .is_empty()
+        })
     }
 }

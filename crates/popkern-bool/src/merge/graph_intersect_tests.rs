@@ -150,6 +150,7 @@ fn the_table_keeps_loops_and_drops_spurs_whatever_their_size() {
         start: at,
         end: at,
         tolerance: 1e-6,
+        paves: Vec::new(),
     });
     assert_eq!(kept_at(Some(&ends)), vec![60.0, 60.0]);
 }
@@ -175,4 +176,45 @@ fn validate_detects_orphan_node() {
     let errors = graph.validate();
     assert_eq!(errors.len(), 1);
     assert!(errors[0].contains("no outgoing edges"));
+}
+
+/// A record whose interior holds another record's end (a T-junction)
+/// arrives split there when the table names the pave: the junction node
+/// is the other record's end node, not a twin of it, and the two
+/// pieces keep the record's true geometry either side of it.
+#[test]
+fn a_record_arrives_split_at_the_tables_paves() {
+    let p = |x: f64, y: f64| Point3::new(x, y, 0.0);
+    let (fa, fb) = (FaceHandle::default(), FaceHandle::default());
+    let records = [
+        make_record(p(0.0, 0.0), p(4.0, 0.0), fa, fb),
+        make_record(p(1.0, 0.0), p(1.0, 3.0), fa, fb),
+    ];
+    let ends = [
+        crate::tolerance_zone::table::RecordEnds {
+            start: p(0.0, 0.0),
+            end: p(4.0, 0.0),
+            tolerance: 1e-6,
+            paves: vec![(0.25, p(1.0, 0.0))],
+        },
+        crate::tolerance_zone::table::RecordEnds {
+            start: p(1.0, 0.0),
+            end: p(1.0, 3.0),
+            tolerance: 1e-6,
+            paves: Vec::new(),
+        },
+    ];
+    let mut graph = IntersectionGraph::new();
+    insert_intersection_curves_at(&mut graph, &records, 1e-6, Some(&ends));
+    assert_eq!(graph.nodes.len(), 4, "the junction is one node");
+    assert_eq!(graph.half_edges.len(), 6, "the first record is two pieces");
+    let junction = graph.find_node(&p(1.0, 0.0), 1e-6).expect("junction node");
+    assert_eq!(graph.nodes[junction].outgoing.len(), 3, "a T-junction");
+    let windows: Vec<(f64, f64)> = [0, 4]
+        .iter()
+        .filter_map(|&i| graph.half_edges[i].curve.as_ref())
+        .map(|c| (c.t_start, c.t_end))
+        .collect();
+    assert_eq!(windows.len(), 2);
+    assert!((windows[0].1 - 0.25).abs() < 1e-9 && (windows[1].0 - 0.25).abs() < 1e-9);
 }

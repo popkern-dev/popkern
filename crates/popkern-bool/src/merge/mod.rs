@@ -18,6 +18,7 @@ pub(crate) mod graph_gap_closure;
 pub(crate) mod graph_gap_targets;
 pub(crate) mod graph_intersect;
 pub(crate) mod graph_merge;
+pub(crate) mod graph_paves;
 pub(crate) mod graph_split;
 pub(crate) mod graph_split_at_nodes;
 pub(crate) mod graph_split_node;
