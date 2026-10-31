@@ -156,7 +156,7 @@ pub(crate) fn cellular_graph_merge(
             graph_splits_junctions = ends.is_none()
                 || table.has_common_blocks([original_a, original_b], &rotated, tolerance.linear());
             if !graph_splits_junctions {
-                operand_paves = table.operand_edge_paves(rotated.len());
+                operand_paves = table.operand_edge_paves();
             }
             ends
         })

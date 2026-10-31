@@ -19,6 +19,7 @@
 //! linear tolerance when it has none; the growth cap is an explicit
 //! parameter. No threshold here is global state.
 
+pub(crate) mod branches;
 pub(crate) mod candidates;
 pub(crate) mod common_blocks;
 pub(crate) mod consequences;

@@ -143,26 +143,29 @@ impl VertexTable {
         paves
     }
 
-    /// Every operand edge a record ends on mid-span: (operand, edge,
-    /// the group's anchor) for each group holding a record end and an
+    /// Every operand edge a record node lies on mid-span: (operand,
+    /// edge, the group's anchor) for each group holding a record
+    /// incidence (an end, or a pave the record is split at) and an
     /// incidence on the edge, one per group and edge. The edge is split
     /// there (a pave on the operand edge, plan §4.3).
-    pub(crate) fn operand_edge_paves(&self, records: usize) -> Vec<(usize, EdgeHandle, Point3)> {
+    pub(crate) fn operand_edge_paves(&self) -> Vec<(usize, EdgeHandle, Point3)> {
         let Ok(res) = self.resolution.as_ref() else {
             return Vec::new();
         };
-        let end_groups: std::collections::BTreeSet<usize> =
-            super::consequences::record_end_candidates(&self.cands, records)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .map(|c| res.group_of[c])
-                .collect();
+        let record_groups: std::collections::BTreeSet<usize> = (0..self.cands.len())
+            .filter(|&i| {
+                self.cands[i]
+                    .incidence
+                    .iter()
+                    .any(|inc| matches!(inc, Incidence::Record { .. }))
+            })
+            .map(|i| res.group_of[i])
+            .collect();
         let mut seen = std::collections::BTreeSet::new();
         let mut out = Vec::new();
         for (i, c) in self.cands.iter().enumerate() {
             let group = res.group_of[i];
-            if !end_groups.contains(&group) {
+            if !record_groups.contains(&group) {
                 continue;
             }
             for inc in &c.incidence {
