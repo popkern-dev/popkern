@@ -101,6 +101,7 @@ pub(crate) mod split;
 pub(crate) mod split_inner_loop;
 pub mod tangent_analysis;
 pub mod tolerance;
+pub(crate) mod tolerance_zone;
 pub mod validate;
 
 pub use bool_api_extras::{boolean_strict, boolean_with_provenance, boolean_with_remediation};

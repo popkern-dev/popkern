@@ -24,6 +24,26 @@ pub(crate) fn insert_intersection_curves(
     records: &[IntersectionRecord],
     tolerance: f64,
 ) {
+    insert_intersection_curves_at(graph, records, tolerance, None);
+}
+
+/// [`insert_intersection_curves`] with each record's end vertices
+/// decided by the candidate-vertex table (`tolerance_zone`): `ends[i]`
+/// is record `i`'s (start, end) vertex position, the anchor of the
+/// group its ends resolved into. The node there (within `tolerance`)
+/// is used, or minted at the anchor; the wide adoption search is not
+/// consulted. `None` keeps the snap-then-adopt identity.
+pub(crate) fn insert_intersection_curves_at(
+    graph: &mut IntersectionGraph,
+    records: &[IntersectionRecord],
+    tolerance: f64,
+    ends: Option<
+        &[(
+            popkern_core::geometry::Point3,
+            popkern_core::geometry::Point3,
+        )],
+    >,
+) {
     // Model scale for the point-contact guard (matches the
     // post-assembly point-loop retirement's gate — tolerance*500
     // capped by a fraction of the model diagonal, so coarse-tolerance
@@ -45,7 +65,7 @@ pub(crate) fn insert_intersection_curves(
             tolerance * 20.0
         }
     };
-    for record in records {
+    for (ri, record) in records.iter().enumerate() {
         let curve_3d = &record.curve.curve_3d;
         let (t_start, t_end) = curve_3d.parameter_range();
 
@@ -64,19 +84,18 @@ pub(crate) fn insert_intersection_curves(
         // leaked 94 open edges). The wide search only ADOPTS
         // existing nodes; node positions never move.
         let wide = tolerance * 20.0;
-        let start_node = match graph
-            .find_node(&start_pt, tolerance)
-            .or_else(|| graph.find_node(&start_pt, wide))
-        {
-            Some(idx) => idx,
-            None => graph.add_node(start_pt, NodeSource::Intersection),
+        let mut node_at = |p: popkern_core::geometry::Point3, adopt: bool| -> usize {
+            match graph
+                .find_node(&p, tolerance)
+                .or_else(|| adopt.then(|| graph.find_node(&p, wide)).flatten())
+            {
+                Some(idx) => idx,
+                None => graph.add_node(p, NodeSource::Intersection),
+            }
         };
-        let end_node = match graph
-            .find_node(&end_pt, tolerance)
-            .or_else(|| graph.find_node(&end_pt, wide))
-        {
-            Some(idx) => idx,
-            None => graph.add_node(end_pt, NodeSource::Intersection),
+        let (start_node, end_node) = match ends.and_then(|e| e.get(ri)) {
+            Some(&(s_at, e_at)) => (node_at(s_at, false), node_at(e_at, false)),
+            None => (node_at(start_pt, true), node_at(end_pt, true)),
         };
 
         // POINT-CONTACT GUARD (PK-465): a record piece whose

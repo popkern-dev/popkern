@@ -20,7 +20,7 @@ use crate::error::{BoolDiagnostics, BoolError, BoolOperation};
 use crate::intersect::IntersectionResult;
 use crate::merge::graph::{IntersectionGraph, Operand};
 use crate::merge::graph_duplicates::remove_collinear_duplicates;
-use crate::merge::graph_intersect::insert_intersection_curves;
+use crate::merge::graph_intersect::insert_intersection_curves_at;
 use crate::merge::graph_split::split_shared_edges_at_nodes;
 use crate::merge::graph_split_shared::split_edges_at_shared_nodes;
 use crate::merge::radial::sort_all_radial;
@@ -136,7 +136,25 @@ pub(crate) fn cellular_graph_merge(
     let rotated = crate::intersect_band_lattice::split_records_at_band_lattice(
         rotated, original_a, original_b,
     );
-    insert_intersection_curves(&mut graph, &rotated, snap_tol);
+    let table_ends = crate::tolerance_zone::table::table_enabled()
+        .then(|| {
+            let table = crate::tolerance_zone::table::build(
+                (original_a, original_b),
+                intersection_result,
+                &rotated,
+                tolerance.linear(),
+            );
+            let ends = table.record_ends(rotated.len());
+            if ends.is_none() {
+                crate::complex_shadow::append_log_line(&format!(
+                    "VertexTableFallback {:?}",
+                    table.resolution.as_ref().err()
+                ));
+            }
+            ends
+        })
+        .flatten();
+    insert_intersection_curves_at(&mut graph, &rotated, snap_tol, table_ends.as_deref());
     let _ = &hit_nodes;
     // Split SHARED edges at record×record T-junctions: one record's
     // endpoint frequently lands mid-span of another (a dovetail
@@ -190,6 +208,16 @@ pub(crate) fn cellular_graph_merge(
         {
             remove_collinear_duplicates(&mut graph, tolerance.linear());
         }
+    }
+
+    if crate::complex_shadow::shadow_enabled() {
+        crate::tolerance_zone::shadow::run(
+            &graph,
+            (original_a, original_b),
+            intersection_result,
+            &rotated,
+            tolerance,
+        );
     }
 
     // Sort radial edges at all nodes.
