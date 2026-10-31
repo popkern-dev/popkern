@@ -16,6 +16,12 @@ use crate::intersect::{IntersectionRecord, IntersectionResult};
 /// radius, so the table never identifies what the graph would not.
 const GROWTH_CAP_FACTOR: f64 = 20.0;
 
+/// The largest component searched exactly for its fewest vertices
+/// (plan §4.3a: components are small in practice; the search over 12
+/// candidates visits at most the Bell number B₁₂ ≈ 4.2e6 partitions,
+/// pruned by the best found and the lower bound).
+const EXACT_PARTITION_LIMIT: usize = 12;
+
 /// Where a record's vertices lie, as the table decided them.
 #[derive(Debug, Clone)]
 pub(crate) struct RecordEnds {
@@ -64,7 +70,14 @@ pub(crate) fn build(
         operands: [a, b],
         records,
     };
-    let resolution = resolve(&cands, &ctx, ResolutionOptions { growth_cap: cap });
+    let resolution = resolve(
+        &cands,
+        &ctx,
+        ResolutionOptions {
+            growth_cap: cap,
+            exact_limit: EXACT_PARTITION_LIMIT,
+        },
+    );
     VertexTable { cands, resolution }
 }
 

@@ -61,7 +61,10 @@ pub(super) fn record_end(record: usize, s: f64, end: bool, at: Point3) -> Candid
 }
 
 pub(super) fn options(cap: f64) -> ResolutionOptions {
-    ResolutionOptions { growth_cap: cap }
+    ResolutionOptions {
+        growth_cap: cap,
+        exact_limit: 12,
+    }
 }
 
 pub(super) fn quadratic(points: [Point3; 3]) -> NurbsCurve {
@@ -415,7 +418,7 @@ fn a_record_end_off_every_boundary_is_open() {
         let res = resolve(cands, &ctx, options(20.0 * TOL)).expect("resolves");
         (0..cands.len())
             .filter(|&i| cands[i].source == SourceKind::RecordEndpoint)
-            .map(|i| !super::shadow::end_closes(cands, &res, i))
+            .map(|i| !super::consequences::end_closes(cands, &res, i))
             .collect()
     };
     let lone = vec![
@@ -426,6 +429,15 @@ fn a_record_end_off_every_boundary_is_open() {
     let mut at_vertex = vec![vertex(0, v, Point3::new(0.0, 0.0, 0.0))];
     at_vertex.extend(lone.iter().cloned());
     assert_eq!(open(&at_vertex), [false, true]);
+    let res = resolve(&at_vertex, &ctx, options(20.0 * TOL)).expect("resolves");
+    assert_eq!(
+        super::consequences::open_loops(&at_vertex, &res),
+        [super::consequences::OpenIntersectionLoop {
+            record: 0,
+            end: true,
+            nearest: Some((0, 1.0)),
+        }]
+    );
     let loop_records = [record(quadratic([
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(2.0, 1.0, 0.0),
@@ -440,5 +452,5 @@ fn a_record_end_off_every_boundary_is_open() {
         record_end(0, 1.0, true, Point3::new(0.0, 0.0, 0.0)),
     ];
     let res = resolve(&closed, &loop_ctx, options(20.0 * TOL)).expect("resolves");
-    assert!((0..2).all(|i| super::shadow::end_closes(&closed, &res, i)));
+    assert!((0..2).all(|i| super::consequences::end_closes(&closed, &res, i)));
 }

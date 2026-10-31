@@ -6,6 +6,12 @@
 //! through the vertex otherwise. A closed record's ends meet by
 //! construction and are none of these.
 //!
+//! **Endpoint closure.** Each record end must resolve to a vertex on
+//! the boundary where the record ends: an operand vertex or edge,
+//! another record, or the record's own other end. One that resolves
+//! elsewhere is an `OpenIntersectionLoop`, a typed finding naming the
+//! nearest boundary point, never a gap stitched after the walk.
+//!
 //! Measured (suite 19, table on): the only records whose ends met
 //! were spurs, 1.8e-4 out and back along a cylinder ruling where a
 //! wall plane grazes a rim fillet; their extent alone called them
@@ -168,6 +174,75 @@ pub(crate) fn collapsed_ends(
             extent,
             width,
             tolerance: vertex.tolerance,
+        });
+    }
+    out
+}
+
+/// A record end whose vertex lies on no boundary (plan §4.3a endpoint
+/// closure).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct OpenIntersectionLoop {
+    /// The record.
+    pub record: usize,
+    /// Which end: `false` its start, `true` its end.
+    pub end: bool,
+    /// The nearest candidate on a boundary the record may end on, and
+    /// its distance from the end; `None` when there is none.
+    pub nearest: Option<(usize, f64)>,
+}
+
+/// Whether candidate `c` lies on a boundary a point of record `own`
+/// may end on: an operand vertex or edge, or another record.
+fn on_boundary(c: &CandidateVertex, own: usize) -> bool {
+    c.incidence.iter().any(|inc| match inc {
+        Incidence::Vertex { .. } | Incidence::Edge { .. } => true,
+        Incidence::Record { record, .. } => *record != own,
+        Incidence::Face { .. } => false,
+    })
+}
+
+/// Whether record end `i` resolved onto a boundary.
+pub(crate) fn end_closes(cands: &[CandidateVertex], res: &Resolution, i: usize) -> bool {
+    let Some(&Incidence::Record { record: own, .. }) = cands[i].incidence.first() else {
+        return true;
+    };
+    let group = &res.groups[res.group_of[i]];
+    let own_ends = group
+        .members
+        .iter()
+        .filter(|&&m| {
+            matches!(cands[m].incidence.first(), Some(Incidence::Record { record, end: Some(_), .. }) if *record == own)
+        })
+        .count();
+    own_ends > 1 || group.members.iter().any(|&m| on_boundary(&cands[m], own))
+}
+
+/// Every record end of `cands` that resolved onto no boundary.
+pub(crate) fn open_loops(cands: &[CandidateVertex], res: &Resolution) -> Vec<OpenIntersectionLoop> {
+    let mut out = Vec::new();
+    for (i, c) in cands.iter().enumerate() {
+        if c.source != SourceKind::RecordEndpoint || end_closes(cands, res, i) {
+            continue;
+        }
+        let Some(&Incidence::Record {
+            record,
+            end: Some(end),
+            ..
+        }) = c.incidence.first()
+        else {
+            continue;
+        };
+        let nearest = cands
+            .iter()
+            .enumerate()
+            .filter(|&(j, q)| j != i && on_boundary(q, record))
+            .map(|(j, q)| (j, q.position.distance_to(&c.position)))
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        out.push(OpenIntersectionLoop {
+            record,
+            end,
+            nearest,
         });
     }
     out

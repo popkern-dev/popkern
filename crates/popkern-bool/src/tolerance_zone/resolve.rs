@@ -37,7 +37,8 @@
 //! explains); a candidate that only that bound kept out of a group it
 //! touches is `ToleranceGrowthExceeded`:
 //! a chain of points each within tolerance of the next never silently
-//! becomes one vertex.
+//! becomes one vertex. A component the pass cannot prove minimal is
+//! searched exactly, or declined when too large (`partition`).
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -107,6 +108,19 @@ pub(crate) enum ResolutionDecline {
         /// The cap.
         cap: f64,
     },
+    /// A component too large to search exactly whose canonical-order
+    /// partition has more vertices than its lower bound: it may not be
+    /// the fewest, and the table never guesses (`partition`).
+    CandidateResolutionAmbiguous {
+        /// The component's index in canonical order.
+        component: usize,
+        /// Its candidates.
+        members: Vec<usize>,
+        /// The vertices the canonical-order pass made.
+        vertices: usize,
+        /// The largest set of mutually incompatible candidates.
+        lower_bound: usize,
+    },
 }
 
 /// Resolution parameters.
@@ -114,6 +128,8 @@ pub(crate) enum ResolutionDecline {
 pub(crate) struct ResolutionOptions {
     /// The largest vertex tolerance a group may grow to.
     pub growth_cap: f64,
+    /// The largest component searched exactly for its fewest vertices.
+    pub exact_limit: usize,
 }
 
 /// The committed vertex table.
@@ -131,6 +147,8 @@ pub(crate) struct Resolution {
     /// along a record, as (group, candidate, record): an order the
     /// canonical-order partition could not keep (`record_order`).
     pub order_conflicts: Vec<(usize, usize, usize)>,
+    /// Components the exact search re-partitioned (`partition`).
+    pub exact_partitions: usize,
 }
 
 /// The operands and records the candidates' incidences refer to.
@@ -168,7 +186,7 @@ fn separation(point_at: impl Fn(f64) -> Point3 + Copy, (lo, hi): (f64, f64), t: 
     }
 }
 
-fn incompatibility(
+pub(super) fn incompatibility(
     ctx: &ResolutionContext<'_>,
     p: &CandidateVertex,
     q: &CandidateVertex,
@@ -279,7 +297,7 @@ impl Forest {
 
 /// Whether two candidates' tolerance zones overlap: their balls, or,
 /// when both lie on one operand edge, their reaches along it.
-fn linked(p: &CandidateVertex, q: &CandidateVertex) -> bool {
+pub(super) fn linked(p: &CandidateVertex, q: &CandidateVertex) -> bool {
     let d = p.position.distance_to(&q.position);
     if d < p.radius + q.radius {
         return true;
@@ -337,11 +355,16 @@ pub(crate) fn resolve(
         group_of: vec![usize::MAX; cands.len()],
         ..Resolution::default()
     };
-    for comp in components(cands) {
+    for (index, comp) in components(cands).into_iter().enumerate() {
         if comp.len() > 1 {
             res.components += 1;
         }
         let first_group = res.groups.len();
+        let starts = (
+            first_group,
+            res.separations.len(),
+            res.order_conflicts.len(),
+        );
         for &c in &comp {
             let cand = &cands[c];
             let mut joined = false;
@@ -416,6 +439,7 @@ pub(crate) fn resolve(
                 tolerance: cand.radius,
             });
         }
+        super::partition::settle(cands, ctx, options, (index, &comp), starts, &mut res)?;
     }
     Ok(res)
 }

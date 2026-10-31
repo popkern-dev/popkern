@@ -54,6 +54,9 @@ pub(crate) struct ResolutionShadow {
     /// (plan §4.3a endpoint closure): today's gap closure stitches it
     /// after the walk.
     pub open_ends: usize,
+    /// The farthest an open end lies from its nearest boundary point:
+    /// the gap today's gap closure stitches.
+    pub open_end_gap: f64,
     /// Vertices joining ends of two records of one face pair away from
     /// every boundary: two branches of one intersection meeting in the
     /// faces' interiors (a branch point, or two branches passing within
@@ -74,6 +77,9 @@ pub(crate) struct ResolutionShadow {
     /// along a record: orders the canonical-order partition could not
     /// keep.
     pub record_order_conflicts: usize,
+    /// Components the exact search re-partitioned into fewer vertices
+    /// than the canonical-order pass made (`partition`).
+    pub exact_partitions: usize,
     /// Records lying along an operand edge for their whole length
     /// (both ends and the middle on one edge): common blocks, one edge
     /// that today enters the graph twice (the record and the edge).
@@ -106,30 +112,6 @@ pub(crate) struct ResolutionShadow {
     pub operand_junctions_unpaved: usize,
     /// The resolution's decline, if it declined.
     pub declined: Option<String>,
-}
-
-/// Whether record end `i` resolved onto a boundary.
-pub(crate) fn end_closes(cands: &[CandidateVertex], res: &Resolution, i: usize) -> bool {
-    use super::candidates::Incidence;
-    let Some(&Incidence::Record { record: own, .. }) = cands[i].incidence.first() else {
-        return true;
-    };
-    let group = &res.groups[res.group_of[i]];
-    let own_ends = group
-        .members
-        .iter()
-        .filter(|&&m| {
-            matches!(cands[m].incidence.first(), Some(Incidence::Record { record, end: Some(_), .. }) if *record == own)
-        })
-        .count();
-    own_ends > 1
-        || group.members.iter().any(|&m| {
-            cands[m].incidence.iter().any(|inc| match inc {
-                Incidence::Vertex { .. } | Incidence::Edge { .. } => true,
-                Incidence::Record { record, .. } => *record != own,
-                Incidence::Face { .. } => false,
-            })
-        })
 }
 
 /// For each `(p, reach)` of `queries`, whether a graph edge's curve
@@ -301,9 +283,12 @@ pub(crate) fn compare(
             !on_boundary && pairs.values().any(|rs| rs.len() > 1)
         })
         .count();
-    out.open_ends = (0..cands.len())
-        .filter(|&i| cands[i].source == SourceKind::RecordEndpoint && !end_closes(cands, res, i))
-        .count();
+    let open = super::consequences::open_loops(cands, res);
+    out.open_ends = open.len();
+    out.open_end_gap = open
+        .iter()
+        .filter_map(|o| o.nearest.map(|(_, d)| d))
+        .fold(0.0, f64::max);
     let junctions: Vec<_> = res
         .groups
         .iter()
@@ -375,6 +360,7 @@ pub(crate) fn run(
             })
             .count();
         shadow.record_order_conflicts = res.order_conflicts.len();
+        shadow.exact_partitions = res.exact_partitions;
         for (_, _, why) in &res.separations {
             if let super::resolve::Incompatibility::SeparatedAlongFace { length } = *why {
                 shadow.face_path_separations.0 += 1;
