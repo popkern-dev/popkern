@@ -6,11 +6,11 @@ use popkern_core::geometry::Point3;
 use super::graph::{EdgeSource, IntersectionGraph};
 use super::graph_split::point_on_segment;
 
-/// A box that certainly contains shared half-edge `i`: the edge's
+/// A box that certainly contains half-edge `i` (shared or not): the edge's
 /// chord for an edge without a curve, the span's ends for a line, the
 /// whole circle or ellipse for conics, the control hull for a NURBS
 /// curve; `None` (test everything) for curves without a cheap bound.
-fn shared_edge_bounds(graph: &IntersectionGraph, i: usize) -> Option<(Point3, Point3)> {
+pub(crate) fn shared_edge_bounds(graph: &IntersectionGraph, i: usize) -> Option<(Point3, Point3)> {
     use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
     let he = &graph.half_edges[i];
     let mut lo = Point3::new(f64::INFINITY, f64::INFINITY, f64::INFINITY);
@@ -48,6 +48,19 @@ fn shared_edge_bounds(graph: &IntersectionGraph, i: usize) -> Option<(Point3, Po
         },
     }
     lo.x.is_finite().then_some((lo, hi))
+}
+
+/// Whether `p` lies in `bound` grown by `tolerance`; no bound holds
+/// everything.
+pub(crate) fn within_bounds(bound: Option<(Point3, Point3)>, p: &Point3, tolerance: f64) -> bool {
+    bound.is_none_or(|(lo, hi)| {
+        p.x >= lo.x - tolerance
+            && p.y >= lo.y - tolerance
+            && p.z >= lo.z - tolerance
+            && p.x <= hi.x + tolerance
+            && p.y <= hi.y + tolerance
+            && p.z <= hi.z + tolerance
+    })
 }
 
 /// Split a graph edge at an existing node (no new node creation).
@@ -217,14 +230,7 @@ pub(crate) fn unsplit_junctions(graph: &IntersectionGraph, tolerance: f64) -> us
             .filter(|&n| {
                 let p = graph.nodes[n].position;
                 !ends.contains(&n)
-                    && bound.is_none_or(|(lo, hi)| {
-                        p.x >= lo.x - tolerance
-                            && p.y >= lo.y - tolerance
-                            && p.z >= lo.z - tolerance
-                            && p.x <= hi.x + tolerance
-                            && p.y <= hi.y + tolerance
-                            && p.z <= hi.z + tolerance
-                    })
+                    && within_bounds(bound, &p, tolerance)
                     && node_splits_edge(graph, i, n, tolerance)
             })
             .count();

@@ -85,6 +85,10 @@ pub(crate) struct ResolutionShadow {
     /// own splitting pass would still split: with the table deciding,
     /// the junctions its paves missed.
     pub junctions_unpaved: usize,
+    /// (record-end node, operand edge) junctions of the finished graph
+    /// the graph's operand-edge pass would still split: with the table
+    /// deciding, the operand-edge junctions its paves missed.
+    pub operand_junctions_unpaved: usize,
     /// The resolution's decline, if it declined.
     pub declined: Option<String>,
 }
@@ -325,6 +329,8 @@ pub(crate) fn run(
     );
     shadow.junctions_unpaved =
         crate::merge::graph_split_at_nodes::unsplit_junctions(graph, 2.0 * linear);
+    shadow.operand_junctions_unpaved =
+        crate::merge::graph_split_shared::unsplit_operand_junctions(graph, 2.0 * linear);
     if let Ok(res) = &table.resolution {
         shadow.common_blocks = super::common_blocks::common_block_records(
             &table.cands,

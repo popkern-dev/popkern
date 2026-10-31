@@ -137,6 +137,7 @@ pub(crate) fn cellular_graph_merge(
         rotated, original_a, original_b,
     );
     let mut graph_splits_junctions = true;
+    let mut operand_paves = Vec::new();
     let table_ends = crate::tolerance_zone::table::table_enabled()
         .then(|| {
             let table = crate::tolerance_zone::table::build(
@@ -154,6 +155,9 @@ pub(crate) fn cellular_graph_merge(
             }
             graph_splits_junctions = ends.is_none()
                 || table.has_common_blocks([original_a, original_b], &rotated, tolerance.linear());
+            if !graph_splits_junctions {
+                operand_paves = table.operand_edge_paves(rotated.len());
+            }
             ends
         })
         .flatten();
@@ -206,7 +210,20 @@ pub(crate) fn cellular_graph_merge(
             .iter()
             .any(|o| !o.full_overlap)
     {
-        split_edges_at_shared_nodes(&mut graph, snap_tol, breps);
+        // With the table deciding, the records' ends split the operand
+        // edges it put them on; the dead-end completion (march slop
+        // beyond the table's reach) still runs.
+        if graph_splits_junctions {
+            split_edges_at_shared_nodes(&mut graph, snap_tol, breps);
+        } else {
+            crate::merge::graph_paves::split_operand_edges_at_paves(
+                &mut graph,
+                &operand_paves,
+                snap_tol,
+                breps,
+            );
+            crate::merge::graph_split_shared::complete_dead_end_cuts(&mut graph, snap_tol, breps);
+        }
         if intersection_result
             .coincidence
             .face_overlaps

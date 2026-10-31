@@ -12,7 +12,9 @@
 
 use popkern_core::geometry::Point3;
 
-use super::graph::{IntersectionGraph, NodeSource};
+use popkern_core::topology::{BRep, EdgeHandle};
+
+use super::graph::{EdgeSource, IntersectionGraph, NodeSource};
 
 /// Split each inserted record at its paves: `records` holds a record's
 /// forward half-edge and its paves by ascending curve parameter. A
@@ -42,6 +44,50 @@ pub(crate) fn split_records_at_paves(
                 tail = next;
                 splits += 1;
             }
+        }
+    }
+    splits
+}
+
+/// Split operand edges where records end on them mid-span: each of
+/// `paves` names the operand (0 = A), the edge and the vertex. The
+/// vertex's node is the graph node within `tolerance` of it (a record
+/// end, so it exists); the piece of the edge it lies on, by the graph's
+/// own on-edge test, is split there with its pcurves cut (`breps`).
+/// Returns the splits made.
+pub(crate) fn split_operand_edges_at_paves(
+    graph: &mut IntersectionGraph,
+    paves: &[(usize, EdgeHandle, Point3)],
+    tolerance: f64,
+    breps: Option<(&BRep, &BRep, f64)>,
+) -> usize {
+    let mut splits = 0;
+    for &(operand, edge, at) in paves {
+        let Some(node) = graph.find_node(&at, tolerance) else {
+            continue;
+        };
+        let pos = graph.nodes[node].position;
+        let piece = (0..graph.half_edges.len()).find(|&i| {
+            let he = &graph.half_edges[i];
+            let of_edge = match he.source {
+                EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => {
+                    operand == 0 && e == edge
+                }
+                EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => {
+                    operand == 1 && e == edge
+                }
+                EdgeSource::Shared { .. } => false,
+            };
+            of_edge
+                && i < he.twin
+                && he.origin != node
+                && graph.half_edges[he.twin].origin != node
+                && super::graph_split_shared::node_on_edge(graph, i, pos, tolerance)
+        });
+        if let Some(i) = piece
+            && super::graph_split_node::split_at_existing_node_with_pcurves(graph, i, node, breps)
+        {
+            splits += 1;
         }
     }
     splits

@@ -126,22 +126,7 @@ pub(crate) fn split_edges_at_shared_nodes(
                     i += 2;
                     continue;
                 }
-                let p0 = graph.nodes[he.origin].position;
-                let p1 = graph.nodes[twin_origin].position;
-                if let Some(t) = point_on_segment(&pos, &p0, &p1, tolerance) {
-                    // Chord test only — verify against the real
-                    // curve for curved edges (same defect as
-                    // classify_endpoint: a 180° arc was split at
-                    // points on its chord, off-surface).
-                    if point_on_graph_edge_curve(graph, i, &pos, t, tolerance) {
-                        did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
-                        if did_split {
-                            break;
-                        }
-                    }
-                } else if point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some() {
-                    // Mirror case: the node sits ON the curve but
-                    // off its chord.
+                if node_on_edge(graph, i, pos, tolerance) {
                     did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
                     if did_split {
                         break;
@@ -158,10 +143,66 @@ pub(crate) fn split_edges_at_shared_nodes(
     complete_dead_end_cuts(graph, tolerance, breps);
 }
 
+/// Whether `pos` lies on graph edge `i`, by its chord then its true
+/// curve, or on its curve off the chord: where
+/// [`split_edges_at_shared_nodes`] splits an operand edge.
+pub(crate) fn node_on_edge(
+    graph: &IntersectionGraph,
+    i: usize,
+    pos: popkern_core::geometry::Point3,
+    tolerance: f64,
+) -> bool {
+    let he = &graph.half_edges[i];
+    let p0 = graph.nodes[he.origin].position;
+    let p1 = graph.nodes[graph.half_edges[he.twin].origin].position;
+    match point_on_segment(&pos, &p0, &p1, tolerance) {
+        // Chord test only — verify against the real curve for curved
+        // edges (same defect as classify_endpoint: a 180° arc was
+        // split at points on its chord, off-surface).
+        Some(t) => point_on_graph_edge_curve(graph, i, &pos, t, tolerance),
+        // Mirror case: the node sits ON the curve but off its chord.
+        None => point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some(),
+    }
+}
+
+/// Every (record-end node, operand edge) junction
+/// [`split_edges_at_shared_nodes`] would still split in `graph`: zero
+/// once whatever split the operand edges found every junction the pass
+/// finds.
+pub(crate) fn unsplit_operand_junctions(graph: &IntersectionGraph, tolerance: f64) -> usize {
+    let shared_nodes: std::collections::BTreeSet<usize> = graph
+        .half_edges
+        .iter()
+        .filter(|he| matches!(he.source, EdgeSource::Shared { .. }))
+        .flat_map(|he| [he.origin, graph.half_edges[he.twin].origin])
+        .collect();
+    let mut count = 0;
+    for i in (0..graph.half_edges.len()).filter(|&i| {
+        let he = &graph.half_edges[i];
+        i < he.twin && !matches!(he.source, EdgeSource::Shared { .. })
+    }) {
+        let ends = [
+            graph.half_edges[i].origin,
+            graph.half_edges[graph.half_edges[i].twin].origin,
+        ];
+        let bound = super::graph_split_at_nodes::shared_edge_bounds(graph, i);
+        count += shared_nodes
+            .iter()
+            .filter(|&&n| {
+                let p = graph.nodes[n].position;
+                !ends.contains(&n)
+                    && super::graph_split_at_nodes::within_bounds(bound, &p, tolerance)
+                    && node_on_edge(graph, i, p, tolerance)
+            })
+            .count();
+    }
+    count
+}
+
 /// COMPLETE-THE-CUT (PK-305), shared by both split passes: a record
 /// chain that dead-ends within the marching slop of a boundary edge of
 /// one of its own faces splits that edge at the dead end.
-fn complete_dead_end_cuts(
+pub(crate) fn complete_dead_end_cuts(
     graph: &mut IntersectionGraph,
     tolerance: f64,
     breps: Option<(
