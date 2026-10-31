@@ -59,11 +59,9 @@ pub(crate) struct ResolutionShadow {
     /// faces' interiors (a branch point, or two branches passing within
     /// tolerance, which the branch rule must keep apart).
     pub branch_meets: usize,
-    /// Vertices where a record's interior meets another record of the
-    /// same face pair: a branch the SSI marched through passing within
-    /// tolerance of another (`branches`), which the branch rule keeps
-    /// apart.
-    pub interior_branch_meets: usize,
+    /// Candidate pairs the branch rule kept apart: two records of one
+    /// face pair meeting away from both their ends (`branches`).
+    pub branch_separations: usize,
     /// Records lying along an operand edge for their whole length
     /// (both ends and the middle on one edge): common blocks, one edge
     /// that today enters the graph twice (the record and the edge).
@@ -345,8 +343,11 @@ pub(crate) fn run(
             linear,
         )
         .len();
-        shadow.interior_branch_meets =
-            super::branches::interior_branch_meets(&table.cands, res, records);
+        shadow.branch_separations = res
+            .separations
+            .iter()
+            .filter(|(_, _, why)| *why == super::resolve::Incompatibility::DistinctBranches)
+            .count();
         for c in super::consequences::collapsed_ends(&table.cands, res, records) {
             match c.kind() {
                 super::consequences::Collapse::MicroEdge => shadow.micro_edges += 1,

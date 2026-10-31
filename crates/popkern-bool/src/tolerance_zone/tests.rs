@@ -270,11 +270,17 @@ fn a_record_ending_on_another_record_is_a_t_junction() {
             100.0, 0.0, 0.0,
         ))
         .expect("cube away");
+    // Two face pairs: one pair's records are branches of one
+    // intersection, which the branch rule keeps apart.
+    let mut faces = c.faces.keys();
+    let (fa, fb) = (faces.next().expect("face"), faces.next().expect("face"));
     for (gap, junction) in [(0.0, true), (0.5 * TOL, true), (1e-3, false)] {
-        let records = [
+        let mut records = [
             record(line(Point3::new(0.0, 0.0, 0.0), Point3::new(2.0, 0.0, 0.0))),
             record(line(Point3::new(1.0, 1.0, 0.0), Point3::new(1.0, gap, 0.0))),
         ];
+        records[0].face_a = fa;
+        records[1].face_a = fb;
         let mut cands = vec![
             record_end(0, 0.0, false, Point3::new(0.0, 0.0, 0.0)),
             record_end(0, 1.0, true, Point3::new(2.0, 0.0, 0.0)),

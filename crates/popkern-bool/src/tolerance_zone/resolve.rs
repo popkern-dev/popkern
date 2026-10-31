@@ -12,7 +12,10 @@
 //! - two points on one edge, or on one record, separated along it by
 //!   more than the sum of their zones (arc length, not chord: an edge
 //!   curling back near itself keeps both points; the zone is the radius
-//!   elongated along a shallow crossing, `incidence::add_crossing_zones`).
+//!   elongated along a shallow crossing, `incidence::add_crossing_zones`);
+//! - two points on two records of one face pair, one in its record's
+//!   interior: two branches passing close, where the SSI saw no branch
+//!   point (`branches`).
 //!
 //! Incompatibility is a hard constraint; proximity never overrides it.
 //!
@@ -51,6 +54,10 @@ pub(crate) enum Incompatibility {
         /// Arc length between them.
         arc: f64,
     },
+    /// They lie on two records of one face pair, one of them in its
+    /// record's interior: a branch the SSI marched through, seeing no
+    /// branch point, passing within tolerance of another (`branches`).
+    DistinctBranches,
 }
 
 /// One resolved vertex.
@@ -197,6 +204,22 @@ fn incompatibility(
                     if arc > p.zone + q.zone {
                         return Some(Incompatibility::SeparatedAlongRecord { arc });
                     }
+                }
+                (
+                    Incidence::Record {
+                        record: ra,
+                        end: ea,
+                        ..
+                    },
+                    Incidence::Record {
+                        record: rb,
+                        end: eb,
+                        ..
+                    },
+                ) if (ea.is_none() || eb.is_none())
+                    && super::branches::same_pair(ctx.records, ra, rb) =>
+                {
+                    return Some(Incompatibility::DistinctBranches);
                 }
                 _ => {}
             }

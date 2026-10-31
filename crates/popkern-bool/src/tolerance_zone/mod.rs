@@ -30,6 +30,8 @@ pub(crate) mod shadow;
 pub(crate) mod table;
 
 #[cfg(test)]
+mod branch_tests;
+#[cfg(test)]
 mod consequence_tests;
 #[cfg(test)]
 mod tests;

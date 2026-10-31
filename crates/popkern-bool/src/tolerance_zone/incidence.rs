@@ -11,7 +11,9 @@
 //! (an end there is a V-V interference, already a candidate), it adds
 //! the interior incidence. Resolution then applies the separation
 //! rules to it like any other, and an interior incidence in a group is
-//! a T-junction: a pave on that curve, by construction.
+//! a T-junction: a pave on that curve, by construction. A point of
+//! one record never lies on another record of the same face pair: the
+//! branch rule (`branches`) keeps the two branches apart.
 
 use popkern_core::geometry::curve::{CurveEval, closest_point_in_window};
 use popkern_core::topology::BRep;
@@ -51,9 +53,10 @@ pub(crate) fn add_interior_incidences(
         for ci in slab(&bounds) {
             let c = &mut cands[ci];
             if !bounds.holds(&c.position)
-                || c.incidence
-                    .iter()
-                    .any(|i| matches!(i, Incidence::Record { record, .. } if *record == ri))
+                || c.incidence.iter().any(|i| {
+                    matches!(i, Incidence::Record { record, .. }
+                        if *record == ri || super::branches::same_pair(records, ri, *record))
+                })
             {
                 continue;
             }
