@@ -72,6 +72,15 @@ pub(crate) struct ResolutionShadow {
     /// Records whose ends resolved into one vertex but that stray from
     /// it: loops through the vertex, with the largest extent among them.
     pub vertex_loops: (usize, f64),
+    /// Intersection nodes of the finished graph (after its split
+    /// passes) that carry a record edge and that no candidate maps to,
+    /// with the largest distance from one to its nearest resolved
+    /// vertex: the junctions the passes find that the table does not
+    /// predict, which must be none before the table's incidences
+    /// replace the passes. Measured (suite 22, table on): 21 nodes in
+    /// 12 booleans, every one in a scene with common blocks (same-domain
+    /// overlaps, plan §4.4); none in the scenes without.
+    pub unpredicted: (usize, f64),
     /// The resolution's decline, if it declined.
     pub declined: Option<String>,
 }
@@ -206,6 +215,27 @@ pub(crate) fn compare(
         }
     }
     out.merged = groups_at.values().filter(|gs| gs.len() > 1).count();
+    for (n, node) in graph.nodes.iter().enumerate() {
+        // A node splitting one operand edge with no record at it (a hit
+        // outside the hit face's trim) is a no-op split that
+        // post-processing dissolves; only junctions count.
+        let junction = graph.half_edges.iter().any(|h| {
+            h.origin == n && matches!(h.source, crate::merge::graph::EdgeSource::Shared { .. })
+        });
+        if groups_at.contains_key(&n)
+            || !junction
+            || !matches!(node.source, crate::merge::graph::NodeSource::Intersection)
+        {
+            continue;
+        }
+        let nearest = res
+            .groups
+            .iter()
+            .map(|g| cands[g.anchor].position.distance_to(&node.position))
+            .fold(f64::INFINITY, f64::min);
+        out.unpredicted.0 += 1;
+        out.unpredicted.1 = out.unpredicted.1.max(nearest);
+    }
     for gs in groups_at.values().filter(|gs| gs.len() > 1) {
         let anchors: Vec<_> = gs
             .iter()
