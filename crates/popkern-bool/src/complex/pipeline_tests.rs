@@ -218,3 +218,124 @@ fn a_pin_proud_of_its_notch_wall_intersects_to_the_lens() {
         }
     }
 }
+
+fn block(lo: (f64, f64, f64), hi: (f64, f64, f64), tol: Tolerance) -> BRep {
+    BRep::prism(
+        &[
+            Point3::new(lo.0, lo.1, lo.2),
+            Point3::new(hi.0, lo.1, lo.2),
+            Point3::new(hi.0, hi.1, lo.2),
+            Point3::new(lo.0, hi.1, lo.2),
+        ],
+        Vec3::new(0.0, 0.0, 1.0),
+        hi.2 - lo.2,
+        tol,
+    )
+    .expect("block")
+}
+
+/// A block slotted through its x = 0 end, and a block flush against
+/// that end: the second block's x = 0 face meets the first's bottom
+/// face along the bottom's x = 0 boundary line, which the slot breaks
+/// for z in [1, 3]. The record along that line touches the bottom face's
+/// boundary only at the slot corners; the slot mouth is a gap, not part
+/// of the face (PK-1025: a boss cap flush with a notched web end served
+/// the mouth as a slit on the web's bottom, and the complex declined).
+/// The touching blocks intersect to nothing.
+#[test]
+fn a_flush_block_across_a_slot_mouth_intersects_to_nothing() {
+    let tol = Tolerance::default();
+    let slotted = crate::boolean(
+        BoolOperation::Subtraction,
+        block((-2.0, 0.0, 0.0), (0.0, 1.0, 4.0), tol),
+        block((-1.0, -0.5, 1.0), (0.5, 1.5, 3.0), tol),
+        tol,
+        None,
+    )
+    .expect("slotted block");
+    let flush = block((0.0, -0.5, -0.5), (1.0, 1.5, 4.5), tol);
+    let ix = crate::intersect::find_intersections(&slotted, &flush, &tol).expect("intersections");
+    let (body, _) = crate::cellular::boolean::cellular_graph_merge(
+        &slotted,
+        &flush,
+        &ix,
+        BoolOperation::Intersection,
+        &tol,
+        None,
+        crate::complex::serve::SelectionSource::Complex,
+    )
+    .unwrap_or_else(|d| panic!("the complex intersects: {}", d.into_error()));
+    assert!(body.faces.is_empty(), "{} faces", body.faces.len());
+}
+
+/// An r = 6.5 socket head with a hex socket 4.4 deep (side 3.46) in
+/// one cap, and a block whose walls cut that cap's rim circle. `top`
+/// picks the cap: the cylinder's two caps walk their rims in opposite
+/// senses against the rim curve.
+fn socket_head_and_block(top: bool, tol: Tolerance) -> (BRep, BRep) {
+    use popkern_core::geometry::PortableMath;
+    let head = BRep::cylinder(6.5, 8.0, tol)
+        .expect("head")
+        .transform(&Transform3::translation(0.0, 0.0, -8.0))
+        .expect("placed head");
+    // The socket and block from `z0`, spanning the cap at z = 0 or -8.
+    let cap = if top { 0.0 } else { -8.0 };
+    let socket_z0 = if top { cap - 4.4 } else { cap - 1.0 };
+    let hex: Vec<Point3> = (0..6)
+        .map(|k| {
+            let a = std::f64::consts::FRAC_PI_3 * k as f64 - std::f64::consts::FRAC_PI_6;
+            Point3::new(
+                3.464_101_615 * a.pcos(),
+                3.464_101_615 * a.psin(),
+                socket_z0,
+            )
+        })
+        .collect();
+    let socket = BRep::prism(&hex, Vec3::new(0.0, 0.0, 1.0), 5.4, tol).expect("socket");
+    let head =
+        crate::boolean(BoolOperation::Subtraction, head, socket, tol, None).expect("socketed head");
+    let block_z0 = if top { cap - 1.0 } else { cap - 2.0 };
+    let block = BRep::prism(
+        &[
+            Point3::new(-1.833, -6.236, block_z0),
+            Point3::new(10.0, -6.236, block_z0),
+            Point3::new(10.0, 6.236, block_z0),
+            Point3::new(-1.833, 6.236, block_z0),
+        ],
+        Vec3::new(0.0, 0.0, 1.0),
+        3.0,
+        tol,
+    )
+    .expect("block");
+    (head, block)
+}
+
+/// A block's walls split a socket head's cap rim into arcs: the complex
+/// serves the cut and the overlap, the socket kept as the cap's hole,
+/// on either cap (they walk their rims in opposite senses). The arm's
+/// socket-head screws lost the hole when the rim's arcs were sampled
+/// against their half-edges; that measure is pinned in
+/// `walk_loop_measures::tests`.
+#[test]
+fn a_socket_head_cut_across_its_rim_keeps_the_socket_as_a_hole() {
+    let tol = Tolerance::default();
+    for (top, op) in [true, false]
+        .into_iter()
+        .flat_map(|t| [BoolOperation::Subtraction, BoolOperation::Intersection].map(|op| (t, op)))
+    {
+        let (head, block) = socket_head_and_block(top, tol);
+        let ix = crate::intersect::find_intersections(&head, &block, &tol).expect("intersections");
+        let (body, _) = crate::cellular::boolean::cellular_graph_merge(
+            &head,
+            &block,
+            &ix,
+            op,
+            &tol,
+            None,
+            crate::complex::serve::SelectionSource::Complex,
+        )
+        .unwrap_or_else(|d| panic!("the complex serves {op:?} (top {top}): {}", d.into_error()));
+        body.validate()
+            .unwrap_or_else(|e| panic!("{op:?} (top {top}): {e}"));
+    }
+}
