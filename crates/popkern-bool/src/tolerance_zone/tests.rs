@@ -16,9 +16,9 @@ use super::resolve::{
 };
 use crate::intersect::{EndpointBoundaryType, IntersectionRecord};
 
-const TOL: f64 = 1e-6;
+pub(super) const TOL: f64 = 1e-6;
 
-fn cube() -> BRep {
+pub(super) fn cube() -> BRep {
     BRep::unit_cube(Tolerance::default()).expect("cube")
 }
 
@@ -39,7 +39,7 @@ fn vertex(operand: usize, vertex: VertexHandle, at: Point3) -> CandidateVertex {
     }
 }
 
-fn record_end(record: usize, s: f64, end: bool, at: Point3) -> CandidateVertex {
+pub(super) fn record_end(record: usize, s: f64, end: bool, at: Point3) -> CandidateVertex {
     CandidateVertex {
         position: at,
         radius: TOL,
@@ -60,11 +60,11 @@ fn record_end(record: usize, s: f64, end: bool, at: Point3) -> CandidateVertex {
     }
 }
 
-fn options(cap: f64) -> ResolutionOptions {
+pub(super) fn options(cap: f64) -> ResolutionOptions {
     ResolutionOptions { growth_cap: cap }
 }
 
-fn quadratic(points: [Point3; 3]) -> NurbsCurve {
+pub(super) fn quadratic(points: [Point3; 3]) -> NurbsCurve {
     NurbsCurve {
         degree: 2,
         knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
@@ -73,7 +73,7 @@ fn quadratic(points: [Point3; 3]) -> NurbsCurve {
     }
 }
 
-fn record(curve_3d: NurbsCurve) -> IntersectionRecord {
+pub(super) fn record(curve_3d: NurbsCurve) -> IntersectionRecord {
     let uv = quadratic([
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(0.5, 0.0, 0.0),
@@ -251,7 +251,7 @@ fn resolution_is_independent_of_candidate_order() {
     assert!(base.components > 0);
 }
 
-fn line(a: Point3, b: Point3) -> NurbsCurve {
+pub(super) fn line(a: Point3, b: Point3) -> NurbsCurve {
     quadratic([
         a,
         Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z)),
@@ -427,50 +427,4 @@ fn a_record_end_off_every_boundary_is_open() {
     ];
     let res = resolve(&closed, &loop_ctx, options(20.0 * TOL)).expect("resolves");
     assert!((0..2).all(|i| super::shadow::end_closes(&closed, &res, i)));
-}
-
-/// A record shorter than its ends' tolerances resolves both ends into
-/// one vertex and lies within it: a micro edge, which collapses. The
-/// curl-back above keeps its ends apart and is none, and a closed
-/// record's ends meet by construction: no consequence either.
-#[test]
-fn a_record_within_one_vertex_is_a_micro_edge() {
-    let c = cube();
-    let records = [
-        record(line(
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(0.5 * TOL, 0.0, 0.0),
-        )),
-        record(quadratic([
-            Point3::new(5.0, 0.0, 0.0),
-            Point3::new(7.0, 0.0, 0.0),
-            Point3::new(5.0, 0.5 * TOL, 0.0),
-        ])),
-        {
-            let mut closed = record(quadratic([
-                Point3::new(9.0, 0.0, 0.0),
-                Point3::new(11.0, 0.0, 0.0),
-                Point3::new(9.0, 0.0, 0.0),
-            ]));
-            closed.curve.is_closed = true;
-            closed
-        },
-    ];
-    let ctx = ResolutionContext {
-        operands: [&c, &c],
-        records: &records,
-    };
-    let cands = vec![
-        record_end(0, 0.0, false, Point3::new(0.0, 0.0, 0.0)),
-        record_end(0, 1.0, true, Point3::new(0.5 * TOL, 0.0, 0.0)),
-        record_end(1, 0.0, false, Point3::new(5.0, 0.0, 0.0)),
-        record_end(1, 1.0, true, Point3::new(5.0, 0.5 * TOL, 0.0)),
-        record_end(2, 0.0, false, Point3::new(9.0, 0.0, 0.0)),
-        record_end(2, 1.0, true, Point3::new(9.0, 0.0, 0.0)),
-    ];
-    let res = resolve(&cands, &ctx, options(20.0 * TOL)).expect("resolves");
-    let collapsed = super::consequences::collapsed_ends(&cands, &res, &records);
-    assert_eq!(collapsed.len(), 1, "{collapsed:?}");
-    assert_eq!(collapsed[0].record, 0);
-    assert!(collapsed[0].is_micro_edge(), "{collapsed:?}");
 }

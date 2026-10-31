@@ -66,6 +66,9 @@ pub(crate) struct ResolutionShadow {
     /// Records whose ends resolved into one vertex and that lie within
     /// it: micro edges, collapsed into the vertex by construction.
     pub micro_edges: usize,
+    /// Records whose ends resolved into one vertex and that run out
+    /// and back along one segment: spurs, which bound nothing.
+    pub spurs: usize,
     /// Records whose ends resolved into one vertex but that stray from
     /// it: loops through the vertex, with the largest extent among them.
     pub vertex_loops: (usize, f64),
@@ -296,11 +299,13 @@ pub(crate) fn run(
         )
         .len();
         for c in super::consequences::collapsed_ends(&table.cands, res, records) {
-            if c.is_micro_edge() {
-                shadow.micro_edges += 1;
-            } else {
-                shadow.vertex_loops.0 += 1;
-                shadow.vertex_loops.1 = shadow.vertex_loops.1.max(c.extent);
+            match c.kind() {
+                super::consequences::Collapse::MicroEdge => shadow.micro_edges += 1,
+                super::consequences::Collapse::Spur => shadow.spurs += 1,
+                super::consequences::Collapse::Loop => {
+                    shadow.vertex_loops.0 += 1;
+                    shadow.vertex_loops.1 = shadow.vertex_loops.1.max(c.extent);
+                }
             }
         }
     }

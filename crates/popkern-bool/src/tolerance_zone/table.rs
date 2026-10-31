@@ -16,6 +16,18 @@ use crate::intersect::{IntersectionRecord, IntersectionResult};
 /// radius, so the table never identifies what the graph would not.
 const GROWTH_CAP_FACTOR: f64 = 20.0;
 
+/// Where a record's ends lie, as the table decided them.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordEnds {
+    /// The start's vertex: the anchor of the group it resolved into.
+    pub start: Point3,
+    /// The end's vertex.
+    pub end: Point3,
+    /// The larger of the two vertices' tolerances: what decides a
+    /// record whose ends share a node (`consequences::collapse_of`).
+    pub tolerance: f64,
+}
+
 /// The candidates and their resolution.
 pub(crate) struct VertexTable {
     /// The candidates, sorted by key.
@@ -52,12 +64,12 @@ pub(crate) fn build(
 }
 
 impl VertexTable {
-    /// Each record's (start, end) vertex: the anchor of the group its
-    /// end resolved into. `None` when the resolution declined or a
-    /// record end has no candidate.
-    pub(crate) fn record_ends(&self, records: usize) -> Option<Vec<(Point3, Point3)>> {
+    /// Each record's end vertices: the anchors of the groups its ends
+    /// resolved into. `None` when the resolution declined or a record
+    /// end has no candidate.
+    pub(crate) fn record_ends(&self, records: usize) -> Option<Vec<RecordEnds>> {
         let res = self.resolution.as_ref().ok()?;
-        let mut ends: Vec<[Option<Point3>; 2]> = vec![[None; 2]; records];
+        let mut ends: Vec<[Option<(Point3, f64)>; 2]> = vec![[None; 2]; records];
         for (i, c) in self.cands.iter().enumerate() {
             if c.source != SourceKind::RecordEndpoint {
                 continue;
@@ -70,9 +82,19 @@ impl VertexTable {
             else {
                 continue;
             };
-            let anchor = self.cands[res.groups[res.group_of[i]].anchor].position;
-            *ends.get_mut(record)?.get_mut(usize::from(end))? = Some(anchor);
+            let group = &res.groups[res.group_of[i]];
+            let anchor = self.cands[group.anchor].position;
+            *ends.get_mut(record)?.get_mut(usize::from(end))? = Some((anchor, group.tolerance));
         }
-        ends.into_iter().map(|[s, e]| Some((s?, e?))).collect()
+        ends.into_iter()
+            .map(|[s, e]| {
+                let ((start, ts), (end, te)) = (s?, e?);
+                Some(RecordEnds {
+                    start,
+                    end,
+                    tolerance: ts.max(te),
+                })
+            })
+            .collect()
     }
 }

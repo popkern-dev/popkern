@@ -29,20 +29,18 @@ pub(crate) fn insert_intersection_curves(
 
 /// [`insert_intersection_curves`] with each record's end vertices
 /// decided by the candidate-vertex table (`tolerance_zone`): `ends[i]`
-/// is record `i`'s (start, end) vertex position, the anchor of the
-/// group its ends resolved into. The node there (within `tolerance`)
-/// is used, or minted at the anchor; the wide adoption search is not
-/// consulted. `None` keeps the snap-then-adopt identity.
+/// holds record `i`'s start and end vertex positions, the anchors of
+/// the groups its ends resolved into. The node there (within
+/// `tolerance`) is used, or minted at the anchor; the wide adoption
+/// search is not consulted, and a record whose ends share a node is
+/// kept only when the table's consequence rule calls it a loop.
+/// `None` keeps the snap-then-adopt identity and the point-contact
+/// gate.
 pub(crate) fn insert_intersection_curves_at(
     graph: &mut IntersectionGraph,
     records: &[IntersectionRecord],
     tolerance: f64,
-    ends: Option<
-        &[(
-            popkern_core::geometry::Point3,
-            popkern_core::geometry::Point3,
-        )],
-    >,
+    ends: Option<&[crate::tolerance_zone::table::RecordEnds]>,
 ) {
     // Model scale for the point-contact guard (matches the
     // post-assembly point-loop retirement's gate — tolerance*500
@@ -93,8 +91,9 @@ pub(crate) fn insert_intersection_curves_at(
                 None => graph.add_node(p, NodeSource::Intersection),
             }
         };
-        let (start_node, end_node) = match ends.and_then(|e| e.get(ri)) {
-            Some(&(s_at, e_at)) => (node_at(s_at, false), node_at(e_at, false)),
+        let placed = ends.and_then(|e| e.get(ri));
+        let (start_node, end_node) = match placed {
+            Some(at) => (node_at(at.start, false), node_at(at.end, false)),
             None => (node_at(start_pt, true), node_at(end_pt, true)),
         };
 
@@ -111,7 +110,25 @@ pub(crate) fn insert_intersection_curves_at(
         // body kept the void strip as a ghost weave). The
         // post-assembly point-loop retirement already removes the
         // survivors; refusing them here keeps the walk sound.
-        if start_node == end_node {
+        // With the table deciding vertices, its consequence rule
+        // decides instead, by the vertex's own tolerance: a micro edge
+        // or an out-and-back spur bounds nothing, a loop is kept.
+        if start_node == end_node
+            && let Some(at) = placed
+        {
+            let anchor = graph.nodes[start_node].position;
+            let kind = crate::tolerance_zone::consequences::collapse_of(
+                curve_3d,
+                anchor,
+                at.tolerance.max(tolerance),
+            );
+            if kind != crate::tolerance_zone::consequences::Collapse::Loop {
+                if popkern_core::trace::trace_enabled("record-insert") {
+                    eprintln!("  [record-insert] SKIP {kind:?} at n{start_node}");
+                }
+                continue;
+            }
+        } else if start_node == end_node {
             let anchor = graph.nodes[start_node].position;
             let extent = (0..=6)
                 .map(|k| {
@@ -305,133 +322,5 @@ impl IntersectionGraph {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use popkern_core::{
-        geometry::{NurbsCurve, Point3, curve_on_surface::CurveOnSurface},
-        topology::FaceHandle,
-    };
-
-    /// Build a minimal IntersectionRecord with a line from p0 to p1.
-    fn make_record(
-        p0: Point3,
-        p1: Point3,
-        face_a: FaceHandle,
-        face_b: FaceHandle,
-    ) -> IntersectionRecord {
-        // Build a degree-1 NURBS line.
-        let nurbs = NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![p0, p1],
-            weights: vec![1.0, 1.0],
-        };
-        let cos = CurveOnSurface {
-            curve_3d: nurbs.clone(),
-            curve_uv1: nurbs.clone(),
-            curve_uv2: nurbs,
-            is_closed: false,
-        };
-        IntersectionRecord {
-            residue_owner_a: None,
-            face_a,
-            face_b,
-            curve: cos,
-            is_tangent: false,
-            is_coincident: false,
-            start_boundary: Default::default(),
-            end_boundary: Default::default(),
-        }
-    }
-
-    #[test]
-    fn insert_shared_edge_between_two_faces() {
-        let mut graph = IntersectionGraph::new();
-
-        // Pre-create nodes at the endpoints.
-        let n0 = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
-        let n1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
-        assert_eq!(n0, 0);
-        assert_eq!(n1, 1);
-
-        let face_a = FaceHandle::default();
-        let face_b = FaceHandle::default();
-
-        let record = make_record(
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
-            face_a,
-            face_b,
-        );
-
-        insert_intersection_curves(&mut graph, &[record], 1e-6);
-
-        // Should still have 2 nodes (reused existing ones).
-        assert_eq!(graph.nodes.len(), 2);
-        // Should have 2 half-edges (one pair).
-        assert_eq!(graph.half_edges.len(), 2);
-
-        // Forward half-edge should have face A.
-        let face_a_ref = FaceRef {
-            operand: Operand::A,
-            face: face_a,
-        };
-        let face_b_ref = FaceRef {
-            operand: Operand::B,
-            face: face_b,
-        };
-        assert_eq!(graph.half_edges[0].face, Some(face_a_ref));
-        assert_eq!(graph.half_edges[1].face, Some(face_b_ref));
-
-        // face_edges should list the shared edge for both faces.
-        assert!(graph.face_edges[&face_a_ref].contains(&0));
-        assert!(graph.face_edges[&face_b_ref].contains(&1));
-
-        // Forward half-edge should carry the curve.
-        assert!(graph.half_edges[0].curve.is_some());
-    }
-
-    #[test]
-    fn insert_creates_nodes_when_not_found() {
-        let mut graph = IntersectionGraph::new();
-
-        let face_a = FaceHandle::default();
-        let face_b = FaceHandle::default();
-
-        let record = make_record(
-            Point3::new(5.0, 5.0, 5.0),
-            Point3::new(6.0, 6.0, 6.0),
-            face_a,
-            face_b,
-        );
-
-        insert_intersection_curves(&mut graph, &[record], 1e-6);
-
-        // Nodes should be created.
-        assert_eq!(graph.nodes.len(), 2);
-        assert_eq!(graph.half_edges.len(), 2);
-    }
-
-    #[test]
-    fn validate_on_valid_graph() {
-        let mut graph = IntersectionGraph::new();
-        let n0 = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
-        let n1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
-        let edge_h = popkern_core::topology::EdgeHandle::default();
-        graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
-
-        let errors = graph.validate();
-        assert!(errors.is_empty(), "Expected no errors, got: {errors:?}");
-    }
-
-    #[test]
-    fn validate_detects_orphan_node() {
-        let mut graph = IntersectionGraph::new();
-        // Node with no outgoing edges.
-        graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
-
-        let errors = graph.validate();
-        assert_eq!(errors.len(), 1);
-        assert!(errors[0].contains("no outgoing edges"));
-    }
-}
+#[path = "graph_intersect_tests.rs"]
+mod tests;
