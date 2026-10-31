@@ -23,6 +23,7 @@ pub(crate) mod branches;
 pub(crate) mod candidates;
 pub(crate) mod common_blocks;
 pub(crate) mod consequences;
+pub(crate) mod face_info;
 pub(crate) mod face_path;
 pub(crate) mod face_side;
 pub(crate) mod incidence;
@@ -30,6 +31,7 @@ pub(crate) mod partition;
 pub(crate) mod pave_blocks;
 pub(crate) mod record_order;
 pub(crate) mod region;
+pub(crate) mod resolution_record;
 pub(crate) mod resolve;
 pub(crate) mod shadow;
 pub(crate) mod table;
@@ -38,6 +40,8 @@ pub(crate) mod table;
 mod branch_tests;
 #[cfg(test)]
 mod consequence_tests;
+#[cfg(test)]
+mod face_info_tests;
 #[cfg(test)]
 mod face_path_tests;
 #[cfg(test)]

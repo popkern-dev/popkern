@@ -78,7 +78,34 @@ pub(crate) fn build(
             exact_limit: EXACT_PARTITION_LIMIT,
         },
     );
+    if resolution.is_err() {
+        emit_decline_artifact(&cands, &resolution, records);
+    }
     VertexTable { cands, resolution }
+}
+
+/// With `POPKERN_COMPLEX_ARTIFACT=<dir>`, write a declined resolution's
+/// candidates and decline to `<dir>` as JSON (`resolution_record`), so
+/// the decline can be inspected without rerunning the boolean.
+fn emit_decline_artifact(
+    cands: &[CandidateVertex],
+    resolution: &Result<Resolution, ResolutionDecline>,
+    records: &[IntersectionRecord],
+) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+    let Some(dir) = std::env::var_os("POPKERN_COMPLEX_ARTIFACT") else {
+        return;
+    };
+    let n = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let path = std::path::Path::new(&dir).join(format!(
+        "vertex-table-decline-{}-{n}.json",
+        std::process::id()
+    ));
+    let body = super::resolution_record::resolution_json(cands, resolution, records, &[]);
+    if std::fs::write(&path, body.to_string()).is_ok() {
+        eprintln!("[vertex table] decline artifact: {}", path.display());
+    }
 }
 
 impl VertexTable {

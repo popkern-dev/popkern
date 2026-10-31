@@ -99,9 +99,8 @@ fn owner_curve<'a>(
     }
 }
 
-/// Each owner's paves: (parameter, group), sorted, consecutive paves of
-/// one group merged. An operand edge's end vertices pave it where a
-/// candidate resolved them.
+/// Each owner's paves: (parameter, group), sorted. An operand edge's
+/// end vertices pave it where a candidate resolved them.
 fn paves(
     cands: &[CandidateVertex],
     res: &Resolution,
@@ -171,7 +170,7 @@ fn paves(
     }
     for list in out.values_mut() {
         list.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-        list.dedup_by(|b, a| a.1 == b.1);
+        list.dedup();
     }
     out
 }
@@ -249,7 +248,10 @@ pub(crate) fn pave_blocks(
         }
         for w in stops.windows(2) {
             let ((ta, ga), (tb, gb)) = (w[0], w[1]);
-            if tb <= ta {
+            // A piece from a vertex back to itself is no block: a
+            // record whose ends met (`consequences`) or one vertex
+            // reached twice.
+            if tb <= ta || (ga.is_some() && ga == gb) {
                 continue;
             }
             let (pa, ra) = ball(cands, res, ga, curve.point_at(ta), linear);

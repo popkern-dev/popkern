@@ -84,6 +84,9 @@ pub(crate) struct ResolutionShadow {
     /// end vertices: an empty shrunk range, an edge shorter than
     /// tolerance (`pave_blocks`).
     pub micro_blocks: usize,
+    /// Operand faces carrying section blocks (`face_info`), and
+    /// vertices strictly inside a face among them.
+    pub sectioned_faces: (usize, usize),
     /// Pave-block common blocks the whole-record pass does not see:
     /// pairs of blocks of different owners within tolerance of each
     /// other between the same two vertices (`pave_blocks`), by owners.
@@ -354,6 +357,11 @@ pub(crate) fn run(
         let ops = [operands.0, operands.1];
         let blocks = super::pave_blocks::pave_blocks(&table.cands, res, ops, records, linear);
         shadow.micro_blocks = blocks.iter().filter(|b| b.shrunk.is_none()).count();
+        let infos = super::face_info::face_infos(&table.cands, res, ops, records, &blocks);
+        shadow.sectioned_faces = infos
+            .values()
+            .filter(|f| !f.section_blocks.is_empty())
+            .fold((0, 0), |(n, v), f| (n + 1, v + f.in_vertices.len()));
         use super::pave_blocks::BlockOwner;
         shadow.block_common_blocks =
             super::pave_blocks::common_block_pairs(&blocks, res, ops, records)
