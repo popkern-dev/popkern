@@ -352,7 +352,11 @@ fn a_shallow_crossing_links_its_two_computations_along_the_edge() {
                     edge,
                     t: x,
                 },
-                Incidence::Face { operand: 1, face },
+                Incidence::Face {
+                    operand: 1,
+                    face,
+                    uv: None,
+                },
                 extra,
             ],
             key: (source, 0, x.to_bits(), 0, 0),
@@ -361,7 +365,11 @@ fn a_shallow_crossing_links_its_two_computations_along_the_edge() {
             on(
                 0.5,
                 SourceKind::EdgeFaceHit,
-                Incidence::Face { operand: 1, face },
+                Incidence::Face {
+                    operand: 1,
+                    face,
+                    uv: None,
+                },
             ),
             on(
                 0.5 + 1.6e-5,

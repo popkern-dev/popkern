@@ -56,13 +56,13 @@ pub(crate) fn opposite_sides(
 ) -> bool {
     let gap = p.position.distance_to(&q.position);
     p.incidence.iter().any(|ip| {
-        let &Incidence::Face { operand, face } = ip else {
+        let &Incidence::Face { operand, face, .. } = ip else {
             return false;
         };
         let on_both = q
             .incidence
             .iter()
-            .any(|iq| matches!(iq, Incidence::Face { operand: o, face: f } if *o == operand && *f == face));
+            .any(|iq| matches!(iq, Incidence::Face { operand: o, face: f, .. } if *o == operand && *f == face));
         on_both
             && boundary(operands[operand], face)
                 .into_iter()

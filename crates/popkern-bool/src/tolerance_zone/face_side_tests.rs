@@ -15,7 +15,11 @@ fn on_face(face: FaceHandle, at: Point3, key: u64) -> CandidateVertex {
         radius: TOL,
         zone: TOL,
         source: SourceKind::EdgeFaceHit,
-        incidence: vec![Incidence::Face { operand: 0, face }],
+        incidence: vec![Incidence::Face {
+            operand: 0,
+            face,
+            uv: None,
+        }],
         key: (SourceKind::EdgeFaceHit, 1, key, 0, 0),
     }
 }

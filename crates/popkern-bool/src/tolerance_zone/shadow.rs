@@ -64,6 +64,9 @@ pub(crate) struct ResolutionShadow {
     pub branch_separations: usize,
     /// Candidate pairs the face-side rule kept apart (`face_side`).
     pub face_side_separations: usize,
+    /// Candidate pairs the period rule kept apart, with the largest
+    /// surface length between a pair (`face_path`).
+    pub face_path_separations: (usize, f64),
     /// Records lying along an operand edge for their whole length
     /// (both ends and the middle on one edge): common blocks, one edge
     /// that today enters the graph twice (the record and the edge).
@@ -354,6 +357,12 @@ pub(crate) fn run(
         shadow.branch_separations = separated(super::resolve::Incompatibility::DistinctBranches);
         shadow.face_side_separations =
             separated(super::resolve::Incompatibility::OppositeFaceSides);
+        for (_, _, why) in &res.separations {
+            if let super::resolve::Incompatibility::SeparatedAlongFace { length } = *why {
+                shadow.face_path_separations.0 += 1;
+                shadow.face_path_separations.1 = shadow.face_path_separations.1.max(length);
+            }
+        }
         for c in super::consequences::collapsed_ends(&table.cands, res, records) {
             match c.kind() {
                 super::consequences::Collapse::MicroEdge => shadow.micro_edges += 1,

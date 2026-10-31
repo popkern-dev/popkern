@@ -17,7 +17,9 @@
 //!   interior: two branches passing close, where the SSI saw no branch
 //!   point (`branches`);
 //! - two points on one face on opposite sides of a boundary edge of it
-//!   (`face_side`).
+//!   (`face_side`);
+//! - two points on one face separated along it, after period
+//!   correction, by more than their zones (`face_path`).
 //!
 //! Incompatibility is a hard constraint; proximity never overrides it.
 //!
@@ -63,6 +65,11 @@ pub(crate) enum Incompatibility {
     /// Both lie on one face, on opposite sides of a boundary edge of it
     /// (`face_side`).
     OppositeFaceSides,
+    /// Both lie on one face, `length` apart along it (`face_path`).
+    SeparatedAlongFace {
+        /// Surface length between them.
+        length: f64,
+    },
 }
 
 /// One resolved vertex.
@@ -229,6 +236,9 @@ fn incompatibility(
                 _ => {}
             }
         }
+    }
+    if let Some(length) = super::face_path::separation_along_face(ctx.operands, p, q) {
+        return Some(Incompatibility::SeparatedAlongFace { length });
     }
     super::face_side::opposite_sides(ctx.operands, p, q)
         .then_some(Incompatibility::OppositeFaceSides)

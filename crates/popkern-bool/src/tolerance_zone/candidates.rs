@@ -46,6 +46,10 @@ pub(crate) enum Incidence {
         operand: usize,
         /// The face.
         face: FaceHandle,
+        /// Where on the face, in its chart and period branch; `None`
+        /// where the producer carries no chart for it (a trim residue's
+        /// other face).
+        uv: Option<(f64, f64)>,
     },
     /// A face-face record at curve parameter `s`.
     Record {
@@ -94,6 +98,30 @@ pub(crate) struct CandidateVertex {
     /// entities' handles and parameters; independent of the order the
     /// interferences were computed in.
     pub key: (SourceKind, usize, u64, u64, u64),
+}
+
+/// Where `record` lies at `s` on its face of operand B (`on_b`) or A,
+/// by that face's own uv curve, when that uv reproduces the record's
+/// point there within `radius`: a trim residue lies on its owner face
+/// alone and carries no chart for the other, and a uv curve's end can
+/// miss its 3D end (measured: 3e-3 to 2e-2 along cone and sphere
+/// walls, the edge-face hit at the same point exact), which is no chart
+/// evidence of where on the face the point lies.
+fn chart_uv(
+    (a, b): (&BRep, &BRep),
+    record: &IntersectionRecord,
+    on_b: bool,
+    s: f64,
+    (position, radius): (Point3, f64),
+) -> Option<(f64, f64)> {
+    let (curve, brep, face) = match (record.residue_owner_a, on_b) {
+        (Some(owner_a), _) if owner_a == on_b => return None,
+        (_, false) => (&record.curve.curve_uv1, a, record.face_a),
+        (_, true) => (&record.curve.curve_uv2, b, record.face_b),
+    };
+    let p = curve.point_at(s);
+    let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+    (surface.point_at(p.x, p.y).distance_to(&position) <= radius).then_some((p.x, p.y))
 }
 
 fn handle_bits(k: impl Key) -> u64 {
@@ -205,6 +233,17 @@ fn collect_sites(
                 Incidence::Face {
                     operand: face_op,
                     face: hit.face,
+                    uv: operands[face_op]
+                        .faces
+                        .get(hit.face)
+                        .and_then(|f| f.surface.as_ref())
+                        .filter(|sf| {
+                            sf.geometry
+                                .point_at(hit.uv.0, hit.uv.1)
+                                .distance_to(&hit.point)
+                                <= edge_tol + face_tol
+                        })
+                        .map(|_| hit.uv),
                 },
             ],
             key: (
@@ -243,10 +282,12 @@ fn collect_sites(
                     Incidence::Face {
                         operand: 0,
                         face: record.face_a,
+                        uv: chart_uv((a, b), record, false, s, (position, radius)),
                     },
                     Incidence::Face {
                         operand: 1,
                         face: record.face_b,
+                        uv: chart_uv((a, b), record, true, s, (position, radius)),
                     },
                 ],
                 key: (

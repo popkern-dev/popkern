@@ -159,7 +159,10 @@ pub(crate) fn add_crossing_zones(cands: &mut [CandidateVertex], operands: [&BRep
                 continue;
             }
             for face_inc in &c.incidence {
-                let Incidence::Face { operand: fo, face } = *face_inc else {
+                let Incidence::Face {
+                    operand: fo, face, ..
+                } = *face_inc
+                else {
                     continue;
                 };
                 if fo == operand {
