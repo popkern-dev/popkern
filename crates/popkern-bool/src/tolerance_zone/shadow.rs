@@ -80,6 +80,17 @@ pub(crate) struct ResolutionShadow {
     /// Components the exact search re-partitioned into fewer vertices
     /// than the canonical-order pass made (`partition`).
     pub exact_partitions: usize,
+    /// Pave blocks of records and cut operand edges lying within their
+    /// end vertices: an empty shrunk range, an edge shorter than
+    /// tolerance (`pave_blocks`).
+    pub micro_blocks: usize,
+    /// Pave-block common blocks the whole-record pass does not see:
+    /// pairs of blocks of different owners within tolerance of each
+    /// other between the same two vertices (`pave_blocks`), by owners.
+    pub block_common_blocks: Vec<(
+        super::pave_blocks::BlockOwner,
+        super::pave_blocks::BlockOwner,
+    )>,
     /// Records lying along an operand edge for their whole length
     /// (both ends and the middle on one edge): common blocks, one edge
     /// that today enters the graph twice (the record and the edge).
@@ -332,14 +343,29 @@ pub(crate) fn run(
     shadow.operand_junctions_unpaved =
         crate::merge::graph_split_shared::unsplit_operand_junctions(graph, 2.0 * linear);
     if let Ok(res) = &table.resolution {
-        shadow.common_blocks = super::common_blocks::common_block_records(
+        let common = super::common_blocks::common_block_records(
             &table.cands,
             res,
             [operands.0, operands.1],
             records,
             linear,
-        )
-        .len();
+        );
+        shadow.common_blocks = common.len();
+        let ops = [operands.0, operands.1];
+        let blocks = super::pave_blocks::pave_blocks(&table.cands, res, ops, records, linear);
+        shadow.micro_blocks = blocks.iter().filter(|b| b.shrunk.is_none()).count();
+        use super::pave_blocks::BlockOwner;
+        shadow.block_common_blocks =
+            super::pave_blocks::common_block_pairs(&blocks, res, ops, records)
+                .into_iter()
+                .map(|(i, j)| (blocks[i].owner, blocks[j].owner))
+                .filter(|pair| {
+                    ![pair.0, pair.1].iter().any(|o| {
+                        matches!(o, BlockOwner::Record(r)
+                            if common.iter().any(|&(cr, _, _)| cr == *r))
+                    })
+                })
+                .collect();
         let separated = |rule| {
             res.separations
                 .iter()

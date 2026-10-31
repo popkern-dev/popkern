@@ -27,6 +27,7 @@ pub(crate) mod face_path;
 pub(crate) mod face_side;
 pub(crate) mod incidence;
 pub(crate) mod partition;
+pub(crate) mod pave_blocks;
 pub(crate) mod record_order;
 pub(crate) mod region;
 pub(crate) mod resolve;
@@ -43,6 +44,8 @@ mod face_path_tests;
 mod face_side_tests;
 #[cfg(test)]
 mod partition_tests;
+#[cfg(test)]
+mod pave_block_tests;
 #[cfg(test)]
 mod record_order_tests;
 #[cfg(test)]
