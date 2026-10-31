@@ -15,7 +15,9 @@
 //!   elongated along a shallow crossing, `incidence::add_crossing_zones`);
 //! - two points on two records of one face pair, one in its record's
 //!   interior: two branches passing close, where the SSI saw no branch
-//!   point (`branches`).
+//!   point (`branches`);
+//! - two points on one face on opposite sides of a boundary edge of it
+//!   (`face_side`).
 //!
 //! Incompatibility is a hard constraint; proximity never overrides it.
 //!
@@ -58,6 +60,9 @@ pub(crate) enum Incompatibility {
     /// record's interior: a branch the SSI marched through, seeing no
     /// branch point, passing within tolerance of another (`branches`).
     DistinctBranches,
+    /// Both lie on one face, on opposite sides of a boundary edge of it
+    /// (`face_side`).
+    OppositeFaceSides,
 }
 
 /// One resolved vertex.
@@ -225,7 +230,8 @@ fn incompatibility(
             }
         }
     }
-    None
+    super::face_side::opposite_sides(ctx.operands, p, q)
+        .then_some(Incompatibility::OppositeFaceSides)
 }
 
 /// Disjoint-set forest.

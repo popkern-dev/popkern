@@ -62,6 +62,8 @@ pub(crate) struct ResolutionShadow {
     /// Candidate pairs the branch rule kept apart: two records of one
     /// face pair meeting away from both their ends (`branches`).
     pub branch_separations: usize,
+    /// Candidate pairs the face-side rule kept apart (`face_side`).
+    pub face_side_separations: usize,
     /// Records lying along an operand edge for their whole length
     /// (both ends and the middle on one edge): common blocks, one edge
     /// that today enters the graph twice (the record and the edge).
@@ -343,11 +345,15 @@ pub(crate) fn run(
             linear,
         )
         .len();
-        shadow.branch_separations = res
-            .separations
-            .iter()
-            .filter(|(_, _, why)| *why == super::resolve::Incompatibility::DistinctBranches)
-            .count();
+        let separated = |rule| {
+            res.separations
+                .iter()
+                .filter(|(_, _, why)| *why == rule)
+                .count()
+        };
+        shadow.branch_separations = separated(super::resolve::Incompatibility::DistinctBranches);
+        shadow.face_side_separations =
+            separated(super::resolve::Incompatibility::OppositeFaceSides);
         for c in super::consequences::collapsed_ends(&table.cands, res, records) {
             match c.kind() {
                 super::consequences::Collapse::MicroEdge => shadow.micro_edges += 1,
