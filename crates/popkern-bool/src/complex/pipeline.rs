@@ -6,7 +6,6 @@
 //! without rerunning the boolean.
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
-use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -32,6 +31,9 @@ pub(crate) enum ComplexDecline {
     Radial(RadialDecline),
     /// Shell or membership assembly declined.
     Region(RegionDecline),
+    /// Fragments lying in a coincident patch that grouped with no
+    /// partner copy (see `same_domain_check`).
+    SameDomainMismatch(Vec<super::same_domain_check::SameDomainMismatch>),
     /// Shared records that split only one of their two faces (the walk
     /// is inconsistent there; see `record_use`).
     HalfRegisteredRecords(Vec<super::ids::EdgeId>),
@@ -131,40 +133,8 @@ fn classify_shell(
             .get(owner.face)?
             .surface
             .as_ref()?;
-        let fin = c.loops.get(f.loops.first()?.index())?.first;
-        let edge = &c.edges[c.fins[fin.index()].edge.index()];
-        let (pa, pb) = (
-            c.vertices[edge.start.index()].position,
-            c.vertices[edge.end.index()].position,
-        );
-        // A point on the face a short way in from its first fin.
-        let mid = match &edge.curve {
-            Some(cv) => {
-                use popkern_core::geometry::curve::CurveEval;
-                cv.geometry.point_at(0.5 * (cv.t_start + cv.t_end))
-            }
-            None => pa + (pb - pa) * 0.5,
-        };
-        let (u, v) = surf.geometry.closest_point(&mid)?;
-        let n = surf.folded_normal(u, v)?;
-        let t = (pb - pa).normalized().or_else(|| {
-            edge.curve.as_ref().and_then(|cv| {
-                use popkern_core::geometry::curve::CurveEval;
-                cv.geometry
-                    .derivative_at(0.5 * (cv.t_start + cv.t_end), 1)
-                    .normalized()
-            })
-        })?;
-        let tf = if c.fins[fin.index()].forward {
-            t
-        } else {
-            t * -1.0
-        };
-        let len = pa.distance_to(&pb).max(linear * 1e3);
-        let into = n.cross(&tf).normalized()?;
-        let on_face = mid + into * (len * 1e-2).max(linear * 100.0);
-        let (u2, v2) = surf.geometry.closest_point(&on_face)?;
-        let base = surf.geometry.point_at(u2, v2);
+        let at = super::same_domain_check::inner_point(c, input.operands, linear, face)?;
+        let (base, (u2, v2), len) = (at.point, at.uv, at.fin_length);
         // Membership asks only about operands that bound none of the
         // class's faces, and a face of another operand has the same
         // membership on both sides: classify the point on the face. An
@@ -227,6 +197,15 @@ pub(crate) fn classify_with_complex(
         );
         if !half.is_empty() {
             return Err(ComplexDecline::HalfRegisteredRecords(half));
+        }
+        let unmatched = super::same_domain_check::same_domain_mismatches(
+            &lift.complex,
+            input.operands,
+            input.overlaps,
+            linear,
+        );
+        if !unmatched.is_empty() {
+            return Err(ComplexDecline::SameDomainMismatch(unmatched));
         }
         let geo = FaceGeometry {
             operands: input.operands,

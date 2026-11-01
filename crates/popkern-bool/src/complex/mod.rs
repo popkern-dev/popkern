@@ -36,6 +36,7 @@ pub(crate) mod radial;
 pub(crate) mod record_use;
 pub(crate) mod regions;
 pub(crate) mod same_domain;
+pub(crate) mod same_domain_check;
 pub(crate) mod select;
 pub(crate) mod serve;
 pub(crate) mod shadow_compare;
@@ -44,4 +45,4 @@ pub(crate) mod validate;
 
 #[cfg(test)]
 #[path = "complex_tests.rs"]
-mod tests;
+pub(crate) mod tests;
