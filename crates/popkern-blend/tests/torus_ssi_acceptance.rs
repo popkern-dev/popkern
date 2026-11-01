@@ -203,13 +203,14 @@ fn filleted_operand_boolean_serves_identically_under_analytic_arms() {
         "cut rim-fillet body must validate clean: {analytic_verdicts:?}"
     );
 
-    // The marching path on the SAME inputs is order-fragile: across
-    // processes (HashMap seed order) it sometimes completes and
-    // sometimes fails this very boolean with SplitFailed — the
-    // seed-order dependence the analytic arms remove. When it does
-    // complete, hold it to verdict parity and require the analytic
-    // wall to be no slower; when it fails, the analytic arms are
-    // strictly better and the ratio has no denominator to gate on.
+    // The marching path on the SAME inputs must serve too, with the
+    // same verdicts and faces. It used to fail: the strip's v seam is
+    // its rim, the y = ±0.9 walls cut ovals dipping across it, and
+    // the pcurve fitted through the chart's two period jumps swept the
+    // whole chart there; the face clip shed ~1e-3 pieces with 24 open
+    // ends and the walk left a loop open by 0.87 (PK-1030). A trace
+    // dipping across a seam now splits at its seam crossings
+    // (`surface_surface_seam_dip`).
     let (marching_outcome, marching_wall) = with_marching_pinned(|| {
         time_once(|| {
             boolean(
@@ -225,40 +226,34 @@ fn filleted_operand_boolean_serves_identically_under_analytic_arms() {
             })
         })
     });
-    match marching_outcome {
-        Ok((marching_result, marching_verdicts, marching_validate_wall)) => {
-            eprintln!(
-                "[pk279] filleted-operand boolean: analytic {analytic_bool_wall:?} \
-                 ({} faces, {} verdicts), marching {:?} ({} faces, {} verdicts); \
-                 validate_all: analytic {analytic_validate_wall:?}, marching \
-                 {marching_validate_wall:?}; combined ratio {:.1}×",
-                analytic_result.faces.len(),
-                analytic_verdicts.len(),
-                marching_wall - marching_validate_wall,
-                marching_result.faces.len(),
-                marching_verdicts.len(),
-                marching_wall.as_secs_f64() / analytic_wall.as_secs_f64().max(1e-12),
-            );
-            assert_eq!(
-                analytic_verdicts.len(),
-                marching_verdicts.len(),
-                "analytic arms must not change the validation verdict:\n  analytic: {analytic_verdicts:?}\n  marching: {marching_verdicts:?}"
-            );
-            assert!(
-                analytic_wall.as_secs_f64() <= marching_wall.as_secs_f64() * 1.25,
-                "analytic arms regressed the filleted-operand boolean: {analytic_wall:?} vs {marching_wall:?}"
-            );
-        }
-        Err(e) => {
-            eprintln!(
-                "[pk279] filleted-operand boolean: analytic {analytic_wall:?} \
-                 ({} faces, {} verdicts); marching FAILED in {marching_wall:?} ({e}) — \
-                 the order-fragile class the analytic arms remove",
-                analytic_result.faces.len(),
-                analytic_verdicts.len(),
-            );
-        }
-    }
+    let (marching_result, marching_verdicts, marching_validate_wall) =
+        marching_outcome.expect("the marching arm must serve the filleted operand too");
+    eprintln!(
+        "[pk279] filleted-operand boolean: analytic {analytic_bool_wall:?} \
+         ({} faces, {} verdicts), marching {:?} ({} faces, {} verdicts); \
+         validate_all: analytic {analytic_validate_wall:?}, marching \
+         {marching_validate_wall:?}; combined ratio {:.1}×",
+        analytic_result.faces.len(),
+        analytic_verdicts.len(),
+        marching_wall - marching_validate_wall,
+        marching_result.faces.len(),
+        marching_verdicts.len(),
+        marching_wall.as_secs_f64() / analytic_wall.as_secs_f64().max(1e-12),
+    );
+    assert_eq!(
+        analytic_result.faces.len(),
+        marching_result.faces.len(),
+        "the marching arm must serve the same faces"
+    );
+    assert_eq!(
+        analytic_verdicts.len(),
+        marching_verdicts.len(),
+        "analytic arms must not change the validation verdict:\n  analytic: {analytic_verdicts:?}\n  marching: {marching_verdicts:?}"
+    );
+    assert!(
+        analytic_wall.as_secs_f64() <= marching_wall.as_secs_f64() * 1.25,
+        "analytic arms regressed the filleted-operand boolean: {analytic_wall:?} vs {marching_wall:?}"
+    );
 }
 
 /// Gate 3: `validate_all` on a corpus-shape part whose torus faces
