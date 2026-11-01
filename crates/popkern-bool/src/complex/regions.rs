@@ -40,6 +40,9 @@ pub(crate) enum RegionDecline {
         shell: ShellId,
         /// The operand.
         operand: usize,
+        /// The face side that first fixed the bit, and the face side
+        /// that contradicts it.
+        faces: [(FaceId, SideIndex); 2],
     },
     /// A shell's membership in an operand could not be decided (no
     /// owned face and the point classification failed).
@@ -52,20 +55,23 @@ pub(crate) enum RegionDecline {
 }
 
 /// Disjoint-set forest.
-struct Forest(Vec<usize>);
+pub(crate) struct Forest(Vec<usize>);
 
 impl Forest {
-    fn new(n: usize) -> Self {
+    /// `n` singleton classes.
+    pub(crate) fn new(n: usize) -> Self {
         Self((0..n).collect())
     }
-    fn find(&mut self, mut x: usize) -> usize {
+    /// The representative of `x`'s class.
+    pub(crate) fn find(&mut self, mut x: usize) -> usize {
         while self.0[x] != x {
             self.0[x] = self.0[self.0[x]];
             x = self.0[x];
         }
         x
     }
-    fn union(&mut self, a: usize, b: usize) {
+    /// Join the classes of `a` and `b`.
+    pub(crate) fn union(&mut self, a: usize, b: usize) {
         let (ra, rb) = (self.find(a), self.find(b));
         if ra != rb {
             // Lower root wins: deterministic class representatives.
@@ -181,7 +187,7 @@ pub(crate) fn assign_membership(
             }
         }
         // Direct determinations per class.
-        let mut class_bit: std::collections::BTreeMap<usize, (bool, ShellId)> =
+        let mut class_bit: std::collections::BTreeMap<usize, (bool, Option<(FaceId, SideIndex)>)> =
             std::collections::BTreeMap::new();
         for (si, shell) in c.shells.iter().enumerate() {
             for &(face, side) in &shell.sides {
@@ -190,15 +196,16 @@ pub(crate) fn assign_membership(
                 };
                 let root = forest.find(si);
                 match class_bit.get(&root) {
-                    Some(&(prev, _)) if prev != bit => {
+                    Some(&(prev, first)) if prev != bit => {
                         return Err(RegionDecline::MembershipConflict {
                             shell: ShellId::from_index(si),
                             operand: k,
+                            faces: [first.unwrap_or((face, side)), (face, side)],
                         });
                     }
                     Some(_) => {}
                     None => {
-                        class_bit.insert(root, (bit, ShellId::from_index(si)));
+                        class_bit.insert(root, (bit, Some((face, side))));
                     }
                 }
             }
@@ -215,7 +222,7 @@ pub(crate) fn assign_membership(
                             operand: k,
                         },
                     )?;
-                    class_bit.insert(root, (bit, ShellId::from_index(root)));
+                    class_bit.insert(root, (bit, None));
                     bit
                 }
             };

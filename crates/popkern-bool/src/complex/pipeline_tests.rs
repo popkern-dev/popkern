@@ -185,8 +185,16 @@ fn a_pin_proud_of_its_notch_wall_intersects_to_the_lens() {
         0.37,
     )
     .expect("rotation");
-    for place in [Transform3::identity(), turned] {
-        let (plate, pin) = pin_proud_of_notch(depth, (-1.0, 5.0), &place, tol);
+    // A pin through the plate, and one flush with both its faces
+    // (PK-1023: the plate's faces were not split by the flush pin's
+    // coplanar rims and radial ordering tied them).
+    for (place, pin_z) in [
+        (Transform3::identity(), (-1.0, 5.0)),
+        (turned, (-1.0, 5.0)),
+        (Transform3::identity(), (0.0, 4.0)),
+        (turned, (0.0, 4.0)),
+    ] {
+        let (plate, pin) = pin_proud_of_notch(depth, pin_z, &place, tol);
         let ix = crate::intersect::find_intersections(&plate, &pin, &tol).expect("intersections");
         let (mut body, _) = crate::cellular::boolean::cellular_graph_merge(
             &plate,
@@ -338,4 +346,96 @@ fn a_socket_head_cut_across_its_rim_keeps_the_socket_as_a_hole() {
         body.validate()
             .unwrap_or_else(|e| panic!("{op:?} (top {top}): {e}"));
     }
+}
+
+/// Each face's surface kind, sorted vertex positions and orientation
+/// flag.
+fn oriented_faces(b: &BRep) -> Vec<(String, Vec<[u64; 3]>, bool)> {
+    let mut out: Vec<_> = b
+        .faces
+        .iter()
+        .map(|(fh, f)| {
+            let s = f.surface.as_ref().expect("surface");
+            let mut pts: Vec<[u64; 3]> = b
+                .face_outer_loop_positions(fh)
+                .iter()
+                .map(|p| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()])
+                .collect();
+            pts.sort_unstable();
+            (s.geometry.kind_name().to_string(), pts, s.orientation)
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+/// A body of two solids that fold different ways (a cylinder and a
+/// block united apart), cut at the block: the complex keeps each
+/// solid's own folded-normal convention, so every face serves with
+/// the orientation flag the cellular assembler gives it. One global
+/// convention (the cylinder's) flipped the block's faces and the
+/// pocket's walls.
+#[test]
+fn each_solid_of_a_two_solid_operand_keeps_its_face_orientation() {
+    use crate::complex::serve::SelectionSource;
+    let tol = Tolerance::default();
+    let disc = BRep::cylinder(3.0, 1.5, tol).expect("disc");
+    let far = block((100.0, 0.0, 0.0), (104.0, 4.0, 4.0), tol);
+    let two = crate::boolean(BoolOperation::Union, disc, far, tol, None).expect("two solids");
+    assert_eq!(two.solids.len(), 2);
+    let senses: std::collections::BTreeSet<_> = two
+        .faces
+        .keys()
+        .map(|f| format!("{:?}", two.component_material_sense(f)))
+        .collect();
+    assert_eq!(
+        senses.len(),
+        2,
+        "the solids fold different ways: {senses:?}"
+    );
+    let pocket = block((101.0, 1.0, -1.0), (103.0, 3.0, 5.0), tol);
+    let ix = crate::intersect::find_intersections(&two, &pocket, &tol).expect("intersections");
+    let (complex, _) =
+        crate::complex::serve::rescue(&two, &pocket, &ix, BoolOperation::Subtraction, &tol)
+            .expect("manifold")
+            .expect("the complex serves");
+    let (cellular, _) = crate::cellular::boolean::cellular_graph_merge(
+        &two,
+        &pocket,
+        &ix,
+        BoolOperation::Subtraction,
+        &tol,
+        None,
+        SelectionSource::Cellular,
+    )
+    .expect("the cellular assembler serves");
+    assert_eq!(oriented_faces(&complex), oriented_faces(&cellular));
+}
+
+/// A union keeping a tool clear of the part (a block beside a
+/// cylinder; they fold different ways): the tool's faces form an output
+/// shell with no face of A, and keep the tool's own convention. A's
+/// convention applied to it flipped every tool face.
+#[test]
+fn a_tool_shell_with_no_face_of_a_keeps_the_tool_s_orientation() {
+    use crate::complex::serve::SelectionSource;
+    let tol = Tolerance::default();
+    let part = BRep::cylinder(3.0, 1.5, tol).expect("part");
+    let tool = block((10.0, 0.0, 0.0), (14.0, 4.0, 4.0), tol);
+    let ix = crate::intersect::find_intersections(&part, &tool, &tol).expect("intersections");
+    let (complex, _) = crate::complex::serve::rescue(&part, &tool, &ix, BoolOperation::Union, &tol)
+        .expect("manifold")
+        .expect("the complex serves");
+    let (cellular, _) = crate::cellular::boolean::cellular_graph_merge(
+        &part,
+        &tool,
+        &ix,
+        BoolOperation::Union,
+        &tol,
+        None,
+        SelectionSource::Cellular,
+    )
+    .expect("the cellular assembler serves");
+    assert_eq!(complex.faces.len(), part.faces.len() + tool.faces.len());
+    assert_eq!(oriented_faces(&complex), oriented_faces(&cellular));
 }

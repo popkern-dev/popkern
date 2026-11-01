@@ -33,6 +33,7 @@ pub(crate) mod model;
 pub(crate) mod operand_set;
 pub(crate) mod pipeline;
 pub(crate) mod radial;
+pub(crate) mod radial_ladder;
 pub(crate) mod record_use;
 pub(crate) mod regions;
 pub(crate) mod same_domain;
@@ -41,6 +42,7 @@ pub(crate) mod select;
 pub(crate) mod serve;
 pub(crate) mod shadow_compare;
 pub(crate) mod spans;
+pub(crate) mod split_plan;
 pub(crate) mod validate;
 
 #[cfg(test)]

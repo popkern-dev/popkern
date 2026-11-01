@@ -11,40 +11,49 @@
 //! component along `t × d`.
 //!
 //! Ties (faces leaving in the same direction: tangent contact, a
-//! cylinder resting on a plane) are broken by an offset probe: each
-//! tied face is followed a short distance `h` into itself and the
-//! probe points are compared in the normal plane — the second-order
-//! (curvature) separation of tangent faces. Still-tied fins are
-//! coincident faces the lift did not merge; that is a typed
-//! `Ambiguous` finding, never a guess. The order is computed at three
-//! stations and must agree at all of them: a change means faces cross
+//! cylinder resting on a plane) go down the tie ladder
+//! (`radial_ladder`): cross-section curvature, then an offset probe;
+//! still-tied fins are coincident faces the join did not merge, a
+//! typed `Ambiguous` finding with the measured keys, never a guess.
+//!
+//! The order is computed at several stations (three, five on a curved
+//! edge) and must agree at all of them: a change means faces cross
 //! inside the edge, i.e. an intersection curve was missed
-//! (`Inconsistent`).
+//! (`Inconsistent`, naming the disagreeing stations).
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceOnFace};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::BRep;
 use popkern_math::PortableMath;
 
 use super::ids::{EdgeId, FinId};
 use super::model::CellComplex;
+use super::radial_ladder::{TieEvidence, TieLadder, cross_section_curvature, runs};
 
 /// Why radial ordering declined.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum RadialDecline {
-    /// Two or more fins leave the edge in the same direction and the
-    /// offset probe cannot separate them.
+    /// Two or more fins leave the edge in the same direction and no
+    /// rung of the tie ladder separates them.
     Ambiguous {
         /// The edge.
         edge: EdgeId,
         /// Fins that stayed tied.
         fins: Vec<FinId>,
+        /// The station (fraction of the edge from its start).
+        station: f64,
+        /// What the ladder measured for every fin of the tie.
+        evidence: Vec<TieEvidence>,
     },
-    /// The cyclic order differs between stations along the edge.
+    /// The cyclic order differs between stations along the edge: faces
+    /// cross inside it, an intersection curve the intersection stage
+    /// missed.
     Inconsistent {
         /// The edge.
         edge: EdgeId,
+        /// The first station's order and the first that disagrees.
+        stations: Vec<(f64, Vec<FinId>)>,
     },
     /// A face's normal or the edge tangent could not be evaluated.
     Unevaluable {
@@ -102,14 +111,26 @@ fn station(c: &CellComplex, edge: EdgeId, s: f64) -> Option<(Point3, Vec3)> {
     }
 }
 
-/// The fin's face surface (primary owner) at the point nearest `p`:
-/// (folded normal, outward multiplier).
-fn face_frame(
+/// A fin's face at a station.
+struct FinFrame {
+    /// Unit direction from the edge into the face, normal to `t`.
+    d: Vec3,
+    /// The face's outward normal.
+    n_out: Vec3,
+    /// The face's surface (primary owner).
+    surf: SurfaceOnFace,
+    /// The station's parameters on it.
+    uv: (f64, f64),
+}
+
+/// The fin's face at the point nearest `p`.
+fn fin_frame(
     c: &CellComplex,
     geo: &FaceGeometry<'_>,
     fin: FinId,
     p: Point3,
-) -> Option<(Vec3, f64, popkern_core::geometry::surface::SurfaceOnFace)> {
+    t: Vec3,
+) -> Option<FinFrame> {
     let f = c.fins.get(fin.index())?;
     let face = c.faces.get(f.face.index())?;
     let owner = face.owners.first()?;
@@ -120,27 +141,18 @@ fn face_frame(
         .get(owner.face)?
         .surface
         .clone()?;
-    let (u, v) = surf.geometry.closest_point(&p)?;
-    let n = surf.folded_normal(u, v)?;
+    let uv = surf.geometry.closest_point(&p)?;
+    let n = surf.folded_normal(uv.0, uv.1)?;
     let out = if face.folded_is_outward { 1.0 } else { -1.0 };
-    Some((n, out, surf))
-}
-
-/// Unit direction from the edge into the fin's face, in the plane
-/// normal to `t`, and the face's outward normal there.
-fn fin_direction(
-    c: &CellComplex,
-    geo: &FaceGeometry<'_>,
-    fin: FinId,
-    p: Point3,
-    t: Vec3,
-) -> Option<(Vec3, Vec3, popkern_core::geometry::surface::SurfaceOnFace)> {
-    let f = c.fins.get(fin.index())?;
-    let (n, out, surf) = face_frame(c, geo, fin, p)?;
     let tf = if f.forward { t } else { t * -1.0 };
     let d = n.cross(&tf);
     let d = (d - t * d.dot(&t)).normalized()?;
-    Some((d, n * out, surf))
+    Some(FinFrame {
+        d,
+        n_out: n * out,
+        surf,
+        uv,
+    })
 }
 
 /// Angle of `d` about `t` from `reference`, in [0, 2π).
@@ -153,6 +165,115 @@ fn angle(reference: Vec3, d: Vec3, t: Vec3) -> f64 {
     }
 }
 
+/// The scales one edge is ordered at.
+#[derive(Debug, Clone, Copy)]
+struct EdgeScale {
+    /// Angular tolerance of a first-order tie.
+    tie_angle: f64,
+    /// Offset probe distance.
+    probe: f64,
+    /// The edge's feature length: curvatures closer than
+    /// `tie_angle·1e-3 / feature` turn the faces apart by less than a
+    /// thousandth of the angular tolerance across it.
+    feature: f64,
+    /// The rungs in use.
+    ladder: TieLadder,
+}
+
+/// One fin's sort keys at a station.
+#[derive(Debug, Clone, Copy)]
+struct Key {
+    /// Index into the station's frames.
+    index: usize,
+    fin: FinId,
+    angle: f64,
+    ahead_next: bool,
+    curvature: Option<f64>,
+    probe: Option<f64>,
+}
+
+impl Key {
+    fn evidence(&self) -> TieEvidence {
+        TieEvidence {
+            fin: self.fin,
+            angle: self.angle,
+            curvature: self.curvature,
+            probe: self.probe,
+        }
+    }
+}
+
+/// Order a first-order tie down the ladder (see `radial_ladder`).
+fn break_tie(
+    mut cluster: Vec<Key>,
+    frames: &[FinFrame],
+    (p, t): (Point3, Vec3),
+    (edge, station): (EdgeId, f64),
+    scale: &EdgeScale,
+) -> Result<Vec<Key>, RadialDecline> {
+    let unevaluable = |fin| RadialDecline::Unevaluable {
+        edge,
+        fin: Some(fin),
+    };
+    let mut groups = if scale.ladder.curvature {
+        for k in &mut cluster {
+            let f = &frames[k.index];
+            let kappa = cross_section_curvature(&f.surf.geometry, f.uv, f.d, t)
+                .ok_or_else(|| unevaluable(k.fin))?;
+            k.curvature = Some(kappa);
+        }
+        cluster.sort_by(|a, b| {
+            a.curvature
+                .unwrap_or(0.0)
+                .total_cmp(&b.curvature.unwrap_or(0.0))
+        });
+        runs(
+            cluster,
+            |k| k.curvature.unwrap_or(0.0),
+            scale.tie_angle * 1e-3 / scale.feature,
+        )
+    } else {
+        vec![cluster]
+    };
+    let mut tied = false;
+    for g in groups.iter_mut().filter(|g| g.len() > 1) {
+        if !scale.ladder.offset_probe {
+            tied = true;
+            continue;
+        }
+        for k in g.iter_mut() {
+            let f = &frames[k.index];
+            let q = f
+                .surf
+                .geometry
+                .closest_point(&(p + f.d * scale.probe))
+                .map(|(u, v)| f.surf.geometry.point_at(u, v))
+                .ok_or_else(|| unevaluable(k.fin))?;
+            let w = q - p;
+            let w = w - t * w.dot(&t);
+            // Signed deviation from the first-order ray, in (-π, π].
+            k.probe = Some(
+                w.normalized()
+                    .map_or(0.0, |w| f.d.cross(&w).dot(&t).patan2(f.d.dot(&w))),
+            );
+        }
+        g.sort_by(|a, b| a.probe.unwrap_or(0.0).total_cmp(&b.probe.unwrap_or(0.0)));
+        tied |= g.windows(2).any(|w| {
+            w[1].probe.unwrap_or(0.0) - w[0].probe.unwrap_or(0.0) < scale.tie_angle * 1e-3
+        });
+    }
+    let ordered: Vec<Key> = groups.into_iter().flatten().collect();
+    if tied {
+        return Err(RadialDecline::Ambiguous {
+            edge,
+            fins: ordered.iter().map(|k| k.fin).collect(),
+            station,
+            evidence: ordered.iter().map(Key::evidence).collect(),
+        });
+    }
+    Ok(ordered)
+}
+
 /// Order the fins of one edge at station `s`; returns the order and,
 /// per fin in that order, whether its Ahead side faces the next wedge.
 fn order_at(
@@ -160,97 +281,50 @@ fn order_at(
     geo: &FaceGeometry<'_>,
     edge: EdgeId,
     s: f64,
-    tie_angle: f64,
-    probe: f64,
+    scale: &EdgeScale,
 ) -> Result<Vec<(FinId, bool)>, RadialDecline> {
-    let fins = c.edges[edge.index()].radial.clone();
+    let fins = &c.edges[edge.index()].radial;
     let (p, t) = station(c, edge, s).ok_or(RadialDecline::Unevaluable { edge, fin: None })?;
-    let mut entries = Vec::with_capacity(fins.len());
-    for &fin in &fins {
-        let (d, n_out, surf) =
-            fin_direction(c, geo, fin, p, t).ok_or(RadialDecline::Unevaluable {
+    let mut frames = Vec::with_capacity(fins.len());
+    for &fin in fins {
+        frames.push(
+            fin_frame(c, geo, fin, p, t).ok_or(RadialDecline::Unevaluable {
                 edge,
                 fin: Some(fin),
-            })?;
-        entries.push((fin, d, n_out, surf));
+            })?,
+        );
     }
-    let reference = entries[0].1;
-    let mut keyed: Vec<(f64, f64, FinId, bool)> = entries
+    let reference = frames[0].d;
+    let mut keyed: Vec<Key> = fins
         .iter()
-        .map(|(fin, d, n_out, _)| {
-            let ahead_next = n_out.dot(&t.cross(d)) > 0.0;
-            (angle(reference, *d, t), 0.0, *fin, ahead_next)
+        .zip(&frames)
+        .enumerate()
+        .map(|(index, (&fin, f))| {
+            let mut a = angle(reference, f.d, t);
+            // A direction just below 2π is tied with the reference at
+            // 0: wrap it below zero so the tie forms one cluster.
+            if a > std::f64::consts::TAU - scale.tie_angle {
+                a -= std::f64::consts::TAU;
+            }
+            Key {
+                index,
+                fin,
+                angle: a,
+                ahead_next: f.n_out.dot(&t.cross(&f.d)) > 0.0,
+                curvature: None,
+                probe: None,
+            }
         })
         .collect();
-    // Tie ladder: second key = probe-point angle for fins whose
-    // first-order directions agree.
-    let n = keyed.len();
-    for i in 0..n {
-        let tied = (0..n).any(|j| {
-            j != i && {
-                let da = (keyed[i].0 - keyed[j].0).abs();
-                da.min(std::f64::consts::TAU - da) < tie_angle
-            }
-        });
-        if tied {
-            let (_, d, _, surf) = &entries[i];
-            let q0 = p + *d * probe;
-            let q = surf
-                .geometry
-                .closest_point(&q0)
-                .map(|(u, v)| surf.geometry.point_at(u, v))
-                .ok_or(RadialDecline::Unevaluable {
-                    edge,
-                    fin: Some(entries[i].0),
-                })?;
-            let w = q - p;
-            let w = w - t * w.dot(&t);
-            keyed[i].1 = match w.normalized() {
-                Some(w) => {
-                    let a = angle(reference, w, t);
-                    // Signed small deviation from the first-order ray.
-                    let dev = a - keyed[i].0;
-                    if dev > std::f64::consts::PI {
-                        dev - std::f64::consts::TAU
-                    } else if dev < -std::f64::consts::PI {
-                        dev + std::f64::consts::TAU
-                    } else {
-                        dev
-                    }
-                }
-                None => 0.0,
-            };
-        }
-    }
-    // A direction just below 2π is tied with the reference at 0: wrap
-    // it below zero so the tie forms one cluster.
-    for k in &mut keyed {
-        if k.0 > std::f64::consts::TAU - tie_angle {
-            k.0 -= std::f64::consts::TAU;
-        }
-    }
-    // Cluster first-order ties, then order inside each cluster by the
-    // probe deviation.
-    keyed.sort_by(|a, b| a.0.total_cmp(&b.0));
-    let mut out: Vec<(FinId, bool)> = Vec::with_capacity(n);
-    let mut i = 0;
-    while i < n {
-        let mut j = i + 1;
-        while j < n && keyed[j].0 - keyed[i].0 < tie_angle {
-            j += 1;
-        }
-        let mut cluster = keyed[i..j].to_vec();
-        cluster.sort_by(|a, b| a.1.total_cmp(&b.1));
-        for w in cluster.windows(2) {
-            if (w[1].1 - w[0].1).abs() < tie_angle * 1e-3 {
-                return Err(RadialDecline::Ambiguous {
-                    edge,
-                    fins: cluster.iter().map(|k| k.2).collect(),
-                });
-            }
-        }
-        out.extend(cluster.iter().map(|k| (k.2, k.3)));
-        i = j;
+    keyed.sort_by(|a, b| a.angle.total_cmp(&b.angle));
+    let mut out = Vec::with_capacity(keyed.len());
+    for cluster in runs(keyed, |k| k.angle, scale.tie_angle) {
+        let cluster = if cluster.len() > 1 {
+            break_tie(cluster, &frames, (p, t), (edge, s), scale)?
+        } else {
+            cluster
+        };
+        out.extend(cluster.iter().map(|k| (k.fin, k.ahead_next)));
     }
     Ok(out)
 }
@@ -285,6 +359,17 @@ pub(crate) fn order_radially(
     tie_angle: f64,
     linear: f64,
 ) -> Result<RadialSides, RadialDecline> {
+    order_radially_with(c, geo, tie_angle, linear, TieLadder::default())
+}
+
+/// `order_radially` with the given ladder rungs.
+pub(crate) fn order_radially_with(
+    c: &mut CellComplex,
+    geo: &FaceGeometry<'_>,
+    tie_angle: f64,
+    linear: f64,
+    ladder: TieLadder,
+) -> Result<RadialSides, RadialDecline> {
     let mut sides = RadialSides {
         ahead_faces_next: vec![false; c.fins.len()],
     };
@@ -294,17 +379,32 @@ pub(crate) fn order_radially(
         if m == 0 {
             continue;
         }
-        let probe = (edge_length(c, edge) * 1.0e-2).max(linear * 100.0);
-        let stations = if m >= 3 {
-            &[0.5, 0.25, 0.75][..]
-        } else {
-            &[0.5][..]
+        let length = edge_length(c, edge);
+        let scale = EdgeScale {
+            tie_angle,
+            probe: (length * 1.0e-2).max(linear * 100.0),
+            feature: length.max(linear * 100.0),
+            ladder,
         };
-        let first = order_at(c, geo, edge, stations[0], tie_angle, probe)?;
+        let e = &c.edges[ei];
+        let chord = c.vertices[e.start.index()]
+            .position
+            .distance_to(&c.vertices[e.end.index()].position);
+        let curved = length > chord + linear;
+        let stations = match (m >= 3, curved) {
+            (false, _) => &[0.5][..],
+            (true, false) => &[0.5, 0.25, 0.75][..],
+            (true, true) => &[0.5, 0.25, 0.75, 0.125, 0.875][..],
+        };
+        let first = order_at(c, geo, edge, stations[0], &scale)?;
         for &s in &stations[1..] {
-            let other = order_at(c, geo, edge, s, tie_angle, probe)?;
+            let other = order_at(c, geo, edge, s, &scale)?;
             if !same_cycle(&first, &other) {
-                return Err(RadialDecline::Inconsistent { edge });
+                let ids = |o: &[(FinId, bool)]| o.iter().map(|x| x.0).collect();
+                return Err(RadialDecline::Inconsistent {
+                    edge,
+                    stations: vec![(stations[0], ids(&first)), (s, ids(&other))],
+                });
             }
         }
         c.edges[ei].radial = first.iter().map(|x| x.0).collect();
@@ -315,3 +415,7 @@ pub(crate) fn order_radially(
     }
     Ok(sides)
 }
+
+#[cfg(test)]
+#[path = "radial_tests.rs"]
+mod tests;

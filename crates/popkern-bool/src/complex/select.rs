@@ -5,9 +5,14 @@
 //! boundary iff exactly one of its sides bounds a selected region; its
 //! output normal points away from the selected side. In the
 //! assembler's terms: the face's primary fragment is kept, flipped iff
-//! its folded normal would otherwise disagree with operand A's
-//! folded-normal convention for the result (so a mixed-sense pair
-//! needs no winding vote). The other fragments of a same-domain face
+//! its folded normal would otherwise disagree with its output
+//! component's folded-normal convention (so a mixed-sense pair needs
+//! no winding vote). A component holding faces of A takes the sense of
+//! its first A face's operand component: operand A's faces keep their
+//! flags, as the cellular assembler keeps them, even when A's
+//! components fold different ways (a cavity, two solids built apart).
+//! A component of B faces alone keeps B's: a disjoint tool kept by a
+//! union, or a piece meeting A only at a non-manifold edge. The other fragments of a same-domain face
 //! are never kept — one skin per coincident patch.
 //!
 //! Every coincident-face rule the per-fragment classifier spells out
@@ -15,10 +20,15 @@
 //! anti-oriented contact in a union, open a flush subtraction's mouth)
 //! follows from this one rule applied to the shared face's two sides.
 
+use std::collections::BTreeMap;
+
+use popkern_core::topology::FaceHandle;
+
 use super::ids::{EdgeId, VertexId};
 use super::lift::Lift;
 use super::model::SideIndex;
 use super::operand_set::OperandSet;
+use super::regions::Forest;
 use crate::error::BoolOperation;
 use crate::merge::fragment_classify::FragmentSelection;
 
@@ -43,6 +53,54 @@ pub(crate) struct ComplexSelection {
     pub nonmanifold_edges: Vec<EdgeId>,
     /// Vertices where the kept faces form more than one fan.
     pub nonmanifold_vertices: Vec<VertexId>,
+    /// Per complex face: on the result's boundary.
+    pub kept_face: Vec<bool>,
+    /// Per shell: its region is in the result.
+    pub selected_shell: Vec<bool>,
+}
+
+/// Per complex face: the folded-normal convention of its output
+/// component (kept faces joined through manifold edges): the sense of
+/// its A face of least handle, else of its B face of least handle.
+fn component_conventions(lift: &Lift, kept: &[bool]) -> Vec<bool> {
+    let c = &lift.complex;
+    let mut forest = Forest::new(c.faces.len());
+    for e in &c.edges {
+        let faces: Vec<usize> = e
+            .radial
+            .iter()
+            .map(|f| c.fins[f.index()].face.index())
+            .filter(|&fi| kept[fi])
+            .collect();
+        // Through manifold edges only: the result splits at a
+        // non-manifold edge, and the shells either side keep their own
+        // operands' conventions.
+        if let [a, b] = faces[..] {
+            forest.union(a, b);
+        }
+    }
+    // The least (operand, face handle) primary owner of each component
+    // decides: an A face where it has one.
+    let mut chosen: BTreeMap<usize, ((usize, FaceHandle), bool)> = BTreeMap::new();
+    for (fi, face) in c.faces.iter().enumerate() {
+        let Some(owner) = face.owners.first().filter(|_| kept[fi]) else {
+            continue;
+        };
+        let key = (owner.operand, owner.face);
+        let entry = chosen
+            .entry(forest.find(fi))
+            .or_insert((key, face.folded_is_outward));
+        if key < entry.0 {
+            *entry = (key, face.folded_is_outward);
+        }
+    }
+    (0..c.faces.len())
+        .map(|fi| {
+            chosen
+                .get(&forest.find(fi))
+                .map_or(lift.output_folded_outward, |&(_, sense)| sense)
+        })
+        .collect()
 }
 
 /// Select the fragments of `lift` for `op`. Shells and membership must
@@ -65,7 +123,8 @@ pub(crate) fn select_fragments(
         };
         fragment_count
     ];
-    let mut kept_face = vec![false; c.faces.len()];
+    // Which faces are kept, and which side of each holds the result.
+    let mut kept_behind: Vec<Option<bool>> = vec![None; c.faces.len()];
     for (fi, face) in c.faces.iter().enumerate() {
         let side_selected = |side: SideIndex| {
             face.sides[side as usize]
@@ -74,23 +133,24 @@ pub(crate) fn select_fragments(
         };
         let ahead = side_selected(SideIndex::Ahead);
         let behind = side_selected(SideIndex::Behind);
-        if ahead == behind {
-            continue;
+        if ahead != behind {
+            kept_behind[fi] = Some(behind);
         }
-        kept_face[fi] = true;
+    }
+    let kept_face: Vec<bool> = kept_behind.iter().map(Option::is_some).collect();
+    let convention = component_conventions(lift, &kept_face);
+    for (fi, face) in c.faces.iter().enumerate() {
+        let Some(behind) = kept_behind[fi] else {
+            continue;
+        };
         // The assembler keeps a fragment's folded-normal sense unless
-        // flipped, so every kept face must agree on ONE convention:
-        // operand A's (its folded normals point out of material iff
-        // `output_folded_outward`). The face's result-outward normal
-        // is its owner's outward normal when the selected material is
-        // behind it, the reverse when ahead.
+        // flipped, so every kept face of a component must agree on its
+        // convention. The face's result-outward normal is its owner's
+        // outward normal when the selected material is behind it, the
+        // reverse when ahead.
         let side_sign = if behind { 1.0 } else { -1.0 };
         let face_sense = if face.folded_is_outward { 1.0 } else { -1.0 };
-        let output_sense = if lift.output_folded_outward {
-            1.0
-        } else {
-            -1.0
-        };
+        let output_sense = if convention[fi] { 1.0 } else { -1.0 };
         if let Some(&primary) = face.source_fragments.first()
             && let Some(sel) = selections.get_mut(primary)
         {
@@ -118,5 +178,7 @@ pub(crate) fn select_fragments(
         selections,
         nonmanifold_edges,
         nonmanifold_vertices,
+        kept_face,
+        selected_shell,
     }
 }

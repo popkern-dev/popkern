@@ -329,14 +329,20 @@ pub(crate) fn cellular_graph_merge(
     // The cell complex decides every fragment (PK-976): region
     // membership by propagation, one skin per same-domain face, one
     // folded-normal convention (no winding vote).
+    let mut split = None;
     let (selections, winding, flipped_b) = match source {
-        SelectionSource::Complex => {
-            let selections = crate::complex::serve::complex_selections(&complex_input, op)?;
+        SelectionSource::Complex | SelectionSource::ComplexSplit => {
+            let (selections, plan) = crate::complex::serve::complex_selections(
+                &complex_input,
+                op,
+                source == SelectionSource::ComplexSplit,
+            )?;
+            split = plan;
             (selections, Default::default(), false)
         }
         SelectionSource::ComplexFirst => {
-            match crate::complex::serve::complex_selections(&complex_input, op) {
-                Ok(selections) => (selections, Default::default(), false),
+            match crate::complex::serve::complex_selections(&complex_input, op, false) {
+                Ok((selections, _)) => (selections, Default::default(), false),
                 Err(diag) if matches!(diag.error, Some(BoolError::NonManifoldResult { .. })) => {
                     return Err(diag);
                 }
@@ -383,6 +389,7 @@ pub(crate) fn cellular_graph_merge(
             b: far_b,
             b_reversed: flipped_b,
         },
+        split.as_ref(),
     )
     .map_err(|mut diag| {
         // ChartSubdivisionReport promotion (PK-106): a failed cellular

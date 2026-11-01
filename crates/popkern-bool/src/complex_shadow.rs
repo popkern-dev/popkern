@@ -57,6 +57,10 @@ pub enum ComplexRescueOutcome {
     Declined(String),
     /// Its body failed the cellular acceptance; graph-merge follows.
     Invalid(String),
+    /// Its split of a non-manifold boundary served, but the pieces
+    /// failed `validate_all` with their contacts recorded; graph-merge's
+    /// coincident copies follow.
+    SplitRejected(String),
 }
 
 /// One complex rescue attempt.

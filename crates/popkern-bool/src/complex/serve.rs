@@ -6,6 +6,7 @@ use popkern_core::geometry::curve::CurveEval;
 
 use super::model::CellComplex;
 use super::pipeline::{ComplexInput, classify_with_complex};
+use super::split_plan::{SplitPlan, split_plan};
 use crate::error::{
     BoolDiagnostics, BoolError, BoolOperation, ContactKind, NonManifoldContact, Stage,
 };
@@ -21,6 +22,9 @@ pub(crate) enum SelectionSource {
     /// The complex, falling back to the cellular classifier when the
     /// complex declines (a non-manifold verdict is final).
     ComplexFirst,
+    /// The complex, a non-manifold boundary split into manifold
+    /// pieces by its split plan (`NonManifoldPolicy::SplitToManifold`).
+    ComplexSplit,
 }
 
 /// A point on an edge of the complex: its curve's midpoint, else the
@@ -86,6 +90,37 @@ pub(crate) fn rescue(
     op: BoolOperation,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<Option<(popkern_core::topology::BRep, crate::serve_region::Carried)>, BoolError> {
+    rescue_from(a, b, intersection, op, tolerance, SelectionSource::Complex)
+}
+
+/// `rescue` with the non-manifold boundary split into manifold pieces
+/// by the complex's split plan (`NonManifoldPolicy::SplitToManifold`).
+/// The pieces still meet at their contacts: the caller records them.
+pub(crate) fn rescue_split(
+    a: &popkern_core::topology::BRep,
+    b: &popkern_core::topology::BRep,
+    intersection: &crate::intersect::IntersectionResult,
+    op: BoolOperation,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Result<Option<(popkern_core::topology::BRep, crate::serve_region::Carried)>, BoolError> {
+    rescue_from(
+        a,
+        b,
+        intersection,
+        op,
+        tolerance,
+        SelectionSource::ComplexSplit,
+    )
+}
+
+fn rescue_from(
+    a: &popkern_core::topology::BRep,
+    b: &popkern_core::topology::BRep,
+    intersection: &crate::intersect::IntersectionResult,
+    op: BoolOperation,
+    tolerance: &popkern_core::tolerance::Tolerance,
+    source: SelectionSource,
+) -> Result<Option<(popkern_core::topology::BRep, crate::serve_region::Carried)>, BoolError> {
     use crate::complex_shadow::{ComplexRescueOutcome, record_complex_rescue};
     let merged = crate::cellular::boolean::cellular_graph_merge(
         a,
@@ -94,7 +129,7 @@ pub(crate) fn rescue(
         op,
         tolerance,
         None,
-        SelectionSource::Complex,
+        source,
     );
     match merged {
         Ok((mut r, carried)) => {
@@ -128,19 +163,28 @@ pub(crate) fn rescue(
 
 /// The complex's fragment selections for `op`, or why it cannot serve:
 /// `NonManifoldResult` naming the contacts when the selected boundary
-/// is non-manifold, a merge failure carrying the complex artifact when
-/// the complex declined.
+/// is non-manifold (unless `split` asks for the split plan, which then
+/// comes with the selections), a merge failure carrying the complex
+/// artifact when the complex declined.
 pub(crate) fn complex_selections(
     input: &ComplexInput<'_>,
     op: BoolOperation,
-) -> Result<Vec<FragmentSelection>, BoolDiagnostics> {
+    split: bool,
+) -> Result<(Vec<FragmentSelection>, Option<SplitPlan>), BoolDiagnostics> {
     match classify_with_complex(input, op) {
         Ok(verdict) => {
             let s = &verdict.selection;
             if s.nonmanifold_edges.is_empty() && s.nonmanifold_vertices.is_empty() {
-                return Ok(verdict.selection.selections);
+                return Ok((verdict.selection.selections, None));
             }
             let c = &verdict.lift.complex;
+            let plan =
+                split.then(|| split_plan(c, &verdict.sides, &s.kept_face, &s.selected_shell));
+            let declined = match plan {
+                Some(Ok(plan)) => return Ok((verdict.selection.selections, Some(plan))),
+                Some(Err(decline)) => format!("; split declined: {decline:?}"),
+                None => String::new(),
+            };
             let mut contacts: Vec<NonManifoldContact> = s
                 .nonmanifold_edges
                 .iter()
@@ -154,7 +198,7 @@ pub(crate) fn complex_selections(
                 location: c.vertices[v.index()].position,
             }));
             let message = format!(
-                "complex: selected boundary is non-manifold ({} edge(s), {} vertex(es))",
+                "complex: selected boundary is non-manifold ({} edge(s), {} vertex(es)){declined}",
                 s.nonmanifold_edges.len(),
                 s.nonmanifold_vertices.len()
             );

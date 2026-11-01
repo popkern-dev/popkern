@@ -174,6 +174,7 @@ pub(super) fn select_and_serve(
     // no self-touching (today's pseudo-manifold serves fail it);
     // otherwise the boolean declines with the contacts (D1).
     let mut nonmanifold: Option<BoolError> = None;
+    let mut split_by_complex = false;
     let cellular_result = match cellular_result {
         None if cellular_enabled && crate::complex::serve::complex_rescue_enabled() => {
             match crate::complex::serve::rescue(
@@ -186,7 +187,20 @@ pub(super) fn select_and_serve(
                 Ok(served) => served,
                 Err(error) => {
                     nonmanifold = Some(error);
-                    None
+                    // Under the split policy the complex splits its own
+                    // verdict into manifold pieces (PK-987).
+                    split_by_complex = policy == crate::options::NonManifoldPolicy::SplitToManifold;
+                    split_by_complex
+                        .then(|| {
+                            crate::complex::serve::rescue_split(
+                                original_a,
+                                original_b,
+                                intersection_result,
+                                op,
+                                tolerance,
+                            )
+                        })
+                        .and_then(|r| r.ok().flatten())
                 }
             }
         }
@@ -226,12 +240,41 @@ pub(super) fn select_and_serve(
             // Graph-merge splits the contacts into coincident copies;
             // under the split policy that body serves once every
             // contact is recorded and `validate_all` accepts it.
+            let accept = |b| crate::postprocess::contact_record::accept_split(b, tolerance);
             return match policy {
                 crate::options::NonManifoldPolicy::Decline => Err(nm),
-                crate::options::NonManifoldPolicy::SplitToManifold => {
-                    crate::postprocess::contact_record::accept_split(body, tolerance)
-                        .map_err(|_| nm)
-                }
+                crate::options::NonManifoldPolicy::SplitToManifold => match accept(body) {
+                    Ok(b) => Ok(b),
+                    // Graph-merge's coincident copies remain the
+                    // fallback when the complex split fails acceptance.
+                    Err(e) if split_by_complex => {
+                        crate::complex_shadow::record_complex_rescue(
+                            op,
+                            crate::complex_shadow::ComplexRescueOutcome::SplitRejected(
+                                e.to_string(),
+                            ),
+                        );
+                        let t_retry = popkern_core::time::Stopwatch::start();
+                        let carried = crate::serve_region::Carried::default();
+                        graph()
+                            .and_then(|retried| {
+                                let merged = (retried, t_retry.elapsed());
+                                serve(
+                                    merged,
+                                    (&carried, false),
+                                    op,
+                                    tolerance,
+                                    original_a,
+                                    original_b,
+                                    metrics,
+                                    progress,
+                                )
+                            })
+                            .and_then(accept)
+                            .map_err(|_| nm)
+                    }
+                    Err(_) => Err(nm),
+                },
             };
         }
         (Err(_), Some(nm)) => return Err(nm),

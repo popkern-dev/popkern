@@ -243,3 +243,30 @@ pub(super) fn install_fragment_pcurve(
         bld.set_half_edge_pcurve(he, pc);
     }
 }
+
+/// Whether the graph edge `key` is degenerate: coincident endpoint
+/// nodes and no curve with real extent on either half (a genuine closed
+/// rim carries its circle; a stub's curve stays at the point).
+pub(super) fn is_degenerate_key(graph: &IntersectionGraph, key: usize) -> bool {
+    let na = graph.half_edges[key].origin;
+    let nb = graph.half_edges[graph.half_edges[key].twin].origin;
+    if graph.nodes[na]
+        .position
+        .distance_to(&graph.nodes[nb].position)
+        >= 1.0e-9
+    {
+        return false;
+    }
+    let curve = graph.half_edges[key]
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[graph.half_edges[key].twin].curve.as_ref());
+    match curve {
+        None => true,
+        Some(c) => {
+            use popkern_core::geometry::curve::CurveEval;
+            let pm = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+            pm.distance_to(&graph.nodes[na].position) < 1.0e-9
+        }
+    }
+}

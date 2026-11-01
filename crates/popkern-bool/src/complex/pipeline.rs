@@ -12,7 +12,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 use super::ids::ShellId;
 use super::lift::{Lift, LiftDecline, lift_fragments};
 use super::model::{CellComplex, SideIndex};
-use super::radial::{FaceGeometry, RadialDecline, order_radially};
+use super::radial::{FaceGeometry, RadialDecline, RadialSides, order_radially};
 use super::regions::{RegionDecline, assemble_shells, assign_membership};
 use super::select::{ComplexSelection, select_fragments};
 use super::validate::{ComplexFinding, validate_complex};
@@ -50,6 +50,9 @@ pub(crate) struct ComplexVerdict {
     pub selection: ComplexSelection,
     /// Point classifications run (one per undetermined shell class).
     pub classifications: usize,
+    /// Which side of each fin's face faces the next wedge about its
+    /// edge (the radial stage's output; the split plan pairs by it).
+    pub sides: RadialSides,
 }
 
 /// Inputs to complex classification.
@@ -218,10 +221,10 @@ pub(crate) fn classify_with_complex(
         })
         .map_err(ComplexDecline::Region)?;
         checked(&lift.complex)?;
-        Ok(classifications)
+        Ok((classifications, sides))
     })();
-    let classifications = match staged {
-        Ok(n) => n,
+    let (classifications, sides) = match staged {
+        Ok(staged) => staged,
         Err(decline) => {
             emit_decline_artifact(&lift.complex, &decline, op, input.operands);
             return Err(decline);
@@ -232,6 +235,7 @@ pub(crate) fn classify_with_complex(
         lift,
         selection,
         classifications,
+        sides,
     })
 }
 

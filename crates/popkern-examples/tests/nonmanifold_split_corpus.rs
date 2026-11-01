@@ -8,6 +8,7 @@
 mod nonmanifold_support;
 
 use nonmanifold_support::{Expect, build, cases, placements, two_cut_nm_edge};
+use popkern_bool::complex_shadow::ComplexRescueOutcome;
 use popkern_bool::{
     BoolError, BoolOperation, BoolOptions, NonManifoldPolicy, boolean_with_options,
 };
@@ -113,6 +114,26 @@ fn nonmanifold_rows_serve_split_with_recorded_contacts() {
         rows.push(format!("{pname:>8} {:<28} {verdict:?}", "two_cut_nm_edge"));
     }
     assert_eq!(failures, 0, "split corpus:\n{}", rows.join("\n"));
+    // Every split serves from the complex's own pairing (PK-987), never
+    // from graph-merge's coincident copies: no split was rejected, and
+    // each non-manifold verdict was followed by a served split.
+    let events = popkern_bool::complex_shadow::take_complex_rescue_events();
+    let nm = events
+        .iter()
+        .filter(|e| matches!(e.outcome, ComplexRescueOutcome::NonManifold))
+        .count();
+    let served = events
+        .iter()
+        .filter(|e| matches!(e.outcome, ComplexRescueOutcome::Served))
+        .count();
+    assert!(nm > 0, "the corpus reaches the split");
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e.outcome, ComplexRescueOutcome::SplitRejected(_))),
+        "{events:?}"
+    );
+    assert!(served >= nm, "{events:?}");
 }
 
 /// Negative control: dropping the recorded contacts from a split serve
