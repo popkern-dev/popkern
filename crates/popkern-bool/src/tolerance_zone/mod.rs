@@ -49,6 +49,8 @@ mod face_path_tests;
 #[cfg(test)]
 mod face_side_tests;
 #[cfg(test)]
+mod incidence_tests;
+#[cfg(test)]
 mod partition_tests;
 #[cfg(test)]
 mod pave_block_tests;

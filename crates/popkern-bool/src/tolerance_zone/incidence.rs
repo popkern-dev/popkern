@@ -102,7 +102,7 @@ pub(crate) fn add_interior_incidences(
                 if ends.iter().any(|p| p.distance_to(&cand.position) < reach) {
                     continue;
                 }
-                if distance_lower_bound(&c.geometry, &cand.position) >= reach {
+                if clear_of(&c.geometry, (c.t_start, c.t_end), &cand.position, reach) {
                     continue;
                 }
                 let t = closest_point_in_window(&c.geometry, &cand.position, c.t_start, c.t_end);
@@ -118,11 +118,65 @@ pub(crate) fn add_interior_incidences(
     }
 }
 
+/// Deepest halving of a NURBS window in [`clear_of`].
+const CLEARANCE_DEPTH: usize = 8;
+
+/// Whether every point of `curve` over `window` is at least `reach`
+/// from `p`, proven: by the distance to the whole line or circle
+/// (closed form), or for a NURBS by halving the window and bounding
+/// each piece by its control points' box (a positively weighted
+/// rational piece lies in their hull). A box test passes every point
+/// near a large rim (a disc's edge circle boxes the whole disc), and
+/// the window search it would otherwise run costs 10-80 µs a point
+/// (measured on a disc's NURBS rims). `false` when unproven.
+pub(super) fn clear_of(curve: &CurveGeometry, window: (f64, f64), p: &Point3, reach: f64) -> bool {
+    match curve {
+        CurveGeometry::Nurbs(_) => {
+            let (lo, hi) = (window.0.min(window.1), window.0.max(window.1));
+            nurbs_clear_of(curve, (lo, hi), p, reach, 0)
+        }
+        _ => distance_lower_bound(curve, p) >= reach,
+    }
+}
+
+fn nurbs_clear_of(
+    curve: &CurveGeometry,
+    (lo, hi): (f64, f64),
+    p: &Point3,
+    reach: f64,
+    depth: usize,
+) -> bool {
+    let piece = curve.to_nurbs_in_range((lo, hi));
+    if piece.control_points.is_empty() || piece.weights.iter().any(|w| *w <= 0.0) {
+        return false;
+    }
+    let (mut min, mut max) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+    for q in &piece.control_points {
+        for (k, x) in [q.x, q.y, q.z].into_iter().enumerate() {
+            min[k] = min[k].min(x);
+            max[k] = max[k].max(x);
+        }
+    }
+    let gap: f64 = [p.x, p.y, p.z]
+        .into_iter()
+        .enumerate()
+        .map(|(k, x)| (min[k] - x).max(x - max[k]).max(0.0).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    if gap >= reach {
+        return true;
+    }
+    if depth == CLEARANCE_DEPTH {
+        return false;
+    }
+    let mid = 0.5 * (lo + hi);
+    nurbs_clear_of(curve, (lo, mid), p, reach, depth + 1)
+        && nurbs_clear_of(curve, (mid, hi), p, reach, depth + 1)
+}
+
 /// A lower bound on the distance from `p` to any piece of `curve`: the
 /// distance to the whole line or circle (exact, closed form), zero for
-/// other curves. A box test passes every point near a large rim (a
-/// disc's edge circle boxes the whole disc), and the window search it
-/// would otherwise run costs ~25 µs a point.
+/// other curves.
 fn distance_lower_bound(curve: &CurveGeometry, p: &Point3) -> f64 {
     match curve {
         CurveGeometry::Line { origin, direction } => {

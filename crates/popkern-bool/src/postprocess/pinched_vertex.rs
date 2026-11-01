@@ -13,8 +13,6 @@
 //! vertex. Under decision D1 it declines with the vertex as a point
 //! contact.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use popkern_core::topology::{BRep, ContactEntity, HalfEdgeHandle, VertexHandle};
 
 use crate::error::{ContactKind, NonManifoldContact};
@@ -22,12 +20,16 @@ use crate::error::{ContactKind, NonManifoldContact};
 /// Vertices of `brep` whose leaving half-edges form more than one
 /// fan, in vertex order, each as a point contact.
 pub(crate) fn pinched_vertices(brep: &BRep) -> Vec<(NonManifoldContact, Vec<ContactEntity>)> {
-    let mut leaving: BTreeMap<VertexHandle, Vec<HalfEdgeHandle>> = BTreeMap::new();
-    for (h, he) in &brep.half_edges {
-        leaving.entry(he.origin).or_default().push(h);
-    }
+    let mut leaving: Vec<(VertexHandle, HalfEdgeHandle)> = brep
+        .half_edges
+        .iter()
+        .map(|(h, he)| (he.origin, h))
+        .collect();
+    leaving.sort();
     let mut out = Vec::new();
-    for (v, hs) in leaving {
+    for run in leaving.chunk_by(|a, b| a.0 == b.0) {
+        let v = run[0].0;
+        let hs: Vec<HalfEdgeHandle> = run.iter().map(|&(_, h)| h).collect();
         if hs.len() < 2 || fan_count(brep, v, &hs) < 2 {
             continue;
         }
@@ -49,7 +51,8 @@ pub(crate) fn pinched_vertices(brep: &BRep) -> Vec<(NonManifoldContact, Vec<Cont
 /// A walk that leaves `v` or meets a missing twin (an open sheet's
 /// rim) ends its fan there.
 fn fan_count(brep: &BRep, v: VertexHandle, hs: &[HalfEdgeHandle]) -> usize {
-    let mut seen: BTreeSet<HalfEdgeHandle> = BTreeSet::new();
+    // A vertex has a handful of half-edges: a list beats a tree.
+    let mut seen: Vec<HalfEdgeHandle> = Vec::with_capacity(hs.len());
     let mut fans = 0;
     for &start in hs {
         if seen.contains(&start) {
@@ -58,7 +61,7 @@ fn fan_count(brep: &BRep, v: VertexHandle, hs: &[HalfEdgeHandle]) -> usize {
         fans += 1;
         let mut cur = start;
         for _ in 0..=hs.len() {
-            seen.insert(cur);
+            seen.push(cur);
             let Some(next) = brep
                 .half_edges
                 .get(cur)

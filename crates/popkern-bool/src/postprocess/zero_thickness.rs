@@ -30,11 +30,6 @@ use popkern_core::topology::ContactEntity;
 
 use crate::error::{ContactKind, NonManifoldContact};
 
-fn cell(p: Point3, size: f64) -> (i64, i64, i64) {
-    let q = |x: f64| (x / size).floor() as i64;
-    (q(p.x), q(p.y), q(p.z))
-}
-
 fn edge_ends(brep: &BRep, e: EdgeHandle) -> Option<(VertexHandle, VertexHandle)> {
     let edge = brep.edges.get(e)?;
     let he = brep.half_edges.get(edge.half_edge)?;
@@ -72,48 +67,55 @@ pub(crate) fn zero_thickness_findings(
     tolerance: &Tolerance,
 ) -> Vec<(NonManifoldContact, Vec<ContactEntity>)> {
     let tol = tolerance.linear();
-    let size = (tol * 4.0).max(1e-300);
     let mut out = Vec::new();
 
     // Vertices joined by an edge are allowed to be close (a short edge
-    // is a feature, not a contact).
-    let mut joined: BTreeSet<(VertexHandle, VertexHandle)> = BTreeSet::new();
-    for e in brep.edges.keys() {
-        if let Some((a, b)) = edge_ends(brep, e) {
-            joined.insert((a.min(b), a.max(b)));
-        }
-    }
-    let mut grid: HashMap<(i64, i64, i64), Vec<VertexHandle>> = HashMap::new();
-    let mut vertices: Vec<VertexHandle> = brep.vertices.keys().collect();
-    vertices.sort();
-    let mut touched = BTreeSet::new();
-    for &v in &vertices {
-        let p = brep.vertices[v].position;
-        let (cx, cy, cz) = cell(p, size);
-        for dx in -1..=1 {
-            for dy in -1..=1 {
-                for dz in -1..=1 {
-                    let Some(list) = grid.get(&(cx + dx, cy + dy, cz + dz)) else {
-                        continue;
-                    };
-                    for &w in list {
-                        if brep.vertices[w].position.distance_to(&p) <= tol
-                            && !joined.contains(&(v.min(w), v.max(w)))
-                            && touched.insert(w)
-                        {
-                            out.push((
-                                NonManifoldContact {
-                                    kind: ContactKind::Vertex,
-                                    location: brep.vertices[w].position,
-                                },
-                                vec![ContactEntity::Vertex(w), ContactEntity::Vertex(v)],
-                            ));
-                        }
-                    }
-                }
+    // is a feature, not a contact); the set is built at the first close
+    // pair, which most results never have.
+    let mut joined: Option<BTreeSet<(VertexHandle, VertexHandle)>> = None;
+    let joined_pair = |joined: &mut Option<BTreeSet<_>>, pair| {
+        joined
+            .get_or_insert_with(|| {
+                brep.edges
+                    .keys()
+                    .filter_map(|e| edge_ends(brep, e))
+                    .map(|(a, b)| (a.min(b), a.max(b)))
+                    .collect()
+            })
+            .contains(&pair)
+    };
+    // Close pairs by a sweep over x (each vertex against the later ones
+    // within the tolerance in x), then in handle order: the later
+    // vertex of each pair names it, as it meets the earlier ones.
+    let mut by_x: Vec<(f64, VertexHandle, Point3)> = brep
+        .vertices
+        .iter()
+        .map(|(v, vx)| (vx.position.x, v, vx.position))
+        .collect();
+    by_x.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    let mut close: Vec<(VertexHandle, VertexHandle)> = Vec::new();
+    for (k, &(x, v, p)) in by_x.iter().enumerate() {
+        for &(xw, w, q) in &by_x[k + 1..] {
+            if xw - x > tol {
+                break;
+            }
+            if q.distance_to(&p) <= tol {
+                close.push((v.max(w), v.min(w)));
             }
         }
-        grid.entry((cx, cy, cz)).or_default().push(v);
+    }
+    close.sort();
+    let mut touched = BTreeSet::new();
+    for (v, w) in close {
+        if !joined_pair(&mut joined, (w, v)) && touched.insert(w) {
+            out.push((
+                NonManifoldContact {
+                    kind: ContactKind::Vertex,
+                    location: brep.vertices[w].position,
+                },
+                vec![ContactEntity::Vertex(w), ContactEntity::Vertex(v)],
+            ));
+        }
     }
 
     // Coincident edges: same end vertices (or coincident ones), same
