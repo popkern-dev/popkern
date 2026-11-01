@@ -16,6 +16,7 @@ mod clip_crossing_reports;
 mod clip_crossings_rescue;
 mod clip_dispatch;
 mod clip_edge_box;
+mod clip_inner_crossing;
 mod clip_junction_pins;
 pub(crate) use clip_edge_box::{box_distance, edge_box};
 mod clip_lift_crossings;
