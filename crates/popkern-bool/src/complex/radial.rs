@@ -76,6 +76,9 @@ pub(crate) struct RadialSides {
 pub(crate) struct FaceGeometry<'a> {
     /// The operand BReps.
     pub operands: [&'a BRep; 2],
+    /// The intersection graph the complex lifts, when there is one:
+    /// its half-edges' pcurves seed each fin's projection onto its face.
+    pub graph: Option<&'a crate::merge::graph::IntersectionGraph>,
 }
 
 /// One station: the point, the unit tangent along start → end.
@@ -112,25 +115,23 @@ fn station(c: &CellComplex, edge: EdgeId, s: f64) -> Option<(Point3, Vec3)> {
 }
 
 /// A fin's face at a station.
-struct FinFrame {
+struct FinFrame<'a> {
     /// Unit direction from the edge into the face, normal to `t`.
     d: Vec3,
-    /// The face's outward normal.
-    n_out: Vec3,
     /// The face's surface (primary owner).
-    surf: SurfaceOnFace,
+    surf: &'a SurfaceOnFace,
     /// The station's parameters on it.
     uv: (f64, f64),
 }
 
 /// The fin's face at the point nearest `p`.
-fn fin_frame(
+fn fin_frame<'a>(
     c: &CellComplex,
-    geo: &FaceGeometry<'_>,
+    geo: &FaceGeometry<'a>,
     fin: FinId,
     p: Point3,
     t: Vec3,
-) -> Option<FinFrame> {
+) -> Option<FinFrame<'a>> {
     let f = c.fins.get(fin.index())?;
     let face = c.faces.get(f.face.index())?;
     let owner = face.owners.first()?;
@@ -140,19 +141,67 @@ fn fin_frame(
         .faces
         .get(owner.face)?
         .surface
-        .clone()?;
-    let uv = surf.geometry.closest_point(&p)?;
+        .as_ref()?;
+    let reach = c.edges.get(f.edge.index())?.tolerance.max(1e-9) * 1e3;
+    let uv = seeded_uv(geo, f.source_half_edge, surf, p, reach)
+        .or_else(|| surf.geometry.closest_point(&p))?;
     let n = surf.folded_normal(uv.0, uv.1)?;
-    let out = if face.folded_is_outward { 1.0 } else { -1.0 };
     let tf = if f.forward { t } else { t * -1.0 };
     let d = n.cross(&tf);
     let d = (d - t * d.dot(&t)).normalized()?;
-    Some(FinFrame {
-        d,
-        n_out: n * out,
-        surf,
-        uv,
-    })
+    Some(FinFrame { d, surf, uv })
+}
+
+/// Pcurve stations a fin's projection seed is chosen from.
+const SEED_STATIONS: usize = 16;
+
+/// The station's parameters on `surf` by single-start projection from
+/// the fin's graph pcurve station whose image lies nearest `p`, kept
+/// when its foot lies within `reach`. A multi-start projection onto a
+/// multi-turn NURBS wall costs in proportion to its turns, once per fin
+/// per station (PK-1039: 0.58 s / 2.12 s of a 40 / 80 thread cut, now
+/// 0.05 s / 0.08 s). The pcurve's parameter need not track the edge
+/// curve's (record uv fits drift: PK-1031), hence the nearest station
+/// rather than the one at the station's fraction; and either half of
+/// the graph edge may carry this face's pcurve (the other carries its
+/// partner face's, whose uv means nothing here: seeds 1e6 away).
+fn seeded_uv(
+    geo: &FaceGeometry<'_>,
+    half_edge: Option<usize>,
+    surf: &SurfaceOnFace,
+    p: Point3,
+    reach: f64,
+) -> Option<(f64, f64)> {
+    let graph = geo.graph?;
+    let he = graph.half_edges.get(half_edge?)?;
+    let off = |q: (f64, f64)| surf.geometry.point_at(q.0, q.1).distance_to(&p);
+    let (u0, v0) = [Some(he), graph.half_edges.get(he.twin)]
+        .into_iter()
+        .flatten()
+        .filter_map(|h| h.pcurve.as_ref())
+        .filter(|pc| {
+            let (a, b) = pc.parameter_range();
+            a.is_finite() && b.is_finite()
+        })
+        .flat_map(|pc| {
+            let (a, b) = pc.parameter_range();
+            (0..=SEED_STATIONS)
+                .map(move |k| pc.point_at(a + (b - a) * k as f64 / SEED_STATIONS as f64))
+        })
+        .map(|q| (q.x, q.y))
+        .min_by(|x, y| off(*x).total_cmp(&off(*y)))?;
+    popkern_core::geometry::uv_projection::project_point_to_uv_near(&surf.geometry, &p, u0, v0)
+        .filter(|&q| off(q) <= reach)
+}
+
+/// Whether `fin`'s face's Ahead side faces the next wedge about its
+/// edge. With `d = n × tf` normal to `t`, `t × d` is `+n` when the fin
+/// runs along `t` and `−n` against it, so the outward normal points
+/// into the next wedge exactly when the face's folds outward and the
+/// fin runs forward, or neither: topology alone, no evaluation.
+fn ahead_faces_next(c: &CellComplex, fin: FinId) -> bool {
+    let f = &c.fins[fin.index()];
+    c.faces[f.face.index()].folded_is_outward == f.forward
 }
 
 /// Angle of `d` about `t` from `reference`, in [0, 2π).
@@ -206,7 +255,7 @@ impl Key {
 /// Order a first-order tie down the ladder (see `radial_ladder`).
 fn break_tie(
     mut cluster: Vec<Key>,
-    frames: &[FinFrame],
+    frames: &[FinFrame<'_>],
     (p, t): (Point3, Vec3),
     (edge, station): (EdgeId, f64),
     scale: &EdgeScale,
@@ -243,12 +292,16 @@ fn break_tie(
         }
         for k in g.iter_mut() {
             let f = &frames[k.index];
-            let q = f
-                .surf
-                .geometry
-                .closest_point(&(p + f.d * scale.probe))
-                .map(|(u, v)| f.surf.geometry.point_at(u, v))
-                .ok_or_else(|| unevaluable(k.fin))?;
+            let target = p + f.d * scale.probe;
+            let q = popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                &f.surf.geometry,
+                &target,
+                f.uv.0,
+                f.uv.1,
+            )
+            .or_else(|| f.surf.geometry.closest_point(&target))
+            .map(|(u, v)| f.surf.geometry.point_at(u, v))
+            .ok_or_else(|| unevaluable(k.fin))?;
             let w = q - p;
             let w = w - t * w.dot(&t);
             // Signed deviation from the first-order ray, in (-π, π].
@@ -310,7 +363,7 @@ fn order_at(
                 index,
                 fin,
                 angle: a,
-                ahead_next: f.n_out.dot(&t.cross(&f.d)) > 0.0,
+                ahead_next: ahead_faces_next(c, fin),
                 curvature: None,
                 probe: None,
             }
@@ -379,6 +432,18 @@ pub(crate) fn order_radially_with(
         if m == 0 {
             continue;
         }
+        // One or two fins: any cyclic order is the order, and the sides
+        // need no geometry. Evaluating every fin's face cost a
+        // projection onto it per edge (PK-1039: on a multi-turn thread
+        // cut, 0.58 s / 2.12 s at 205 / 365 edges, the complex's whole
+        // cost).
+        if m < 3 {
+            for &fin in &c.edges[ei].radial {
+                sides.ahead_faces_next[fin.index()] = ahead_faces_next(c, fin);
+            }
+            c.edges[ei].radial_ordered = true;
+            continue;
+        }
         let length = edge_length(c, edge);
         let scale = EdgeScale {
             tie_angle,
@@ -391,10 +456,10 @@ pub(crate) fn order_radially_with(
             .position
             .distance_to(&c.vertices[e.end.index()].position);
         let curved = length > chord + linear;
-        let stations = match (m >= 3, curved) {
-            (false, _) => &[0.5][..],
-            (true, false) => &[0.5, 0.25, 0.75][..],
-            (true, true) => &[0.5, 0.25, 0.75, 0.125, 0.875][..],
+        let stations = if curved {
+            &[0.5, 0.25, 0.75, 0.125, 0.875][..]
+        } else {
+            &[0.5, 0.25, 0.75][..]
         };
         let first = order_at(c, geo, edge, stations[0], &scale)?;
         for &s in &stations[1..] {

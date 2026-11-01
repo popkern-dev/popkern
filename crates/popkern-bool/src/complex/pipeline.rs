@@ -212,6 +212,7 @@ pub(crate) fn classify_with_complex(
         }
         let geo = FaceGeometry {
             operands: input.operands,
+            graph: Some(input.graph),
         };
         let sides = order_radially(&mut lift.complex, &geo, input.tolerance.angular(), linear)
             .map_err(ComplexDecline::Radial)?;

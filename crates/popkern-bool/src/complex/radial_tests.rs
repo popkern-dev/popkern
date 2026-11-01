@@ -96,6 +96,7 @@ fn fan(
 fn order(brep: &BRep, c: &mut CellComplex, ladder: TieLadder) -> Result<Vec<FinId>, RadialDecline> {
     let geo = FaceGeometry {
         operands: [brep, brep],
+        graph: None,
     };
     order_radially_with(c, &geo, TIE, LINEAR, ladder)?;
     Ok(c.edges[0].radial.clone())
