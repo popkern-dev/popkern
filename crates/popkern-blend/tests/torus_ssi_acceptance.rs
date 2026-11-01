@@ -250,9 +250,32 @@ fn filleted_operand_boolean_serves_identically_under_analytic_arms() {
         marching_verdicts.len(),
         "analytic arms must not change the validation verdict:\n  analytic: {analytic_verdicts:?}\n  marching: {marching_verdicts:?}"
     );
+    // The cost gate takes the best of K interleaved runs per arm, as
+    // gate 1 does: once the marching arm served (PK-1030) the two arms
+    // sit 1.1-1.2× apart, and a single sample per side under the
+    // workspace sweep read 659 ms vs 433 ms.
+    const K: usize = 5;
+    let run = || {
+        time_once(|| {
+            boolean(
+                BoolOperation::Subtraction,
+                part.clone(),
+                cutter.clone(),
+                tol,
+                None,
+            )
+            .map(|out| out.validate_all())
+        })
+        .1
+    };
+    let (mut analytic_best, mut marching_best) = (analytic_wall, marching_wall);
+    for _ in 0..K {
+        analytic_best = analytic_best.min(run());
+        marching_best = marching_best.min(with_marching_pinned(run));
+    }
     assert!(
-        analytic_wall.as_secs_f64() <= marching_wall.as_secs_f64() * 1.25,
-        "analytic arms regressed the filleted-operand boolean: {analytic_wall:?} vs {marching_wall:?}"
+        analytic_best.as_secs_f64() <= marching_best.as_secs_f64() * 1.25,
+        "analytic arms regressed the filleted-operand boolean: {analytic_best:?} vs {marching_best:?}"
     );
 }
 

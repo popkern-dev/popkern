@@ -28,7 +28,7 @@
 //! face's region is imprinted. Curved receiving faces, and edges that
 //! leave the plane part-way, are follow-ups.
 
-use popkern_core::geometry::curve::{CurveEval, closest_point_in_window};
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, closest_point_in_window};
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
@@ -58,10 +58,29 @@ pub(crate) fn recover_edge_in_face_records(
 ) {
     let mut found = Vec::new();
     for (x_is_a, x, y, aabbs_y) in [(true, a, b, aabbs_b), (false, b, a, aabbs_a)] {
+        // The receiving faces' hull, padded as the per-face test pads
+        // the sample box: an edge whose conservative box stays clear of
+        // it meets none of them (PK-1032: rejected before sampling).
+        let corners: Vec<Point3> = aabbs_y.iter().flat_map(|(_, f)| [f.min, f.max]).collect();
+        let region = sample_box(&corners, 2.0 * tolerance.linear());
         for (eh, edge) in &x.edges {
             let Some(curve) = edge.curve.as_ref() else {
                 continue;
             };
+            let mut hull = vec![
+                curve.geometry.point_at(curve.t_start),
+                curve.geometry.point_at(curve.t_end),
+            ];
+            match &curve.geometry {
+                // The whole control polygon holds the span, unclipped.
+                CurveGeometry::Nurbs(n) if n.weights.iter().all(|w| *w > 0.0) => {
+                    hull.extend_from_slice(&n.control_points)
+                }
+                _ => crate::intersect::conservative_curve_extent(curve, &mut hull),
+            }
+            if !sample_box(&hull, 0.0).overlaps(&region, 0.0) {
+                continue;
+            }
             if !curve_meets_vertices(x, edge.half_edge, curve, tolerance) {
                 continue;
             }

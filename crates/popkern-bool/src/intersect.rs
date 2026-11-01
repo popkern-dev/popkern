@@ -168,12 +168,30 @@ pub(crate) fn find_intersections_with_aabbs(
     // order-independent, so BVH pair ordering is safe.
     use popkern_core::validation::bvh::Bvh;
     let n_a = aabbs_a.len();
-    let mut combined: Vec<(usize, Aabb)> = Vec::with_capacity(n_a + aabbs_b.len());
-    for (i, (_, aabb)) in aabbs_a.iter().enumerate() {
-        combined.push((i, aabb.clone()));
-    }
+    // Only a face overlapping the other operand's hull can pair, and
+    // the pairs come back sorted by id, so the tree holds those faces
+    // alone (PK-1032: a 259-face body against a slot cutter built and
+    // walked every face's same-operand overlaps to discard them).
+    let hull_b = crate::face_box::hull(aabbs_b.iter().map(|(_, f)| f));
+    let near_a: Vec<(usize, Aabb)> = aabbs_a
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, f))| {
+            hull_b
+                .as_ref()
+                .is_some_and(|h| f.overlaps(h, tolerance.linear()))
+        })
+        .map(|(i, (_, f))| (i, f.clone()))
+        .collect();
+    let hull_a = crate::face_box::hull(near_a.iter().map(|(_, f)| f));
+    let mut combined = near_a;
     for (i, (_, aabb)) in aabbs_b.iter().enumerate() {
-        combined.push((n_a + i, aabb.clone()));
+        if hull_a
+            .as_ref()
+            .is_some_and(|h| aabb.overlaps(h, tolerance.linear()))
+        {
+            combined.push((n_a + i, aabb.clone()));
+        }
     }
     let bvh = Bvh::build(&combined);
     let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear());

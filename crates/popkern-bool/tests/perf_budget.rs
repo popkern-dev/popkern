@@ -280,7 +280,15 @@ fn torus_carrying_cylinder_union_within_budget() {
 /// 1.77-1.83, gate 2.3 (merge alone 1.48-1.51). The serve tail then
 /// stopped re-validating a body the merge had validated (pcurve-only
 /// steps keep the verdict), and normalizes only the faces the cut
-/// touched (PK-815): slot 63 ~5.7 ms, 1.46-1.50, gate 1.8.
+/// touched (PK-815): slot 63 ~5.7 ms, 1.46-1.50, gate 1.8. It drifted
+/// back to 1.81-1.88 (PK-1032) through whole-body scans in the
+/// intersection stage, ~1.3 ms at slot 63: face boxes sampling every
+/// two-point NURBS edge, the pierce scan rebuilding a holed cap's
+/// window for each tool edge, edge-in-face sampling every edge, the
+/// edge-overlap pass's per-pair map lookups, and the BVH walking the
+/// disc's own face overlaps. Each now prefilters by the other
+/// operand's hull or computes once per face: intersection costs the
+/// same at both slots, 1.48-1.52.
 #[test]
 fn slotted_disc_late_cut_stays_near_the_first() {
     if debug_skip("64-slot disc, slot 63 vs slot 0") {
