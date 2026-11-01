@@ -55,6 +55,11 @@ pub(crate) fn opposite_sides(
     q: &CandidateVertex,
 ) -> bool {
     let gap = p.position.distance_to(&q.position);
+    // Each must be clear of the edge by more than its radius and within
+    // the gap of it: no edge separates points closer than either radius.
+    if gap <= p.radius.max(q.radius) {
+        return false;
+    }
     p.incidence.iter().any(|ip| {
         let &Incidence::Face { operand, face, .. } = ip else {
             return false;

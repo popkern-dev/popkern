@@ -20,6 +20,7 @@ use slotmap::Key;
 
 use super::region::Bounds;
 use crate::intersect::{IntersectionRecord, IntersectionResult};
+use crate::intersect_edge_face::EdgeFaceHit;
 
 /// One entity a candidate lies on.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -205,9 +206,6 @@ fn collect_sites(
     let operands = [a, b];
     for hit in &ix.edge_face_hits {
         let (edge_op, face_op) = if hit.edge_of_a { (0, 1) } else { (1, 0) };
-        if outside_face(operands[face_op], hit.face, &hit.point) {
-            continue;
-        }
         let edge_tol = operands[edge_op]
             .edges
             .get(hit.edge)
@@ -218,6 +216,11 @@ fn collect_sites(
             .get(hit.face)
             .and_then(|f| f.tolerance)
             .unwrap_or(linear);
+        let outside = !at_record_end(records, face_op, hit, edge_tol + face_tol)
+            && outside_face(operands[face_op], hit.face, &hit.point);
+        if outside {
+            continue;
+        }
         out.push(CandidateVertex {
             position: hit.point,
             radius: edge_tol + face_tol,
@@ -300,6 +303,33 @@ fn collect_sites(
             });
         }
     }
+}
+
+/// Whether `hit` lies within `reach` of an end of a record on its
+/// face: a record is clipped to the trims of the faces it lies on (a
+/// trim residue to its owner's only), so its ends are on the face and
+/// a hit there needs no trim query. The query rebuilds the face's loop
+/// polygon per point (measured: 2.2 ms a boolean for eight hits on a
+/// disc face of 250 edges).
+fn at_record_end(
+    records: &[IntersectionRecord],
+    face_op: usize,
+    hit: &EdgeFaceHit,
+    reach: f64,
+) -> bool {
+    records.iter().any(|r| {
+        let (face, on) = if face_op == 0 {
+            (r.face_a, r.residue_owner_a != Some(false))
+        } else {
+            (r.face_b, r.residue_owner_a != Some(true))
+        };
+        let curve = &r.curve.curve_3d;
+        let (s0, s1) = curve.parameter_range();
+        on && face == hit.face
+            && [s0, s1]
+                .iter()
+                .any(|&s| curve.point_at(s).distance_to(&hit.point) <= reach)
+    })
 }
 
 /// Whether `p` lies outside `face`'s trim by the face's exact trim

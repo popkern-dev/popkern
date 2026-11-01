@@ -47,11 +47,13 @@ pub(crate) struct VertexTable {
     pub resolution: Result<Resolution, ResolutionDecline>,
 }
 
-/// Whether `POPKERN_VERTEX_TABLE=1` asks the table to decide the graph's
-/// record-end vertices (plan Stage 2: the table replaces the graph's
-/// snap-then-adopt identity once its shadow agrees).
+/// Whether the table decides the graph's record-end vertices: always,
+/// unless `POPKERN_VERTEX_TABLE=0` (the kill switch) restores the
+/// graph's own snap-then-adopt identity. A table that declines falls
+/// back to that identity for its boolean, recorded as a
+/// `VertexTableFallback` shadow line and a decline artifact.
 pub(crate) fn table_enabled() -> bool {
-    std::env::var_os("POPKERN_VERTEX_TABLE").is_some_and(|v| v == "1")
+    std::env::var_os("POPKERN_VERTEX_TABLE").is_none_or(|v| v != "0")
 }
 
 /// Build the table of a boolean between `a` and `b` whose graph inserts

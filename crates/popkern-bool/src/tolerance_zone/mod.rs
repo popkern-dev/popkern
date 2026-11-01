@@ -8,12 +8,14 @@
 //! how many real vertices each group of nearby candidates becomes,
 //! with the rule behind every separation recorded.
 //!
-//! **Stage.** The resolution runs in shadow beside the intersection
-//! graph's own node identity (`IntersectionGraph::find_node`: first
-//! match within 2 × linear, record ends adopted within 20 × linear).
-//! `shadow` compares the two partitions on every cellular boolean when
-//! `POPKERN_COMPLEX_SHADOW=1`, so the table can replace graph node
-//! identity once the disagreements are explained (plan Stage 2 gate).
+//! **Stage.** The committed table decides the intersection graph's
+//! record-end vertices and paves on every cellular boolean
+//! (`table::table_enabled`). The graph's own identity
+//! (`IntersectionGraph::find_node`: first match within 2 × linear,
+//! record ends adopted within 20 × linear) serves only where the
+//! resolution declines, a recorded fallback, or under the kill switch
+//! `POPKERN_VERTEX_TABLE=0`. `shadow` compares the two on every
+//! cellular boolean when `POPKERN_COMPLEX_SHADOW=1`.
 //!
 //! **Tolerance.** Every radius is an entity's own tolerance, the model
 //! linear tolerance when it has none; the growth cap is an explicit

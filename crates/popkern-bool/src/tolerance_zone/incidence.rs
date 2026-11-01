@@ -15,7 +15,8 @@
 //! one record never lies on another record of the same face pair: the
 //! branch rule (`branches`) keeps the two branches apart.
 
-use popkern_core::geometry::curve::{CurveEval, closest_point_in_window};
+use popkern_core::geometry::Point3;
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, closest_point_in_window};
 use popkern_core::topology::BRep;
 
 use super::candidates::{CandidateVertex, Incidence};
@@ -101,6 +102,9 @@ pub(crate) fn add_interior_incidences(
                 if ends.iter().any(|p| p.distance_to(&cand.position) < reach) {
                     continue;
                 }
+                if distance_lower_bound(&c.geometry, &cand.position) >= reach {
+                    continue;
+                }
                 let t = closest_point_in_window(&c.geometry, &cand.position, c.t_start, c.t_end);
                 if c.geometry.point_at(t).distance_to(&cand.position) < reach {
                     cand.incidence.push(Incidence::Edge {
@@ -111,6 +115,44 @@ pub(crate) fn add_interior_incidences(
                 }
             }
         }
+    }
+}
+
+/// A lower bound on the distance from `p` to any piece of `curve`: the
+/// distance to the whole line or circle (exact, closed form), zero for
+/// other curves. A box test passes every point near a large rim (a
+/// disc's edge circle boxes the whole disc), and the window search it
+/// would otherwise run costs ~25 µs a point.
+fn distance_lower_bound(curve: &CurveGeometry, p: &Point3) -> f64 {
+    match curve {
+        CurveGeometry::Line { origin, direction } => {
+            let len = direction.length();
+            if len <= 0.0 {
+                return 0.0;
+            }
+            (*p - *origin).cross(direction).length() / len
+        }
+        CurveGeometry::Circle {
+            center,
+            normal,
+            radius,
+        }
+        | CurveGeometry::Arc {
+            center,
+            normal,
+            radius,
+            ..
+        } => {
+            let len = normal.length();
+            if len <= 0.0 {
+                return 0.0;
+            }
+            let d = *p - *center;
+            let h = d.dot(normal) / len;
+            let rho = (d.dot(&d) - h * h).max(0.0).sqrt();
+            (h * h + (rho - radius) * (rho - radius)).sqrt()
+        }
+        _ => 0.0,
     }
 }
 

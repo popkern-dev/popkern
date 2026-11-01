@@ -200,6 +200,12 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `POPKERN_COMPLEX_SHADOW=1` (with `POPKERN_COMPLEX_SHADOW_LOG=<file>`)
   records its agreement with the cellular classifier on every boolean,
   and `POPKERN_COMPLEX_ARTIFACT=<dir>` dumps a declined complex as JSON.
+- **Vertex table** — `popkern-bool/src/tolerance_zone/` resolves every
+  intersection's candidate vertices together and decides the cellular
+  graph's record-end vertices and paves. `POPKERN_VERTEX_TABLE=0`
+  restores the graph's snap-then-adopt identity; a declined resolution
+  falls back to it for that boolean (a `VertexTableFallback` shadow
+  line, and its candidates under `POPKERN_COMPLEX_ARTIFACT`).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks
