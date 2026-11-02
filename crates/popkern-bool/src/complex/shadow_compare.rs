@@ -2,7 +2,9 @@
 //! same boolean (shadow mode; see `crate::complex_shadow`).
 
 use super::pipeline::{ComplexInput, classify_with_complex};
-use crate::complex_shadow::{ComplexShadowEvent, ComplexShadowOutcome, record_complex_shadow};
+use crate::complex_shadow::{
+    ComplexShadowEvent, ComplexShadowOutcome, ShadowDifference, record_complex_shadow,
+};
 use crate::error::BoolOperation;
 use crate::merge::fragment_classify::FragmentSelection;
 
@@ -16,9 +18,8 @@ pub(crate) fn shadow_compare(
     let fragments = input.fragments.len();
     let event = match classify_with_complex(input, op) {
         Ok(verdict) => {
-            let differing: Vec<usize> = verdict
-                .selection
-                .selections
+            let ours = &verdict.selection.selections;
+            let differing: Vec<usize> = ours
                 .iter()
                 .zip(selections)
                 .enumerate()
@@ -28,6 +29,17 @@ pub(crate) fn shadow_compare(
             if popkern_core::trace::trace_enabled("complex") {
                 trace_differing(input, &verdict, selections, &differing);
             }
+            let faces = &verdict.lift.complex.faces;
+            let differing: Vec<(usize, ShadowDifference)> = differing
+                .into_iter()
+                .map(|i| {
+                    let sources = faces
+                        .iter()
+                        .find(|f| f.source_fragments.contains(&i))
+                        .map(|f| f.source_fragments.as_slice());
+                    (i, difference(i, sources, ours, selections))
+                })
+                .collect();
             ComplexShadowEvent {
                 operation: op,
                 outcome: if differing.is_empty() {
@@ -54,6 +66,32 @@ pub(crate) fn shadow_compare(
         },
     };
     record_complex_shadow(event);
+}
+
+/// How the verdicts on differing fragment `i` differ, given the source
+/// fragments of the complex face lifting it (`None`: no face does).
+fn difference(
+    i: usize,
+    sources: Option<&[usize]>,
+    ours: &[FragmentSelection],
+    theirs: &[FragmentSelection],
+) -> ShadowDifference {
+    let kept = |sel: &[FragmentSelection], k: usize| sel.get(k).is_some_and(|s| s.keep);
+    if kept(ours, i) && kept(theirs, i) {
+        return ShadowDifference::Orientation;
+    }
+    match sources {
+        None => ShadowDifference::HoleFiller,
+        // One copy of the patch kept by each, or by neither.
+        Some(copies)
+            if copies.len() > 1
+                && copies.iter().any(|&k| kept(ours, k))
+                    == copies.iter().any(|&k| kept(theirs, k)) =>
+        {
+            ShadowDifference::CoincidentCopy
+        }
+        Some(_) => ShadowDifference::Membership,
+    }
 }
 
 /// One line per differing fragment: its face, both verdicts, and the
@@ -90,3 +128,7 @@ fn trace_differing(
         );
     }
 }
+
+#[cfg(test)]
+#[path = "shadow_compare_tests.rs"]
+mod tests;

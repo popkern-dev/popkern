@@ -19,11 +19,37 @@ pub enum ComplexShadowOutcome {
     Agree,
     /// The verdicts differ on these fragments.
     Disagree {
-        /// Fragment indices whose keep or flip differ.
-        fragments: Vec<usize>,
+        /// Fragment indices whose keep or flip differ, each with how.
+        fragments: Vec<(usize, ShadowDifference)>,
     },
     /// The complex declined; the decline's debug form.
     Declined(String),
+}
+
+/// How the complex's verdict on one fragment differs from the cellular
+/// classifier's. Only [`ShadowDifference::Membership`] says the two
+/// would serve different point sets; the others are the complex
+/// deciding by construction what the cellular path leaves to the
+/// assembler and post-processing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShadowDifference {
+    /// Both keep the fragment and differ on its flip. The complex
+    /// orients every kept face by its component's folded-normal
+    /// convention; the cellular assembler re-wires a ring it was handed
+    /// the wrong way reversed (measured: every such difference in the
+    /// workspace suite was a cellular ring re-wired, the complex's
+    /// none).
+    Orientation,
+    /// A coincident patch both keep, by a different copy: the complex
+    /// keeps the copy whose loops bound the whole patch, the cellular
+    /// classifier the workpiece's, which its own seam may split.
+    CoincidentCopy,
+    /// The fragment fills a hole of its own face. The complex never
+    /// lifts it; the cellular classifier kept it, and post-processing
+    /// removes it with its self-twinned rim.
+    HoleFiller,
+    /// The verdicts disagree on whether the fragment bounds the result.
+    Membership,
 }
 
 /// One shadow comparison.
