@@ -67,15 +67,17 @@ pub(crate) fn complex_rescue_enabled() -> bool {
     std::env::var_os("POPKERN_COMPLEX").is_none_or(|v| v != "0")
 }
 
-/// Which classifier decides the primary cellular attempt.
-/// `POPKERN_COMPLEX_PRIMARY=1` makes it the complex (plan Stage 7c:
-/// complex primary, cellular as the fallback); the default is the
-/// cellular classifier with the complex as the rescue.
+/// Which classifier decides the primary cellular attempt: the complex,
+/// with the cellular classifier as its fallback (plan Stage 7c; a
+/// decline records a `PrimaryFallback` shadow line). The kill switches
+/// `POPKERN_COMPLEX_PRIMARY=0` and `POPKERN_COMPLEX=0` restore the
+/// cellular classifier with the complex as the rescue (or nothing).
 pub(crate) fn primary_source() -> SelectionSource {
-    if std::env::var_os("POPKERN_COMPLEX_PRIMARY").is_some_and(|v| v == "1") {
-        SelectionSource::ComplexFirst
-    } else {
+    let off = |var: &str| std::env::var_os(var).is_some_and(|v| v == "0");
+    if off("POPKERN_COMPLEX_PRIMARY") || off("POPKERN_COMPLEX") {
         SelectionSource::Cellular
+    } else {
+        SelectionSource::ComplexFirst
     }
 }
 

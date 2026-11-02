@@ -194,11 +194,14 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `NonManifoldPolicy::SplitToManifold` serves manifold pieces instead,
   each contact recorded in `BRep::topology_contacts`; `validate_all`
   excuses recorded contacts only. The cell complex
-  (`popkern-bool/src/complex/`) decides membership by region:
-  `POPKERN_COMPLEX=0` disables its rescue of cellular declines,
-  `POPKERN_COMPLEX_PRIMARY=1` makes it the primary classifier,
-  `POPKERN_COMPLEX_SHADOW=1` (with `POPKERN_COMPLEX_SHADOW_LOG=<file>`)
-  records its agreement with the cellular classifier on every boolean,
+  (`popkern-bool/src/complex/`) decides membership by region and is
+  the primary classifier, falling back to the cellular classifier on a
+  decline (a `PrimaryFallback` shadow line). `POPKERN_COMPLEX_PRIMARY=0`
+  makes the cellular classifier primary with the complex as its rescue,
+  `POPKERN_COMPLEX=0` disables the complex altogether,
+  `POPKERN_COMPLEX_SHADOW=1` (with `POPKERN_COMPLEX_SHADOW_LOG=<file>`,
+  under `POPKERN_COMPLEX_PRIMARY=0`) records its agreement with the
+  cellular classifier on every boolean,
   and `POPKERN_COMPLEX_ARTIFACT=<dir>` dumps a declined complex as JSON.
 - **Vertex table** — `popkern-bool/src/tolerance_zone/` resolves every
   intersection's candidate vertices together and decides the cellular

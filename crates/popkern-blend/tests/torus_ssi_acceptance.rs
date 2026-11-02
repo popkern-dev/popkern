@@ -445,18 +445,20 @@ fn single_bite_cut_is_decided_by_both_classifiers() {
     let _ = popkern_bool::complex_shadow::take_complex_shadow_events();
     let _ = popkern_bool::complex_shadow::take_complex_rescue_events();
     // The cellular classifier serves and the complex shadows it, whatever
-    // mode the run is in (a primary-mode suite records no shadow).
+    // mode the run is in (complex-primary, the default, records no
+    // shadow).
     let primary = std::env::var_os("POPKERN_COMPLEX_PRIMARY");
     // SAFETY: serialized by ENV_LOCK; restored right after the call.
     unsafe {
-        std::env::remove_var("POPKERN_COMPLEX_PRIMARY");
+        std::env::set_var("POPKERN_COMPLEX_PRIMARY", "0");
         std::env::set_var("POPKERN_COMPLEX_SHADOW", "1");
     }
     let cut = boolean(BoolOperation::Subtraction, part, cutter, tol, None);
     unsafe {
         std::env::remove_var("POPKERN_COMPLEX_SHADOW");
-        if let Some(v) = primary {
-            std::env::set_var("POPKERN_COMPLEX_PRIMARY", v);
+        match primary {
+            Some(v) => std::env::set_var("POPKERN_COMPLEX_PRIMARY", v),
+            None => std::env::remove_var("POPKERN_COMPLEX_PRIMARY"),
         }
     }
     let body = cut.expect("the single bite serves");
