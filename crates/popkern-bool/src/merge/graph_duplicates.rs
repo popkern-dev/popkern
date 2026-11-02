@@ -97,12 +97,25 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph, linear:
         }
     }
 
-    for (face, s) in seam_substitutes {
+    mark_duplicates(graph, &to_remove, seam_substitutes);
+}
+
+/// Mark each `(operand half-edge, shared half-edge)` of `pairs` as one
+/// edge: the operand half leaves its face's edge list and its node's
+/// outgoing fan, and `duplicate_of` records the shared half that
+/// replaces it. `seams` names the faces whose seam a shared half
+/// now carries.
+fn mark_duplicates(
+    graph: &mut IntersectionGraph,
+    pairs: &[(usize, usize)],
+    seams: Vec<(super::graph::FaceRef, usize)>,
+) {
+    for (face, s) in seams {
         let twin = graph.half_edges[s].twin;
         graph.seam_substitutes.insert((face, s));
         graph.seam_substitutes.insert((face, twin));
     }
-    for &(idx, s) in &to_remove {
+    for &(idx, s) in pairs {
         graph.duplicate_of.insert(idx, s);
         if let Some(f) = graph.half_edges[idx].face
             && let Some(edges) = graph.face_edges.get_mut(&f)
@@ -113,6 +126,102 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph, linear:
         graph.nodes[origin].outgoing.retain(|&e| e != idx);
         graph.half_edges[idx].face = None;
     }
+}
+
+/// Drop the operand pieces of the vertex table's common blocks
+/// (`VertexTable::record_edge_blocks`): on the face of the edge's
+/// operand the record lies on, the piece of the edge between the
+/// block's two vertices is the record's piece there, one edge. The
+/// table decided the coincidence (pave blocks within their vertices'
+/// tolerances along their shrunk ranges); this only finds the two
+/// graph pieces, by their end nodes (within `tolerance` of the
+/// anchors). A block whose pieces the graph does not hold is left
+/// alone. Returns the pieces dropped.
+pub(crate) fn remove_common_block_duplicates(
+    graph: &mut IntersectionGraph,
+    blocks: &[crate::tolerance_zone::table::RecordEdgeBlock],
+    records: &[crate::intersect::IntersectionRecord],
+    tolerance: f64,
+) -> usize {
+    use super::graph::{FaceRef, Operand};
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    let mut seams = Vec::new();
+    for block in blocks {
+        let Some(record) = records.get(block.record) else {
+            continue;
+        };
+        let (Some(na), Some(nb)) = (
+            graph.find_node(&block.ends[0], tolerance),
+            graph.find_node(&block.ends[1], tolerance),
+        ) else {
+            continue;
+        };
+        let face = FaceRef {
+            operand: if block.operand == 0 {
+                Operand::A
+            } else {
+                Operand::B
+            },
+            face: if block.operand == 0 {
+                record.face_a
+            } else {
+                record.face_b
+            },
+        };
+        let Some(list) = graph.face_edges.get(&face) else {
+            continue;
+        };
+        let joins = |i: usize| {
+            let he = &graph.half_edges[i];
+            let (o, t) = (he.origin, graph.half_edges[he.twin].origin);
+            (o, t) == (na, nb) || (o, t) == (nb, na)
+        };
+        let shared = list.iter().copied().find(|&i| {
+            matches!(graph.half_edges[i].source,
+                EdgeSource::Shared { face_a, face_b }
+                    if face_a == record.face_a && face_b == record.face_b)
+                && joins(i)
+        });
+        let Some(s) = shared else {
+            continue;
+        };
+        // Every piece of the edge there lying on the record's piece:
+        // both halves of a seam lie on the face, and the record carries
+        // the seam now (PK-750); the other arc of a rim split at the
+        // block's two vertices joins them too and is not the block.
+        let pieces: Vec<usize> = list
+            .iter()
+            .copied()
+            .filter(|&i| {
+                let of_edge = match graph.half_edges[i].source {
+                    EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => {
+                        block.operand == 0 && e == block.edge
+                    }
+                    EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => {
+                        block.operand == 1 && e == block.edge
+                    }
+                    EdgeSource::Shared { .. } => false,
+                };
+                of_edge && joins(i) && {
+                    let (p0, p1) = (graph.nodes[na].position, graph.nodes[nb].position);
+                    same_curve(curve_of(graph, i), curve_of(graph, s), (p0, p1), tolerance)
+                }
+            })
+            .collect();
+        for idx in pieces {
+            if pairs.iter().any(|&(i, _)| i == idx) {
+                continue;
+            }
+            pairs.push((idx, s));
+            let twin = graph.half_edges[idx].twin;
+            if graph.half_edges[twin].face == Some(face) {
+                seams.push((face, s));
+            }
+        }
+    }
+    let n = pairs.len();
+    mark_duplicates(graph, &pairs, seams);
+    n
 }
 
 /// The curve of half-edge `idx`, read from its twin when the pair

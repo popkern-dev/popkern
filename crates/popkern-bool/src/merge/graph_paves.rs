@@ -5,10 +5,12 @@
 //! The graph's own pass (`split_shared_edges_at_nodes`) finds the same
 //! junctions after the fact, testing every node against every record
 //! edge; with the table deciding vertices, each record arrives knowing
-//! its paves, and the pass is left only to scenes with common blocks,
-//! whose same-domain junctions the table does not yet decide (plan
-//! §4.4; measured, suite 22: every junction the table missed was in
-//! such a scene).
+//! its paves, and the pass is left to the graph's own identity (a
+//! declined table, or `POPKERN_VERTEX_TABLE=0`). Common-block scenes
+//! once kept it (suite 22: every junction the table missed was in
+//! one); the misses were operand edges split at edge-face hits off
+//! their face, which the graph now leaves whole
+//! (`candidates::interfering_hits`).
 
 use popkern_core::geometry::Point3;
 

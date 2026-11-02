@@ -333,7 +333,8 @@ pub(crate) fn run(
     tolerance: &popkern_core::tolerance::Tolerance,
 ) {
     let linear = tolerance.linear();
-    let table = super::table::build(operands, ix, records, linear);
+    let hits = super::candidates::interfering_hits(operands, ix, records, linear);
+    let table = super::table::build(operands, &hits, records, linear);
     let mut shadow = compare(
         graph,
         &table.cands,

@@ -89,12 +89,6 @@ pub(crate) fn cellular_graph_merge(
         }
     }
     let breps = Some((original_a, original_b, tolerance.linear()));
-    let hit_nodes = crate::merge::graph_split_node::split_edges_at_face_hits(
-        &mut graph,
-        &intersection_result.edge_face_hits,
-        snap_tol,
-        breps,
-    );
 
     // Insert intersection curves as shared edges, then
     // split them at edge-face hit nodes they pass through (the loop
@@ -136,13 +130,34 @@ pub(crate) fn cellular_graph_merge(
     let rotated = crate::intersect_band_lattice::split_records_at_band_lattice(
         rotated, original_a, original_b,
     );
+    // The operand edges split at the edge-face hits: with the table
+    // deciding vertices, only at the hits that are interferences (on
+    // their face), the table's own candidates.
+    let table_enabled = crate::tolerance_zone::table::table_enabled();
+    let hits = if table_enabled {
+        crate::tolerance_zone::candidates::interfering_hits(
+            (original_a, original_b),
+            intersection_result,
+            &rotated,
+            tolerance.linear(),
+        )
+    } else {
+        intersection_result.edge_face_hits.clone()
+    };
+    crate::merge::graph_split_node::split_edges_at_face_hits(&mut graph, &hits, snap_tol, breps);
     let mut graph_splits_junctions = true;
     let mut operand_paves = Vec::new();
-    let table_ends = crate::tolerance_zone::table::table_enabled()
+    let partial_overlaps = intersection_result
+        .coincidence
+        .face_overlaps
+        .iter()
+        .any(|o| !o.full_overlap);
+    let mut common_blocks = Vec::new();
+    let table_ends = table_enabled
         .then(|| {
             let table = crate::tolerance_zone::table::build(
                 (original_a, original_b),
-                intersection_result,
+                &hits,
                 &rotated,
                 tolerance.linear(),
             );
@@ -153,16 +168,18 @@ pub(crate) fn cellular_graph_merge(
                     table.resolution.as_ref().err()
                 ));
             }
-            graph_splits_junctions = ends.is_none()
-                || table.has_common_blocks([original_a, original_b], &rotated, tolerance.linear());
+            graph_splits_junctions = ends.is_none();
             if !graph_splits_junctions {
                 operand_paves = table.operand_edge_paves();
+                if partial_overlaps {
+                    let ops = [original_a, original_b];
+                    common_blocks = table.record_edge_blocks(ops, &rotated, tolerance.linear());
+                }
             }
             ends
         })
         .flatten();
     insert_intersection_curves_at(&mut graph, &rotated, snap_tol, table_ends.as_deref());
-    let _ = &hit_nodes;
     // Split SHARED edges at record×record T-junctions: one record's
     // endpoint frequently lands mid-span of another (a dovetail
     // rail's flank trace ends ON the joint-shoulder trace), and the
@@ -170,8 +187,10 @@ pub(crate) fn cellular_graph_merge(
     // (measured: the rail's floor strip never became a fragment and
     // the carve went non-manifold). Every node is a candidate — the
     // splitter skips nodes not on a shared edge's interior. With the
-    // table deciding vertices the records arrived split at its paves,
-    // and the pass serves only common-block scenes (plan §4.4).
+    // table deciding vertices the records arrived split at its paves
+    // (T-junction consequences, plan §4.3a), common-block scenes too,
+    // and the pass serves only the graph's own identity: a declined
+    // table or the kill switch.
     if graph_splits_junctions {
         let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
         let before = graph.half_edges.len();
@@ -209,13 +228,7 @@ pub(crate) fn cellular_graph_merge(
     // intersection curve passing THROUGH such a node (e.g. a seam
     // edge crossing a boss/plate intersection circle) must get a
     // node there or the loop walk cannot route through it.
-    if !intersection_result.edge_face_hits.is_empty()
-        || intersection_result
-            .coincidence
-            .face_overlaps
-            .iter()
-            .any(|o| !o.full_overlap)
-    {
+    if !intersection_result.edge_face_hits.is_empty() || partial_overlaps {
         // With the table deciding, the records' ends split the operand
         // edges it put them on; the dead-end completion (march slop
         // beyond the table's reach) still runs.
@@ -236,12 +249,22 @@ pub(crate) fn cellular_graph_merge(
             );
             crate::merge::graph_split_shared::complete_dead_end_cuts(&mut graph, snap_tol, breps);
         }
-        if intersection_result
-            .coincidence
-            .face_overlaps
-            .iter()
-            .any(|o| !o.full_overlap)
-        {
+        // A record along an operand edge is one edge with it: the
+        // table's common blocks decide which (plan §4.3a). The graph's
+        // collinear-duplicate search follows, deciding alone under its
+        // own identity and, on the table's path, the residue: curves
+        // the table keeps apart (beyond its vertices' tolerances) that
+        // the walk's own uv dedup still merges on one face, within
+        // 100 × linear (measured: a near-tangent cap's 1e-5 lens).
+        if partial_overlaps && !graph_splits_junctions {
+            crate::merge::graph_duplicates::remove_common_block_duplicates(
+                &mut graph,
+                &common_blocks,
+                &rotated,
+                snap_tol,
+            );
+        }
+        if partial_overlaps {
             let before = graph.duplicate_of.len();
             remove_collinear_duplicates(&mut graph, tolerance.linear());
             crate::complex_shadow::subsumed_pass_fired(

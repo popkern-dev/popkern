@@ -147,14 +147,14 @@ fn handle_bits(k: impl Key) -> u64 {
 pub(crate) fn collect_candidates(
     a: &BRep,
     b: &BRep,
-    ix: &IntersectionResult,
+    hits: &[EdgeFaceHit],
     records: &[IntersectionRecord],
     linear: f64,
     cap: f64,
 ) -> Vec<CandidateVertex> {
     let operands = [a, b];
     let mut out = Vec::new();
-    collect_sites(a, b, ix, records, linear, &mut out);
+    collect_sites(a, b, hits, records, linear, &mut out);
     let site_radius = out.iter().map(|c| c.radius).fold(0.0_f64, f64::max);
     let vertex_tol = operands
         .iter()
@@ -193,38 +193,67 @@ pub(crate) fn collect_candidates(
     out
 }
 
-/// The interference sites of a boolean: its edge-face hits on the
-/// face's trim and the ends of `records`, pushed onto `out`.
+/// The edge-face hits of `ix` that are interferences: those on their
+/// face's trim (or at the end of a record on that face). The
+/// intersector reports an edge crossing the face's SURFACE, and only
+/// a crossing on the face is one. The graph splits operand edges only
+/// at these when the table decides vertices: a hit off its face split
+/// an edge the table's paves and common blocks never knew about
+/// (measured: a flush gusset's rim edge split where it crossed a
+/// neighbouring face's plane, beside the record running along it,
+/// and the duplicate pairing that needs both split alike failed).
+pub(crate) fn interfering_hits(
+    (a, b): (&BRep, &BRep),
+    ix: &IntersectionResult,
+    records: &[IntersectionRecord],
+    linear: f64,
+) -> Vec<EdgeFaceHit> {
+    let operands = [a, b];
+    ix.edge_face_hits
+        .iter()
+        .filter(|hit| {
+            let face_op = usize::from(hit.edge_of_a);
+            at_record_end(records, face_op, hit, hit_radius(operands, hit, linear))
+                || !outside_face(operands[face_op], hit.face, &hit.point)
+        })
+        .cloned()
+        .collect()
+}
+
+/// A hit's tolerance radius: its edge's plus its face's.
+fn hit_radius(operands: [&BRep; 2], hit: &EdgeFaceHit, linear: f64) -> f64 {
+    let (edge_op, face_op) = if hit.edge_of_a { (0, 1) } else { (1, 0) };
+    let edge_tol = operands[edge_op]
+        .edges
+        .get(hit.edge)
+        .and_then(|e| e.tolerance)
+        .unwrap_or(linear);
+    let face_tol = operands[face_op]
+        .faces
+        .get(hit.face)
+        .and_then(|f| f.tolerance)
+        .unwrap_or(linear);
+    edge_tol + face_tol
+}
+
+/// The interference sites of a boolean: its interfering edge-face hits
+/// (`interfering_hits`) and the ends of `records`, pushed onto `out`.
 fn collect_sites(
     a: &BRep,
     b: &BRep,
-    ix: &IntersectionResult,
+    hits: &[EdgeFaceHit],
     records: &[IntersectionRecord],
     linear: f64,
     out: &mut Vec<CandidateVertex>,
 ) {
     let operands = [a, b];
-    for hit in &ix.edge_face_hits {
+    for hit in hits {
         let (edge_op, face_op) = if hit.edge_of_a { (0, 1) } else { (1, 0) };
-        let edge_tol = operands[edge_op]
-            .edges
-            .get(hit.edge)
-            .and_then(|e| e.tolerance)
-            .unwrap_or(linear);
-        let face_tol = operands[face_op]
-            .faces
-            .get(hit.face)
-            .and_then(|f| f.tolerance)
-            .unwrap_or(linear);
-        let outside = !at_record_end(records, face_op, hit, edge_tol + face_tol)
-            && outside_face(operands[face_op], hit.face, &hit.point);
-        if outside {
-            continue;
-        }
+        let radius = hit_radius(operands, hit, linear);
         out.push(CandidateVertex {
             position: hit.point,
-            radius: edge_tol + face_tol,
-            zone: edge_tol + face_tol,
+            radius,
+            zone: radius,
             source: SourceKind::EdgeFaceHit,
             incidence: vec![
                 Incidence::Edge {
@@ -244,7 +273,7 @@ fn collect_sites(
                             sf.geometry
                                 .point_at(hit.uv.0, hit.uv.1)
                                 .distance_to(&hit.point)
-                                <= edge_tol + face_tol
+                                <= radius
                         })
                         .map(|_| hit.uv),
                 },

@@ -37,7 +37,7 @@ use std::collections::BTreeMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveEval, closest_point_in_window};
-use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 use slotmap::Key;
 
 use super::candidates::{CandidateVertex, Incidence};
@@ -134,6 +134,22 @@ fn paves(
             }
         }
     }
+    // An edge both of whose end vertices resolved runs between two
+    // vertices of the boolean: a block whole, which a record running on
+    // past one of those vertices lies along piece by piece.
+    for (o, brep) in operands.iter().enumerate() {
+        for (eh, e) in &brep.edges {
+            let Some(h) = brep.half_edges.get(e.half_edge) else {
+                continue;
+            };
+            let twin = brep.half_edges.get(h.twin).map(|t| t.origin);
+            let resolved = |v: VertexHandle| vertex_group.contains_key(&(o, v.data().as_ffi()));
+            if resolved(h.origin) && twin.is_some_and(resolved) {
+                out.entry(BlockOwner::Edge(o, eh.data().as_ffi()))
+                    .or_default();
+            }
+        }
+    }
     for (owner, list) in out.iter_mut() {
         let BlockOwner::Edge(o, bits) = *owner else {
             continue;
@@ -160,12 +176,18 @@ fn paves(
             let Some(p) = p else {
                 continue;
             };
-            let t = if p.distance_to(&ends[0]) <= p.distance_to(&ends[1]) {
-                c.t_start
-            } else {
-                c.t_end
-            };
-            list.push((t, g));
+            // Every end the vertex lies at, within its group's
+            // tolerance: a closed edge (a rim circle) starts and ends at
+            // its one vertex, and its last block ends there too; the
+            // nearer end otherwise.
+            let (d0, d1) = (p.distance_to(&ends[0]), p.distance_to(&ends[1]));
+            let reach = res.groups[g].tolerance;
+            if d0 <= d1 || d0 <= reach {
+                list.push((c.t_start, g));
+            }
+            if d1 < d0 || d1 <= reach {
+                list.push((c.t_end, g));
+            }
         }
     }
     for list in out.values_mut() {
@@ -234,8 +256,12 @@ pub(crate) fn pave_blocks(
         let Some((curve, (lo, hi))) = owner_curve(owner, operands, records, &edges) else {
             continue;
         };
+        // An operand edge is a block where a candidate cuts it, or
+        // whole where both its ends resolved (`paves`).
         let interior = list.iter().any(|&(t, _)| t > lo && t < hi);
-        if matches!(owner, BlockOwner::Edge(..)) && !interior {
+        let whole = list.first().is_some_and(|&(t, _)| t <= lo)
+            && list.last().is_some_and(|&(t, _)| t >= hi);
+        if matches!(owner, BlockOwner::Edge(..)) && !interior && !whole {
             continue;
         }
         let mut stops: Vec<(f64, Option<usize>)> = Vec::new();

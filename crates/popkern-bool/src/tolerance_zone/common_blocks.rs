@@ -75,7 +75,8 @@ fn group_edges(
     out
 }
 
-/// Every record of `records` that is a common block, with its edge.
+/// Every record of `records` that is a common block, with each edge it
+/// lies along.
 pub(crate) fn common_block_records(
     cands: &[CandidateVertex],
     res: &Resolution,
@@ -110,9 +111,10 @@ pub(crate) fn common_block_records(
                 let t = closest_point_in_window(&c.geometry, &p, c.t_start, c.t_end);
                 c.geometry.point_at(t).distance_to(&p) < reach
             });
+            // Every edge it lies along: where the two operands touch
+            // along an edge, the record is a block with an edge of each.
             if along {
                 out.push((ri, operand, eh));
-                break;
             }
         }
     }

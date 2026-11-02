@@ -232,7 +232,15 @@ fn resolution_is_independent_of_candidate_order() {
         ))
         .expect("b placed");
     let ix = crate::intersect::find_intersections(&a, &b, &tol).expect("intersections");
-    let cands = collect_candidates(&a, &b, &ix, &ix.records, tol.linear(), 20.0 * tol.linear());
+    let hits = super::candidates::interfering_hits((&a, &b), &ix, &ix.records, tol.linear());
+    let cands = collect_candidates(
+        &a,
+        &b,
+        &hits,
+        &ix.records,
+        tol.linear(),
+        20.0 * tol.linear(),
+    );
     let ctx = ResolutionContext {
         operands: [&a, &b],
         records: &ix.records,

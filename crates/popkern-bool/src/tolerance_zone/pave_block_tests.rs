@@ -45,9 +45,13 @@ fn a_piece_between_two_vertices_within_both_is_a_micro_block() {
             records: &records,
         };
         let res = resolve(&cands, &ctx, options(10.0 * TOL)).expect("resolves");
-        let blocks = pave_blocks(&cands, &res, [&c, &c], &records, TOL);
+        // The record's blocks (a cube edge joining the two vertices is
+        // a whole block of its own).
+        let blocks: Vec<_> = pave_blocks(&cands, &res, [&c, &c], &records, TOL)
+            .into_iter()
+            .filter(|b| b.owner == BlockOwner::Record(0))
+            .collect();
         assert_eq!(blocks.len(), 3, "gap {gap}: {blocks:?}");
-        assert!(blocks.iter().all(|b| b.owner == BlockOwner::Record(0)));
         let found: Vec<_> = blocks.iter().filter(|b| b.shrunk.is_none()).collect();
         assert_eq!(found.len(), usize::from(micro), "gap {gap}: {blocks:?}");
         if let [m] = found.as_slice() {

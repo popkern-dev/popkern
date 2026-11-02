@@ -9,7 +9,8 @@ use super::candidates::{CandidateVertex, Incidence, SourceKind, collect_candidat
 use super::resolve::{
     Resolution, ResolutionContext, ResolutionDecline, ResolutionOptions, resolve,
 };
-use crate::intersect::{IntersectionRecord, IntersectionResult};
+use crate::intersect::IntersectionRecord;
+use crate::intersect_edge_face::EdgeFaceHit;
 
 /// Multiple of the linear tolerance a vertex may grow to without a
 /// crossing angle explaining it: the graph's own record-end adoption
@@ -39,6 +40,22 @@ pub(crate) struct RecordEnds {
     pub paves: Vec<(f64, Point3)>,
 }
 
+/// A record, or a piece of one, lying along an operand edge or a piece
+/// of it between two resolved vertices: a common block (plan §4.3a,
+/// from E-E compatibility). One edge of the result: the graph keeps
+/// the record's piece and drops the edge's from the face both lie on.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RecordEdgeBlock {
+    /// The record.
+    pub record: usize,
+    /// The edge's operand (0 = A).
+    pub operand: usize,
+    /// The edge.
+    pub edge: EdgeHandle,
+    /// The two vertices the block runs between, as their anchors.
+    pub ends: [Point3; 2],
+}
+
 /// The candidates and their resolution.
 pub(crate) struct VertexTable {
     /// The candidates, sorted by key.
@@ -57,15 +74,16 @@ pub(crate) fn table_enabled() -> bool {
 }
 
 /// Build the table of a boolean between `a` and `b` whose graph inserts
-/// `records`.
+/// `records`, with `hits` its interfering edge-face hits
+/// (`candidates::interfering_hits`).
 pub(crate) fn build(
     (a, b): (&BRep, &BRep),
-    ix: &IntersectionResult,
+    hits: &[EdgeFaceHit],
     records: &[IntersectionRecord],
     linear: f64,
 ) -> VertexTable {
     let cap = GROWTH_CAP_FACTOR * linear;
-    let mut cands = collect_candidates(a, b, ix, records, linear, cap);
+    let mut cands = collect_candidates(a, b, hits, records, linear, cap);
     super::incidence::add_interior_incidences(&mut cands, [a, b], records, linear);
     super::incidence::add_crossing_zones(&mut cands, [a, b], cap);
     let ctx = ResolutionContext {
@@ -221,18 +239,61 @@ impl VertexTable {
         out
     }
 
-    /// Whether some record is a common block with an operand edge: a
-    /// same-domain overlap (plan §4.4), where the graph's own splitting
-    /// still decides the junctions until the join does.
-    pub(crate) fn has_common_blocks(
+    /// Every common block of a record with an operand edge: whole
+    /// records lying along an edge (`common_blocks`) and record pieces
+    /// along pieces of an edge (`pave_blocks`). Empty when the
+    /// resolution declined.
+    pub(crate) fn record_edge_blocks(
         &self,
         operands: [&BRep; 2],
         records: &[IntersectionRecord],
         linear: f64,
-    ) -> bool {
-        self.resolution.as_ref().is_ok_and(|res| {
-            !super::common_blocks::common_block_records(&self.cands, res, operands, records, linear)
-                .is_empty()
-        })
+    ) -> Vec<RecordEdgeBlock> {
+        use super::pave_blocks::BlockOwner;
+        let Ok(res) = self.resolution.as_ref() else {
+            return Vec::new();
+        };
+        let anchor = |g: usize| self.cands[res.groups[g].anchor].position;
+        let mut out = Vec::new();
+        let ends = super::consequences::record_end_candidates(&self.cands, records.len());
+        for (record, operand, edge) in
+            super::common_blocks::common_block_records(&self.cands, res, operands, records, linear)
+        {
+            if let [Some(s), Some(e)] = ends[record] {
+                out.push(RecordEdgeBlock {
+                    record,
+                    operand,
+                    edge,
+                    ends: [anchor(res.group_of[s]), anchor(res.group_of[e])],
+                });
+            }
+        }
+        let blocks = super::pave_blocks::pave_blocks(&self.cands, res, operands, records, linear);
+        for (i, j) in super::pave_blocks::common_block_pairs(&blocks, res, operands, records) {
+            let (p, q) = (&blocks[i], &blocks[j]);
+            let (record, operand, bits) = match (p.owner, q.owner) {
+                (BlockOwner::Record(r), BlockOwner::Edge(o, e))
+                | (BlockOwner::Edge(o, e), BlockOwner::Record(r)) => (r, o, e),
+                _ => continue,
+            };
+            // Paired blocks join the same two vertices.
+            let [Some(ga), Some(gb)] = p.ends else {
+                continue;
+            };
+            let Some(edge) = operands[operand]
+                .edges
+                .keys()
+                .find(|eh| slotmap::Key::data(eh).as_ffi() == bits)
+            else {
+                continue;
+            };
+            out.push(RecordEdgeBlock {
+                record,
+                operand,
+                edge,
+                ends: [anchor(ga), anchor(gb)],
+            });
+        }
+        out
     }
 }
