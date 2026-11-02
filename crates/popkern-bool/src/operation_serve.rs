@@ -1,6 +1,7 @@
 //! Stage 5 and the served-body tail of the boolean pipeline (split
 //! from `operation.rs` under the file-size ratchet): cellular
-//! selection with its graph-merge fallback, pcurve recompute,
+//! selection (the complex primary, the cellular classifier its
+//! fallback, the complex again as the rescue), pcurve recompute,
 //! post-validation and post-processing — and the CLOSURE postcondition
 //! on the served body (PK-555).
 //!
@@ -8,18 +9,18 @@
 //! half-edge that is its own twin), the served body must be closed
 //! too. A free half-edge that survives post-processing is an open
 //! seam in the mesh (measured: the angled tapped hole's entry-chamfer
-//! cut, served by the cellular pipeline once the tapped wall's
-//! pcurves were exact, kept 5 free half-edges — 215 open mesh edges
-//! and a split chamfer cone — while graph-merge serves the same cut
-//! closed). A cellular body failing closure is discarded for the
-//! graph-merge body (recorded as a fallback); a graph-merge body
-//! failing it declines the boolean.
+//! cut once kept 5 free half-edges — 215 open mesh edges and a split
+//! chamfer cone). A body failing closure declines the boolean.
+//!
+//! Graph-merge selection was the last rung until plan Stage 7d
+//! retired it: over two consecutive whole-suite runs it served no
+//! boolean outside its own kill switch (`MergeFallback` lines still
+//! mark the cellular declines it used to catch).
 
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 use crate::error::{BoolError, BoolOperation, PhaseMetric, Stage};
 use crate::intersect::IntersectionResult;
-use crate::merge::graph_merge::graph_merge;
 use crate::progress::ProgressReporter;
 
 use super::postprocess::{
@@ -49,17 +50,16 @@ pub(super) fn select_and_serve(
     policy: crate::options::NonManifoldPolicy,
 ) -> Result<BRep, BoolError> {
     // Stage 5: Cellular graph merge — order-independent fragment selection.
-    // Falls back to standard graph-merge if cellular fails or produces
-    // invalid topology. Every fallback firing is recorded structurally
-    // and said once on stderr (`merge_fallback`) — the cellular error
-    // was previously discarded with `.ok()` on all builds, and a whole
-    // campaign's worth of pcurve archaeology traced a defect to
-    // graph-merge before discovering graph-merge was even running.
+    // Every cellular decline is recorded structurally and said once on
+    // stderr (`merge_fallback`) — the cellular error was once discarded
+    // with `.ok()` on all builds, and a whole campaign's worth of
+    // pcurve archaeology traced a defect to graph-merge before
+    // discovering graph-merge was even running.
     let t_merge = popkern_core::time::Stopwatch::start();
-    // POPKERN_CELLULAR=0 forces the graph-merge path — diagnostic
-    // kill-switch (PK-239 precedent).
-    let cellular_enabled = std::env::var_os("POPKERN_CELLULAR").is_none_or(|v| v != "0");
-    let cellular_result = if cellular_enabled {
+    // Why the cellular stage declined: the boolean's error when no
+    // later rung serves.
+    let mut cellular_error: Option<BoolError> = None;
+    let cellular_result = {
         // Local scope (PK-814): far faces carried, the rest merged; any
         // scoped failure or invalid result reruns unscoped.
         let merge = |scopes: Option<&crate::scope::OperandScopes>| {
@@ -120,22 +120,21 @@ pub(super) fn select_and_serve(
                 // (PK-463): the cellular assembly leaves record-use
                 // pcurves to the recompute, and a recompute skip
                 // (projection failure) is silent — the served body
-                // meshed torn on the chamfered rod while graph-merge
-                // served it watertight. Attempt the fill HERE and
-                // decline to graph-merge when any face still misses
-                // one; the accepted result's later shared recompute
-                // is then a no-op.
+                // meshed torn on the chamfered rod. Attempt the fill
+                // HERE and decline when any face still misses one; the
+                // accepted result's later shared recompute is then a
+                // no-op.
                 Ok(()) => {
                     let mut r = r;
                     let _ = r.recompute_pcurves_where_missing();
                     match super::first_missing_pcurve_face(&r) {
                         None => Some((r, carried)),
                         Some(fh) => {
+                            let why = format!("face {fh:?} pcurve-incomplete after recompute");
+                            cellular_error = Some(BoolError::ValidationFailed(why.clone()));
                             crate::merge_fallback::record_merge_fallback(
                                 op,
-                                crate::merge_fallback::MergeFallbackReason::CellularInvalid(
-                                    format!("face {fh:?} pcurve-incomplete after recompute"),
-                                ),
+                                crate::merge_fallback::MergeFallbackReason::CellularInvalid(why),
                             );
                             None
                         }
@@ -143,6 +142,9 @@ pub(super) fn select_and_serve(
                 }
                 Err(e) => {
                     super::helpers_pcurve_coherence::trace_cellular_nonmanifold(&r);
+                    cellular_error = Some(BoolError::ValidationFailed(format!(
+                        "cellular result invalid: {e}"
+                    )));
                     crate::merge_fallback::record_merge_fallback(
                         op,
                         crate::merge_fallback::MergeFallbackReason::CellularInvalid(e.to_string()),
@@ -151,32 +153,24 @@ pub(super) fn select_and_serve(
                 }
             },
             Err(diag) => {
+                let e = diag.into_error();
                 crate::merge_fallback::record_merge_fallback(
                     op,
-                    crate::merge_fallback::MergeFallbackReason::CellularError(
-                        diag.into_error().to_string(),
-                    ),
+                    crate::merge_fallback::MergeFallbackReason::CellularError(e.to_string()),
                 );
+                cellular_error = Some(e);
                 None
             }
         }
-    } else {
-        crate::merge_fallback::record_merge_fallback(
-            op,
-            crate::merge_fallback::MergeFallbackReason::CellularDisabled,
-        );
-        None
     };
     // The cell complex (PK-976): where the cellular classifier could
     // not serve, the complex classifies the same graph and walk by
-    // region membership. A non-manifold verdict is held: graph-merge
-    // gets one try, and its body serves only if `validate_all` finds
-    // no self-touching (today's pseudo-manifold serves fail it);
-    // otherwise the boolean declines with the contacts (D1).
+    // region membership. A non-manifold verdict declines with the
+    // contacts (D1), or under the split policy the complex splits it
+    // into manifold pieces.
     let mut nonmanifold: Option<BoolError> = None;
-    let mut split_by_complex = false;
     let cellular_result = match cellular_result {
-        None if cellular_enabled && crate::complex::serve::complex_rescue_enabled() => {
+        None if crate::complex::serve::complex_rescue_enabled() => {
             match crate::complex::serve::rescue(
                 original_a,
                 original_b,
@@ -189,8 +183,7 @@ pub(super) fn select_and_serve(
                     nonmanifold = Some(error);
                     // Under the split policy the complex splits its own
                     // verdict into manifold pieces (PK-987).
-                    split_by_complex = policy == crate::options::NonManifoldPolicy::SplitToManifold;
-                    split_by_complex
+                    (policy == crate::options::NonManifoldPolicy::SplitToManifold)
                         .then(|| {
                             crate::complex::serve::rescue_split(
                                 original_a,
@@ -207,24 +200,21 @@ pub(super) fn select_and_serve(
         other => other,
     };
     let closed_operands = free_half_edges(original_a) == 0 && free_half_edges(original_b) == 0;
-    let graph = || {
-        graph_merge(original_a, original_b, intersection_result, op, tolerance)
-            .map_err(|diag| diag.into_error())
+    // No rung served: the non-manifold verdict, else why the cellular
+    // stage declined.
+    let Some((result, carried)) = cellular_result else {
+        return Err(nonmanifold
+            .or(cellular_error)
+            .unwrap_or_else(|| BoolError::MergeFailed {
+                stage: "Cellular".to_string(),
+                reason: "no selection served".to_string(),
+            }));
     };
-    let from_cellular = cellular_result.is_some();
-    // A cellular result arrives validated in full (its acceptance);
-    // a graph-merge one does not.
-    let (result, carried, validated) = match cellular_result {
-        Some((r, carried)) => (r, carried, true),
-        None => match graph() {
-            Ok(r) => (r, crate::serve_region::Carried::default(), false),
-            Err(e) => return Err(nonmanifold.unwrap_or(e)),
-        },
-    };
+    // A cellular result arrives validated in full (its acceptance).
     let merged = (result, t_merge.elapsed());
     let served = serve(
         merged,
-        (&carried, validated),
+        (&carried, true),
         op,
         tolerance,
         original_a,
@@ -233,10 +223,13 @@ pub(super) fn select_and_serve(
         progress,
     );
     let served = match (served, nonmanifold) {
+        // The complex split of a non-manifold verdict (the split
+        // policy): it serves once every contact is recorded and
+        // `validate_all` accepts it.
         (Ok(body), Some(nm)) => {
             // The caller declines any served body that touches itself
-            // (`execute_boolean_full`), so a body with contacts is the
-            // verdict again: it never serves here.
+            // (`execute_boolean_full`): only a contact-free body serves
+            // as it is.
             let touches = || {
                 !crate::postprocess::zero_thickness::zero_thickness_contacts(&body, tolerance)
                     .is_empty()
@@ -244,57 +237,21 @@ pub(super) fn select_and_serve(
                         .is_empty()
             };
             if body.validate_all().is_empty() && !touches() {
-                if !from_cellular {
-                    graph_merge_served(op, "a non-manifold verdict's body validates");
-                }
                 return Ok(body);
             }
-            // Graph-merge splits the contacts into coincident copies;
-            // under the split policy that body serves once every
-            // contact is recorded and `validate_all` accepts it.
-            let accept = |b| crate::postprocess::contact_record::accept_split(b, tolerance);
             return match policy {
                 crate::options::NonManifoldPolicy::Decline => Err(nm),
-                crate::options::NonManifoldPolicy::SplitToManifold => match accept(body) {
-                    Ok(b) => {
-                        if !from_cellular {
-                            graph_merge_served(op, "coincident copies split the contacts");
-                        }
-                        Ok(b)
-                    }
-                    // Graph-merge's coincident copies remain the
-                    // fallback when the complex split fails acceptance.
-                    Err(e) if split_by_complex => {
+                crate::options::NonManifoldPolicy::SplitToManifold => {
+                    crate::postprocess::contact_record::accept_split(body, tolerance).map_err(|e| {
                         crate::complex_shadow::record_complex_rescue(
                             op,
                             crate::complex_shadow::ComplexRescueOutcome::SplitRejected(
                                 e.to_string(),
                             ),
                         );
-                        let t_retry = popkern_core::time::Stopwatch::start();
-                        let carried = crate::serve_region::Carried::default();
-                        graph()
-                            .and_then(|retried| {
-                                let merged = (retried, t_retry.elapsed());
-                                serve(
-                                    merged,
-                                    (&carried, false),
-                                    op,
-                                    tolerance,
-                                    original_a,
-                                    original_b,
-                                    metrics,
-                                    progress,
-                                )
-                            })
-                            .and_then(accept)
-                            .inspect(|_| {
-                                graph_merge_served(op, "the complex split failed acceptance")
-                            })
-                            .map_err(|_| nm)
-                    }
-                    Err(_) => Err(nm),
-                },
+                        nm
+                    })
+                }
             };
         }
         (Err(_), Some(nm)) => return Err(nm),
@@ -302,47 +259,15 @@ pub(super) fn select_and_serve(
     };
     let open = free_half_edges(&served);
     if !closed_operands || open == 0 {
-        if !from_cellular {
-            graph_merge_served(op, "the cellular classifier declined");
-        }
         return Ok(served);
     }
-    if from_cellular {
-        crate::merge_fallback::record_merge_fallback(
-            op,
-            crate::merge_fallback::MergeFallbackReason::CellularInvalid(format!(
-                "served body carries {open} free half-edge(s) after post-processing"
-            )),
-        );
-        let t_retry = popkern_core::time::Stopwatch::start();
-        let retried = graph()?;
-        let merged = (retried, t_retry.elapsed());
-        let served = serve(
-            merged,
-            (&crate::serve_region::Carried::default(), false),
-            op,
-            tolerance,
-            original_a,
-            original_b,
-            metrics,
-            progress,
-        )?;
-        let open = free_half_edges(&served);
-        if open == 0 {
-            graph_merge_served(op, "the cellular body was open");
-            return Ok(served);
-        }
-        return Err(unclosed(open));
-    }
+    crate::merge_fallback::record_merge_fallback(
+        op,
+        crate::merge_fallback::MergeFallbackReason::CellularInvalid(format!(
+            "served body carries {open} free half-edge(s) after post-processing"
+        )),
+    );
     Err(unclosed(open))
-}
-
-/// Log that a graph-merge body served the result: the retirement
-/// counter (plan Stage 7d) graph-merge must hold at 0 over the suite.
-/// A `MergeFallback` line only says cellular gave up; graph-merge's
-/// body may still decline (a non-manifold verdict).
-fn graph_merge_served(op: BoolOperation, why: &str) {
-    crate::complex_shadow::append_log_line(&format!("GraphMergeServed {op:?} {why}"));
 }
 
 fn unclosed(open: usize) -> BoolError {

@@ -48,33 +48,8 @@ use boundary_predicates::node_on_face_boundary;
 use next_edge::next_around_face;
 use walk_geometry::signed_area;
 
-/// Walk all face fragments in the graph (graph-merge pipeline entry).
+/// Walk all face fragments in the graph.
 ///
-/// Chart-primary like the cellular pipeline: each face whose substrate
-/// passes I1–I5 walks as a chart permutation; the rest take the 3D-Newell
-/// walk per face. Graph-merge graphs lack the cellular phase's seam
-/// splits, so its periodic faces fall back more often — the per-face
-/// fallback absorbs exactly those (PK-108 retirement: the 3D-Newell walk
-/// is fallback-only on every pipeline).
-pub(crate) fn walk_all_fragments(
-    graph: &IntersectionGraph,
-    brep_a: &BRep,
-    brep_b: &BRep,
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> Vec<Fragment> {
-    walk_all_fragments_ext(
-        graph,
-        brep_a,
-        brep_b,
-        false,
-        true,
-        &[],
-        &mut Vec::new(),
-        None,
-        tolerance,
-    )
-}
-
 /// `coincident_interface`: the boolean carries coplanar face
 /// overlaps — enables the disjoint-loop election override, whose
 /// sampled-polygon containment test is currently only trusted on
@@ -83,8 +58,7 @@ pub(crate) fn walk_all_fragments(
 ///
 /// `chart_primary`: walk each face as a chart-subdivision permutation
 /// when its substrate passes I1–I5, with the 3D-Newell walk as recorded
-/// per-face fallback (PK-104 stage 3; the cellular pipeline sets this,
-/// graph-merge keeps the 3D-Newell walk — its graphs lack seam splits).
+/// per-face fallback (PK-104 stage 3).
 ///
 /// `overlap_pairs`: the coplanar face-overlap pairs from coincidence
 /// detection — the substrate's partial-cover dedup is scoped to

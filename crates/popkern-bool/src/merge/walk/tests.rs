@@ -14,6 +14,22 @@ fn empty_breps() -> (BRep, BRep) {
     )
 }
 
+/// Walk every face of `graph` chart-first, as the cellular pipeline
+/// does, without coplanar overlaps or operand maps.
+fn walk(graph: &IntersectionGraph, a: &BRep, b: &BRep) -> Vec<Fragment> {
+    walk_all_fragments_ext(
+        graph,
+        a,
+        b,
+        false,
+        true,
+        &[],
+        &mut Vec::new(),
+        None,
+        &Tolerance::default(),
+    )
+}
+
 /// Build a triangle face in the graph with 3 nodes and 3 edge pairs.
 fn triangle_graph() -> (IntersectionGraph, FaceRef) {
     let mut graph = IntersectionGraph::new();
@@ -44,12 +60,7 @@ fn triangle_produces_one_outer_loop() {
     let (graph, _face_ref) = triangle_graph();
     let (ba, bb) = empty_breps();
 
-    let fragments = walk_all_fragments(
-        &graph,
-        &ba,
-        &bb,
-        &popkern_core::tolerance::Tolerance::default(),
-    );
+    let fragments = walk(&graph, &ba, &bb);
 
     assert_eq!(fragments.len(), 1, "Expected 1 fragment for triangle");
     assert_eq!(
@@ -86,12 +97,7 @@ fn square_face_produces_one_outer_loop() {
     graph.set_half_edge_face(fwd30, face_ref);
     let (ba, bb) = empty_breps();
 
-    let fragments = walk_all_fragments(
-        &graph,
-        &ba,
-        &bb,
-        &popkern_core::tolerance::Tolerance::default(),
-    );
+    let fragments = walk(&graph, &ba, &bb);
 
     assert_eq!(fragments.len(), 1, "Expected 1 fragment for square");
     assert_eq!(

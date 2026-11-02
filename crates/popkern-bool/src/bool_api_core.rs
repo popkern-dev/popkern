@@ -1,6 +1,6 @@
 //! The body of [`crate::boolean`] and [`crate::boolean_with_options`]:
-//! input checks, the pipeline under a non-manifold policy with the
-//! perturbation fallback, and the naming and lineage of the result.
+//! input checks, the pipeline under a non-manifold policy, and the
+//! naming and lineage of the result.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -8,7 +8,7 @@ use popkern_core::topology::BRep;
 use crate::error::BoolError;
 use crate::{
     BoolOperation, TrackingContext, entity_lineage, entity_lineage_carry, entity_naming,
-    entity_naming_edges, operation, options, perturbation, sheet,
+    entity_naming_edges, operation, options, sheet,
 };
 
 /// [`crate::boolean`] under `policy`.
@@ -61,27 +61,10 @@ pub(crate) fn boolean_under(
         (Vec::new(), Vec::new(), 0, 0)
     };
 
-    let mut result =
-        operation::execute_boolean_with_policy(op, &a, &b, &tol, policy).or_else(|e| {
-            // Perturbation fallback: retry with slightly perturbed geometry
-            // if the error is the kind that perturbation can fix.
-            if matches!(
-                e,
-                BoolError::CoincidentFaces { .. }
-                    | BoolError::IntersectionFailed(_)
-                    | BoolError::ClassificationFailed { .. }
-            ) {
-                perturbation::boolean_with_perturbation(
-                    op,
-                    &a,
-                    &b,
-                    tol,
-                    &perturbation::PerturbationConfig::default(),
-                )
-            } else {
-                Err(e)
-            }
-        })?;
+    // No perturbation retry: plan Stage 7d retired it after it fired on
+    // no boolean over three whole-suite runs (`boolean_with_perturbation`
+    // remains an explicit opt-in).
+    let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, policy)?;
     if let Some(ctx) = tracking {
         // Naming scheme 3 (PK-731): the result pool starts as the
         // target operand's (a shared clone), as every other operation's

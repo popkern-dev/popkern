@@ -1,12 +1,14 @@
-//! Structured record of the cellular→graph-merge fallback boundary.
+//! Structured record of the cellular stage's declines.
 //!
-//! The boolean pipeline's primary selection is the order-independent
-//! cellular decomposition; graph-merge selection is its explicit
-//! fallback. Every time the fallback fires, the pipeline
-//! records WHY (structured, process-queryable) and says so once on
-//! stderr — a silent route change here previously cost a whole
-//! campaign of misdirected pcurve archaeology, because the cellular
-//! error was discarded with `.ok()` on all builds.
+//! The boolean pipeline's selection is the order-independent cellular
+//! decomposition (the complex primary, the cellular classifier its
+//! fallback). Graph-merge selection once caught its declines; plan
+//! Stage 7d retired it, and a decline now goes to the complex rescue
+//! or declines the boolean. Every time the cellular stage declines,
+//! the pipeline records WHY (structured, process-queryable) and says
+//! so once on stderr — a silent route change here previously cost a
+//! whole campaign of misdirected pcurve archaeology, because the
+//! cellular error was discarded with `.ok()` on all builds.
 //!
 //! The registry is process-global and drained by
 //! [`take_merge_fallback_events`]; tests use it to pin the fallback
@@ -16,13 +18,9 @@ use std::sync::Mutex;
 
 use crate::error::BoolOperation;
 
-/// Why the boolean pipeline fell back from cellular selection to
-/// graph-merge selection.
+/// Why the cellular stage declined.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeFallbackReason {
-    /// `POPKERN_CELLULAR=0` forced graph-merge (diagnostic
-    /// kill-switch; never set in production).
-    CellularDisabled,
     /// The cellular assembly returned an error before producing a
     /// body. Carries the error's display form.
     CellularError(String),
@@ -31,7 +29,7 @@ pub enum MergeFallbackReason {
     CellularInvalid(String),
 }
 
-/// One firing of the cellular→graph-merge fallback.
+/// One cellular decline.
 #[derive(Debug, Clone)]
 pub struct MergeFallbackEvent {
     /// The boolean operation being executed when the fallback fired.
@@ -42,23 +40,21 @@ pub struct MergeFallbackEvent {
 
 static EVENTS: Mutex<Vec<MergeFallbackEvent>> = Mutex::new(Vec::new());
 
-/// Record a fallback firing: append to the process registry and emit
-/// one unconditional stderr line. The stderr line is deliberate — a
-/// fallback at this boundary changes which 10k-line assembly serves
-/// the result, and that must never be invisible.
+/// Record a decline: append to the process registry and emit one
+/// unconditional stderr line. The stderr line is deliberate — a
+/// decline here changes what serves the result (the complex rescue,
+/// or nothing), and that must never be invisible.
 pub(crate) fn record_merge_fallback(operation: BoolOperation, reason: MergeFallbackReason) {
-    eprintln!("[boolean] cellular->graph-merge fallback ({operation:?}): {reason:?}");
-    // The suite's retirement counter (plan Stage 7d): graph-merge
-    // retires once no full run logs a line.
+    eprintln!("[boolean] cellular declined ({operation:?}): {reason:?}");
     crate::complex_shadow::append_log_line(&format!("MergeFallback {operation:?} {reason:?}"));
     if let Ok(mut events) = EVENTS.lock() {
         events.push(MergeFallbackEvent { operation, reason });
     }
 }
 
-/// Drain and return every fallback event recorded by this process
-/// since the last call. Empty when the cellular path served every
-/// boolean — the expected steady state.
+/// Drain and return every decline recorded by this process since the
+/// last call. Empty when the cellular path served every boolean — the
+/// expected steady state.
 pub fn take_merge_fallback_events() -> Vec<MergeFallbackEvent> {
     EVENTS
         .lock()

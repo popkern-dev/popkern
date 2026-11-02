@@ -1,16 +1,16 @@
-//! Cellular→graph-merge fallback honesty (PK-351).
+//! Cellular decline honesty (PK-351).
 //!
-//! The cellular selection is the boolean pipeline's primary route;
-//! graph-merge is its explicit fallback. These pins hold two facts:
+//! The cellular selection is the boolean pipeline's route (graph-merge,
+//! once its fallback, retired at plan Stage 7d). These pins hold two
+//! facts:
 //!
 //! 1. On a representative operand corpus the cellular route serves
-//!    every operation — the fallback registry stays EMPTY. If this
+//!    every operation — the decline registry stays EMPTY. If this
 //!    ever fails, the recorded reasons say exactly which operation
-//!    fell back and why (the reason used to be discarded with
+//!    declined and why (the reason used to be discarded with
 //!    `.ok()`, unlogged on all builds).
-//! 2. The recording mechanism itself works: forcing the kill-switch
-//!    records `CellularDisabled` and the operation still serves
-//!    through graph-merge.
+//! 2. The recording mechanism itself works: a recorded degeneracy
+//!    logs its cellular decline before the boolean declines.
 //!
 //! Process-global registry: safe under nextest (process per test).
 
@@ -84,9 +84,9 @@ fn cellular_serves_the_corpus_without_fallback() {
 
 /// A sphere centered exactly ON a cube vertex: the intersection curve
 /// runs through the corner vertex itself. Cellular assembly leaves a
-/// shell gap (recorded as the fallback reason), and graph-merge's
-/// strand gate then declines transactionally rather than serving a
-/// body with missing regions. This pin holds BOTH honesty contracts:
+/// shell gap (recorded as the decline reason), the complex finds a
+/// membership conflict, and the boolean declines transactionally
+/// rather than serving a body with missing regions. This pin holds BOTH honesty contracts:
 /// the fallback is recorded, and the decline is a typed error — never
 /// a silent route change or a silently-wrong body.
 #[test]
@@ -102,7 +102,7 @@ fn corner_centered_sphere_union_records_fallback_and_declines() {
                 events
                     .iter()
                     .any(|e| matches!(e.reason, MergeFallbackReason::CellularInvalid(_))),
-                "the cellular decline must be recorded before graph-merge declines: {events:?}"
+                "the cellular decline must be recorded before the boolean declines: {events:?}"
             );
         }
         // If a future campaign makes this configuration serve, it must
@@ -115,31 +115,4 @@ fn corner_centered_sphere_union_records_fallback_and_declines() {
             );
         }
     }
-}
-
-#[test]
-fn kill_switch_fallback_is_recorded_and_still_serves() {
-    // Process-scoped: safe under nextest's process-per-test model.
-    // SAFETY-adjacent note: set_var is fine here — single-threaded
-    // test entry, before any boolean runs.
-    unsafe { std::env::set_var("POPKERN_CELLULAR", "0") };
-    let _ = take_merge_fallback_events();
-
-    let cube = shifted_cube(0.0, 0.0, 0.0, 1.0);
-    let other = shifted_cube(0.4, 0.4, 0.4, 1.0);
-    let result =
-        boolean(BoolOperation::Union, cube, other, tol(), None).expect("graph-merge serves");
-    assert!(result.validate().is_ok(), "graph-merge result validates");
-
-    let events = take_merge_fallback_events();
-    assert!(
-        !events.is_empty(),
-        "the forced fallback must be recorded, not silent"
-    );
-    assert!(
-        events
-            .iter()
-            .all(|e| e.reason == MergeFallbackReason::CellularDisabled),
-        "reason must be CellularDisabled: {events:?}"
-    );
 }
