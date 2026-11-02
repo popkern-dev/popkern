@@ -40,45 +40,85 @@ impl VertexIdentity {
     }
 }
 
-/// Build the table over `records` and decide the graph's vertices.
+/// Build the table over `records` and decide the graph's vertices,
+/// returning the records as the graph inserts them: a closed record
+/// whose closure no other entity needs closes at one of its paves
+/// (`tolerance_zone::closure`), and the table is rebuilt over the moved
+/// records, so its ends, paves and blocks describe them. Under graph
+/// identity the records close at an edge-face hit on them instead
+/// (`record_rotation`), with the kill switch from the start.
 pub(super) fn decide(
     (a, b): (&BRep, &BRep),
     ix: &IntersectionResult,
-    records: &[IntersectionRecord],
-    linear: f64,
+    mut records: Vec<IntersectionRecord>,
+    tolerance: &popkern_core::tolerance::Tolerance,
     partial_overlaps: bool,
-) -> VertexIdentity {
+) -> (Vec<IntersectionRecord>, VertexIdentity) {
     use crate::tolerance_zone::{candidates, table};
+    let linear = tolerance.linear();
     if !table::table_enabled() {
-        return VertexIdentity {
+        let identity = VertexIdentity {
             hits: ix.edge_face_hits.clone(),
             ..VertexIdentity::default()
         };
+        return (records, identity);
     }
     // The operand edges split only at the hits that are interferences
     // (on their face), the table's own candidates.
-    let hits = candidates::interfering_hits((a, b), ix, records, linear);
-    let table = table::build((a, b), &hits, records, linear);
-    let ends = table.record_ends(records.len());
-    let Some(ends) = ends else {
+    let mut hits = candidates::interfering_hits((a, b), ix, &records, linear);
+    let mut table = table::build((a, b), &hits, &records, linear);
+    let moves = table.closure_moves(&records);
+    if moves.iter().any(Option::is_some) {
+        for (record, mv) in records.iter_mut().zip(&moves) {
+            let moved =
+                mv.and_then(|m| super::record_rotation::rotate_closed_record_at(record, m.s, m.at));
+            if let Some(moved) = moved {
+                *record = moved;
+            }
+        }
+        crate::complex_shadow::subsumed_pass_fired(
+            "closure_moved",
+            moves.iter().flatten().count(),
+            0.0,
+        );
+        hits = candidates::interfering_hits((a, b), ix, &records, linear);
+        table = table::build((a, b), &hits, &records, linear);
+    }
+    let Some(ends) = table.record_ends(records.len()) else {
         crate::complex_shadow::append_log_line(&format!(
             "VertexTableFallback {:?}",
             table.resolution.as_ref().err()
         ));
-        return VertexIdentity {
+        let records = records
+            .iter()
+            .map(|r| {
+                super::record_rotation::rotate_closed_record_to_hits(
+                    r,
+                    &ix.edge_face_hits,
+                    tolerance,
+                )
+            })
+            .collect();
+        let identity = VertexIdentity {
             hits,
             ..VertexIdentity::default()
         };
+        return (records, identity);
     };
-    VertexIdentity {
+    let identity = VertexIdentity {
         vertex_anchors: table.operand_vertex_anchors(),
         operand_paves: table.operand_edge_paves(),
         common_blocks: if partial_overlaps {
-            table.record_edge_blocks([a, b], records, linear)
+            table.record_edge_blocks([a, b], &records, linear)
         } else {
             Vec::new()
         },
         ends: Some(ends),
         hits,
-    }
+    };
+    (records, identity)
 }
+
+#[cfg(test)]
+#[path = "vertex_identity_tests.rs"]
+mod tests;

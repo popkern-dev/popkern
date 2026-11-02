@@ -23,6 +23,7 @@
 
 pub(crate) mod branches;
 pub(crate) mod candidates;
+pub(crate) mod closure;
 pub(crate) mod common_blocks;
 pub(crate) mod consequences;
 pub(crate) mod face_info;

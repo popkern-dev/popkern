@@ -146,6 +146,9 @@ pub(crate) fn remove_common_block_duplicates(
     use super::graph::{FaceRef, Operand};
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     let mut seams = Vec::new();
+    // (face, record half-edge, the record's other face): a half-edge
+    // withdrawn from the face's walk.
+    let mut withdrawn = Vec::new();
     for block in blocks {
         let Some(record) = records.get(block.record) else {
             continue;
@@ -208,6 +211,17 @@ pub(crate) fn remove_common_block_duplicates(
                 }
             })
             .collect();
+        let other = if block.operand == 0 {
+            FaceRef {
+                operand: Operand::B,
+                face: record.face_b,
+            }
+        } else {
+            FaceRef {
+                operand: Operand::A,
+                face: record.face_a,
+            }
+        };
         for idx in pieces {
             if pairs.iter().any(|&(i, _)| i == idx) {
                 continue;
@@ -216,12 +230,66 @@ pub(crate) fn remove_common_block_duplicates(
             let twin = graph.half_edges[idx].twin;
             if graph.half_edges[twin].face == Some(face) {
                 seams.push((face, s));
+                continue;
             }
+            // The piece bounds the face on one side only: the record's
+            // half-edge running against it lies off the face, beyond
+            // its boundary, and walked there it closes a phantom loop
+            // (measured: a ring flush on a shaft, turned, walked the
+            // shaft's end disc out and back along the record on its
+            // rim, a doubled ring the radial order could not place).
+            // Which way runs with the piece: by its end nodes, or for a
+            // closed block (both ends one node) along the curves.
+            let ts = graph.half_edges[s].twin;
+            let along = match (
+                na == nb,
+                quarter_along(graph, idx),
+                quarter_along(graph, s),
+                quarter_along(graph, ts),
+            ) {
+                (true, Some(p), Some(q), Some(r)) => {
+                    if p.distance_to(&q) <= p.distance_to(&r) {
+                        s
+                    } else {
+                        ts
+                    }
+                }
+                _ if graph.half_edges[s].origin == graph.half_edges[idx].origin => s,
+                _ => ts,
+            };
+            withdrawn.push((face, graph.half_edges[along].twin, other));
         }
     }
     let n = pairs.len();
     mark_duplicates(graph, &pairs, seams);
+    for (face, h, other) in withdrawn {
+        if let Some(list) = graph.face_edges.get_mut(&face) {
+            list.retain(|&e| e != h);
+        }
+        if graph.half_edges[h].face == Some(face) {
+            graph.half_edges[h].face = Some(other);
+        }
+    }
     n
+}
+
+/// The point a quarter of the way along half-edge `idx` of a CLOSED
+/// pair as it runs: its forward half-edge runs the curve window from
+/// `t_start` to `t_end`, the twin against it (graph build registers a
+/// closed edge's sides by that window, its two ends being one node).
+/// An open pair's direction is its end nodes'.
+fn quarter_along(graph: &IntersectionGraph, idx: usize) -> Option<Point3> {
+    let he = &graph.half_edges[idx];
+    let (c, forward) = match he.curve.as_ref() {
+        Some(c) => (c, true),
+        None => (graph.half_edges[he.twin].curve.as_ref()?, false),
+    };
+    let (a, b) = if forward {
+        (c.t_start, c.t_end)
+    } else {
+        (c.t_end, c.t_start)
+    };
+    Some(c.geometry.point_at(a + 0.25 * (b - a)))
 }
 
 /// The curve of half-edge `idx`, read from its twin when the pair

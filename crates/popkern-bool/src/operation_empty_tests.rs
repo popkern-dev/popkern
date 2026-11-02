@@ -86,3 +86,39 @@ fn an_empty_subtraction_needs_a_inside_b() {
     assert!(certify_empty_result(BoolOperation::Subtraction, &unit, &big).is_ok());
     assert!(certify_empty_result(BoolOperation::Subtraction, &big, &unit).is_err());
 }
+
+/// A body coincident with the other lies within it: its corners sit
+/// on the other's boundary, where the ray vote has no verdict.
+#[test]
+fn a_coincident_body_is_certified_inside() {
+    let unit = cube_at(0.0, 0.0, 0.0);
+    assert!(verify_whole_body_containment(
+        &unit,
+        &cube_at(0.0, 0.0, 0.0)
+    ));
+}
+
+/// Negative control: every vertex and boundary sample of the cube lies
+/// on the notched cube's boundary, but its top face runs over the notch.
+#[test]
+fn a_face_over_a_notch_is_not_certified_inside() {
+    let tol = Tolerance::default();
+    let notch = BRep::unit_cube(tol)
+        .expect("cube builds")
+        .transform(&Transform3::scale(0.4, 0.4, 0.4))
+        .expect("scales")
+        .transform(&Transform3::translation(0.3, 0.3, 0.8))
+        .expect("translates");
+    let notched = crate::boolean(
+        BoolOperation::Subtraction,
+        cube_at(0.0, 0.0, 0.0),
+        notch,
+        tol,
+        None,
+    )
+    .expect("notch cut");
+    assert!(!verify_whole_body_containment(
+        &cube_at(0.0, 0.0, 0.0),
+        &notched
+    ));
+}

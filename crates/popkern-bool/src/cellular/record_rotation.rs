@@ -77,32 +77,37 @@ pub(super) fn rotate_closed_record_to_hits(
         if (t_hit - t0).abs() < (t1 - t0) * 1e-4 || (t1 - t_hit).abs() < (t1 - t0) * 1e-4 {
             continue;
         }
-        let mut out = record.clone();
-        let rotate = |curve: &popkern_core::geometry::NurbsCurve|
-            -> Option<popkern_core::geometry::NurbsCurve> {
-            let (a, b) = curve.split_at(t_hit).ok()?;
+        if let Some(out) = rotate_closed_record_at(record, t_hit, hit.point) {
+            crate::complex_shadow::subsumed_pass_fired("record_rotation", 1, d_hit);
+            return out;
+        }
+    }
+    record.clone()
+}
+
+/// `record`, closed, reparameterized to close at its parameter `t`
+/// (interior), the new closure welded onto `at`. `None` when a split
+/// fails.
+pub(super) fn rotate_closed_record_at(
+    record: &crate::intersect::IntersectionRecord,
+    t: f64,
+    at: popkern_core::geometry::Point3,
+) -> Option<crate::intersect::IntersectionRecord> {
+    let rotate =
+        |curve: &popkern_core::geometry::NurbsCurve| -> Option<popkern_core::geometry::NurbsCurve> {
+            let (a, b) = curve.split_at(t).ok()?;
             // New curve = b then a, reparameterized to [0, 1] with
             // the join at the original closure (multiplicity-degree
             // interior knot — legal C0 join).
-            let (b0, b1) = {
-                let n = &b;
-                (n.knots[0], *n.knots.last()?)
-            };
-            let (a0, a1) = {
-                let n = &a;
-                (n.knots[0], *n.knots.last()?)
-            };
+            let (b0, b1) = (b.knots[0], *b.knots.last()?);
+            let (a0, a1) = (a.knots[0], *a.knots.last()?);
             let len_b = b1 - b0;
             let len_a = a1 - a0;
             let total = len_a + len_b;
             if total < 1e-12 {
                 return None;
             }
-            let mut knots: Vec<f64> = b
-                .knots
-                .iter()
-                .map(|&k| (k - b0) / total)
-                .collect();
+            let mut knots: Vec<f64> = b.knots.iter().map(|&k| (k - b0) / total).collect();
             let join = len_b / total;
             // Skip a's leading clamp knots (degree+1 of them) — the
             // join point carries multiplicity = degree from b's tail
@@ -115,9 +120,7 @@ pub(super) fn rotate_closed_record_to_hits(
                 .collect();
             // Replace b's trailing clamp (degree+1 copies) with
             // multiplicity-degree at the join.
-            for _ in 0..1 {
-                knots.pop();
-            }
+            knots.pop();
             knots.extend(a_knots_tail);
             let mut control_points = b.control_points.clone();
             // JUNCTION CONTINUITY: the splice joins the original END
@@ -144,24 +147,16 @@ pub(super) fn rotate_closed_record_to_hits(
                 weights,
             })
         };
-        if let (Some(c3), Some(u1), Some(u2)) = (
-            rotate(&record.curve.curve_3d),
-            rotate(&record.curve.curve_uv1),
-            rotate(&record.curve.curve_uv2),
-        ) {
-            out.curve.curve_3d = c3;
-            out.curve.curve_uv1 = u1;
-            out.curve.curve_uv2 = u2;
-            // Weld the new closure exactly onto the hit point.
-            if let Some(cp) = out.curve.curve_3d.control_points.first_mut() {
-                *cp = hit.point;
-            }
-            if let Some(cp) = out.curve.curve_3d.control_points.last_mut() {
-                *cp = hit.point;
-            }
-            crate::complex_shadow::subsumed_pass_fired("record_rotation", 1, d_hit);
-            return out;
-        }
+    let mut out = record.clone();
+    out.curve.curve_3d = rotate(&record.curve.curve_3d)?;
+    out.curve.curve_uv1 = rotate(&record.curve.curve_uv1)?;
+    out.curve.curve_uv2 = rotate(&record.curve.curve_uv2)?;
+    // Weld the new closure exactly onto the vertex.
+    if let Some(cp) = out.curve.curve_3d.control_points.first_mut() {
+        *cp = at;
     }
-    record.clone()
+    if let Some(cp) = out.curve.curve_3d.control_points.last_mut() {
+        *cp = at;
+    }
+    Some(out)
 }

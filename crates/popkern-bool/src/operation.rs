@@ -25,6 +25,8 @@ mod postprocess;
 mod postprocess_gate;
 #[path = "operation_serve.rs"]
 mod serve;
+#[path = "operation_shortcut_oracle.rs"]
+mod shortcut_oracle;
 
 use postprocess::log_validation_issues;
 
@@ -235,7 +237,7 @@ pub(super) fn execute_boolean_pipeline(
     // (see `operation_containment.rs`).
     if containment::coincident_containment_applies(op, a, b, &intersection_result, tolerance) {
         crate::complex_shadow::subsumed_pass_fired("containment_shortcut", 1, 0.0);
-        return handle_no_intersection(
+        let result = handle_no_intersection(
             op,
             a.clone(),
             b.clone(),
@@ -243,12 +245,22 @@ pub(super) fn execute_boolean_pipeline(
             &intersection_result.aabbs_b,
             tolerance,
         );
+        if shortcut_oracle::oracle_enabled() {
+            let ix = &intersection_result;
+            shortcut_oracle::compare("containment", op, (a, b), ix, tolerance, policy, &result);
+        }
+        return result;
     }
 
     // Bodies that only touch (opposite contact faces, point records).
     if let Some(result) = contact::touching_only(op, a, b, &intersection_result, tolerance) {
         crate::complex_shadow::subsumed_pass_fired("touching_shortcut", 1, 0.0);
-        return Ok(result);
+        let result = Ok(result);
+        if shortcut_oracle::oracle_enabled() {
+            let ix = &intersection_result;
+            shortcut_oracle::compare("touching", op, (a, b), ix, tolerance, policy, &result);
+        }
+        return result;
     }
 
     // The cellular stage serves from the operands and the

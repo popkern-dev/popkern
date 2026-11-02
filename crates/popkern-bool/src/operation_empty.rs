@@ -10,8 +10,9 @@
 use popkern_core::topology::BRep;
 
 /// Verify a claimed whole-body containment directly against the
-/// ORIGINAL operands: every vertex of `inner` must classify Inside
-/// or OnBoundary of `outer`. The empty-selection shortcut's claim
+/// ORIGINAL operands: every vertex, sampled loop boundary point and
+/// face interior point of `inner` must lie on `outer`'s boundary or
+/// classify Inside it. The empty-selection shortcut's claim
 /// comes from seed-propagated face classifications, and a silently
 /// under-split operand poisons every seed (measured: a rim-straddling
 /// key subtract left the disc's top/bottom faces unsplit, one seed
@@ -27,15 +28,24 @@ fn verify_whole_body_containment(inner: &BRep, outer: &BRep) -> bool {
     // has only its two seam vertices — both can sit inside a partial
     // tool while most of the body is outside), so every face's
     // boundary is curve-sampled as well.
+    // An interior point per face as well: a face whose boundary lies
+    // on `outer`'s can still bulge out of it.
     let mut probes: Vec<popkern_core::geometry::Point3> =
         inner.vertices.values().map(|v| v.position).collect();
     for face in inner.faces.keys() {
         probes.extend(inner.face_outer_loop_sample_positions(face, 8));
+        probes.extend(super::contact::face_interior_point(inner, face));
     }
     if probes.is_empty() {
         return false;
     }
     for probe in &probes {
+        // The ray vote has no on-boundary verdict of its own (a corner
+        // of a coincident body votes either way), so boundary points
+        // are recognised geometrically first.
+        if crate::postprocess::zero_thickness::on_body_boundary(probe, outer, &aabbs, &tolerance) {
+            continue;
+        }
         match point_in_solid_final(probe, outer, &aabbs, &tolerance) {
             Ok(PointClassification::Inside) | Ok(PointClassification::OnBoundary) => {}
             _ => return false,

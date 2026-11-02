@@ -80,12 +80,19 @@ pub(crate) fn cellular_graph_merge(
     // cylinder seam — the crossing — by construction. A circle from
     // an offset walk start (or a swept boss whose seam is elsewhere)
     // must be rotated to that convention.
-    let rotated: Vec<crate::intersect::IntersectionRecord> = intersection_result
+    // With the table deciding vertices, it decides where closed
+    // records close (`vertex_identity::decide`).
+    let table_enabled = crate::tolerance_zone::table::table_enabled();
+    let mut rotated: Vec<crate::intersect::IntersectionRecord> = intersection_result
         .records
         .iter()
-        .map(|r| rotate_closed_record_to_hits(r, &intersection_result.edge_face_hits, tolerance))
+        .map(|r| match table_enabled {
+            true => r.clone(),
+            false => {
+                rotate_closed_record_to_hits(r, &intersection_result.edge_face_hits, tolerance)
+            }
+        })
         .collect();
-    let mut rotated = rotated;
     // COINCIDENT-INTERFACE containment (PK-465): trim residues are
     // unproven on booleans that carry coplanar face overlaps — the
     // tuned flush arbitration owns those interfaces, and residues
@@ -115,11 +122,11 @@ pub(crate) fn cellular_graph_merge(
         .face_overlaps
         .iter()
         .any(|o| !o.full_overlap);
-    let identity = super::vertex_identity::decide(
+    let (rotated, identity) = super::vertex_identity::decide(
         (original_a, original_b),
         intersection_result,
-        &rotated,
-        tolerance.linear(),
+        rotated,
+        tolerance,
         partial_overlaps,
     );
     let graph_splits_junctions = identity.graph_identity();

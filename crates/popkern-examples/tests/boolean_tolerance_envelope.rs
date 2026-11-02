@@ -193,10 +193,12 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
             }
         }
 
-        // Centered-sphere subtraction: serves clean through 1e-3; at
-        // 1e-2 (tolerance = 10% of the cap height) the machinery
-        // genuinely degrades and must DECLINE with the closure
-        // diagnostics, never serve the torn body.
+        // Centered-sphere subtraction: serves clean at every tolerance.
+        // At 1e-2 (10% of the cap height) it declined with the closure
+        // diagnostics until the vertex table closed each rim at a
+        // vertex the body has anyway (`tolerance_zone::closure`), not
+        // at its tracer's start; a decline there is still allowed, a
+        // torn body never.
         let cube = BRep::unit_cube(t).unwrap();
         let sphere = BRep::sphere(0.6, t)
             .unwrap()
@@ -205,14 +207,11 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
         match popkern_bool::subtraction(cube, sphere, t, None) {
             Ok(b) => {
                 assert!(
-                    lin < 5e-3,
-                    "sphere-cube at {lin:e} served — if the coarse regime now \
-                     serves, it must be clean (below) and this pin updated"
-                );
-                assert!(
                     b.validate_all().is_empty(),
                     "sphere-cube at {lin:e} must be validator-clean"
                 );
+                let mesh = tessellate(&b, &TessellationOptions::default()).unwrap();
+                assert_eq!(open_edges(&mesh), 0, "sphere-cube at {lin:e}: watertight");
                 let v = volume(&b);
                 let rel = (v - truth_sphere).abs() / truth_sphere;
                 assert!(
@@ -223,12 +222,18 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
                 // the two seam pieces are exact arcs, and the mesh
                 // above was taken with them in place — the sheet-
                 // aligned hole rings keep the sphere face at its
-                // 1e-4 triangle budget instead of over-filling.
-                assert_eq!(
-                    nurbs_edges(&b),
-                    0,
-                    "sphere-cube at {lin:e}: every rim and seam piece is an exact arc"
-                );
+                // 1e-4 triangle budget instead of over-filling. At 1e-2
+                // a seam piece's sagitta (8e-3: a 0.33 rad arc of the
+                // 0.6 sphere) is under the tolerance, so no recognizer
+                // can tell it from a segment within it, and those two
+                // stay NURBS.
+                if lin < 5e-3 {
+                    assert_eq!(
+                        nurbs_edges(&b),
+                        0,
+                        "sphere-cube at {lin:e}: every rim and seam piece is an exact arc"
+                    );
+                }
             }
             Err(e) => {
                 assert!(
