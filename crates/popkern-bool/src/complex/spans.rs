@@ -70,5 +70,43 @@ pub(crate) fn unify_spans(
         };
         out.insert(key, rep);
     }
+    follow_duplicate_removals(graph, &mut out, linear);
     out
+}
+
+/// An operand piece the duplicate-cover pass removed from one face (in
+/// favour of the record it duplicated there) keeps its twin on its
+/// other face, and the graph judged the two pairs one curve
+/// (`IntersectionGraph::duplicate_of`): the surviving half lifts to the
+/// record's edge. Measured: a boss cap 1e-6 past a ring's extreme; the
+/// boss wall's rim arc was removed for the ring-wall record 1e-6 off it
+/// (inside the duplicate band, outside the span registry's linear
+/// band), the cap kept its rim half, and the complex held the record
+/// with three fins and the rim with one. A closed pair (coincident
+/// ends) gives no direction by its ends and keeps its own edge.
+fn follow_duplicate_removals(
+    graph: &IntersectionGraph,
+    out: &mut BTreeMap<usize, SpanRep>,
+    linear: f64,
+) {
+    let start = |k: usize| graph.nodes[graph.half_edges[k].origin].position;
+    let end = |k: usize| graph.nodes[graph.half_edges[graph.half_edges[k].twin].origin].position;
+    for (&removed, &record) in &graph.duplicate_of {
+        let key = removed.min(graph.half_edges[removed].twin);
+        let record_key = record.min(graph.half_edges[record].twin);
+        let (Some(&from), Some(&to)) = (out.get(&key), out.get(&record_key)) else {
+            continue;
+        };
+        if from.key == to.key || start(to.key).distance_to(&end(to.key)) <= linear {
+            continue;
+        }
+        for rep in out.values_mut().filter(|r| r.key == from.key) {
+            let here = start(from.key);
+            let along = here.distance_to(&start(to.key)) <= here.distance_to(&end(to.key));
+            *rep = SpanRep {
+                key: to.key,
+                same_dir: rep.same_dir == along,
+            };
+        }
+    }
 }

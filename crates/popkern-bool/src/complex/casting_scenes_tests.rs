@@ -20,6 +20,11 @@ fn the_near_tangent_cap_casting_serves_through_the_rim_extreme() {
         -366.998,
         -367.0 - 1e-6,
         -367.0,
+        // The cap's rim arc over the lens, removed from the boss wall
+        // as a duplicate of the ring-wall record 1e-6 off it, kept by
+        // the cap: one edge of the complex.
+        -367.00001,
+        -367.0001,
     ] {
         Casting::near_tangent_cap(cap_x).complex_union_serves();
     }

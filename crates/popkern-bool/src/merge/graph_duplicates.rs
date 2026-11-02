@@ -18,6 +18,12 @@
 //! the operand segment's midpoint against the shared curve, whose
 //! parameterization may differ (a fitted record against an exact
 //! rational arc), so the test is a point-to-curve distance.
+//!
+//! The removal is per face: the operand edge's other face may carry no
+//! such record and keeps its half. The graph records each removal
+//! (`duplicate_of`) so consumers that need edge identity across faces
+//! (the cell complex) see the surviving half and the record as one
+//! edge.
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
@@ -37,7 +43,7 @@ const MIDPOINT_FRACTION: f64 = 0.05;
 /// the same face: same end nodes AND the same curve (see the module
 /// docs).
 pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph, linear: f64) {
-    let mut to_remove: Vec<usize> = Vec::new();
+    let mut to_remove: Vec<(usize, usize)> = Vec::new();
     let mut seam_substitutes: Vec<(super::graph::FaceRef, usize)> = Vec::new();
 
     for (face, he_indices) in &graph.face_edges {
@@ -78,7 +84,7 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph, linear:
                 same_ends && same_curve(curve_of(graph, idx), curve_of(graph, s), (p0, p1), linear)
             });
             if let Some(s) = dup_of {
-                to_remove.push(idx);
+                to_remove.push((idx, s));
                 // The operand edge was this face's SEAM (both halves
                 // on the face): the record now carries the seam, and
                 // the chart must give it two border copies, not treat
@@ -96,7 +102,8 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph, linear:
         graph.seam_substitutes.insert((face, s));
         graph.seam_substitutes.insert((face, twin));
     }
-    for &idx in &to_remove {
+    for &(idx, s) in &to_remove {
+        graph.duplicate_of.insert(idx, s);
         if let Some(f) = graph.half_edges[idx].face
             && let Some(edges) = graph.face_edges.get_mut(&f)
         {

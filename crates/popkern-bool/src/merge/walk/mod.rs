@@ -720,15 +720,19 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
         // same-winding loops was measured to break six suites.
         let separate_by_shape = if remaining_areas[i].abs() >= threshold {
             let winding_dot = walk_geometry::loop_newell(graph, &lp).dot(&outer_newell);
-            // A ring of the face's OWN boundary edges (no record
-            // piece) winding against the outer is the face's
-            // original hole, on either operand: the tool-side cap
-            // semantics below belong to record rings. Without
-            // this a thin annulus kept from the tool (a revolved
-            // cavity's step, inner/outer area 0.71) lost its hole
-            // and served as two overlapping discs (PK-755).
+            // A ring carrying any of the face's OWN boundary edges
+            // winding against the outer is the face's original
+            // hole (records may have rerouted parts of it), on
+            // either operand: the tool-side cap semantics below
+            // belong to pure record rings. Without this a thin
+            // annulus kept from the tool (a revolved cavity's
+            // step, inner/outer area 0.71) lost its hole and
+            // served as two overlapping discs (PK-755), and a ring
+            // gear's tooth hole rerouted round four clash lenses
+            // served alone while the lenses hung as holes on the
+            // rim (its lens copies never formed).
             let own_hole = winding_dot < -1e-9
-                && lp.iter().all(|&h| {
+                && lp.iter().any(|&h| {
                     !matches!(
                         graph.half_edges[h].source,
                         super::graph::EdgeSource::Shared { .. }

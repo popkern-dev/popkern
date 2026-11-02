@@ -22,7 +22,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::ids::FaceId;
+use super::ids::{FaceId, FinId};
 use super::model::{CellComplex, FaceOwner};
 
 /// A face carried by one operand that lies on its coincident partner.
@@ -49,10 +49,16 @@ pub(crate) struct InnerPoint {
     pub fin_length: f64,
 }
 
-/// A point on `face` a short way in from its first fin: the fin's
+/// A point on `face` a short way in from one of its fins: the fin's
 /// midpoint stepped along the inward direction (normal × fin tangent)
-/// by 1% of the fin, at least 100 tolerances, and projected back onto
-/// the surface.
+/// and projected back onto the surface. The step is 1% of the fin, at
+/// least 100 tolerances, and a candidate stands only when every other
+/// edge of the face is farther from it than the step: a step that left
+/// the face crossed another edge, which then lies nearer than the step
+/// (measured: a stadium's rod-cap horn 7.5e-4 thick, stepped 9.5e-4 in
+/// from its rim arc, landed on the box cap beyond it). A rejected
+/// candidate shrinks the step, then tries the face's other fins; `None`
+/// when none stands.
 pub(crate) fn inner_point(
     c: &CellComplex,
     operands: [&BRep; 2],
@@ -66,7 +72,38 @@ pub(crate) fn inner_point(
         .get(owner.face)?
         .surface
         .as_ref()?;
-    let fin = c.loops.get(f.loops.first()?.index())?.first;
+    let fins: Vec<FinId> = f
+        .loops
+        .iter()
+        .flat_map(|&l| c.loop_fins(l))
+        .take(16)
+        .collect();
+    for shrink in [1.0, 0.25, 1.0 / 16.0] {
+        for &fin in &fins {
+            let Some(at) = step_in(c, surf, linear, fin, shrink) else {
+                continue;
+            };
+            if clear_of_other_edges(c, &f.loops, fin, &at) {
+                return Some(at.inner);
+            }
+        }
+    }
+    None
+}
+
+/// A candidate inner point and the step that reached it.
+struct Stepped {
+    inner: InnerPoint,
+    step: f64,
+}
+
+fn step_in(
+    c: &CellComplex,
+    surf: &popkern_core::geometry::SurfaceOnFace,
+    linear: f64,
+    fin: FinId,
+    shrink: f64,
+) -> Option<Stepped> {
     let edge = &c.edges[c.fins[fin.index()].edge.index()];
     let (pa, pb) = (
         c.vertices[edge.start.index()].position,
@@ -96,12 +133,60 @@ pub(crate) fn inner_point(
     };
     let len = pa.distance_to(&pb).max(linear * 1e3);
     let into = n.cross(&tf).normalized()?;
-    let on_face = mid + into * (len * 1e-2).max(linear * 100.0);
+    let step = (len * 1e-2).max(linear * 100.0) * shrink;
+    if step < linear * 10.0 {
+        return None;
+    }
+    let on_face = mid + into * step;
     let (u2, v2) = surf.geometry.closest_point(&on_face)?;
-    Some(InnerPoint {
-        point: surf.geometry.point_at(u2, v2),
-        uv: (u2, v2),
-        fin_length: len,
+    Some(Stepped {
+        inner: InnerPoint {
+            point: surf.geometry.point_at(u2, v2),
+            uv: (u2, v2),
+            fin_length: len,
+        },
+        step,
+    })
+}
+
+/// Whether every edge of `loops` other than `fin`'s lies farther than
+/// the step from the candidate.
+fn clear_of_other_edges(
+    c: &CellComplex,
+    loops: &[super::ids::LoopId],
+    fin: FinId,
+    at: &Stepped,
+) -> bool {
+    let own = c.fins[fin.index()].edge;
+    let p = at.inner.point;
+    loops.iter().flat_map(|&l| c.loop_fins(l)).all(|g| {
+        let e = c.fins[g.index()].edge;
+        if e == own {
+            return true;
+        }
+        let edge = &c.edges[e.index()];
+        let (a, b) = (
+            c.vertices[edge.start.index()].position,
+            c.vertices[edge.end.index()].position,
+        );
+        let d = match &edge.curve {
+            Some(cv) => {
+                use popkern_core::geometry::curve::CurveEval;
+                let t = popkern_core::geometry::curve::closest_point_in_window(
+                    &cv.geometry,
+                    &p,
+                    cv.t_start,
+                    cv.t_end,
+                );
+                cv.geometry.point_at(t).distance_to(&p)
+            }
+            None => {
+                let ab = b - a;
+                let k = ((p - a).dot(&ab) / ab.dot(&ab).max(1e-300)).clamp(0.0, 1.0);
+                (a + ab * k).distance_to(&p)
+            }
+        };
+        d > at.step
     })
 }
 

@@ -136,7 +136,10 @@ fn classify_shell(
             .get(owner.face)?
             .surface
             .as_ref()?;
-        let at = super::same_domain_check::inner_point(c, input.operands, linear, face)?;
+        let Some(at) = super::same_domain_check::inner_point(c, input.operands, linear, face)
+        else {
+            continue;
+        };
         let (base, (u2, v2), len) = (at.point, at.uv, at.fin_length);
         // Membership asks only about operands that bound none of the
         // class's faces, and a face of another operand has the same

@@ -127,6 +127,11 @@ pub(crate) struct IntersectionGraph {
     /// favour, so the chart treats them as that face's seam copies
     /// (PK-750; see `graph_duplicates`).
     pub seam_substitutes: std::collections::BTreeSet<(FaceRef, usize)>,
+    /// Operand half-edges the duplicate-cover pass removed, each to the
+    /// shared half-edge on the same face it duplicated. The removed
+    /// half's twin stays on its own face, and the two pairs are one
+    /// edge of the result (see `graph_duplicates`).
+    pub duplicate_of: std::collections::BTreeMap<usize, usize>,
     /// Node indices keyed by their x coordinate (order-preserving bit
     /// key), so `find_node` scans a slab instead of every node: graph
     /// build looked up every operand vertex against every node before
@@ -153,6 +158,7 @@ impl IntersectionGraph {
             half_edges: Vec::new(),
             face_edges: BTreeMap::new(),
             seam_substitutes: std::collections::BTreeSet::new(),
+            duplicate_of: std::collections::BTreeMap::new(),
             node_index: BTreeMap::new(),
         }
     }
