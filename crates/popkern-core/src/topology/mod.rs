@@ -30,7 +30,9 @@ pub use shell::Shell;
 pub use solid::Solid;
 pub use vertex::Vertex;
 
+pub mod body_kind;
 pub mod brep;
+pub use body_kind::BodyKind;
 pub use brep::BRep;
 pub mod contact;
 pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};

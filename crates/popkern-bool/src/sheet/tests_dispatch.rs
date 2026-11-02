@@ -441,3 +441,14 @@ fn boolean_on_sheet_body_returns_open_shell_error() {
         "expected OpenShellNotSupported, got {result:?}"
     );
 }
+
+/// A solid and a sheet side by side are one body of two kinds: still a
+/// sheet body to the boolean pre-check (it has free edges).
+#[test]
+fn a_solid_beside_a_sheet_is_a_mixed_body() {
+    let sheet = build_planar_sheet(3.0, 4.0, 3.0, 4.0, 0.5);
+    let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let both = crate::operation::helpers::combine_breps(cube, sheet).expect("side by side");
+    assert_eq!(both.body_kind(), popkern_core::topology::BodyKind::Mixed);
+    assert!(is_sheet_body(&both));
+}
