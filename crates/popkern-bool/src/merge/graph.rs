@@ -271,6 +271,27 @@ impl IntersectionGraph {
     }
 
     /// `find_node` by scanning every node (non-finite queries).
+    /// The lowest-indexed node at exactly `position`: the vertex
+    /// table's identity, where a resolved vertex is one point and every
+    /// node placed for it sits at its anchor.
+    pub fn find_node_exact(&self, position: &Point3) -> Option<usize> {
+        // -0.0 and 0.0 are one coordinate with two keys.
+        let x = position.x;
+        let (lo, hi) = if x == 0.0 {
+            (order_key(-0.0), order_key(0.0))
+        } else {
+            (order_key(x), order_key(x))
+        };
+        self.node_index
+            .range(lo..=hi)
+            .flat_map(|(_, ids)| ids.iter().copied())
+            .filter(|&i| {
+                let n = self.nodes[i].position;
+                n.x == x && n.y == position.y && n.z == position.z
+            })
+            .min()
+    }
+
     fn find_node_linear(&self, p: (f64, f64, f64), threshold_sq: f64) -> Option<usize> {
         self.nodes.iter().position(|n| {
             popkern_core::adaptive_precision::adaptive_dist_sq_lt(

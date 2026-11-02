@@ -82,20 +82,27 @@ pub(crate) fn insert_intersection_curves_at(
         // dead-ended on the disconnected ring (the arc-front wedge
         // leaked 94 open edges). The wide search only ADOPTS
         // existing nodes; node positions never move.
+        // A table-placed end is its vertex's anchor, where every node
+        // of that vertex sits: it takes that node exactly.
         let wide = tolerance * 20.0;
-        let mut node_at = |p: popkern_core::geometry::Point3, adopt: bool| -> usize {
-            match graph
-                .find_node(&p, tolerance)
-                .or_else(|| adopt.then(|| graph.find_node(&p, wide)).flatten())
-            {
+        let mut node_at = |p: popkern_core::geometry::Point3, table: bool| -> usize {
+            let found = if table {
+                graph.find_node_exact(&p)
+            } else {
+                graph
+                    .find_node(&p, tolerance)
+                    .or_else(|| graph.find_node(&p, wide))
+            };
+            match found {
                 Some(idx) => {
-                    let d = graph.nodes[idx].position.distance_to(&p);
-                    let pass = if adopt {
-                        "snap_record_end"
-                    } else {
-                        "snap_table_end"
-                    };
-                    crate::complex_shadow::subsumed_pass_fired(pass, usize::from(d > 0.0), d);
+                    if !table {
+                        let d = graph.nodes[idx].position.distance_to(&p);
+                        crate::complex_shadow::subsumed_pass_fired(
+                            "snap_record_end",
+                            usize::from(d > 0.0),
+                            d,
+                        );
+                    }
                     idx
                 }
                 None => graph.add_node(p, NodeSource::Intersection),
@@ -103,8 +110,8 @@ pub(crate) fn insert_intersection_curves_at(
         };
         let placed = ends.and_then(|e| e.get(ri));
         let (start_node, end_node) = match placed {
-            Some(at) => (node_at(at.start, false), node_at(at.end, false)),
-            None => (node_at(start_pt, true), node_at(end_pt, true)),
+            Some(at) => (node_at(at.start, true), node_at(at.end, true)),
+            None => (node_at(start_pt, false), node_at(end_pt, false)),
         };
 
         // POINT-CONTACT GUARD (PK-465): a record piece whose

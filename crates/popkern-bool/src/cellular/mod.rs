@@ -34,6 +34,7 @@ mod operand_winding;
 mod probe_clearance;
 mod record_rotation;
 pub mod select;
+mod vertex_identity;
 
 pub use cell::{Cell, CellDecomposition};
 

@@ -2,8 +2,10 @@
 //! incidences and crossing zones, and their resolution, built once for
 //! the shadow comparison and for graph node identity.
 
+use std::collections::HashMap;
+
 use popkern_core::geometry::Point3;
-use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 
 use super::candidates::{CandidateVertex, Incidence, SourceKind, collect_candidates};
 use super::resolve::{
@@ -201,6 +203,29 @@ impl VertexTable {
             p.sort_by(|a, b| a.0.total_cmp(&b.0));
         }
         paves
+    }
+
+    /// Where each operand vertex the table holds sits: the anchor of
+    /// its group, per operand. Two operands' vertices in one group
+    /// share its node (the operand-vertex identity, plan §4.3a), the
+    /// lower operand's vertex anchoring it. Empty when the resolution
+    /// declined.
+    pub(crate) fn operand_vertex_anchors(&self) -> [HashMap<VertexHandle, Point3>; 2] {
+        let mut out = [HashMap::new(), HashMap::new()];
+        let Ok(res) = self.resolution.as_ref() else {
+            return out;
+        };
+        for (i, c) in self.cands.iter().enumerate() {
+            for inc in &c.incidence {
+                if let &Incidence::Vertex { operand, vertex } = inc
+                    && let Some(map) = out.get_mut(operand)
+                {
+                    let anchor = self.cands[res.groups[res.group_of[i]].anchor].position;
+                    map.insert(vertex, anchor);
+                }
+            }
+        }
+        out
     }
 
     /// Every operand edge a record node lies on mid-span: (operand,

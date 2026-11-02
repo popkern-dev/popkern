@@ -29,7 +29,7 @@ pub(crate) fn insert_operand_topology(
     operand: Operand,
     tolerance: f64,
 ) -> (HashMap<VertexHandle, usize>, HashMap<HalfEdgeHandle, usize>) {
-    insert_operand_topology_scoped(graph, brep, operand, tolerance, None)
+    insert_operand_topology_scoped(graph, brep, operand, tolerance, None, None)
 }
 
 /// [`insert_operand_topology`] restricted to the `active` faces (local
@@ -38,12 +38,17 @@ pub(crate) fn insert_operand_topology(
 /// and a far face (a frontier edge) is inserted with its far side left
 /// faceless; the assembler carries the far faces the operation keeps, and
 /// the rest form no fragment (PK-816).
+///
+/// A vertex in `anchors` (the vertex table's, `operand_vertex_anchors`)
+/// takes the node at its anchor, so two operands' vertices the table
+/// resolved together share one; the rest snap within `tolerance`.
 pub(crate) fn insert_operand_topology_scoped(
     graph: &mut IntersectionGraph,
     brep: &BRep,
     operand: Operand,
     tolerance: f64,
     scope: Option<&crate::scope::ActiveScope>,
+    anchors: Option<&HashMap<VertexHandle, popkern_core::geometry::Point3>>,
 ) -> (HashMap<VertexHandle, usize>, HashMap<HalfEdgeHandle, usize>) {
     let mut vertex_map: HashMap<VertexHandle, usize> = HashMap::new();
     let mut he_map: HashMap<HalfEdgeHandle, usize> = HashMap::new();
@@ -80,6 +85,17 @@ pub(crate) fn insert_operand_topology_scoped(
         {
             continue;
         }
+        let source = match operand {
+            Operand::A => NodeSource::OriginalA(vh),
+            Operand::B => NodeSource::OriginalB(vh),
+        };
+        if let Some(&at) = anchors.and_then(|m| m.get(&vh)) {
+            let node = graph
+                .find_node_exact(&at)
+                .unwrap_or_else(|| graph.add_node(at, source));
+            vertex_map.insert(vh, node);
+            continue;
+        }
         let node_idx = if let Some(existing) = graph.find_node(&vertex.position, tolerance) {
             let d = graph.nodes[existing].position.distance_to(&vertex.position);
             crate::complex_shadow::subsumed_pass_fired(
@@ -89,10 +105,6 @@ pub(crate) fn insert_operand_topology_scoped(
             );
             existing
         } else {
-            let source = match operand {
-                Operand::A => NodeSource::OriginalA(vh),
-                Operand::B => NodeSource::OriginalB(vh),
-            };
             graph.add_node(vertex.position, source)
         };
         vertex_map.insert(vh, node_idx);

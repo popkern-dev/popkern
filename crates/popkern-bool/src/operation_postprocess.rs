@@ -225,7 +225,14 @@ pub(crate) fn run_output_postprocess(
         let sliver =
             crate::postprocess::sliver_removal::remove_slivers_in(result, tolerance, &region);
         let edits = sliver.removed + sliver.failed + usize::from(sliver.aborted_with.is_some());
-        crate::complex_shadow::subsumed_pass_fired("sliver_removal", edits, 0.0);
+        // Absorbed slivers and those left in place count apart: only
+        // an absorption edits what the cell complex resolved.
+        crate::complex_shadow::subsumed_pass_fired("sliver_removal", sliver.removed, 0.0);
+        crate::complex_shadow::subsumed_pass_fired(
+            "sliver_removal_declined",
+            edits - sliver.removed,
+            0.0,
+        );
         gate.edited(edits);
         refresh(&mut region, edits, result, carried);
     }

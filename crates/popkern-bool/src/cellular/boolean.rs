@@ -55,26 +55,6 @@ pub(crate) fn cellular_graph_merge(
     let snap_tol = tolerance.linear() * 2.0;
     let mut graph = IntersectionGraph::new();
 
-    // Insert original topology from both operands.
-    // A scoped run (PK-814, PK-816) builds each scoped operand's graph
-    // from its active faces only; the assembly carries the far faces the
-    // operation keeps and the rest never form fragments.
-    let scope = scopes.and_then(|s| s.a.as_ref());
-    let (_vmap_a, hemap_a) = crate::merge::graph_build::insert_operand_topology_scoped(
-        &mut graph,
-        original_a,
-        Operand::A,
-        snap_tol,
-        scope,
-    );
-    let (_vmap_b, hemap_b) = crate::merge::graph_build::insert_operand_topology_scoped(
-        &mut graph,
-        original_b,
-        Operand::B,
-        snap_tol,
-        scopes.and_then(|s| s.b.as_ref()),
-    );
-
     // Process edge-face hits.
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
@@ -130,56 +110,50 @@ pub(crate) fn cellular_graph_merge(
     let rotated = crate::intersect_band_lattice::split_records_at_band_lattice(
         rotated, original_a, original_b,
     );
-    // The operand edges split at the edge-face hits: with the table
-    // deciding vertices, only at the hits that are interferences (on
-    // their face), the table's own candidates.
-    let table_enabled = crate::tolerance_zone::table::table_enabled();
-    let hits = if table_enabled {
-        crate::tolerance_zone::candidates::interfering_hits(
-            (original_a, original_b),
-            intersection_result,
-            &rotated,
-            tolerance.linear(),
-        )
-    } else {
-        intersection_result.edge_face_hits.clone()
-    };
-    crate::merge::graph_split_node::split_edges_at_face_hits(&mut graph, &hits, snap_tol, breps);
-    let mut graph_splits_junctions = true;
-    let mut operand_paves = Vec::new();
     let partial_overlaps = intersection_result
         .coincidence
         .face_overlaps
         .iter()
         .any(|o| !o.full_overlap);
-    let mut common_blocks = Vec::new();
-    let table_ends = table_enabled
-        .then(|| {
-            let table = crate::tolerance_zone::table::build(
-                (original_a, original_b),
-                &hits,
-                &rotated,
-                tolerance.linear(),
-            );
-            let ends = table.record_ends(rotated.len());
-            if ends.is_none() {
-                crate::complex_shadow::append_log_line(&format!(
-                    "VertexTableFallback {:?}",
-                    table.resolution.as_ref().err()
-                ));
-            }
-            graph_splits_junctions = ends.is_none();
-            if !graph_splits_junctions {
-                operand_paves = table.operand_edge_paves();
-                if partial_overlaps {
-                    let ops = [original_a, original_b];
-                    common_blocks = table.record_edge_blocks(ops, &rotated, tolerance.linear());
-                }
-            }
-            ends
-        })
-        .flatten();
-    insert_intersection_curves_at(&mut graph, &rotated, snap_tol, table_ends.as_deref());
+    let identity = super::vertex_identity::decide(
+        (original_a, original_b),
+        intersection_result,
+        &rotated,
+        tolerance.linear(),
+        partial_overlaps,
+    );
+    let graph_splits_junctions = identity.graph_identity();
+
+    // Insert original topology from both operands, each table-held
+    // vertex at its anchor.
+    // A scoped run (PK-814, PK-816) builds each scoped operand's graph
+    // from its active faces only; the assembly carries the far faces the
+    // operation keeps and the rest never form fragments.
+    let [anchors_a, anchors_b] = &identity.vertex_anchors;
+    let scope = scopes.and_then(|s| s.a.as_ref());
+    let (_vmap_a, hemap_a) = crate::merge::graph_build::insert_operand_topology_scoped(
+        &mut graph,
+        original_a,
+        Operand::A,
+        snap_tol,
+        scope,
+        Some(anchors_a),
+    );
+    let (_vmap_b, hemap_b) = crate::merge::graph_build::insert_operand_topology_scoped(
+        &mut graph,
+        original_b,
+        Operand::B,
+        snap_tol,
+        scopes.and_then(|s| s.b.as_ref()),
+        Some(anchors_b),
+    );
+    crate::merge::graph_split_node::split_edges_at_face_hits(
+        &mut graph,
+        &identity.hits,
+        snap_tol,
+        breps,
+    );
+    insert_intersection_curves_at(&mut graph, &rotated, snap_tol, identity.ends.as_deref());
     // Split SHARED edges at record×record T-junctions: one record's
     // endpoint frequently lands mid-span of another (a dovetail
     // rail's flank trace ends ON the joint-shoulder trace), and the
@@ -243,7 +217,7 @@ pub(crate) fn cellular_graph_merge(
         } else {
             crate::merge::graph_paves::split_operand_edges_at_paves(
                 &mut graph,
-                &operand_paves,
+                &identity.operand_paves,
                 snap_tol,
                 breps,
             );
@@ -259,7 +233,7 @@ pub(crate) fn cellular_graph_merge(
         if partial_overlaps && !graph_splits_junctions {
             crate::merge::graph_duplicates::remove_common_block_duplicates(
                 &mut graph,
-                &common_blocks,
+                &identity.common_blocks,
                 &rotated,
                 snap_tol,
             );
