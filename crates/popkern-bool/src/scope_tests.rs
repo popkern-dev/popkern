@@ -87,7 +87,7 @@ fn the_scoped_merge_assembles_the_unscoped_body() {
     let tool = slot(63, tol);
     let hits = crate::intersect::find_intersections(&body, &tool, &tol).expect("intersections");
     let scope = active_scope(&body, &hits.aabbs_a, &hits.aabbs_b, 10.0 * tol.linear());
-    let merge = |s: Option<&super::ActiveScope>| {
+    let merge_by = |s: Option<&super::ActiveScope>, source| {
         let s = s.map(|a| super::OperandScopes {
             a: Some(a.clone()),
             b: None,
@@ -99,9 +99,10 @@ fn the_scoped_merge_assembles_the_unscoped_body() {
             BoolOperation::Subtraction,
             &tol,
             s.as_ref(),
-            crate::complex::serve::SelectionSource::Cellular,
+            source,
         )
     };
+    let merge = |s| merge_by(s, crate::complex::serve::SelectionSource::Cellular);
     let (unscoped, _) = merge(None).expect("unscoped merge");
     let (scoped, carried) = merge(Some(&scope)).expect("scoped merge");
     let counts = |b: &BRep| (b.faces.len(), b.edges.len(), b.vertices.len());
@@ -125,6 +126,22 @@ fn the_scoped_merge_assembles_the_unscoped_body() {
         .map(|(b, _)| b.validate().is_err() || counts(&b) != counts(&unscoped))
         .unwrap_or(true);
     assert!(declined, "a blind scope must not assemble the cut body");
+    // The cell complex decides the scoped merge alike (PK-1037): the
+    // frontier edges it lifts bound open shells, and the far material
+    // is carried. The blind scope leaves the top face without its rim:
+    // its slot ring is the face's only boundary, both ways round, and
+    // the complex declines instead of guessing.
+    let complex = crate::complex::serve::SelectionSource::Complex;
+    let (by_complex, _) = merge_by(Some(&scope), complex).expect("the complex serves the scope");
+    assert_eq!(
+        keys(&by_complex),
+        keys(&unscoped),
+        "same faces, bit for bit"
+    );
+    assert!(
+        merge_by(Some(&blind), complex).is_err(),
+        "the complex declines the blind scope"
+    );
 }
 
 /// A far hole's rim bounds the scope even when the face inside the
