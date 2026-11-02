@@ -61,6 +61,9 @@ pub fn boolean_with_perturbation(
             if !is_perturbable_error(&e) {
                 return Err(e);
             }
+            // The suite's retirement counter (plan Stage 7d):
+            // perturbation retires once no full run logs a line.
+            crate::complex_shadow::append_log_line(&format!("PerturbationFallback {op:?} {e}"));
         }
     }
 
@@ -94,6 +97,9 @@ pub fn boolean_with_perturbation(
                 // Project result vertices back toward original surfaces.
                 // For small perturbations this is approximately correct.
                 project_back(&mut result, a, b, &tolerance);
+                crate::complex_shadow::append_log_line(&format!(
+                    "PerturbationServed {op:?} offset {offset:?}"
+                ));
                 return Ok(result);
             }
             Err(e) => {

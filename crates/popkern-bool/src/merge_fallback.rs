@@ -48,6 +48,9 @@ static EVENTS: Mutex<Vec<MergeFallbackEvent>> = Mutex::new(Vec::new());
 /// the result, and that must never be invisible.
 pub(crate) fn record_merge_fallback(operation: BoolOperation, reason: MergeFallbackReason) {
     eprintln!("[boolean] cellular->graph-merge fallback ({operation:?}): {reason:?}");
+    // The suite's retirement counter (plan Stage 7d): graph-merge
+    // retires once no full run logs a line.
+    crate::complex_shadow::append_log_line(&format!("MergeFallback {operation:?} {reason:?}"));
     if let Ok(mut events) = EVENTS.lock() {
         events.push(MergeFallbackEvent { operation, reason });
     }

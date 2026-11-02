@@ -234,7 +234,19 @@ pub(super) fn select_and_serve(
     );
     let served = match (served, nonmanifold) {
         (Ok(body), Some(nm)) => {
-            if body.validate_all().is_empty() {
+            // The caller declines any served body that touches itself
+            // (`execute_boolean_full`), so a body with contacts is the
+            // verdict again: it never serves here.
+            let touches = || {
+                !crate::postprocess::zero_thickness::zero_thickness_contacts(&body, tolerance)
+                    .is_empty()
+                    || !crate::postprocess::shell_contact::shell_contacts(&body, tolerance)
+                        .is_empty()
+            };
+            if body.validate_all().is_empty() && !touches() {
+                if !from_cellular {
+                    graph_merge_served(op, "a non-manifold verdict's body validates");
+                }
                 return Ok(body);
             }
             // Graph-merge splits the contacts into coincident copies;
@@ -244,7 +256,12 @@ pub(super) fn select_and_serve(
             return match policy {
                 crate::options::NonManifoldPolicy::Decline => Err(nm),
                 crate::options::NonManifoldPolicy::SplitToManifold => match accept(body) {
-                    Ok(b) => Ok(b),
+                    Ok(b) => {
+                        if !from_cellular {
+                            graph_merge_served(op, "coincident copies split the contacts");
+                        }
+                        Ok(b)
+                    }
                     // Graph-merge's coincident copies remain the
                     // fallback when the complex split fails acceptance.
                     Err(e) if split_by_complex => {
@@ -271,6 +288,9 @@ pub(super) fn select_and_serve(
                                 )
                             })
                             .and_then(accept)
+                            .inspect(|_| {
+                                graph_merge_served(op, "the complex split failed acceptance")
+                            })
                             .map_err(|_| nm)
                     }
                     Err(_) => Err(nm),
@@ -282,6 +302,9 @@ pub(super) fn select_and_serve(
     };
     let open = free_half_edges(&served);
     if !closed_operands || open == 0 {
+        if !from_cellular {
+            graph_merge_served(op, "the cellular classifier declined");
+        }
         return Ok(served);
     }
     if from_cellular {
@@ -306,11 +329,20 @@ pub(super) fn select_and_serve(
         )?;
         let open = free_half_edges(&served);
         if open == 0 {
+            graph_merge_served(op, "the cellular body was open");
             return Ok(served);
         }
         return Err(unclosed(open));
     }
     Err(unclosed(open))
+}
+
+/// Log that a graph-merge body served the result: the retirement
+/// counter (plan Stage 7d) graph-merge must hold at 0 over the suite.
+/// A `MergeFallback` line only says cellular gave up; graph-merge's
+/// body may still decline (a non-manifold verdict).
+fn graph_merge_served(op: BoolOperation, why: &str) {
+    crate::complex_shadow::append_log_line(&format!("GraphMergeServed {op:?} {why}"));
 }
 
 fn unclosed(open: usize) -> BoolError {
