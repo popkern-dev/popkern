@@ -234,6 +234,7 @@ pub(super) fn execute_boolean_pipeline(
     // Coincident-body containment shortcut — verified geometrically
     // (see `operation_containment.rs`).
     if containment::coincident_containment_applies(op, a, b, &intersection_result, tolerance) {
+        crate::complex_shadow::subsumed_pass_fired("containment_shortcut", 1, 0.0);
         return handle_no_intersection(
             op,
             a.clone(),
@@ -246,6 +247,7 @@ pub(super) fn execute_boolean_pipeline(
 
     // Bodies that only touch (opposite contact faces, point records).
     if let Some(result) = contact::touching_only(op, a, b, &intersection_result, tolerance) {
+        crate::complex_shadow::subsumed_pass_fired("touching_shortcut", 1, 0.0);
         return Ok(result);
     }
 

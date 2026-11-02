@@ -159,6 +159,7 @@ pub(super) fn rotate_closed_record_to_hits(
             if let Some(cp) = out.curve.curve_3d.control_points.last_mut() {
                 *cp = hit.point;
             }
+            crate::complex_shadow::subsumed_pass_fired("record_rotation", 1, d_hit);
             return out;
         }
     }

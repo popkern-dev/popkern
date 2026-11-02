@@ -88,7 +88,16 @@ pub(crate) fn insert_intersection_curves_at(
                 .find_node(&p, tolerance)
                 .or_else(|| adopt.then(|| graph.find_node(&p, wide)).flatten())
             {
-                Some(idx) => idx,
+                Some(idx) => {
+                    let d = graph.nodes[idx].position.distance_to(&p);
+                    let pass = if adopt {
+                        "snap_record_end"
+                    } else {
+                        "snap_table_end"
+                    };
+                    crate::complex_shadow::subsumed_pass_fired(pass, usize::from(d > 0.0), d);
+                    idx
+                }
                 None => graph.add_node(p, NodeSource::Intersection),
             }
         };

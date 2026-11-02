@@ -155,6 +155,15 @@ fn log_label() -> String {
         .unwrap_or_else(|| "?".to_string())
 }
 
+/// Log that a pass the vertex table's resolution subsumes changed
+/// something (`count` edits, the largest `moved` distance): plan §4.3a
+/// retires each only when its counter reads 0 over the suite.
+pub(crate) fn subsumed_pass_fired(pass: &str, count: usize, moved: f64) {
+    if count > 0 {
+        append_log_line(&format!("SubsumedPass {pass} {count} {moved:.3e}"));
+    }
+}
+
 /// Append `line` to `POPKERN_COMPLEX_SHADOW_LOG`, when set, labelled
 /// with the test it ran under, so a whole test-suite run (one process
 /// per test) can be measured at once.

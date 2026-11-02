@@ -225,6 +225,7 @@ pub(crate) fn run_output_postprocess(
         let sliver =
             crate::postprocess::sliver_removal::remove_slivers_in(result, tolerance, &region);
         let edits = sliver.removed + sliver.failed + usize::from(sliver.aborted_with.is_some());
+        crate::complex_shadow::subsumed_pass_fired("sliver_removal", edits, 0.0);
         gate.edited(edits);
         refresh(&mut region, edits, result, carried);
     }
@@ -291,6 +292,7 @@ pub(crate) fn run_output_postprocess(
             })
             .count();
         crate::imprint::micro_edge::collapse_micro_edge_positions(result, &micro_edges);
+        crate::complex_shadow::subsumed_pass_fired("micro_edge_collapse", moving, 0.0);
         gate.edited(moving);
     }
 

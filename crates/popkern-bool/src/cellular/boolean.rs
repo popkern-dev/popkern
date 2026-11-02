@@ -174,7 +174,13 @@ pub(crate) fn cellular_graph_merge(
     // and the pass serves only common-block scenes (plan §4.4).
     if graph_splits_junctions {
         let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
+        let before = graph.half_edges.len();
         split_shared_edges_at_nodes(&mut graph, &all_nodes, snap_tol);
+        crate::complex_shadow::subsumed_pass_fired(
+            "split_shared_edges_at_nodes",
+            (graph.half_edges.len() - before) / 2,
+            0.0,
+        );
     }
     if popkern_core::trace::trace_enabled("boolean") {
         let mut i = 0;
@@ -214,7 +220,13 @@ pub(crate) fn cellular_graph_merge(
         // edges it put them on; the dead-end completion (march slop
         // beyond the table's reach) still runs.
         if graph_splits_junctions {
+            let before = graph.half_edges.len();
             split_edges_at_shared_nodes(&mut graph, snap_tol, breps);
+            crate::complex_shadow::subsumed_pass_fired(
+                "split_edges_at_shared_nodes",
+                graph.half_edges.len().saturating_sub(before) / 2,
+                0.0,
+            );
         } else {
             crate::merge::graph_paves::split_operand_edges_at_paves(
                 &mut graph,
@@ -230,7 +242,13 @@ pub(crate) fn cellular_graph_merge(
             .iter()
             .any(|o| !o.full_overlap)
         {
+            let before = graph.duplicate_of.len();
             remove_collinear_duplicates(&mut graph, tolerance.linear());
+            crate::complex_shadow::subsumed_pass_fired(
+                "remove_collinear_duplicates",
+                graph.duplicate_of.len() - before,
+                0.0,
+            );
         }
     }
 

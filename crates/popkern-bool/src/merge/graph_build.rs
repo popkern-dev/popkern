@@ -81,6 +81,12 @@ pub(crate) fn insert_operand_topology_scoped(
             continue;
         }
         let node_idx = if let Some(existing) = graph.find_node(&vertex.position, tolerance) {
+            let d = graph.nodes[existing].position.distance_to(&vertex.position);
+            crate::complex_shadow::subsumed_pass_fired(
+                "snap_operand_vertex",
+                usize::from(d > 0.0),
+                d,
+            );
             existing
         } else {
             let source = match operand {
