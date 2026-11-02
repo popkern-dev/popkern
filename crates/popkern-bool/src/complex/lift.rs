@@ -154,13 +154,17 @@ fn components(brep: &BRep) -> Vec<Vec<FaceHandle>> {
 /// Material sense of every face of `brep`: whether its folded normal
 /// points out of the material, decided once per closed component.
 ///
-/// A single-component operand takes the sign of its folded-normal
-/// volume integral (`component_material_sense`). That sign is the
-/// WRONG test for a cavity shell — correctly oriented, its folded
-/// normals point into the cavity and its volume integral is negative —
-/// so a multi-component operand decides each component by one point
-/// classification just off a face, falling back to the volume sign
-/// only where the probe lands on the boundary.
+/// A component is decided by point classifications just off its faces
+/// (`probe_votes`). The sign of the folded-normal volume integral
+/// (`component_material_sense`) is the fallback: it samples a trim
+/// classification on a grid over every face (11.8 of the 12 ms a
+/// 48-gon prism union spent in the complex), and it is the WRONG test
+/// for a cavity shell — correctly oriented, its folded normals point
+/// into the cavity and its volume integral is negative. A
+/// multi-component operand takes its first decisive probe and falls
+/// back to the volume sign only where no face votes. A
+/// single-component operand takes the probes only when two faces' votes
+/// agree; otherwise the volume sign decides.
 fn material_senses(
     brep: &BRep,
     operand: usize,
@@ -180,11 +184,13 @@ fn material_senses(
             brep.component_material_sense(seed)
                 .map(|s| matches!(s, MaterialSense::FoldedOutward))
         };
-        let outward = if comps.len() == 1 {
-            by_volume()
-        } else {
-            probe_sense(brep, component, boxes, tolerance).or_else(by_volume)
+        let votes = probe_votes(brep, component, boxes, tolerance);
+        let outward = match (votes.as_slice(), comps.len()) {
+            ([a, b], _) if a == b => Some(*a),
+            ([a, ..], n) if n > 1 => Some(*a),
+            _ => None,
         }
+        .or_else(by_volume)
         .ok_or(LiftDecline::UnknownMaterialSense {
             operand,
             face: seed,
@@ -197,8 +203,14 @@ fn material_senses(
 }
 
 /// Whether the folded normals of `component` point out of `brep`'s
-/// material, by classifying a point just off one of its faces.
-fn probe_sense(
+/// material, read off its first faces: at most two votes. A face votes
+/// only when it separates material at its sample point — the point just
+/// off it along its folded normal and the point just off it against
+/// classify one Inside, one Outside. Across a wall thinner than the
+/// offset both read the far side alike, and that face does not vote
+/// (a one-sided probe read a thin plate's caps as folding outward when
+/// they fold in).
+fn probe_votes(
     brep: &BRep,
     component: &[FaceHandle],
     boxes: &[(
@@ -206,25 +218,37 @@ fn probe_sense(
         popkern_core::geometry::intersection::surface_subdivision::Aabb,
     )],
     tolerance: &popkern_core::tolerance::Tolerance,
-) -> Option<bool> {
+) -> Vec<bool> {
+    let mut votes = Vec::with_capacity(2);
     let scale = boxes
         .iter()
         .map(|(_, b)| (b.max - b.min).length())
         .fold(0.0_f64, f64::max);
     let eps = (scale * 1.0e-5).max(tolerance.linear() * 50.0);
-    for &fh in component.iter().take(4) {
-        let surf = brep.faces.get(fh)?.surface.as_ref()?;
+    for &fh in component.iter().take(6) {
+        let Some(surf) = brep.faces.get(fh).and_then(|f| f.surface.as_ref()) else {
+            continue;
+        };
         let sample = crate::classify::pick_sample_point(brep, fh);
-        let (u, v) = surf.geometry.closest_point(&sample)?;
-        let n = surf.folded_normal(u, v)?;
-        let probe = surf.geometry.point_at(u, v) + n * eps;
-        match crate::classify::point_in_solid_final(&probe, brep, boxes, tolerance) {
-            Ok(crate::error::PointClassification::Inside) => return Some(false),
-            Ok(crate::error::PointClassification::Outside) => return Some(true),
+        let Some((u, v)) = surf.geometry.closest_point(&sample) else {
+            continue;
+        };
+        let Some(n) = surf.folded_normal(u, v) else {
+            continue;
+        };
+        let at = surf.geometry.point_at(u, v);
+        let side = |p| crate::classify::point_in_solid_final(&p, brep, boxes, tolerance).ok();
+        use crate::error::PointClassification::{Inside, Outside};
+        match (side(at + n * eps), side(at - n * eps)) {
+            (Some(Outside), Some(Inside)) => votes.push(true),
+            (Some(Inside), Some(Outside)) => votes.push(false),
             _ => continue,
         }
+        if votes.len() == 2 {
+            break;
+        }
     }
-    None
+    votes
 }
 
 /// Outward normals of two coincident faces agree at the fragment's
@@ -386,3 +410,7 @@ pub(crate) fn lift_fragments(
         output_folded_outward,
     })
 }
+
+#[cfg(test)]
+#[path = "lift_tests.rs"]
+mod tests;

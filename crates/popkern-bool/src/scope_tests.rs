@@ -202,3 +202,56 @@ fn a_far_hole_rim_bounds_the_scope() {
         .collect();
     assert_eq!(bounding, rim);
 }
+
+/// The 64-slot disc as the TOOL of a union with a small inward boss
+/// (PK-816 mirrored): the tool's scope carries its top face's 63 slot
+/// holes (its bottom face is far, carried whole) like the target's would, reversed with its far faces
+/// (the boss winds opposite to the disc), and both classifiers assemble
+/// the unscoped body bit for bit. Without the holes the tool's active
+/// top face brought every slot rim into the graph: the cell complex
+/// lifted 252 rim edges the far region never needed (boss ∪ disc 1.3-1.46x
+/// disc ∪ boss on the perf gate).
+#[test]
+fn the_disc_as_tool_carries_its_far_holes() {
+    let tol = Tolerance::default();
+    let mut disc = BRep::cylinder(30.0, 1.5, tol).expect("disc");
+    for k in 0..63 {
+        disc = crate::boolean(BoolOperation::Subtraction, disc, slot(k, tol), tol, None)
+            .expect("slot");
+    }
+    let boss = BRep::prism(
+        &[
+            Point3::new(-2.0, -2.0, 1.4),
+            Point3::new(2.0, -2.0, 1.4),
+            Point3::new(2.0, 2.0, 1.4),
+            Point3::new(-2.0, 2.0, 1.4),
+        ],
+        Vec3::new(0.0, 0.0, 1.0),
+        2.0,
+        tol,
+    )
+    .expect("boss");
+    let op = BoolOperation::Union;
+    let hits = crate::intersect::find_intersections(&boss, &disc, &tol).expect("intersections");
+    let scopes = super::serving_scopes(&boss, &disc, &hits, op, &tol);
+    let carried = scopes
+        .b
+        .as_ref()
+        .map_or(0, |s| s.far_holes.values().map(Vec::len).sum());
+    assert_eq!(carried, 63, "the tool's slot holes are carried");
+    let merge = |s: Option<&super::OperandScopes>, source| {
+        crate::cellular::boolean::cellular_graph_merge(&boss, &disc, &hits, op, &tol, s, source)
+    };
+    let keys = |b: &BRep| {
+        let mut k: Vec<_> = b.faces.keys().map(|f| super::face_key(b, f)).collect();
+        k.sort();
+        k
+    };
+    use crate::complex::serve::SelectionSource;
+    let (unscoped, _) = merge(None, SelectionSource::Cellular).expect("unscoped merge");
+    for source in [SelectionSource::Cellular, SelectionSource::Complex] {
+        let (scoped, _) = merge(Some(&scopes), source).expect("scoped merge");
+        assert!(scoped.validate().is_ok(), "{source:?}");
+        assert_eq!(keys(&scoped), keys(&unscoped), "{source:?}: same faces");
+    }
+}

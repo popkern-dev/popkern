@@ -255,8 +255,10 @@ pub(crate) fn cellular_graph_merge(
         .map(|o| (o.face_a, o.face_b))
         .collect();
     let mut walk_fallbacks: Vec<(crate::merge::graph::FaceRef, String)> = Vec::new();
-    let carried_holes: Option<std::collections::HashSet<_>> =
-        scope.map(|s| s.far_holes.values().flatten().copied().collect());
+    let holes_of = |s: Option<&crate::scope::ActiveScope>| -> Option<std::collections::HashSet<_>> {
+        s.map(|s| s.far_holes.values().flatten().copied().collect())
+    };
+    let carried_holes = [holes_of(scope), holes_of(scopes.and_then(|s| s.b.as_ref()))];
     let fragments = walk_all_fragments_ext(
         &graph,
         original_a,
@@ -270,7 +272,7 @@ pub(crate) fn cellular_graph_merge(
             b: &hemap_b,
             boxes_a: &intersection_result.aabbs_a,
             boxes_b: &intersection_result.aabbs_b,
-            carried_holes: carried_holes.as_ref(),
+            carried_holes: [carried_holes[0].as_ref(), carried_holes[1].as_ref()],
         }),
         tolerance,
     );
@@ -338,11 +340,15 @@ pub(crate) fn cellular_graph_merge(
                 source == SelectionSource::ComplexSplit,
             )?;
             split = plan;
-            (selections, Default::default(), false)
+            let flipped_b = crate::complex::serve::b_reversed(&fragments, &selections, op);
+            (selections, Default::default(), flipped_b)
         }
         SelectionSource::ComplexFirst => {
             match crate::complex::serve::complex_selections(&complex_input, op, false) {
-                Ok((selections, _)) => (selections, Default::default(), false),
+                Ok((selections, _)) => {
+                    let flipped_b = crate::complex::serve::b_reversed(&fragments, &selections, op);
+                    (selections, Default::default(), flipped_b)
+                }
                 Err(diag) if matches!(diag.error, Some(BoolError::NonManifoldResult { .. })) => {
                     return Err(diag);
                 }

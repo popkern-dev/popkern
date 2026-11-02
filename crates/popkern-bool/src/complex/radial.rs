@@ -82,7 +82,7 @@ pub(crate) struct FaceGeometry<'a> {
 }
 
 /// One station: the point, the unit tangent along start → end.
-fn station(c: &CellComplex, edge: EdgeId, s: f64) -> Option<(Point3, Vec3)> {
+pub(super) fn station(c: &CellComplex, edge: EdgeId, s: f64) -> Option<(Point3, Vec3)> {
     let e = c.edges.get(edge.index())?;
     let ps = c.vertices.get(e.start.index())?.position;
     let pe = c.vertices.get(e.end.index())?.position;
@@ -382,25 +382,6 @@ fn order_at(
     Ok(out)
 }
 
-/// Length of an edge, sampled (closed edges have no chord).
-fn edge_length(c: &CellComplex, edge: EdgeId) -> f64 {
-    let pts: Vec<Point3> = (0..=8)
-        .filter_map(|k| station(c, edge, f64::from(k) / 8.0).map(|(p, _)| p))
-        .collect();
-    pts.windows(2).map(|w| w[0].distance_to(&w[1])).sum()
-}
-
-/// Whether two cyclic orders are rotations of each other.
-fn same_cycle(a: &[(FinId, bool)], b: &[(FinId, bool)]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let Some(start) = b.iter().position(|x| x.0 == a[0].0) else {
-        return false;
-    };
-    (0..a.len()).all(|k| a[k] == b[(start + k) % b.len()])
-}
-
 /// Order the fins of every edge with three or more fins, and record
 /// every fin's side-facing (two-fin edges need it too). `tie_angle` is
 /// the angular tolerance for first-order ties; the tie-ladder probe
@@ -444,27 +425,18 @@ pub(crate) fn order_radially_with(
             c.edges[ei].radial_ordered = true;
             continue;
         }
-        let length = edge_length(c, edge);
+        let length = super::radial_stations::edge_length(c, edge);
         let scale = EdgeScale {
             tie_angle,
             probe: (length * 1.0e-2).max(linear * 100.0),
             feature: length.max(linear * 100.0),
             ladder,
         };
-        let e = &c.edges[ei];
-        let chord = c.vertices[e.start.index()]
-            .position
-            .distance_to(&c.vertices[e.end.index()].position);
-        let curved = length > chord + linear;
-        let stations = if curved {
-            &[0.5, 0.25, 0.75, 0.125, 0.875][..]
-        } else {
-            &[0.5, 0.25, 0.75][..]
-        };
+        let stations = super::radial_stations::stations(c, geo, edge, length, linear);
         let first = order_at(c, geo, edge, stations[0], &scale)?;
         for &s in &stations[1..] {
             let other = order_at(c, geo, edge, s, &scale)?;
-            if !same_cycle(&first, &other) {
+            if !super::radial_stations::same_cycle(&first, &other) {
                 let ids = |o: &[(FinId, bool)]| o.iter().map(|x| x.0).collect();
                 return Err(RadialDecline::Inconsistent {
                     edge,

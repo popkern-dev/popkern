@@ -123,7 +123,7 @@ pub(crate) fn walk_all_fragments_ext(
         chart_primary,
         overlap_pairs,
         opposite_aabbs: &opposite_aabbs,
-        carried_holes: identity.and_then(|m| m.carried_holes),
+        carried_holes: identity.map_or([None, None], |m| m.carried_holes),
         tolerance,
         fragments: &mut fragments,
         chart_views: &mut chart_views,
@@ -191,8 +191,8 @@ struct FaceWalk<'g, 'o> {
         popkern_core::topology::FaceHandle,
     )],
     opposite_aabbs: &'g hole_nesting::OppositeAabbs<'g>,
-    /// Operand A's holes the scope carries ([`OperandHalfEdgeMaps`]).
-    carried_holes: Option<&'g HashSet<popkern_core::topology::LoopHandle>>,
+    /// Each operand's holes the scope carries ([`OperandHalfEdgeMaps`]).
+    carried_holes: [Option<&'g HashSet<popkern_core::topology::LoopHandle>>; 2],
     tolerance: &'g popkern_core::tolerance::Tolerance,
     fragments: &'o mut Vec<Fragment>,
     chart_views: &'o mut std::collections::HashMap<FaceRef, fragment_chart::WalkView>,
@@ -227,7 +227,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
         he_indices,
         brep_a,
         brep_b,
-        carried_holes.filter(|_| face_ref.operand == super::graph::Operand::A),
+        carried_holes[(face_ref.operand == super::graph::Operand::B) as usize],
         tolerance,
     ) {
         Some(kept) => {

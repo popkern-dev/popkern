@@ -414,7 +414,9 @@ pub(crate) fn serving_scopes(
         sa.far_holes.clear();
     }
     let mut sb = active_scope(b, &intersection.aabbs_b, &intersection.aabbs_a, pad);
-    sb.far_holes.clear();
+    if !far_kept(op, Operand::B) {
+        sb.far_holes.clear();
+    }
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "  [scope] serving: active {} far {} far holes {}; tool active {} far {}",

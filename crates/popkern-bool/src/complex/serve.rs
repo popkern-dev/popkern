@@ -161,6 +161,27 @@ fn rescue_from(
     }
 }
 
+/// Whether the complex's selections reverse operand B against its own
+/// orientation, so a scoped union carries B's far faces reversed with
+/// its kept fragments (PK-916). Only a union carries B's far faces, and
+/// there every kept B fragment of A's result component flips when B's
+/// folded sense disagrees with A's convention. A mixed selection (a
+/// disjoint B component keeping its own sense) reads false: the carry
+/// then disagrees with some kept face, the scoped assembly declines,
+/// and the merge reruns unscoped.
+pub(crate) fn b_reversed(
+    fragments: &[crate::merge::walk::Fragment],
+    selections: &[FragmentSelection],
+    op: BoolOperation,
+) -> bool {
+    let mut kept_b = fragments
+        .iter()
+        .zip(selections)
+        .filter(|(f, s)| s.keep && f.face.operand == crate::merge::graph::Operand::B)
+        .peekable();
+    op == BoolOperation::Union && kept_b.peek().is_some() && kept_b.all(|(_, s)| s.flip)
+}
+
 /// The complex's fragment selections for `op`, or why it cannot serve:
 /// `NonManifoldResult` naming the contacts when the selected boundary
 /// is non-manifold (unless `split` asks for the split plan, which then

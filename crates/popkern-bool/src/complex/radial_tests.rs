@@ -15,7 +15,8 @@ use popkern_core::topology::BRep;
 use super::super::ids::{EdgeId, FinId};
 use super::super::model::{CellComplex, FaceOwner};
 use super::super::radial_ladder::TieLadder;
-use super::{FaceGeometry, RadialDecline, order_radially_with, same_cycle, station};
+use super::super::radial_stations::same_cycle;
+use super::{FaceGeometry, RadialDecline, order_radially_with, station};
 
 const TIE: f64 = 1e-4;
 const LINEAR: f64 = 1e-6;

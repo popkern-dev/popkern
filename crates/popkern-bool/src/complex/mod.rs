@@ -34,6 +34,7 @@ pub(crate) mod operand_set;
 pub(crate) mod pipeline;
 pub(crate) mod radial;
 pub(crate) mod radial_ladder;
+mod radial_stations;
 pub(crate) mod record_use;
 pub(crate) mod regions;
 pub(crate) mod same_domain;
