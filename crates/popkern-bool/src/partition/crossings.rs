@@ -14,7 +14,7 @@ use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::intersection::{CurveIntersection, intersect_curves};
 use popkern_core::tolerance::Tolerance;
 
-use crate::merge::graph::{EdgeSource, FaceRef, IntersectionGraph, NodeSource, Operand};
+use crate::merge::graph::{EdgeSource, FaceRef, IntersectionGraph, Operand};
 
 /// The record half-edge pairs registered to each face, by key (the
 /// lower half-edge index), with the body pair that made them.
@@ -44,14 +44,18 @@ fn curve_of(graph: &IntersectionGraph, key: usize) -> Option<&CurveOnEdge> {
         .or_else(|| graph.half_edges[he.twin].curve.as_ref())
 }
 
-/// Add a node at every interior crossing of two records of different
-/// body pairs on a common face; returns the nodes added or found.
-pub(super) fn add_record_crossings(
+/// Split every record at its interior crossings with records of other
+/// body pairs on a common face; returns the splits made. Each crossing
+/// carries its parameter on both records, so a record is cut at its
+/// crossings in curve order directly (the graph's general node splitter
+/// restarts its scan after every split: quadratic in a dense bundle).
+pub(super) fn split_at_record_crossings(
     graph: &mut IntersectionGraph,
     snap: f64,
     tolerance: &Tolerance,
-) -> Vec<usize> {
-    let mut points = Vec::new();
+) -> usize {
+    let mut on_record: BTreeMap<usize, Vec<(f64, popkern_core::geometry::Point3)>> =
+        BTreeMap::new();
     for keys in records_by_face(graph).values() {
         for (i, &(k1, p1)) in keys.iter().enumerate() {
             for &(k2, p2) in &keys[i + 1..] {
@@ -78,7 +82,7 @@ pub(super) fn add_record_crossings(
                     ]
                 };
                 for hit in found.intersections {
-                    let CurveIntersection::Point { point, .. } = hit else {
+                    let CurveIntersection::Point { point, t1, t2 } = hit else {
                         continue;
                     };
                     let at_end = ends(k1)
@@ -86,17 +90,27 @@ pub(super) fn add_record_crossings(
                         .chain(ends(k2).iter())
                         .any(|e| e.distance_to(&point) <= snap);
                     if !at_end {
-                        points.push(point);
+                        on_record.entry(k1).or_default().push((t1, point));
+                        on_record.entry(k2).or_default().push((t2, point));
                     }
                 }
             }
         }
     }
-    points
-        .into_iter()
-        .map(|p| match graph.find_node(&p, snap) {
-            Some(n) => n,
-            None => graph.add_node(p, NodeSource::Intersection),
-        })
-        .collect()
+    // In each record's own direction: its forward half-edge runs the
+    // curve window from `t_start` to `t_end`.
+    for (&key, list) in on_record.iter_mut() {
+        let forward = curve_of(graph, key).is_none_or(|c| c.t_start <= c.t_end);
+        list.sort_by(|a, b| {
+            if forward {
+                a.0.total_cmp(&b.0)
+            } else {
+                b.0.total_cmp(&a.0)
+            }
+        });
+        list.dedup_by(|a, b| a.1.distance_to(&b.1) <= snap);
+    }
+    let records: Vec<(usize, &[(f64, popkern_core::geometry::Point3)])> =
+        on_record.iter().map(|(&k, v)| (k, &v[..])).collect();
+    crate::merge::graph_paves::split_records_at_paves(graph, &records, snap)
 }

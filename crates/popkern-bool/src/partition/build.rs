@@ -112,7 +112,7 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
             );
         }
     }
-    super::crossings::add_record_crossings(&mut graph, snap, tolerance);
+    super::crossings::split_at_record_crossings(&mut graph, snap, tolerance);
     let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
     crate::merge::graph_split::split_shared_edges_at_nodes(&mut graph, &all_nodes, snap);
     crate::merge::graph_split_shared::split_edges_at_shared_nodes(&mut graph, snap, breps);

@@ -51,7 +51,7 @@
 
 use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_bool::{BoolOperation, boolean};
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::{Point3, Transform3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use std::time::{Duration, Instant};
@@ -412,4 +412,37 @@ fn a_small_target_with_the_slotted_disc_as_tool_costs_as_its_mirror() {
         ratio <= 1.25,
         "the disc as tool costs {ratio:.2}x the disc as target ({symmetric:?} vs {mirror:?}) > 1.25"
     );
+}
+
+/// Four rods crossing near one point, partitioned and their union
+/// selected (PK-1046, design 7.4): one complex over all four, against
+/// the pairwise fold's 0.34 s. Measured 0.29 s best-of-3 (2026-11-03;
+/// 2.2 s at five rods before record crossings split their records
+/// directly instead of through the general node splitter, which
+/// restarts its scan after every split).
+#[test]
+fn four_rod_partition_within_budget() {
+    if debug_skip("four-rod partition") {
+        return;
+    }
+    let tol = tol();
+    let rods: Vec<BRep> = (0..4)
+        .map(|k| {
+            BRep::cylinder(0.4 + 0.03 * k as f64, 3.0, tol)
+                .and_then(|c| c.transform(&Transform3::translation(0.0, 0.017 * k as f64, -1.5)))
+                .and_then(|c| c.transform(&Transform3::rotation_y(std::f64::consts::FRAC_PI_2)))
+                .and_then(|c| c.transform(&Transform3::rotation_z(0.3 * k as f64 + 0.05)))
+                .expect("rod")
+        })
+        .collect();
+    let refs: Vec<&BRep> = rods.iter().collect();
+    let measured = best_of(3, || {
+        let p = popkern_bool::partition(&refs, tol).expect("partition");
+        p.select(
+            &popkern_bool::SetExpr::Any,
+            &popkern_bool::BoolOptions::default(),
+        )
+        .expect("union");
+    });
+    assert_budget("four-rod partition", measured, 1450);
 }
