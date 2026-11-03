@@ -258,6 +258,29 @@ impl Part {
         })
     }
 
+    /// A part from a kernel result `brep` derived from `inputs`: their
+    /// feature logs and blend histories carried, the result validated.
+    pub(crate) fn derived(
+        brep: BRep,
+        tolerance: Tolerance,
+        name: &'static str,
+        inputs: &[&Part],
+    ) -> Result<Part, PartError> {
+        let summary = format!("{name}: {} input part(s)", inputs.len());
+        let mut part = Part::from_validated(brep, tolerance, name, summary)?;
+        let mut log = FeatureLog::default();
+        for p in inputs {
+            log.extend_from(&p.features);
+        }
+        log.extend_from(&part.features);
+        part.features = log;
+        part.blend_history = inputs
+            .iter()
+            .flat_map(|p| p.blend_history.iter().cloned())
+            .collect();
+        Ok(part)
+    }
+
     fn combine_by(
         &self,
         other: &Part,
@@ -469,6 +492,6 @@ impl Part {
 }
 
 /// The finer (smaller linear value) of two tolerances.
-fn finer(a: Tolerance, b: Tolerance) -> Tolerance {
+pub(crate) fn finer(a: Tolerance, b: Tolerance) -> Tolerance {
     if a.linear() <= b.linear() { a } else { b }
 }

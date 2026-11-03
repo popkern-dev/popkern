@@ -121,6 +121,7 @@ pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, ContactKind, NonManifoldContact,
     PointClassification, Stage,
 };
+pub use ops::imprint::FaceClass;
 pub use ops::interference::{InterferenceMode, InterferenceReport, interference_check};
 pub use postprocess::quality::{QualityReport, QualityThresholds, quality_report};
 pub use postprocess::sliver_removal::{SliverRemovalReport, remove_slivers};

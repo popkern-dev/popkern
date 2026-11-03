@@ -3786,6 +3786,7 @@ dependencies = [
  "popkern-fastener",
  "popkern-io",
  "popkern-math",
+ "popkern-measure",
  "popkern-mesh",
  "popkern-shell",
  "popkern-sketch",
