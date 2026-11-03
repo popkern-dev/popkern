@@ -150,3 +150,27 @@ fn a_declined_partition_falls_back_to_pairwise_booleans() {
     );
     assert!(matches!(answer, Err(BoolError::Cancelled)));
 }
+
+/// The six-rod star cuts the same regions in other body orders (a
+/// shift and a reversal): crowded crossings resolve the same way
+/// whichever pair reaches them first.
+#[test]
+fn six_rods_are_order_invariant() {
+    let tol = Tolerance::default();
+    let rods = star_rods(6, tol);
+    let memberships = |order: &[usize]| {
+        let refs: Vec<&BRep> = order.iter().map(|&i| &rods[i]).collect();
+        let p = partition(&refs, tol).expect("partition");
+        let mut m: Vec<super::BodySet> = p
+            .regions()
+            .iter()
+            .map(|r| super::BodySet::of(&r.bodies.iter().map(|k| order[k]).collect::<Vec<_>>()))
+            .collect();
+        m.sort();
+        m
+    };
+    let reference = memberships(&[0, 1, 2, 3, 4, 5]);
+    for order in [[3, 4, 5, 0, 1, 2], [5, 4, 3, 2, 1, 0]] {
+        assert_eq!(memberships(&order), reference, "order {order:?}");
+    }
+}

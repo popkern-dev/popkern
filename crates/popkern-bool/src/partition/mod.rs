@@ -151,3 +151,7 @@ mod tests;
 #[cfg(test)]
 #[path = "partition_star_tests.rs"]
 mod star_tests;
+
+#[cfg(test)]
+#[path = "partition_corpus_tests.rs"]
+mod corpus_tests;
