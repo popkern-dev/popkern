@@ -220,7 +220,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   different pairs adopt a node within 20 tolerances
   (`partition/crossings.rs`), so crowded triple points share a vertex.
   When a stage still declines, `nary_boolean` falls back to
-  two-operand booleans, logged as a `PartitionFallback` shadow line. The shortcut oracle
+  two-operand booleans, logged as a `PartitionFallback` shadow line.
+  In the feature tree they are `Feature::Split { tools, keep }`,
+  `NaryBoolean { tools, expr, non_manifold }` and `Imprint`, named by
+  `popkern_bool::name_from_operands` (the target's names carry, the
+  rest by the operand entities they are pieces of). The shortcut oracle
   `POPKERN_SHORTCUT_ORACLE=1` runs the general path on every touching /
   containment shortcut and logs agreement (`ShortcutOracle`).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.

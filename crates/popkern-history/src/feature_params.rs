@@ -208,6 +208,9 @@ fn static_param_ids(feature: &Feature) -> Vec<(&'static str, ParameterId)> {
         Feature::CurvePattern { count, .. } => vec![("count", *count)],
         Feature::Sketch { .. } => vec![],
         Feature::Boolean { .. }
+        | Feature::Split { .. }
+        | Feature::NaryBoolean { .. }
+        | Feature::Imprint { .. }
         | Feature::Loft { .. }
         | Feature::Reference { .. }
         | Feature::Mirror { .. } => vec![],
@@ -239,6 +242,9 @@ impl Feature {
             Feature::Fillet { .. } => "fillet",
             Feature::Chamfer { .. } => "chamfer",
             Feature::Boolean { .. } => "boolean",
+            Feature::Split { .. } => "split",
+            Feature::NaryBoolean { .. } => "nary_boolean",
+            Feature::Imprint { .. } => "imprint",
             Feature::Shell { .. } => "shell",
             Feature::Generative { .. } => "generative",
             Feature::Transform { .. } => "transform",

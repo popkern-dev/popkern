@@ -320,6 +320,22 @@ pub const RHAI_BINDINGS: &[Binding] = &[
     b("union", "union", &["tool_body"], &["label"], &[]),
     b("subtract", "subtract", &["tool_body"], &["label"], &[]),
     b("intersect", "intersect", &["tool_body"], &["label"], &[]),
+    b("split", "split", &["tools", "keep"], &["label"], &[]),
+    b(
+        "nary_boolean",
+        "nary_boolean",
+        &["tools", "expr"],
+        &["non_manifold", "label"],
+        &[],
+    ),
+    b(
+        "symmetric_difference",
+        "symmetric_difference",
+        &["tool_body"],
+        &["label"],
+        &[],
+    ),
+    b("imprint", "imprint", &["tool_body"], &["label"], &[]),
     b(
         "fillet",
         "fillet",

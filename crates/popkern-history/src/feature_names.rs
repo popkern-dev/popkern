@@ -50,6 +50,9 @@ pub(crate) fn for_each_entity_name_mut(feature: &mut Feature, f: &mut dyn FnMut(
             }
         }
         Feature::Boolean { .. }
+        | Feature::Split { .. }
+        | Feature::NaryBoolean { .. }
+        | Feature::Imprint { .. }
         | Feature::Thicken { .. }
         | Feature::OffsetSolid { .. }
         | Feature::RawBody { .. } => {}

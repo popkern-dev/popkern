@@ -111,6 +111,33 @@ pub enum Feature {
         /// The tool body to operate with.
         tool_body: BodyId,
     },
+    /// The current body cut into its pieces by tool bodies (consumed):
+    /// one body of several solids, the pieces `keep` selects.
+    Split {
+        /// The cutting bodies, in order (tool k is `InsideTools` body k).
+        tools: Vec<BodyId>,
+        /// Which pieces the body keeps.
+        #[serde(default)]
+        keep: PieceRule,
+    },
+    /// The regions of the current body (body 0) and tool bodies 1..N
+    /// (consumed) a set expression keeps, as one body.
+    NaryBoolean {
+        /// The tool bodies, in order.
+        tools: Vec<BodyId>,
+        /// The regions kept, by membership.
+        expr: popkern_bool::SetExpr,
+        /// Kept regions that touch only along edges or at points:
+        /// decline, or serve manifold pieces with recorded contacts.
+        #[serde(default)]
+        non_manifold: popkern_bool::NonManifoldPolicy,
+    },
+    /// The current body with its faces split where a tool body
+    /// (consumed) crosses them.
+    Imprint {
+        /// The imprinting body.
+        tool: BodyId,
+    },
     /// Hollow out a solid by removing faces and offsetting the remaining surfaces.
     Shell {
         /// Faces to remove (the "opening"), identified by stable name.
@@ -413,61 +440,11 @@ pub enum Feature {
     },
 }
 
-/// Describes the plane a sketch is placed on.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum SketchPlaneDesc {
-    /// The global XY plane (Z = 0, normal = +Z).
-    XY,
-    /// The global XZ plane (Y = 0, normal = +Y).
-    XZ,
-    /// The global YZ plane (X = 0, normal = +X).
-    YZ,
-    /// A planar face in the model, referenced by stable name.
-    OnFace(EntityName),
-    /// A plane offset from a model face by the given distance (resolved via
-    /// parameter table).
-    OnFaceOffset(EntityName, ParameterId),
-    /// An arbitrary plane defined by an origin point and a unit normal.
-    Custom {
-        /// Plane origin in world space.
-        origin: [f64; 3],
-        /// Plane unit normal in world space.
-        normal: [f64; 3],
-    },
-    /// A base plane translated along its normal by a parameter
-    /// (`xy_at(z)` and friends): keeps the base plane's u/v frame, so a
-    /// profile at height z compiles exactly as on the base plane.
-    BaseOffset {
-        /// Which base plane.
-        base: BasePlane,
-        /// Signed offset along the base normal.
-        distance: ParameterId,
-    },
-}
+pub use crate::feature_plane::{BasePlane, SketchPlaneDesc, Vec3Desc};
 
-/// One of the three principal planes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BasePlane {
-    /// The XY plane (normal +Z).
-    XY,
-    /// The XZ plane.
-    XZ,
-    /// The YZ plane.
-    YZ,
-}
+pub use crate::feature_pieces::PieceRule;
 
-/// A serialisable description of a 3-D direction vector.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Vec3Desc {
-    /// A literal XYZ direction vector.
-    Literal([f64; 3]),
-    /// The outward normal of a named face.
-    FaceNormal(EntityName),
-    /// The tangent direction of a named edge at its midpoint.
-    EdgeDirection(EntityName),
-    /// The negation of another direction.
-    Negated(Box<Vec3Desc>),
-}
+pub use popkern_bool::{NonManifoldPolicy, SetExpr};
 
 pub use crate::feature_shell_kinds::{JoinStyleKind, ShellDirectionKind, TrimPolicyKind};
 

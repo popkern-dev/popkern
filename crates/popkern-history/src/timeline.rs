@@ -108,6 +108,9 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
             names
         }
         Feature::Boolean { .. }
+        | Feature::Split { .. }
+        | Feature::NaryBoolean { .. }
+        | Feature::Imprint { .. }
         | Feature::Thicken { .. }
         | Feature::OffsetSolid { .. }
         | Feature::RawBody { .. } => Vec::new(),

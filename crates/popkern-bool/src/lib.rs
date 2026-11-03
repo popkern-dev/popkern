@@ -55,6 +55,7 @@ mod entity_lineage_carry;
 mod entity_naming;
 mod entity_naming_edges;
 mod entity_naming_index;
+mod entity_naming_result;
 pub mod error;
 mod error_remediation;
 mod face_box;
@@ -220,6 +221,41 @@ pub fn boolean_with_options(
 /// Returns [`BoolError`] if the structural copy fails.
 pub fn concatenate_solids(a: BRep, b: BRep) -> Result<BRep, BoolError> {
     operation::helpers::combine_breps(a, b)
+}
+
+/// Name `result` after the operands it was built from, as [`boolean`]
+/// names its result under a tracking context: `target`'s unchanged
+/// entities clear of every tool keep their names, the rest are named
+/// by the operand entities they are pieces of, with their lineage.
+/// For the partition's operations, whose results come from one target
+/// and several tools ([`split`], [`nary_boolean`] with the target as
+/// body 0, [`ops::imprint::imprint`]); a split's kept pieces are named
+/// together, as one body, so their names stay distinct.
+///
+/// ```
+/// use popkern_bool::{SetExpr, BoolOptions, nary_boolean, name_from_operands};
+/// use popkern_core::{geometry::Transform3, history::TrackingContext};
+/// use popkern_core::{naming::OperationId, tolerance::Tolerance, topology::BRep};
+///
+/// let tol = Tolerance::default();
+/// let a = BRep::unit_cube(tol).unwrap();
+/// let b = BRep::unit_cube(tol)
+///     .unwrap()
+///     .transform(&Transform3::translation(0.5, 0.5, 0.5))
+///     .unwrap();
+/// let mut body = nary_boolean(&[&a, &b], &SetExpr::Any, tol, &BoolOptions::default()).unwrap();
+/// let mut tracking = TrackingContext::new(OperationId(7));
+/// name_from_operands(&mut body, &a, &[&b], &tol, &mut tracking);
+/// assert!(body.faces.values().all(|f| f.name.is_some()));
+/// ```
+pub fn name_from_operands(
+    result: &mut BRep,
+    target: &BRep,
+    tools: &[&BRep],
+    tolerance: &Tolerance,
+    tracking: &mut TrackingContext,
+) {
+    entity_naming_result::name_result(result, target, tools, tracking, tolerance);
 }
 
 /// Perform a boolean operation on two solids, borrowing both inputs.

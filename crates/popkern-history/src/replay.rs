@@ -207,6 +207,9 @@ pub(crate) fn execute_feature(
                 evidence,
             })
         }
+        Feature::Split { .. } | Feature::NaryBoolean { .. } | Feature::Imprint { .. } => {
+            crate::replay_partition::execute(brep, feature, tracking, tolerance, body_breps)
+        }
         Feature::Shell {
             faces_to_remove,
             thickness,

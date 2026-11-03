@@ -9,7 +9,7 @@
 //! (`BRep::topology_contacts`), the form a slicer or a mesher can take.
 
 /// What a boolean does when its result would be non-manifold.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum NonManifoldPolicy {
     /// Decline with [`crate::BoolError::NonManifoldResult`], naming
     /// every contact.

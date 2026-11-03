@@ -482,7 +482,8 @@ pub fn statement(
             ),
             _ => return Err(decline("general transforms have no spelling in the skin")),
         },
-        _ => return Err(decline("this operation has no spelling in the Rhai skin")),
+        other => emit_feature_partition::call(other, label, tool_var)
+            .ok_or_else(|| decline("this operation has no spelling in the Rhai skin"))?,
     };
     Ok(Statement {
         call,
@@ -492,3 +493,5 @@ pub fn statement(
 
 #[path = "emit_feature_groups.rs"]
 mod emit_feature_groups;
+#[path = "emit_feature_partition.rs"]
+mod emit_feature_partition;
