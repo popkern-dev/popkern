@@ -21,7 +21,7 @@ use popkern_core::geometry::surface::SurfaceEval as _;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::IntersectionRecord;
+use super::{IntersectionRecord, endpoint_of};
 
 /// True when the stretch of the intersection curve between the
 /// facing ends of `ra` (`a_end`: its end, else its start) and `rb`
@@ -117,4 +117,26 @@ pub(super) fn weld_leaves_a_surface(
                 .fold(tolerance.tangency_band(scale), f64::max);
             d >= allowed
         })
+}
+
+/// True when one of `others` runs across the closure gap of `record`:
+/// one of its ends at the record's end and the other at its start,
+/// within `band`. The gap is then a stretch of the curve that record
+/// holds, not marching slop, and closing it would trace that stretch
+/// twice (PK-1055: a rod around a sphere's pole meets it in a loop
+/// the clip cuts where it crosses each surface's seam, 0.05 apart;
+/// the long arc's 0.05 "closure gap" sat under its slop gate, the
+/// weld closed it at the midpoint, off both surfaces, and the short
+/// arc between the seams was covered twice).
+pub(super) fn gap_bridged<'r>(
+    record: &IntersectionRecord,
+    mut others: impl Iterator<Item = &'r IntersectionRecord>,
+    band: f64,
+) -> bool {
+    let (s, e) = (endpoint_of(record, false), endpoint_of(record, true));
+    others.any(|o| {
+        let (os, oe) = (endpoint_of(o, false), endpoint_of(o, true));
+        (os.distance_to(&e) <= band && oe.distance_to(&s) <= band)
+            || (os.distance_to(&s) <= band && oe.distance_to(&e) <= band)
+    })
 }
