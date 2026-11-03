@@ -209,6 +209,19 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   restores the graph's snap-then-adopt identity; a declined resolution
   falls back to it for that boolean (a `VertexTableFallback` shadow
   line, and its candidates under `POPKERN_COMPLEX_ARTIFACT`).
+- **N-body operations** — `popkern_bool::partition` builds one cell
+  complex over N solids (`popkern-bool/src/partition/`); `select` /
+  `nary_boolean` keep the regions a `SetExpr` accepts, `region_solids`
+  and `split` keep each region as its own solid with the faces
+  neighbours share (`Interface`), `imprint` classifies a target's faces
+  (`FaceClass`). Operations declare accepted `BodyKind`s
+  (`BoolError::UnsupportedBodyKind`). Vertex identity across body pairs
+  is still the graph's own snap (crowded triple points can decline a
+  radial tie) and coplanar faces between bodies decline: `nary_boolean`
+  then falls back to two-operand booleans, logged as a
+  `PartitionFallback` shadow line. The shortcut oracle
+  `POPKERN_SHORTCUT_ORACLE=1` runs the general path on every touching /
+  containment shortcut and logs agreement (`ShortcutOracle`).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks
