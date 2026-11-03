@@ -40,7 +40,7 @@ use super::model::{CellComplex, ComplexEdge};
 pub(crate) fn half_registered_records(
     c: &CellComplex,
     graph: &IntersectionGraph,
-    operands: [&BRep; 2],
+    operands: &[&BRep],
     linear: f64,
 ) -> Vec<EdgeId> {
     let mut out = Vec::new();
@@ -49,7 +49,12 @@ pub(crate) fn half_registered_records(
             continue;
         };
         let he = &graph.half_edges[key];
-        let EdgeSource::Shared { face_a, face_b, .. } = &he.source else {
+        let EdgeSource::Shared {
+            face_a,
+            face_b,
+            operands: pair,
+        } = &he.source
+        else {
             continue;
         };
         if he.face == graph.half_edges[he.twin].face {
@@ -63,10 +68,11 @@ pub(crate) fn half_registered_records(
                     .any(|o| o.operand == operand && o.face == face)
             })
         };
-        let (used_a, used_b) = (uses(0, *face_a), uses(1, *face_b));
+        let (oa, ob) = (pair[0].index(), pair[1].index());
+        let (used_a, used_b) = (uses(oa, *face_a), uses(ob, *face_b));
         let unused = match (used_a, used_b) {
-            (true, false) => (1, *face_b),
-            (false, true) => (0, *face_a),
+            (true, false) => (ob, *face_b),
+            (false, true) => (oa, *face_a),
             _ => continue,
         };
         // An unanswerable trim query keeps the decline: no evidence

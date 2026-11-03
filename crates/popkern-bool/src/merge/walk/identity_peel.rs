@@ -77,8 +77,7 @@ pub(super) fn peel_far_holes(
     graph: &IntersectionGraph,
     face_ref: &FaceRef,
     he_indices: &[usize],
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     maps: &OperandHalfEdgeMaps<'_>,
     overlap_pairs: &[(FaceHandle, FaceHandle)],
     opposite_box: Option<Aabb>,
@@ -87,8 +86,8 @@ pub(super) fn peel_far_holes(
     use popkern_core::geometry::surface::SurfaceGeometry;
     let opposite_box = opposite_box?;
     let (brep, map) = match face_ref.operand {
-        Operand::A => (brep_a, maps.a),
-        _ /* B */ => (brep_b, maps.b),
+        Operand::A => (operands[0], maps.a),
+        _ /* B */ => (operands[1], maps.b),
     };
     let face = brep.faces.get(face_ref.face)?;
     if face.inner_loops.is_empty()

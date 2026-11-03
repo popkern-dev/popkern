@@ -32,7 +32,7 @@ pub(crate) mod fragment_sampling;
 pub(crate) mod fragment_torus_sample;
 mod operand_winding;
 mod probe_clearance;
-mod record_rotation;
+pub(crate) mod record_rotation;
 pub mod select;
 mod vertex_identity;
 

@@ -42,6 +42,19 @@ pub(crate) fn insert_intersection_curves_at(
     tolerance: f64,
     ends: Option<&[crate::tolerance_zone::table::RecordEnds]>,
 ) {
+    insert_pair_curves(graph, records, tolerance, ends, [Operand::A, Operand::B]);
+}
+
+/// [`insert_intersection_curves_at`] for records between the faces of
+/// `operands` (each record's `face_a` on the first, `face_b` on the
+/// second): one body pair of an N-operand partition.
+pub(crate) fn insert_pair_curves(
+    graph: &mut IntersectionGraph,
+    records: &[IntersectionRecord],
+    tolerance: f64,
+    ends: Option<&[crate::tolerance_zone::table::RecordEnds]>,
+    operands: [Operand; 2],
+) {
     // Model scale for the point-contact guard (matches the
     // post-assembly point-loop retirement's gate — tolerance*500
     // capped by a fraction of the model diagonal, so coarse-tolerance
@@ -198,7 +211,7 @@ pub(crate) fn insert_intersection_curves_at(
         let source = EdgeSource::Shared {
             face_a: record.face_a,
             face_b: record.face_b,
-            operands: [Operand::A, Operand::B],
+            operands,
         };
 
         // Attach UV curves as pcurves: curve_uv1 belongs to face A (fwd),
@@ -251,11 +264,11 @@ pub(crate) fn insert_intersection_curves_at(
         }
 
         let face_a_ref = FaceRef {
-            operand: Operand::A,
+            operand: operands[0],
             face: record.face_a,
         };
         let face_b_ref = FaceRef {
-            operand: Operand::B,
+            operand: operands[1],
             face: record.face_b,
         };
 

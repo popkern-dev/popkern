@@ -6,7 +6,7 @@
 use popkern_core::topology::BRep;
 
 use crate::merge::fragment_classify::FragmentSelection;
-use crate::merge::graph::{IntersectionGraph, Operand};
+use crate::merge::graph::IntersectionGraph;
 use crate::merge::walk::Fragment;
 
 /// For each kept fragment traversing a Shared record near the query
@@ -18,8 +18,7 @@ pub(super) fn trace_material_sides(
     graph: &IntersectionGraph,
     frag: &Fragment,
     sel: &FragmentSelection,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
 ) {
     // PK-494 layer-3 diagnostic (uv-scramble topic +
     // POPKERN_CLAIM_TRACE_Z): the material-side audit at contested
@@ -83,10 +82,7 @@ pub(super) fn trace_material_sides(
                 }
                 None => popkern_core::geometry::Vec3::new(pb.x - pa.x, pb.y - pa.y, pb.z - pa.z),
             };
-            let src_brep = match frag.face.operand {
-                Operand::A => brep_a,
-                _ /* B */ => brep_b,
-            };
+            let src_brep = operands[frag.face.operand.index()];
             let Some(sof) = src_brep
                 .faces
                 .get(frag.face.face)

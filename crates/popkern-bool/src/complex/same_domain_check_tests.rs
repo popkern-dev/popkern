@@ -46,7 +46,7 @@ fn lifted_face(c: &super::super::model::CellComplex, face: FaceHandle) -> usize 
 fn a_coincident_face_carried_by_one_operand_is_a_mismatch() {
     let (a, b, fa, fb) = cubes(0.0);
     let c = complex_of_brep(&a);
-    let found = same_domain_mismatches(&c, [&a, &b], &[(fa, fb)], 1e-6);
+    let found = same_domain_mismatches(&c, &[&a, &b], &[(fa, fb)], 1e-6);
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].face, FaceId::from_index(lifted_face(&c, fa)));
     assert_eq!(found[0].partner, fb);
@@ -62,7 +62,7 @@ fn a_face_carrying_both_copies_is_not_a_mismatch() {
         face: fb,
         same_sense: false,
     });
-    assert!(same_domain_mismatches(&c, [&a, &b], &[(fa, fb)], 1e-6).is_empty());
+    assert!(same_domain_mismatches(&c, &[&a, &b], &[(fa, fb)], 1e-6).is_empty());
 }
 
 #[test]
@@ -71,14 +71,14 @@ fn a_face_outside_its_partner_region_is_not_a_mismatch() {
     // part of a partially overlapping face beyond the patch.
     let (a, b, fa, fb) = cubes(2.0);
     let c = complex_of_brep(&a);
-    assert!(same_domain_mismatches(&c, [&a, &b], &[(fa, fb)], 1e-6).is_empty());
+    assert!(same_domain_mismatches(&c, &[&a, &b], &[(fa, fb)], 1e-6).is_empty());
 }
 
 #[test]
 fn no_overlaps_no_mismatches() {
     let (a, b, ..) = cubes(0.0);
     let c = complex_of_brep(&a);
-    assert!(same_domain_mismatches(&c, [&a, &b], &[], 1e-6).is_empty());
+    assert!(same_domain_mismatches(&c, &[&a, &b], &[], 1e-6).is_empty());
 }
 
 /// A box 7.5e-4 thick in y beside a unit block, their tops coplanar:
@@ -108,7 +108,7 @@ fn a_sliver_face_s_inner_point_stays_on_the_sliver() {
     let c = complex_of_brep(&a);
     for k in 0..c.faces.len() {
         let at =
-            super::inner_point(&c, [&a, &b], 1e-6, FaceId::from_index(k)).expect("an inner point");
+            super::inner_point(&c, &[&a, &b], 1e-6, FaceId::from_index(k)).expect("an inner point");
         let p = at.point;
         assert!(
             (-1e-9..=thin + 1e-9).contains(&p.y)
@@ -117,6 +117,6 @@ fn a_sliver_face_s_inner_point_stays_on_the_sliver() {
             "face {k}: {p:?}"
         );
     }
-    let found = same_domain_mismatches(&c, [&a, &b], &[(top(&a), top(&b))], 1e-6);
+    let found = same_domain_mismatches(&c, &[&a, &b], &[(top(&a), top(&b))], 1e-6);
     assert!(found.is_empty(), "{found:?}");
 }

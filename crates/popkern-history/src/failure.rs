@@ -118,6 +118,8 @@ impl FeatureFailure {
             BoolError::InterferenceFailed(_) => ("InterferenceFailed", None),
             BoolError::SystemError(_) => ("SystemError", None),
             BoolError::NonManifoldResult { .. } => ("NonManifoldResult", None),
+            BoolError::UnsupportedBodyKind { .. } => ("UnsupportedBodyKind", None),
+            BoolError::TooManyBodies { .. } => ("TooManyBodies", None),
         };
         FeatureFailure::BooleanFailed {
             operation: operation.to_string(),

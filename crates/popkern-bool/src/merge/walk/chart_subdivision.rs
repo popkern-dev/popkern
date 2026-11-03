@@ -12,7 +12,6 @@
 //! where that reads. No UV epsilon welding is
 //! introduced — branch points are keyed (graph node, cluster index).
 
-use crate::merge::graph::Operand;
 use std::collections::BTreeMap;
 
 use super::chart_branches::clustering::balance_and_duplicates;
@@ -716,13 +715,9 @@ fn build_face_subdivision_inner(
 /// Resolve a face's surface geometry and orientation flag.
 pub(crate) fn face_surface<'a>(
     face: &FaceRef,
-    brep_a: &'a popkern_core::topology::BRep,
-    brep_b: &'a popkern_core::topology::BRep,
+    operands: &[&'a popkern_core::topology::BRep],
 ) -> Option<(&'a SurfaceGeometry, bool)> {
-    let brep = match face.operand {
-        Operand::A => brep_a,
-        _ /* B */ => brep_b,
-    };
+    let brep = operands[face.operand.index()];
     let s = brep.faces.get(face.face)?.surface.as_ref()?;
     Some((&s.geometry, s.orientation))
 }

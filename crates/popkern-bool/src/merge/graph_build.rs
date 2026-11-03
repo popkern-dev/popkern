@@ -85,10 +85,7 @@ pub(crate) fn insert_operand_topology_scoped(
         {
             continue;
         }
-        let source = match operand {
-            Operand::A => NodeSource::Original(Operand::A, vh),
-            _ /* B */ => NodeSource::Original(Operand::B, vh),
-        };
+        let source = NodeSource::Original(operand, vh);
         if let Some(&at) = anchors.and_then(|m| m.get(&vh)) {
             let node = graph
                 .find_node_exact(&at)
@@ -144,10 +141,7 @@ pub(crate) fn insert_operand_topology_scoped(
         let start_node = vertex_map[&he.origin];
         let end_node = vertex_map[&twin_he.origin];
 
-        let source = match operand {
-            Operand::A => EdgeSource::Original(Operand::A, eh),
-            _ /* B */ => EdgeSource::Original(Operand::B, eh),
-        };
+        let source = EdgeSource::Original(operand, eh);
 
         // CLOSED-EDGE SIDE FIDELITY (audit-first since PK-478 stage
         // 4 — the vote witness below now handles only the edges the

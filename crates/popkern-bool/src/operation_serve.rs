@@ -297,7 +297,33 @@ fn serve(
         entity_count: count_merge,
     });
     super::report_phase(progress, Stage::Merge, 4, elapsed_merge, count_merge);
+    finish(
+        result,
+        (carried, validated),
+        tolerance,
+        &|| super::empty::certify_empty_result(op, original_a, original_b),
+        Some(op),
+        metrics,
+        progress,
+    )
+}
 
+/// The served body's acceptance and output repairs, shared by every
+/// assembled result: pcurve completion, the pre-check retirements, the
+/// post-check with its reconciliation retry, output post-processing,
+/// the coherence and tolerance gates. `certify_empty` decides whether
+/// an emptied result is the answer; `op` labels the diagnostics of a
+/// two-operand boolean.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn finish(
+    result: BRep,
+    (carried, validated): (&crate::serve_region::Carried, bool),
+    tolerance: &Tolerance,
+    certify_empty: &dyn Fn() -> Result<(), BoolError>,
+    op: Option<BoolOperation>,
+    metrics: &mut Vec<PhaseMetric>,
+    progress: &mut Option<&mut dyn ProgressReporter>,
+) -> Result<BRep, BoolError> {
     // Recompute pcurves so that the tessellation pipeline can build
     // accurate trim loops. Boolean merge may leave seam edges and
     // original-operand edges without pcurves — only faces with a gap
@@ -320,8 +346,7 @@ fn serve(
     let region = crate::serve_region::ServeRegion::of(&result, carried);
     gate.edited(super::helpers::pre_check_retire_and_empty_gate(
         &mut result,
-        op,
-        (original_a, original_b),
+        certify_empty,
         tolerance,
         &region,
     )?);
@@ -406,7 +431,7 @@ fn serve(
     // sliver ring is all a line contact keeps): the same certificate
     // decides whether that emptiness is the answer.
     if result.faces.is_empty() {
-        super::empty::certify_empty_result(op, original_a, original_b)?;
+        certify_empty()?;
         return Ok(BRep::new(*tolerance));
     }
 
@@ -414,7 +439,9 @@ fn serve(
     // after run_output_postprocess deliberately (PK-272): the earlier
     // placement fired before reconcile_orientation_flags and reported
     // transient winding findings that the served result doesn't have.
-    log_validation_issues(&result, op);
+    if let Some(op) = op {
+        log_validation_issues(&result, op);
+    }
 
     // Post-processing diagnostics: sliver detection and watertightness.
     log_post_processing_diagnostics(&result, tolerance);

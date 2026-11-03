@@ -284,8 +284,7 @@ pub(crate) fn trace_records(records: &[crate::intersect::IntersectionRecord], n_
 /// after loop-chart normalization and before `post_check`.
 pub(super) fn pre_check_retire_and_empty_gate(
     result: &mut BRep,
-    op: crate::error::BoolOperation,
-    (original_a, original_b): (&BRep, &BRep),
+    certify_empty: &dyn Fn() -> Result<(), crate::error::BoolError>,
     tolerance: &popkern_core::tolerance::Tolerance,
     region: &crate::serve_region::ServeRegion,
 ) -> Result<usize, crate::error::BoolError> {
@@ -309,7 +308,7 @@ pub(super) fn pre_check_retire_and_empty_gate(
     }
 
     if result.faces.is_empty() {
-        super::empty::certify_empty_result(op, original_a, original_b)?;
+        certify_empty()?;
     }
 
     Ok(point_loops + slit_faces + slit_pairs)

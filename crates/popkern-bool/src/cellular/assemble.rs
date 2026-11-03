@@ -35,8 +35,7 @@ pub(crate) fn cellular_assemble(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
     selections: &[FragmentSelection],
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     tolerance: Tolerance,
     carried: &mut crate::serve_region::Carried,
     far: super::assemble_far_carry::FarCarry<'_>,
@@ -222,7 +221,7 @@ pub(crate) fn cellular_assemble(
                 frag.outer_loop
             );
         }
-        assemble_material_audit::trace_material_sides(graph, frag, sel, brep_a, brep_b);
+        assemble_material_audit::trace_material_sides(graph, frag, sel, operands);
         let face_h = builder.add_face(shell);
         carry.face(frag.face, face_h, sel.flip, carried);
 
@@ -235,14 +234,11 @@ pub(crate) fn cellular_assemble(
         // while analytic charts get exact Linear/Arc pcurves from the
         // tuned recompute — installing graph pcurves on them regressed
         // the chamfered-socket corpus (898 open mesh edges).
-        let frag_surface = match frag.face.operand {
-            Operand::A => brep_a,
-            _ /* B */ => brep_b,
-        }
-        .faces
-        .get(frag.face.face)
-        .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.clone());
+        let frag_surface = operands[frag.face.operand.index()]
+            .faces
+            .get(frag.face.face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| s.geometry.clone());
 
         // Resolve all graph half-edges to BRep half-edges upfront,
         // before calling builder methods that borrow mutably.
@@ -515,10 +511,7 @@ pub(crate) fn cellular_assemble(
         }
 
         // Attach surface geometry
-        let source_brep = match frag.face.operand {
-            Operand::A => brep_a,
-            _ /* B */ => brep_b,
-        };
+        let source_brep = operands[frag.face.operand.index()];
         if let Some(face) = source_brep.faces.get(frag.face.face)
             && let Some(ref surface) = face.surface
         {
@@ -532,7 +525,7 @@ pub(crate) fn cellular_assemble(
 
     // Far faces (scoped run): appended before the cleanup, which would
     // drop the frontier edges' still-unwired far sides.
-    carry.far_faces(&mut builder, shell, (brep_a, brep_b), carried)?;
+    carry.far_faces(&mut builder, shell, operands, carried)?;
 
     // Cleanup: remove unwired half-edges, dangling edges, orphan vertices.
     cleanup_unwired(&mut builder);

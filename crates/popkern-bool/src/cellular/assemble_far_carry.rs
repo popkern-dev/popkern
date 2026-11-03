@@ -154,13 +154,14 @@ impl<'s> Carry<'s> {
         &mut self,
         builder: &mut BRepBuilder,
         shell: ShellHandle,
-        (a, b): (&BRep, &BRep),
+        operands: &[&BRep],
         carried: &mut Carried,
     ) -> Result<(), crate::error::BoolDiagnostics> {
-        if let Some(far) = self.far.a {
+        // A scoped run carries far faces of a two-operand boolean only.
+        if let (Some(far), Some(a)) = (self.far.a, operands.first()) {
             carry(builder, shell, a, far, false, &mut self.a, carried)?;
         }
-        if let Some(far) = self.far.b {
+        if let (Some(far), Some(b)) = (self.far.b, operands.get(1)) {
             let reversed = self.far.b_reversed;
             carry(builder, shell, b, far, reversed, &mut self.b, carried)?;
         }

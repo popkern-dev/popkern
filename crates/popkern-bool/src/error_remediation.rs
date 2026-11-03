@@ -216,6 +216,17 @@ impl BoolError {
                  the contact a shared face. The contact locations are \
                  in the error.",
             ),
+            BoolError::UnsupportedBodyKind { .. } => Remediation::new(
+                RemediationAction::NoAction,
+                "One input is not a kind of body this operation takes \
+                 (an open sheet where a solid is needed). Close or \
+                 thicken it, or use the sheet operation instead.",
+            ),
+            BoolError::TooManyBodies { .. } => Remediation::new(
+                RemediationAction::NoAction,
+                "Too many bodies for one operation. Combine some first \
+                 (union groups of them), then run it on the results.",
+            ),
         }
     }
 }

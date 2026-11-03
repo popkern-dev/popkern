@@ -14,7 +14,7 @@
 
 use popkern_core::geometry::Point3;
 
-use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::EdgeHandle;
 
 use super::graph::{EdgeSource, IntersectionGraph, NodeSource};
 
@@ -61,7 +61,7 @@ pub(crate) fn split_operand_edges_at_paves(
     graph: &mut IntersectionGraph,
     paves: &[(usize, EdgeHandle, Point3)],
     tolerance: f64,
-    breps: Option<(&BRep, &BRep, f64)>,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) -> usize {
     let mut splits = 0;
     for &(operand, edge, at) in paves {

@@ -3526,6 +3526,7 @@ dependencies = [
  "popkern-math",
  "popkern-sketch",
  "rayon",
+ "serde",
  "serde_json",
  "slotmap",
  "thiserror 2.0.18",

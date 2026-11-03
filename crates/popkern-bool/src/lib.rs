@@ -93,6 +93,7 @@ mod operation_postprocess_trace;
 pub mod ops;
 pub mod options;
 pub mod parallel;
+pub mod partition;
 pub mod perturbation;
 pub mod postprocess;
 pub mod progress;
@@ -110,6 +111,10 @@ pub use classify::{point_in_solid, point_in_solid_final};
 pub use csg::{CsgNode, csg_eval};
 pub use ops::contact::{BodyContact, TouchExtent, contact_report, symmetric_difference};
 pub use options::{BoolOptions, NonManifoldPolicy};
+pub use partition::{
+    BodySet, Interface, MAX_BODIES, Partition, RegionInfo, RegionSolid, RegionSolids, SetExpr,
+    partition,
+};
 
 pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, ContactKind, NonManifoldContact,

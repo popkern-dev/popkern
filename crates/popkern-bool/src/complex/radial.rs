@@ -75,7 +75,7 @@ pub(crate) struct RadialSides {
 /// Geometry the radial stage needs for a fin's face.
 pub(crate) struct FaceGeometry<'a> {
     /// The operand BReps.
-    pub operands: [&'a BRep; 2],
+    pub operands: &'a [&'a BRep],
     /// The intersection graph the complex lifts, when there is one:
     /// its half-edges' pcurves seed each fin's projection onto its face.
     pub graph: Option<&'a crate::merge::graph::IntersectionGraph>,

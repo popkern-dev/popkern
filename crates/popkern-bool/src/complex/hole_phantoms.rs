@@ -27,23 +27,12 @@ use crate::merge::walk::Fragment;
 /// The original operand edge a graph half-edge copies or splits, on
 /// `operand`'s side.
 fn original_edge(source: &EdgeSource, operand: Operand) -> Option<EdgeHandle> {
-    match (source, operand) {
-        (EdgeSource::Original(Operand::A, e), Operand::A)
-        | (
-            EdgeSource::Split {
-                operand: Operand::A,
-                original: e,
-            },
-            Operand::A,
-        )
-        | (EdgeSource::Original(Operand::B, e), Operand::B)
-        | (
-            EdgeSource::Split {
-                operand: Operand::B,
-                original: e,
-            },
-            Operand::B,
-        ) => Some(*e),
+    match *source {
+        EdgeSource::Original(o, e)
+        | EdgeSource::Split {
+            operand: o,
+            original: e,
+        } if o == operand => Some(e),
         _ => None,
     }
 }
@@ -74,7 +63,7 @@ fn hole_rim_edges(brep: &BRep, face: popkern_core::topology::FaceHandle) -> BTre
 pub(crate) fn hole_filling_fragments(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
-    operands: [&BRep; 2],
+    operands: &[&BRep],
     reps: &BTreeMap<usize, SpanRep>,
 ) -> Vec<bool> {
     // Graph keys per span representative.
@@ -180,7 +169,7 @@ pub(crate) fn own_hole_hosts(
 pub(crate) fn rejoin_own_holes(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
-    operands: [&BRep; 2],
+    operands: &[&BRep],
     linear: f64,
 ) -> Option<Vec<Fragment>> {
     let reps = super::spans::unify_spans(graph, fragments, linear);

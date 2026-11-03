@@ -110,12 +110,35 @@ pub(crate) fn select_fragments(
     op: BoolOperation,
     fragment_count: usize,
 ) -> ComplexSelection {
-    let c = &lift.complex;
-    let selected_shell: Vec<bool> = c
+    select_fragments_by(lift, |m| selects(op, m), fragment_count)
+}
+
+/// Select the fragments of `lift` bounding the regions whose membership
+/// `keep` accepts (an N-operand partition's set expression; the
+/// two-operand booleans are three such predicates).
+pub(crate) fn select_fragments_by(
+    lift: &Lift,
+    keep: impl Fn(&OperandSet) -> bool,
+    fragment_count: usize,
+) -> ComplexSelection {
+    let selected_shell: Vec<bool> = lift
+        .complex
         .shells
         .iter()
-        .map(|s| s.membership.as_ref().is_some_and(|m| selects(op, m)))
+        .map(|s| s.membership.as_ref().is_some_and(&keep))
         .collect();
+    select_shells(lift, selected_shell, fragment_count)
+}
+
+/// Select the fragments of `lift` bounding exactly the regions
+/// `selected_shell` marks (one region alone: a partition's region
+/// solid, which may share its membership with a disjoint region).
+pub(crate) fn select_shells(
+    lift: &Lift,
+    selected_shell: Vec<bool>,
+    fragment_count: usize,
+) -> ComplexSelection {
+    let c = &lift.complex;
     let mut selections = vec![
         FragmentSelection {
             keep: false,

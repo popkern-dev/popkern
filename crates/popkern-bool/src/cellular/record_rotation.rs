@@ -11,7 +11,7 @@
 /// closure point coincides with an edge-face hit lying on the curve.
 /// Open records and closed records with no hit on them pass through
 /// unchanged.
-pub(super) fn rotate_closed_record_to_hits(
+pub(crate) fn rotate_closed_record_to_hits(
     record: &crate::intersect::IntersectionRecord,
     hits: &[crate::intersect_edge_face::EdgeFaceHit],
     tolerance: &popkern_core::tolerance::Tolerance,

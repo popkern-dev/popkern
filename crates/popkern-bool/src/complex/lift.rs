@@ -66,14 +66,11 @@ pub(crate) struct Lift {
 
 /// Operand index of a graph operand tag.
 pub(crate) fn operand_index(op: Operand) -> usize {
-    match op {
-        Operand::A => 0,
-        _ /* B */ => 1,
-    }
+    op.index()
 }
 
 /// The source BRep of a face reference.
-pub(crate) fn operand_brep(operands: [&BRep; 2], face: FaceRef) -> &BRep {
+pub(crate) fn operand_brep<'a>(operands: &[&'a BRep], face: FaceRef) -> &'a BRep {
     operands[operand_index(face.operand)]
 }
 
@@ -254,8 +251,8 @@ fn probe_votes(
 /// Outward normals of two coincident faces agree at the fragment's
 /// first boundary node.
 fn same_outward(
-    operands: [&BRep; 2],
-    senses: &[HashMap<FaceHandle, bool>; 2],
+    operands: &[&BRep],
+    senses: &[HashMap<FaceHandle, bool>],
     a: FaceRef,
     b: FaceRef,
     at: popkern_core::geometry::Point3,
@@ -277,20 +274,22 @@ fn same_outward(
 pub(crate) fn lift_fragments(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
-    operands: [&BRep; 2],
-    boxes: [&[(
+    operands: &[&BRep],
+    boxes: &[&[(
         FaceHandle,
         popkern_core::geometry::intersection::surface_subdivision::Aabb,
-    )]; 2],
+    )]],
     overlaps: &[(FaceHandle, FaceHandle)],
     tol: &popkern_core::tolerance::Tolerance,
 ) -> Result<Lift, LiftDecline> {
     let tolerance = tol.linear();
     let reps = unify_spans(graph, fragments, tolerance);
-    let senses = [
-        material_senses(operands[0], 0, boxes[0], tol)?,
-        material_senses(operands[1], 1, boxes[1], tol)?,
-    ];
+    let senses = operands
+        .iter()
+        .zip(boxes)
+        .enumerate()
+        .map(|(k, (brep, boxes))| material_senses(brep, k, boxes, tol))
+        .collect::<Result<Vec<_>, _>>()?;
     let output_folded_outward = operands[0]
         .faces
         .keys()
@@ -309,7 +308,7 @@ pub(crate) fn lift_fragments(
     }
     groups.retain(|g| !g.is_empty());
 
-    let mut complex = CellComplex::new(2);
+    let mut complex = CellComplex::new(operands.len());
     let mut vertex_of_node: BTreeMap<usize, VertexId> = BTreeMap::new();
     let mut edge_of_key: BTreeMap<usize, EdgeId> = BTreeMap::new();
     let mut face_of_fragment = vec![FaceId::from_index(usize::MAX); fragments.len()];

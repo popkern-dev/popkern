@@ -168,25 +168,33 @@ pub enum BoolError {
         /// Where the result would touch itself, for highlighting.
         contacts: Vec<NonManifoldContact>,
     },
+    /// An operand is not a kind of body the operation accepts (a sheet
+    /// given to an operation on solids).
+    #[error("{operation} needs {}; operand {operand} is a {}", accepted_label(accepted), kind.label())]
+    UnsupportedBodyKind {
+        /// The operation.
+        operation: &'static str,
+        /// The operand's index among the inputs.
+        operand: usize,
+        /// Its kind.
+        kind: popkern_core::topology::BodyKind,
+        /// The kinds the operation accepts.
+        accepted: &'static [popkern_core::topology::BodyKind],
+    },
+    /// More bodies than one operation takes at once.
+    #[error("a partition takes at most {limit} bodies; {given} were given")]
+    TooManyBodies {
+        /// The bodies given.
+        given: usize,
+        /// The most it takes.
+        limit: usize,
+    },
 }
 
-/// The kind of a zero-thickness contact in a non-manifold result.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ContactKind {
-    /// More than two result faces would meet at an edge.
-    Edge,
-    /// The result faces at a vertex would form more than one fan.
-    Vertex,
-}
-
-/// One zero-thickness contact of a non-manifold result.
-#[derive(Debug, Clone, PartialEq)]
-pub struct NonManifoldContact {
-    /// Edge or vertex contact.
-    pub kind: ContactKind,
-    /// A point on the contact (the vertex, or the edge's midpoint).
-    pub location: popkern_core::geometry::Point3,
-}
+#[path = "error_contact.rs"]
+mod error_contact;
+use error_contact::accepted_label;
+pub use error_contact::{ContactKind, NonManifoldContact};
 
 /// Per-stage timing and counter sample (§16 telemetry).
 ///

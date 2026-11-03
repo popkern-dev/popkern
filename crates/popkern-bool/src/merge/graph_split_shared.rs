@@ -4,16 +4,11 @@
 use super::graph::{EdgeSource, IntersectionGraph};
 use super::graph_split::{point_on_curved_graph_edge, point_on_graph_edge_curve, point_on_segment};
 use super::graph_split_node::split_at_existing_node_with_pcurves;
-use crate::merge::graph::Operand;
 
 pub(crate) fn split_edges_at_shared_nodes(
     graph: &mut IntersectionGraph,
     tolerance: f64,
-    breps: Option<(
-        &popkern_core::topology::BRep,
-        &popkern_core::topology::BRep,
-        f64,
-    )>,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) {
     // Collect shared edge endpoint node indices, in ASCENDING order:
     // the split order below decides every new graph index, and a
@@ -129,11 +124,7 @@ pub(crate) fn unsplit_operand_junctions(graph: &IntersectionGraph, tolerance: f6
 pub(crate) fn complete_dead_end_cuts(
     graph: &mut IntersectionGraph,
     tolerance: f64,
-    breps: Option<(
-        &popkern_core::topology::BRep,
-        &popkern_core::topology::BRep,
-        f64,
-    )>,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) {
     // COMPLETE-THE-CUT pass (PK-305): a record chain legitimately
     // dead-ends ON a face boundary edge, but its endpoint carries the
@@ -174,17 +165,12 @@ pub(crate) fn complete_dead_end_cuts(
         // transactional validate declined every assembly). A chain
         // nowhere joined to the candidate edge keeps the PK-305
         // completion.
-        let original_of = |src: &EdgeSource| match src {
-            EdgeSource::Original(Operand::A, e)
+        let original_of = |src: &EdgeSource| match *src {
+            EdgeSource::Original(o, e)
             | EdgeSource::Split {
-                operand: Operand::A,
+                operand: o,
                 original: e,
-            } => Some((0u8, *e)),
-            EdgeSource::Original(Operand::B, e)
-            | EdgeSource::Split {
-                operand: Operand::B,
-                original: e,
-            } => Some((1u8, *e)),
+            } => Some((o.index() as u8, e)),
             _ => None,
         };
         let joined: std::collections::HashSet<(
@@ -316,10 +302,14 @@ fn chain_degree(graph: &IntersectionGraph, node: usize, face: &super::graph::Fac
         .outgoing
         .iter()
         .filter(|&&h| match &graph.half_edges[h].source {
-            EdgeSource::Shared { face_a, face_b, .. } => match face.operand {
-                super::graph::Operand::A => *face_a == face.face,
-                _ /* B */ => *face_b == face.face,
-            },
+            EdgeSource::Shared {
+                face_a,
+                face_b,
+                operands,
+            } => {
+                (operands[0] == face.operand && *face_a == face.face)
+                    || (operands[1] == face.operand && *face_b == face.face)
+            }
             _ => false,
         })
         .count()

@@ -68,7 +68,8 @@ pub(crate) fn cellular_graph_merge(
             );
         }
     }
-    let breps = Some((original_a, original_b, tolerance.linear()));
+    let operand_pair = [original_a, original_b];
+    let breps = Some((&operand_pair[..], tolerance.linear()));
 
     // Insert intersection curves as shared edges, then
     // split them at edge-face hit nodes they pass through (the loop
@@ -283,8 +284,7 @@ pub(crate) fn cellular_graph_merge(
     let carried_holes = [holes_of(scope), holes_of(scopes.and_then(|s| s.b.as_ref()))];
     let fragments = walk_all_fragments_ext(
         &graph,
-        original_a,
-        original_b,
+        &[original_a, original_b],
         !intersection_result.coincidence.face_overlaps.is_empty(),
         true,
         &overlap_pairs,
@@ -308,7 +308,7 @@ pub(crate) fn cellular_graph_merge(
     let fragments = crate::complex::hole_phantoms::rejoin_own_holes(
         &graph,
         &fragments,
-        [original_a, original_b],
+        &[original_a, original_b],
         tolerance.linear(),
     )
     .unwrap_or(fragments);
@@ -321,8 +321,11 @@ pub(crate) fn cellular_graph_merge(
     let complex_input = crate::complex::pipeline::ComplexInput {
         graph: &graph,
         fragments: &fragments,
-        operands: [original_a, original_b],
-        boxes: [&intersection_result.aabbs_a, &intersection_result.aabbs_b],
+        operands: &[original_a, original_b],
+        boxes: &[
+            &intersection_result.aabbs_a[..],
+            &intersection_result.aabbs_b[..],
+        ],
         overlaps: &overlap_pairs,
         tolerance,
         frontier: &frontier,
@@ -408,8 +411,7 @@ pub(crate) fn cellular_graph_merge(
         &graph,
         &fragments,
         &selections,
-        original_a,
-        original_b,
+        &[original_a, original_b],
         *tolerance,
         &mut carried,
         super::assemble_far_carry::FarCarry {

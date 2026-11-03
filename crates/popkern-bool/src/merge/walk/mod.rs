@@ -70,8 +70,7 @@ use walk_geometry::signed_area;
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn walk_all_fragments_ext(
     graph: &IntersectionGraph,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     coincident_interface: bool,
     chart_primary: bool,
     overlap_pairs: &[(
@@ -87,12 +86,11 @@ pub(crate) fn walk_all_fragments_ext(
     let mut identities: Vec<Fragment> = Vec::new();
 
     // Opposite-operand face AABBs (PK-438 exterior-disjoint promotion).
-    let opposite_aabbs = hole_nesting::OppositeAabbs::new(brep_a, brep_b, identity);
+    let opposite_aabbs = hole_nesting::OppositeAabbs::new(operands[0], operands[1], identity);
 
     let mut ctx = FaceWalk {
         graph,
-        brep_a,
-        brep_b,
+        operands,
         coincident_interface,
         chart_primary,
         overlap_pairs,
@@ -109,8 +107,7 @@ pub(crate) fn walk_all_fragments_ext(
                 graph,
                 face_ref,
                 he_indices,
-                brep_a,
-                brep_b,
+                operands,
                 maps,
                 overlap_pairs,
             )
@@ -131,8 +128,7 @@ pub(crate) fn walk_all_fragments_ext(
                 graph,
                 face_ref,
                 he_indices,
-                brep_a,
-                brep_b,
+                operands,
                 maps,
                 overlap_pairs,
                 opposite_aabbs.body_box(face_ref.operand),
@@ -156,8 +152,7 @@ pub(crate) fn walk_all_fragments_ext(
 /// The walk's per-face state: inputs plus the outputs a face appends to.
 struct FaceWalk<'g, 'o> {
     graph: &'g IntersectionGraph,
-    brep_a: &'g BRep,
-    brep_b: &'g BRep,
+    operands: &'g [&'g BRep],
     coincident_interface: bool,
     chart_primary: bool,
     overlap_pairs: &'g [(
@@ -178,8 +173,7 @@ struct FaceWalk<'g, 'o> {
 fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize]) {
     let &mut FaceWalk {
         graph,
-        brep_a,
-        brep_b,
+        operands,
         coincident_interface,
         chart_primary,
         overlap_pairs,
@@ -199,8 +193,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
         graph,
         face_ref,
         he_indices,
-        brep_a,
-        brep_b,
+        operands,
         carried_holes[(face_ref.operand == super::graph::Operand::B) as usize],
         tolerance,
     ) {
@@ -234,8 +227,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
     // chart-emitted web skins classify OnBoundary with correct
     // coorientation).
     if chart_primary
-        && let Some((surface, orientation)) =
-            chart_subdivision::face_surface(face_ref, brep_a, brep_b)
+        && let Some((surface, orientation)) = chart_subdivision::face_surface(face_ref, operands)
     {
         let sub = chart_subdivision::build_face_subdivision(
             graph,
@@ -244,10 +236,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
             surface,
             orientation,
             overlap_pairs,
-            match face_ref.operand {
-                super::graph::Operand::A => brep_a,
-                _ /* B */ => brep_b,
-            },
+            operands[face_ref.operand.index()],
             tolerance,
         );
         if sub.complete() {
@@ -471,8 +460,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
                 he,
                 face_ref,
                 &face_hes,
-                brep_a,
-                brep_b,
+                operands,
                 Some(start_he),
                 &visited,
                 &current_loop,
@@ -567,8 +555,8 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
             &polys,
             sigma,
             u_period,
-            &chart_walk::source_inner_edge_set(face_ref, brep_a, brep_b),
-            &chart_walk::source_outer_edge_set(face_ref, brep_a, brep_b),
+            &chart_walk::source_inner_edge_set(face_ref, operands),
+            &chart_walk::source_outer_edge_set(face_ref, operands),
         )
     {
         let dump = popkern_core::trace::trace_enabled("loop-dump-all");

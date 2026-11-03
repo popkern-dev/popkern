@@ -12,7 +12,7 @@ mod helpers_pcurve_coherence;
 pub(crate) mod no_intersection;
 
 #[path = "operation_contact.rs"]
-mod contact;
+pub(crate) mod contact;
 #[path = "operation_contact_rim.rs"]
 mod contact_rim;
 #[path = "operation_containment.rs"]
@@ -24,7 +24,7 @@ mod postprocess;
 #[path = "operation_postprocess_gate.rs"]
 mod postprocess_gate;
 #[path = "operation_serve.rs"]
-mod serve;
+pub(crate) mod serve;
 #[path = "operation_shortcut_oracle.rs"]
 mod shortcut_oracle;
 

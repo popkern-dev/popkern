@@ -224,7 +224,7 @@ fn assert_inside_outside(brep: &BRep) {
         f.folded_is_outward = outward;
     }
     let geo = radial::FaceGeometry {
-        operands: [brep, brep],
+        operands: &[brep, brep],
         graph: None,
     };
     let sides = radial::order_radially(&mut c, &geo, 1e-4, 1e-6).expect("radial order");
@@ -271,7 +271,7 @@ fn one_wrong_face_sense_is_a_membership_conflict() {
     }
     c.faces[0].folded_is_outward = !outward; // the fault
     let geo = radial::FaceGeometry {
-        operands: [&brep, &brep],
+        operands: &[&brep, &brep],
         graph: None,
     };
     let sides = radial::order_radially(&mut c, &geo, 1e-4, 1e-6).expect("radial order");

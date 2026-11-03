@@ -166,32 +166,26 @@ pub(crate) struct ChartRoleAssembly {
 /// for the hole override in [`assemble_chart_roles`] (PK-341).
 pub(crate) fn source_inner_edge_set(
     face_ref: &super::super::graph::FaceRef,
-    brep_a: &popkern_core::topology::BRep,
-    brep_b: &popkern_core::topology::BRep,
+    operands: &[&popkern_core::topology::BRep],
 ) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
-    source_loop_edge_set(face_ref, brep_a, brep_b, false)
+    source_loop_edge_set(face_ref, operands, false)
 }
 
 /// The edge set of the source face's OUTER loop (see
 /// [`source_inner_edge_set`] for the inner-loop dual).
 pub(crate) fn source_outer_edge_set(
     face_ref: &super::super::graph::FaceRef,
-    brep_a: &popkern_core::topology::BRep,
-    brep_b: &popkern_core::topology::BRep,
+    operands: &[&popkern_core::topology::BRep],
 ) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
-    source_loop_edge_set(face_ref, brep_a, brep_b, true)
+    source_loop_edge_set(face_ref, operands, true)
 }
 
 fn source_loop_edge_set(
     face_ref: &super::super::graph::FaceRef,
-    brep_a: &popkern_core::topology::BRep,
-    brep_b: &popkern_core::topology::BRep,
+    operands: &[&popkern_core::topology::BRep],
     outer: bool,
 ) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
-    let source_brep = match face_ref.operand {
-        super::super::graph::Operand::A => brep_a,
-        _ /* B */ => brep_b,
-    };
+    let source_brep = operands[face_ref.operand.index()];
     let mut edges = std::collections::BTreeSet::new();
     if let Some(face) = source_brep.faces.get(face_ref.face) {
         let loops: Vec<_> = if outer {

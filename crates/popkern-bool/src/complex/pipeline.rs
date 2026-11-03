@@ -55,6 +55,16 @@ pub(crate) struct ComplexVerdict {
     pub sides: RadialSides,
 }
 
+/// The complex through membership, before selection.
+pub(crate) struct ComplexRegions {
+    /// The lifted complex, its regions' memberships assigned.
+    pub lift: Lift,
+    /// Point classifications membership needed.
+    pub classifications: usize,
+    /// Each fin's side facing the next wedge.
+    pub sides: RadialSides,
+}
+
 /// Inputs to complex classification.
 pub(crate) struct ComplexInput<'a> {
     /// The intersection graph.
@@ -62,9 +72,9 @@ pub(crate) struct ComplexInput<'a> {
     /// The chart walk's fragments.
     pub fragments: &'a [Fragment],
     /// Operands A and B.
-    pub operands: [&'a BRep; 2],
+    pub operands: &'a [&'a BRep],
     /// Face boxes of A and B (for point classification).
-    pub boxes: [&'a [(FaceHandle, Aabb)]; 2],
+    pub boxes: &'a [&'a [(FaceHandle, Aabb)]],
     /// Coincident face pairs (A face, B face).
     pub overlaps: &'a [(FaceHandle, FaceHandle)],
     /// Model tolerance.
@@ -92,8 +102,8 @@ fn checked(c: &CellComplex) -> Result<(), ComplexDecline> {
 fn emit_decline_artifact(
     c: &CellComplex,
     decline: &ComplexDecline,
-    op: BoolOperation,
-    operands: [&BRep; 2],
+    label: &str,
+    operands: &[&BRep],
 ) {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static SEQUENCE: AtomicUsize = AtomicUsize::new(0);
@@ -104,7 +114,7 @@ fn emit_decline_artifact(
     let path =
         std::path::Path::new(&dir).join(format!("complex-decline-{}-{n}.json", std::process::id()));
     let body = format!(
-        "{{\"decline\":{:?},\"operation\":\"{op:?}\",\"complex\":{}}}",
+        "{{\"decline\":{:?},\"operation\":\"{label}\",\"complex\":{}}}",
         format!("{decline:?}"),
         super::artifact::complex_artifact_json(c)
     );
@@ -178,6 +188,28 @@ pub(crate) fn classify_with_complex(
     input: &ComplexInput<'_>,
     op: BoolOperation,
 ) -> Result<ComplexVerdict, ComplexDecline> {
+    let ComplexRegions {
+        lift,
+        classifications,
+        sides,
+    } = complex_regions(input, &format!("{op:?}"))?;
+    let selection = select_fragments(&lift, op, input.fragments.len());
+    Ok(ComplexVerdict {
+        lift,
+        selection,
+        classifications,
+        sides,
+    })
+}
+
+/// The complex of `input` through membership: lifted, validated,
+/// radially ordered, shells assembled and every region's membership
+/// assigned, before any selection. `label` names the request in a
+/// decline artifact.
+pub(crate) fn complex_regions(
+    input: &ComplexInput<'_>,
+    label: &str,
+) -> Result<ComplexRegions, ComplexDecline> {
     let linear = input.tolerance.linear();
     let mut lift = lift_fragments(
         input.graph,
@@ -227,20 +259,17 @@ pub(crate) fn classify_with_complex(
         checked(&lift.complex)?;
         Ok((classifications, sides))
     })();
-    let (classifications, sides) = match staged {
-        Ok(staged) => staged,
+    match staged {
+        Ok((classifications, sides)) => Ok(ComplexRegions {
+            lift,
+            classifications,
+            sides,
+        }),
         Err(decline) => {
-            emit_decline_artifact(&lift.complex, &decline, op, input.operands);
-            return Err(decline);
+            emit_decline_artifact(&lift.complex, &decline, label, input.operands);
+            Err(decline)
         }
-    };
-    let selection = select_fragments(&lift, op, input.fragments.len());
-    Ok(ComplexVerdict {
-        lift,
-        selection,
-        classifications,
-        sides,
-    })
+    }
 }
 
 #[cfg(test)]

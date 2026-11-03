@@ -19,8 +19,7 @@ fn empty_breps() -> (BRep, BRep) {
 fn walk(graph: &IntersectionGraph, a: &BRep, b: &BRep) -> Vec<Fragment> {
     walk_all_fragments_ext(
         graph,
-        a,
-        b,
+        &[a, b],
         false,
         true,
         &[],

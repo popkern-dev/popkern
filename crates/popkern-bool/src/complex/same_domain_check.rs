@@ -61,7 +61,7 @@ pub(crate) struct InnerPoint {
 /// when none stands.
 pub(crate) fn inner_point(
     c: &CellComplex,
-    operands: [&BRep; 2],
+    operands: &[&BRep],
     linear: f64,
     face: FaceId,
 ) -> Option<InnerPoint> {
@@ -206,7 +206,7 @@ fn lies_on_face(brep: &BRep, face: FaceHandle, p: &Point3, reach: f64) -> Option
 /// coincident partner (`overlaps`: (A face, B face) pairs).
 pub(crate) fn same_domain_mismatches(
     c: &CellComplex,
-    operands: [&BRep; 2],
+    operands: &[&BRep],
     overlaps: &[(FaceHandle, FaceHandle)],
     linear: f64,
 ) -> Vec<SameDomainMismatch> {
