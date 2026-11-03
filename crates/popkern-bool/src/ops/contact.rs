@@ -17,8 +17,10 @@ use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use crate::error::{BoolError, BoolOperation};
-use crate::options::{BoolOptions, NonManifoldPolicy};
+use crate::error::BoolError;
+use crate::options::BoolOptions;
+#[cfg(test)]
+use crate::options::NonManifoldPolicy;
 use crate::postprocess::shell_contact::{ContactExtent, shell_findings};
 
 /// How far a touch between two bodies extends.
@@ -113,33 +115,12 @@ pub fn symmetric_difference(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    let a_only = crate::boolean_with_options(
-        BoolOperation::Subtraction,
-        a.clone(),
-        b.clone(),
+    crate::partition::nary_boolean(
+        &[&a, &b],
+        &crate::partition::SetExpr::ExactlyOne,
         tolerance,
-        None,
         options,
-    )?;
-    let b_only =
-        crate::boolean_with_options(BoolOperation::Subtraction, b, a, tolerance, None, options)?;
-    if a_only.faces.is_empty() {
-        return Ok(b_only);
-    }
-    if b_only.faces.is_empty() {
-        return Ok(a_only);
-    }
-    let pieces = crate::operation::helpers::combine_breps(a_only, b_only)?;
-    let contacts = crate::postprocess::shell_contact::shell_contacts(&pieces, &tolerance);
-    if contacts.is_empty() {
-        return Ok(pieces);
-    }
-    match options.non_manifold {
-        NonManifoldPolicy::Decline => Err(BoolError::NonManifoldResult { contacts }),
-        NonManifoldPolicy::SplitToManifold => {
-            crate::postprocess::contact_record::accept_split(pieces, &tolerance)
-        }
-    }
+    )
 }
 
 #[cfg(test)]

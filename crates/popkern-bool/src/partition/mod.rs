@@ -10,12 +10,16 @@
 
 mod build;
 mod crossings;
+mod nary;
 mod region_solids;
 mod select;
 mod set_expr;
+mod split;
 
+pub use nary::{FALLBACK_COUNTING_LIMIT, nary_boolean, nary_boolean_where};
 pub use region_solids::{Interface, RegionSolid, RegionSolids};
 pub use set_expr::SetExpr;
+pub use split::{SplitPiece, SplitResult, split};
 
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;

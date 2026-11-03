@@ -4,117 +4,69 @@ use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use super::multi_boolean::BatchMode;
+use super::multi_boolean::multi_body_boolean;
 
 fn tol() -> Tolerance {
     Tolerance::default()
 }
 
+fn cube_at(x: f64, y: f64, z: f64) -> BRep {
+    BRep::unit_cube(tol())
+        .and_then(|c| c.transform(&Transform3::translation(x, y, z)))
+        .expect("cube")
+}
+
 #[test]
-fn multi_body_two_bodies_union() {
-    let bodies = vec![
-        BRep::unit_cube(tol()).unwrap(),
-        BRep::unit_cube(tol())
-            .unwrap()
-            .transform(&Transform3::translation(5.0, 0.0, 0.0))
-            .unwrap(),
-    ];
-    let result = super::multi_boolean::multi_body_boolean(
-        &bodies,
-        |m| m & 1 != 0 || m & 2 != 0,
-        &tol(),
-        BatchMode::PartialSuccess,
-    );
-    assert!(result.is_ok());
-    let result = result.unwrap();
-    assert_eq!(result.body_count, 2);
-    assert!(result.body.is_some());
+fn multi_body_two_disjoint_bodies_union() {
+    let bodies = vec![cube_at(0.0, 0.0, 0.0), cube_at(5.0, 0.0, 0.0)];
+    let body = multi_body_boolean(&bodies, |m| !m.is_empty(), &tol()).expect("union");
+    assert_eq!(body.faces.len(), 12);
+    assert!(body.validate_all().is_empty());
 }
 
 #[test]
 fn multi_body_requires_two_bodies() {
-    let bodies = vec![BRep::unit_cube(tol()).unwrap()];
-    let result = super::multi_boolean::multi_body_boolean(
-        &bodies,
-        |_| true,
-        &tol(),
-        BatchMode::PartialSuccess,
-    );
-    assert!(result.is_err());
-}
-
-#[test]
-fn multi_body_three_bodies_union() {
-    let bodies = vec![
-        BRep::unit_cube(tol()).unwrap(),
-        BRep::unit_cube(tol())
-            .unwrap()
-            .transform(&Transform3::translation(5.0, 0.0, 0.0))
-            .unwrap(),
-        BRep::unit_cube(tol())
-            .unwrap()
-            .transform(&Transform3::translation(10.0, 0.0, 0.0))
-            .unwrap(),
-    ];
-    let result = super::multi_boolean::multi_body_boolean(
-        &bodies,
-        |m| m != 0,
-        &tol(),
-        BatchMode::PartialSuccess,
-    );
-    assert!(result.is_ok());
-    let result = result.unwrap();
-    assert_eq!(result.body_count, 3);
-    assert!(result.body.is_some());
-    assert!(result.failed_bodies.is_empty());
+    let bodies = vec![cube_at(0.0, 0.0, 0.0)];
+    assert!(matches!(
+        multi_body_boolean(&bodies, |_| true, &tol()),
+        Err(crate::BoolError::DegenerateInput(_))
+    ));
 }
 
 #[test]
 fn multi_body_overlapping_cubes_union() {
-    // Two overlapping cubes — tests the actual intersection path
-    let bodies = vec![
-        BRep::unit_cube(tol()).unwrap(),
-        BRep::unit_cube(tol())
-            .unwrap()
-            .transform(&Transform3::translation(0.5, 0.3, 0.2))
-            .unwrap(),
-    ];
-    let result = super::multi_boolean::multi_body_boolean(
-        &bodies,
-        |m| m & 1 != 0 || m & 2 != 0,
-        &tol(),
-        super::multi_boolean::BatchMode::PartialSuccess,
-    );
-    assert!(result.is_ok());
-    let result = result.unwrap();
-    assert!(result.body.is_some());
-    let body = result.body.unwrap();
-    // Union of overlapping cubes should have more than 6 faces
-    assert!(
-        body.faces.len() > 6,
-        "overlapping union should have > 6 faces, got {}",
-        body.faces.len()
-    );
+    let bodies = vec![cube_at(0.0, 0.0, 0.0), cube_at(0.5, 0.3, 0.2)];
+    let body = multi_body_boolean(&bodies, |m| !m.is_empty(), &tol()).expect("union");
+    assert!(body.faces.len() > 6, "{} faces", body.faces.len());
+    assert!(body.validate_all().is_empty());
 }
 
+/// "At least two of three" is one predicate, not a fold: the former
+/// sequential pairwise evaluation inferred a union from it.
 #[test]
-fn multi_body_all_or_nothing_errors_on_failure() {
-    // Two identical cubes (will hit CoincidentFaces for some face pairs)
-    // With AllOrNothing, this should error
+fn multi_body_at_least_two_of_three() {
     let bodies = vec![
-        BRep::unit_cube(tol()).unwrap(),
-        BRep::unit_cube(tol()).unwrap(),
-        BRep::unit_cube(tol())
-            .unwrap()
-            .transform(&Transform3::translation(5.0, 0.0, 0.0))
-            .unwrap(),
+        cube_at(0.0, 0.0, 0.0),
+        cube_at(0.5, 0.3, 0.2),
+        cube_at(0.25, 0.6, 0.45),
     ];
-    let result = super::multi_boolean::multi_body_boolean(
-        &bodies,
-        |m| m != 0,
-        &tol(),
-        super::multi_boolean::BatchMode::PartialSuccess,
-    );
-    // Should succeed with PartialSuccess (skips failing pairs)
-    assert!(result.is_ok());
+    let at_least_two = multi_body_boolean(&bodies, |m| m.len() >= 2, &tol()).expect("select");
+    let union = multi_body_boolean(&bodies, |m| !m.is_empty(), &tol()).expect("union");
+    assert!(at_least_two.validate_all().is_empty());
+    assert_ne!(at_least_two.faces.len(), union.faces.len());
+}
+
+/// Two identical cubes share every face: the partition declines on the
+/// coplanar faces, and the predicate's disjunctive form over pairwise
+/// booleans answers (recorded as a fallback).
+#[test]
+fn coincident_bodies_fall_back_to_pairwise_booleans() {
+    let bodies = vec![
+        cube_at(0.0, 0.0, 0.0),
+        cube_at(0.0, 0.0, 0.0),
+        cube_at(5.0, 0.0, 0.0),
+    ];
+    let body = multi_body_boolean(&bodies, |m| !m.is_empty(), &tol()).expect("fallback union");
+    assert_eq!(body.faces.len(), 12);
+    assert!(body.validate_all().is_empty());
 }

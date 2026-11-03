@@ -279,3 +279,61 @@ fn three_cubes_give_region_solids_and_their_interfaces() {
         );
     }
 }
+
+fn block(lo: [f64; 3], hi: [f64; 3]) -> BRep {
+    use popkern_core::geometry::{Point3, Vec3};
+    BRep::prism(
+        &[
+            Point3::new(lo[0], lo[1], lo[2]),
+            Point3::new(hi[0], lo[1], lo[2]),
+            Point3::new(hi[0], hi[1], lo[2]),
+            Point3::new(lo[0], hi[1], lo[2]),
+        ],
+        Vec3::new(0.0, 0.0, 1.0),
+        hi[2] - lo[2],
+        Tolerance::default(),
+    )
+    .expect("block")
+}
+
+/// A slab through the middle of a block cuts it in three: the two
+/// outer pieces outside the slab, the middle one inside it, sharing a
+/// face with each.
+#[test]
+fn a_slab_splits_a_block_into_three_pieces() {
+    let target = block([0.0; 3], [2.0; 3]);
+    let slab = block([0.8, -1.0, -1.0], [1.2, 3.0, 3.0]);
+    let cut = super::split(&target, &[&slab], Tolerance::default()).expect("split");
+    assert_eq!(cut.pieces.len(), 3);
+    let inside: Vec<bool> = cut
+        .pieces
+        .iter()
+        .map(|p| p.inside_tools.contains(0))
+        .collect();
+    assert_eq!(inside.iter().filter(|&&i| i).count(), 1);
+    for p in &cut.pieces {
+        assert!(
+            p.body.validate_all().is_empty(),
+            "{:?}",
+            p.body.validate_all()
+        );
+    }
+    assert_eq!(cut.interfaces.len(), 2);
+    let middle = inside.iter().position(|&i| i).expect("middle");
+    assert!(
+        cut.interfaces
+            .iter()
+            .all(|f| f.solids.0 == middle || f.solids.1 == middle)
+    );
+}
+
+#[test]
+fn a_tool_that_misses_leaves_one_piece() {
+    let target = block([0.0; 3], [1.0; 3]);
+    let far = block([5.0; 3], [6.0; 3]);
+    let cut = super::split(&target, &[&far], Tolerance::default()).expect("split");
+    assert_eq!(cut.pieces.len(), 1);
+    assert!(cut.pieces[0].inside_tools.is_empty());
+    assert_eq!(cut.pieces[0].body.faces.len(), 6);
+    assert!(cut.interfaces.is_empty());
+}

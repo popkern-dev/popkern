@@ -29,17 +29,31 @@ impl Partition {
             )));
         }
         let n = self.body_count;
+        self.select_where(|m| expr.holds(m, n), options)
+    }
+
+    /// [`Partition::select`] by a predicate on each region's bodies (the
+    /// code-only form; a feature tree records a [`SetExpr`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Partition::select`].
+    pub fn select_where(
+        &self,
+        keep: impl Fn(&BodySet) -> bool,
+        options: &BoolOptions,
+    ) -> Result<BRep, BoolError> {
         let regions = &self.built.complex;
-        let keep = |m: &crate::complex::operand_set::OperandSet| {
+        let accepts = |m: &crate::complex::operand_set::OperandSet| {
             let set: Vec<usize> = m.iter().collect();
-            expr.holds(&BodySet::of(&set), n)
+            keep(&BodySet::of(&set))
         };
         let selection = crate::complex::select::select_fragments_by(
             &regions.lift,
-            keep,
+            accepts,
             self.built.fragments.len(),
         );
-        let nothing_kept = !self.built.regions.iter().any(|r| expr.holds(&r.bodies, n));
+        let nothing_kept = !self.built.regions.iter().any(|r| keep(&r.bodies));
         self.extract(&selection, options.non_manifold, nothing_kept)
     }
 
@@ -123,5 +137,42 @@ impl Partition {
             return crate::postprocess::contact_record::accept_split(body, &self.tolerance);
         }
         Ok(body)
+    }
+}
+
+impl Partition {
+    /// Every region inside body `body` as one body with the faces as the
+    /// complex splits them: no output merge of co-surfacial faces (an
+    /// imprint's whole point), accepted by `validate` with its pcurves
+    /// completed.
+    pub(crate) fn imprinted(&self, body: usize) -> Result<BRep, BoolError> {
+        let regions = &self.built.complex;
+        let selection = crate::complex::select::select_fragments_by(
+            &regions.lift,
+            |m| m.contains(body),
+            self.built.fragments.len(),
+        );
+        let operands: Vec<&BRep> = self.bodies.iter().collect();
+        let mut carried = crate::serve_region::Carried::default();
+        let mut out = crate::cellular::assemble::cellular_assemble(
+            &self.built.graph,
+            &self.built.fragments,
+            &selection.selections,
+            &operands,
+            self.tolerance,
+            &mut carried,
+            Default::default(),
+            None,
+        )
+        .map_err(|d| d.into_error())?;
+        out.validate()
+            .map_err(|e| BoolError::ValidationFailed(format!("imprint: {e:?}")))?;
+        let _ = out.recompute_pcurves_where_missing();
+        if let Some(face) = crate::operation::first_missing_pcurve_face(&out) {
+            return Err(BoolError::ValidationFailed(format!(
+                "imprint: face {face:?} has no complete trim"
+            )));
+        }
+        Ok(out)
     }
 }

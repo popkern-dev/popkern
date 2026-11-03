@@ -2,8 +2,7 @@
 
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
-use crate::error::{BoolError, BoolOperation};
-use crate::operation::execute_boolean;
+use crate::error::BoolError;
 
 /// A node in a CSG (Constructive Solid Geometry) expression tree.
 #[derive(Debug)]
@@ -33,30 +32,36 @@ pub enum CsgNode {
 ///
 /// Returns a [`BoolError`] if any boolean operation in the tree fails.
 pub fn csg_eval(tree: CsgNode, tolerance: &Tolerance) -> Result<BRep, BoolError> {
+    // One partition of every leaf, the tree read as a set expression
+    // over them (design: operations on the cell complex, 5.1).
+    let mut leaves = Vec::new();
+    let expr = expression(tree, &mut leaves);
+    if let [only] = leaves.as_slice() {
+        return Ok(only.clone());
+    }
+    let refs: Vec<&BRep> = leaves.iter().collect();
+    crate::partition::nary_boolean(&refs, &expr, *tolerance, &crate::BoolOptions::default())
+}
+
+/// `tree` as a set expression over its leaves, which it moves to
+/// `leaves` in order.
+fn expression(tree: CsgNode, leaves: &mut Vec<BRep>) -> crate::partition::SetExpr {
+    use crate::partition::SetExpr;
     match tree {
-        CsgNode::Leaf(brep) => Ok(*brep),
-        CsgNode::Union(left, right) => {
-            let a = csg_eval(*left, tolerance)?;
-            let b = csg_eval(*right, tolerance)?;
-            execute_boolean(BoolOperation::Union, &a, &b, tolerance)
+        CsgNode::Leaf(brep) => {
+            leaves.push(*brep);
+            SetExpr::body(leaves.len() - 1)
         }
-        CsgNode::Intersection(left, right) => {
-            let a = csg_eval(*left, tolerance)?;
-            let b = csg_eval(*right, tolerance)?;
-            execute_boolean(BoolOperation::Intersection, &a, &b, tolerance)
-        }
-        CsgNode::Subtraction(left, right) => {
-            let a = csg_eval(*left, tolerance)?;
-            let b = csg_eval(*right, tolerance)?;
-            execute_boolean(BoolOperation::Subtraction, &a, &b, tolerance)
-        }
+        CsgNode::Union(l, r) => expression(*l, leaves).or(expression(*r, leaves)),
+        CsgNode::Intersection(l, r) => expression(*l, leaves).and(expression(*r, leaves)),
+        CsgNode::Subtraction(l, r) => expression(*l, leaves).minus(expression(*r, leaves)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use popkern_core::{geometry::Vec3, tolerance::Tolerance};
+    use popkern_core::tolerance::Tolerance;
 
     #[test]
     fn leaf_returns_brep_unchanged() {
@@ -71,10 +76,14 @@ mod tests {
     fn union_of_disjoint_cubes() {
         let tol = Tolerance::default();
         let a = BRep::unit_cube(tol).unwrap();
-        let mut b = BRep::unit_cube(tol).unwrap();
-        for (_, v) in &mut b.vertices {
-            v.position = v.position + Vec3::new(5.0, 0.0, 0.0);
-        }
+        // Moved whole (vertices and surfaces): moving only the
+        // vertices left every face's plane behind.
+        let b = BRep::unit_cube(tol)
+            .unwrap()
+            .transform(&popkern_core::geometry::Transform3::translation(
+                5.0, 0.0, 0.0,
+            ))
+            .unwrap();
         let tree = CsgNode::Union(
             Box::new(CsgNode::Leaf(Box::new(a))),
             Box::new(CsgNode::Leaf(Box::new(b))),
@@ -88,10 +97,14 @@ mod tests {
         // A - B where B is far away = A
         let tol = Tolerance::default();
         let a = BRep::unit_cube(tol).unwrap();
-        let mut b = BRep::unit_cube(tol).unwrap();
-        for (_, v) in &mut b.vertices {
-            v.position = v.position + Vec3::new(5.0, 0.0, 0.0);
-        }
+        // Moved whole (vertices and surfaces): moving only the
+        // vertices left every face's plane behind.
+        let b = BRep::unit_cube(tol)
+            .unwrap()
+            .transform(&popkern_core::geometry::Transform3::translation(
+                5.0, 0.0, 0.0,
+            ))
+            .unwrap();
         let tree = CsgNode::Subtraction(
             Box::new(CsgNode::Leaf(Box::new(a))),
             Box::new(CsgNode::Leaf(Box::new(b))),
@@ -131,14 +144,20 @@ mod tests {
         // (A ∪ B) - C where all are disjoint
         let tol = Tolerance::default();
         let a = BRep::unit_cube(tol).unwrap();
-        let mut b = BRep::unit_cube(tol).unwrap();
-        for (_, v) in &mut b.vertices {
-            v.position = v.position + Vec3::new(5.0, 0.0, 0.0);
-        }
-        let mut c = BRep::unit_cube(tol).unwrap();
-        for (_, v) in &mut c.vertices {
-            v.position = v.position + Vec3::new(10.0, 0.0, 0.0);
-        }
+        // Moved whole (vertices and surfaces): moving only the
+        // vertices left every face's plane behind.
+        let b = BRep::unit_cube(tol)
+            .unwrap()
+            .transform(&popkern_core::geometry::Transform3::translation(
+                5.0, 0.0, 0.0,
+            ))
+            .unwrap();
+        let c = BRep::unit_cube(tol)
+            .unwrap()
+            .transform(&popkern_core::geometry::Transform3::translation(
+                10.0, 0.0, 0.0,
+            ))
+            .unwrap();
 
         let tree = CsgNode::Subtraction(
             Box::new(CsgNode::Union(

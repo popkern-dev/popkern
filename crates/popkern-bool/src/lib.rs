@@ -112,8 +112,9 @@ pub use csg::{CsgNode, csg_eval};
 pub use ops::contact::{BodyContact, TouchExtent, contact_report, symmetric_difference};
 pub use options::{BoolOptions, NonManifoldPolicy};
 pub use partition::{
-    BodySet, Interface, MAX_BODIES, Partition, RegionInfo, RegionSolid, RegionSolids, SetExpr,
-    partition,
+    BodySet, FALLBACK_COUNTING_LIMIT, Interface, MAX_BODIES, Partition, RegionInfo, RegionSolid,
+    RegionSolids, SetExpr, SplitPiece, SplitResult, nary_boolean, nary_boolean_where, partition,
+    split,
 };
 
 pub use error::{
