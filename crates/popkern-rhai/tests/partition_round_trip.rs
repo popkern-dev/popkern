@@ -76,6 +76,14 @@ let s = m.tool(|m| m.profile(xy_at(-0.5)).circle(0.3).sketch("s").extrude(blind(
 plate.imprint(s);
 m"#,
     ),
+    (
+        "union_edge_contact",
+        r#"let m = model();
+let a = m.profile(xy()).rect(1.0, 1.0).sketch("a").extrude(blind(1.0));
+let b = m.tool(|m| m.profile(xy()).rect(1.0, 1.0).at(1.0, 1.0).sketch("b").extrude(blind(1.0)));
+a.union(b, #{ non_manifold: "split_to_manifold" });
+m"#,
+    ),
 ];
 
 #[test]
@@ -107,4 +115,31 @@ fn set_expressions_and_piece_rules_spell_back_as_written() {
     let mut m = run(&mut host, SCRIPTS[3].1, "xor");
     let emitted = to_rhai(&mut m).expect("emit");
     assert!(emitted.contains(".symmetric_difference("), "{emitted}");
+}
+
+#[test]
+fn a_two_body_boolean_records_its_non_manifold_policy() {
+    let mut host = ScriptHost::new();
+    let source = SCRIPTS[5].1;
+    let mut m = run(&mut host, source, "union_edge_contact");
+    let emitted = to_rhai(&mut m).expect("emit");
+    assert!(
+        emitted.contains(r#"non_manifold: "split_to_manifold""#),
+        "{emitted}"
+    );
+    let part = m.to_part().expect("part");
+    assert!(
+        !part.brep().topology_contacts.is_empty(),
+        "contact recorded"
+    );
+    // The default declines the same edge contact.
+    let declined = source.replace(r#", #{ non_manifold: "split_to_manifold" }"#, "");
+    let error = host
+        .run(&declined, "union_edge_contact_default")
+        .expect_err("an edge contact declines by default");
+    assert!(
+        error.render().contains("non-manifold"),
+        "{}",
+        error.render()
+    );
 }

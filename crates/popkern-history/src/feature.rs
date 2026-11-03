@@ -110,6 +110,10 @@ pub enum Feature {
         operation: BoolOpKind,
         /// The tool body to operate with.
         tool_body: BodyId,
+        /// A result touching only along edges or at points: decline,
+        /// or serve manifold pieces with recorded contacts.
+        #[serde(default, skip_serializing_if = "NonManifoldPolicy::is_decline")]
+        non_manifold: popkern_bool::NonManifoldPolicy,
     },
     /// The current body cut into its pieces by tool bodies (consumed):
     /// one body of several solids, the pieces `keep` selects.
@@ -129,7 +133,7 @@ pub enum Feature {
         expr: popkern_bool::SetExpr,
         /// Kept regions that touch only along edges or at points:
         /// decline, or serve manifold pieces with recorded contacts.
-        #[serde(default)]
+        #[serde(default, skip_serializing_if = "NonManifoldPolicy::is_decline")]
         non_manifold: popkern_bool::NonManifoldPolicy,
     },
     /// The current body with its faces split where a tool body

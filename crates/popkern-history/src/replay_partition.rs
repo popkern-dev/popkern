@@ -1,7 +1,7 @@
-//! Replay of the partition's features (design: operations on the cell
-//! complex, 5.4): a split keeping the pieces a rule selects, an N-ary
-//! boolean, an imprint. Each consumes its tools, as a boolean consumes
-//! its tool, and names its result after the target and the tools.
+//! Replay of the two-operand boolean and the partition's features
+//! (design: operations on the cell complex, 5.4): a split keeping the
+//! pieces a rule selects, an N-ary boolean, an imprint. Each consumes
+//! its tools and names its result after the target and the tools.
 
 use popkern_bool::{BoolError, BoolOptions, PointClassification};
 use popkern_core::geometry::Point3;
@@ -15,6 +15,55 @@ use crate::feature::{Feature, PieceRule};
 use crate::replay_report::FeatureEvidence;
 use crate::replay_side_effects::ExecuteSideEffects;
 use crate::working_bodies::WorkingBodies;
+
+/// Replay a two-operand boolean `feature` on `brep`.
+pub(crate) fn execute_boolean(
+    brep: &mut BRep,
+    feature: &Feature,
+    tracking: &mut TrackingContext,
+    tolerance: &Tolerance,
+    body_breps: &WorkingBodies,
+) -> Result<ExecuteSideEffects, ReplayError> {
+    let Feature::Boolean {
+        operation,
+        tool_body,
+        non_manifold,
+    } = feature
+    else {
+        return Err(failed_with("boolean", "not a boolean feature".into()));
+    };
+    let tool_brep = body_breps.get(tool_body).cloned().ok_or_else(|| {
+        failed_with(
+            "boolean",
+            format!("tool body {tool_body:?} not found").into(),
+        )
+    })?;
+    // Drain stale registry entries so the firings taken after the call
+    // belong to this boolean.
+    let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let options = BoolOptions {
+        non_manifold: *non_manifold,
+    };
+    let result = popkern_bool::boolean_with_options(
+        crate::replay::replay_fns::to_bool_operation(*operation),
+        brep.clone(),
+        tool_brep,
+        *tolerance,
+        Some(tracking),
+        &options,
+    )
+    .map_err(|e| {
+        let op = format!("{operation:?}").to_lowercase();
+        failed_with("boolean", FeatureFailure::boolean(&op, &e).into())
+    })?;
+    let mut evidence = FeatureEvidence::empty();
+    evidence.record_boolean_fallbacks(popkern_bool::merge_fallback::take_merge_fallback_events());
+    *brep = result;
+    Ok(ExecuteSideEffects {
+        consumed_bodies: vec![*tool_body],
+        evidence,
+    })
+}
 
 /// Replay `feature` (a split, N-ary boolean or imprint) on `brep`.
 pub(crate) fn execute(

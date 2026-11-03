@@ -37,7 +37,11 @@ fn index(argument: &str, value: rhai::INT) -> Result<usize, Box<EvalAltResult>> 
         .map_err(|_| argument_error(argument, format!("expected a count, got {value}")))
 }
 
-fn non_manifold(argument: &str, value: &Dynamic) -> Result<NonManifoldPolicy, Box<EvalAltResult>> {
+/// A non-manifold policy spelled `decline` or `split_to_manifold`.
+pub(crate) fn non_manifold(
+    argument: &str,
+    value: &Dynamic,
+) -> Result<NonManifoldPolicy, Box<EvalAltResult>> {
     args::spelling(
         argument,
         value,

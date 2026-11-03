@@ -3,7 +3,7 @@
 //! boolean by set expression, the symmetric difference, an imprint.
 //! Each consumes its tools, as a boolean consumes its tool.
 
-use popkern_history::feature::{Feature, NonManifoldPolicy, PieceRule, SetExpr};
+use popkern_history::feature::{BoolOpKind, Feature, NonManifoldPolicy, PieceRule, SetExpr};
 use popkern_history::node::BodyId;
 
 use crate::body::Body;
@@ -169,6 +169,23 @@ impl Body {
             SetExpr::ExactlyOne,
             NonManifoldPolicy::SplitToManifold,
         )
+    }
+
+    /// Boolean `operation` with `tool` (consumed), labelled; a result
+    /// touching only along edges or at points follows `non_manifold`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Body::boolean_with`].
+    pub fn boolean_under(
+        self,
+        model: &mut Model,
+        operation: BoolOpKind,
+        tool: Body,
+        non_manifold: NonManifoldPolicy,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        self.boolean_labeled(model, operation, tool, non_manifold, label)
     }
 
     /// This body with its faces split where `tool` (consumed) crosses

@@ -24,6 +24,14 @@ pub enum NonManifoldPolicy {
     SplitToManifold,
 }
 
+impl NonManifoldPolicy {
+    /// Whether this is the default, [`NonManifoldPolicy::Decline`] (a
+    /// recorded policy is left out of a saved document when it is).
+    pub fn is_decline(&self) -> bool {
+        *self == NonManifoldPolicy::Decline
+    }
+}
+
 /// Options for [`crate::boolean_with_options`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BoolOptions {

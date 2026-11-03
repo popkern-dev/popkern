@@ -218,6 +218,7 @@ fn boolean_union_of_two_bodies() {
         Feature::Boolean {
             operation: BoolOpKind::Union,
             tool_body: body1,
+            non_manifold: Default::default(),
         },
         "BoolUnion",
     );
@@ -258,6 +259,7 @@ fn boolean_missing_tool_body_produces_failed() {
         Feature::Boolean {
             operation: BoolOpKind::Subtraction,
             tool_body: BodyId(99),
+            non_manifold: Default::default(),
         },
         "BadBool",
     );

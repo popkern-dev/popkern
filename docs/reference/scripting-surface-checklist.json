@@ -1783,11 +1783,15 @@
       "name": "union",
       "section": "5",
       "mark": "stable",
-      "signature": "body.union(tool_body)",
+      "signature": "body.union(tool_body, non_manifold?)",
       "parameters": [
         {
           "name": "tool_body",
           "optional": false
+        },
+        {
+          "name": "non_manifold",
+          "optional": true
         }
       ]
     },

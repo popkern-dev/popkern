@@ -4,7 +4,7 @@
 //! dropped.
 
 use popkern_history::feature::{
-    AxisDesc, BoolOpKind, ExtrudeEnd, Feature, JoinStyleKind, OperationMode,
+    AxisDesc, BoolOpKind, ExtrudeEnd, Feature, JoinStyleKind, NonManifoldPolicy, OperationMode,
     RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind,
 };
 use popkern_history::feature_blend::{
@@ -454,17 +454,18 @@ pub fn statement(
         Feature::Boolean {
             operation,
             tool_body,
+            non_manifold,
         } => {
             let verb = match operation {
                 BoolOpKind::Union => "union",
                 BoolOpKind::Subtraction => "subtract",
                 BoolOpKind::Intersection => "intersect",
             };
-            format!(
-                ".{verb}({}{})",
-                tool_var(*tool_body),
-                options(vec![label_option(label)])
-            )
+            let mut pairs = vec![label_option(label)];
+            if *non_manifold == NonManifoldPolicy::SplitToManifold {
+                pairs.push(("non_manifold", quoted("split_to_manifold")));
+            }
+            format!(".{verb}({}{})", tool_var(*tool_body), options(pairs))
         }
         Feature::Transform { motion } => match motion {
             RigidMotionDesc::Translate { dx, dy, dz } => format!(

@@ -49,6 +49,7 @@ fn add_three_features_timeline_order() {
         Feature::Boolean {
             operation: crate::feature::BoolOpKind::Union,
             tool_body: BodyId(1),
+            non_manifold: Default::default(),
         },
         "Union",
     );
@@ -257,6 +258,7 @@ fn feature_entity_names_extracts_all_variants() {
     let f = Feature::Boolean {
         operation: crate::feature::BoolOpKind::Union,
         tool_body: BodyId(1),
+        non_manifold: Default::default(),
     };
     assert!(feature_entity_names(&f).is_empty());
 

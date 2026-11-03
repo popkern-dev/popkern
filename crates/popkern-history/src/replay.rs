@@ -26,8 +26,7 @@ mod replay_hinge;
 #[path = "replay_sweep.rs"]
 mod replay_sweep;
 use replay_fns::{
-    execute_extrude, execute_sketch, resolve_param, to_bool_operation, to_shell_direction,
-    to_shell_options,
+    execute_extrude, execute_sketch, resolve_param, to_shell_direction, to_shell_options,
 };
 
 use crate::resolve::{resolve_axis, resolve_face, resolve_faces, resolve_revolve_angle};
@@ -170,42 +169,8 @@ pub(crate) fn execute_feature(
             param_table,
             certification,
         ),
-        Feature::Boolean {
-            operation,
-            tool_body,
-        } => {
-            let tool_brep =
-                body_breps
-                    .get(tool_body)
-                    .cloned()
-                    .ok_or_else(|| ReplayError::FeatureFailed {
-                        label: "boolean".into(),
-                        error: format!("tool body {tool_body:?} not found").into(),
-                    })?;
-
-            let bool_op = to_bool_operation(*operation);
-            // Drain stale registry entries so the firings taken after
-            // the call belong to this boolean.
-            let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
-            let result =
-                popkern_bool::boolean(bool_op, brep.clone(), tool_brep, *tolerance, Some(tracking))
-                    .map_err(|e| ReplayError::FeatureFailed {
-                        label: "boolean".into(),
-                        error: crate::failure::FeatureFailure::boolean(
-                            &format!("{operation:?}").to_lowercase(),
-                            &e,
-                        )
-                        .into(),
-                    })?;
-            let mut evidence = FeatureEvidence::empty();
-            evidence.record_boolean_fallbacks(
-                popkern_bool::merge_fallback::take_merge_fallback_events(),
-            );
-            *brep = result;
-            Ok(ExecuteSideEffects {
-                consumed_bodies: vec![*tool_body],
-                evidence,
-            })
+        Feature::Boolean { .. } => {
+            crate::replay_partition::execute_boolean(brep, feature, tracking, tolerance, body_breps)
         }
         Feature::Split { .. } | Feature::NaryBoolean { .. } | Feature::Imprint { .. } => {
             crate::replay_partition::execute(brep, feature, tracking, tolerance, body_breps)
