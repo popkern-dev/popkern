@@ -114,7 +114,7 @@ pub(super) fn dedup_duplicate_covers(
     // bounds, and the record covers nothing new.
     let from_overlap_pair = |h: usize| -> bool {
         match &graph.half_edges[h].source {
-            crate::merge::graph::EdgeSource::Shared { face_a, face_b } => overlap_pairs
+            crate::merge::graph::EdgeSource::Shared { face_a, face_b, .. } => overlap_pairs
                 .iter()
                 .any(|&(a, b)| *face_a == a && *face_b == b),
             _ => false,

@@ -28,10 +28,22 @@ use crate::merge::walk::Fragment;
 /// `operand`'s side.
 fn original_edge(source: &EdgeSource, operand: Operand) -> Option<EdgeHandle> {
     match (source, operand) {
-        (EdgeSource::OriginalA(e), Operand::A)
-        | (EdgeSource::SplitA { original: e }, Operand::A)
-        | (EdgeSource::OriginalB(e), Operand::B)
-        | (EdgeSource::SplitB { original: e }, Operand::B) => Some(*e),
+        (EdgeSource::Original(Operand::A, e), Operand::A)
+        | (
+            EdgeSource::Split {
+                operand: Operand::A,
+                original: e,
+            },
+            Operand::A,
+        )
+        | (EdgeSource::Original(Operand::B, e), Operand::B)
+        | (
+            EdgeSource::Split {
+                operand: Operand::B,
+                original: e,
+            },
+            Operand::B,
+        ) => Some(*e),
         _ => None,
     }
 }

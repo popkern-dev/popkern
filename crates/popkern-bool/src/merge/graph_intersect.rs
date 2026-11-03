@@ -198,6 +198,7 @@ pub(crate) fn insert_intersection_curves_at(
         let source = EdgeSource::Shared {
             face_a: record.face_a,
             face_b: record.face_b,
+            operands: [Operand::A, Operand::B],
         };
 
         // Attach UV curves as pcurves: curve_uv1 belongs to face A (fwd),

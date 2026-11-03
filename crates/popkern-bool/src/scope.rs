@@ -233,7 +233,7 @@ pub(crate) fn scope_violation(
     let far: HashSet<FaceHandle> = scope.far.iter().copied().collect();
     let on = |r: &crate::intersect::IntersectionRecord| match operand {
         Operand::A => r.face_a,
-        Operand::B => r.face_b,
+        _ /* B */ => r.face_b,
     };
     if let Some(r) = intersection.records.iter().find(|r| far.contains(&on(r))) {
         return Some(format!("a record lies on far face {:?}", on(r)));

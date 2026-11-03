@@ -107,10 +107,10 @@ impl<'s> Carry<'s> {
     /// Record the result vertex built from a graph node.
     pub(super) fn vertex(&mut self, source: &NodeSource, vh: VertexHandle) {
         match *source {
-            NodeSource::OriginalA(v) => {
+            NodeSource::Original(Operand::A, v) => {
                 self.a.vertices.insert(v, vh);
             }
-            NodeSource::OriginalB(v) if self.far.b.is_some() => {
+            NodeSource::Original(Operand::B, v) if self.far.b.is_some() => {
                 self.b.vertices.insert(v, vh);
             }
             _ => {}
@@ -123,8 +123,8 @@ impl<'s> Carry<'s> {
             carried.edges.insert(edge, ());
         }
         let (maps, e) = match *source {
-            EdgeSource::OriginalA(e) => (&mut self.a, e),
-            EdgeSource::OriginalB(e) if self.far.b.is_some() => (&mut self.b, e),
+            EdgeSource::Original(Operand::A, e) => (&mut self.a, e),
+            EdgeSource::Original(Operand::B, e) if self.far.b.is_some() => (&mut self.b, e),
             _ => return,
         };
         maps.edges.insert(e, edge);

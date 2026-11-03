@@ -237,7 +237,7 @@ pub(crate) fn cellular_assemble(
         // the chamfered-socket corpus (898 open mesh edges).
         let frag_surface = match frag.face.operand {
             Operand::A => brep_a,
-            Operand::B => brep_b,
+            _ /* B */ => brep_b,
         }
         .faces
         .get(frag.face.face)
@@ -449,7 +449,11 @@ pub(crate) fn cellular_assemble(
                                     };
                                     let src = match &graph.half_edges[og].source {
                                         EdgeSource::Shared { .. } => "S",
-                                        EdgeSource::OriginalA(_) | EdgeSource::SplitA { .. } => "A",
+                                        EdgeSource::Original(Operand::A, _)
+                                        | EdgeSource::Split {
+                                            operand: Operand::A,
+                                            ..
+                                        } => "A",
                                         _ => "B",
                                     };
                                     row.push_str(&format!("{og}{src}[{status}] "));
@@ -513,7 +517,7 @@ pub(crate) fn cellular_assemble(
         // Attach surface geometry
         let source_brep = match frag.face.operand {
             Operand::A => brep_a,
-            Operand::B => brep_b,
+            _ /* B */ => brep_b,
         };
         if let Some(face) = source_brep.faces.get(frag.face.face)
             && let Some(ref surface) = face.surface

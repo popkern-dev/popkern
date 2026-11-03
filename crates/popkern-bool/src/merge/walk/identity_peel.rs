@@ -88,7 +88,7 @@ pub(super) fn peel_far_holes(
     let opposite_box = opposite_box?;
     let (brep, map) = match face_ref.operand {
         Operand::A => (brep_a, maps.a),
-        Operand::B => (brep_b, maps.b),
+        _ /* B */ => (brep_b, maps.b),
     };
     let face = brep.faces.get(face_ref.face)?;
     if face.inner_loops.is_empty()
@@ -100,7 +100,7 @@ pub(super) fn peel_far_holes(
             .iter()
             .any(|&(fa, fb)| match face_ref.operand {
                 Operand::A => fa == face_ref.face,
-                Operand::B => fb == face_ref.face,
+                _ /* B */ => fb == face_ref.face,
             })
         || graph.seam_substitutes.iter().any(|(f, _)| f == face_ref)
     {
@@ -119,7 +119,7 @@ pub(super) fn peel_far_holes(
                 && he.face.as_ref() == Some(face_ref)
                 && matches!(
                     he.source,
-                    EdgeSource::OriginalA(_) | EdgeSource::OriginalB(_)
+                    EdgeSource::Original(Operand::A, _) | EdgeSource::Original(Operand::B, _)
                 )
         }) && closes_in_graph(graph, &lp);
         if untouched && loop_box(brep, lh).is_some_and(|b| !b.overlaps(&opposite_box, pad)) {

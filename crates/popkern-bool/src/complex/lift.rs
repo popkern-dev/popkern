@@ -68,7 +68,7 @@ pub(crate) struct Lift {
 pub(crate) fn operand_index(op: Operand) -> usize {
     match op {
         Operand::A => 0,
-        Operand::B => 1,
+        _ /* B */ => 1,
     }
 }
 

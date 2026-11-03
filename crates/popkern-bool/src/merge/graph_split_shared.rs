@@ -4,6 +4,7 @@
 use super::graph::{EdgeSource, IntersectionGraph};
 use super::graph_split::{point_on_curved_graph_edge, point_on_graph_edge_curve, point_on_segment};
 use super::graph_split_node::split_at_existing_node_with_pcurves;
+use crate::merge::graph::Operand;
 
 pub(crate) fn split_edges_at_shared_nodes(
     graph: &mut IntersectionGraph,
@@ -157,7 +158,7 @@ pub(crate) fn complete_dead_end_cuts(
             popkern_core::topology::FaceHandle,
         )> = Vec::new();
         for he in graph.half_edges.iter() {
-            if let EdgeSource::Shared { face_a, face_b } = &he.source {
+            if let EdgeSource::Shared { face_a, face_b, .. } = &he.source {
                 shared_ends.push((he.origin, *face_a, *face_b));
             }
         }
@@ -174,8 +175,16 @@ pub(crate) fn complete_dead_end_cuts(
         // nowhere joined to the candidate edge keeps the PK-305
         // completion.
         let original_of = |src: &EdgeSource| match src {
-            EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => Some((0u8, *e)),
-            EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => Some((1u8, *e)),
+            EdgeSource::Original(Operand::A, e)
+            | EdgeSource::Split {
+                operand: Operand::A,
+                original: e,
+            } => Some((0u8, *e)),
+            EdgeSource::Original(Operand::B, e)
+            | EdgeSource::Split {
+                operand: Operand::B,
+                original: e,
+            } => Some((1u8, *e)),
             _ => None,
         };
         let joined: std::collections::HashSet<(
@@ -190,7 +199,7 @@ pub(crate) fn complete_dead_end_cuts(
                 let mut origs = Vec::new();
                 for &h in &node.outgoing {
                     match &graph.half_edges[h].source {
-                        EdgeSource::Shared { face_a, face_b } => pairs.push((*face_a, *face_b)),
+                        EdgeSource::Shared { face_a, face_b, .. } => pairs.push((*face_a, *face_b)),
                         s => {
                             if let Some(o) = original_of(s) {
                                 origs.push(o);
@@ -307,9 +316,9 @@ fn chain_degree(graph: &IntersectionGraph, node: usize, face: &super::graph::Fac
         .outgoing
         .iter()
         .filter(|&&h| match &graph.half_edges[h].source {
-            EdgeSource::Shared { face_a, face_b } => match face.operand {
+            EdgeSource::Shared { face_a, face_b, .. } => match face.operand {
                 super::graph::Operand::A => *face_a == face.face,
-                super::graph::Operand::B => *face_b == face.face,
+                _ /* B */ => *face_b == face.face,
             },
             _ => false,
         })

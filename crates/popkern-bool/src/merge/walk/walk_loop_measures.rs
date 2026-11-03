@@ -357,7 +357,7 @@ mod tests {
     use popkern_core::geometry::{Point3, Vec3};
 
     use super::loop_newell;
-    use crate::merge::graph::{EdgeSource, IntersectionGraph, NodeSource};
+    use crate::merge::graph::{EdgeSource, IntersectionGraph, NodeSource, Operand};
 
     /// A loop of arcs each owned by a half-edge running against its
     /// curve (the curve's start at the half-edge's end, as a split
@@ -397,6 +397,7 @@ mod tests {
                     EdgeSource::Shared {
                         face_a: Default::default(),
                         face_b: Default::default(),
+                        operands: [Operand::A, Operand::B],
                     },
                     Some(curve),
                 )

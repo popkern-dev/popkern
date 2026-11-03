@@ -250,7 +250,7 @@ fn planar_walk_normal(face: &FaceRef, brep_a: &BRep, brep_b: &BRep) -> Option<Ve
 
     let brep = match face.operand {
         Operand::A => brep_a,
-        Operand::B => brep_b,
+        _ /* B */ => brep_b,
     };
     let face_data = brep.faces.get(face.face)?;
     let surface = face_data.surface.as_ref()?;
@@ -304,7 +304,7 @@ fn curved_walk_normal(
     let n = surface_normal_at_node(graph, node_idx, face, brep_a, brep_b)?;
     let brep = match face.operand {
         Operand::A => brep_a,
-        Operand::B => brep_b,
+        _ /* B */ => brep_b,
     };
     let outward_aligned = brep
         .faces
@@ -370,7 +370,7 @@ pub(super) fn surface_normal_at_node(
 
     let brep = match face.operand {
         Operand::A => brep_a,
-        Operand::B => brep_b,
+        _ /* B */ => brep_b,
     };
     let face_data = brep.faces.get(face.face)?;
     let surface = face_data.surface.as_ref()?;

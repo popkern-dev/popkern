@@ -2,6 +2,7 @@
 //! and consequence rules for records whose ends share a node.
 
 use super::*;
+use crate::merge::graph::Operand;
 use popkern_core::{
     geometry::{NurbsCurve, Point3, curve_on_surface::CurveOnSurface},
     topology::FaceHandle,
@@ -161,7 +162,7 @@ fn validate_on_valid_graph() {
     let n0 = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
     let n1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
     let edge_h = popkern_core::topology::EdgeHandle::default();
-    graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+    graph.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
 
     let errors = graph.validate();
     assert!(errors.is_empty(), "Expected no errors, got: {errors:?}");

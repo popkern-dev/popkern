@@ -72,12 +72,11 @@ pub(crate) fn split_operand_edges_at_paves(
         let piece = (0..graph.half_edges.len()).find(|&i| {
             let he = &graph.half_edges[i];
             let of_edge = match he.source {
-                EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => {
-                    operand == 0 && e == edge
-                }
-                EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => {
-                    operand == 1 && e == edge
-                }
+                EdgeSource::Original(o, e)
+                | EdgeSource::Split {
+                    operand: o,
+                    original: e,
+                } => operand == o.index() && e == edge,
                 EdgeSource::Shared { .. } => false,
             };
             of_edge

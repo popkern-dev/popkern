@@ -46,7 +46,7 @@ fn coincident(
 ) -> bool {
     match x_operand {
         Operand::A => overlaps.contains(&(x, y)),
-        Operand::B => overlaps.contains(&(y, x)),
+        _ /* B */ => overlaps.contains(&(y, x)),
     }
 }
 

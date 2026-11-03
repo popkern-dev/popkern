@@ -3,6 +3,7 @@
 //! [`split_at_existing_node_with_pcurves`].
 
 use super::graph::{EdgeSource, GraphHalfEdge, IntersectionGraph};
+use crate::merge::graph::Operand;
 
 /// Returns `true` when the edge was actually split — a refused
 /// split (window-boundary minimizer) MUST NOT count as progress in
@@ -101,8 +102,14 @@ pub(super) fn split_at_existing_node_with_pcurves(
     let twin_face = graph.half_edges[twin_idx].face;
     let source = graph.half_edges[he_idx].source.clone();
     let split_source = match &source {
-        EdgeSource::OriginalA(eh) => EdgeSource::SplitA { original: *eh },
-        EdgeSource::OriginalB(eh) => EdgeSource::SplitB { original: *eh },
+        EdgeSource::Original(Operand::A, eh) => EdgeSource::Split {
+            operand: Operand::A,
+            original: *eh,
+        },
+        EdgeSource::Original(Operand::B, eh) => EdgeSource::Split {
+            operand: Operand::B,
+            original: *eh,
+        },
         other => other.clone(),
     };
 
@@ -235,14 +242,14 @@ pub(super) fn split_at_existing_node_with_pcurves(
     // junction (measured: a joint-shoulder record split at a rail
     // flank's T-point still walked as if unsplit, merging the lap
     // ring with the region beyond the shoulder).
-    if let EdgeSource::Shared { face_a, face_b } = graph.half_edges[new_fwd].source {
+    if let EdgeSource::Shared { face_a, face_b, .. } = graph.half_edges[new_fwd].source {
         for face in [
             crate::merge::graph::FaceRef {
-                operand: crate::merge::graph::Operand::A,
+                operand: Operand::A,
                 face: face_a,
             },
             crate::merge::graph::FaceRef {
-                operand: crate::merge::graph::Operand::B,
+                operand: Operand::B,
                 face: face_b,
             },
         ] {

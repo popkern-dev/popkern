@@ -17,6 +17,7 @@
 //! never reaches the point, endpoint cut) the affected side falls
 //! back to dropping its pcurves — the pre-existing behavior.
 
+use crate::merge::graph::Operand;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::pcurve_split::split_pcurve_at_image;
@@ -64,8 +65,16 @@ pub(super) fn curve_co_directed_with_fwd(
     // flush arm ∪ hub rims and stranded that union).
     use super::graph::EdgeSource;
     let (brep, eh) = match &graph.half_edges[he_idx].source {
-        EdgeSource::OriginalA(eh) | EdgeSource::SplitA { original: eh } => (brep_a, *eh),
-        EdgeSource::OriginalB(eh) | EdgeSource::SplitB { original: eh } => (brep_b, *eh),
+        EdgeSource::Original(Operand::A, eh)
+        | EdgeSource::Split {
+            operand: Operand::A,
+            original: eh,
+        } => (brep_a, *eh),
+        EdgeSource::Original(Operand::B, eh)
+        | EdgeSource::Split {
+            operand: Operand::B,
+            original: eh,
+        } => (brep_b, *eh),
         _ => return None,
     };
     let edge = brep.edges.get(eh)?;

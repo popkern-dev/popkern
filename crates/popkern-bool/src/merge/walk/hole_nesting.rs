@@ -255,7 +255,7 @@ impl<'a> OppositeAabbs<'a> {
     fn opposite(&self, operand: super::super::graph::Operand) -> (&BRep, &[(FaceHandle, Aabb)]) {
         match operand {
             super::super::graph::Operand::A => (self.brep_b, &self.b),
-            super::super::graph::Operand::B => (self.brep_a, &self.a),
+            _ /* B */ => (self.brep_a, &self.a),
         }
     }
 }

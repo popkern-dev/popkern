@@ -92,7 +92,7 @@ pub(crate) fn classify_and_select_fragments(
         // boundary (where two faces share an edge), giving ambiguous results.
         let (_, other_brep, other_aabbs) = match own_operand {
             Operand::A => (Operand::A, brep_b, &aabbs_b),
-            Operand::B => (Operand::B, brep_a, &aabbs_a),
+            _ /* B */ => (Operand::B, brep_a, &aabbs_a),
         };
 
         let sample =
@@ -178,7 +178,7 @@ pub(crate) fn classify_and_select_fragments(
         if eligible_for_uv_retry {
             let own_brep = match own_operand {
                 Operand::A => brep_a,
-                Operand::B => brep_b,
+                _ /* B */ => brep_b,
             };
             let is_planar = own_brep
                 .faces

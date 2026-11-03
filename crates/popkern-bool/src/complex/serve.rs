@@ -1,6 +1,7 @@
 //! Serving a boolean's fragment selection from the cell complex
 //! (PK-976).
 
+use crate::merge::graph::Operand;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 
@@ -179,7 +180,7 @@ pub(crate) fn b_reversed(
     let mut kept_b = fragments
         .iter()
         .zip(selections)
-        .filter(|(f, s)| s.keep && f.face.operand == crate::merge::graph::Operand::B)
+        .filter(|(f, s)| s.keep && f.face.operand == Operand::B)
         .peekable();
     op == BoolOperation::Union && kept_b.peek().is_some() && kept_b.all(|(_, s)| s.flip)
 }

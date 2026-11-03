@@ -181,7 +181,7 @@ pub(crate) fn remove_common_block_duplicates(
         };
         let shared = list.iter().copied().find(|&i| {
             matches!(graph.half_edges[i].source,
-                EdgeSource::Shared { face_a, face_b }
+                EdgeSource::Shared { face_a, face_b, .. }
                     if face_a == record.face_a && face_b == record.face_b)
                 && joins(i)
         });
@@ -197,12 +197,11 @@ pub(crate) fn remove_common_block_duplicates(
             .copied()
             .filter(|&i| {
                 let of_edge = match graph.half_edges[i].source {
-                    EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => {
-                        block.operand == 0 && e == block.edge
-                    }
-                    EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => {
-                        block.operand == 1 && e == block.edge
-                    }
+                    EdgeSource::Original(o, e)
+                    | EdgeSource::Split {
+                        operand: o,
+                        original: e,
+                    } => block.operand == o.index() && e == block.edge,
                     EdgeSource::Shared { .. } => false,
                 };
                 of_edge && joins(i) && {

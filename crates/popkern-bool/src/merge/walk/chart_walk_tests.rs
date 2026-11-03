@@ -58,7 +58,7 @@ fn square_with_transversal_trim_wound(ccw: bool) -> (IntersectionGraph, FaceRef,
     let mut hes = Vec::new();
     for (a, b) in [(0, 1), (1, 2), (2, 3), (3, 4), (4, 5), (5, 0)] {
         let (a, b) = if ccw { (a, b) } else { (b, a) };
-        let (fwd, _) = g.add_half_edge_pair(n[a], n[b], EdgeSource::OriginalA(eh), None);
+        let (fwd, _) = g.add_half_edge_pair(n[a], n[b], EdgeSource::Original(Operand::A, eh), None);
         g.set_half_edge_face(fwd, face);
         hes.push(fwd);
     }
@@ -69,6 +69,7 @@ fn square_with_transversal_trim_wound(ccw: bool) -> (IntersectionGraph, FaceRef,
         EdgeSource::Shared {
             face_a: popkern_core::topology::FaceHandle::default(),
             face_b: popkern_core::topology::FaceHandle::default(),
+            operands: [Operand::A, Operand::B],
         },
         None,
     );

@@ -469,8 +469,11 @@ fn frontier_keys(
         .iter()
         .enumerate()
         .filter(|(_, he)| match &he.source {
-            EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => bounds(0, e),
-            EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => bounds(1, e),
+            EdgeSource::Original(o, e)
+            | EdgeSource::Split {
+                operand: o,
+                original: e,
+            } => bounds(o.index(), e),
             EdgeSource::Shared { .. } => false,
         })
         .map(|(h, he)| h.min(he.twin))

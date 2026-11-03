@@ -63,7 +63,7 @@ pub(super) fn drop_hole_interior_record_pieces(
 ) -> Option<Vec<usize>> {
     let brep = match face_ref.operand {
         Operand::A => brep_a,
-        Operand::B => brep_b,
+        _ /* B */ => brep_b,
     };
     let face_data = brep.faces.get(face_ref.face)?;
     if face_data.inner_loops.is_empty() {

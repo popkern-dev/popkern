@@ -44,9 +44,9 @@ fn triangle_graph() -> (IntersectionGraph, FaceRef) {
         face: popkern_core::topology::FaceHandle::default(),
     };
 
-    let (fwd01, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(eh), None);
-    let (fwd12, _) = graph.add_half_edge_pair(n1, n2, EdgeSource::OriginalA(eh), None);
-    let (fwd20, _) = graph.add_half_edge_pair(n2, n0, EdgeSource::OriginalA(eh), None);
+    let (fwd01, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd12, _) = graph.add_half_edge_pair(n1, n2, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd20, _) = graph.add_half_edge_pair(n2, n0, EdgeSource::Original(Operand::A, eh), None);
 
     graph.set_half_edge_face(fwd01, face_ref);
     graph.set_half_edge_face(fwd12, face_ref);
@@ -86,10 +86,10 @@ fn square_face_produces_one_outer_loop() {
         face: popkern_core::topology::FaceHandle::default(),
     };
 
-    let (fwd01, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(eh), None);
-    let (fwd12, _) = graph.add_half_edge_pair(n1, n2, EdgeSource::OriginalA(eh), None);
-    let (fwd23, _) = graph.add_half_edge_pair(n2, n3, EdgeSource::OriginalA(eh), None);
-    let (fwd30, _) = graph.add_half_edge_pair(n3, n0, EdgeSource::OriginalA(eh), None);
+    let (fwd01, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd12, _) = graph.add_half_edge_pair(n1, n2, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd23, _) = graph.add_half_edge_pair(n2, n3, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd30, _) = graph.add_half_edge_pair(n3, n0, EdgeSource::Original(Operand::A, eh), None);
 
     graph.set_half_edge_face(fwd01, face_ref);
     graph.set_half_edge_face(fwd12, face_ref);
@@ -130,9 +130,12 @@ fn exterior_disjoint_promotion_separates_protrusion_from_kept_holes() {
             .iter()
             .map(|&p| graph.add_node(p, NodeSource::Intersection))
             .collect();
-        let (a, _) = graph.add_half_edge_pair(n[0], n[1], EdgeSource::OriginalA(eh), None);
-        let (b, _) = graph.add_half_edge_pair(n[1], n[2], EdgeSource::OriginalA(eh), None);
-        let (c, _) = graph.add_half_edge_pair(n[2], n[0], EdgeSource::OriginalA(eh), None);
+        let (a, _) =
+            graph.add_half_edge_pair(n[0], n[1], EdgeSource::Original(Operand::A, eh), None);
+        let (b, _) =
+            graph.add_half_edge_pair(n[1], n[2], EdgeSource::Original(Operand::A, eh), None);
+        let (c, _) =
+            graph.add_half_edge_pair(n[2], n[0], EdgeSource::Original(Operand::A, eh), None);
         vec![a, b, c]
     };
 
@@ -191,7 +194,7 @@ fn exterior_disjoint_promotion_separates_protrusion_from_kept_holes() {
     );
     // Single self-loop rim: disjoint (z = 10) but length 1.
     let nr = graph.add_node(Point3::new(0.5, 0.5, 10.0), NodeSource::Intersection);
-    let (rim, _) = graph.add_half_edge_pair(nr, nr, EdgeSource::OriginalA(eh), None);
+    let (rim, _) = graph.add_half_edge_pair(nr, nr, EdgeSource::Original(Operand::A, eh), None);
 
     let mut inners = vec![
         protrusion.clone(),

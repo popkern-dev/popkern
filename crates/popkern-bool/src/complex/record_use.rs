@@ -49,7 +49,7 @@ pub(crate) fn half_registered_records(
             continue;
         };
         let he = &graph.half_edges[key];
-        let EdgeSource::Shared { face_a, face_b } = &he.source else {
+        let EdgeSource::Shared { face_a, face_b, .. } = &he.source else {
             continue;
         };
         if he.face == graph.half_edges[he.twin].face {

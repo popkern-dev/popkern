@@ -246,7 +246,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
             overlap_pairs,
             match face_ref.operand {
                 super::graph::Operand::A => brep_a,
-                super::graph::Operand::B => brep_b,
+                _ /* B */ => brep_b,
             },
             tolerance,
         );

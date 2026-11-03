@@ -228,8 +228,7 @@ pub(crate) fn split_graph_edge_with_pcurves(
 
     // Derive a split source from the original.
     let split_source = match &source {
-        EdgeSource::OriginalA(eh) => EdgeSource::SplitA { original: *eh },
-        EdgeSource::OriginalB(eh) => EdgeSource::SplitB { original: *eh },
+        &EdgeSource::Original(operand, original) => EdgeSource::Split { operand, original },
         other => other.clone(),
     };
 

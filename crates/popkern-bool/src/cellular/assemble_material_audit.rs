@@ -85,7 +85,7 @@ pub(super) fn trace_material_sides(
             };
             let src_brep = match frag.face.operand {
                 Operand::A => brep_a,
-                Operand::B => brep_b,
+                _ /* B */ => brep_b,
             };
             let Some(sof) = src_brep
                 .faces

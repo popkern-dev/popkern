@@ -14,14 +14,9 @@ use popkern_core::{
     topology::{EdgeHandle, FaceHandle, VertexHandle},
 };
 
-/// Identifies which boolean operand a piece of topology comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum Operand {
-    /// The first (left-hand) operand.
-    A,
-    /// The second (right-hand) operand.
-    B,
-}
+#[path = "graph_operand.rs"]
+mod graph_operand;
+pub(crate) use graph_operand::Operand;
 
 /// A face qualified by which operand it belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -35,10 +30,8 @@ pub(crate) struct FaceRef {
 /// Tracks the origin of a graph node.
 #[derive(Debug, Clone)]
 pub(crate) enum NodeSource {
-    /// Copied from an original vertex in operand A.
-    OriginalA(VertexHandle),
-    /// Copied from an original vertex in operand B.
-    OriginalB(VertexHandle),
+    /// Copied from an original vertex of an operand.
+    Original(Operand, VertexHandle),
     /// Created at a curve-curve or edge-face intersection point.
     Intersection,
 }
@@ -46,24 +39,22 @@ pub(crate) enum NodeSource {
 /// Tracks the origin of a graph edge.
 #[derive(Debug, Clone)]
 pub(crate) enum EdgeSource {
-    /// Copied from an original edge in operand A.
-    OriginalA(EdgeHandle),
-    /// Copied from an original edge in operand B.
-    OriginalB(EdgeHandle),
+    /// Copied from an original edge of an operand.
+    Original(Operand, EdgeHandle),
     /// A shared edge lying on the intersection of two faces.
     Shared {
         /// Face from operand A.
         face_a: FaceHandle,
         /// Face from operand B.
         face_b: FaceHandle,
+        /// The operands `face_a` and `face_b` belong to (A and B in a
+        /// two-operand boolean; any pair in an N-ary one).
+        operands: [Operand; 2],
     },
-    /// Created by splitting an original edge from operand A.
-    SplitA {
-        /// The original edge that was split.
-        original: EdgeHandle,
-    },
-    /// Created by splitting an original edge from operand B.
-    SplitB {
+    /// Created by splitting an original edge of an operand.
+    Split {
+        /// The operand.
+        operand: Operand,
         /// The original edge that was split.
         original: EdgeHandle,
     },
@@ -73,7 +64,7 @@ impl EdgeSource {
     /// A copy of an operand edge no split has touched (same curve, same
     /// span as in the operand).
     pub fn is_unsplit_original(&self) -> bool {
-        matches!(self, Self::OriginalA(_) | Self::OriginalB(_))
+        matches!(self, Self::Original(..))
     }
 }
 
@@ -334,7 +325,7 @@ pub(crate) fn trace_uv_scramble(
         };
         let brep = match fr.operand {
             Operand::A => brep_a,
-            Operand::B => brep_b,
+            _ /* B */ => brep_b,
         };
         let Some(surf) = brep.faces.get(fr.face).and_then(|f| f.surface.as_ref()) else {
             continue;
@@ -391,7 +382,8 @@ mod tests {
         let n1 = g.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
 
         let edge_h = popkern_core::topology::EdgeHandle::default();
-        let (fwd, twin) = g.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+        let (fwd, twin) =
+            g.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
 
         // Twin pairing
         assert_eq!(g.half_edges[fwd].twin, twin);
@@ -456,7 +448,8 @@ mod tests {
         let n0 = g.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let n1 = g.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let edge_h = popkern_core::topology::EdgeHandle::default();
-        let (fwd, _twin) = g.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+        let (fwd, _twin) =
+            g.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
 
         let face_ref = FaceRef {
             operand: Operand::A,

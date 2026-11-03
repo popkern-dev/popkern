@@ -10,6 +10,7 @@
 //! loops are the orbits of a permutation — the partition cannot depend
 //! on seed order.
 
+use crate::merge::graph::Operand;
 use std::collections::BTreeSet;
 
 use super::chart_subdivision::FaceChartSubdivision;
@@ -189,7 +190,7 @@ fn source_loop_edge_set(
 ) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
     let source_brep = match face_ref.operand {
         super::super::graph::Operand::A => brep_a,
-        super::super::graph::Operand::B => brep_b,
+        _ /* B */ => brep_b,
     };
     let mut edges = std::collections::BTreeSet::new();
     if let Some(face) = source_brep.faces.get(face_ref.face) {
@@ -307,12 +308,17 @@ pub(crate) fn assemble_chart_roles(
         let all_inner = orbit.iter().all(|&h| {
             use super::super::graph::EdgeSource;
             match &graph.half_edges[h].source {
-                EdgeSource::OriginalA(e) | EdgeSource::OriginalB(e) => {
+                EdgeSource::Original(Operand::A, e) | EdgeSource::Original(Operand::B, e) => {
                     source_inner_edges.contains(e)
                 }
-                EdgeSource::SplitA { original } | EdgeSource::SplitB { original } => {
-                    source_inner_edges.contains(original)
+                EdgeSource::Split {
+                    operand: Operand::A,
+                    original,
                 }
+                | EdgeSource::Split {
+                    operand: Operand::B,
+                    original,
+                } => source_inner_edges.contains(original),
                 _ => false,
             }
         });
@@ -339,12 +345,17 @@ pub(crate) fn assemble_chart_roles(
         let any_outer = orbit.iter().any(|&h| {
             use super::super::graph::EdgeSource;
             match &graph.half_edges[h].source {
-                EdgeSource::OriginalA(e) | EdgeSource::OriginalB(e) => {
+                EdgeSource::Original(Operand::A, e) | EdgeSource::Original(Operand::B, e) => {
                     source_outer_edges.contains(e)
                 }
-                EdgeSource::SplitA { original } | EdgeSource::SplitB { original } => {
-                    source_outer_edges.contains(original)
+                EdgeSource::Split {
+                    operand: Operand::A,
+                    original,
                 }
+                | EdgeSource::Split {
+                    operand: Operand::B,
+                    original,
+                } => source_outer_edges.contains(original),
                 _ => false,
             }
         });
