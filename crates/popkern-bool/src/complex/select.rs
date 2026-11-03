@@ -60,11 +60,26 @@ pub(crate) struct ComplexSelection {
 }
 
 /// Per complex face: the folded-normal convention of its output
-/// component (kept faces joined through manifold edges): the sense of
-/// its A face of least handle, else of its B face of least handle.
-fn component_conventions(lift: &Lift, kept: &[bool]) -> Vec<bool> {
+/// component (kept faces joined through manifold edges, and every kept
+/// face bounding one selected shell): the sense of its A face of least
+/// handle, else of its B face of least handle.
+fn component_conventions(lift: &Lift, kept: &[bool], kept_shell: &[Option<usize>]) -> Vec<bool> {
     let c = &lift.complex;
     let mut forest = Forest::new(c.faces.len());
+    // Faces bounding one selected shell are one closed result surface
+    // even where they meet only at non-manifold edges a split pairs
+    // into manifold twins: they share one convention, or a twin pair
+    // traverses its edge the same way (measured: the exactly-one of a
+    // sphere and a rod across it kept the sphere face and the tunnel
+    // wall at opposite conventions, wiring each circle's half-edge
+    // twice into a loop that never closed).
+    let mut first_of_shell: BTreeMap<usize, usize> = BTreeMap::new();
+    for (fi, shell) in kept_shell.iter().enumerate() {
+        if let Some(s) = *shell {
+            let first = *first_of_shell.entry(s).or_insert(fi);
+            forest.union(first, fi);
+        }
+    }
     for e in &c.edges {
         let faces: Vec<usize> = e
             .radial
@@ -161,7 +176,21 @@ pub(crate) fn select_shells(
         }
     }
     let kept_face: Vec<bool> = kept_behind.iter().map(Option::is_some).collect();
-    let convention = component_conventions(lift, &kept_face);
+    // The selected shell each kept face bounds.
+    let kept_shell: Vec<Option<usize>> = c
+        .faces
+        .iter()
+        .zip(&kept_behind)
+        .map(|(face, behind)| {
+            let side = if (*behind)? {
+                SideIndex::Behind
+            } else {
+                SideIndex::Ahead
+            };
+            face.sides[side as usize].shell.map(|s| s.index())
+        })
+        .collect();
+    let convention = component_conventions(lift, &kept_face, &kept_shell);
     for (fi, face) in c.faces.iter().enumerate() {
         let Some(behind) = kept_behind[fi] else {
             continue;

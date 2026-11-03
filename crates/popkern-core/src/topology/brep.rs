@@ -272,10 +272,15 @@ impl BRep {
         }
         let mut positions = Vec::new();
         let mut current = start_he;
-        loop {
-            let he = &self.half_edges[current];
-            let vertex = &self.vertices[he.origin];
-            positions.push(vertex.position);
+        // A loop visits each half-edge at most once: the bound stops a
+        // `next` chain that never returns to its start (a malformed
+        // assembly) from walking forever (measured: a split exactly-one
+        // of a sphere and a rod spun a ray gate for hours).
+        for _ in 0..self.half_edges.len() {
+            let Some(he) = self.half_edges.get(current) else {
+                break;
+            };
+            positions.push(self.vertices[he.origin].position);
             current = he.next;
             if current == start_he {
                 break;
@@ -313,8 +318,11 @@ impl BRep {
 
         let mut points = Vec::new();
         let mut current = start_he;
-        loop {
-            let he = &self.half_edges[current];
+        // Bounded as in `face_outer_loop_positions`.
+        for _ in 0..self.half_edges.len() {
+            let Some(he) = self.half_edges.get(current) else {
+                break;
+            };
             // Always include the vertex position.
             points.push(self.vertices[he.origin].position);
 

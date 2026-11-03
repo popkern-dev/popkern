@@ -66,6 +66,13 @@ filter = """
 """
 test-group = "whole-arm"
 
+# Every gallery script in one test: ~38 min (2270-2430 s over 2026-10
+# suites, once 3405 s under load), past the 30-minute default bound.
+# Killed after 80 minutes (40 periods), twice its usual time.
+[[profile.default.overrides]]
+filter = "package(popkern-cli) & binary(gallery) & test(every_gallery_script_serves_clean_watertight_and_step_valid)"
+slow-timeout = { period = "120s", terminate-after = 40 }
+
 [test-groups]
 whole-arm = { max-threads = 2 }
 

@@ -174,3 +174,122 @@ fn six_rods_are_order_invariant() {
         assert_eq!(memberships(&order), reference, "order {order:?}");
     }
 }
+
+/// Exactly one of three crossing rods, split to manifold pieces: the
+/// pieces meet at vertices split three ways, one recorded contact each
+/// naming every copy, and `validate_all` excuses exactly those.
+#[test]
+fn three_rods_exactly_one_splits_to_manifold_pieces() {
+    let tol = Tolerance::default();
+    let rods: Vec<BRep> = (0..3)
+        .map(|k| {
+            BRep::cylinder(0.4 + 0.03 * k as f64, 3.0, tol)
+                .and_then(|c| c.transform(&Transform3::translation(0.0, 0.017 * k as f64, -1.5)))
+                .and_then(|c| c.transform(&Transform3::rotation_y(std::f64::consts::FRAC_PI_2)))
+                .and_then(|c| c.transform(&Transform3::rotation_z(0.7 * k as f64 + 0.05)))
+                .expect("rod")
+        })
+        .collect();
+    let refs: Vec<&BRep> = rods.iter().collect();
+    let options = crate::BoolOptions {
+        non_manifold: crate::NonManifoldPolicy::SplitToManifold,
+    };
+    let body = partition(&refs, tol)
+        .and_then(|p| p.select(&super::SetExpr::ExactlyOne, &options))
+        .expect("exactly one");
+    assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
+    assert!(
+        body.topology_contacts.iter().any(|c| c.entities.len() >= 3),
+        "a vertex split three ways is one contact"
+    );
+}
+
+/// A unit sphere and a rod across it (along x through y = 0.05,
+/// z = −0.1, radius 0.6): the rod's +x cutout straddles the sphere's
+/// u-seam.
+fn sphere_and_crossing_rod() -> (BRep, BRep) {
+    let tol = Tolerance::default();
+    let sphere = BRep::sphere(1.0, tol).expect("sphere");
+    let rod = BRep::cylinder(0.6, 3.0, tol)
+        .and_then(|c| c.transform(&Transform3::translation(0.1, 0.05, -1.5)))
+        .and_then(|c| c.transform(&Transform3::rotation_y(std::f64::consts::FRAC_PI_2)))
+        .expect("rod");
+    (sphere, rod)
+}
+
+/// The sphere face of sphere minus the crossing rod classifies sample
+/// points by their side of the rod: its outer loop walks the seam to
+/// both poles, so the polygon must bridge each pole row by a period
+/// (PK-1057: the folded polygon retraced the seam and read 237 of 255
+/// samples inverted).
+#[test]
+fn a_seam_straddling_cutout_trims_its_sphere_face() {
+    use popkern_core::geometry::Point3;
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+    use popkern_core::validation::FaceUvContainment;
+    let tol = Tolerance::default();
+    let (sphere, rod) = sphere_and_crossing_rod();
+    let cut = crate::boolean_with_options(
+        crate::BoolOperation::Subtraction,
+        sphere,
+        rod,
+        tol,
+        None,
+        &crate::BoolOptions::default(),
+    )
+    .expect("cut");
+    let rho = |p: &Point3| (p.y - 0.05).phypot(p.z + 0.1);
+    let (face, surface) = cut
+        .faces
+        .iter()
+        .find_map(|(fh, f)| {
+            let s = &f.surface.as_ref()?.geometry;
+            matches!(s, SurfaceGeometry::Sphere { .. }).then_some((fh, s))
+        })
+        .expect("sphere face");
+    let mut checked = 0;
+    for i in 0..24 {
+        for j in 1..12 {
+            let (azimuth, polar) = (
+                std::f64::consts::TAU * i as f64 / 24.0 + 0.01,
+                std::f64::consts::PI * j as f64 / 12.0 + 0.01,
+            );
+            let (sa, ca) = azimuth.psin_cos();
+            let (sp, cp) = polar.psin_cos();
+            let p = Point3::new(sp * ca, sp * sa, cp);
+            if (rho(&p) - 0.6).abs() < 0.03 {
+                continue;
+            }
+            let (u, v) = surface.closest_point(&p).expect("uv");
+            let got = cut.face_uv_trim_containment(face, surface, u, v);
+            assert_eq!(
+                got == Some(FaceUvContainment::Interior),
+                rho(&p) > 0.6,
+                "at {p:?} (uv {u}, {v}): {got:?}"
+            );
+            checked += 1;
+        }
+    }
+    assert!(checked > 200, "{checked}");
+}
+
+/// Exactly one of the sphere and the crossing rod, split to manifold
+/// pieces: the sphere with its tunnel and the two rod stubs, meeting
+/// along the intersection circles. The sphere face and the tunnel
+/// wall meet only at those (non-manifold) circles, yet bound one shell
+/// and share its orientation convention (a convention per manifold
+/// component wired each circle twice into a loop that never closed,
+/// and the serve hung).
+#[test]
+fn sphere_and_crossing_rod_exactly_one_splits_to_manifold_pieces() {
+    let tol = Tolerance::default();
+    let (sphere, rod) = sphere_and_crossing_rod();
+    let options = crate::BoolOptions {
+        non_manifold: crate::NonManifoldPolicy::SplitToManifold,
+    };
+    let body = partition(&[&sphere, &rod], tol)
+        .and_then(|p| p.select(&super::SetExpr::ExactlyOne, &options))
+        .expect("exactly one");
+    assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
+    assert_eq!(body.shells.len(), 3);
+}

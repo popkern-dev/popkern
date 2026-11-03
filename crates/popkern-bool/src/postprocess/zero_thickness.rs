@@ -18,7 +18,7 @@
 //! shells that merely touch, which neither test sees: those are
 //! `shell_contact`'s.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -105,17 +105,43 @@ pub(crate) fn zero_thickness_findings(
         }
     }
     close.sort();
-    let mut touched = BTreeSet::new();
-    for (v, w) in close {
-        if !joined_pair(&mut joined, (w, v)) && touched.insert(w) {
-            out.push((
-                NonManifoldContact {
-                    kind: ContactKind::Vertex,
-                    location: brep.vertices[w].position,
-                },
-                vec![ContactEntity::Vertex(w), ContactEntity::Vertex(v)],
-            ));
+    // One contact per cluster of close vertices (not joined by an
+    // edge), naming every copy: a contact excuses the faces at its
+    // entities pairwise, so three copies recorded as two chained pairs
+    // left the outer two faces' touch unexcused (measured: a split
+    // three-rod exactly-one declined on faces meeting at a vertex
+    // split three ways).
+    let mut cluster: BTreeMap<VertexHandle, VertexHandle> = BTreeMap::new();
+    fn root(cluster: &BTreeMap<VertexHandle, VertexHandle>, mut v: VertexHandle) -> VertexHandle {
+        while let Some(&up) = cluster.get(&v).filter(|&&up| up != v) {
+            v = up;
         }
+        v
+    }
+    for (v, w) in close {
+        if joined_pair(&mut joined, (w, v)) {
+            continue;
+        }
+        let (rv, rw) = (root(&cluster, v), root(&cluster, w));
+        cluster.entry(rv).or_insert(rv);
+        cluster.entry(rw).or_insert(rw);
+        if rv != rw {
+            // The smallest handle roots its cluster.
+            cluster.insert(rv.max(rw), rv.min(rw));
+        }
+    }
+    let mut members: BTreeMap<VertexHandle, Vec<VertexHandle>> = BTreeMap::new();
+    for &v in cluster.keys() {
+        members.entry(root(&cluster, v)).or_default().push(v);
+    }
+    for (first, copies) in members {
+        out.push((
+            NonManifoldContact {
+                kind: ContactKind::Vertex,
+                location: brep.vertices[first].position,
+            },
+            copies.into_iter().map(ContactEntity::Vertex).collect(),
+        ));
     }
 
     // Coincident edges: same end vertices (or coincident ones), same
