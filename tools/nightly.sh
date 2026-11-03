@@ -21,8 +21,8 @@
 # never mixes builds of different commits. The record is written, then read
 # back and the read value adopted, so two machines that race on the write
 # still agree unless both checked for the record before either wrote it:
-# schedule the platforms apart (Windows runs at 02:00 local) rather than
-# rely on that.
+# schedule the platforms apart (Windows runs at 02:00 local, macOS at
+# 02:30) rather than rely on that.
 #
 # The build runs in its own worktree of this repository
 # ($POPKERN_NIGHTLY_HOME/checkout, default %LOCALAPPDATA%\popkern-nightly on
@@ -37,6 +37,9 @@
 #   $env:POPKERN_VERSION = (irm https://dl.popkern.dev/nightly).Trim()
 #   irm https://popkern.dev/install.ps1 | iex
 #
+#   curl -fsSL https://popkern.dev/install.sh |
+#     POPKERN_VERSION=$(curl -fsSL https://dl.popkern.dev/nightly) sh
+#
 # Open item for the second platform: `nightly` moves when any platform
 # publishes, so until the others publish the same version, an install on
 # those platforms finds no build for itself.
@@ -44,7 +47,8 @@
 # Logs: $POPKERN_NIGHTLY_HOME/logs/<date>.log (kept 30 days). Publishing
 # needs wrangler logged in for this user (`wrangler login`), or
 # CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID in the user environment.
-# Scheduling: tools/register-nightly-windows.ps1 on Windows.
+# Scheduling: tools/register-nightly-windows.ps1 on Windows,
+# tools/register-nightly-macos.sh on macOS.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -74,7 +78,8 @@ if [[ $PLATFORM == windows ]]; then
   export PATH="$HOME/.cargo/bin:$(cygpath -u "$APPDATA")/npm:$(cygpath -u "$PROGRAMFILES")/nodejs:$PATH"
   DEFAULT_HOME=$(cygpath -u "$LOCALAPPDATA")/popkern-nightly
 else
-  export PATH="$HOME/.cargo/bin:$PATH"
+  # ~/.local/bin: node and wrangler as tools/setup-macos-build.sh installs them.
+  export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
   DEFAULT_HOME=${XDG_STATE_HOME:-$HOME/.local/state}/popkern-nightly
 fi
 NIGHTLY_HOME=${POPKERN_NIGHTLY_HOME:-$DEFAULT_HOME}
@@ -85,6 +90,11 @@ exec > >(tee -a "$NIGHTLY_HOME/logs/$NIGHT.log") 2>&1
 find "$NIGHTLY_HOME/logs" -name '*.log' -mtime +30 -delete
 echo "== nightly $PLATFORM $(date -Iseconds) (night $NIGHT UTC)"
 
+# wrangler from the checkout, never from wherever the scheduler starts:
+# run in $HOME, it creates ~/.wrangler (its project cache), which it then
+# takes for its legacy global config folder, and every wrangler command
+# for this user, scheduled or not, stops finding the login.
+cd "$REPO"
 source "$REPO/tools/dist-publish.sh"
 SCRATCH=$(mktemp -d)
 trap 'rm -rf "$SCRATCH"' EXIT
