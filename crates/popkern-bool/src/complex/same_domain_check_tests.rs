@@ -12,6 +12,21 @@ use super::super::model::FaceOwner;
 use super::super::tests::complex_of_brep;
 use super::same_domain_mismatches;
 
+/// A coincident pair of A's face `a` and B's face `b`.
+fn pair(a: FaceHandle, b: FaceHandle) -> crate::merge::graph::FacePair {
+    use crate::merge::graph::{FaceRef, Operand};
+    (
+        FaceRef {
+            operand: Operand::A,
+            face: a,
+        },
+        FaceRef {
+            operand: Operand::B,
+            face: b,
+        },
+    )
+}
+
 /// The face of `brep` whose vertices all have x = `x`.
 fn face_at_x(brep: &BRep, x: f64) -> FaceHandle {
     brep.faces
@@ -46,7 +61,7 @@ fn lifted_face(c: &super::super::model::CellComplex, face: FaceHandle) -> usize 
 fn a_coincident_face_carried_by_one_operand_is_a_mismatch() {
     let (a, b, fa, fb) = cubes(0.0);
     let c = complex_of_brep(&a);
-    let found = same_domain_mismatches(&c, &[&a, &b], &[(fa, fb)], 1e-6);
+    let found = same_domain_mismatches(&c, &[&a, &b], &[pair(fa, fb)], 1e-6);
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].face, FaceId::from_index(lifted_face(&c, fa)));
     assert_eq!(found[0].partner, fb);
@@ -62,7 +77,7 @@ fn a_face_carrying_both_copies_is_not_a_mismatch() {
         face: fb,
         same_sense: false,
     });
-    assert!(same_domain_mismatches(&c, &[&a, &b], &[(fa, fb)], 1e-6).is_empty());
+    assert!(same_domain_mismatches(&c, &[&a, &b], &[pair(fa, fb)], 1e-6).is_empty());
 }
 
 #[test]
@@ -71,7 +86,7 @@ fn a_face_outside_its_partner_region_is_not_a_mismatch() {
     // part of a partially overlapping face beyond the patch.
     let (a, b, fa, fb) = cubes(2.0);
     let c = complex_of_brep(&a);
-    assert!(same_domain_mismatches(&c, &[&a, &b], &[(fa, fb)], 1e-6).is_empty());
+    assert!(same_domain_mismatches(&c, &[&a, &b], &[pair(fa, fb)], 1e-6).is_empty());
 }
 
 #[test]
@@ -117,6 +132,6 @@ fn a_sliver_face_s_inner_point_stays_on_the_sliver() {
             "face {k}: {p:?}"
         );
     }
-    let found = same_domain_mismatches(&c, &[&a, &b], &[(top(&a), top(&b))], 1e-6);
+    let found = same_domain_mismatches(&c, &[&a, &b], &[pair(top(&a), top(&b))], 1e-6);
     assert!(found.is_empty(), "{found:?}");
 }

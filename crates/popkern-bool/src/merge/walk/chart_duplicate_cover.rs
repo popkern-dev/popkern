@@ -1,8 +1,6 @@
 //! I5 — duplicate-cover dedup (split from `chart_subdivision` per
 //! the file-size rule).
 
-use popkern_core::topology::FaceHandle;
-
 use super::chart_subdivision::{FaceChartSubdivision, FilteredRecord};
 use crate::merge::graph::IntersectionGraph;
 
@@ -17,7 +15,7 @@ use crate::merge::graph::IntersectionGraph;
 pub(super) fn dedup_duplicate_covers(
     graph: &IntersectionGraph,
     sub: &mut FaceChartSubdivision,
-    overlap_pairs: &[(FaceHandle, FaceHandle)],
+    overlap_pairs: &[crate::merge::graph::FacePair],
 ) {
     let hes: Vec<usize> = sub.embeddings.keys().copied().collect();
     let mut scale = 0.0_f64;
@@ -114,9 +112,15 @@ pub(super) fn dedup_duplicate_covers(
     // bounds, and the record covers nothing new.
     let from_overlap_pair = |h: usize| -> bool {
         match &graph.half_edges[h].source {
-            crate::merge::graph::EdgeSource::Shared { face_a, face_b, .. } => overlap_pairs
-                .iter()
-                .any(|&(a, b)| *face_a == a && *face_b == b),
+            crate::merge::graph::EdgeSource::Shared {
+                face_a,
+                face_b,
+                operands,
+            } => {
+                let face = |operand, face| crate::merge::graph::FaceRef { operand, face };
+                let pair = (face(operands[0], *face_a), face(operands[1], *face_b));
+                overlap_pairs.contains(&pair)
+            }
             _ => false,
         }
     };

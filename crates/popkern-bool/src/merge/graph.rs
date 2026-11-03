@@ -18,6 +18,10 @@ use popkern_core::{
 mod graph_operand;
 pub(crate) use graph_operand::Operand;
 
+/// Two coincident faces of different operands (a coplanar or coaxial
+/// overlap), each qualified by its operand.
+pub(crate) type FacePair = (FaceRef, FaceRef);
+
 /// A face qualified by which operand it belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct FaceRef {

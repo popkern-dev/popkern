@@ -275,7 +275,10 @@ pub(crate) fn cellular_graph_merge(
         .coincidence
         .face_overlaps
         .iter()
-        .map(|o| (o.face_a, o.face_b))
+        .map(|o| {
+            let face = |operand, face| crate::merge::graph::FaceRef { operand, face };
+            (face(Operand::A, o.face_a), face(Operand::B, o.face_b))
+        })
         .collect();
     let mut walk_fallbacks: Vec<(crate::merge::graph::FaceRef, String)> = Vec::new();
     let holes_of = |s: Option<&crate::scope::ActiveScope>| -> Option<std::collections::HashSet<_>> {

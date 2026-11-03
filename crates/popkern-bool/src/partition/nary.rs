@@ -36,16 +36,23 @@ pub fn nary_boolean(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    let decline = match partition(bodies, tolerance).and_then(|p| p.select(expr, options)) {
+    let served = partition(bodies, tolerance).and_then(|p| p.select(expr, options));
+    or_fold(served, bodies, expr, tolerance, options)
+}
+
+/// The partition's answer, or on a decline the fold of `expr` by
+/// two-operand booleans (the seam [`nary_boolean`] answers through).
+pub(super) fn or_fold(
+    served: Result<BRep, BoolError>,
+    bodies: &[&BRep],
+    expr: &SetExpr,
+    tolerance: Tolerance,
+    options: &BoolOptions,
+) -> Result<BRep, BoolError> {
+    let decline = match decline_of(served) {
         Ok(body) => return Ok(body),
-        Err(
-            e @ (BoolError::NonManifoldResult { .. }
-            | BoolError::UnsupportedBodyKind { .. }
-            | BoolError::TooManyBodies { .. }
-            | BoolError::DegenerateInput(_)
-            | BoolError::Cancelled),
-        ) => return Err(e),
-        Err(e) => e,
+        Err(Ok(answer)) => return Err(answer),
+        Err(Err(decline)) => decline,
     };
     match fold(bodies, expr, tolerance, options) {
         Some(Ok(body)) => {
@@ -72,17 +79,13 @@ pub fn nary_boolean_where(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    let decline = match partition(bodies, tolerance).and_then(|p| p.select_where(&keep, options)) {
-        Ok(body) => return Ok(body),
-        Err(
-            e @ (BoolError::NonManifoldResult { .. }
-            | BoolError::UnsupportedBodyKind { .. }
-            | BoolError::TooManyBodies { .. }
-            | BoolError::DegenerateInput(_)
-            | BoolError::Cancelled),
-        ) => return Err(e),
-        Err(e) => e,
-    };
+    let decline =
+        match decline_of(partition(bodies, tolerance).and_then(|p| p.select_where(&keep, options)))
+        {
+            Ok(body) => return Ok(body),
+            Err(Ok(answer)) => return Err(answer),
+            Err(Err(decline)) => decline,
+        };
     if bodies.len() > FALLBACK_COUNTING_LIMIT {
         return Err(decline);
     }
@@ -96,6 +99,21 @@ pub fn nary_boolean_where(
         }
         Err(_) => Err(decline),
     }
+}
+
+/// The partition's body; else its error, split into an answer (a
+/// non-manifold result, an unsupported body kind, too many bodies, a
+/// bad expression, cancellation: `Ok`) or a decline the fallback may
+/// rescue (`Err`).
+fn decline_of(served: Result<BRep, BoolError>) -> Result<BRep, Result<BoolError, BoolError>> {
+    served.map_err(|e| match e {
+        BoolError::NonManifoldResult { .. }
+        | BoolError::UnsupportedBodyKind { .. }
+        | BoolError::TooManyBodies { .. }
+        | BoolError::DegenerateInput(_)
+        | BoolError::Cancelled => Ok(e),
+        e => Err(e),
+    })
 }
 
 /// `a op b` with an empty body as the identity it is.

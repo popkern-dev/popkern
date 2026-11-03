@@ -85,7 +85,7 @@ pub(crate) fn identity_fragment(
     he_indices: &[usize],
     operands: &[&BRep],
     maps: &OperandHalfEdgeMaps<'_>,
-    overlap_pairs: &[(FaceHandle, FaceHandle)],
+    overlap_pairs: &[crate::merge::graph::FacePair],
 ) -> Option<Fragment> {
     let (brep, map) = match face_ref.operand {
         Operand::A => (operands[0], maps.a),
@@ -93,10 +93,7 @@ pub(crate) fn identity_fragment(
     };
     let in_overlap = overlap_pairs
         .iter()
-        .any(|&(fa, fb)| match face_ref.operand {
-            Operand::A => fa == face_ref.face,
-            _ /* B */ => fb == face_ref.face,
-        });
+        .any(|&(fa, fb)| fa == *face_ref || fb == *face_ref);
     if in_overlap || graph.seam_substitutes.iter().any(|(f, _)| f == face_ref) {
         return None;
     }

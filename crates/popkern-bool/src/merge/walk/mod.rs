@@ -73,10 +73,7 @@ pub(crate) fn walk_all_fragments_ext(
     operands: &[&BRep],
     coincident_interface: bool,
     chart_primary: bool,
-    overlap_pairs: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::topology::FaceHandle,
-    )],
+    overlap_pairs: &[crate::merge::graph::FacePair],
     walk_fallbacks: &mut Vec<(FaceRef, String)>,
     identity: Option<&OperandHalfEdgeMaps<'_>>,
     tolerance: &popkern_core::tolerance::Tolerance,
@@ -155,10 +152,7 @@ struct FaceWalk<'g, 'o> {
     operands: &'g [&'g BRep],
     coincident_interface: bool,
     chart_primary: bool,
-    overlap_pairs: &'g [(
-        popkern_core::topology::FaceHandle,
-        popkern_core::topology::FaceHandle,
-    )],
+    overlap_pairs: &'g [crate::merge::graph::FacePair],
     opposite_aabbs: &'g hole_nesting::OppositeAabbs<'g>,
     /// Each operand's holes the scope carries ([`OperandHalfEdgeMaps`]).
     carried_holes: [Option<&'g HashSet<popkern_core::topology::LoopHandle>>; 2],

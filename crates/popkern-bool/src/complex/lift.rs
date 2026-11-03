@@ -279,7 +279,7 @@ pub(crate) fn lift_fragments(
         FaceHandle,
         popkern_core::geometry::intersection::surface_subdivision::Aabb,
     )]],
-    overlaps: &[(FaceHandle, FaceHandle)],
+    overlaps: &[crate::merge::graph::FacePair],
     tol: &popkern_core::tolerance::Tolerance,
 ) -> Result<Lift, LiftDecline> {
     let tolerance = tol.linear();

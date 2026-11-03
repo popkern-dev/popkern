@@ -16,7 +16,7 @@ use popkern_core::topology::BRep;
 use super::{BodySet, RegionInfo};
 use crate::complex::model::{CellComplex, SideIndex};
 use crate::error::BoolError;
-use crate::merge::graph::{IntersectionGraph, Operand};
+use crate::merge::graph::{FacePair, FaceRef, IntersectionGraph, Operand};
 
 /// Whether two face-box lists overlap anywhere.
 fn boxes_overlap(
@@ -73,6 +73,10 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
         );
     }
     let breps = Some((bodies, linear));
+    // Coincident faces of every pair, and whether any only partly
+    // overlap (their records then run along the faces' own edges).
+    let mut overlaps: Vec<FacePair> = Vec::new();
+    let mut partial = false;
     for i in 0..bodies.len() {
         for j in i + 1..bodies.len() {
             if !boxes_overlap(&boxes[i], &boxes[j], linear) {
@@ -80,13 +84,13 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
             }
             let ix = crate::intersect::find_intersections(bodies[i], bodies[j], tolerance)
                 .map_err(|d| d.into_error())?;
-            if !ix.coincidence.face_overlaps.is_empty() {
-                return Err(declined(
-                    "Partition",
-                    format!("bodies {i} and {j} share coplanar faces (not yet partitioned)"),
-                ));
+            let (oi, oj) = (Operand::from_index(i), Operand::from_index(j));
+            let face = |operand, face| FaceRef { operand, face };
+            for o in &ix.coincidence.face_overlaps {
+                overlaps.push((face(oi, o.face_a), face(oj, o.face_b)));
+                partial |= !o.full_overlap;
             }
-            let records: Vec<_> = ix
+            let mut records: Vec<_> = ix
                 .records
                 .iter()
                 .map(|r| {
@@ -97,6 +101,12 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
                     )
                 })
                 .collect();
+            // A pair with coincident faces drops its trim residues, as
+            // the two-operand pipeline does: the coincidence's own
+            // records bound the shared patch.
+            if !ix.coincidence.face_overlaps.is_empty() {
+                records.retain(|r| r.residue_owner_a.is_none());
+            }
             crate::merge::graph_split_node::split_edges_at_face_hits(
                 &mut graph,
                 &ix.edge_face_hits,
@@ -116,15 +126,18 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
     let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
     crate::merge::graph_split::split_shared_edges_at_nodes(&mut graph, &all_nodes, snap);
     crate::merge::graph_split_shared::split_edges_at_shared_nodes(&mut graph, snap, breps);
+    if partial {
+        crate::merge::graph_duplicates::remove_collinear_duplicates(&mut graph, linear);
+    }
     crate::merge::radial::sort_all_radial(&mut graph);
 
     let mut fallbacks = Vec::new();
     let fragments = crate::merge::walk::walk_all_fragments_ext(
         &graph,
         bodies,
-        false,
+        !overlaps.is_empty(),
         true,
-        &[],
+        &overlaps,
         &mut fallbacks,
         None,
         tolerance,
@@ -139,7 +152,7 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
         fragments: &fragments,
         operands: bodies,
         boxes: &box_slices,
-        overlaps: &[],
+        overlaps: &overlaps,
         tolerance,
         frontier: &frontier,
     };

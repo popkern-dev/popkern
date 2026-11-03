@@ -13,7 +13,7 @@
 //! only planar faces peel.
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
-use popkern_core::topology::{BRep, FaceHandle, LoopHandle};
+use popkern_core::topology::{BRep, LoopHandle};
 
 use super::super::graph::{EdgeSource, FaceRef, IntersectionGraph, Operand};
 use super::identity::{OperandHalfEdgeMaps, closes_in_graph, mapped_loop};
@@ -79,7 +79,7 @@ pub(super) fn peel_far_holes(
     he_indices: &[usize],
     operands: &[&BRep],
     maps: &OperandHalfEdgeMaps<'_>,
-    overlap_pairs: &[(FaceHandle, FaceHandle)],
+    overlap_pairs: &[crate::merge::graph::FacePair],
     opposite_box: Option<Aabb>,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Option<PeeledHoles> {
@@ -97,10 +97,7 @@ pub(super) fn peel_far_holes(
         )
         || overlap_pairs
             .iter()
-            .any(|&(fa, fb)| match face_ref.operand {
-                Operand::A => fa == face_ref.face,
-                _ /* B */ => fb == face_ref.face,
-            })
+            .any(|&(fa, fb)| fa == *face_ref || fb == *face_ref)
         || graph.seam_substitutes.iter().any(|(f, _)| f == face_ref)
     {
         return None;

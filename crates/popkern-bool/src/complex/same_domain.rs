@@ -12,11 +12,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use popkern_core::topology::FaceHandle;
-
 use super::lift::operand_index;
 use super::spans::SpanRep;
-use crate::merge::graph::{IntersectionGraph, Operand};
+use crate::merge::graph::{FacePair, FaceRef, IntersectionGraph};
 use crate::merge::walk::Fragment;
 
 /// The edge keys a fragment's loops use, degenerate keys removed:
@@ -38,16 +36,8 @@ fn signature(
 }
 
 /// Whether faces `x` (of `x_operand`) and `y` are a coincident pair.
-fn coincident(
-    overlaps: &BTreeSet<(FaceHandle, FaceHandle)>,
-    x_operand: Operand,
-    x: FaceHandle,
-    y: FaceHandle,
-) -> bool {
-    match x_operand {
-        Operand::A => overlaps.contains(&(x, y)),
-        _ /* B */ => overlaps.contains(&(y, x)),
-    }
+fn coincident(overlaps: &BTreeSet<FacePair>, x: FaceRef, y: FaceRef) -> bool {
+    overlaps.contains(&(x, y)) || overlaps.contains(&(y, x))
 }
 
 /// Group `fragments` into same-domain faces. Each group's first
@@ -59,9 +49,9 @@ pub(crate) fn same_domain_groups(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
     reps: &BTreeMap<usize, SpanRep>,
-    overlaps: &[(FaceHandle, FaceHandle)],
+    overlaps: &[FacePair],
 ) -> Vec<Vec<usize>> {
-    let overlap_set: BTreeSet<(FaceHandle, FaceHandle)> = overlaps.iter().copied().collect();
+    let overlap_set: BTreeSet<FacePair> = overlaps.iter().copied().collect();
     let sigs: Vec<Vec<usize>> = fragments
         .iter()
         .map(|f| signature(graph, f, reps))
@@ -85,9 +75,7 @@ pub(crate) fn same_domain_groups(
                     continue;
                 }
                 let (fa, fb) = (fragments[i].face, fragments[j].face);
-                if fa.operand != fb.operand
-                    && coincident(&overlap_set, fa.operand, fa.face, fb.face)
-                {
+                if fa.operand != fb.operand && coincident(&overlap_set, fa, fb) {
                     group.push(j);
                     group_of[j] = gi;
                 }
@@ -104,7 +92,7 @@ pub(crate) fn same_domain_groups(
 fn join_split_copies(
     fragments: &[Fragment],
     sigs: &[Vec<usize>],
-    overlaps: &BTreeSet<(FaceHandle, FaceHandle)>,
+    overlaps: &BTreeSet<FacePair>,
     mut groups: Vec<Vec<usize>>,
 ) -> Vec<Vec<usize>> {
     if overlaps.is_empty() {
@@ -120,16 +108,16 @@ fn join_split_copies(
         }
         let fj = fragments[j].face;
         // The partner faces' unmatched pieces, by face.
-        let mut pieces: BTreeMap<FaceHandle, Vec<usize>> = BTreeMap::new();
+        let mut pieces: BTreeMap<FaceRef, Vec<usize>> = BTreeMap::new();
         for &k in &unmatched {
             let fk = fragments[k].face;
             if k != j
                 && !absorbed.contains(&k)
                 && !joined.contains_key(&k)
                 && fk.operand != fj.operand
-                && coincident(overlaps, fj.operand, fj.face, fk.face)
+                && coincident(overlaps, fj, fk)
             {
-                pieces.entry(fk.face).or_default().push(k);
+                pieces.entry(fk).or_default().push(k);
             }
         }
         let target: BTreeSet<usize> = sigs[j].iter().copied().collect();

@@ -56,17 +56,16 @@ fn multi_body_at_least_two_of_three() {
     assert_ne!(at_least_two.faces.len(), union.faces.len());
 }
 
-/// Two identical cubes share every face: the partition declines on the
-/// coplanar faces, and the predicate's disjunctive form over pairwise
-/// booleans answers (recorded as a fallback).
+/// Two identical cubes share every face: one region both hold, beside
+/// a disjoint third.
 #[test]
-fn coincident_bodies_fall_back_to_pairwise_booleans() {
+fn coincident_bodies_union_on_the_partition() {
     let bodies = vec![
         cube_at(0.0, 0.0, 0.0),
         cube_at(0.0, 0.0, 0.0),
         cube_at(5.0, 0.0, 0.0),
     ];
-    let body = multi_body_boolean(&bodies, |m| !m.is_empty(), &tol()).expect("fallback union");
+    let body = multi_body_boolean(&bodies, |m| !m.is_empty(), &tol()).expect("union");
     assert_eq!(body.faces.len(), 12);
     assert!(body.validate_all().is_empty());
 }

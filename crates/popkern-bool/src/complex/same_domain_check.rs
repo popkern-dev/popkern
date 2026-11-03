@@ -203,26 +203,34 @@ fn lies_on_face(brep: &BRep, face: FaceHandle, p: &Point3, reach: f64) -> Option
 }
 
 /// Every face of `c` carried by one operand that lies on that owner's
-/// coincident partner (`overlaps`: (A face, B face) pairs).
+/// coincident partner (`overlaps`: coincident face pairs).
 pub(crate) fn same_domain_mismatches(
     c: &CellComplex,
     operands: &[&BRep],
-    overlaps: &[(FaceHandle, FaceHandle)],
+    overlaps: &[crate::merge::graph::FacePair],
     linear: f64,
 ) -> Vec<SameDomainMismatch> {
     if overlaps.is_empty() {
         return Vec::new();
     }
-    let pairs: BTreeSet<(FaceHandle, FaceHandle)> = overlaps.iter().copied().collect();
+    let pairs: BTreeSet<crate::merge::graph::FacePair> = overlaps.iter().copied().collect();
     let mut out = Vec::new();
     for (k, f) in c.faces.iter().enumerate() {
         let [owner] = f.owners.as_slice() else {
             continue;
         };
-        let partners = pairs.iter().filter_map(|&(a, b)| match owner.operand {
-            0 if a == owner.face => Some(b),
-            1 if b == owner.face => Some(a),
-            _ => None,
+        let me = crate::merge::graph::FaceRef {
+            operand: crate::merge::graph::Operand::from_index(owner.operand),
+            face: owner.face,
+        };
+        let partners = pairs.iter().filter_map(|&(a, b)| {
+            if a == me {
+                Some(b)
+            } else if b == me {
+                Some(a)
+            } else {
+                None
+            }
         });
         let face = FaceId::from_index(k);
         let mut probe = None;
@@ -232,8 +240,8 @@ pub(crate) fn same_domain_mismatches(
                 break;
             };
             if lies_on_face(
-                operands[1 - owner.operand],
-                partner,
+                operands[partner.operand.index()],
+                partner.face,
                 &at.point,
                 linear * 10.0,
             ) == Some(true)
@@ -241,7 +249,7 @@ pub(crate) fn same_domain_mismatches(
                 out.push(SameDomainMismatch {
                     face,
                     owner: *owner,
-                    partner,
+                    partner: partner.face,
                     fragments: f.source_fragments.clone(),
                 });
                 break;

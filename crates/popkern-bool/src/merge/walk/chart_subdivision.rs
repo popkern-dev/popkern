@@ -203,10 +203,7 @@ pub(crate) fn build_face_subdivision(
     he_indices: &[usize],
     surface: &SurfaceGeometry,
     orientation: bool,
-    overlap_pairs: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::topology::FaceHandle,
-    )],
+    overlap_pairs: &[crate::merge::graph::FacePair],
     original_brep: &popkern_core::topology::BRep,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> FaceChartSubdivision {
@@ -268,10 +265,7 @@ fn build_face_subdivision_inner(
     tolerance: &popkern_core::tolerance::Tolerance,
     surface: &SurfaceGeometry,
     orientation: bool,
-    overlap_pairs: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::topology::FaceHandle,
-    )],
+    overlap_pairs: &[crate::merge::graph::FacePair],
     original_brep: &popkern_core::topology::BRep,
 ) -> FaceChartSubdivision {
     let mut sub = FaceChartSubdivision {

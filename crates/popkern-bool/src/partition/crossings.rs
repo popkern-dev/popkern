@@ -97,6 +97,29 @@ pub(super) fn split_at_record_crossings(
             }
         }
     }
+    // One vertex per crossing place: a crossing adopts a node already
+    // within the graph identity's adoption reach (20 tolerances, as a
+    // record end adopts one), else an earlier crossing there. Triple
+    // points of different pairs crowd where many bodies meet near one
+    // point (measured: two 2.2e-6 apart in a six-rod star, minting a
+    // micro edge the wall walked four times: a radial tie).
+    let wide = tolerance.linear() * 20.0;
+    let mut anchors: Vec<popkern_core::geometry::Point3> = Vec::new();
+    for list in on_record.values_mut() {
+        for (_, p) in list.iter_mut() {
+            let at = match graph.find_node(p, wide) {
+                Some(n) => graph.nodes[n].position,
+                None => match anchors.iter().find(|a| a.distance_to(p) <= wide) {
+                    Some(a) => *a,
+                    None => {
+                        anchors.push(*p);
+                        *p
+                    }
+                },
+            };
+            *p = at;
+        }
+    }
     // In each record's own direction: its forward half-edge runs the
     // curve window from `t_start` to `t_end`.
     for (&key, list) in on_record.iter_mut() {

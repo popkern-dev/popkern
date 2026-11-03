@@ -337,3 +337,35 @@ fn a_tool_that_misses_leaves_one_piece() {
     assert_eq!(cut.pieces[0].body.faces.len(), 6);
     assert!(cut.interfaces.is_empty());
 }
+
+/// A block resting on a plate shares part of the plate's top: two
+/// regions, their union one valid body, and as region solids one
+/// interface, the contact patch.
+#[test]
+fn a_block_resting_on_a_plate_partitions_with_its_contact() {
+    let plate = block([0.0, 0.0, 0.0], [4.0, 4.0, 1.0]);
+    let resting = block([1.0, 1.0, 1.0], [2.0, 2.0, 2.0]);
+    let bodies = [&plate, &resting];
+    check(&bodies, &[&[0], &[1]]);
+    let p = partition(&bodies, Tolerance::default()).expect("partition");
+    let union = p
+        .select(&super::SetExpr::Any, &crate::BoolOptions::default())
+        .expect("union");
+    assert!(
+        union.validate_all().is_empty(),
+        "{:?}",
+        union.validate_all()
+    );
+    let cells = p
+        .region_solids(&super::SetExpr::Any)
+        .expect("region solids");
+    assert_eq!(cells.solids.len(), 2);
+    assert_eq!(cells.interfaces.len(), 1);
+}
+
+/// Identical cubes are one region both hold.
+#[test]
+fn identical_cubes_are_one_region() {
+    let (a, b) = (cube_at(0.0, 0.0, 0.0), cube_at(0.0, 0.0, 0.0));
+    check(&[&a, &b], &[&[0, 1]]);
+}

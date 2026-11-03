@@ -75,8 +75,8 @@ pub(crate) struct ComplexInput<'a> {
     pub operands: &'a [&'a BRep],
     /// Face boxes of A and B (for point classification).
     pub boxes: &'a [&'a [(FaceHandle, Aabb)]],
-    /// Coincident face pairs (A face, B face).
-    pub overlaps: &'a [(FaceHandle, FaceHandle)],
+    /// Coincident face pairs, each face qualified by its operand.
+    pub overlaps: &'a [crate::merge::graph::FacePair],
     /// Model tolerance.
     pub tolerance: &'a Tolerance,
     /// Graph edge keys on a scoped operand's frontier (between an

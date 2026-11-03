@@ -147,3 +147,7 @@ pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, Bo
 #[cfg(test)]
 #[path = "partition_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "partition_star_tests.rs"]
+mod star_tests;
