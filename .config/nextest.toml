@@ -12,9 +12,12 @@
 
 [profile.default]
 # Long-running kernel gates (validation_sweep, apex contract
-# matrices) are legitimate multi-minute tests: report slowness but
-# never kill them.
-slow-timeout = { period = "120s" }
+# matrices) are legitimate multi-minute tests: report slowness every
+# 120 s, and kill a test only after 30 minutes (15 periods), far past
+# the slowest legitimate one. Without the bound a hung test runs
+# forever: on 2026-11-03 an exactly-one split whose loop never closed
+# spun an oracle test for 3.5 h before it was killed by hand.
+slow-timeout = { period = "120s", terminate-after = 15 }
 
 # This machine does other development work alongside test runs: cap
 # the suite at 12 of the 16 hardware threads so a sweep never
