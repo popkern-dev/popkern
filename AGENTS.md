@@ -250,6 +250,15 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   the same face would read as the seam). The constructors' two-face
   sheets are converted at entry. OCC oracle:
   `tools/occ-oracle/occ_sheet.py`.
+- **STEP non-manifold bodies** — a `CLOSED_SHELL` that touches itself
+  (a contact edge with four face uses, or a vertex two closed sets of
+  faces share) imports as manifold pieces meeting at recorded contacts,
+  each piece its own solid with its own copies of the contact edges and
+  vertices (`popkern-io/src/step/mapping/topology/shell_pieces.rs`).
+  The pieces are the face sets joined through two-use edges; a piece
+  using an edge four times declines (PK-1070), as do odd uses (an
+  internal face, PK-1071) and touching void shells (PK-1072). Fixtures
+  are OCC-written (`tools/occ-oracle/occ_write_nonmanifold.py`).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks

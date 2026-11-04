@@ -1,6 +1,7 @@
 use super::*;
 use crate::step::parser::types::{EntityInstance, Parameter};
-use popkern_core::geometry::Vec3;
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::edge_segment;
 
 fn make_entity(id: EntityId, type_name: &str, params: Vec<Parameter>) -> EntityInstance {
