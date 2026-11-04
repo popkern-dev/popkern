@@ -1,6 +1,7 @@
 //! Post-processing for boolean results: redundant edge removal and face simplification.
 
 pub mod collinear_vertex;
+pub(crate) mod contact_inherit;
 pub(crate) mod contact_record;
 pub(crate) mod curveless_edge;
 pub mod exact_rims;

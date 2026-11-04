@@ -33,7 +33,17 @@ pub(crate) fn boolean_under(
     // No perturbation retry: plan Stage 7d retired it after it fired on
     // no boolean over three whole-suite runs (`boolean_with_perturbation`
     // remains an explicit opt-in).
-    let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, policy)?;
+    // Operands served as pieces meeting at recorded contacts touch
+    // themselves on purpose (PK-986): the result is served as pieces
+    // too, its contacts recorded again, and declined only for a contact
+    // no operand recorded.
+    use crate::postprocess::contact_inherit::{inherited_or_declined, run_policy};
+    let inherits = run_policy(policy, &[&a, &b]);
+    let run = inherits.unwrap_or(policy);
+    let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, run)?;
+    if inherits.is_some() {
+        result = inherited_or_declined(result, &[&a, &b], &tol)?;
+    }
     if let Some(ctx) = tracking {
         entity_naming_result::name_result(&mut result, &a, &[&b], ctx, &tol);
     }

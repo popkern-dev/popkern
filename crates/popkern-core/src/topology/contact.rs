@@ -9,9 +9,12 @@
 //! contact and still rejects every unrecorded touch, and consumers
 //! (mesh welding, export) can tell a deliberate contact from a defect.
 //!
-//! Records name entities, so they hold only while those entities live:
-//! an operator that rebuilds the body drops them, and the touch then
-//! reads as the defect it is unless the operator records it again.
+//! Records name entities, so they hold only while those entities live.
+//! An operator that edits the body in place (a fillet away from the
+//! contact, a rigid motion) keeps them; a boolean, which rebuilds the
+//! body, records again every contact of its result that lies on a
+//! contact an operand recorded (PK-986, `popkern-bool`'s
+//! `contact_inherit`) and declines a new one under the default policy.
 
 use serde::{Deserialize, Serialize};
 

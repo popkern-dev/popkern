@@ -193,7 +193,10 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   vertices, or separate shells that touch. `boolean_with_options` with
   `NonManifoldPolicy::SplitToManifold` serves manifold pieces instead,
   each contact recorded in `BRep::topology_contacts`; `validate_all`
-  excuses recorded contacts only. The cell complex
+  excuses recorded contacts only. A later boolean or N-ary boolean
+  carries the contacts its operands recorded (re-recorded on the
+  result, `postprocess/contact_inherit.rs`) and still declines a new
+  one; fillets and motions keep the records. The cell complex
   (`popkern-bool/src/complex/`) decides membership by region and is
   the primary classifier, falling back to the cellular classifier on a
   decline (a `PrimaryFallback` shadow line). `POPKERN_COMPLEX_PRIMARY=0`

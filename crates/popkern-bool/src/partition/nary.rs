@@ -36,6 +36,15 @@ pub fn nary_boolean(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
+    // Bodies served as pieces with recorded contacts (PK-986): run split,
+    // keep the contacts they recorded, decline any new one.
+    use crate::postprocess::contact_inherit::{inherited_or_declined, run_policy};
+    if let Some(non_manifold) = run_policy(options.non_manifold, bodies) {
+        let split = BoolOptions { non_manifold };
+        let served = partition(bodies, tolerance).and_then(|p| p.select(expr, &split));
+        let body = or_fold(served, bodies, expr, tolerance, &split)?;
+        return inherited_or_declined(body, bodies, &tolerance);
+    }
     let served = partition(bodies, tolerance).and_then(|p| p.select(expr, options));
     or_fold(served, bodies, expr, tolerance, options)
 }
@@ -74,6 +83,21 @@ pub(super) fn or_fold(
 ///
 /// As [`nary_boolean`].
 pub fn nary_boolean_where(
+    bodies: &[&BRep],
+    keep: impl Fn(&BodySet) -> bool,
+    tolerance: Tolerance,
+    options: &BoolOptions,
+) -> Result<BRep, BoolError> {
+    use crate::postprocess::contact_inherit::{inherited_or_declined, run_policy};
+    if let Some(non_manifold) = run_policy(options.non_manifold, bodies) {
+        let split = BoolOptions { non_manifold };
+        let body = nary_boolean_where_under(bodies, keep, tolerance, &split)?;
+        return inherited_or_declined(body, bodies, &tolerance);
+    }
+    nary_boolean_where_under(bodies, keep, tolerance, options)
+}
+
+fn nary_boolean_where_under(
     bodies: &[&BRep],
     keep: impl Fn(&BodySet) -> bool,
     tolerance: Tolerance,
