@@ -24,7 +24,8 @@ pub(crate) fn remove_redundant_edges_safe(
     let report = find_redundant_edges_in(result, tolerance, region);
 
     if report.redundant_edges.is_empty() {
-        return dissolve_redundant_chains(result, tolerance, region);
+        return dissolve_redundant_chains(result, tolerance, region)
+            + crate::postprocess::redundant_ring::dissolve_filled_holes(result, tolerance, region);
     }
 
     let (mut removed, mut edits) = (0, 0usize);
@@ -74,7 +75,9 @@ pub(crate) fn remove_redundant_edges_safe(
     if removed > 0 && cfg!(debug_assertions) {
         eprintln!("[boolean] post-processing: removed {removed} redundant edge(s)");
     }
-    edits + dissolve_redundant_chains(result, tolerance, region)
+    edits
+        + dissolve_redundant_chains(result, tolerance, region)
+        + crate::postprocess::redundant_ring::dissolve_filled_holes(result, tolerance, region)
 }
 
 /// Merge co-surfacial face pairs whose shared boundary is a multi-edge

@@ -16,6 +16,7 @@ pub mod point_loop_retire;
 pub mod quality;
 pub(crate) mod redundant_chain;
 pub mod redundant_edge;
+pub(crate) mod redundant_ring;
 pub mod self_twin_stub;
 pub(crate) mod shell_contact;
 pub mod slit_retire;

@@ -81,6 +81,7 @@ pub(crate) mod periodic_chart_parity;
 pub(crate) mod periodic_chart_parity_torus;
 pub mod pieces;
 pub mod propagation_report;
+mod record_coparam;
 pub(crate) mod record_side_witness;
 pub(crate) mod scope;
 pub(crate) mod serve_region;

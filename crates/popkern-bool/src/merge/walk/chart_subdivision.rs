@@ -627,12 +627,26 @@ fn build_face_subdivision_inner(
     // keep the 3D-Newell walk, recorded. A ZERO-EXTENT drop of the
     // operand's own degenerate pole BORDER is exempt: a pole is a
     // collapsed border by construction, and dropping its zero-length
-    // edge is precisely how the fan model expects to see it.
+    // edge is precisely how the fan model expects to see it. A
+    // DUPLICATE COVER is exempt too when its kept cover runs between
+    // the same two nodes: the chart segment and its connectivity at the
+    // pole survive (PK-1036: a cube face through a sphere's seam
+    // meridian makes a record that IS the seam's upper piece; dropping
+    // it for the seam sent the sphere face to the 3D walk, which lost
+    // the remainder region at the pole).
     if !sub.poles.is_empty() {
+        let same_segment = |a: usize, b: usize| {
+            let (ea, eb) = (ends(a), ends(b));
+            ea == eb || ea == (eb.1, eb.0)
+        };
         let dropped: Vec<(usize, bool)> = sub
             .report
             .filtered
             .iter()
+            .filter(|f| {
+                !matches!(f, FilteredRecord::DuplicateCover { dropped, kept }
+                    if same_segment(*dropped, *kept))
+            })
             .map(|f| match f {
                 FilteredRecord::ZeroExtent(h) => (*h, true),
                 FilteredRecord::InteriorGraze(h) => (*h, false),
