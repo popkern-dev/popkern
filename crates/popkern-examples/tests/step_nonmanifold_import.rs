@@ -14,7 +14,7 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, TopologyContactKind};
 use popkern_io::step::diagnostics::Severity;
-use popkern_io::{HealingLevel, StepImportOptions, import_step};
+use popkern_io::{StepImportOptions, import_step};
 
 fn fixture(name: &str) -> Vec<u8> {
     let path = format!(
@@ -24,16 +24,11 @@ fn fixture(name: &str) -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
-/// The one body the file imports, and the import's errors.
+/// The one body the file imports, and the import's errors, under the
+/// default import options (healing on: its vertex sewing must leave the
+/// pieces' contact copies apart).
 fn import(name: &str) -> (BRep, Vec<String>) {
-    let imported = import_step(
-        &fixture(name),
-        &StepImportOptions {
-            healing: HealingLevel::None,
-            ..Default::default()
-        },
-    )
-    .expect("import");
+    let imported = import_step(&fixture(name), &StepImportOptions::default()).expect("import");
     let errors = imported
         .diagnostics
         .entries()

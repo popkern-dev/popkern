@@ -13,10 +13,11 @@
 //!   it, one mixed body (`BodyKind::Mixed`).
 //!
 //! The cut parameters are the curve's crossings with every face of the
-//! solid (`intersect_surface_curve_dense`, the solver boolean edge-hit
-//! discovery uses, so a multi-wrap face misses no crossing), kept where
-//! they fall inside the face's trim, and the ends of every stretch the
-//! curve lies on a face. Each piece between consecutive cuts takes the
+//! solid's face surfaces (`intersect_surface_curve_dense`, the solver
+//! boolean edge-hit discovery uses, so a multi-wrap face misses no
+//! crossing), the ends of every stretch the curve lies on one, and its
+//! meetings with the solid's edges. A cut outside a face's trim only
+//! splits a piece whose halves lie alike; they join again. Each piece between consecutive cuts takes the
 //! classification of its midpoint, which the cuts make uniform along
 //! the piece: on the boundary when it lies on a face within the
 //! tolerance (inside the trim), else `point_in_solid_final`'s verdict. The kept pieces keep the wire's
@@ -30,6 +31,7 @@ use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::intersection::surface_curve::{
     SurfaceCurveIntersection, intersect_surface_curve_dense,
 };
+use popkern_core::geometry::intersection::{CurveIntersection, intersect_curves};
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::uv_projection::bounded_parameter_range;
 use popkern_core::tolerance::Tolerance;
@@ -121,16 +123,38 @@ fn cuts(
         .map_err(|e| declined(format!("curve against face {fh:?}: {e}")))?;
         for hit in hits.intersections {
             match hit {
-                SurfaceCurveIntersection::Point { t, u, v, .. } => {
-                    if crate::classify_uv_loops::point_in_face_region_exact(solid, fh, u, v)
-                        .unwrap_or(false)
-                    {
-                        out.push(t);
-                    }
-                }
+                // Every crossing of the face's surface cuts, trimmed or
+                // not: a cut where the surface runs past the face splits
+                // a piece whose two halves lie alike, and they join
+                // again (a trim test rejected a ball's real crossings at
+                // its seam: measured, a circle through it kept whole).
+                SurfaceCurveIntersection::Point { t, .. } => out.push(t),
                 SurfaceCurveIntersection::Overlap { t_range } => {
                     out.extend([t_range.0, t_range.1]);
                 }
+            }
+        }
+    }
+    // Where the wire meets an edge of the solid: a stretch on a face
+    // starts and ends on the face's boundary, where the face crossing
+    // can fall a rounding outside the face's trim (measured: a wire
+    // along a rotated cube's top-face edge kept no cut there).
+    for (_, edge) in &solid.edges {
+        let Some(e) = edge.curve.as_ref() else {
+            continue;
+        };
+        let range = (e.t_start.min(e.t_end), e.t_start.max(e.t_end));
+        if range.0 >= range.1 {
+            continue;
+        }
+        let Ok(hits) = intersect_curves(&curve.geometry, (lo, hi), &e.geometry, range, tolerance)
+        else {
+            continue;
+        };
+        for hit in hits.intersections {
+            match hit {
+                CurveIntersection::Point { t1, .. } => out.push(t1),
+                CurveIntersection::Overlap { t1_range, .. } => out.extend([t1_range.0, t1_range.1]),
             }
         }
     }
@@ -154,7 +178,12 @@ fn wire_part(
             let Some(surface) = face.surface.as_ref() else {
                 return false;
             };
-            let Some((u, v)) = surface.geometry.closest_point(p) else {
+            // The chart the face's trims are in (a plane's own
+            // closest-point parameters differ once the body is rotated:
+            // measured, a wire on a rotated cube's face read outside).
+            let Some((u, v)) =
+                popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, p)
+            else {
                 return false;
             };
             surface.geometry.point_at(u, v).distance_to(p) <= linear
