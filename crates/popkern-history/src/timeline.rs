@@ -129,6 +129,7 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
             names.extend(neutral_plane.entity_name());
             names
         }
+        Feature::RemoveFaces { faces } => faces.iter().collect(),
         Feature::Sweep {
             face, path_edge, ..
         } => vec![face, path_edge],

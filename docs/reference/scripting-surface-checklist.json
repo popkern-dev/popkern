@@ -1549,6 +1549,18 @@
       ]
     },
     {
+      "name": "remove_faces",
+      "section": "5",
+      "mark": "preview",
+      "signature": "remove_faces(faces)",
+      "parameters": [
+        {
+          "name": "faces",
+          "optional": false
+        }
+      ]
+    },
+    {
       "name": "revolve",
       "section": "5",
       "mark": "stable",
@@ -1731,7 +1743,7 @@
       "name": "thicken",
       "section": "5",
       "mark": "preview",
-      "signature": "thicken(thickness, join?, trim?)",
+      "signature": "thicken(thickness, join?, trim?, side?)",
       "parameters": [
         {
           "name": "thickness",
@@ -1743,6 +1755,10 @@
         },
         {
           "name": "trim",
+          "optional": true
+        },
+        {
+          "name": "side",
           "optional": true
         }
       ]
@@ -2051,6 +2067,16 @@
       "name": "named",
       "kind": "face",
       "mark": "preview"
+    },
+    {
+      "name": "except",
+      "kind": "face",
+      "mark": "stable"
+    },
+    {
+      "name": "not",
+      "kind": "face",
+      "mark": "stable"
     }
   ],
   "error_classes": [
@@ -2204,6 +2230,7 @@
         "feature",
         "rule",
         "pieces",
+        "tool_faces",
         "detail",
         "report"
       ]

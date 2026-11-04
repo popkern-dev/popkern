@@ -10,7 +10,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// Result of computing offset surfaces for classified faces.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OffsetResult {
     /// Successfully offset surfaces, keyed by outer face handle.
     pub surfaces: HashMap<FaceHandle, SurfaceGeometry>,

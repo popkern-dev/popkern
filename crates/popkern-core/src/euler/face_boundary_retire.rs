@@ -16,6 +16,9 @@ pub struct BoundaryFaceRetireResult {
 
 impl BRep {
     /// Retire whole faces and expose their opposite half-edges as boundary edges.
+    /// Faces retired in one call may share edges: an edge both of whose
+    /// faces go is removed with them, as is a vertex left on no
+    /// half-edge, so the faces kept are a sheet with their own boundary.
     ///
     /// This is a transaction boundary for boundary-preparation work. The live
     /// BRep is only replaced after the candidate passes structural validation.
@@ -43,12 +46,24 @@ impl BRep {
     ) -> Result<BoundaryFaceRetireResult, CoreError> {
         let mut retired_faces = Vec::new();
         let mut exposed_edges = Vec::new();
+        // Faces retired together: an edge a face of this call exposed,
+        // reached again by another, has lost both sides and goes, as
+        // does a vertex left on no half-edge (a box keeping two faces
+        // of six; an edge open before the call still declines).
+        let mut exposed_here = std::collections::HashSet::new();
+        let mut touched_vertices = Vec::new();
         for &face in faces {
             let retiring_loop = self.retirable_outer_loop(face)?;
             let doomed_half_edges = self.loop_half_edges_for_retirement(retiring_loop)?;
+            let mut lost = Vec::new();
             for half_edge in &doomed_half_edges {
                 let twin = self.half_edges[*half_edge].twin;
                 let edge = self.half_edges[*half_edge].edge;
+                touched_vertices.push(self.half_edges[*half_edge].origin);
+                if twin == HalfEdgeHandle::default() && exposed_here.contains(&edge) {
+                    lost.push(edge);
+                    continue;
+                }
                 let twin_data = self.half_edges.get(twin).ok_or_else(|| {
                     CoreError::PreconditionFailed(
                         "retiring face would expose an edge without a surviving twin".into(),
@@ -75,15 +90,29 @@ impl BRep {
                 self.edges[edge].half_edge = twin;
                 self.boundary_edges.insert(edge);
                 exposed_edges.push(edge);
+                exposed_here.insert(edge);
             }
             self.repair_outgoing_handles_before_retirement(&doomed_half_edges);
             for half_edge in doomed_half_edges {
                 self.remove_half_edge_reanchored(half_edge);
             }
+            for edge in lost {
+                self.edges.remove(edge);
+                self.boundary_edges.remove(&edge);
+                exposed_here.remove(&edge);
+                exposed_edges.retain(|&e| e != edge);
+            }
             self.repair_shell_face_after_retirement(face)?;
             self.loops.remove(retiring_loop);
             self.faces.remove(face);
             retired_faces.push(face);
+        }
+        let used: std::collections::HashSet<_> =
+            self.half_edges.values().map(|h| h.origin).collect();
+        for vertex in touched_vertices {
+            if !used.contains(&vertex) {
+                self.vertices.remove(vertex);
+            }
         }
         Ok(BoundaryFaceRetireResult {
             retired_faces,
@@ -310,6 +339,37 @@ mod tests {
             .collect();
         tube.retire_faces_to_boundary(&caps).expect("caps retire");
         let findings = tube.validate_all();
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    /// Four faces of a cube retired together: the edges between two
+    /// retired faces go with them, as do the two corners on no kept
+    /// face, and the two faces kept are a creased sheet of their own
+    /// (7 edges, 6 open, 6 vertices).
+    #[test]
+    fn faces_retired_together_drop_the_edges_between_them() {
+        let mut brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
+        let first = brep.faces.keys().next().expect("a face");
+        let face_of = |b: &BRep, h| b.loops[b.half_edges[h].loop_].face;
+        let he = brep.loops[brep.faces[first].outer_loop].half_edge;
+        let second = face_of(&brep, brep.half_edges[he].twin);
+        let doomed: Vec<_> = brep
+            .faces
+            .keys()
+            .filter(|&f| f != first && f != second)
+            .collect();
+        brep.retire_faces_to_boundary(&doomed)
+            .expect("faces retire together");
+        assert_eq!(
+            (
+                brep.faces.len(),
+                brep.edges.len(),
+                brep.boundary_edges.len(),
+                brep.vertices.len()
+            ),
+            (2, 7, 6, 6)
+        );
+        let findings = brep.validate_all();
         assert!(findings.is_empty(), "{findings:?}");
     }
 

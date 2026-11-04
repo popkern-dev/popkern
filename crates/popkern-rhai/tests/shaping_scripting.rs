@@ -109,3 +109,35 @@ fn a_draft_names_a_bad_neutral_plane() {
     };
     assert!(err.contains("neutral"), "{err}");
 }
+
+/// The box opened at its top is a five-face sheet; thickened by 1 with
+/// sharp joins it is a tray whose walls stand outside the old box,
+/// inside it, or half each way.
+#[test]
+fn an_opened_box_thickens_to_the_side_asked() {
+    let opened =
+        format!("{BOX}b = b.remove_faces(faces().facing(\"z\"), #{{ label: \"open\" }});\n");
+    for (side, exact) in [
+        ("outward", 12.0 * 10.0 * 7.0 - 480.0),
+        ("inward", 480.0 - 240.0),
+        ("both", 11.0 * 9.0 * 6.5 - 9.0 * 7.0 * 5.5),
+    ] {
+        let source = format!(
+            "{opened}b = b.thicken(1.0, #{{ side: \"{side}\", join: \"intersection\" }});\nm\n"
+        );
+        assert_near(side, volume_and_round_trip(&source, side), exact);
+    }
+}
+
+#[test]
+fn a_bad_side_is_named() {
+    let source = format!(
+        "{BOX}b = b.remove_faces(faces().facing(\"z\"));\nb = b.thicken(1.0, #{{ side: \"up\" }});\nm\n"
+    );
+    let mut host = ScriptHost::with_options(Default::default());
+    let err = match host.run(&source, "bad_side") {
+        Ok(_) => panic!("\"up\" is no side"),
+        Err(e) => e.to_string(),
+    };
+    assert!(err.contains("side"), "{err}");
+}

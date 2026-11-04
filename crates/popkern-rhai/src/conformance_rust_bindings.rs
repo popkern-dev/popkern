@@ -66,6 +66,7 @@ pub const RUST_BINDINGS: &[(&str, &str)] = &[
     ("thicken", "fn thicken_with"),
     ("offset_solid", "fn offset_solid_with"),
     ("draft", "fn draft_with"),
+    ("remove_faces", "fn remove_faces_with"),
     ("translate", "fn translate"),
     ("rotate", "fn rotate"),
     ("label", "fn label"),

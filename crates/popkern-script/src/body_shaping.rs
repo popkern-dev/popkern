@@ -1,9 +1,10 @@
-//! The offset family and draft (spec §5 preview): `thicken`,
-//! `offset_solid` and `draft` recorded as `Feature::Thicken`,
-//! `Feature::OffsetSolid` and `Feature::Draft`, their scalars bound to
-//! feature-scoped parameters like every other operation's.
+//! The offset family, draft, and sheets from solids (spec §5 preview):
+//! `thicken`, `offset_solid`, `draft` and `remove_faces` recorded as
+//! `Feature::Thicken`, `Feature::OffsetSolid`, `Feature::Draft` and
+//! `Feature::RemoveFaces`, their scalars bound to feature-scoped
+//! parameters like every other operation's.
 
-use popkern_history::feature::{Feature, JoinStyleKind, TrimPolicyKind};
+use popkern_history::feature::{Feature, JoinStyleKind, ThickenSideKind, TrimPolicyKind};
 use popkern_history::feature_draft::NeutralPlaneDesc;
 use popkern_history::unit::Unit;
 
@@ -21,6 +22,9 @@ pub struct OffsetOptions {
     pub join: JoinStyleKind,
     /// Self-intersection policy.
     pub trim: TrimPolicyKind,
+    /// Which side of the faces a thicken's wall is on (offsets ignore
+    /// it).
+    pub side: ThickenSideKind,
 }
 
 /// A draft's neutral plane: the plane each drafted face keeps its
@@ -59,8 +63,9 @@ impl Body {
         self.record(model, feature, label, Vec::new())
     }
 
-    /// Thicken the body to a wall `thickness` thick, half to each side:
-    /// a sheet becomes a closed solid, a closed body a hollow one.
+    /// Thicken the body to a wall `thickness` thick, on `options.side`
+    /// of its faces (half to each side by default): a sheet becomes a
+    /// closed solid, a closed body a hollow one.
     pub fn thicken_with(
         self,
         model: &mut Model,
@@ -74,8 +79,25 @@ impl Body {
             thickness,
             join_style: options.join,
             trim_policy: options.trim,
+            side: options.side,
         };
         self.record(model, feature, label, Vec::new())
+    }
+
+    /// Take `faces` away, leaving the body open along their edges: a
+    /// solid becomes a sheet (what `thicken` takes).
+    pub fn remove_faces_with(
+        self,
+        model: &mut Model,
+        faces: FaceSelector,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let snapshot = self.faces(model, &faces)?;
+        let records = vec![Self::selection_record("faces", &snapshot)];
+        let feature = Feature::RemoveFaces {
+            faces: snapshot.names,
+        };
+        self.record(model, feature, label, records)
     }
 
     /// Draft `faces` by `angle` (degrees) about `neutral`.
