@@ -164,7 +164,7 @@ fn retire_one_ghost_face(brep: &mut BRep, length_gate: f64, region: &ServeRegion
     for lh in loop_handles {
         brep.loops.remove(lh);
     }
-    brep.faces.remove(face_h);
+    brep.remove_face_reanchored(face_h);
     for vh in vertex_handles {
         match brep
             .half_edges

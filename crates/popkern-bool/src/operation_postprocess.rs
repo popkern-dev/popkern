@@ -225,6 +225,14 @@ pub(crate) fn run_output_postprocess(
         let sliver =
             crate::postprocess::sliver_removal::remove_slivers_in(result, tolerance, &region);
         let edits = sliver.removed + sliver.failed + usize::from(sliver.aborted_with.is_some());
+        // Absorbed slivers and those left in place count apart: only
+        // an absorption edits what the cell complex resolved.
+        crate::complex_shadow::subsumed_pass_fired("sliver_removal", sliver.removed, 0.0);
+        crate::complex_shadow::subsumed_pass_fired(
+            "sliver_removal_declined",
+            edits - sliver.removed,
+            0.0,
+        );
         gate.edited(edits);
         refresh(&mut region, edits, result, carried);
     }
@@ -272,32 +280,11 @@ pub(crate) fn run_output_postprocess(
     }
     trace_face_census("post-collinear-vertex", result);
 
-    // Post-processing: collapse micro-edges (position merge).
-    let micro_edges: Vec<_> =
-        crate::imprint::micro_edge::find_micro_edges(result, tolerance.linear())
-            .into_iter()
-            .filter(|m| {
-                region.admits_vertex(result, m.start) && region.admits_vertex(result, m.end)
-            })
-            .collect();
-    if !micro_edges.is_empty() {
-        // Only ends at distinct positions move (a closed rim's single
-        // vertex is its own midpoint).
-        let moving = micro_edges
-            .iter()
-            .filter(|m| {
-                let p = |v| result.vertices.get(v).map(|v| v.position);
-                p(m.start) != p(m.end)
-            })
-            .count();
-        crate::imprint::micro_edge::collapse_micro_edge_positions(result, &micro_edges);
-        gate.edited(moving);
-    }
-
-    // Post-processing: retire degenerate spur edges (PK-293). Runs
-    // AFTER the micro-edge position pass so spurs that pass squashed
-    // to zero length are caught along with walk-emitted stubs; each
-    // removal is a transactional kev.
+    // Post-processing: retire degenerate spur edges (PK-293): walk-
+    // emitted stubs of zero length. Each removal is a transactional kev.
+    // (A micro-edge position merge ran here; the vertex table resolves
+    // every candidate vertex together, so no served body reached it
+    // with two ends apart: retired, PK-976.)
     let spur_report = crate::postprocess::spur_edge::collapse_degenerate_spur_edges_in(
         result, tolerance, &region,
     );

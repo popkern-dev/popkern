@@ -39,6 +39,7 @@ impl BRep {
         const SAMPLES_PER_PCURVE: usize = 6;
         const MIN_LOOP_SAMPLES: usize = 24;
         let (periodic_u, periodic_v) = surface.is_periodic();
+        let linear = self.tolerance.linear();
         let mut loop_len = 0usize;
         {
             let mut cursor = start_he;
@@ -84,7 +85,7 @@ impl BRep {
                     let pole_jump = sample == 0
                         && periodic_u
                         && !raw_samples.is_empty()
-                        && degenerate_row_witness(surface, raw.v, true);
+                        && degenerate_row_witness(surface, raw.v, true, linear);
                     raw_samples.push(RawLoopSample {
                         uv: raw,
                         pole_jump_before: pole_jump,
@@ -111,10 +112,10 @@ impl BRep {
         // with both endpoints on regular rows the jump is a real tear.
         let closure_on_degenerate_rows = periodic_u
             && raw_samples.len() >= 2
-            && (degenerate_row_witness(surface, raw_samples[0].uv.v, true)
+            && (degenerate_row_witness(surface, raw_samples[0].uv.v, true, linear)
                 || raw_samples
                     .last()
-                    .is_some_and(|s| degenerate_row_witness(surface, s.uv.v, true)));
+                    .is_some_and(|s| degenerate_row_witness(surface, s.uv.v, true, linear)));
         let polygon = assemble_periodic_polygon(
             &raw_samples,
             query,
@@ -206,9 +207,20 @@ fn query_refined_stations(
 
 /// Whether a whole parameter row is 3D-degenerate (sphere pole, cone
 /// apex): sampling the periodic axis at thirds of the period all lands
-/// on one point. A seam (u=0 ≡ u=τ) does NOT pass — interior stations
-/// of the period differ there.
-fn degenerate_row_witness(surface: &SurfaceGeometry, fixed: f64, vary_u: bool) -> bool {
+/// on one point, within the model's linear tolerance. A seam (u=0 ≡
+/// u=τ) does NOT pass — interior stations of the period differ there.
+///
+/// The tolerance is the model's: a pole vertex projected through acos
+/// lands √ε off the pole row in parameter (measured: v = π − 2.6e-8 on
+/// a 0.072-radius sphere, a row 3e-9 across), which a fixed 1e-9 read
+/// as a regular row, so the seam pair's return leg unwrapped onto its
+/// outgoing leg and the whole sphere face classified Outside.
+fn degenerate_row_witness(
+    surface: &SurfaceGeometry,
+    fixed: f64,
+    vary_u: bool,
+    linear: f64,
+) -> bool {
     use std::f64::consts::TAU;
     let at = |s: f64| {
         if vary_u {
@@ -226,6 +238,6 @@ fn degenerate_row_witness(surface: &SurfaceGeometry, fixed: f64, vary_u: bool) -
             .max(p0.y.abs())
             .max(p0.z.abs())
             .max(p1.x.abs().max(p1.y.abs()).max(p1.z.abs()));
-    let eps = 1.0e-9 * scale;
+    let eps = (1.0e-9 * scale).max(linear);
     p0.distance_to(&p1) < eps && p0.distance_to(&p2) < eps && p1.distance_to(&p2) < eps
 }

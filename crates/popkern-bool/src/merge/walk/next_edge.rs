@@ -33,8 +33,7 @@ pub(super) fn next_around_face(
     he_idx: usize,
     face: &FaceRef,
     face_hes: &HashSet<usize>,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     start_he: Option<usize>,
     visited: &HashSet<usize>,
     current_loop: &[usize],
@@ -270,8 +269,7 @@ pub(super) fn next_around_face(
             he_idx,
             &self_loop_candidates,
             face,
-            brep_a,
-            brep_b,
+            operands,
             WalkAxis::OutwardClaim,
         );
     }
@@ -325,5 +323,5 @@ pub(super) fn next_around_face(
     }
 
     // Use per-face angular comparison for all multi-candidate cases.
-    pick_by_angle(graph, he_idx, &candidates, face, brep_a, brep_b)
+    pick_by_angle(graph, he_idx, &candidates, face, operands)
 }

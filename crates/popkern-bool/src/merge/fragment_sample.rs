@@ -100,13 +100,19 @@ pub(crate) fn sample_point_for_fragment(
     let is_split = |h: usize| {
         matches!(
             graph.half_edges[h].source,
-            EdgeSource::SplitA { .. } | EdgeSource::SplitB { .. }
+            EdgeSource::Split {
+                operand: Operand::A,
+                ..
+            } | EdgeSource::Split {
+                operand: Operand::B,
+                ..
+            }
         )
     };
     let is_original = |h: usize| {
         matches!(
             graph.half_edges[h].source,
-            EdgeSource::OriginalA(_) | EdgeSource::OriginalB(_)
+            EdgeSource::Original(Operand::A, _) | EdgeSource::Original(Operand::B, _)
         )
     };
     // Try split edges first.
@@ -184,7 +190,7 @@ pub(crate) fn sample_point_uv(
 ) -> Option<Point3> {
     let brep = match face.operand {
         Operand::A => brep_a,
-        Operand::B => brep_b,
+        _ /* B */ => brep_b,
     };
     let face_data = brep.faces.get(face.face)?;
     let surface = face_data.surface.as_ref()?;

@@ -30,15 +30,20 @@ pub use shell::Shell;
 pub use solid::Solid;
 pub use vertex::Vertex;
 
+pub mod body_kind;
 pub mod brep;
+pub use body_kind::BodyKind;
 pub use brep::BRep;
+pub mod contact;
 pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
+pub use contact::{ContactEntity, TopologyContact, TopologyContactKind};
 pub mod coherence;
 pub use coherence::{
     CoherenceReport, CoherenceValidationScope, L2Disagreement, PendingCoherenceMarker,
 };
 mod brep_face_use_trim_storage;
 mod brep_loop_sampling;
+mod brep_mirror_loops;
 mod validate_coherence;
 pub use brep_face_use_trim_storage::FaceUseTrimKey;
 mod surface_boundary_audit;

@@ -150,6 +150,7 @@ pub(super) fn execute_loft(
     Ok(ExecuteSideEffects {
         consumed_bodies: consumed,
         evidence,
+        written_bodies: Vec::new(),
     })
 }
 

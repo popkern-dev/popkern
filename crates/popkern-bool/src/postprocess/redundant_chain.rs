@@ -65,7 +65,9 @@ fn valence(brep: &BRep, v: VertexHandle) -> usize {
 
 /// The ordered path of edges `eh`'s two co-surfacial faces share, when
 /// that shared boundary is one path (two ends, interior vertices used
-/// by nothing else). A single shared edge is a path of length one.
+/// by nothing else) or one cycle through a single pinch vertex the
+/// path starts and ends at. A single shared edge is a path of length
+/// one.
 pub(crate) fn shared_coplanar_chain(
     brep: &BRep,
     eh: EdgeHandle,
@@ -98,19 +100,33 @@ pub(crate) fn shared_coplanar_chain(
         .filter(|(_, es)| es.len() == 1)
         .map(|(v, _)| *v)
         .collect();
-    if ends.len() != 2 || degree.values().any(|es| es.len() > 2) {
+    if degree.values().any(|es| es.len() > 2) {
         return None;
     }
     // Interior vertices must carry only the two path edges, or the
-    // merged loop would still pass through them.
-    for (v, es) in &degree {
-        if es.len() == 2 && valence(brep, *v) != 2 {
-            return None;
-        }
-    }
-    // Order the path from the smaller end handle (deterministic).
+    // merged loop would still pass through them. A CLOSED boundary
+    // (no ends: one face an island of the other, touching the rest of
+    // its boundary at one pinch vertex) has exactly one vertex carrying
+    // more, and starts there: `kef` frees the next vertex, and each
+    // later edge has a free end down to the last, arriving back at the
+    // pinch. Measured: three staggered coplanar cubes' partition union
+    // kept the two-body overlaps of its bottom skin as islands of the
+    // rest (12 faces where the pairwise union has 10). A cycle with no
+    // pinch is a face in another's hole, which `kef` cannot dissolve.
+    let busy: Vec<VertexHandle> = degree
+        .iter()
+        .filter(|(v, es)| es.len() == 2 && valence(brep, **v) != 2)
+        .map(|(v, _)| *v)
+        .collect();
+    let start = match (ends.as_slice(), busy.as_slice()) {
+        ([a, b], []) => *a.min(b),
+        ([], [pinch]) => *pinch,
+        _ => return None,
+    };
+    // Order the path from the smaller end handle, or from the pinch
+    // (deterministic).
     let mut path = Vec::with_capacity(shared.len());
-    let mut at = ends[0].min(ends[1]);
+    let mut at = start;
     let mut prev: Option<EdgeHandle> = None;
     while path.len() < shared.len() {
         let next = degree

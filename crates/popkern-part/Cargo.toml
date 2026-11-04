@@ -17,6 +17,7 @@ popkern-io = { path = "../popkern-io" }
 popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }
 popkern-mesh = { path = "../popkern-mesh" }
+popkern-measure = { path = "../popkern-measure" }
 thiserror.workspace = true
 ttf-parser = { workspace = true, optional = true }
 

@@ -13,7 +13,7 @@
 //! only planar faces peel.
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
-use popkern_core::topology::{BRep, FaceHandle, LoopHandle};
+use popkern_core::topology::{BRep, LoopHandle};
 
 use super::super::graph::{EdgeSource, FaceRef, IntersectionGraph, Operand};
 use super::identity::{OperandHalfEdgeMaps, closes_in_graph, mapped_loop};
@@ -77,18 +77,17 @@ pub(super) fn peel_far_holes(
     graph: &IntersectionGraph,
     face_ref: &FaceRef,
     he_indices: &[usize],
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     maps: &OperandHalfEdgeMaps<'_>,
-    overlap_pairs: &[(FaceHandle, FaceHandle)],
+    overlap_pairs: &[crate::merge::graph::FacePair],
     opposite_box: Option<Aabb>,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Option<PeeledHoles> {
     use popkern_core::geometry::surface::SurfaceGeometry;
     let opposite_box = opposite_box?;
     let (brep, map) = match face_ref.operand {
-        Operand::A => (brep_a, maps.a),
-        Operand::B => (brep_b, maps.b),
+        Operand::A => (operands[0], maps.a),
+        _ /* B */ => (operands[1], maps.b),
     };
     let face = brep.faces.get(face_ref.face)?;
     if face.inner_loops.is_empty()
@@ -98,10 +97,7 @@ pub(super) fn peel_far_holes(
         )
         || overlap_pairs
             .iter()
-            .any(|&(fa, fb)| match face_ref.operand {
-                Operand::A => fa == face_ref.face,
-                Operand::B => fb == face_ref.face,
-            })
+            .any(|&(fa, fb)| fa == *face_ref || fb == *face_ref)
         || graph.seam_substitutes.iter().any(|(f, _)| f == face_ref)
     {
         return None;
@@ -119,7 +115,7 @@ pub(super) fn peel_far_holes(
                 && he.face.as_ref() == Some(face_ref)
                 && matches!(
                     he.source,
-                    EdgeSource::OriginalA(_) | EdgeSource::OriginalB(_)
+                    EdgeSource::Original(Operand::A, _) | EdgeSource::Original(Operand::B, _)
                 )
         }) && closes_in_graph(graph, &lp);
         if untouched && loop_box(brep, lh).is_some_and(|b| !b.overlaps(&opposite_box, pad)) {

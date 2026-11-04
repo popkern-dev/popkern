@@ -1,4 +1,6 @@
-//! Perturbation fallback for degenerate boolean operations.
+//! Perturbation retry for degenerate boolean operations: an explicit
+//! opt-in. `boolean` no longer falls back to it (plan Stage 7d: it
+//! fired on no boolean over three whole-suite runs).
 //!
 //! When the boolean pipeline fails due to exact degeneracy (coincident
 //! faces, tangent intersections, ambiguous classification), this module
@@ -48,12 +50,7 @@ pub fn boolean_with_perturbation(
     tolerance: Tolerance,
     config: &PerturbationConfig,
 ) -> Result<BRep, BoolError> {
-    // First try without perturbation. Straight to the execution
-    // core: routing through `boolean` recursed — `boolean`'s
-    // perturbation fallback re-entered this function, whose first
-    // unperturbed try re-entered `boolean`, unboundedly, before any
-    // perturbed attempt ever ran (measured: a bearing's races∪ball
-    // union overflowed the stack on its first perturbable error).
+    // First try without perturbation, straight to the execution core.
     match crate::operation::execute_boolean(op, a, b, &tolerance) {
         Ok(result) => return Ok(result),
         Err(e) => {
@@ -61,6 +58,9 @@ pub fn boolean_with_perturbation(
             if !is_perturbable_error(&e) {
                 return Err(e);
             }
+            // Each retry ladder is logged (observability for the
+            // explicit opt-in).
+            crate::complex_shadow::append_log_line(&format!("PerturbationFallback {op:?} {e}"));
         }
     }
 
@@ -94,6 +94,9 @@ pub fn boolean_with_perturbation(
                 // Project result vertices back toward original surfaces.
                 // For small perturbations this is approximately correct.
                 project_back(&mut result, a, b, &tolerance);
+                crate::complex_shadow::append_log_line(&format!(
+                    "PerturbationServed {op:?} offset {offset:?}"
+                ));
                 return Ok(result);
             }
             Err(e) => {

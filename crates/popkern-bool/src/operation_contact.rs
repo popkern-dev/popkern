@@ -185,7 +185,10 @@ const INWARD_STEPS: [f64; 3] = [1e-2, 1e-3, 1e-4];
 /// A point strictly inside `face`'s trim: the lineage sampler's pick,
 /// else a point just inside the outer loop, beside the midpoint of a
 /// sampled boundary chord.
-fn face_interior_point(brep: &BRep, face: FaceHandle) -> Option<popkern_core::geometry::Point3> {
+pub(crate) fn face_interior_point(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Option<popkern_core::geometry::Point3> {
     if let Some((p, _)) = crate::entity_lineage::interior_point(brep, face) {
         return Some(p);
     }

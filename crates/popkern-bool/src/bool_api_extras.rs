@@ -6,18 +6,16 @@
 use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 use crate::error::{BoolDiagnostics, BoolError, BoolOperation};
-use crate::{boolean_ref, operation, perturbation, provenance, validate};
+use crate::{boolean_ref, operation, provenance, validate};
 
 /// Perform a boolean and, on failure, return the error together with
 /// a context-aware [`crate::error::Remediation`] hint (§13.4).
 ///
-/// This wraps [`crate::boolean`] and its automatic perturbation fallback:
-/// if the pipeline fails on a perturbation-eligible error
-/// (`CoincidentFaces`, `IntersectionFailed`, `ClassificationFailed`),
-/// the fallback is attempted, and the final hint carries
-/// `perturbation_attempted: true` so callers know not to try
-/// perturbation again — the hint will recommend the next-best
-/// action (typically a tolerance bump).
+/// This wraps the boolean pipeline. No perturbation retry runs (plan
+/// Stage 7d retired it), so the hint carries
+/// `perturbation_attempted: false` and may recommend
+/// [`crate::perturbation::boolean_with_perturbation`] as an explicit
+/// next step, or the next-best action (typically a tolerance bump).
 ///
 /// The hint also includes a concrete suggested tolerance `value`
 /// computed from the caller-supplied `tol`, so UIs can display the
@@ -32,29 +30,10 @@ pub fn boolean_with_remediation(
     b: &BRep,
     tol: Tolerance,
 ) -> Result<(BRep, BoolDiagnostics), (BoolError, crate::error::Remediation)> {
-    // Try the straight-through pipeline first. Track whether we
-    // fell through to the perturbation fallback so the final hint
-    // can avoid recommending it again.
-    let mut perturbation_attempted = false;
-    let result = operation::execute_boolean(op, a, b, &tol).or_else(|e| {
-        if matches!(
-            e,
-            BoolError::CoincidentFaces { .. }
-                | BoolError::IntersectionFailed(_)
-                | BoolError::ClassificationFailed { .. }
-        ) {
-            perturbation_attempted = true;
-            perturbation::boolean_with_perturbation(
-                op,
-                a,
-                b,
-                tol,
-                &perturbation::PerturbationConfig::default(),
-            )
-        } else {
-            Err(e)
-        }
-    });
+    // The straight-through pipeline: no perturbation retry (plan
+    // Stage 7d), so the hint may recommend `boolean_with_perturbation`.
+    let perturbation_attempted = false;
+    let result = operation::execute_boolean(op, a, b, &tol);
 
     match result {
         Ok(brep) => Ok((brep, BoolDiagnostics::default())),

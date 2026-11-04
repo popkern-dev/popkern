@@ -88,9 +88,13 @@ pub(crate) fn sample_loop_with_samples(
                     |d: f64, p: Option<f64>| p.is_some_and(|p| p > 0.0 && d.abs() >= 0.4 * p);
                 if wide(b.x - a.x, period_u) || wide(b.y - a.y, period_v) {
                     let n = 32;
-                    for i in 0..=n {
-                        let t = t0p + (t1p - t0p) * (i as f64) / (n as f64);
-                        let q = pcurve.point_at(t);
+                    let q = pcurve.point_at(t0p);
+                    uv_points.push((q.x, q.y));
+                    for i in 1..=n {
+                        let ta = t0p + (t1p - t0p) * ((i - 1) as f64) / (n as f64);
+                        let tb = t0p + (t1p - t0p) * (i as f64) / (n as f64);
+                        bisect_wide_steps(pcurve, surface, ta, tb, 0, &mut uv_points);
+                        let q = pcurve.point_at(tb);
                         uv_points.push((q.x, q.y));
                     }
                 } else {
@@ -233,9 +237,51 @@ fn subdivide_pcurve(
         })
         .fold(0.0_f64, f64::max);
 
-    if uv_error > chord_height || sag > chord_height {
+    if uv_error > chord_height || sag > chord_height || wide_step(pcurve, surface, t0, t1) {
         subdivide_pcurve(pcurve, surface, t0, t_mid, chord_height, depth + 1, output);
         output.push((p_mid.x, p_mid.y));
         subdivide_pcurve(pcurve, surface, t_mid, t1, chord_height, depth + 1, output);
     }
+}
+
+/// Whether the step from `t0` to `t1` along `pcurve`, read as the
+/// nearest period image, exceeds a quarter period on a periodic axis.
+/// `unwrap_periodic` reads every step as the nearest image, which is
+/// faithful only for steps under half a period; near a pole the
+/// longitude sweeps half a turn over a short, straight stretch of the
+/// curve, which neither chord criterion splits (PK-1059: a hole 0.005
+/// from a sphere's poles, sampled 32 times, unwrapped the short way
+/// through the seam and the face meshed the hole instead of itself,
+/// its volume read 3.34 for 1.40).
+fn wide_step(
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
+    surface: &SurfaceGeometry,
+    t0: f64,
+    t1: f64,
+) -> bool {
+    let (period_u, period_v) = surface.periodicity();
+    let (a, b) = (pcurve.point_at(t0), pcurve.point_at(t1));
+    [(b.x - a.x, period_u), (b.y - a.y, period_v)]
+        .iter()
+        .any(|&(d, p)| p.is_some_and(|p| p > 0.0 && (d - (d / p).round() * p).abs() > 0.25 * p))
+}
+
+/// Push the interior points that split `(t0, t1)` into steps of at
+/// most a quarter period ([`wide_step`]), in order.
+fn bisect_wide_steps(
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
+    surface: &SurfaceGeometry,
+    t0: f64,
+    t1: f64,
+    depth: usize,
+    output: &mut Vec<(f64, f64)>,
+) {
+    if depth >= MAX_TRIM_SUBDIVISION_DEPTH || !wide_step(pcurve, surface, t0, t1) {
+        return;
+    }
+    let t_mid = 0.5 * (t0 + t1);
+    bisect_wide_steps(pcurve, surface, t0, t_mid, depth + 1, output);
+    let q = pcurve.point_at(t_mid);
+    output.push((q.x, q.y));
+    bisect_wide_steps(pcurve, surface, t_mid, t1, depth + 1, output);
 }

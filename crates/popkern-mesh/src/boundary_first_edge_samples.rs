@@ -72,7 +72,8 @@ pub(crate) fn sample_edges(
             continue;
         }
         let eval: &dyn CurveEval = &curve.geometry;
-        let normal_probe = max_turn.map(|_| crate::facet_angle::EdgeNormalProbe::new(brep, edge));
+        let chart_probe = crate::facet_angle::EdgeNormalProbe::new(brep, edge);
+        let normal_probe = max_turn.map(|_| &chart_probe);
         // Turn across curve fractions (first, interior…, last): the
         // incident faces' normal turn, else the curve's tangent turn,
         // and the chord's foot error in the bound's units (PK-587: a
@@ -160,6 +161,8 @@ pub(crate) fn sample_edges(
                     .map(|r| r * chord_height);
                 if dev > chord_height || dev > 0.25 * pa.distance_to(&pb) {
                     split_at.push((dev, i));
+                } else if chart_probe.wide_uv_step(a, b) {
+                    split_at.push((chord_height, i));
                 } else if let Some(rank) = turn_excess {
                     split_at.push((rank, i));
                 }

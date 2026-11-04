@@ -74,6 +74,11 @@ pub struct BRep {
     /// Face-use-local pcurve authority for loop uses.
     #[serde(default)]
     pub face_use_pcurves: std::collections::BTreeMap<FaceUseTrimKey, Pcurve>,
+    /// Recorded zero-thickness contacts (PK-964): where manifold pieces
+    /// of this body deliberately meet, as a boolean's split policy
+    /// served them. See [`crate::topology::contact`].
+    #[serde(default)]
+    pub topology_contacts: Vec<crate::topology::TopologyContact>,
     /// Tracks precision degradation across operations.
     #[serde(skip)]
     degradation_tracker: Option<DegradationTracker>,
@@ -118,6 +123,7 @@ impl BRep {
             surface_boundary_declines: std::collections::HashMap::new(),
             surface_boundary_audit_events: Vec::new(),
             face_use_pcurves: std::collections::BTreeMap::new(),
+            topology_contacts: Vec::new(),
             degradation_tracker: None,
             pending_coherence: Vec::new(),
             edge_creator_locations: std::collections::HashMap::new(),
@@ -266,10 +272,15 @@ impl BRep {
         }
         let mut positions = Vec::new();
         let mut current = start_he;
-        loop {
-            let he = &self.half_edges[current];
-            let vertex = &self.vertices[he.origin];
-            positions.push(vertex.position);
+        // A loop visits each half-edge at most once: the bound stops a
+        // `next` chain that never returns to its start (a malformed
+        // assembly) from walking forever (measured: a split exactly-one
+        // of a sphere and a rod spun a ray gate for hours).
+        for _ in 0..self.half_edges.len() {
+            let Some(he) = self.half_edges.get(current) else {
+                break;
+            };
+            positions.push(self.vertices[he.origin].position);
             current = he.next;
             if current == start_he {
                 break;
@@ -307,8 +318,11 @@ impl BRep {
 
         let mut points = Vec::new();
         let mut current = start_he;
-        loop {
-            let he = &self.half_edges[current];
+        // Bounded as in `face_outer_loop_positions`.
+        for _ in 0..self.half_edges.len() {
+            let Some(he) = self.half_edges.get(current) else {
+                break;
+            };
             // Always include the vertex position.
             points.push(self.vertices[he.origin].position);
 
@@ -463,30 +477,6 @@ impl BRep {
             critical_count,
             estimated_remaining,
         }
-    }
-
-    /// List entities sorted by imprecision (worst first).
-    ///
-    /// Only entities with explicit (non-`None`) tolerance are included.
-    pub fn degraded_entities(&self) -> Vec<(EntityHandle, f64)> {
-        let mut result = Vec::new();
-        for (vh, v) in &self.vertices {
-            if let Some(tol) = v.tolerance {
-                result.push((EntityHandle::Vertex(vh), tol));
-            }
-        }
-        for (eh, e) in &self.edges {
-            if let Some(tol) = e.tolerance {
-                result.push((EntityHandle::Edge(eh), tol));
-            }
-        }
-        for (fh, face) in &self.faces {
-            if let Some(tol) = face.tolerance {
-                result.push((EntityHandle::Face(fh), tol));
-            }
-        }
-        result.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-        result
     }
 }
 

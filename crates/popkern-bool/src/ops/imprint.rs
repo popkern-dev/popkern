@@ -15,6 +15,8 @@ use crate::error::BoolError;
 use crate::intersect::{IntersectionRecord, compute_face_aabbs};
 use crate::split::{SplitSide, split_body_along_curves};
 
+pub use super::imprint_classify::FaceClass;
+
 /// Result of an imprint operation.
 #[derive(Debug)]
 pub struct ImprintResult {
@@ -28,6 +30,26 @@ pub struct ImprintResult {
     pub curves: Vec<ImprintCurve>,
     /// Number of face pairs tested.
     pub pairs_tested: usize,
+    /// Where each face of `imprinted_target` lies relative to the tool.
+    pub classes: Vec<(FaceHandle, FaceClass)>,
+}
+
+impl ImprintResult {
+    /// The class of `face` of the imprinted target, when decided.
+    pub fn class_of(&self, face: FaceHandle) -> Option<FaceClass> {
+        self.classes
+            .iter()
+            .find(|(f, _)| *f == face)
+            .map(|(_, c)| *c)
+    }
+
+    /// The imprinted target's faces of `class`.
+    pub fn faces_classified(&self, class: FaceClass) -> impl Iterator<Item = FaceHandle> + '_ {
+        self.classes
+            .iter()
+            .filter(move |(_, c)| *c == class)
+            .map(|(f, _)| *f)
+    }
 }
 
 /// A curve produced by the imprint operation.
@@ -138,22 +160,40 @@ pub fn imprint(
     }
 
     // If no intersections, the target is unchanged.
-    if records.is_empty() {
-        return Ok(ImprintResult {
-            imprinted_target: target.clone(),
-            curves,
-            pairs_tested,
-        });
-    }
-
-    // The target's faces split along the records' target-side curves.
-    let (imprinted_target, _) =
-        split_body_along_curves(target.clone(), SplitSide::A, &records, tolerance)
-            .map_err(|diag| diag.into_error())?;
-
+    let imprinted_target = if records.is_empty() {
+        target.clone()
+    } else {
+        imprinted(target, tool, &records, tolerance)?
+    };
+    let classes = super::imprint_classify::classify_faces(&imprinted_target, tool, tolerance);
     Ok(ImprintResult {
         imprinted_target,
         curves,
         pairs_tested,
+        classes,
     })
+}
+
+/// The target's faces split by the tool: as the cell complex splits
+/// them when both are solids (the same identity booleans use), else (a
+/// sheet, or a partition that declines, recorded) along the records'
+/// target-side curves.
+fn imprinted(
+    target: &BRep,
+    tool: &BRep,
+    records: &[IntersectionRecord],
+    tolerance: &Tolerance,
+) -> Result<BRep, BoolError> {
+    use popkern_core::topology::BodyKind;
+    if target.body_kind() == BodyKind::Solid && tool.body_kind() == BodyKind::Solid {
+        match crate::partition::partition(&[target, tool], *tolerance).and_then(|p| p.imprinted(0))
+        {
+            Ok(body) => return Ok(body),
+            Err(e) => crate::complex_shadow::append_log_line(&format!("ImprintFallback {e}")),
+        }
+    }
+    let (imprinted_target, _) =
+        split_body_along_curves(target.clone(), SplitSide::A, records, tolerance)
+            .map_err(|diag| diag.into_error())?;
+    Ok(imprinted_target)
 }

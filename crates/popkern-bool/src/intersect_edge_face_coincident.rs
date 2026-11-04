@@ -214,3 +214,40 @@ pub(crate) fn vertex_trim_box(
         if collapsed(vbox.1) { window.1 } else { vbox.1 },
     )
 }
+
+/// Whether `face` carries its own seam: an edge both of whose
+/// half-edges lie on loops of this face.
+pub(crate) fn face_has_own_seam(
+    brep: &popkern_core::topology::BRep,
+    face: popkern_core::topology::FaceHandle,
+) -> bool {
+    let Some(f) = brep.faces.get(face) else {
+        return false;
+    };
+    std::iter::once(f.outer_loop)
+        .chain(f.inner_loops.iter().copied())
+        .any(|lh| {
+            let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
+                return false;
+            };
+            let mut h = start;
+            for _ in 0..=brep.half_edges.len() {
+                let Some(he) = brep.half_edges.get(h) else {
+                    return false;
+                };
+                let twin_on_face = brep
+                    .half_edges
+                    .get(he.twin)
+                    .and_then(|tw| brep.loops.get(tw.loop_))
+                    .is_some_and(|l| l.face == face);
+                if twin_on_face && he.twin != h {
+                    return true;
+                }
+                h = he.next;
+                if h == start {
+                    break;
+                }
+            }
+            false
+        })
+}

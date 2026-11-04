@@ -100,6 +100,54 @@ pub fn clip_to_cell(grid: &Grid, ijk: [usize; 3], polygon: &Polygon) -> Polygon 
     p
 }
 
+/// Clips triangle `v` (index and face `source`) to the cells of `grid`,
+/// appending its pieces; `false` when it has zero area.
+pub fn clip_triangle(
+    grid: &Grid,
+    (triangle, face): (u32, FaceId),
+    v: [[f64; 3]; 3],
+    pieces: &mut Vec<FacetPiece>,
+) -> Result<bool, ClipError> {
+    let n = cross(sub(v[1], v[0]), sub(v[2], v[0]));
+    let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    if length == 0.0 {
+        return Ok(false);
+    }
+    let normal = n.map(|c| c / length);
+    let source = Polygon::triangle(v[0], v[1], v[2]);
+    let mut range = [(0, 0); 3];
+    for (axis, r) in range.iter_mut().enumerate() {
+        let lo = v.iter().map(|p| p[axis]).fold(f64::INFINITY, f64::min);
+        let hi = v.iter().map(|p| p[axis]).fold(f64::NEG_INFINITY, f64::max);
+        *r = axis_range(grid, axis, lo, hi).ok_or(ClipError::OutsideGrid { triangle })?;
+    }
+    for k in range[2].0..=range[2].1 {
+        for j in range[1].0..=range[1].1 {
+            for i in range[0].0..=range[0].1 {
+                let polygon = clip_to_cell(grid, [i, j, k], &source);
+                if polygon.len() < 3 {
+                    continue;
+                }
+                let area = polygon.area();
+                if area > 0.0 {
+                    let cell = grid
+                        .cell_index([i, j, k])
+                        .ok_or(ClipError::OutsideGrid { triangle })?;
+                    pieces.push(FacetPiece {
+                        cell,
+                        triangle,
+                        face,
+                        polygon,
+                        area,
+                        normal,
+                    });
+                }
+            }
+        }
+    }
+    Ok(true)
+}
+
 /// Clips every triangle of `solid` to the cells of `grid`.
 pub fn clip_solid(grid: &Grid, solid: &SolidMesh) -> Result<ClippedSolid, ClipError> {
     let mut pieces = Vec::new();
@@ -112,43 +160,8 @@ pub fn clip_solid(grid: &Grid, solid: &SolidMesh) -> Result<ClippedSolid, ClipEr
         for (slot, &i) in v.iter_mut().zip(corners) {
             *slot = *solid.vertices.get(i as usize).ok_or(malformed.clone())?;
         }
-        let n = cross(sub(v[1], v[0]), sub(v[2], v[0]));
-        let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-        if length == 0.0 {
+        if !clip_triangle(grid, (triangle, face), v, &mut pieces)? {
             degenerate_triangles += 1;
-            continue;
-        }
-        let normal = n.map(|c| c / length);
-        let source = Polygon::triangle(v[0], v[1], v[2]);
-        let mut range = [(0, 0); 3];
-        for (axis, r) in range.iter_mut().enumerate() {
-            let lo = v.iter().map(|p| p[axis]).fold(f64::INFINITY, f64::min);
-            let hi = v.iter().map(|p| p[axis]).fold(f64::NEG_INFINITY, f64::max);
-            *r = axis_range(grid, axis, lo, hi).ok_or(ClipError::OutsideGrid { triangle })?;
-        }
-        for k in range[2].0..=range[2].1 {
-            for j in range[1].0..=range[1].1 {
-                for i in range[0].0..=range[0].1 {
-                    let polygon = clip_to_cell(grid, [i, j, k], &source);
-                    if polygon.len() < 3 {
-                        continue;
-                    }
-                    let area = polygon.area();
-                    if area > 0.0 {
-                        let cell = grid
-                            .cell_index([i, j, k])
-                            .ok_or(ClipError::OutsideGrid { triangle })?;
-                        pieces.push(FacetPiece {
-                            cell,
-                            triangle,
-                            face,
-                            polygon,
-                            area,
-                            normal,
-                        });
-                    }
-                }
-            }
         }
     }
     // Stable: equal cells keep triangle order.

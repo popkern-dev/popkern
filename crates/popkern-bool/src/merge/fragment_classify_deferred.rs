@@ -40,7 +40,7 @@ pub(super) fn apply_deferred_on_overrides(
         };
         match frag.face.operand {
             Operand::A => classes_a.push((frag.face.face, class)),
-            Operand::B => classes_b.push((frag.face.face, class)),
+            _ /* B */ => classes_b.push((frag.face.face, class)),
         }
     }
 

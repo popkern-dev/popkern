@@ -5,12 +5,14 @@
 //!
 //! Face data collection is in the [`face_collector`] submodule.
 
+mod edge_trim;
 mod face_collector;
 mod half_edge_use;
 mod import_fidelity_diagnostics;
 mod open_shell;
 mod pcurve_orientation;
 mod shell_incidence;
+mod shell_pieces;
 mod surface_curve_normalization;
 mod surface_models;
 mod voids;
@@ -18,8 +20,6 @@ mod voids;
 use std::collections::HashMap;
 
 use popkern_core::constructors::BRepBuilder;
-use popkern_core::geometry::Point3;
-use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::brep::BRep;
 use popkern_core::topology::{EdgeHandle, HalfEdgeHandle, VertexHandle};
@@ -33,6 +33,9 @@ use crate::step::schema::topology::{
 };
 
 use crate::step::same_parameter::SameParameterTally;
+#[cfg(test)]
+use edge_trim::normalize_periodic_parameter_order;
+use edge_trim::recover_edge_curve_trim;
 use face_collector::widest_bound;
 use half_edge_use::choose_step_half_edge_use;
 use import_fidelity_diagnostics::{
@@ -42,6 +45,7 @@ use import_fidelity_diagnostics::{
 use open_shell::normalize_open_shell_boundaries;
 use pcurve_orientation::select_orient_pcurve_to_half_edge;
 use shell_incidence::{closed_shell_incidence_policy, open_shell_incidence_policy};
+use shell_pieces::ShellPieces;
 use surface_curve_normalization::reconcile_step_surface_curve_edges;
 
 /// Find BRep body representation items and build a [`BRep`] for each.
@@ -163,9 +167,6 @@ fn build_brep_from_faces(
     log: &mut DiagnosticLog,
     tolerance: Tolerance,
 ) -> Option<BRep> {
-    let mut vertex_map: HashMap<EntityId, VertexHandle> = HashMap::new();
-    let mut edge_map: HashMap<EntityId, (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
-        HashMap::new();
     let mut provenance = StepTopologyImportProvenance::default();
     let mut same_parameter = SameParameterTally::default();
 
@@ -174,14 +175,36 @@ fn build_brep_from_faces(
     let incidence_policy = if is_open_shell {
         open_shell_incidence_policy()
     } else {
-        closed_shell_incidence_policy(&face_data, log)?
+        closed_shell_incidence_policy(&face_data, layout.sizes.len() == 1, log)?
     };
+    // Each piece of a shell that touches itself has its own copies of
+    // the STEP vertices and edges it uses (`shell_pieces`); a shell of
+    // one piece is the whole.
+    let whole;
+    let pieces = match &incidence_policy.pieces {
+        Some(pieces) => pieces,
+        None => {
+            whole = ShellPieces::whole(&face_data);
+            &whole
+        }
+    };
+    let mut vertex_map: HashMap<(EntityId, usize), VertexHandle> = HashMap::new();
+    let mut edge_map: HashMap<(EntityId, usize), (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
+        HashMap::new();
 
     let mut builder = BRepBuilder::new(tolerance);
 
     // Create vertices
-    for &vp_id in &face_data.vertex_ids {
-        if vertex_map.contains_key(&vp_id) {
+    let piece_vertices = (0..pieces.count()).flat_map(|p| {
+        let used = &pieces.vertices[p];
+        face_data
+            .vertex_ids
+            .iter()
+            .filter(move |v| used.contains(v))
+            .map(move |&v| (v, p))
+    });
+    for (vp_id, piece) in piece_vertices {
+        if vertex_map.contains_key(&(vp_id, piece)) {
             continue;
         }
         let vp_entity = graph.get(vp_id)?;
@@ -194,12 +217,20 @@ fn build_brep_from_faces(
         };
         let pt = geo.resolve_point(vp.point, log)?;
         let vh = builder.add_vertex(pt);
-        vertex_map.insert(vp_id, vh);
+        vertex_map.insert((vp_id, piece), vh);
     }
 
     // Create edges
-    for &ec_id in &face_data.edge_curve_ids {
-        if edge_map.contains_key(&ec_id) {
+    let piece_edges = (0..pieces.count()).flat_map(|p| {
+        let used = &pieces.edges[p];
+        face_data
+            .edge_curve_ids
+            .iter()
+            .filter(move |e| used.contains(e))
+            .map(move |&e| (e, p))
+    });
+    for (ec_id, piece) in piece_edges {
+        if edge_map.contains_key(&(ec_id, piece)) {
             continue;
         }
         let ec_entity = graph.get(ec_id)?;
@@ -210,10 +241,10 @@ fn build_brep_from_faces(
                 return None;
             }
         };
-        let v1 = *vertex_map.get(&ec.start)?;
-        let v2 = *vertex_map.get(&ec.end)?;
+        let v1 = *vertex_map.get(&(ec.start, piece))?;
+        let v2 = *vertex_map.get(&(ec.end, piece))?;
         let (eh, he1, he2) = builder.add_edge(v1, v2);
-        edge_map.insert(ec_id, (eh, he1, he2));
+        edge_map.insert((ec_id, piece), (eh, he1, he2));
         provenance.edge_curves.insert(eh, ec_id);
 
         // STEP EDGE_CURVE geometry is bounded by the topological start/end
@@ -232,23 +263,36 @@ fn build_brep_from_faces(
     }
 
     // Create the solid and its shells: the outer first, then cavities
-    // (`add_shell` re-points the solid at its newest shell).
-    let solid = builder.add_solid();
-    let shell_of: Vec<_> = layout
-        .sizes
-        .iter()
-        .flat_map(|&n| {
-            let sh = builder.add_shell(solid);
-            std::iter::repeat_n(sh, n)
-        })
-        .collect();
-    if let Some(&outer) = shell_of.first() {
-        builder.brep_mut().solids[solid].shell = outer;
-    }
+    // (`add_shell` re-points the solid at its newest shell); the pieces
+    // of a shell that touches itself each their own solid.
+    let shell_of: Vec<_> = if pieces.count() > 1 {
+        let shells: Vec<_> = (0..pieces.count())
+            .map(|_| {
+                let solid = builder.add_solid();
+                builder.add_shell(solid)
+            })
+            .collect();
+        pieces.of_face.iter().map(|&p| shells[p]).collect()
+    } else {
+        let solid = builder.add_solid();
+        let shell_of: Vec<_> = layout
+            .sizes
+            .iter()
+            .flat_map(|&n| {
+                let sh = builder.add_shell(solid);
+                std::iter::repeat_n(sh, n)
+            })
+            .collect();
+        if let Some(&outer) = shell_of.first() {
+            builder.brep_mut().solids[solid].shell = outer;
+        }
+        shell_of
+    };
 
     // 4. Create faces with loops
     for (k, face_info) in face_data.faces.iter().enumerate() {
         let face_h = builder.add_face(*shell_of.get(k)?);
+        let piece = *pieces.of_face.get(k)?;
 
         // Attach surface geometry
         if let Some(sof) = geo.resolve_surface(face_info.surface_id, face_info.same_sense, log) {
@@ -263,13 +307,16 @@ fn build_brep_from_faces(
             .bounds
             .iter()
             .position(|b| b.is_outer)
-            .or_else(|| widest_bound(&face_info.bounds, &edge_map, builder.brep()));
+            .or_else(|| {
+                let edge_of = |id| edge_map.get(&(id, piece)).map(|e| e.0);
+                widest_bound(&face_info.bounds, &edge_of, builder.brep())
+            });
 
         // Wire each bound as a loop
         for (bound_idx, bound) in face_info.bounds.iter().enumerate() {
             let mut half_edges = Vec::with_capacity(bound.oriented_edges.len());
             for oe_info in &bound.oriented_edges {
-                let (_eh, he_fwd, he_rev) = edge_map.get(&oe_info.edge_curve_id)?;
+                let (_eh, he_fwd, he_rev) = edge_map.get(&(oe_info.edge_curve_id, piece))?;
                 let (he, edge_forward) = choose_step_half_edge_use(
                     builder.brep(),
                     *he_fwd,
@@ -280,7 +327,7 @@ fn build_brep_from_faces(
                 );
                 if builder.brep().half_edges[he].pcurve.is_none()
                     && let Some((edge_handle, _he_fwd, _he_rev)) =
-                        edge_map.get(&oe_info.edge_curve_id)
+                        edge_map.get(&(oe_info.edge_curve_id, piece))
                     && let Some(edge) = builder.brep().edges.get(*edge_handle)
                     && let Some(curve) = edge.curve.as_ref()
                     && let Some(surface) = builder.brep().faces[face_h].surface.as_ref()
@@ -367,6 +414,15 @@ fn build_brep_from_faces(
     }
 
     let mut brep = builder.build_unchecked();
+    if pieces.count() > 1 {
+        let n = pieces.count();
+        let vertices =
+            shell_pieces::copies(&face_data.vertex_ids, n, |k| vertex_map.get(k).copied());
+        let edges = shell_pieces::copies(&face_data.edge_curve_ids, n, |k| {
+            edge_map.get(k).map(|e| e.0)
+        });
+        shell_pieces::record_contacts(&mut brep, &vertices, &edges);
+    }
     reconcile_step_surface_curve_edges(&mut brep, tolerance, log);
     if incidence_policy.downgraded_closed_shell {
         report_step_import_boundary_incidence_diagnostics(&brep, &provenance, log);
@@ -374,125 +430,6 @@ fn build_brep_from_faces(
     same_parameter.report(log);
     report_step_import_fidelity_diagnostics(&brep, &provenance, tolerance, log);
     Some(brep)
-}
-
-fn recover_edge_curve_trim(
-    edge_curve_id: EntityId,
-    mut curve: CurveOnEdge,
-    start: Point3,
-    end: Point3,
-    same_sense: bool,
-    tolerance: Tolerance,
-    log: &mut DiagnosticLog,
-) -> CurveOnEdge {
-    if bounded_nurbs_endpoints_match(&curve, start, end, same_sense, tolerance) {
-        return curve;
-    }
-
-    let Some(mut start_t) = curve.geometry.closest_point(&start) else {
-        log.warn(
-            Phase::MapTopology,
-            Some(edge_curve_id),
-            "could not recover EDGE_CURVE start parameter from topological vertex",
-        );
-        return curve;
-    };
-    let Some(mut end_t) = curve.geometry.closest_point(&end) else {
-        log.warn(
-            Phase::MapTopology,
-            Some(edge_curve_id),
-            "could not recover EDGE_CURVE end parameter from topological vertex",
-        );
-        return curve;
-    };
-
-    let start_gap = curve.geometry.point_at(start_t).distance_to(&start);
-    let end_gap = curve.geometry.point_at(end_t).distance_to(&end);
-    let limit = tolerance.linear().max(1e-9);
-    if start_gap > limit || end_gap > limit {
-        log.warn(
-            Phase::MapTopology,
-            Some(edge_curve_id),
-            format!(
-                "declined EDGE_CURVE trim recovery: endpoint gaps {:.3e}, {:.3e} exceed {:.3e}",
-                start_gap, end_gap, limit
-            ),
-        );
-        return curve;
-    }
-
-    normalize_periodic_parameter_order(&curve.geometry, same_sense, &mut start_t, &mut end_t);
-
-    curve.t_start = start_t;
-    curve.t_end = end_t;
-
-    curve
-}
-
-fn bounded_nurbs_endpoints_match(
-    curve: &CurveOnEdge,
-    start: Point3,
-    end: Point3,
-    same_sense: bool,
-    tolerance: Tolerance,
-) -> bool {
-    if !matches!(curve.geometry, CurveGeometry::Nurbs(_)) {
-        return false;
-    }
-    let (curve_start, curve_end) = if same_sense {
-        (
-            curve.geometry.point_at(curve.t_start),
-            curve.geometry.point_at(curve.t_end),
-        )
-    } else {
-        (
-            curve.geometry.point_at(curve.t_end),
-            curve.geometry.point_at(curve.t_start),
-        )
-    };
-    let limit = tolerance.linear().max(1e-9);
-    curve_start.distance_to(&start) <= limit && curve_end.distance_to(&end) <= limit
-}
-
-pub(super) fn normalize_periodic_parameter_order(
-    geometry: &CurveGeometry,
-    same_sense: bool,
-    start_t: &mut f64,
-    end_t: &mut f64,
-) {
-    let is_periodic = matches!(
-        geometry,
-        CurveGeometry::Circle { .. } | CurveGeometry::Arc { .. } | CurveGeometry::Ellipse { .. }
-    );
-    if !is_periodic {
-        return;
-    }
-    // Projection lands on any period branch (Newton from spread
-    // starts converges turns away: measured turbine.stp rims at
-    // t = −15.6 → 3.2, a 3-turn trim whose pcurves then spanned 4π and
-    // livelocked the mesher). The trim is the vertex angles folded to
-    // one turn, then ordered.
-    *start_t = start_t.rem_euclid(std::f64::consts::TAU);
-    *end_t = end_t.rem_euclid(std::f64::consts::TAU);
-
-    if same_sense {
-        while *end_t < *start_t {
-            *end_t += std::f64::consts::TAU;
-        }
-        // CLOSED rim (start vertex == end vertex): both parameters
-        // project to the same point and the trim would collapse to
-        // zero length — the edge covers the FULL period.
-        if (*end_t - *start_t).abs() < 1e-9 {
-            *end_t += std::f64::consts::TAU;
-        }
-    } else {
-        while *start_t < *end_t {
-            *start_t += std::f64::consts::TAU;
-        }
-        if (*start_t - *end_t).abs() < 1e-9 {
-            *start_t += std::f64::consts::TAU;
-        }
-    }
 }
 
 #[cfg(test)]

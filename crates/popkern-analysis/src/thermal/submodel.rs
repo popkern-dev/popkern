@@ -123,6 +123,7 @@ pub fn solve_thermal_submodel(
             vec![(SolidId(0), density * cut_volume)]
         },
         hdt_c: problem.hdt_c,
+        contacts: Vec::new(),
     };
     let result = solve_conduction_core(&cut.model, &sub_problem, options, Some(&parent.field))?;
     Ok(ThermalSubmodel {

@@ -90,7 +90,28 @@ fn a_pin_flush_on_a_base_and_crossed_by_its_bar_unions_without_a_rim_sliver() {
         })
         .count();
     assert_eq!(walls, 2, "the pin wall's regions, no rim sliver");
-    assert_eq!(out.faces.len(), 29, "faces");
+    // The bar's bottom (z = 6), split in two by the pin, keeps the
+    // holes the posts pass through. The walk files each post's ring
+    // apart (the pin's flush rim is a coincident interface); served as
+    // a piece it was an inverted square over a hole-less bar bottom, a
+    // zero-thickness wall sealing the post off (29 faces, validator-
+    // clean).
+    let bar_bottom: Vec<usize> = out
+        .faces
+        .values()
+        .filter(|f| {
+            f.surface.as_ref().is_some_and(|s| {
+                matches!(
+                    &s.geometry,
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { origin, normal, .. }
+                        if normal.z.abs() > 0.999 && (origin.z - 6.0).abs() < 1e-9
+                )
+            })
+        })
+        .map(|f| f.inner_loops.len())
+        .collect();
+    assert_eq!(bar_bottom, vec![1, 1], "bar bottom pieces and their holes");
+    assert_eq!(out.faces.len(), 27, "faces");
 }
 
 /// Volume of an all-planar body with straight edges: the divergence

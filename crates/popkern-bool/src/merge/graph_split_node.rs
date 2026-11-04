@@ -74,11 +74,7 @@ pub(super) fn split_at_existing_node_with_pcurves(
     graph: &mut IntersectionGraph,
     he_idx: usize,
     node: usize,
-    breps: Option<(
-        &popkern_core::topology::BRep,
-        &popkern_core::topology::BRep,
-        f64,
-    )>,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) -> bool {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
@@ -101,8 +97,7 @@ pub(super) fn split_at_existing_node_with_pcurves(
     let twin_face = graph.half_edges[twin_idx].face;
     let source = graph.half_edges[he_idx].source.clone();
     let split_source = match &source {
-        EdgeSource::OriginalA(eh) => EdgeSource::SplitA { original: *eh },
-        EdgeSource::OriginalB(eh) => EdgeSource::SplitB { original: *eh },
+        &EdgeSource::Original(operand, original) => EdgeSource::Split { operand, original },
         other => other.clone(),
     };
 
@@ -189,7 +184,7 @@ pub(super) fn split_at_existing_node_with_pcurves(
         // hand, cut them honestly instead (PK-441).
         let fwd_pc = graph.half_edges[he_idx].pcurve.take();
         let twin_pc = graph.half_edges[twin_idx].pcurve.take();
-        if let Some((brep_a, brep_b, tol)) = breps {
+        if let Some((operands, tol)) = breps {
             let split_pos = graph.nodes[node].position;
             let origin_pos = graph.nodes[graph.half_edges[he_idx].origin].position;
             let end_pos = graph.nodes[end_node].position;
@@ -204,8 +199,7 @@ pub(super) fn split_at_existing_node_with_pcurves(
                 &split_pos,
                 &origin_pos,
                 &end_pos,
-                brep_a,
-                brep_b,
+                operands,
                 tol,
             );
         }
@@ -235,14 +229,19 @@ pub(super) fn split_at_existing_node_with_pcurves(
     // junction (measured: a joint-shoulder record split at a rail
     // flank's T-point still walked as if unsplit, merging the lap
     // ring with the region beyond the shoulder).
-    if let EdgeSource::Shared { face_a, face_b } = graph.half_edges[new_fwd].source {
+    if let EdgeSource::Shared {
+        face_a,
+        face_b,
+        operands,
+    } = graph.half_edges[new_fwd].source
+    {
         for face in [
             crate::merge::graph::FaceRef {
-                operand: crate::merge::graph::Operand::A,
+                operand: operands[0],
                 face: face_a,
             },
             crate::merge::graph::FaceRef {
-                operand: crate::merge::graph::Operand::B,
+                operand: operands[1],
                 face: face_b,
             },
         ] {
@@ -264,11 +263,7 @@ pub(crate) fn split_edges_at_face_hits(
     graph: &mut IntersectionGraph,
     hits: &[crate::intersect_edge_face::EdgeFaceHit],
     snap_tol: f64,
-    breps: Option<(
-        &popkern_core::topology::BRep,
-        &popkern_core::topology::BRep,
-        f64,
-    )>,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) -> Vec<usize> {
     let mut nodes = Vec::new();
     for hit in hits {

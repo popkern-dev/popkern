@@ -9,12 +9,15 @@
 
 pub(crate) mod chart_cell;
 mod chart_periods;
+mod clip_boundary_gaps;
 mod clip_boundary_riding;
 mod clip_branch_normalize;
 mod clip_crossing_reports;
 mod clip_crossings_rescue;
 mod clip_dispatch;
 mod clip_edge_box;
+mod clip_inner_crossing;
+mod clip_junction_pins;
 pub(crate) use clip_edge_box::{box_distance, edge_box};
 mod clip_lift_crossings;
 mod clip_line;
@@ -269,13 +272,19 @@ pub(crate) fn face_covers_full_chart(brep: &BRep, face: FaceHandle) -> bool {
     let Some(boundary) = face_uv_boundary(brep, face) else {
         return false;
     };
+    // Twice-used SEAMS cover the chart; a sheet's free edges are used
+    // twice too (its mirror loop) and bound it (PK-978).
     !boundary.is_empty()
         && boundary.iter().all(|(he, _)| {
             brep.half_edges
                 .get(*he)
-                .and_then(|h| brep.half_edges.get(h.twin))
-                .and_then(|t| brep.loops.get(t.loop_))
-                .is_some_and(|l| l.face == face)
+                .is_some_and(|h| !brep.is_free_edge(h.edge))
+                && brep
+                    .half_edges
+                    .get(*he)
+                    .and_then(|h| brep.half_edges.get(h.twin))
+                    .and_then(|t| brep.loops.get(t.loop_))
+                    .is_some_and(|l| l.face == face)
         })
 }
 

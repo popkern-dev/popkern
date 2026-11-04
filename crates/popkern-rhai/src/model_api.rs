@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_history::deferred_certification::ContinuityCertification;
+use popkern_history::feature::FaceClass;
 use popkern_history::unit::Unit;
 use popkern_script::{EdgeSelector, FaceSelector, Model, Plane};
 use rhai::{Dynamic, Engine, EvalAltResult, FnPtr, NativeCallContext};
@@ -324,6 +325,20 @@ pub fn register(engine: &mut Engine) {
             let entity = model.entity_by_label(label).script()?;
             model.spell_entity(&entity).script()
         })
+        .register_fn(
+            "imprint_class",
+            |m: &mut ScriptModel, face: &str| -> Result<Dynamic, Box<EvalAltResult>> {
+                let mut model = m.borrow_mut();
+                let name = model.parse_entity(face).script()?;
+                Ok(match model.imprint_class(&name).script()? {
+                    Some(FaceClass::Inside) => "inside".into(),
+                    Some(FaceClass::Outside) => "outside".into(),
+                    Some(FaceClass::OnAligned) => "on_aligned".into(),
+                    Some(FaceClass::OnOpposed) => "on_opposed".into(),
+                    None => Dynamic::UNIT,
+                })
+            },
+        )
         .register_fn("to_string", |_: &mut ScriptModel| "Model".to_string());
     crate::migration_api::register(engine);
 }

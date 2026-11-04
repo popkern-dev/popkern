@@ -207,7 +207,22 @@ pub(crate) fn fit_marched_trace(
         let (p2u, p2v) = surface2.periodicity();
         crosses(0, p1u) || crosses(1, p1v) || crosses(2, p2u) || crosses(3, p2v)
     };
-    let segments = if both_periodic || chart_closed_nurbs || multi_wrap || open_seam_crossing {
+    // A seam dip (jumps, no net winding) splits at its seam crossings
+    // too (`surface_surface_seam_dip`).
+    let seam_dip = {
+        let (p1u, p1v) = surface1.periodicity();
+        let (p2u, p2v) = surface2.periodicity();
+        crate::geometry::intersection::surface_surface_seam_dip::dips_across_seam(
+            samples,
+            [p1u, p1v, p2u, p2v],
+        )
+    };
+    let segments = if both_periodic
+        || chart_closed_nurbs
+        || multi_wrap
+        || open_seam_crossing
+        || seam_dip
+    {
         crate::geometry::intersection::surface_surface_seam_split::split_samples_at_period_jumps(
             samples.to_vec(),
             surface1,

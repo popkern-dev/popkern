@@ -162,6 +162,54 @@ pub(super) fn decisive_windows(
         at(a).any(|ca| at(b).any(|cb| cb.boundary_he == ca.boundary_he))
     };
 
+    // The exact trim verdict of an interval: the face's own trim query
+    // at the three samples, when it answers the same off the boundary
+    // at all three. The tuned containment above samples each boundary
+    // pcurve 8 times, and within a chord's sagitta of a long arc its
+    // verdicts are coin flips (measured: a boss cap 1e-3 past a ring's
+    // extreme cuts the web's bottom face along a line that leaves and
+    // rejoins the ring's 60-long rim arc at 0.34°; the 0.68-long gap
+    // between, 1e-3 deep, sampled inside-outside-inside, the interval
+    // fell back to the crossing hull, the hull kept the gap, and a
+    // phantom lens of web bottom joined the regions on both sides of
+    // the ring wall).
+    let exact_verdict = |a: f64, b: f64| -> Option<bool> {
+        use popkern_core::validation::FaceUvContainment;
+        let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+        let at = |s: f64| {
+            let p = curve_uv.point_at(a + (b - a) * s);
+            brep.face_uv_trim_containment(face, surface, p.x, p.y)
+        };
+        match (at(0.25)?, at(0.5)?, at(0.75)?) {
+            (
+                FaceUvContainment::Interior,
+                FaceUvContainment::Interior,
+                FaceUvContainment::Interior,
+            ) => Some(true),
+            (
+                FaceUvContainment::Outside,
+                FaceUvContainment::Outside,
+                FaceUvContainment::Outside,
+            ) => Some(false),
+            _ => None,
+        }
+    };
+    // A boundary-running trace lies ON the rim to the model's tolerance
+    // (PK-926 measured the flush class at roundoff); an interval the
+    // exact trim puts outside, its midpoint measurably off every
+    // boundary edge curve, is a genuine gap however shallow its
+    // crossings and however close the 2 % clearance puts it.
+    let off_band = 10.0 * brep.tolerance.linear();
+    let clear_gap = |a: f64, b: f64| -> bool {
+        let p = curve_uv.point_at(a + (b - a) * 0.5);
+        exact_verdict(a, b) == Some(false)
+            && !super::clip_windows_clearance::on_any_boundary_exact(
+                brep,
+                face,
+                (p.x, p.y),
+                off_band,
+            )
+    };
     let mut verdicts: Vec<Option<bool>> = Vec::with_capacity(intervals.len());
     for &(a, b) in &intervals {
         if b - a < min_len {
@@ -170,13 +218,47 @@ pub(super) fn decisive_windows(
             verdicts.push(None);
             continue;
         }
-        let flags = [
+        let mut flags = [
             inside_at(a + (b - a) * 0.25),
             inside_at(a + (b - a) * 0.5),
             inside_at(a + (b - a) * 0.75),
         ];
+        // Decided by the side of the edge it leaves and rejoins: more
+        // than two tolerances off that edge, so not a boundary-running
+        // trace (the guard below).
+        let mut side_decided = false;
         if flags[0] != flags[1] || flags[1] != flags[2] {
-            return None;
+            // Both verdicts abstain within ten tolerances of a curved
+            // trim; the side of the edge the interval leaves and
+            // rejoins decides it then (PK-1054).
+            let exact = exact_verdict(a, b).or_else(|| {
+                side_decided = true;
+                let k = verdicts.len();
+                let before = (*verdicts.last()?)?;
+                let prev_a = intervals[k - 1].0;
+                let back = a - (b - a).min(0.5 * (a - prev_a));
+                super::clip_crossing_reports::same_edge_side_verdict(
+                    brep,
+                    face,
+                    curve_uv,
+                    crossings,
+                    (a, b),
+                    (back, before),
+                    &brep.tolerance,
+                )
+            })?;
+            flags = [exact; 3];
+        } else if near_boundary_at(a + (b - a) * 0.5)
+            && let Some(exact) = exact_verdict(a, b)
+        {
+            // Unanimous is not decisive within the clearance band: a
+            // shallow lens between a record and a curved boundary edge
+            // sits inside the tuned polygon's chord sag at all three
+            // samples (measured: a pin 2.7e-3 into a cycloid disc's
+            // window flank; the disc faces' circle arcs over the 0.185
+            // overlap read outside three times, exact inside, and the
+            // pin wall's flank lines floated, PK-1022).
+            flags = [exact; 3];
         }
         // The interval's ends that are crossings (an open record's
         // first and last intervals end at the record's own end).
@@ -187,6 +269,8 @@ pub(super) fn decisive_windows(
             && !flags[0]
             && near_boundary_at(a + (b - a) * 0.5)
             && !bounded_by_transversals
+            && !clear_gap(a, b)
+            && !side_decided
         {
             return None;
         }
@@ -261,7 +345,56 @@ pub(super) fn decisive_windows(
                 )
             })
         };
-        let hugs: Vec<bool> = intervals.iter().map(|&(a, b)| tight_hug_at(a, b)).collect();
+        let mut hugs: Vec<bool> = intervals.iter().map(|&(a, b)| tight_hug_at(a, b)).collect();
+        // A TANGENT TOUCH hugs too: a rod's end circle resting on a
+        // box's top edge lies within the tolerance of that edge over
+        // the 2·sqrt(2·r·tol) zone around the touch point, and the
+        // crossing finder's noise there splits the zone into hugging
+        // intervals (measured: the rod-on-box line contact kept a
+        // 1.5e-3 arc of the circle on the box's end face; refined
+        // to zero length it served as the whole circle, a phantom
+        // hole and disc of the end face). A flush span lies on the
+        // rim to roundoff along its whole run; a tangent's deviation
+        // grows quadratically from the touch point, so across the
+        // run its interior samples reach ~4/9 of the band. Each
+        // maximal hugging run counts as flush only when it lies on
+        // the rim to a tenth of the tolerance at its interior.
+        let flush_band = 0.1 * on_band;
+        let flush_run = |a: f64, b: f64| -> bool {
+            (1..=5).all(|k| {
+                let t = a + (b - a) * k as f64 / 6.0;
+                let tt = t_min + (t - t_min).rem_euclid(span);
+                let p = curve_uv.point_at(tt);
+                super::clip_windows_clearance::on_outer_boundary_exact(
+                    brep,
+                    face,
+                    (p.x, p.y),
+                    flush_band,
+                )
+            })
+        };
+        let hug_only = |j: usize, hugs: &[bool]| hugs[j] && !resolved[j];
+        if let Some(start) = (0..n).find(|&j| !hug_only(j, &hugs)) {
+            let mut i = start + 1;
+            while i <= start + n {
+                if !hug_only(i % n, &hugs) {
+                    i += 1;
+                    continue;
+                }
+                let first = i;
+                while i < start + n && hug_only(i % n, &hugs) {
+                    i += 1;
+                }
+                let lift = |k: usize| if k >= n { span } else { 0.0 };
+                let a = intervals[first % n].0 + lift(first);
+                let b = intervals[(i - 1) % n].1 + lift(i - 1);
+                if !flush_run(a, b) {
+                    for k in first..i {
+                        hugs[k % n] = false;
+                    }
+                }
+            }
+        }
         let any_inside = resolved.iter().zip(&hugs).any(|(&r, &h)| r && !h);
         let effective: Vec<bool> = resolved
             .iter()

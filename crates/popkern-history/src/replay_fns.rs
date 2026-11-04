@@ -118,7 +118,7 @@ pub(super) fn to_shell_options(
 
 /// Convert a serialisable [`BoolOpKind`] to the runtime
 /// [`popkern_bool::BoolOperation`].
-pub(super) fn to_bool_operation(kind: BoolOpKind) -> popkern_bool::BoolOperation {
+pub(crate) fn to_bool_operation(kind: BoolOpKind) -> popkern_bool::BoolOperation {
     match kind {
         BoolOpKind::Union => popkern_bool::BoolOperation::Union,
         BoolOpKind::Intersection => popkern_bool::BoolOperation::Intersection,

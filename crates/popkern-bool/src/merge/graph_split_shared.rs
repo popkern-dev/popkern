@@ -1,95 +1,14 @@
-//! PK-295: split SHARED intersection-record edges at pre-existing
-//! pierce nodes interior to their curves. Split out of
-//! `graph_split.rs` (500-line ratchet).
+//! Splitting operand edges at shared-record endpoints, and completing
+//! dead-end cuts. Split out of `graph_split.rs` (500-line ratchet).
 
 use super::graph::{EdgeSource, IntersectionGraph};
 use super::graph_split::{point_on_curved_graph_edge, point_on_graph_edge_curve, point_on_segment};
 use super::graph_split_node::split_at_existing_node_with_pcurves;
 
-/// Split SHARED intersection-record edges at existing nodes lying on
-/// their curve INTERIOR. Phase 2 splits operand edges where they
-/// pierce opposite faces (creating pierce nodes), and phase 3 then
-/// inserts records whose curves can pass THROUGH such a node
-/// mid-span — a cutter wall's spiric crossing a periodic face's seam
-/// runs through the seam's pierce node unsplit, radial routing at
-/// that node cannot turn onto the record, and the two fragments
-/// beside the seam can never close their loops (PK-295, measured:
-/// the θ=0 torus bulge of a rim-filleted cylinder dropped as open
-/// chains, stranding its wall spiric and both flanking rim arcs as
-/// self-twinned half-edges). Mirror of
-/// [`split_edges_at_shared_nodes`], which splits NON-shared edges at
-/// shared-record endpoints.
-pub(crate) fn split_shared_edges_at_interior_nodes(
-    graph: &mut IntersectionGraph,
-    tolerance: f64,
-    breps: Option<(
-        &popkern_core::topology::BRep,
-        &popkern_core::topology::BRep,
-        f64,
-    )>,
-) {
-    let mut did_split = true;
-    while did_split {
-        did_split = false;
-        for node_idx in 0..graph.nodes.len() {
-            let pos = graph.nodes[node_idx].position;
-            let mut i = 0;
-            while i < graph.half_edges.len() {
-                let he = &graph.half_edges[i];
-                if i >= he.twin || !matches!(he.source, EdgeSource::Shared { .. }) {
-                    i += 2;
-                    continue;
-                }
-                let twin_origin = graph.half_edges[he.twin].origin;
-                if he.origin == node_idx || twin_origin == node_idx {
-                    i += 2;
-                    continue;
-                }
-                let p0 = graph.nodes[he.origin].position;
-                let p1 = graph.nodes[twin_origin].position;
-                let on_edge = match point_on_segment(&pos, &p0, &p1, tolerance) {
-                    Some(t) => point_on_graph_edge_curve(graph, i, &pos, t, tolerance),
-                    None => point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some(),
-                };
-                if !on_edge
-                    && popkern_core::trace::trace_enabled("face-split")
-                    && point_on_curved_graph_edge(graph, i, &pos, tolerance * 1.0e4).is_some()
-                {
-                    eprintln!(
-                        "[nsplit-nearmiss] node {node_idx} ({:.4},{:.4},{:.4}) near shared he {i} within {:.1e}",
-                        pos.x,
-                        pos.y,
-                        pos.z,
-                        tolerance * 1.0e4
-                    );
-                }
-                if on_edge {
-                    did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
-                    if !did_split {
-                        i += 2;
-                        continue;
-                    }
-                    break;
-                }
-                i += 2;
-            }
-            if did_split {
-                break;
-            }
-        }
-    }
-
-    complete_dead_end_cuts(graph, tolerance, breps);
-}
-
 pub(crate) fn split_edges_at_shared_nodes(
     graph: &mut IntersectionGraph,
     tolerance: f64,
-    breps: Option<(
-        &popkern_core::topology::BRep,
-        &popkern_core::topology::BRep,
-        f64,
-    )>,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) {
     // Collect shared edge endpoint node indices, in ASCENDING order:
     // the split order below decides every new graph index, and a
@@ -126,22 +45,7 @@ pub(crate) fn split_edges_at_shared_nodes(
                     i += 2;
                     continue;
                 }
-                let p0 = graph.nodes[he.origin].position;
-                let p1 = graph.nodes[twin_origin].position;
-                if let Some(t) = point_on_segment(&pos, &p0, &p1, tolerance) {
-                    // Chord test only — verify against the real
-                    // curve for curved edges (same defect as
-                    // classify_endpoint: a 180° arc was split at
-                    // points on its chord, off-surface).
-                    if point_on_graph_edge_curve(graph, i, &pos, t, tolerance) {
-                        did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
-                        if did_split {
-                            break;
-                        }
-                    }
-                } else if point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some() {
-                    // Mirror case: the node sits ON the curve but
-                    // off its chord.
+                if node_on_edge(graph, i, pos, tolerance) {
                     did_split = split_at_existing_node_with_pcurves(graph, i, node_idx, breps);
                     if did_split {
                         break;
@@ -158,17 +62,69 @@ pub(crate) fn split_edges_at_shared_nodes(
     complete_dead_end_cuts(graph, tolerance, breps);
 }
 
+/// Whether `pos` lies on graph edge `i`, by its chord then its true
+/// curve, or on its curve off the chord: where
+/// [`split_edges_at_shared_nodes`] splits an operand edge.
+pub(crate) fn node_on_edge(
+    graph: &IntersectionGraph,
+    i: usize,
+    pos: popkern_core::geometry::Point3,
+    tolerance: f64,
+) -> bool {
+    let he = &graph.half_edges[i];
+    let p0 = graph.nodes[he.origin].position;
+    let p1 = graph.nodes[graph.half_edges[he.twin].origin].position;
+    match point_on_segment(&pos, &p0, &p1, tolerance) {
+        // Chord test only — verify against the real curve for curved
+        // edges (same defect as classify_endpoint: a 180° arc was
+        // split at points on its chord, off-surface).
+        Some(t) => point_on_graph_edge_curve(graph, i, &pos, t, tolerance),
+        // Mirror case: the node sits ON the curve but off its chord.
+        None => point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some(),
+    }
+}
+
+/// Every (record-end node, operand edge) junction
+/// [`split_edges_at_shared_nodes`] would still split in `graph`: zero
+/// once whatever split the operand edges found every junction the pass
+/// finds.
+pub(crate) fn unsplit_operand_junctions(graph: &IntersectionGraph, tolerance: f64) -> usize {
+    let shared_nodes: std::collections::BTreeSet<usize> = graph
+        .half_edges
+        .iter()
+        .filter(|he| matches!(he.source, EdgeSource::Shared { .. }))
+        .flat_map(|he| [he.origin, graph.half_edges[he.twin].origin])
+        .collect();
+    let mut count = 0;
+    for i in (0..graph.half_edges.len()).filter(|&i| {
+        let he = &graph.half_edges[i];
+        i < he.twin && !matches!(he.source, EdgeSource::Shared { .. })
+    }) {
+        let ends = [
+            graph.half_edges[i].origin,
+            graph.half_edges[graph.half_edges[i].twin].origin,
+        ];
+        let bound = super::graph_split_at_nodes::shared_edge_bounds(graph, i);
+        count += shared_nodes
+            .iter()
+            .filter(|&&n| {
+                let p = graph.nodes[n].position;
+                !ends.contains(&n)
+                    && super::graph_split_at_nodes::within_bounds(bound, &p, tolerance)
+                    && node_on_edge(graph, i, p, tolerance)
+            })
+            .count();
+    }
+    count
+}
+
 /// COMPLETE-THE-CUT (PK-305), shared by both split passes: a record
 /// chain that dead-ends within the marching slop of a boundary edge of
 /// one of its own faces splits that edge at the dead end.
-fn complete_dead_end_cuts(
+pub(crate) fn complete_dead_end_cuts(
     graph: &mut IntersectionGraph,
     tolerance: f64,
-    breps: Option<(
-        &popkern_core::topology::BRep,
-        &popkern_core::topology::BRep,
-        f64,
-    )>,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) {
     // COMPLETE-THE-CUT pass (PK-305): a record chain legitimately
     // dead-ends ON a face boundary edge, but its endpoint carries the
@@ -193,7 +149,7 @@ fn complete_dead_end_cuts(
             popkern_core::topology::FaceHandle,
         )> = Vec::new();
         for he in graph.half_edges.iter() {
-            if let EdgeSource::Shared { face_a, face_b } = &he.source {
+            if let EdgeSource::Shared { face_a, face_b, .. } = &he.source {
                 shared_ends.push((he.origin, *face_a, *face_b));
             }
         }
@@ -209,9 +165,12 @@ fn complete_dead_end_cuts(
         // transactional validate declined every assembly). A chain
         // nowhere joined to the candidate edge keeps the PK-305
         // completion.
-        let original_of = |src: &EdgeSource| match src {
-            EdgeSource::OriginalA(e) | EdgeSource::SplitA { original: e } => Some((0u8, *e)),
-            EdgeSource::OriginalB(e) | EdgeSource::SplitB { original: e } => Some((1u8, *e)),
+        let original_of = |src: &EdgeSource| match *src {
+            EdgeSource::Original(o, e)
+            | EdgeSource::Split {
+                operand: o,
+                original: e,
+            } => Some((o.index() as u8, e)),
             _ => None,
         };
         let joined: std::collections::HashSet<(
@@ -226,7 +185,7 @@ fn complete_dead_end_cuts(
                 let mut origs = Vec::new();
                 for &h in &node.outgoing {
                     match &graph.half_edges[h].source {
-                        EdgeSource::Shared { face_a, face_b } => pairs.push((*face_a, *face_b)),
+                        EdgeSource::Shared { face_a, face_b, .. } => pairs.push((*face_a, *face_b)),
                         s => {
                             if let Some(o) = original_of(s) {
                                 origs.push(o);
@@ -343,10 +302,14 @@ fn chain_degree(graph: &IntersectionGraph, node: usize, face: &super::graph::Fac
         .outgoing
         .iter()
         .filter(|&&h| match &graph.half_edges[h].source {
-            EdgeSource::Shared { face_a, face_b } => match face.operand {
-                super::graph::Operand::A => *face_a == face.face,
-                super::graph::Operand::B => *face_b == face.face,
-            },
+            EdgeSource::Shared {
+                face_a,
+                face_b,
+                operands,
+            } => {
+                (operands[0] == face.operand && *face_a == face.face)
+                    || (operands[1] == face.operand && *face_b == face.face)
+            }
             _ => false,
         })
         .count()
