@@ -364,7 +364,6 @@ impl Assembly {
                 clearance: clearance.unwrap_or(f64::MAX / 4.0),
                 chord_fraction: SWING_CHORD_FRACTION,
                 overlap_volume: false,
-                contact_area: false,
                 ..InterferenceOptions::default()
             },
             &crate::interference_motion::PairScope {

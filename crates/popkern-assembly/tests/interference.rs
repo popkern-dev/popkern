@@ -241,6 +241,14 @@ fn a_fit_tighter_than_the_mesh_chord_is_certified_clear() {
     }
 }
 
+fn blocks_pair() -> Assembly {
+    pair(
+        block(1.0, 1.0, 1.0),
+        block(1.0, 1.0, 1.0),
+        Placement::translation(1.0, 0.0, 0.0),
+    )
+}
+
 /// A touching pair says how it touches (PK-979): a face shared in full
 /// or in part is an area contact with its exact area, blocks meeting on
 /// an edge a curve, at a corner a point, and a rod lying on a block a
@@ -248,7 +256,25 @@ fn a_fit_tighter_than_the_mesh_chord_is_certified_clear() {
 #[test]
 fn a_touching_pair_reports_its_contact_extent_and_area() {
     use popkern_assembly::ContactExtent;
-    let touch = |asm: &mut Assembly| match check(asm, 0.0).as_slice() {
+    let detailed = |asm: &mut Assembly| -> Vec<PairStatus> {
+        let report = asm
+            .interference(&InterferenceOptions {
+                contact_area: true,
+                ..InterferenceOptions::default()
+            })
+            .expect("report");
+        report.pairs.into_iter().map(|p| p.status).collect()
+    };
+    // Off by default: a touching pair reports its distance alone.
+    assert!(matches!(
+        check(&mut blocks_pair(), 0.0).as_slice(),
+        [PairStatus::Touching {
+            contact: None,
+            area: None,
+            ..
+        }]
+    ));
+    let touch = |asm: &mut Assembly| match detailed(asm).as_slice() {
         [
             PairStatus::Touching {
                 contact,

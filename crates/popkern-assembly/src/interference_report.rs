@@ -25,9 +25,10 @@ pub struct InterferenceOptions {
     /// volume — a swing needs the contact, not its size.
     pub overlap_volume: bool,
     /// Report how a touching pair touches (point, curve or area) and an
-    /// area contact's area (`interference_contact`). Without it a
-    /// touching pair reports its distance alone, as a motion sweep
-    /// needs.
+    /// area contact's area (`interference_contact`): a contact report and
+    /// a partition per touching pair, so off by default (measured: the
+    /// six-axis arm's whole-assembly check went 18-43 s to 131 s with it
+    /// on). Without it a touching pair reports its distance alone.
     pub contact_area: bool,
 }
 
@@ -39,7 +40,7 @@ impl Default for InterferenceOptions {
             chord_fraction: 1e-3,
             among: Vec::new(),
             overlap_volume: true,
-            contact_area: true,
+            contact_area: false,
         }
     }
 }

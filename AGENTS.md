@@ -259,7 +259,8 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   surface as a one-face sheet: region extraction merges co-surfacial
   faces, so `faces` may reach past the patch, and contact or bonded
   areas are measured on `patch`. Assembly interference reports a
-  touching pair's extent and area (`contact_area` option).
+  touching pair's extent and area when asked (`contact_area`, off by
+  default: a partition per touching pair).
 - **STEP non-manifold bodies** — a `CLOSED_SHELL` that touches itself
   (a contact edge with four face uses, or a vertex two closed sets of
   faces share) imports as manifold pieces meeting at recorded contacts,
