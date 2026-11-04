@@ -2,6 +2,7 @@
 name = "popkern-history"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Parametric feature tree for the popkern CAD kernel"
 
