@@ -2,6 +2,7 @@
 name = "popkern-live"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Browser engine for popkern live: a Rhai model script in, triangle buffers + replay report + §10 diagnostics out (wasm-bindgen)"
 

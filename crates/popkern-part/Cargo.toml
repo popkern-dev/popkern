@@ -2,6 +2,7 @@
 name = "popkern-part"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Code-first part modeling API over the popkern BRep kernel"
 

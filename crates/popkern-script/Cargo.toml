@@ -2,6 +2,7 @@
 name = "popkern-script"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Scripting surface recorder: code-first authoring that records into the popkern feature tree"
 
