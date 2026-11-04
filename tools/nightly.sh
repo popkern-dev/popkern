@@ -22,7 +22,7 @@
 # back and the read value adopted, so two machines that race on the write
 # still agree unless both checked for the record before either wrote it:
 # schedule the platforms apart (Windows runs at 02:00 local, macOS at
-# 02:30) rather than rely on that.
+# 02:30, Linux at 03:00) rather than rely on that.
 #
 # The build runs in its own worktree of this repository
 # ($POPKERN_NIGHTLY_HOME/checkout, default %LOCALAPPDATA%\popkern-nightly on
@@ -48,7 +48,8 @@
 # needs wrangler logged in for this user (`wrangler login`), or
 # CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID in the user environment.
 # Scheduling: tools/register-nightly-windows.ps1 on Windows,
-# tools/register-nightly-macos.sh on macOS.
+# tools/register-nightly-macos.sh on macOS, tools/register-nightly-linux.sh
+# on Linux.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -78,7 +79,8 @@ if [[ $PLATFORM == windows ]]; then
   export PATH="$HOME/.cargo/bin:$(cygpath -u "$APPDATA")/npm:$(cygpath -u "$PROGRAMFILES")/nodejs:$PATH"
   DEFAULT_HOME=$(cygpath -u "$LOCALAPPDATA")/popkern-nightly
 else
-  # ~/.local/bin: node and wrangler as tools/setup-macos-build.sh installs them.
+  # ~/.local/bin: node, wrangler and zig as tools/setup-macos-build.sh and
+  # tools/setup-linux-build.sh install them.
   export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
   DEFAULT_HOME=${XDG_STATE_HOME:-$HOME/.local/state}/popkern-nightly
 fi
