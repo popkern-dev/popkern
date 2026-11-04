@@ -10,6 +10,7 @@
 //! result that carried nothing (unscoped, graph-merge) is touched
 //! everywhere, and every pass runs on the whole body as before.
 
+use crate::merge::graph::Operand;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, LoopHandle, VertexHandle};
 use slotmap::SecondaryMap;
 
@@ -44,8 +45,8 @@ impl Carried {
         operand: crate::merge::graph::Operand,
     ) -> (&mut CarriedEdges, &mut SecondaryMap<FaceHandle, ()>) {
         match operand {
-            crate::merge::graph::Operand::A => (&mut self.a_edges, &mut self.a_faces),
-            crate::merge::graph::Operand::B => (&mut self.b_edges, &mut self.b_faces),
+            Operand::A => (&mut self.a_edges, &mut self.a_faces),
+            _ /* B */ => (&mut self.b_edges, &mut self.b_faces),
         }
     }
 }

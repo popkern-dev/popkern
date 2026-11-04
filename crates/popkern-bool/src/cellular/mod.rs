@@ -17,7 +17,8 @@ pub(crate) mod assemble;
 pub(crate) mod assemble_cleanup;
 pub(crate) mod assemble_edge_geometry;
 mod assemble_far_carry;
-mod assemble_span_unify;
+pub(crate) mod assemble_span_unify;
+pub(crate) mod assemble_split;
 pub mod boolean;
 pub mod cell;
 pub(crate) mod classify_fragments;
@@ -31,8 +32,9 @@ pub(crate) mod fragment_sampling;
 pub(crate) mod fragment_torus_sample;
 mod operand_winding;
 mod probe_clearance;
-mod record_rotation;
+pub(crate) mod record_rotation;
 pub mod select;
+mod vertex_identity;
 
 pub use cell::{Cell, CellDecomposition};
 

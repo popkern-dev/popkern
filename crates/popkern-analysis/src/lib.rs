@@ -11,6 +11,7 @@
 pub mod aggregate;
 pub mod assess;
 pub mod clip;
+pub mod contact;
 pub mod element;
 pub mod error;
 pub mod face_ref;
@@ -32,6 +33,8 @@ pub mod thermal_setup;
 #[cfg(test)]
 #[path = "mesh_test_helpers.rs"]
 mod mesh_test_helpers;
+#[cfg(test)]
+mod mesh_test_models;
 #[cfg(test)]
 #[path = "model_tests.rs"]
 mod model_tests;

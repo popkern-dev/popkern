@@ -312,6 +312,10 @@ impl BRep {
         }
 
         for &inner_loop in &face.inner_loops {
+            // A sheet's free-boundary mirror is no hole (PK-978).
+            if self.is_mirror_loop(face_handle, inner_loop) {
+                continue;
+            }
             let inner_polygon = self.loop_uv_polygon(inner_loop, surface, query);
             if crate::trace::trace_enabled("self-intersection") {
                 eprintln!(

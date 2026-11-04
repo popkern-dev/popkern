@@ -5,7 +5,7 @@
 use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
 use popkern_history::SelectionRecord;
 use popkern_history::feature::{
-    AxisDesc, BoolOpKind, ExtrudeEnd, Feature, JoinStyleKind, OperationMode,
+    AxisDesc, BoolOpKind, ExtrudeEnd, Feature, JoinStyleKind, NonManifoldPolicy, OperationMode,
     RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind, Vec3Desc,
 };
 use popkern_history::feature_blend::{ChamferKindDesc, ContinuityKind, FilletRecipeDesc};
@@ -421,6 +421,7 @@ impl Body {
         model: &mut Model,
         op: BoolOpKind,
         tool: Body,
+        non_manifold: NonManifoldPolicy,
         label: &str,
     ) -> Result<Body, ScriptError> {
         self.require_alive(model)?;
@@ -434,23 +435,24 @@ impl Body {
         let feature = Feature::Boolean {
             operation: op,
             tool_body: tool.id,
+            non_manifold,
         };
         self.record(model, feature, label, Vec::new())
     }
 
     /// Boolean union with `tool` (consumes the tool body).
     pub fn union(self, model: &mut Model, tool: Body) -> Result<Body, ScriptError> {
-        self.boolean_labeled(model, BoolOpKind::Union, tool, "")
+        self.boolean_with(model, BoolOpKind::Union, tool, "")
     }
 
     /// Boolean subtraction of `tool`.
     pub fn subtract(self, model: &mut Model, tool: Body) -> Result<Body, ScriptError> {
-        self.boolean_labeled(model, BoolOpKind::Subtraction, tool, "")
+        self.boolean_with(model, BoolOpKind::Subtraction, tool, "")
     }
 
     /// Boolean intersection with `tool`.
     pub fn intersect(self, model: &mut Model, tool: Body) -> Result<Body, ScriptError> {
-        self.boolean_labeled(model, BoolOpKind::Intersection, tool, "")
+        self.boolean_with(model, BoolOpKind::Intersection, tool, "")
     }
 
     /// Rigid translation.

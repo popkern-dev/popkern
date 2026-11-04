@@ -234,6 +234,7 @@ fn a_linear_temperature_is_exact_on_the_fin() {
         source_w: 0.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     };
     let options = AnalysisOptions {
         target_cell_size: Some(0.25),

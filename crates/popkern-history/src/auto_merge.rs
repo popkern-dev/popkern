@@ -41,6 +41,11 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Fillet { .. }
         | Feature::Chamfer { .. }
         | Feature::Boolean { .. }
+        | Feature::Split { .. }
+        | Feature::NaryBoolean { .. }
+        | Feature::Imprint { .. }
+        | Feature::KeepPieces { .. }
+        | Feature::SeparatePieces { .. }
         | Feature::Transform { .. }
         | Feature::Shell { .. }
         | Feature::Generative { .. }

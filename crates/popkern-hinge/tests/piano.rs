@@ -62,13 +62,15 @@ fn piano_hinges_build_watertight_within_budget_and_linearly() {
     if std::env::var_os("POPKERN_TIMING_GATES").is_some() {
         assert!(times[2] < 2.0, "60 knuckles took {:.2} s", times[2]);
     }
-    // Near-linear (load stretches both ends alike): 10x the knuckles
-    // well under the ~100x a quadratic step would cost.
+    // Near-linear: 100 against 30 knuckles costs ~3.3x linear, ~11x
+    // quadratic; measured 4.3-4.6x (2026-10-31). Anchored at 30, not
+    // 10: suite load stretched the 0.13 s ten-knuckle build more than
+    // the 100 (2.80 vs 0.18 s, a 15.6x "ratio" from 12x quiet).
     assert!(
-        times[3] < 15.0 * times[0].max(0.05),
-        "100 vs 10 knuckles: {:.2} s vs {:.2} s",
+        times[3] < 6.5 * times[1].max(0.05),
+        "100 vs 30 knuckles: {:.2} s vs {:.2} s",
         times[3],
-        times[0]
+        times[1]
     );
 }
 

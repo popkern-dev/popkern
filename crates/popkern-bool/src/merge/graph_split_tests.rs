@@ -7,7 +7,7 @@ fn simple_edge_graph() -> IntersectionGraph {
     let n0 = g.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
     let n1 = g.add_node(Point3::new(2.0, 0.0, 0.0), NodeSource::Intersection);
     let edge_h = popkern_core::topology::EdgeHandle::default();
-    g.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+    g.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
     g
 }
 
@@ -162,12 +162,12 @@ fn classify_with_multiple_edges() {
     // Edge 1: (0,0,0) → (2,0,0)
     let n0 = g.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
     let n1 = g.add_node(Point3::new(2.0, 0.0, 0.0), NodeSource::Intersection);
-    g.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+    g.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
 
     // Edge 2: (0,5,0) → (2,5,0)
     let n2 = g.add_node(Point3::new(0.0, 5.0, 0.0), NodeSource::Intersection);
     let n3 = g.add_node(Point3::new(2.0, 5.0, 0.0), NodeSource::Intersection);
-    g.add_half_edge_pair(n2, n3, EdgeSource::OriginalA(edge_h), None);
+    g.add_half_edge_pair(n2, n3, EdgeSource::Original(Operand::A, edge_h), None);
 
     // Point on the second edge midpoint.
     match classify_endpoint(&g, &Point3::new(1.0, 5.0, 0.0), 1e-6) {
@@ -220,18 +220,30 @@ fn split_graph_edge_source_propagation() {
     let n0 = g.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
     let n1 = g.add_node(Point3::new(4.0, 0.0, 0.0), NodeSource::Intersection);
     let edge_h = popkern_core::topology::EdgeHandle::default();
-    g.add_half_edge_pair(n0, n1, EdgeSource::OriginalB(edge_h), None);
+    g.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::B, edge_h), None);
 
     let _new_node = split_graph_edge(&mut g, 0, Point3::new(2.0, 0.0, 0.0), 0.5);
 
     // New half-edges (indices 2,3) should have SplitB source.
     assert!(
-        matches!(g.half_edges[2].source, EdgeSource::SplitB { .. }),
+        matches!(
+            g.half_edges[2].source,
+            EdgeSource::Split {
+                operand: Operand::B,
+                ..
+            }
+        ),
         "expected SplitB, got {:?}",
         g.half_edges[2].source
     );
     assert!(
-        matches!(g.half_edges[3].source, EdgeSource::SplitB { .. }),
+        matches!(
+            g.half_edges[3].source,
+            EdgeSource::Split {
+                operand: Operand::B,
+                ..
+            }
+        ),
         "expected SplitB, got {:?}",
         g.half_edges[3].source
     );

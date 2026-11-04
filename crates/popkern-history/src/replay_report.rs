@@ -195,6 +195,33 @@ pub struct FeatureReport {
     /// served generative feature, `None` for every other feature.
     #[serde(default)]
     pub generative: Option<GenerativeRecord>,
+    /// Where each face of a served imprint lies relative to its tool,
+    /// keyed by the face's stable name — `Some` for every served
+    /// imprint, `None` for every other feature.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub imprint: Option<ImprintRecord>,
+}
+
+/// The face classes a served imprint decided (design 5.4), by stable
+/// name: queried as `model.imprint_class(face)`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImprintRecord {
+    /// Each classified face of the imprinted body and its class; a face
+    /// with no verdict is left out.
+    pub classes: Vec<(popkern_core::naming::EntityName, popkern_bool::FaceClass)>,
+}
+
+impl ImprintRecord {
+    /// The class recorded for `face`.
+    pub fn class_of(
+        &self,
+        face: &popkern_core::naming::EntityName,
+    ) -> Option<popkern_bool::FaceClass> {
+        self.classes
+            .iter()
+            .find(|(n, _)| n == face)
+            .map(|(_, c)| *c)
+    }
 }
 
 /// What a served generative design came to (PK-956).
@@ -248,6 +275,7 @@ impl FeatureReport {
             fallbacks: Vec::new(),
             skipped: Vec::new(),
             generative: None,
+            imprint: None,
         }
     }
 
@@ -261,6 +289,9 @@ impl FeatureReport {
         self.skipped.extend(evidence.skipped);
         if evidence.generative.is_some() {
             self.generative = evidence.generative;
+        }
+        if evidence.imprint.is_some() {
+            self.imprint = evidence.imprint;
         }
         self
     }

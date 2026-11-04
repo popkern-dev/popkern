@@ -1282,11 +1282,35 @@
       ]
     },
     {
+      "name": "imprint",
+      "section": "5",
+      "mark": "preview",
+      "signature": "body.imprint(tool_body)",
+      "parameters": [
+        {
+          "name": "tool_body",
+          "optional": false
+        }
+      ]
+    },
+    {
       "name": "intersect",
       "section": "5",
       "mark": "stable",
       "signature": "",
       "parameters": []
+    },
+    {
+      "name": "keep_pieces",
+      "section": "5",
+      "mark": "preview",
+      "signature": "body.keep_pieces(rule)",
+      "parameters": [
+        {
+          "name": "rule",
+          "optional": false
+        }
+      ]
     },
     {
       "name": "linear_pattern",
@@ -1400,6 +1424,26 @@
         },
         {
           "name": "merge_result",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "nary_boolean",
+      "section": "5",
+      "mark": "preview",
+      "signature": "body.nary_boolean(tools, expr, non_manifold?)",
+      "parameters": [
+        {
+          "name": "tools",
+          "optional": false
+        },
+        {
+          "name": "expr",
+          "optional": false
+        },
+        {
+          "name": "non_manifold",
           "optional": true
         }
       ]
@@ -1545,6 +1589,18 @@
       ]
     },
     {
+      "name": "separate_pieces",
+      "section": "5",
+      "mark": "preview",
+      "signature": "body.separate_pieces(rule)",
+      "parameters": [
+        {
+          "name": "rule",
+          "optional": false
+        }
+      ]
+    },
+    {
       "name": "shell",
       "section": "5",
       "mark": "stable",
@@ -1568,6 +1624,22 @@
         },
         {
           "name": "trim",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "split",
+      "section": "5",
+      "mark": "preview",
+      "signature": "body.split(tools, keep?)",
+      "parameters": [
+        {
+          "name": "tools",
+          "optional": false
+        },
+        {
+          "name": "keep",
           "optional": true
         }
       ]
@@ -1604,6 +1676,18 @@
         {
           "name": "mode",
           "optional": true
+        }
+      ]
+    },
+    {
+      "name": "symmetric_difference",
+      "section": "5",
+      "mark": "preview",
+      "signature": "body.symmetric_difference(tool_body)",
+      "parameters": [
+        {
+          "name": "tool_body",
+          "optional": false
         }
       ]
     },
@@ -1723,11 +1807,15 @@
       "name": "union",
       "section": "5",
       "mark": "stable",
-      "signature": "body.union(tool_body)",
+      "signature": "body.union(tool_body, non_manifold?)",
       "parameters": [
         {
           "name": "tool_body",
           "optional": false
+        },
+        {
+          "name": "non_manifold",
+          "optional": true
         }
       ]
     },
@@ -2113,6 +2201,9 @@
         "detail",
         "generative_kind",
         "detail",
+        "feature",
+        "rule",
+        "pieces",
         "detail",
         "report"
       ]

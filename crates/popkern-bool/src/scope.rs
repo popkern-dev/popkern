@@ -47,6 +47,32 @@ pub(crate) struct ActiveScope {
         std::collections::BTreeMap<FaceHandle, Vec<popkern_core::topology::LoopHandle>>,
 }
 
+impl ActiveScope {
+    /// Whether half-edge `he` of `brep` enters the graph: on an active
+    /// face, and not on one of its far holes.
+    pub(crate) fn holds(&self, brep: &BRep, he: popkern_core::topology::HalfEdgeHandle) -> bool {
+        let Some(h) = brep.half_edges.get(he) else {
+            return false;
+        };
+        !self.far_holes.values().flatten().any(|&l| l == h.loop_)
+            && brep
+                .loops
+                .get(h.loop_)
+                .is_some_and(|l| self.active.contains(&l.face))
+    }
+
+    /// Whether exactly one side of edge `e` enters the graph: the edge
+    /// bounds the scoped region (an active face against a far face, or
+    /// against a far hole of an active face).
+    pub(crate) fn bounds(&self, brep: &BRep, e: EdgeHandle) -> bool {
+        let Some(edge) = brep.edges.get(e) else {
+            return false;
+        };
+        let twin = brep.half_edges.get(edge.half_edge).map(|h| h.twin);
+        self.holds(brep, edge.half_edge) != twin.is_some_and(|t| self.holds(brep, t))
+    }
+}
+
 /// Whether compare mode is on (`POPKERN_BOOL_SCOPE=compare`).
 pub(crate) fn compare_enabled() -> bool {
     std::env::var("POPKERN_BOOL_SCOPE").is_ok_and(|v| v == "compare")
@@ -207,7 +233,7 @@ pub(crate) fn scope_violation(
     let far: HashSet<FaceHandle> = scope.far.iter().copied().collect();
     let on = |r: &crate::intersect::IntersectionRecord| match operand {
         Operand::A => r.face_a,
-        Operand::B => r.face_b,
+        _ /* B */ => r.face_b,
     };
     if let Some(r) = intersection.records.iter().find(|r| far.contains(&on(r))) {
         return Some(format!("a record lies on far face {:?}", on(r)));
@@ -388,7 +414,9 @@ pub(crate) fn serving_scopes(
         sa.far_holes.clear();
     }
     let mut sb = active_scope(b, &intersection.aabbs_b, &intersection.aabbs_a, pad);
-    sb.far_holes.clear();
+    if !far_kept(op, Operand::B) {
+        sb.far_holes.clear();
+    }
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
             "  [scope] serving: active {} far {} far holes {}; tool active {} far {}",

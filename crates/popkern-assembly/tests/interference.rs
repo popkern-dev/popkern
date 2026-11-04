@@ -240,3 +240,77 @@ fn a_fit_tighter_than_the_mesh_chord_is_certified_clear() {
         other => panic!("{other:?}"),
     }
 }
+
+fn blocks_pair() -> Assembly {
+    pair(
+        block(1.0, 1.0, 1.0),
+        block(1.0, 1.0, 1.0),
+        Placement::translation(1.0, 0.0, 0.0),
+    )
+}
+
+/// A touching pair says how it touches (PK-979): a face shared in full
+/// or in part is an area contact with its exact area, blocks meeting on
+/// an edge a curve, at a corner a point, and a rod lying on a block a
+/// curve.
+#[test]
+fn a_touching_pair_reports_its_contact_extent_and_area() {
+    use popkern_assembly::ContactExtent;
+    let detailed = |asm: &mut Assembly| -> Vec<PairStatus> {
+        let report = asm
+            .interference(&InterferenceOptions {
+                contact_area: true,
+                ..InterferenceOptions::default()
+            })
+            .expect("report");
+        report.pairs.into_iter().map(|p| p.status).collect()
+    };
+    // Off by default: a touching pair reports its distance alone.
+    assert!(matches!(
+        check(&mut blocks_pair(), 0.0).as_slice(),
+        [PairStatus::Touching {
+            contact: None,
+            area: None,
+            ..
+        }]
+    ));
+    let touch = |asm: &mut Assembly| match detailed(asm).as_slice() {
+        [
+            PairStatus::Touching {
+                contact,
+                area,
+                decline: None,
+                ..
+            },
+        ] => (*contact, *area),
+        other => panic!("{other:?}"),
+    };
+    let blocks = |x, y, z| {
+        pair(
+            block(1.0, 1.0, 1.0),
+            block(1.0, 1.0, 1.0),
+            Placement::translation(x, y, z),
+        )
+    };
+    let (contact, area) = touch(&mut blocks(1.0, 0.0, 0.0));
+    assert_eq!(contact, Some(ContactExtent::Area));
+    assert!(area.is_some_and(|a| (a - 1.0).abs() < 1e-9), "{area:?}");
+    let (contact, area) = touch(&mut blocks(1.0, 0.25, 0.5));
+    assert_eq!(contact, Some(ContactExtent::Area));
+    assert!(area.is_some_and(|a| (a - 0.375).abs() < 1e-9), "{area:?}");
+    assert_eq!(
+        touch(&mut blocks(1.0, 1.0, 0.0)),
+        (Some(ContactExtent::Curve), None)
+    );
+    assert_eq!(
+        touch(&mut blocks(1.0, 1.0, 1.0)),
+        (Some(ContactExtent::Point), None)
+    );
+    // A rod (radius 0.5, axis z) beside the block, tangent to its face.
+    let mut asm = pair(
+        block(1.0, 1.0, 1.0),
+        rod(0.5, 1.0),
+        Placement::translation(1.0, 0.0, 0.0),
+    );
+    assert_eq!(touch(&mut asm), (Some(ContactExtent::Curve), None));
+}

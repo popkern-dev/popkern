@@ -8,11 +8,15 @@
 //! tee (x0 = 0) and the x0 = -20 tee, union, subtract and intersect,
 //! serves on its charts (no graph-merge fallback, no face walked
 //! off-chart) with the analytic volume (main x branch overlap by
-//! quadrature; the mesh volume is within its chord error).
+//! quadrature; the mesh volume is within its chord error). The x0 = -20
+//! difference is pinched at S± and declines (PK-992; split serves it).
 
 use popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events;
 use popkern_bool::merge_fallback::take_merge_fallback_events;
-use popkern_bool::{BoolOperation, boolean};
+use popkern_bool::{
+    BoolError, BoolOperation, BoolOptions, ContactKind, NonManifoldPolicy, boolean,
+    boolean_with_options,
+};
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::tolerance::Tolerance;
@@ -70,6 +74,55 @@ fn mesh_volume(body: &BRep) -> f64 {
         .sum()
 }
 
+/// The pinched difference: declined by default with point contacts at
+/// S±, served by the split policy with both recorded and the analytic
+/// volume.
+fn pinched_difference(x0: f64, k: usize, want: f64) -> Result<(), String> {
+    let tol = Tolerance::default();
+    match boolean(
+        BoolOperation::Subtraction,
+        main_body(),
+        branch(x0, k),
+        tol,
+        None,
+    ) {
+        Err(BoolError::NonManifoldResult { contacts }) => {
+            let at_singular = |c: &popkern_bool::NonManifoldContact| {
+                c.kind == ContactKind::Vertex
+                    && c.location.x.abs() < 1e-3
+                    && (c.location.y.abs() - R).abs() < 1e-3
+                    && (c.location.z - 60.0).abs() < 1e-3
+            };
+            if contacts.len() != 2 || !contacts.iter().all(at_singular) {
+                return Err(format!("declined with {contacts:?}, want S+ and S-"));
+            }
+        }
+        other => return Err(format!("want NonManifoldResult, got {other:?}")),
+    }
+    let split = boolean_with_options(
+        BoolOperation::Subtraction,
+        main_body(),
+        branch(x0, k),
+        tol,
+        None,
+        &BoolOptions {
+            non_manifold: NonManifoldPolicy::SplitToManifold,
+        },
+    )
+    .map_err(|e| format!("split: {e}"))?;
+    if split.topology_contacts.len() != 2 {
+        return Err(format!(
+            "split recorded {} contacts",
+            split.topology_contacts.len()
+        ));
+    }
+    let got = mesh_volume(&split);
+    if (got - want).abs() > 2e-3 * want {
+        return Err(format!("split volume {got} vs {want}"));
+    }
+    Ok(())
+}
+
 #[test]
 fn equal_tees_serve_every_seam_turn_and_operation() {
     let mut failures = Vec::new();
@@ -88,6 +141,19 @@ fn equal_tees_serve_every_seam_turn_and_operation() {
                 let name = format!("x0 {x0} {op:?} seam turn {k}");
                 let _ = take_merge_fallback_events();
                 let _ = take_chart_walk_fallback_events();
+                // A branch through the main cylinder (x0 < 0) leaves the
+                // main body's material in two lobes, |z − 60| > |x|,
+                // touching only at the singular points S± = (0, ±40,
+                // 60): the difference is non-manifold there (PK-992).
+                // It declines with both points, and the split policy
+                // serves it with them recorded.
+                let pinched = x0 < 0.0 && op == BoolOperation::Subtraction;
+                if pinched {
+                    if let Err(e) = pinched_difference(x0, k, want) {
+                        failures.push(format!("{name}: {e}"));
+                    }
+                    continue;
+                }
                 let body = match boolean(op, main_body(), branch(x0, k), Tolerance::default(), None)
                 {
                     Ok(b) => b,

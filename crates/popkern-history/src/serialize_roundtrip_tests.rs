@@ -121,6 +121,7 @@ fn save_load_all_feature_types() {
         Feature::Boolean {
             operation: BoolOpKind::Subtraction,
             tool_body: BodyId(1),
+            non_manifold: Default::default(),
         },
         "Boolean",
     );
@@ -303,4 +304,31 @@ fn save_load_preserves_suppressed_and_config() {
         1
     );
     assert!(loaded.active_config().is_some());
+}
+
+#[test]
+fn a_boolean_saves_its_non_manifold_policy_only_when_not_the_default() {
+    use crate::feature::{BoolOpKind, NonManifoldPolicy};
+    use crate::node::BodyId;
+    let feature = |non_manifold| Feature::Boolean {
+        operation: BoolOpKind::Union,
+        tool_body: BodyId(1),
+        non_manifold,
+    };
+    let declined = serde_json::to_string(&feature(NonManifoldPolicy::Decline)).expect("save");
+    assert!(!declined.contains("non_manifold"), "{declined}");
+    let split = feature(NonManifoldPolicy::SplitToManifold);
+    let saved = serde_json::to_string(&split).expect("save");
+    assert!(saved.contains("SplitToManifold"), "{saved}");
+    let loaded: Feature = serde_json::from_str(&saved).expect("load");
+    assert_eq!(serde_json::to_string(&loaded).expect("save"), saved);
+    // A document saved before the policy existed loads as the default.
+    let old: Feature = serde_json::from_str(&declined).expect("load old");
+    assert!(matches!(
+        old,
+        Feature::Boolean {
+            non_manifold: NonManifoldPolicy::Decline,
+            ..
+        }
+    ));
 }

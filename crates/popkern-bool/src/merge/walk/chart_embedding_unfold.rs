@@ -64,3 +64,50 @@ pub(super) fn unfold_pcurve_run(
         }
     }
 }
+
+/// Bisection levels [`run_parameters`] may add to one uniform step.
+const MAX_BISECTIONS: usize = 8;
+
+/// Parameters of `pc` over `(s0, s1)` to sample a run at: `n` uniform
+/// steps, each bisected while the step between its samples (to the
+/// nearest period image) exceeds a quarter period. The unfold above
+/// reads each step as the minimal image, which is faithful only for
+/// steps under half a period; near a pole the longitude sweeps half a
+/// turn over a short stretch of the curve (PK-1055: a loop 0.02 from
+/// a sphere's pole swept more than pi within one sixteenth of it, the
+/// unfold wrapped it the short way through the seam, the anchored
+/// interior straddled the seam, and the face fell to the 3D walk,
+/// which joined the two regions the loop separates).
+pub(super) fn run_parameters(
+    pc: &popkern_core::geometry::pcurve::Pcurve,
+    surface: &SurfaceGeometry,
+    (s0, s1): (f64, f64),
+    n: usize,
+) -> Vec<f64> {
+    let (u_analytic, v_analytic) = surface.parameter_periodicity();
+    let (u_chart, v_chart) = crate::clip::classification_chart_periods(surface);
+    let periods = [u_analytic.or(u_chart), v_analytic.or(v_chart)];
+    let wide = |a: f64, b: f64| -> bool {
+        let (pa, pb) = (pc.point_at(a), pc.point_at(b));
+        [(pb.x - pa.x, periods[0]), (pb.y - pa.y, periods[1])]
+            .iter()
+            .any(|&(d, p)| p.is_some_and(|p| (d - (d / p).round() * p).abs() > 0.25 * p))
+    };
+    let mut params = vec![s0];
+    for i in 1..=n {
+        let a = s0 + (s1 - s0) * (i - 1) as f64 / n as f64;
+        let b = s0 + (s1 - s0) * i as f64 / n as f64;
+        // Depth-first bisection, emitted in order.
+        let mut stack = vec![(a, b, 0)];
+        while let Some((lo, hi, depth)) = stack.pop() {
+            if depth < MAX_BISECTIONS && wide(lo, hi) {
+                let mid = 0.5 * (lo + hi);
+                stack.push((mid, hi, depth + 1));
+                stack.push((lo, mid, depth + 1));
+            } else {
+                params.push(hi);
+            }
+        }
+    }
+    params
+}

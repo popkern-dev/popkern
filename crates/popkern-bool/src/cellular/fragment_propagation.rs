@@ -145,8 +145,12 @@ pub(super) fn build_plan(
             continue;
         }
         let flip = match &graph.half_edges[h].source {
-            EdgeSource::OriginalA(_) | EdgeSource::SplitA { .. } => false,
-            EdgeSource::Shared { face_a, face_b } => {
+            EdgeSource::Original(Operand::A, _)
+            | EdgeSource::Split {
+                operand: Operand::A,
+                ..
+            } => false,
+            EdgeSource::Shared { face_a, face_b, .. } => {
                 if !record_is_transversal(graph, h, t, *face_a, *face_b, brep_a, brep_b) {
                     continue; // graze / residue / unevaluable: no edge
                 }

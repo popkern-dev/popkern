@@ -402,7 +402,8 @@ impl Body {
         tool: Body,
         label: &str,
     ) -> Result<Body, ScriptError> {
-        self.boolean_labeled(model, operation, tool, label)
+        let decline = popkern_history::feature::NonManifoldPolicy::Decline;
+        self.boolean_labeled(model, operation, tool, decline, label)
     }
 
     /// Rigid translation with a label.

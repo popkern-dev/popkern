@@ -270,9 +270,44 @@ pub(super) fn assemble_periodic_polygon(
         sum * 0.5
     };
 
-    if closure_ok(&folded_polygon) && area(&folded_polygon).abs() > 1.0e-9 {
+    // Degenerate rows the loop crosses (or closes on): a polygon that
+    // walks a seam down to one and straight back up the same line has
+    // a zero-width slit there — the seam's two sides are a period apart
+    // in the chart, so no true trim retraces itself at a pole. Area
+    // alone misses it once other edges give the polygon area (measured:
+    // a sphere whose cutout straddles the seam folded both seam sides
+    // onto u = 2π, the cutout's two halves supplying area, and every
+    // query on the face read inverted, PK-1057).
+    let mut pole_rows: Vec<f64> = chain_starts.iter().map(|&i| raw[i].uv.v).collect();
+    if closure_on_degenerate_rows && let Some(first) = raw.first() {
+        pole_rows.push(first.uv.v);
+    }
+    let sound = |polygon: &[UvPoint]| -> bool {
+        polygon.len() >= 3
+            && closure_ok(polygon)
+            && area(polygon).abs() > 1.0e-9
+            && !retraces_at_rows(polygon, &pole_rows, periodic_v)
+    };
+
+    if sound(&folded_polygon) {
         return folded_polygon;
     }
+    // A variant must also stay within one u-period: a face's trim
+    // covers each point of its surface once, so a polygon wider than
+    // the period bridged a pole row the wrong way, its cutouts bulging
+    // out of the strip instead of into it (measured on the straddling
+    // cutout above: the −period bridge spanned 7.58 in u and read every
+    // cutout point Interior). Variants arise only at pole crossings,
+    // never on the multi-turn helical charts that legitimately span
+    // several periods.
+    let one_period = |polygon: &[UvPoint]| -> bool {
+        let (lo, hi) = polygon
+            .iter()
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
+                (lo.min(p.u), hi.max(p.u))
+            });
+        hi - lo <= TAU + 1.0e-9
+    };
 
     // Folded polygon is area-degenerate (or tears its closure):
     // enumerate raw-branch assignments for the pole-separated chains,
@@ -286,7 +321,7 @@ pub(super) fn assemble_periodic_polygon(
             .map(|(_, &idx)| (idx, 0.0))
             .collect();
         let candidate = assemble(&selected);
-        if candidate.len() >= 3 && closure_ok(&candidate) && area(&candidate).abs() > 1.0e-9 {
+        if sound(&candidate) && one_period(&candidate) {
             return candidate;
         }
     }
@@ -298,12 +333,50 @@ pub(super) fn assemble_periodic_polygon(
     for &start in &chain_starts {
         for extra in [-1.0, 1.0] {
             let candidate = assemble(&[(start, extra)]);
-            if candidate.len() >= 3 && closure_ok(&candidate) && area(&candidate).abs() > 1.0e-9 {
+            if sound(&candidate) && one_period(&candidate) {
                 return candidate;
             }
         }
     }
     folded_polygon
+}
+
+/// Whether `polygon` (cyclic) turns straight back on itself at a vertex
+/// on one of the degenerate `rows` (its v; on a v-periodic chart any
+/// period image): the incoming and outgoing segments anti-parallel.
+fn retraces_at_rows(polygon: &[UvPoint], rows: &[f64], periodic_v: bool) -> bool {
+    let n = polygon.len();
+    let on_row = |v: f64| {
+        rows.iter().any(|&r| {
+            let d = v - r;
+            let d = if periodic_v {
+                d - (d / TAU).round() * TAU
+            } else {
+                d
+            };
+            d.abs() <= 1.0e-9
+        })
+    };
+    // The nearest vertex distinct from `polygon[k]` stepping by `step`.
+    let distinct = |k: usize, step: usize| -> Option<UvPoint> {
+        let p = polygon[k];
+        (1..n)
+            .map(|j| polygon[(k + j * step) % n])
+            .find(|q| (q.u - p.u).phypot(q.v - p.v) > 1.0e-12)
+    };
+    (0..n).any(|k| {
+        let p = polygon[k];
+        if !on_row(p.v) {
+            return false;
+        }
+        let (Some(prev), Some(next)) = (distinct(k, n - 1), distinct(k, 1)) else {
+            return false;
+        };
+        let (a_u, a_v) = (p.u - prev.u, p.v - prev.v);
+        let (b_u, b_v) = (next.u - p.u, next.v - p.v);
+        let (la, lb) = (a_u.phypot(a_v), b_u.phypot(b_v));
+        a_u * b_u + a_v * b_v <= -(1.0 - 1.0e-9) * la * lb
+    })
 }
 
 #[cfg(test)]

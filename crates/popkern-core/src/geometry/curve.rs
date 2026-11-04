@@ -150,11 +150,16 @@ pub fn closest_point_in_window(curve: &dyn CurveEval, point: &Point3, t0: f64, t
     // Seeds: the three best samples and both window ends. On a closed
     // edge a point just past the start ties with the end, whose Newton
     // step clamps there: the start's does not.
-    let mut seeds: Vec<f64> = (0..=samples)
-        .map(|k| t0 + (t1 - t0) * k as f64 / samples as f64)
+    // Each sample's distance once: a comparator evaluating the curve
+    // twice per comparison costs ~800 evaluations for 65 samples.
+    let mut sampled: Vec<(f64, f64)> = (0..=samples)
+        .map(|k| {
+            let t = t0 + (t1 - t0) * k as f64 / samples as f64;
+            (dist(t), t)
+        })
         .collect();
-    seeds.sort_by(|a, b| dist(*a).total_cmp(&dist(*b)));
-    seeds.truncate(3);
+    sampled.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let mut seeds: Vec<f64> = sampled.iter().take(3).map(|&(_, t)| t).collect();
     seeds.extend([t0, t1]);
     seeds
         .into_iter()

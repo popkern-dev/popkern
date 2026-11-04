@@ -122,4 +122,12 @@ pub enum PartError {
     /// produced and the caller's inputs are untouched.
     #[error("part operation cancelled by token")]
     Cancelled,
+    /// A measurement the operation reports failed (a region's volume).
+    #[error("measuring {what} failed: {source}")]
+    Measure {
+        /// What was measured.
+        what: &'static str,
+        /// The measurement error.
+        source: popkern_measure::MeasureError,
+    },
 }

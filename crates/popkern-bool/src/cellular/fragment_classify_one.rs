@@ -57,7 +57,7 @@ pub(super) fn sample_and_classify(
     // holed cap lands INSIDE THE HOLE.
     let frag_surface = match fragment.face.operand {
         Operand::A => brep_a.faces.get(fragment.face.face),
-        Operand::B => brep_b.faces.get(fragment.face.face),
+        _ /* B */ => brep_b.faces.get(fragment.face.face),
     }
     .and_then(|f| f.surface.as_ref())
     .map(|s| (s.geometry.clone(), s.orientation));
@@ -72,11 +72,11 @@ pub(super) fn sample_and_classify(
     // the scanline than through the midpoint shortcut.
     let on_overlap_face_early = match fragment.face.operand {
         Operand::A => overlap_a.contains(&fragment.face.face),
-        Operand::B => overlap_b.contains(&fragment.face.face),
+        _ /* B */ => overlap_b.contains(&fragment.face.face),
     };
     let other_for_edges = match fragment.face.operand {
         Operand::A => brep_b,
-        Operand::B => brep_a,
+        _ /* B */ => brep_a,
     };
     let shortcut = sample_fragment_point(graph, &fragment.outer_loop);
     let eps_probe = probe_eps;
@@ -90,11 +90,11 @@ pub(super) fn sample_and_classify(
     let calibratable_at = |p: &popkern_core::geometry::Point3| -> bool {
         let own_brep_ref = match fragment.face.operand {
             Operand::A => brep_a,
-            Operand::B => brep_b,
+            _ /* B */ => brep_b,
         };
         let own_aabbs_ref = match fragment.face.operand {
             Operand::A => &aabbs_a,
-            Operand::B => &aabbs_b,
+            _ /* B */ => &aabbs_b,
         };
         // The probe axis the classifier will use: the planar outward
         // normal, else the chart normal at `p` (a closed-rim cap has
@@ -184,7 +184,7 @@ pub(super) fn sample_and_classify(
         // the cut onto the fragment's own side.
         let other = match fragment.face.operand {
             Operand::A => (brep_b, &aabbs_b),
-            Operand::B => (brep_a, &aabbs_a),
+            _ /* B */ => (brep_a, &aabbs_a),
         };
         let cut = fragment.outer_loop.iter().any(|&h| {
             matches!(
@@ -303,7 +303,7 @@ pub(super) fn sample_and_classify(
     let own_operand = fragment.face.operand;
     let (other_brep, other_aabbs) = match own_operand {
         Operand::A => (brep_b, &aabbs_b),
-        Operand::B => (brep_a, &aabbs_a),
+        _ /* B */ => (brep_a, &aabbs_a),
     };
 
     // OFFSET-PAIR classification: a fragment can lie exactly on
@@ -323,7 +323,7 @@ pub(super) fn sample_and_classify(
     // (fixtures that pass with single-point classification).
     let on_overlap_face = match fragment.face.operand {
         Operand::A => overlap_a.contains(&fragment.face.face),
-        Operand::B => overlap_b.contains(&fragment.face.face),
+        _ /* B */ => overlap_b.contains(&fragment.face.face),
     };
     let needs_offset_pair = on_overlap_face
         || !fragment.inner_loops.is_empty()
@@ -348,7 +348,7 @@ pub(super) fn sample_and_classify(
         use popkern_core::geometry::surface::SurfaceEval;
         let own_brep = match fragment.face.operand {
             Operand::A => brep_a,
-            Operand::B => brep_b,
+            _ /* B */ => brep_b,
         };
         let frag_face = own_brep.faces.get(fragment.face.face);
         // Prefer the material-true outward normal (the stored
@@ -382,7 +382,7 @@ pub(super) fn sample_and_classify(
                 // orientation unknown.
                 let (own_brep_ref, own_aabbs) = match fragment.face.operand {
                     Operand::A => (brep_a, &aabbs_a),
-                    Operand::B => (brep_b, &aabbs_b),
+                    _ /* B */ => (brep_b, &aabbs_b),
                 };
                 let calibrate = |e: f64| {
                     let s_plus = classify_against(

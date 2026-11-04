@@ -167,6 +167,7 @@ fn the_wrapping_strip_is_its_own_fragment_and_exact() {
         source_w: 0.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     };
     let r = solve_conduction(&model, &problem, &options).unwrap_or_else(|e| panic!("{e}"));
     let worst = mesh

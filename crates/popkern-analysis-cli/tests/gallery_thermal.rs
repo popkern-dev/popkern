@@ -74,6 +74,7 @@ fn linear(
         source_w: 0.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     };
     let r = solve_conduction(model, &problem, &options(h, shift))
         .map_err(|e| analysis_error_kind(&e).to_string())?;
@@ -103,6 +104,7 @@ fn balance(model: &AnalysisModel, h: Option<f64>) -> Result<f64, String> {
         source_w: 1.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     };
     let r = solve_conduction(model, &problem, &options(h, [0.0; 3]))
         .map_err(|e| analysis_error_kind(&e).to_string())?;

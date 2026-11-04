@@ -26,7 +26,7 @@ pub(crate) mod chart_walk;
 mod chart_walk_tests;
 mod fragment;
 mod fragment_chart;
-mod hole_nesting;
+pub(crate) mod hole_nesting;
 mod hole_nesting_chart;
 mod identity;
 mod identity_peel;
@@ -48,33 +48,8 @@ use boundary_predicates::node_on_face_boundary;
 use next_edge::next_around_face;
 use walk_geometry::signed_area;
 
-/// Walk all face fragments in the graph (graph-merge pipeline entry).
+/// Walk all face fragments in the graph.
 ///
-/// Chart-primary like the cellular pipeline: each face whose substrate
-/// passes I1–I5 walks as a chart permutation; the rest take the 3D-Newell
-/// walk per face. Graph-merge graphs lack the cellular phase's seam
-/// splits, so its periodic faces fall back more often — the per-face
-/// fallback absorbs exactly those (PK-108 retirement: the 3D-Newell walk
-/// is fallback-only on every pipeline).
-pub(crate) fn walk_all_fragments(
-    graph: &IntersectionGraph,
-    brep_a: &BRep,
-    brep_b: &BRep,
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> Vec<Fragment> {
-    walk_all_fragments_ext(
-        graph,
-        brep_a,
-        brep_b,
-        false,
-        true,
-        &[],
-        &mut Vec::new(),
-        None,
-        tolerance,
-    )
-}
-
 /// `coincident_interface`: the boolean carries coplanar face
 /// overlaps — enables the disjoint-loop election override, whose
 /// sampled-polygon containment test is currently only trusted on
@@ -83,8 +58,7 @@ pub(crate) fn walk_all_fragments(
 ///
 /// `chart_primary`: walk each face as a chart-subdivision permutation
 /// when its substrate passes I1–I5, with the 3D-Newell walk as recorded
-/// per-face fallback (PK-104 stage 3; the cellular pipeline sets this,
-/// graph-merge keeps the 3D-Newell walk — its graphs lack seam splits).
+/// per-face fallback (PK-104 stage 3).
 ///
 /// `overlap_pairs`: the coplanar face-overlap pairs from coincidence
 /// detection — the substrate's partial-cover dedup is scoped to
@@ -96,14 +70,10 @@ pub(crate) fn walk_all_fragments(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn walk_all_fragments_ext(
     graph: &IntersectionGraph,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     coincident_interface: bool,
     chart_primary: bool,
-    overlap_pairs: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::topology::FaceHandle,
-    )],
+    overlap_pairs: &[crate::merge::graph::FacePair],
     walk_fallbacks: &mut Vec<(FaceRef, String)>,
     identity: Option<&OperandHalfEdgeMaps<'_>>,
     tolerance: &popkern_core::tolerance::Tolerance,
@@ -112,18 +82,23 @@ pub(crate) fn walk_all_fragments_ext(
     let compare = identity::compare_mode();
     let mut identities: Vec<Fragment> = Vec::new();
 
-    // Opposite-operand face AABBs (PK-438 exterior-disjoint promotion).
-    let opposite_aabbs = hole_nesting::OppositeAabbs::new(brep_a, brep_b, identity);
+    // Opposite-operand face AABBs (PK-438 exterior-disjoint promotion);
+    // a single body (a one-body partition) has nothing opposite.
+    let nothing = popkern_core::topology::BRep::new(*tolerance);
+    let opposite_aabbs = hole_nesting::OppositeAabbs::new(
+        operands[0],
+        operands.get(1).copied().unwrap_or(&nothing),
+        identity,
+    );
 
     let mut ctx = FaceWalk {
         graph,
-        brep_a,
-        brep_b,
+        operands,
         coincident_interface,
         chart_primary,
         overlap_pairs,
         opposite_aabbs: &opposite_aabbs,
-        carried_holes: identity.and_then(|m| m.carried_holes),
+        carried_holes: identity.map_or([None, None], |m| m.carried_holes),
         tolerance,
         fragments: &mut fragments,
         chart_views: &mut chart_views,
@@ -135,8 +110,7 @@ pub(crate) fn walk_all_fragments_ext(
                 graph,
                 face_ref,
                 he_indices,
-                brep_a,
-                brep_b,
+                operands,
                 maps,
                 overlap_pairs,
             )
@@ -157,8 +131,7 @@ pub(crate) fn walk_all_fragments_ext(
                 graph,
                 face_ref,
                 he_indices,
-                brep_a,
-                brep_b,
+                operands,
                 maps,
                 overlap_pairs,
                 opposite_aabbs.body_box(face_ref.operand),
@@ -182,17 +155,13 @@ pub(crate) fn walk_all_fragments_ext(
 /// The walk's per-face state: inputs plus the outputs a face appends to.
 struct FaceWalk<'g, 'o> {
     graph: &'g IntersectionGraph,
-    brep_a: &'g BRep,
-    brep_b: &'g BRep,
+    operands: &'g [&'g BRep],
     coincident_interface: bool,
     chart_primary: bool,
-    overlap_pairs: &'g [(
-        popkern_core::topology::FaceHandle,
-        popkern_core::topology::FaceHandle,
-    )],
+    overlap_pairs: &'g [crate::merge::graph::FacePair],
     opposite_aabbs: &'g hole_nesting::OppositeAabbs<'g>,
-    /// Operand A's holes the scope carries ([`OperandHalfEdgeMaps`]).
-    carried_holes: Option<&'g HashSet<popkern_core::topology::LoopHandle>>,
+    /// Each operand's holes the scope carries ([`OperandHalfEdgeMaps`]).
+    carried_holes: [Option<&'g HashSet<popkern_core::topology::LoopHandle>>; 2],
     tolerance: &'g popkern_core::tolerance::Tolerance,
     fragments: &'o mut Vec<Fragment>,
     chart_views: &'o mut std::collections::HashMap<FaceRef, fragment_chart::WalkView>,
@@ -204,8 +173,7 @@ struct FaceWalk<'g, 'o> {
 fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize]) {
     let &mut FaceWalk {
         graph,
-        brep_a,
-        brep_b,
+        operands,
         coincident_interface,
         chart_primary,
         overlap_pairs,
@@ -225,9 +193,8 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
         graph,
         face_ref,
         he_indices,
-        brep_a,
-        brep_b,
-        carried_holes.filter(|_| face_ref.operand == super::graph::Operand::A),
+        operands,
+        carried_holes[(face_ref.operand == super::graph::Operand::B) as usize],
         tolerance,
     ) {
         Some(kept) => {
@@ -260,8 +227,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
     // chart-emitted web skins classify OnBoundary with correct
     // coorientation).
     if chart_primary
-        && let Some((surface, orientation)) =
-            chart_subdivision::face_surface(face_ref, brep_a, brep_b)
+        && let Some((surface, orientation)) = chart_subdivision::face_surface(face_ref, operands)
     {
         let sub = chart_subdivision::build_face_subdivision(
             graph,
@@ -270,10 +236,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
             surface,
             orientation,
             overlap_pairs,
-            match face_ref.operand {
-                super::graph::Operand::A => brep_a,
-                super::graph::Operand::B => brep_b,
-            },
+            operands[face_ref.operand.index()],
             tolerance,
         );
         if sub.complete() {
@@ -497,8 +460,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
                 he,
                 face_ref,
                 &face_hes,
-                brep_a,
-                brep_b,
+                operands,
                 Some(start_he),
                 &visited,
                 &current_loop,
@@ -593,8 +555,8 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
             &polys,
             sigma,
             u_period,
-            &chart_walk::source_inner_edge_set(face_ref, brep_a, brep_b),
-            &chart_walk::source_outer_edge_set(face_ref, brep_a, brep_b),
+            &chart_walk::source_inner_edge_set(face_ref, operands),
+            &chart_walk::source_outer_edge_set(face_ref, operands),
         )
     {
         let dump = popkern_core::trace::trace_enabled("loop-dump-all");
@@ -720,15 +682,19 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
         // same-winding loops was measured to break six suites.
         let separate_by_shape = if remaining_areas[i].abs() >= threshold {
             let winding_dot = walk_geometry::loop_newell(graph, &lp).dot(&outer_newell);
-            // A ring of the face's OWN boundary edges (no record
-            // piece) winding against the outer is the face's
-            // original hole, on either operand: the tool-side cap
-            // semantics below belong to record rings. Without
-            // this a thin annulus kept from the tool (a revolved
-            // cavity's step, inner/outer area 0.71) lost its hole
-            // and served as two overlapping discs (PK-755).
+            // A ring carrying any of the face's OWN boundary edges
+            // winding against the outer is the face's original
+            // hole (records may have rerouted parts of it), on
+            // either operand: the tool-side cap semantics below
+            // belong to pure record rings. Without this a thin
+            // annulus kept from the tool (a revolved cavity's
+            // step, inner/outer area 0.71) lost its hole and
+            // served as two overlapping discs (PK-755), and a ring
+            // gear's tooth hole rerouted round four clash lenses
+            // served alone while the lenses hung as holes on the
+            // rim (its lens copies never formed).
             let own_hole = winding_dot < -1e-9
-                && lp.iter().all(|&h| {
+                && lp.iter().any(|&h| {
                     !matches!(
                         graph.half_edges[h].source,
                         super::graph::EdgeSource::Shared { .. }

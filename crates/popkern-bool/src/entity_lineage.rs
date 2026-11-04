@@ -117,11 +117,11 @@ fn lies_on(input: &BRep, face: FaceHandle, p: &Point3, n: &Vec3, tol: f64) -> bo
 }
 
 /// Record, beside every face of `result`, the input faces of `a` and
-/// `b` it is a piece of (their names and ancestry, as values).
+/// the `tools` it is a piece of (their names and ancestry, as values).
 pub(crate) fn record_face_lineage(
     result: &mut BRep,
     a: &BRep,
-    b: &BRep,
+    tools: &[&BRep],
     tol: &Tolerance,
     carry: Option<&crate::entity_lineage_carry::CarryIndex>,
 ) {
@@ -133,8 +133,8 @@ pub(crate) fn record_face_lineage(
         Some(c) if std::ptr::eq(brep, a) => c.a_face_boxes().to_vec(),
         _ => crate::intersect::compute_face_aabbs(brep),
     };
-    let inputs: Vec<(&BRep, Vec<(FaceHandle, Aabb)>)> = [a, b]
-        .into_iter()
+    let inputs: Vec<(&BRep, Vec<(FaceHandle, Aabb)>)> = std::iter::once(a)
+        .chain(tools.iter().copied())
         .map(|brep| {
             (
                 brep,
@@ -250,12 +250,12 @@ fn foot(curve: &popkern_core::geometry::curve::CurveGeometry, point: &Point3) ->
 }
 
 /// Record, beside every edge of `result`, the input edges of `a` and
-/// `b` it is a piece of: its curve midpoint lies on the input edge's
+/// the `tools` it is a piece of: its curve midpoint lies on the input edge's
 /// curve, inside its range, tangents parallel.
 pub(crate) fn record_edge_lineage(
     result: &mut BRep,
     a: &BRep,
-    b: &BRep,
+    tools: &[&BRep],
     tol: &Tolerance,
     carry: Option<&crate::entity_lineage_carry::CarryIndex>,
 ) {
@@ -272,8 +272,8 @@ pub(crate) fn record_edge_lineage(
     };
     // Each input edge's curve bounds over its range, padded: the cheap
     // reject before a projection.
-    let inputs: Vec<(&BRep, Vec<(&popkern_core::topology::Edge, Aabb)>)> = [a, b]
-        .into_iter()
+    let inputs: Vec<(&BRep, Vec<(&popkern_core::topology::Edge, Aabb)>)> = std::iter::once(a)
+        .chain(tools.iter().copied())
         .map(|brep| {
             let boxes = brep
                 .edges

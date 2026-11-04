@@ -17,6 +17,7 @@ fn slab(t1: f64, last: FaceCondition) -> ConductionProblem {
         source_w: 0.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     }
 }
 

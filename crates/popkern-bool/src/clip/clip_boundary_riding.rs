@@ -18,7 +18,10 @@
 //! carries its bottom rim at u 2.80..9.08 under a general rotation while
 //! the record runs 0..2π: two thirds of the samples sat a period off
 //! the rim, the seam read as an exit, and half the rim was clipped away,
-//! PK-932).
+//! PK-932). A record can sit several periods off: every translate
+//! landing in the boundary's extent is tried (a boss wall's far-cap rim
+//! in a flush web end ran on u 2π..4π against a trim on −π..π; with
+//! one period each way half of it was clipped away, PK-1018).
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
@@ -101,12 +104,35 @@ pub(super) fn rides_boundary_everywhere(
             s.geometry.parameter_periodicity()
         })
         .unwrap_or((None, None));
-    let lifts = |p: Option<f64>| p.map_or(vec![0.0], |p| vec![0.0, p, -p]);
+    // Every whole-period translate of a sample that lands within the
+    // boundary's extent (widened a period each way): the record can sit
+    // any number of periods from the trim's chart window.
+    let extent = |axis: fn(&popkern_core::geometry::Point3) -> f64| {
+        boundary
+            .iter()
+            .flat_map(|pc| {
+                let (a, b) = pc.parameter_range();
+                (0..=8).map(move |i| pc.point_at(a + (b - a) * i as f64 / 8.0))
+            })
+            .map(|p| axis(&p))
+            .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), x| {
+                (lo.min(x), hi.max(x))
+            })
+    };
+    let (u_extent, v_extent) = (extent(|p| p.x), extent(|p| p.y));
+    let lifts = |p: Option<f64>, x: f64, (lo, hi): (f64, f64)| match p {
+        Some(p) if p > 0.0 && lo.is_finite() && hi.is_finite() => {
+            let k_lo = ((lo - p - x) / p).ceil() as i64;
+            let k_hi = ((hi + p - x) / p).floor() as i64;
+            (k_lo..=k_hi).map(|k| k as f64 * p).collect()
+        }
+        _ => vec![0.0],
+    };
     let (t0, t1) = curve_uv.parameter_range();
     (0..RECORD_SAMPLES).all(|k| {
         let q = curve_uv.point_at(t0 + (t1 - t0) * (k as f64 + 0.5) / RECORD_SAMPLES as f64);
-        lifts(pu).iter().any(|&du| {
-            lifts(pv).iter().any(|&dv| {
+        lifts(pu, q.x, u_extent).iter().any(|&du| {
+            lifts(pv, q.y, v_extent).iter().any(|&dv| {
                 let q = popkern_core::geometry::Point3::new(q.x + du, q.y + dv, q.z);
                 boundary.iter().any(|pc| distance_to(pc, q) < band)
             })

@@ -56,30 +56,41 @@ fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut Coinc
     // and a tapped housing's earlier threads made each tap pay for all
     // of them (PK-744).
     let pad = tol.snap * (1.0 + 1e-9) + f64::EPSILON;
-    let b_boxes: std::collections::HashMap<_, _> = b
+    let within = |bx: &Aabb, p: &popkern_core::geometry::Point3| {
+        p.x >= bx.min.x - pad
+            && p.y >= bx.min.y - pad
+            && p.z >= bx.min.z - pad
+            && p.x <= bx.max.x + pad
+            && p.y <= bx.max.y + pad
+            && p.z <= bx.max.z + pad
+    };
+    // B's edges with their curve, ends and box, once: each A edge used
+    // to look every one up again (PK-1032: 759 disc edges against a
+    // slot cutter's 12 paid 18k map lookups). A box-less edge never
+    // prunes, and then neither does the hull of the boxes.
+    let b_edges: Vec<_> = b
         .edges
         .iter()
         .filter_map(|(h, e)| {
             let curve = e.curve.as_ref()?;
-            Some((
-                h,
-                super::edge_box::conservative_curve_box(
-                    &curve.geometry,
-                    (curve.t_start, curve.t_end),
-                )?,
-            ))
+            let he = b.half_edges.get(e.half_edge)?;
+            let twin = b.half_edges.get(he.twin)?;
+            let bx = super::edge_box::conservative_curve_box(
+                &curve.geometry,
+                (curve.t_start, curve.t_end),
+            );
+            let ends = (
+                b.vertices[he.origin].position,
+                b.vertices[twin.origin].position,
+            );
+            Some((h, curve, ends, bx))
         })
         .collect();
-    let near = |eb_h, p: &popkern_core::geometry::Point3| {
-        b_boxes.get(&eb_h).is_none_or(|bx: &Aabb| {
-            p.x >= bx.min.x - pad
-                && p.y >= bx.min.y - pad
-                && p.z >= bx.min.z - pad
-                && p.x <= bx.max.x + pad
-                && p.y <= bx.max.y + pad
-                && p.z <= bx.max.z + pad
-        })
-    };
+    let hull = b_edges
+        .iter()
+        .map(|(.., bx)| bx.as_ref().map(|x| [x.min, x.max]))
+        .collect::<Option<Vec<_>>>()
+        .and_then(|corners| Aabb::from_points(&corners.concat()));
 
     for (ea_h, ea) in &a.edges {
         if ea.curve.is_none() {
@@ -96,25 +107,20 @@ fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut Coinc
         };
         let a_start = a.vertices[he_a.origin].position;
         let a_end = a.vertices[twin_a.origin].position;
+        if hull
+            .as_ref()
+            .is_some_and(|h| !within(h, &a_start) || !within(h, &a_end))
+        {
+            continue;
+        }
 
-        for (eb_h, eb) in &b.edges {
-            let cb = match &eb.curve {
-                Some(c) => c,
-                None => continue,
-            };
-            let he_b = match b.half_edges.get(eb.half_edge) {
-                Some(h) => h,
-                None => continue,
-            };
-            let twin_b = match b.half_edges.get(he_b.twin) {
-                Some(t) => t,
-                None => continue,
-            };
-            if !near(eb_h, &a_start) || !near(eb_h, &a_end) {
+        for &(eb_h, cb, (b_start, b_end), ref bx) in &b_edges {
+            if bx
+                .as_ref()
+                .is_some_and(|bx| !within(bx, &a_start) || !within(bx, &a_end))
+            {
                 continue;
             }
-            let b_start = b.vertices[he_b.origin].position;
-            let b_end = b.vertices[twin_b.origin].position;
 
             // Check if A's endpoints lie on B's curve (both checks
             // use adaptive_dist_sq_lt so the decision is deterministic

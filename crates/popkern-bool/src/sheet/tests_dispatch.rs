@@ -406,7 +406,7 @@ fn boolean_with_sheets_sheet_sheet_union_coincident_dedupes() {
 }
 
 #[test]
-fn boolean_with_sheets_invalid_sheet_minus_solid_rejected() {
+fn boolean_with_sheets_sheet_minus_solid_declines_a_surfaceless_face() {
     use crate::BoolOperation;
     use popkern_core::geometry::Point3;
     let mut sheet = BRep::new(tol());
@@ -415,11 +415,9 @@ fn boolean_with_sheets_invalid_sheet_minus_solid_rejected() {
         .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
         .unwrap();
     let cube = BRep::unit_cube(tol()).unwrap();
+    // A face with no surface: declined before any geometry is read.
     let result = boolean_with_sheets(BoolOperation::Subtraction, &sheet, &cube, tol());
-    assert!(matches!(
-        result,
-        Err(crate::BoolError::OpenShellNotSupported { a: true, b: false })
-    ));
+    assert!(matches!(result, Err(crate::BoolError::DegenerateInput(_))));
 }
 
 #[test]
@@ -440,4 +438,15 @@ fn boolean_on_sheet_body_returns_open_shell_error() {
         ),
         "expected OpenShellNotSupported, got {result:?}"
     );
+}
+
+/// A solid and a sheet side by side are one body of two kinds: still a
+/// sheet body to the boolean pre-check (it has free edges).
+#[test]
+fn a_solid_beside_a_sheet_is_a_mixed_body() {
+    let sheet = build_planar_sheet(3.0, 4.0, 3.0, 4.0, 0.5);
+    let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let both = crate::operation::helpers::combine_breps(cube, sheet).expect("side by side");
+    assert_eq!(both.body_kind(), popkern_core::topology::BodyKind::Mixed);
+    assert!(is_sheet_body(&both));
 }
