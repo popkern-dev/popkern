@@ -42,6 +42,7 @@ pub mod assembly_joint_api;
 pub mod assembly_mate_api;
 pub mod assembly_param_api;
 pub mod body_api;
+pub mod body_shaping_api;
 pub mod cancel;
 pub mod conformance;
 pub mod conformance_audit;

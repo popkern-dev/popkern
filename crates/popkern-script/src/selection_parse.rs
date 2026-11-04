@@ -262,6 +262,18 @@ fn face_query(c: &mut Cursor<'_>) -> Result<FaceSelector, SelectionParseError> {
             return Ok(sel);
         }
         let name = c.identifier()?;
+        if name == "or" || name == "except" {
+            c.require("(")?;
+            let other = face_query(c)?;
+            c.skip_ws();
+            c.require(")")?;
+            sel = if name == "or" {
+                sel.or(other)
+            } else {
+                sel.except(other)
+            };
+            continue;
+        }
         let args = c.arguments()?;
         sel = match name {
             "allow_empty" => sel.allow_empty(),

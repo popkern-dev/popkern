@@ -96,6 +96,13 @@ pub fn register(engine: &mut Engine) {
         .register_fn("named", |s: &mut FaceSelector, t: &str| {
             s.clone().spelled(t)
         })
+        .register_fn("or", |s: &mut FaceSelector, other: FaceSelector| {
+            s.clone().or(other)
+        })
+        .register_fn("except", |s: &mut FaceSelector, other: FaceSelector| {
+            s.clone().except(other)
+        })
+        .register_fn("not", |s: &mut FaceSelector| !s.clone())
         .register_fn("allow_empty", |s: &mut FaceSelector| {
             s.clone().allow_empty()
         })

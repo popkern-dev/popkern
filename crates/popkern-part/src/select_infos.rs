@@ -149,6 +149,13 @@ pub fn face_infos(brep: &BRep) -> Vec<FaceInfo> {
                 }
             }
         }
+        // A loop of fewer than three vertices (a disc bounded by one
+        // closed circle, a face of two arcs) has no vertex polygon:
+        // walk its edge curves instead, each along its half-edge
+        // (measured: `facing("z")` matched no end face of a cylinder).
+        if count < 3 {
+            (acc, newell, count) = sampled_loop(brep, face.outer_loop);
+        }
         let normal = matches!(
             face.surface.as_ref().map(|s| &s.geometry),
             Some(SurfaceGeometry::Plane { .. })
@@ -165,4 +172,44 @@ pub fn face_infos(brep: &BRep) -> Vec<FaceInfo> {
         });
     }
     out
+}
+
+/// The vertex sum, Newell normal and point count of loop `l` sampled
+/// along its edge curves, each half-edge's curve run its own way.
+fn sampled_loop(brep: &BRep, l: popkern_core::topology::LoopHandle) -> (Vec3, Vec3, usize) {
+    use popkern_core::geometry::curve::CurveEval;
+    const SAMPLES: usize = 16;
+    let mut points = Vec::new();
+    if let Some(lp) = brep.loops.get(l) {
+        let start = lp.half_edge;
+        let mut he = start;
+        while let Some(d) = brep.half_edges.get(he) {
+            if let Some(curve) = brep.edges.get(d.edge).and_then(|e| e.curve.as_ref()) {
+                let forward = brep.edges.get(d.edge).is_some_and(|e| e.half_edge == he);
+                let (a, b) = if forward {
+                    (curve.t_start, curve.t_end)
+                } else {
+                    (curve.t_end, curve.t_start)
+                };
+                for k in 0..SAMPLES {
+                    let t = a + (b - a) * k as f64 / SAMPLES as f64;
+                    points.push(curve.geometry.point_at(t));
+                }
+            }
+            he = d.next;
+            if he == start {
+                break;
+            }
+        }
+    }
+    let mut acc = Vec3::new(0.0, 0.0, 0.0);
+    let mut newell = Vec3::new(0.0, 0.0, 0.0);
+    for (i, p) in points.iter().enumerate() {
+        let q = points[(i + 1) % points.len()];
+        acc = acc + (*p - Point3::new(0.0, 0.0, 0.0));
+        newell.x += (p.y - q.y) * (p.z + q.z);
+        newell.y += (p.z - q.z) * (p.x + q.x);
+        newell.z += (p.x - q.x) * (p.y + q.y);
+    }
+    (acc, newell, points.len())
 }

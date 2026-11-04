@@ -31,7 +31,7 @@ impl ScriptBody {
         ScriptBody { model, body }
     }
 
-    fn served(&self, body: Body) -> ScriptBody {
+    pub(crate) fn served(&self, body: Body) -> ScriptBody {
         ScriptBody::new(self.model.clone(), body)
     }
 

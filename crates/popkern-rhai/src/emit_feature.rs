@@ -483,8 +483,9 @@ pub fn statement(
             ),
             _ => return Err(decline("general transforms have no spelling in the skin")),
         },
-        other => emit_feature_partition::call(other, label, tool_var)
-            .ok_or_else(|| decline("this operation has no spelling in the Rhai skin"))?,
+        other => emit_feature_shaping::call(model, other, label, spell)
+            .or_else(|| emit_feature_partition::call(other, label, tool_var).map(Ok))
+            .ok_or_else(|| decline("this operation has no spelling in the Rhai skin"))??,
     };
     let starts_body = matches!(node.feature, Feature::SeparatePieces { .. });
     Ok(Statement { call, starts_body })
@@ -494,3 +495,5 @@ pub fn statement(
 mod emit_feature_groups;
 #[path = "emit_feature_partition.rs"]
 mod emit_feature_partition;
+#[path = "emit_feature_shaping.rs"]
+mod emit_feature_shaping;
