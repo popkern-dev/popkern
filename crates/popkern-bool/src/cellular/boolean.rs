@@ -246,7 +246,7 @@ pub(crate) fn cellular_graph_merge(
                 snap_tol,
             );
         }
-        if partial_overlaps {
+        if partial_overlaps && graph_splits_junctions {
             let before = graph.duplicate_of.len();
             remove_collinear_duplicates(&mut graph, tolerance.linear());
             crate::complex_shadow::subsumed_pass_fired(

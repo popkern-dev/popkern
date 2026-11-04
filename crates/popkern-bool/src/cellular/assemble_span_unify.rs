@@ -113,7 +113,7 @@ impl SpanRegistry {
                 let same_ends = (pa.distance_to(&a) <= g && pb.distance_to(&b) <= g)
                     || (pa.distance_to(&b) <= g && pb.distance_to(&a) <= g);
                 same_ends
-                    && (pm.distance_to(&mid) <= g
+                    && (pm.distance_to(&mid) <= 2.0 * on
                         || (piece_distance(graph, *prior, &mid) <= on
                             && piece_distance(graph, key, pm) <= on))
             })

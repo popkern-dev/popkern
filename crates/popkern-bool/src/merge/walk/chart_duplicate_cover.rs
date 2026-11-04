@@ -16,6 +16,7 @@ pub(super) fn dedup_duplicate_covers(
     graph: &IntersectionGraph,
     sub: &mut FaceChartSubdivision,
     overlap_pairs: &[crate::merge::graph::FacePair],
+    linear: f64,
 ) {
     let hes: Vec<usize> = sub.embeddings.keys().copied().collect();
     let mut scale = 0.0_f64;
@@ -80,7 +81,7 @@ pub(super) fn dedup_duplicate_covers(
             let middles = near(ma, mb) || (on_polyline(ma, b) && on_polyline(mb, a));
             let same = near(sa, sb) && near(ea, eb) && middles;
             let reversed = near(sa, eb) && near(ea, sb) && middles;
-            if !(same || reversed) {
+            if !(same || reversed) || apart_in_space(graph, a, b, linear) {
                 continue;
             }
             match (is_record(a), is_record(b)) {
@@ -160,4 +161,34 @@ pub(super) fn dedup_duplicate_covers(
             });
         }
     }
+}
+
+/// Whether half-edges `a` and `b` run apart in space: either curve's
+/// middle lies farther than two linear tolerances (each curve's own)
+/// from the other curve. Curves farther apart than that are distinct
+/// (the vertex table's rule), however close the chart puts them: the
+/// chart tolerance scales with the face's parameter span, and on a
+/// 116-unit near-tangent cap face it allowed 1.2e-5, taking a 1e-5
+/// lens's two sides for one curve. Distance to the curve, not between
+/// parameter middles, which sit apart along one curve sampled
+/// non-uniformly. A curve the graph does not hold leaves the chart's
+/// verdict.
+fn apart_in_space(graph: &IntersectionGraph, a: usize, b: usize, linear: f64) -> bool {
+    use popkern_core::geometry::curve::{CurveEval, closest_point_in_window};
+    let curve = |h: usize| {
+        let he = &graph.half_edges[h];
+        he.curve
+            .as_ref()
+            .or_else(|| graph.half_edges[he.twin].curve.as_ref())
+    };
+    let (Some(ca), Some(cb)) = (curve(a), curve(b)) else {
+        return false;
+    };
+    let off = |from: &popkern_core::geometry::curve::CurveOnEdge,
+               to: &popkern_core::geometry::curve::CurveOnEdge| {
+        let p = from.geometry.point_at(0.5 * (from.t_start + from.t_end));
+        let t = closest_point_in_window(&to.geometry, &p, to.t_start, to.t_end);
+        to.geometry.point_at(t).distance_to(&p)
+    };
+    off(ca, cb).max(off(cb, ca)) > 2.0 * linear
 }

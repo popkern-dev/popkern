@@ -223,8 +223,31 @@ pub(super) fn decisive_windows(
             inside_at(a + (b - a) * 0.5),
             inside_at(a + (b - a) * 0.75),
         ];
+        // Decided by the side of the edge it leaves and rejoins: more
+        // than two tolerances off that edge, so not a boundary-running
+        // trace (the guard below).
+        let mut side_decided = false;
         if flags[0] != flags[1] || flags[1] != flags[2] {
-            flags = [exact_verdict(a, b)?; 3];
+            // Both verdicts abstain within ten tolerances of a curved
+            // trim; the side of the edge the interval leaves and
+            // rejoins decides it then (PK-1054).
+            let exact = exact_verdict(a, b).or_else(|| {
+                side_decided = true;
+                let k = verdicts.len();
+                let before = (*verdicts.last()?)?;
+                let prev_a = intervals[k - 1].0;
+                let back = a - (b - a).min(0.5 * (a - prev_a));
+                super::clip_crossing_reports::same_edge_side_verdict(
+                    brep,
+                    face,
+                    curve_uv,
+                    crossings,
+                    (a, b),
+                    (back, before),
+                    &brep.tolerance,
+                )
+            })?;
+            flags = [exact; 3];
         } else if near_boundary_at(a + (b - a) * 0.5)
             && let Some(exact) = exact_verdict(a, b)
         {
@@ -247,6 +270,7 @@ pub(super) fn decisive_windows(
             && near_boundary_at(a + (b - a) * 0.5)
             && !bounded_by_transversals
             && !clear_gap(a, b)
+            && !side_decided
         {
             return None;
         }

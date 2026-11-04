@@ -227,6 +227,8 @@ struct EdgeScale {
     feature: f64,
     /// The rungs in use.
     ladder: TieLadder,
+    /// The shortest probe the ladder takes (a few linear tolerances).
+    floor: f64,
 }
 
 /// One fin's sort keys at a station.
@@ -253,7 +255,28 @@ impl Key {
 }
 
 /// Order a first-order tie down the ladder (see `radial_ladder`).
+/// The signed angle, in (-π, π], of `f`'s face a distance `dist` along
+/// its first-order ray from `p`, measured from that ray about `t`.
+fn probe_angle(f: &FinFrame<'_>, (p, t): (Point3, Vec3), dist: f64) -> Option<f64> {
+    let target = p + f.d * dist;
+    let q = popkern_core::geometry::uv_projection::project_point_to_uv_near(
+        &f.surf.geometry,
+        &target,
+        f.uv.0,
+        f.uv.1,
+    )
+    .or_else(|| f.surf.geometry.closest_point(&target))
+    .map(|(u, v)| f.surf.geometry.point_at(u, v))?;
+    let w = q - p;
+    let w = w - t * w.dot(&t);
+    Some(
+        w.normalized()
+            .map_or(0.0, |w| f.d.cross(&w).dot(&t).patan2(f.d.dot(&w))),
+    )
+}
+
 fn break_tie(
+    c: &CellComplex,
     mut cluster: Vec<Key>,
     frames: &[FinFrame<'_>],
     (p, t): (Point3, Vec3),
@@ -264,6 +287,35 @@ fn break_tie(
         edge,
         fin: Some(fin),
     };
+    // The faces' own order first: probed within the tied faces (half
+    // the narrowest one's reach, at most the edge's probe), the probe
+    // sees first and second order together. Curvature alone orders
+    // faces as they lie beyond a crossing: a cylinder crossing a plane
+    // at 5.9e-4 rad turns into the 1e-5 lens between them at first
+    // order and away from it at second, and curvature put it on the far
+    // side, joining the lens's two sides. For faces truly tangent the
+    // probe reads the curvature term and agrees with that rung, which
+    // stays for ties the probe cannot resolve.
+    let reach = cluster
+        .iter()
+        .map(|k| super::radial_stations::face_clearance(c, k.fin, p))
+        .fold(f64::INFINITY, f64::min);
+    let near = (0.5 * reach).max(scale.floor).min(scale.probe);
+    if scale.ladder.offset_probe {
+        let mut narrow = cluster.clone();
+        for k in &mut narrow {
+            k.probe = Some(
+                probe_angle(&frames[k.index], (p, t), near).ok_or_else(|| unevaluable(k.fin))?,
+            );
+        }
+        narrow.sort_by(|a, b| a.probe.unwrap_or(0.0).total_cmp(&b.probe.unwrap_or(0.0)));
+        let resolved = narrow.windows(2).all(|w| {
+            w[1].probe.unwrap_or(0.0) - w[0].probe.unwrap_or(0.0) >= scale.tie_angle * 1e-3
+        });
+        if resolved {
+            return Ok(narrow);
+        }
+    }
     let mut groups = if scale.ladder.curvature {
         for k in &mut cluster {
             let f = &frames[k.index];
@@ -291,23 +343,9 @@ fn break_tie(
             continue;
         }
         for k in g.iter_mut() {
-            let f = &frames[k.index];
-            let target = p + f.d * scale.probe;
-            let q = popkern_core::geometry::uv_projection::project_point_to_uv_near(
-                &f.surf.geometry,
-                &target,
-                f.uv.0,
-                f.uv.1,
-            )
-            .or_else(|| f.surf.geometry.closest_point(&target))
-            .map(|(u, v)| f.surf.geometry.point_at(u, v))
-            .ok_or_else(|| unevaluable(k.fin))?;
-            let w = q - p;
-            let w = w - t * w.dot(&t);
-            // Signed deviation from the first-order ray, in (-π, π].
             k.probe = Some(
-                w.normalized()
-                    .map_or(0.0, |w| f.d.cross(&w).dot(&t).patan2(f.d.dot(&w))),
+                probe_angle(&frames[k.index], (p, t), scale.probe)
+                    .ok_or_else(|| unevaluable(k.fin))?,
             );
         }
         g.sort_by(|a, b| a.probe.unwrap_or(0.0).total_cmp(&b.probe.unwrap_or(0.0)));
@@ -373,7 +411,7 @@ fn order_at(
     let mut out = Vec::with_capacity(keyed.len());
     for cluster in runs(keyed, |k| k.angle, scale.tie_angle) {
         let cluster = if cluster.len() > 1 {
-            break_tie(cluster, &frames, (p, t), (edge, s), scale)?
+            break_tie(c, cluster, &frames, (p, t), (edge, s), scale)?
         } else {
             cluster
         };
@@ -431,6 +469,7 @@ pub(crate) fn order_radially_with(
             probe: (length * 1.0e-2).max(linear * 100.0),
             feature: length.max(linear * 100.0),
             ladder,
+            floor: linear * 10.0,
         };
         let stations = super::radial_stations::stations(c, geo, edge, length, linear);
         let first = order_at(c, geo, edge, stations[0], &scale)?;

@@ -428,7 +428,12 @@ fn build_face_subdivision_inner(
 
     // I5 — duplicate-cover dedup, extracted to
     // `chart_duplicate_cover.rs` per the file-size rule.
-    super::chart_duplicate_cover::dedup_duplicate_covers(graph, &mut sub, overlap_pairs);
+    super::chart_duplicate_cover::dedup_duplicate_covers(
+        graph,
+        &mut sub,
+        overlap_pairs,
+        tolerance.linear(),
+    );
 
     // Node endpoints per half-edge (start = origin(h), end = origin(twin)).
     let ends = |h: usize| -> (usize, usize) {
