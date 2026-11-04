@@ -5,7 +5,7 @@
 use popkern_core::naming::EntityName;
 use popkern_core::topology::BRep;
 use popkern_history::unit::Unit;
-use popkern_part::{CurveKind, Dir, EdgeInfo, EdgeQuery, FaceInfo, FaceQuery, SurfaceKind};
+use popkern_part::{CurveKind, Dir, EdgeInfo, EdgeQuery, SurfaceKind};
 
 use crate::error::ScriptError;
 
@@ -68,6 +68,8 @@ pub enum FacePredicate {
     Named(EntityName),
     /// Exactly the entity a spelling names.
     Spelled(String),
+    /// Not a face the inner selection matches.
+    Except(Box<FaceSelector>),
 }
 
 /// An edge selection: a disjunction of conjunctions.
@@ -77,11 +79,21 @@ pub struct EdgeSelector {
     allow_empty: bool,
 }
 
-/// A face selection: one conjunction.
-#[derive(Debug, Clone, PartialEq, Default)]
+/// A face selection: a disjunction of conjunctions, like an edge
+/// selection (`or` joins branches; a predicate narrows the last one).
+#[derive(Debug, Clone, PartialEq)]
 pub struct FaceSelector {
-    predicates: Vec<FacePredicate>,
+    branches: Vec<Vec<FacePredicate>>,
     allow_empty: bool,
+}
+
+impl Default for FaceSelector {
+    fn default() -> Self {
+        FaceSelector {
+            branches: vec![Vec::new()],
+            allow_empty: false,
+        }
+    }
 }
 
 /// Start an edge selection.
@@ -149,6 +161,7 @@ impl FacePredicate {
             FacePredicate::Labeled(l) => format!("labeled({l:?})"),
             FacePredicate::Named(n) => format!("named({n:?})"),
             FacePredicate::Spelled(t) => format!("named({t:?})"),
+            FacePredicate::Except(inner) => format!("except({})", inner.describe()),
         }
     }
 }
@@ -331,113 +344,6 @@ impl EdgeSelector {
     }
 }
 
-impl FaceSelector {
-    fn push(mut self, p: FacePredicate) -> Self {
-        self.predicates.push(p);
-        self
-    }
-    /// Keep faces of this surface kind.
-    pub fn kind(self, k: SurfaceKind) -> Self {
-        self.push(FacePredicate::Kind(k))
-    }
-    /// Keep faces whose outward normal is along `dir`.
-    pub fn facing(self, dir: Dir) -> Self {
-        self.push(FacePredicate::Facing(dir))
-    }
-    /// Keep faces whose outward normal is against `dir`.
-    pub fn facing_neg(self, dir: Dir) -> Self {
-        self.push(FacePredicate::FacingNeg(dir))
-    }
-    /// Keep faces whose centroid is at height `z`.
-    pub fn at_height(self, z: f64) -> Self {
-        self.push(FacePredicate::AtHeight(z))
-    }
-    /// Exactly the labelled entity.
-    pub fn labeled(self, label: &str) -> Self {
-        self.push(FacePredicate::Labeled(label.to_string()))
-    }
-    /// Exactly this entity.
-    pub fn named(self, name: EntityName) -> Self {
-        self.push(FacePredicate::Named(name))
-    }
-    /// Exactly the entity a spelling names.
-    pub fn spelled(self, text: &str) -> Self {
-        self.push(FacePredicate::Spelled(text.to_string()))
-    }
-    /// An empty result is a recorded no-op instead of an error.
-    pub fn allow_empty(mut self) -> Self {
-        self.allow_empty = true;
-        self
-    }
-    /// Canonical spelling (spec §6.1).
-    pub fn describe(&self) -> String {
-        let mut text = if self.predicates.is_empty() {
-            "faces()".to_string()
-        } else {
-            format!(
-                "faces().{}",
-                self.predicates
-                    .iter()
-                    .map(FacePredicate::spell)
-                    .collect::<Vec<_>>()
-                    .join(".")
-            )
-        };
-        if self.allow_empty {
-            text.push_str(".allow_empty()");
-        }
-        text
-    }
-    /// Labels this selection cites.
-    pub fn labels_used(&self) -> Vec<String> {
-        self.predicates
-            .iter()
-            .filter_map(|p| match p {
-                FacePredicate::Labeled(l) => Some(l.clone()),
-                _ => None,
-            })
-            .collect()
-    }
-    pub(crate) fn allow_empty_flag(&self) -> bool {
-        self.allow_empty
-    }
-    /// Compile to the `popkern-part` query used for resolution against
-    /// `brep` (names follow lineage, as for edges).
-    /// `unit` as for [`EdgeSelector::to_query`].
-    pub(crate) fn to_query(
-        &self,
-        brep: &BRep,
-        resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
-        unit: Unit,
-    ) -> Result<FaceQuery, ScriptError> {
-        let mut q = FaceQuery::new();
-        for p in &self.predicates {
-            q = match p {
-                FacePredicate::Kind(k) => q.kind(*k),
-                FacePredicate::Facing(d) => q.facing(*d),
-                FacePredicate::FacingNeg(d) => q.facing_neg(*d),
-                FacePredicate::AtHeight(z) => q.at_height(unit.to_si(*z)),
-                FacePredicate::Labeled(l) => {
-                    let set = faces_named(brep, &resolve(EntityRef::Label(l))?);
-                    q.filter(move |f: &FaceInfo| set.contains(&f.handle))
-                }
-                FacePredicate::Named(n) => {
-                    let set = faces_named(brep, n);
-                    q.filter(move |f: &FaceInfo| set.contains(&f.handle))
-                }
-                FacePredicate::Spelled(t) => {
-                    let set = faces_named(brep, &resolve(EntityRef::Spelled(t))?);
-                    q.filter(move |f: &FaceInfo| set.contains(&f.handle))
-                }
-            };
-        }
-        if self.allow_empty {
-            q = q.allow_empty();
-        }
-        Ok(q)
-    }
-}
-
 /// The edges `name` resolves to on `brep`: exactly, else its pieces.
 fn edges_named(
     brep: &BRep,
@@ -466,6 +372,8 @@ fn faces_named(
         .collect()
 }
 
+#[path = "selection_faces.rs"]
+mod selection_faces;
 #[path = "selection_resolve.rs"]
 mod selection_resolve;
 pub use selection_resolve::SelectionSnapshot;

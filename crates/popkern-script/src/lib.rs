@@ -23,6 +23,7 @@ pub mod body_hinge;
 pub mod body_partition;
 pub mod body_recipes;
 pub mod body_seam_hinge;
+pub mod body_shaping;
 pub mod body_sweep;
 pub mod configs;
 pub mod entity_spelling;
@@ -47,6 +48,7 @@ pub use body_fastener::{
 };
 pub use body_generative::{GenerativeLoad, GenerativeSpec};
 pub use body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
+pub use body_shaping::{NeutralSpec, OffsetOptions};
 pub use body_sweep::{HelixParams, LoftOptions};
 pub use error::{ProjectReason, ScriptError, SelectionKind};
 pub use error_payload::surface_parameter;

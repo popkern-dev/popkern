@@ -414,6 +414,27 @@ pub const RHAI_BINDINGS: &[Binding] = &[
         &[],
     ),
     b(
+        "thicken",
+        "thicken",
+        &["thickness"],
+        &["label", "join", "trim"],
+        &[],
+    ),
+    b(
+        "offset_solid",
+        "offset_solid",
+        &["distance"],
+        &["label", "join", "trim"],
+        &[],
+    ),
+    b(
+        "draft",
+        "draft",
+        &["faces", "angle", "neutral"],
+        &["label"],
+        &[],
+    ),
+    b(
         "translate",
         "translate",
         &["dx", "dy", "dz"],

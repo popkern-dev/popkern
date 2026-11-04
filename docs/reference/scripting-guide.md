@@ -131,6 +131,9 @@ least `label`.
 | `fillet_each(groups)` | `[[edges()..., radius], ...]`: one radius per group of edges | `label`, `continuity`, `cap`, `profile`, `interference`, `corner`, `corner_cap`, `corner_cap_strict`, `setback`, `setback_ends` (as for fillet; radius laws are not taken) | One fillet whose groups carry different radii: the edges meeting at a corner blend together as one corner even when their radii differ. An edge selected by two groups is refused (the message names every overlapping pair). The first group's radius is the feature's `radius` parameter, later groups' are `radius_1`, `radius_2`, … |
 | `chamfer(edges, distance)` | as fillet | `label`, `kind` (`equal()` default, `two_distance(faces()..., d2)`, `distance_angle(faces()..., angle_deg)`) | The face query of a kind must resolve on the chamfered body. |
 | `shell(faces_to_remove, thickness)` | `faces()...` (may be `.allow_empty()` for a closed hollow) | `label`, `direction` (`"inward"` default, `"outward"`, `"midplane"`), `join` (`"arc"`, `"intersection"`), `trim` (`"trim"`, `"decline"`) | |
+| `offset_solid(distance)` | a scalar: positive grows the solid, negative shrinks it | `label`, `join` (`"arc"` default: corners rounded at the distance, `"intersection"`: sharp), `trim` (`"trim"`, `"decline"`) | Every face moves along its normal; no face is removed. |
+| `thicken(thickness)` | a scalar: the wall's whole thickness, half to each side of the body's faces | `label`, `join`, `trim` (as for the offset above) | A sheet becomes a closed solid; a closed body becomes a hollow one (two shells). |
+| `draft(faces, angle_deg, neutral)` | `faces()...` to taper; the angle in degrees; the neutral plane: a planar face (`faces()...` or `on_face(...)`, pulled along its outward normal) or a plane (`xy()`, `xz()`, `yz()`, `xy_at(z)` and the like at a literal offset, `plane_at([o], [n])`, pulled along its normal) | `label` | Each face keeps its line on the neutral plane and leans by the angle, so the part draws along the pull direction. |
 | `translate(dx, dy, dz)`, `rotate(axis, angle_deg)` | rigid motions; the distances and the angle are scalars (`p()`/`expr()` apply) | `label` | Usually applied to tool bodies before a boolean. Selector arguments (`at_height(z)`, `chord_length_between`) are plain numbers, not parameters. |
 | `sweep(path_body, path_edge)` | the body carrying the path edge, then an edge query on it (exactly one edge) | `label`, `mode`, `twist` | The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. `twist` in degrees over the full path. The path body is referenced, not consumed. |
 | `loft(sections)` | on `Model`: `m.loft([s0, s1, …])` — ordered sketch bodies, each contributing its most recent sketch face | `label`, `mode`, `closed` | Records on the first section's body and consumes the others. Sections must be all closed or all open; matching point counts keep the surface smooth (circle sections stay exact circles). |
@@ -261,7 +264,8 @@ m
 ## 6. Selecting edges and faces
 
 Queries are data: `edges()` or `faces()` followed by predicates, all
-of which must hold; `.or(...)` joins whole queries; `.allow_empty()`
+of which must hold; `.or(...)` joins whole queries (edges and faces
+alike); `.allow_empty()`
 turns "matched nothing" from an error into a recorded no-op. A query
 that must name exactly one entity (a `label_edge`, an `on_face`
 plane, a chamfer's reference face) raises `SelectionCardinality` when
@@ -285,6 +289,8 @@ it matches more.
 | `facing("z")`, `facing_neg("z")` | outward normal along ± an axis (or `[x, y, z]`) |
 | `at_height(z)` | a planar face at that z |
 | `labeled("name")`, `named("plate_sketch/Generated/0")` | as for edges |
+| `.except(faces()...)` | not a face the inner query matches: `faces().except(faces().facing_neg("z"))` is every face but the bottom |
+| `.not()` | every face the query does not match (`faces().except(query)`) |
 
 ```rhai
 let m = model();
@@ -751,6 +757,8 @@ EXPR: body(i) any_body() all_bodies() exactly_one() odd() at_least(k) .and(EXPR)
 body.fillet(E, r, #{label, continuity, cap, profile, interference, law, corner, corner_cap, corner_cap_strict, setback, setback_ends})
 body.fillet_each([[E, r], …], #{…as fillet, no law})
 body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, join, trim})
+body.offset_solid(d, #{label, join, trim})  body.thicken(t, #{label, join, trim})
+body.draft(F, deg, NEUTRAL, #{label})    NEUTRAL: faces()… on_face(F) xy() xz() yz() xy_at(z) plane_at([o],[n])
 body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
 body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
 body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
@@ -763,7 +771,7 @@ body.clearance_hole(AXIS, SPEC, DEPTH, #{label, fit, diameter, countersink, coun
 SPEC: "M6" "M6x0.75" "1/4-20" "#8-32" (mm) or #{ major, pitch } (model units)   DEPTH: blind(d) through_all()
 E: edges().circular().straight().conic().nurbs().between(k, k).at_height(z).direction(d)
    .chord_length_between(a, b).not_seam().labeled(l).named(n).or(E).allow_empty()
-F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).allow_empty()
+F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).or(F).except(F).not().allow_empty()
 m.param(name, v, unit) param_expr(name, text, unit) set_param set_expr clear_expr
   set_bounds clear_bounds rename_param params()      p("name")  expr("a * 2")
 m.label_edge label_face unlabel rename_label labels()
