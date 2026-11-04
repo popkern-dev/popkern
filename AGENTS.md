@@ -250,6 +250,16 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   the same face would read as the seam). The constructors' two-face
   sheets are converted at entry. OCC oracle:
   `tools/occ-oracle/occ_sheet.py`.
+- **Wire booleans and contacts** — `boolean_with_wire` cuts a wire
+  body where its curves cross the solid's faces and keeps pieces by
+  midpoint (∩ keeps inside and on-face pieces, − the outside, solid −
+  wire is the solid, ∪ a mixed body); on-face pieces are tested by
+  face distance first, because `point_in_solid_final` calls a point on
+  a face outside. A partition `Interface` carries `patch`, the shared
+  surface as a one-face sheet: region extraction merges co-surfacial
+  faces, so `faces` may reach past the patch, and contact or bonded
+  areas are measured on `patch`. Assembly interference reports a
+  touching pair's extent and area (`contact_area` option).
 - **STEP non-manifold bodies** — a `CLOSED_SHELL` that touches itself
   (a contact edge with four face uses, or a vertex two closed sets of
   faces share) imports as manifold pieces meeting at recorded contacts,

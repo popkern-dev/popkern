@@ -72,6 +72,34 @@ fn run_curve_along(body: &mut BRep, h: popkern_core::topology::HalfEdgeHandle) {
     }
 }
 
+/// `body`, assembled from kept faces some of whose edges no other kept
+/// face shares, in the core's open-boundary form (module doc), with its
+/// pcurves completed and `validate_all` clean.
+pub(super) fn open_sheet(mut body: BRep) -> Result<BRep, BoolError> {
+    let open: Vec<_> = body
+        .half_edges
+        .iter()
+        .filter(|(h, he)| he.twin == *h || !body.half_edges.contains_key(he.twin))
+        .map(|(h, he)| (h, he.edge))
+        .collect();
+    for &(h, edge) in &open {
+        body.half_edges[h].twin = Default::default();
+        body.boundary_edges.insert(edge);
+    }
+    body.recompute_pcurves_where_missing()
+        .map_err(|e| BoolError::ValidationFailed(format!("sheet pcurves: {e}")))?;
+    for &(h, _) in &open {
+        run_curve_along(&mut body, h);
+    }
+    let findings = body.validate_all();
+    if !findings.is_empty() {
+        return Err(BoolError::ValidationFailed(format!(
+            "partition sheet result: {findings:?}"
+        )));
+    }
+    Ok(body)
+}
+
 impl Partition {
     /// The faces of sheet operand `sheet` lying in regions whose
     /// bodies `keep` accepts, as one sheet body (empty when none are).
@@ -150,7 +178,7 @@ impl Partition {
         }
         let operands: Vec<&BRep> = self.bodies.iter().collect();
         let mut carried = crate::serve_region::Carried::default();
-        let mut body = crate::cellular::assemble::cellular_assemble(
+        let body = crate::cellular::assemble::cellular_assemble(
             &self.built.graph,
             &self.built.fragments,
             &selections,
@@ -161,28 +189,7 @@ impl Partition {
             None,
         )
         .map_err(|d| d.into_error())?;
-        let open: Vec<_> = body
-            .half_edges
-            .iter()
-            .filter(|(h, he)| he.twin == *h || !body.half_edges.contains_key(he.twin))
-            .map(|(h, he)| (h, he.edge))
-            .collect();
-        for &(h, edge) in &open {
-            body.half_edges[h].twin = Default::default();
-            body.boundary_edges.insert(edge);
-        }
-        body.recompute_pcurves_where_missing()
-            .map_err(|e| BoolError::ValidationFailed(format!("sheet pcurves: {e}")))?;
-        for &(h, _) in &open {
-            run_curve_along(&mut body, h);
-        }
-        let findings = body.validate_all();
-        if !findings.is_empty() {
-            return Err(BoolError::ValidationFailed(format!(
-                "partition sheet result: {findings:?}"
-            )));
-        }
-        Ok(body)
+        open_sheet(body)
     }
 }
 

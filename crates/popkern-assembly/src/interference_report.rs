@@ -24,6 +24,11 @@ pub struct InterferenceOptions {
     /// (`mesh_bvh::certain_overlap`) is reported interfering with no
     /// volume — a swing needs the contact, not its size.
     pub overlap_volume: bool,
+    /// Report how a touching pair touches (point, curve or area) and an
+    /// area contact's area (`interference_contact`). Without it a
+    /// touching pair reports its distance alone, as a motion sweep
+    /// needs.
+    pub contact_area: bool,
 }
 
 impl Default for InterferenceOptions {
@@ -34,6 +39,7 @@ impl Default for InterferenceOptions {
             chord_fraction: 1e-3,
             among: Vec::new(),
             overlap_volume: true,
+            contact_area: true,
         }
     }
 }
@@ -56,6 +62,13 @@ pub enum PairStatus {
     Touching {
         /// The reported distance.
         distance: f64,
+        /// How far the touch extends, when asked (`contact_area`) and
+        /// the kernel finds the contact at its tolerance.
+        contact: Option<crate::interference_contact::ContactExtent>,
+        /// The shared face area of an area contact, mm².
+        area: Option<f64>,
+        /// Why the kernel could not describe the contact.
+        decline: Option<String>,
     },
     /// Overlapping solids.
     Interfering {

@@ -21,14 +21,22 @@ pub struct RegionSolid {
     pub region: usize,
 }
 
-/// Two region solids sharing a face: one face in each, on one surface,
-/// facing opposite ways.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Two region solids sharing a patch of surface: the face of each that
+/// holds it, on one surface, facing opposite ways, and the patch
+/// itself. A face may reach past the patch: the solids' extraction
+/// merges co-surfacial faces, so a block offset on another's face holds
+/// the patch inside a larger face. `patch` is exactly what they share
+/// (its area is the contact's, its boundary where a conformal mesh of
+/// the two must agree).
+#[derive(Debug, Clone)]
 pub struct Interface {
     /// Indices into [`RegionSolids::solids`].
     pub solids: (usize, usize),
-    /// The shared face in each.
+    /// The face holding the patch in each.
     pub faces: (FaceHandle, FaceHandle),
+    /// The shared patch as a one-face sheet, in the first solid's
+    /// sense of its holding face's material (facing out of it).
+    pub patch: BRep,
 }
 
 /// Region solids and the faces they share.
@@ -119,12 +127,45 @@ impl Partition {
             ) else {
                 continue;
             };
+            let patch = self.face_patch(&face.source_fragments)?;
             interfaces.push(Interface {
                 solids: (i.min(j), i.max(j)),
                 faces: if i < j { (fa, fb) } else { (fb, fa) },
+                patch,
             });
         }
         Ok(RegionSolids { solids, interfaces })
+    }
+}
+
+impl Partition {
+    /// One complex face as a one-face sheet, from its first source
+    /// fragment.
+    fn face_patch(&self, fragments: &[usize]) -> Result<BRep, BoolError> {
+        let mut selections = vec![
+            crate::merge::fragment_classify::FragmentSelection {
+                keep: false,
+                flip: false,
+            };
+            self.built.fragments.len()
+        ];
+        if let Some(sel) = fragments.first().and_then(|&f| selections.get_mut(f)) {
+            sel.keep = true;
+        }
+        let operands: Vec<&BRep> = self.bodies.iter().collect();
+        let mut carried = crate::serve_region::Carried::default();
+        let body = crate::cellular::assemble::cellular_assemble(
+            &self.built.graph,
+            &self.built.fragments,
+            &selections,
+            &operands,
+            self.tolerance,
+            &mut carried,
+            Default::default(),
+            None,
+        )
+        .map_err(|d| d.into_error())?;
+        super::lamina_part::open_sheet(body)
     }
 }
 

@@ -86,6 +86,7 @@ impl Assembly {
         let report = self.interference_where(
             &InterferenceOptions {
                 overlap_volume: false,
+                contact_area: false,
                 ..InterferenceOptions::default()
             },
             &PairScope {

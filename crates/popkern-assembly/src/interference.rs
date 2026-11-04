@@ -39,6 +39,17 @@ use crate::mesh_bvh::{LocalMesh, WorldMesh};
 mod report;
 pub use report::{InterferenceOptions, InterferenceReport, PairReport, PairStatus};
 
+/// The closest body pair so far: distance, whether refined onto the
+/// faces, the two points, the faces' paths and the world bodies.
+type ClosestPair<'b> = (
+    f64,
+    bool,
+    Point3,
+    Point3,
+    [String; 2],
+    [&'b popkern_core::topology::BRep; 2],
+);
+
 /// One pair's check: its report (`None` beyond the clearance) and
 /// whether the mesh resolution settled it (see `interference_certify`).
 pub(crate) struct PairCheck {
@@ -365,7 +376,7 @@ impl Assembly {
             }
         }
         // Apart: the closest body pair.
-        let mut best: Option<(f64, bool, Point3, Point3, [String; 2])> = None;
+        let mut best: Option<ClosestPair<'_>> = None;
         let mut lower = f64::INFINITY;
         for (brep_a, mesh_a, body_a) in &a.bodies {
             for (brep_b, mesh_b, body_b) in &b.bodies {
@@ -425,11 +436,11 @@ impl Assembly {
                         self.face_path(&a.path, a.definition, brep_a, fa),
                         self.face_path(&b.path, b.definition, brep_b, fb),
                     ];
-                    best = Some((distance, is_refined, here, there, names));
+                    best = Some((distance, is_refined, here, there, names, [brep_a, brep_b]));
                 }
             }
         }
-        let Some((distance, refined, here, there, names)) = best else {
+        let Some((distance, refined, here, there, names, bodies)) = best else {
             return PairCheck {
                 report: None,
                 settled: true,
@@ -447,7 +458,17 @@ impl Assembly {
         // or a refined gap above it with a loose lower bound is not.
         let settled = lower_bound > tolerance || (refined && distance <= tolerance);
         let status = if lower_bound <= tolerance {
-            PairStatus::Touching { distance }
+            let detail = if options.contact_area {
+                crate::interference_contact::contact_detail(bodies[0], bodies[1], tolerance)
+            } else {
+                Default::default()
+            };
+            PairStatus::Touching {
+                distance,
+                contact: detail.extent,
+                area: detail.area,
+                decline: detail.decline,
+            }
         } else {
             PairStatus::Clear {
                 distance,

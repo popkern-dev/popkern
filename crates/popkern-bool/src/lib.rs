@@ -80,6 +80,8 @@ mod pcurve_box;
 pub(crate) mod periodic_chart_parity;
 pub(crate) mod periodic_chart_parity_torus;
 pub mod pieces;
+mod wire_boolean;
+pub use wire_boolean::boolean_with_wire;
 pub mod propagation_report;
 mod record_coparam;
 pub(crate) mod record_side_witness;

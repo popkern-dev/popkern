@@ -142,9 +142,11 @@ pub fn bond_touching(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
         if a == b {
             continue;
         }
-        let face_body = &regions.solids[interface.solids.0].body;
-        let area =
-            popkern_measure::face_area(face_body, interface.faces.0, &tolerance).map_err(kernel)?;
+        let mut area = 0.0;
+        for face in interface.patch.faces.keys() {
+            area +=
+                popkern_measure::face_area(&interface.patch, face, &tolerance).map_err(kernel)?;
+        }
         *shared.entry((a.min(b), a.max(b))).or_default() += area;
         let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
         parent[ra.max(rb)] = ra.min(rb);

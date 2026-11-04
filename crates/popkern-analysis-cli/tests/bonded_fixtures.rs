@@ -212,3 +212,16 @@ fn bodies_touching_along_an_edge_are_not_bonded() {
     assert_eq!(status(&report), "declined", "{report}");
     assert_eq!(report["error"]["kind"], "FreeMotion", "{report}");
 }
+
+/// Blocks offset by half their width share half a face: the bonded
+/// interface is the shared patch, not either block's whole face.
+#[test]
+fn an_offset_pair_bonds_over_the_shared_patch() {
+    let offset = pair("offset", 20.0, 5.0);
+    let report = solve(&offset, STRUCTURAL, Some("bonded"), "offset");
+    let interfaces = &report["model"]["bonded_interfaces"];
+    assert_eq!(interfaces.as_array().map(Vec::len), Some(1), "{report}");
+    let area = interfaces[0]["area_mm2"].as_f64().unwrap_or(f64::NAN);
+    assert!((area - 50.0).abs() < 1e-9, "{area}");
+    assert_eq!(status(&report), "solved", "{report}");
+}
