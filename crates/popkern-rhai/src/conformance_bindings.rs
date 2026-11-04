@@ -425,6 +425,7 @@ pub const RHAI_BINDINGS: &[Binding] = &[
     b("unlabel", "unlabel", &["name"], &[], &[]),
     b("rename_label", "rename_label", &["old", "new"], &[], &[]),
     b("labels", "labels", &[], &[], &[]),
+    b("imprint_class", "imprint_class", &["face"], &[], &[]),
     b("feature", "feature", &["id_or_label"], &[], &[]),
     b("features", "features", &[], &[], &[]),
     b(

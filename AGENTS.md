@@ -225,7 +225,9 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `NaryBoolean { tools, expr, non_manifold }`, `Imprint`, and
   `KeepPieces` / `SeparatePieces { source, rule }` (whole solids taken
   out by `popkern_bool::pieces`, names kept; a body made by
-  `SeparatePieces` is chosen over the body its names point to), named by
+  `SeparatePieces` is chosen over the body its names point to); an
+  imprint's face classes are recorded by stable name in its report row
+  (`FeatureTree::imprint_class`, Rhai `m.imprint_class(name)`). Named by
   `popkern_bool::name_from_operands` (the target's names carry, the
   rest by the operand entities they are pieces of). The shortcut oracle
   `POPKERN_SHORTCUT_ORACLE=1` runs the general path on every touching /

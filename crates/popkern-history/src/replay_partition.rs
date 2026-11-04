@@ -92,6 +92,7 @@ pub(crate) fn execute(
     // Drain stale registry entries so the firings taken after the call
     // belong to this feature.
     let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let mut classes = Vec::new();
     let mut result = match feature {
         Feature::Split { keep, .. } => split(brep, &refs, keep, tolerance)?,
         Feature::NaryBoolean {
@@ -106,13 +107,26 @@ pub(crate) fn execute(
                 .map_err(|e| failed(label, &e))?
         }
         _ => {
-            popkern_bool::ops::imprint::imprint(brep, &tool_breps[0], tolerance)
-                .map_err(|e| failed(label, &e))?
-                .imprinted_target
+            let imprinted = popkern_bool::ops::imprint::imprint(brep, &tool_breps[0], tolerance)
+                .map_err(|e| failed(label, &e))?;
+            classes = imprinted.classes;
+            imprinted.imprinted_target
         }
     };
     popkern_bool::name_from_operands(&mut result, brep, &refs, tolerance, tracking);
     let mut evidence = FeatureEvidence::empty();
+    if matches!(feature, Feature::Imprint { .. }) {
+        // Naming keeps face handles: each class is keyed by the name
+        // its face now carries.
+        let classes = classes
+            .into_iter()
+            .filter_map(|(face, class)| {
+                let id = result.faces.get(face)?.name?;
+                Some((result.name_pool.get(id)?.clone(), class))
+            })
+            .collect();
+        evidence.imprint = Some(crate::replay_report::ImprintRecord { classes });
+    }
     evidence.record_boolean_fallbacks(popkern_bool::merge_fallback::take_merge_fallback_events());
     *brep = result;
     Ok(ExecuteSideEffects {

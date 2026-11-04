@@ -69,6 +69,7 @@ pub const RUST_BINDINGS: &[(&str, &str)] = &[
     ("unlabel", "fn unlabel"),
     ("rename_label", "fn rename_label"),
     ("labels", "fn labels"),
+    ("imprint_class", "fn imprint_class"),
     ("close", "fn close"),
     ("set_expr", "fn set_expr"),
     ("clear_expr", "fn clear_expr"),

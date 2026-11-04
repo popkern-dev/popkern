@@ -336,6 +336,7 @@ one entity (`SelectionCardinality { expected: 1, got }` otherwise).
 | `unlabel(name)` | stable | |
 | `rename_label(old, new)` | stable | Edits the label table only; zero references change. |
 | `labels()` | stable | `[(label, EntityName)]` |
+| `imprint_class(face)` | preview | Where the face named `face` (spelled `label/Category/index`) lies relative to the tool of the latest `imprint` that classified it: `"inside"` \| `"outside"` \| `"on_aligned"` (on a tool face facing the same way) \| `"on_opposed"` (a contact patch); `()` when no imprint classified a face of that name. Recorded in the imprint's replay report row, by stable name. |
 | feature labels | stable | `feature.label`, `model.rename(feature, new_label)` (strict: `DuplicateLabel`, `EmptyLabel`). |
 
 ---

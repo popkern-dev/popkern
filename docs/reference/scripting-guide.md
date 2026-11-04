@@ -745,6 +745,7 @@ body.extrude(END, #{label, mode})        body.revolve(AXIS, END, #{label})
 body.union(tool) subtract(tool) intersect(tool)      tool = m.tool(|m| …)
 body.split([t, …], KEEP)   body.nary_boolean([t, …], EXPR, #{label, non_manifold})   body.symmetric_difference(t)   body.imprint(t)
 body.keep_pieces(KEEP)     piece = body.separate_pieces(KEEP)   (geometric KEEP only: all_pieces, containing, largest)
+m.imprint_class("label/Category/i")   "inside" | "outside" | "on_aligned" | "on_opposed" | () — the latest imprint's verdict
 KEEP: all_pieces() inside_tools(EXPR) containing([x,y,z]) largest(n)
 EXPR: body(i) any_body() all_bodies() exactly_one() odd() at_least(k) .and(EXPR) .or(EXPR) .minus(EXPR)
 body.fillet(E, r, #{label, continuity, cap, profile, interference, law, corner, corner_cap, corner_cap_strict, setback, setback_ends})

@@ -17,7 +17,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 use crate::error::PointClassification;
 
 /// Where an imprinted face lies relative to the tool.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum FaceClass {
     /// Inside the tool.
     Inside,

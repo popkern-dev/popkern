@@ -120,8 +120,9 @@ pub use parameter::{EvaluationWarning, ParamScope, Parameter, ParameterId, Param
 pub use parse::{EntityResolver, ParseError, parse_expression, parse_expression_with_resolver};
 pub use queries::ImpactReport;
 pub use replay_report::{
-    BlendEvidenceRecord, CornerEvidence, FallbackRecord, FeatureReport, KernelWarning,
-    RecordSource, ReplayOutcome, ReplayReport, ReplayResult, SkipRecord, SuppressionReason,
+    BlendEvidenceRecord, CornerEvidence, FallbackRecord, FeatureReport, ImprintRecord,
+    KernelWarning, RecordSource, ReplayOutcome, ReplayReport, ReplayResult, SkipRecord,
+    SuppressionReason,
 };
 pub use serialize::{CURRENT_VERSION, MIN_SUPPORTED_VERSION};
 pub use unit::{DimensionKind, Unit};
@@ -134,7 +135,7 @@ pub use {
 
 use std::collections::HashMap;
 
-use popkern_core::naming::OperationId;
+use popkern_core::naming::{EntityName, OperationId};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use serde::{Deserialize, Serialize};
@@ -319,6 +320,17 @@ impl FeatureTree {
     /// Returns `None` if the tree has not been replayed yet.
     pub fn last_report(&self) -> &ReplayReport {
         &self.last_report
+    }
+
+    /// Where `face` lies relative to the tool of the latest served
+    /// imprint that classified a face of that name (design 5.4); `None`
+    /// when no imprint in the last replay did.
+    pub fn imprint_class(&self, face: &EntityName) -> Option<popkern_bool::FaceClass> {
+        self.last_report
+            .features
+            .iter()
+            .rev()
+            .find_map(|r| r.imprint.as_ref()?.class_of(face))
     }
 
     /// The naming scheme this tree mints under (PK-677).

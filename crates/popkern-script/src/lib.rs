@@ -83,8 +83,8 @@ pub mod prelude {
     pub use crate::selection::{EdgeSelector, FaceSelector, edges, faces};
     pub use popkern_history::SnapshotOrigin;
     pub use popkern_history::feature::{
-        AxisDesc, BasePlane, BoolOpKind, JoinStyleKind, NonManifoldPolicy, OperationMode,
-        PieceRule, SetExpr, ShellDirectionKind, TrimPolicyKind, Vec3Desc,
+        AxisDesc, BasePlane, BoolOpKind, FaceClass, JoinStyleKind, NonManifoldPolicy,
+        OperationMode, PieceRule, SetExpr, ShellDirectionKind, TrimPolicyKind, Vec3Desc,
     };
     pub use popkern_history::feature_blend::{
         BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerCapDesc,

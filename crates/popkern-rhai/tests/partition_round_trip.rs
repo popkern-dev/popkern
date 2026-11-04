@@ -178,3 +178,38 @@ fn piece_features_spell_their_rules_and_the_separated_body() {
     let alive = m.bodies().into_iter().filter(|b| b.is_alive(&m)).count();
     assert_eq!(alive, 2, "the plate and the separated piece");
 }
+
+#[test]
+fn imprint_classes_answer_by_spelled_name() {
+    let mut host = ScriptHost::new();
+    let source = SCRIPTS[4].1;
+    let mut m = run(&mut host, source, "imprint");
+    let brep = m.to_part().expect("part").brep().clone();
+    let mut asked = Vec::new();
+    for face in brep.faces.values() {
+        let name = brep
+            .name_pool
+            .get(face.name.expect("named"))
+            .expect("pooled")
+            .clone();
+        let class = m.imprint_class(&name).expect("query").expect("classified");
+        let spelled = m.spell_entity(&name).expect("spell");
+        let want = match class {
+            FaceClass::Inside => "inside",
+            FaceClass::Outside => "outside",
+            FaceClass::OnAligned => "on_aligned",
+            FaceClass::OnOpposed => "on_opposed",
+        };
+        asked.push(format!(
+            "if m.imprint_class({spelled:?}) != {want:?} {{ throw \"{spelled}\"; }}"
+        ));
+    }
+    assert!(asked.iter().any(|a| a.contains("\"inside\"")), "{asked:?}");
+    let script = source.replace("\nm", &format!("\n{}\nm", asked.join("\n")));
+    let script = script.replacen(
+        "\nm",
+        "\nif m.imprint_class(\"extrude-1/Cap/9\") != () { throw \"unclassified\"; }\nm",
+        1,
+    );
+    run(&mut host, &script, "imprint_classes");
+}

@@ -41,6 +41,8 @@ pub(crate) struct FeatureEvidence {
     pub skipped: Vec<SkipRecord>,
     /// A served generative design's record.
     pub generative: Option<crate::replay_report::GenerativeRecord>,
+    /// A served imprint's face classes.
+    pub imprint: Option<crate::replay_report::ImprintRecord>,
 }
 
 impl FeatureEvidence {

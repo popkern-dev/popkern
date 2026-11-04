@@ -4,7 +4,10 @@
 //! and taking a body's pieces apart. Each consumes its tools, as a
 //! boolean consumes its tool.
 
-use popkern_history::feature::{BoolOpKind, Feature, NonManifoldPolicy, PieceRule, SetExpr};
+use popkern_core::naming::EntityName;
+use popkern_history::feature::{
+    BoolOpKind, FaceClass, Feature, NonManifoldPolicy, PieceRule, SetExpr,
+};
 use popkern_history::node::BodyId;
 
 use crate::body::Body;
@@ -256,5 +259,22 @@ impl Body {
     /// As [`Body::partition_with`].
     pub fn imprint(self, model: &mut Model, tool: Body) -> Result<Body, ScriptError> {
         self.partition_with(model, PartitionOp::Imprint { tool }, "")
+    }
+}
+
+impl Model {
+    /// Where `face` lies relative to the tool of the latest imprint that
+    /// classified a face of that name (design 5.4); `None` when none did
+    /// (no imprint, or a face a later feature renamed).
+    ///
+    /// # Errors
+    ///
+    /// A replay failure when the document is stale.
+    pub fn imprint_class(&mut self, face: &EntityName) -> Result<Option<FaceClass>, ScriptError> {
+        if !self.geometry_current {
+            self.tree.replay(self.tolerance)?;
+            self.note_full_replay();
+        }
+        Ok(self.tree.imprint_class(face))
     }
 }

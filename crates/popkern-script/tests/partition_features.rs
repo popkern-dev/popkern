@@ -218,3 +218,90 @@ fn a_moved_tool_replays_the_split_and_the_fillet_after_it() {
     );
     assert!((after - before).abs() < 1e-9, "{after} vs {before}");
 }
+
+/// Each face of an imprinted plate (design 5.4, PK-1062): its class
+/// relative to the tool is queried by stable name, survives a reopened
+/// document and follows the tool when it moves.
+#[test]
+fn imprint_classes_are_queried_by_stable_name() {
+    let mut m = Model::new();
+    m.param("x", 0.0, Unit::Meters).expect("param");
+    let p = plate(&mut m);
+    let s = m
+        .tool(|m| {
+            m.profile(Plane::xy_at(-0.5))
+                .rect(0.4, 3.0)
+                .at(popkern_script::scalar::p("x"), 0.0)
+                .sketch("slab")?
+                .extrude(m, End::Blind(2.0.into()))
+        })
+        .expect("slab");
+    p.imprint(&mut m, s).expect("imprint");
+    // Each face's class by name, and where its centre lies in x.
+    let classes = |m: &mut Model| {
+        let brep = m.brep_of(p).expect("brep");
+        let mut out = Vec::new();
+        for (handle, face) in &brep.faces {
+            let name = brep
+                .name_pool
+                .get(face.name.expect("named"))
+                .expect("pooled")
+                .clone();
+            let class = m.imprint_class(&name).expect("query");
+            let xs: Vec<f64> = brep
+                .face_outer_loop_positions(handle)
+                .iter()
+                .map(|q| q.x)
+                .collect();
+            let mid = xs.iter().sum::<f64>() / xs.len() as f64;
+            out.push((mid, class));
+        }
+        out
+    };
+    let check = |at: f64, got: &[(f64, Option<FaceClass>)]| {
+        assert!(got.iter().all(|(_, c)| c.is_some()), "{got:?}");
+        for (mid, class) in got {
+            let inside = (mid - at).abs() < 0.2 - 1e-9;
+            if inside {
+                assert_eq!(*class, Some(FaceClass::Inside), "x {mid}: {got:?}");
+            }
+        }
+        assert!(got.iter().any(|(_, c)| *c == Some(FaceClass::Inside)));
+        assert!(got.iter().any(|(_, c)| *c == Some(FaceClass::Outside)));
+    };
+    let first = classes(&mut m);
+    check(0.0, &first);
+    // A name no imprint classified.
+    use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
+    let other = EntityName {
+        operation: OperationId(999),
+        role: EntityRole {
+            category: RoleCategory::Generated,
+            index: 0,
+        },
+        ancestors: Vec::new(),
+    };
+    assert_eq!(m.imprint_class(&other).expect("query"), None);
+
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("partition_features");
+    std::fs::create_dir_all(&dir).expect("dir");
+    let path = dir.join("imprint.pkn");
+    m.save(&path).expect("save");
+    let mut again = Model::open(&path).expect("open");
+    again.replay().expect("replay");
+    let mut reopened = classes(&mut again);
+    let mut before = first.clone();
+    let key = |v: &mut Vec<(f64, Option<FaceClass>)>| {
+        v.sort_by(|a, b| {
+            a.0.total_cmp(&b.0)
+                .then(format!("{:?}", a.1).cmp(&format!("{:?}", b.1)))
+        })
+    };
+    key(&mut reopened);
+    key(&mut before);
+    assert_eq!(reopened, before);
+
+    m.set_param("x", 0.6).expect("move the tool");
+    m.replay().expect("replay");
+    check(0.6, &classes(&mut m));
+}

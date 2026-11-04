@@ -463,7 +463,7 @@ pub use crate::feature_plane::{BasePlane, SketchPlaneDesc, Vec3Desc};
 
 pub use crate::feature_pieces::PieceRule;
 
-pub use popkern_bool::{NonManifoldPolicy, SetExpr};
+pub use popkern_bool::{FaceClass, NonManifoldPolicy, SetExpr};
 
 pub use crate::feature_shell_kinds::{JoinStyleKind, ShellDirectionKind, TrimPolicyKind};
 
