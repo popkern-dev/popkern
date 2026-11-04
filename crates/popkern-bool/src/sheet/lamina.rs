@@ -149,6 +149,9 @@ fn twin_open_boundary(view: &mut BRep) {
         view.half_edges[twin].prev = twin;
         view.loops[ring].half_edge = twin;
         view.half_edges[h].twin = twin;
+        // Recorded as the boundary it is: on a periodic face a twin
+        // the face holds would otherwise read as the seam.
+        view.boundary_edges.insert(edge);
     }
 }
 

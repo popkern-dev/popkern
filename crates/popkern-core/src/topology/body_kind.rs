@@ -93,10 +93,11 @@ impl BRep {
         }
     }
 
-    /// Whether `edge` is a free (open boundary) edge: one face holds
-    /// both its half-edges and that face's surface is not closed across
-    /// it. An edge with a missing half-edge, twin or loop counts as free
-    /// when it has a face, so a broken body never reads as closed.
+    /// Whether `edge` is a free (open boundary) edge: recorded in
+    /// `boundary_edges`, or one face holds both its half-edges and that
+    /// face's surface is not closed across it. An edge with a missing
+    /// half-edge, twin or loop counts as free when it has a face, so a
+    /// broken body never reads as closed.
     pub fn is_free_edge(&self, edge: EdgeHandle) -> bool {
         self.edge_use(edge) == EdgeUse::Free
     }
@@ -105,6 +106,12 @@ impl BRep {
         let Some(e) = self.edges.get(edge) else {
             return EdgeUse::Free;
         };
+        // A recorded boundary edge is free whatever pairs its
+        // half-edges: on a periodic face, an open edge whose twin the
+        // face also holds would otherwise read as the seam.
+        if self.boundary_edges.contains(&edge) {
+            return EdgeUse::Free;
+        }
         let face_of = |he| {
             self.half_edges
                 .get(he)

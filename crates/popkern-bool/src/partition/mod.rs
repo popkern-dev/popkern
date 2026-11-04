@@ -10,6 +10,7 @@
 
 mod build;
 mod crossings;
+mod lamina_part;
 mod nary;
 mod region_nesting;
 mod region_solids;
@@ -117,7 +118,8 @@ impl Partition {
 ///
 /// [`BoolError::TooManyBodies`] past [`MAX_BODIES`];
 /// [`BoolError::UnsupportedBodyKind`] for a body that is neither a
-/// solid nor a sheet;
+/// solid nor a sheet; [`BoolError::DegenerateInput`] for a face with
+/// no surface;
 /// [`BoolError::MergeFailed`] when the complex cannot be built (its
 /// decline named in the reason).
 pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, BoolError> {
@@ -136,6 +138,11 @@ pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, Bo
                 kind,
                 accepted: &[BodyKind::Solid, BodyKind::Sheet],
             });
+        }
+        if let Some((face, _)) = body.faces.iter().find(|(_, f)| f.surface.is_none()) {
+            return Err(BoolError::DegenerateInput(format!(
+                "body {operand} face {face:?} has no surface"
+            )));
         }
     }
     // Sheets enter as laminae: their free-boundary mirror loops are no

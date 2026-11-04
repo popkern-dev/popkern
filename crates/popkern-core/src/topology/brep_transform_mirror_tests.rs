@@ -1,4 +1,5 @@
-//! Reflections through `BRep::transform` (PK-976).
+//! Reflections, and rotations with a scale, through `BRep::transform`
+//! (PK-976, PK-978).
 
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::transform::Transform3;
@@ -80,5 +81,30 @@ fn reflection_keeps_rotational_faces_honest() {
             sides.windows(2).all(|w| w[0] == w[1]),
             "{name}: mirrored faces fold their normals to different sides: {sides:?}"
         );
+    }
+}
+
+/// A rotation composed with a uniform scale re-anchors rotational
+/// charts by the unit image of the axis: the scaled image (length 10)
+/// built a different basis than the surface's own, and every pcurve of
+/// a cylinder sat 1.8 off its edge.
+#[test]
+fn a_rotated_and_scaled_cylinder_keeps_its_pcurves() {
+    let tol = Tolerance::default();
+    let cylinder = BRep::cylinder(0.3, 2.0, tol)
+        .and_then(|c| c.transform(&Transform3::translation(0.5, 0.5, -0.5)))
+        .expect("cylinder");
+    for scale in [10.0, 0.01] {
+        let rotation = Transform3::rotation_around_axis(
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 1.0),
+            2.1,
+        )
+        .expect("rotation");
+        let placed = cylinder
+            .transform(&rotation.compose(&Transform3::scale_uniform(scale)))
+            .expect("transform");
+        let findings = placed.validate_all();
+        assert!(findings.is_empty(), "scale {scale}: {findings:?}");
     }
 }

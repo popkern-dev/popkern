@@ -21,12 +21,12 @@ pub enum SheetOperationKind {
     /// A is solid, B is sheet, op is intersection. Returns the portion
     /// of the sheet inside the solid (open shell result).
     SheetIntersectSolid,
-    /// A is solid, B is sheet, op is union. Conceptually merges, but
-    /// not yet implemented.
+    /// A is solid, B is sheet, op is union. The solid with the
+    /// portion of the sheet outside it as an open-shell appendage.
     SolidUnionSheet,
-    /// A is sheet, B is solid, op is subtraction. Subtracting a volume
-    /// from a 2D sheet is undefined; this case is rejected.
-    InvalidSheetMinusSolid,
+    /// A is sheet, B is solid, op is subtraction. Returns the portion
+    /// of the sheet outside the solid (open shell result).
+    SheetMinusSolid,
     /// Both inputs are sheets, op is intersection. Returns shared
     /// curves (1D) or shared regions (2D); not yet implemented.
     SheetSheetIntersection,
@@ -43,8 +43,7 @@ pub enum SheetOperationKind {
 /// is_a_sheet, is_b_sheet) tuple. The classification is intended for
 /// dispatch: a sheet-aware boolean wrapper inspects the result and
 /// routes to the appropriate sub-operation, or returns
-/// [`crate::BoolError::OpenShellNotSupported`] for `Unsupported` /
-/// `Invalid*` cases.
+/// [`crate::BoolError::OpenShellNotSupported`] for `Unsupported`.
 pub fn classify_sheet_operation(
     op: crate::BoolOperation,
     a_is_sheet: bool,
@@ -59,7 +58,7 @@ pub fn classify_sheet_operation(
         (BoolOperation::Union, false, true) | (BoolOperation::Union, true, false) => {
             SheetOperationKind::SolidUnionSheet
         }
-        (BoolOperation::Subtraction, true, false) => SheetOperationKind::InvalidSheetMinusSolid,
+        (BoolOperation::Subtraction, true, false) => SheetOperationKind::SheetMinusSolid,
         (BoolOperation::Subtraction, true, true) => SheetOperationKind::Unsupported,
         (BoolOperation::Intersection, true, true) => SheetOperationKind::SheetSheetIntersection,
         (BoolOperation::Union, true, true) => SheetOperationKind::SheetSheetUnion,

@@ -238,6 +238,18 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   rest by the operand entities they are pieces of). The shortcut oracle
   `POPKERN_SHORTCUT_ORACLE=1` runs the general path on every touching /
   containment shortcut and logs agreement (`ShortcutOracle`).
+- **Sheet booleans** — `boolean_with_sheets` decides sheet ∩ solid,
+  sheet − solid, solid − sheet (pieces) and the union's appendage on
+  the cell complex (`sheet/complex_route.rs`, sheets as laminae:
+  `partition/lamina_part.rs`), falling back to the planar split or
+  imprint-and-trim path with a `PartitionFallback sheet` shadow line;
+  `boolean()` still declines sheets. A sheet's free edge is canonical:
+  a null twin with its edge in `boundary_edges`, the survivor the
+  edge's canonical half-edge with the curve run its way (a recorded
+  boundary edge reads as free even on a periodic face, where a twin on
+  the same face would read as the seam). The constructors' two-face
+  sheets are converted at entry. OCC oracle:
+  `tools/occ-oracle/occ_sheet.py`.
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks

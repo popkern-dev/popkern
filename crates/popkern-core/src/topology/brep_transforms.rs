@@ -372,7 +372,8 @@ impl crate::topology::BRep {
                 | SurfaceGeometry::Torus { axis, .. } => *axis,
                 _ => continue,
             };
-            let axis_new = t.apply_direction(&axis_old);
+            // Unit like the stored axis: the basis assumes one (PK-978).
+            let axis_new = t.apply_direction(&axis_old) * (1.0 / scale);
             let (e1_old, _) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_old);
             let (f1, f2) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_new);
             let e1_img = t.apply_direction(&e1_old);

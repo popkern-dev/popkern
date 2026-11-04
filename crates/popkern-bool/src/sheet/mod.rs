@@ -25,6 +25,7 @@
 //!   by the multi-piece `SolidMinusSheet` fast path.
 
 pub mod classify;
+mod complex_route;
 mod dedupe;
 pub mod detect;
 pub mod dispatch;
