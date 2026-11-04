@@ -168,7 +168,9 @@ fn check_radial(c: &CellComplex, out: &mut Vec<ComplexFinding>) {
                 out.push(ComplexFinding::RadialMembership { edge, fin });
             }
         }
-        if e.radial.len() == 1 && !e.frontier {
+        // A sheet's boundary is a free edge by design (its one fin a
+        // lamina's); any other single-fin edge is a defect.
+        if e.radial.len() == 1 && !e.frontier && !c.is_free_lamina_edge(edge) {
             out.push(ComplexFinding::FreeEdge { edge });
         }
     }

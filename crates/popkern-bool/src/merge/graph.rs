@@ -127,6 +127,11 @@ pub(crate) struct IntersectionGraph {
     /// half's twin stays on its own face, and the two pairs are one
     /// edge of the result (see `graph_duplicates`).
     pub duplicate_of: std::collections::BTreeMap<usize, usize>,
+    /// Nodes on a sheet operand's free boundary (PK-978): a record of a
+    /// solid face ending at one dangles in that face where the sheet
+    /// ends, and is kept as a slit of the face rather than dropped as a
+    /// graze, so the cells on either side of the face stay apart.
+    pub lamina_boundary_nodes: std::collections::BTreeSet<usize>,
     /// Node indices keyed by their x coordinate (order-preserving bit
     /// key), so `find_node` scans a slab instead of every node: graph
     /// build looked up every operand vertex against every node before
@@ -154,6 +159,7 @@ impl IntersectionGraph {
             face_edges: BTreeMap::new(),
             seam_substitutes: std::collections::BTreeSet::new(),
             duplicate_of: std::collections::BTreeMap::new(),
+            lamina_boundary_nodes: std::collections::BTreeSet::new(),
             node_index: BTreeMap::new(),
         }
     }

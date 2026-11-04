@@ -219,7 +219,10 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   neighbours share (`Interface`), `imprint` classifies a target's faces
   (`FaceClass`). Operations declare accepted `BodyKind`s
   (`BoolError::UnsupportedBodyKind`). Coplanar faces between bodies
-  are held (operand-qualified `FacePair`s); record crossings of
+  are held (operand-qualified `FacePair`s); a region bounded by several
+  shells (a body floating in another, an operand's cavity) keeps them
+  together (`partition/region_nesting.rs`); sheets enter as laminae
+  that cut regions without bounding volume (PK-978); record crossings of
   different pairs adopt a node within 20 tolerances
   (`partition/crossings.rs`), so crowded triple points share a vertex.
   When a stage still declines, `nary_boolean` falls back to

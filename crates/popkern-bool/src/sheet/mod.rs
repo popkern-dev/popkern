@@ -28,6 +28,7 @@ pub mod classify;
 mod dedupe;
 pub mod detect;
 pub mod dispatch;
+pub mod lamina;
 pub mod side;
 pub mod split;
 mod trim;

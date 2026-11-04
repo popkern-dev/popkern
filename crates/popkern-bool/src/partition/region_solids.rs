@@ -64,7 +64,7 @@ impl Partition {
         let mut solids = Vec::new();
         // Kept region index (into `solids`) per complex shell.
         let mut solid_of_shell = vec![None; c.shells.len()];
-        for (region, (info, &shell)) in self
+        for (region, (info, shells)) in self
             .built
             .regions
             .iter()
@@ -75,11 +75,15 @@ impl Partition {
                 continue;
             }
             let mut only = vec![false; c.shells.len()];
-            only[shell] = true;
+            for &shell in shells {
+                only[shell] = true;
+            }
             let selection =
                 crate::complex::select::select_shells(lift, only, self.built.fragments.len());
             let body = self.extract(&selection, NonManifoldPolicy::SplitToManifold, false)?;
-            solid_of_shell[shell] = Some(solids.len());
+            for &shell in shells {
+                solid_of_shell[shell] = Some(solids.len());
+            }
             solids.push(RegionSolid {
                 body,
                 bodies: info.bodies,

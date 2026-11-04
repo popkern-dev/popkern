@@ -163,6 +163,11 @@ pub(crate) struct CellComplex {
     pub shells: Vec<ComplexShell>,
     /// Number of operands imprinted.
     pub operand_count: usize,
+    /// Operands that are sheets (stage 9, PK-978): their faces are
+    /// laminae, bounding no volume — both sides lie in one membership
+    /// class, and going round a sheet's free edge crosses from one side
+    /// to the other.
+    pub lamina_operands: super::operand_set::OperandSet,
 }
 
 impl CellComplex {
@@ -172,6 +177,24 @@ impl CellComplex {
             operand_count,
             ..Self::default()
         }
+    }
+
+    /// Whether `edge` is a sheet's free boundary: an odd number of fins,
+    /// every one a lamina's (stage 9: going round it crosses the sheet).
+    pub(crate) fn is_free_lamina_edge(&self, edge: super::ids::EdgeId) -> bool {
+        let radial = &self.edges[edge.index()].radial;
+        radial.len() % 2 == 1
+            && radial
+                .iter()
+                .all(|f| self.is_lamina(self.fins[f.index()].face))
+    }
+
+    /// Whether `face` is a lamina: its primary owner is a sheet.
+    pub(crate) fn is_lamina(&self, face: super::ids::FaceId) -> bool {
+        self.faces[face.index()]
+            .owners
+            .first()
+            .is_some_and(|o| self.lamina_operands.contains(o.operand))
     }
 
     /// Add a vertex.

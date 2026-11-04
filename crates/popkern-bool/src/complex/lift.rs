@@ -284,11 +284,20 @@ pub(crate) fn lift_fragments(
 ) -> Result<Lift, LiftDecline> {
     let tolerance = tol.linear();
     let reps = unify_spans(graph, fragments, tolerance);
+    // A sheet has no material: its faces' sense is a convention the
+    // complex never reads as material (lamina faces join no volume).
+    let is_sheet = |brep: &BRep| brep.body_kind() == popkern_core::topology::BodyKind::Sheet;
     let senses = operands
         .iter()
         .zip(boxes)
         .enumerate()
-        .map(|(k, (brep, boxes))| material_senses(brep, k, boxes, tol))
+        .map(|(k, (brep, boxes))| {
+            if is_sheet(brep) {
+                Ok(brep.faces.keys().map(|f| (f, true)).collect())
+            } else {
+                material_senses(brep, k, boxes, tol)
+            }
+        })
         .collect::<Result<Vec<_>, _>>()?;
     let output_folded_outward = operands[0]
         .faces
@@ -309,6 +318,11 @@ pub(crate) fn lift_fragments(
     groups.retain(|g| !g.is_empty());
 
     let mut complex = CellComplex::new(operands.len());
+    for (k, brep) in operands.iter().enumerate() {
+        if is_sheet(brep) {
+            complex.lamina_operands.insert(k);
+        }
+    }
     let mut vertex_of_node: BTreeMap<usize, VertexId> = BTreeMap::new();
     let mut edge_of_key: BTreeMap<usize, EdgeId> = BTreeMap::new();
     let mut face_of_fragment = vec![FaceId::from_index(usize::MAX); fragments.len()];

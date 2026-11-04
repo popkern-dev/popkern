@@ -5,7 +5,7 @@ use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use super::{BodySet, partition};
+use super::{BodySet, SetExpr, partition};
 use crate::PointClassification;
 
 fn cube_at(x: f64, y: f64, z: f64) -> BRep {
@@ -72,12 +72,42 @@ fn three_overlapping_cubes_cut_seven_regions() {
 }
 
 #[test]
-fn a_sheet_is_refused_by_kind() {
+fn a_sheet_partitions_as_a_lamina() {
+    // An open box (a unit cube with one face retired to an open rim)
+    // and a solid cube offset by half a unit on every axis: the box's
+    // three faces inside the solid cut out its corner cell, and bound
+    // no volume of their own (PK-978).
     let mut open = cube_at(0.0, 0.0, 0.0);
     let face = open.faces.keys().next().expect("face");
     open.retire_faces_to_boundary(&[face]).expect("retire");
+    assert_eq!(open.body_kind(), popkern_core::topology::BodyKind::Sheet);
     let solid = cube_at(0.5, 0.5, 0.5);
-    match partition(&[&solid, &open], Tolerance::default()) {
+    let p = partition(&[&solid, &open], Tolerance::default()).expect("partition");
+    let regions = p.regions();
+    assert_eq!(regions.len(), 2);
+    assert!(regions.iter().all(|r| r.bodies == BodySet::of(&[0])));
+    let cells = p.region_solids(&SetExpr::Any).expect("cells");
+    let mut faces: Vec<usize> = cells.solids.iter().map(|s| s.body.faces.len()).collect();
+    faces.sort_unstable();
+    assert_eq!(faces, vec![6, 9], "the corner cube and the rest");
+    for cell in &cells.solids {
+        assert!(
+            cell.body.validate_all().is_empty(),
+            "{:?}",
+            cell.body.validate_all()
+        );
+    }
+}
+
+#[test]
+fn a_mixed_body_is_refused_by_kind() {
+    let mut open = cube_at(3.0, 0.0, 0.0);
+    let face = open.faces.keys().next().expect("face");
+    open.retire_faces_to_boundary(&[face]).expect("retire");
+    let mixed = crate::concatenate_solids(cube_at(0.0, 0.0, 0.0), open).expect("mixed");
+    assert_eq!(mixed.body_kind(), popkern_core::topology::BodyKind::Mixed);
+    let solid = cube_at(0.5, 0.5, 0.5);
+    match partition(&[&solid, &mixed], Tolerance::default()) {
         Err(crate::BoolError::UnsupportedBodyKind { operand: 1, .. }) => {}
         other => panic!("{other:?}"),
     }

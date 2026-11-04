@@ -48,8 +48,9 @@ pub(super) struct Built {
     pub fragments: Vec<crate::merge::walk::Fragment>,
     pub complex: crate::complex::pipeline::ComplexRegions,
     pub regions: Vec<RegionInfo>,
-    /// The complex shell of each region, in `regions` order.
-    pub region_shells: Vec<usize>,
+    /// The complex shells bounding each region, in `regions` order,
+    /// the outer shell first (`region_nesting`).
+    pub region_shells: Vec<Vec<usize>>,
 }
 
 /// Build the complex of `bodies` and read off its bounded regions, each
@@ -130,6 +131,7 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
         crate::merge::graph_duplicates::remove_collinear_duplicates(&mut graph, linear);
     }
     crate::merge::radial::sort_all_radial(&mut graph);
+    mark_lamina_boundary_nodes(&mut graph, bodies);
 
     let mut fallbacks = Vec::new();
     let fragments = crate::merge::walk::walk_all_fragments_ext(
@@ -178,7 +180,7 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
             bodies: BodySet::of(&bodies_in),
             interior_point,
         });
-        region_shells.push(si);
+        region_shells.push(vec![si]);
     }
     Ok(Built {
         graph,
@@ -221,4 +223,33 @@ fn interior_point(
         return Some(at.point + toward * (at.fin_length * 1e-3).max(linear * 50.0));
     }
     None
+}
+
+/// Record every node on a sheet operand's free boundary edges (PK-978).
+fn mark_lamina_boundary_nodes(graph: &mut IntersectionGraph, bodies: &[&BRep]) {
+    use crate::merge::graph::EdgeSource;
+    let sheets: Vec<bool> = bodies
+        .iter()
+        .map(|b| b.body_kind() == popkern_core::topology::BodyKind::Sheet)
+        .collect();
+    if !sheets.iter().any(|&s| s) {
+        return;
+    }
+    let mut marked = Vec::new();
+    for he in &graph.half_edges {
+        let (operand, edge) = match he.source {
+            EdgeSource::Original(op, e)
+            | EdgeSource::Split {
+                operand: op,
+                original: e,
+            } => (op, e),
+            EdgeSource::Shared { .. } => continue,
+        };
+        let k = operand.index();
+        if sheets.get(k).copied().unwrap_or(false) && bodies[k].is_free_edge(edge) {
+            marked.push(he.origin);
+            marked.push(graph.half_edges[he.twin].origin);
+        }
+    }
+    graph.lamina_boundary_nodes.extend(marked);
 }

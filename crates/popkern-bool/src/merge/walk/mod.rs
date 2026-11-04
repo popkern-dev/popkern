@@ -82,8 +82,14 @@ pub(crate) fn walk_all_fragments_ext(
     let compare = identity::compare_mode();
     let mut identities: Vec<Fragment> = Vec::new();
 
-    // Opposite-operand face AABBs (PK-438 exterior-disjoint promotion).
-    let opposite_aabbs = hole_nesting::OppositeAabbs::new(operands[0], operands[1], identity);
+    // Opposite-operand face AABBs (PK-438 exterior-disjoint promotion);
+    // a single body (a one-body partition) has nothing opposite.
+    let nothing = popkern_core::topology::BRep::new(*tolerance);
+    let opposite_aabbs = hole_nesting::OppositeAabbs::new(
+        operands[0],
+        operands.get(1).copied().unwrap_or(&nothing),
+        identity,
+    );
 
     let mut ctx = FaceWalk {
         graph,

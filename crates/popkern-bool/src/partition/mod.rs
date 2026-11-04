@@ -11,6 +11,7 @@
 mod build;
 mod crossings;
 mod nary;
+mod region_nesting;
 mod region_solids;
 mod select;
 mod set_expr;
@@ -109,12 +110,14 @@ impl Partition {
     }
 }
 
-/// Partition `bodies` (solids) into the regions they cut space into.
+/// Partition `bodies` (solids, and sheets as laminae that cut regions
+/// without bounding volume) into the regions they cut space into.
 ///
 /// # Errors
 ///
 /// [`BoolError::TooManyBodies`] past [`MAX_BODIES`];
-/// [`BoolError::UnsupportedBodyKind`] for a body that is not a solid;
+/// [`BoolError::UnsupportedBodyKind`] for a body that is neither a
+/// solid nor a sheet;
 /// [`BoolError::MergeFailed`] when the complex cannot be built (its
 /// decline named in the reason).
 pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, BoolError> {
@@ -126,27 +129,48 @@ pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, Bo
     }
     for (operand, body) in bodies.iter().enumerate() {
         let kind = body.body_kind();
-        if kind != BodyKind::Solid {
+        if kind != BodyKind::Solid && kind != BodyKind::Sheet {
             return Err(BoolError::UnsupportedBodyKind {
                 operation: "partition",
                 operand,
                 kind,
-                accepted: &[BodyKind::Solid],
+                accepted: &[BodyKind::Solid, BodyKind::Sheet],
             });
         }
     }
-    let built = build::build(bodies, &tolerance)?;
-    Ok(Partition {
+    // Sheets enter as laminae: their free-boundary mirror loops are no
+    // holes (PK-978).
+    let views: Vec<BRep> = bodies
+        .iter()
+        .map(|b| {
+            if b.body_kind() == BodyKind::Sheet {
+                crate::sheet::lamina::pipeline_view(b)
+            } else {
+                (*b).clone()
+            }
+        })
+        .collect();
+    let view_refs: Vec<&BRep> = views.iter().collect();
+    let built = build::build(&view_refs, &tolerance)?;
+    let mut partition = Partition {
         body_count: bodies.len(),
-        bodies: bodies.iter().map(|b| (*b).clone()).collect(),
+        // The bodies as the pipeline read them (a sheet's view): the
+        // assembly reads the same topology the graph was built from.
+        bodies: views,
         tolerance,
         built,
-    })
+    };
+    partition.nest_regions()?;
+    Ok(partition)
 }
 
 #[cfg(test)]
 #[path = "partition_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "sheet_tests.rs"]
+mod sheet_tests;
 
 #[cfg(test)]
 #[path = "partition_star_tests.rs"]

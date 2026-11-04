@@ -95,6 +95,16 @@ pub(crate) fn assemble_shells(
     let trace = popkern_core::trace::trace_enabled("complex-radial");
     for (ei, e) in c.edges.iter().enumerate() {
         let m = e.radial.len();
+        // Round a sheet's free edge one side of the sheet meets the
+        // other (stage 9).
+        if m == 1 && c.is_free_lamina_edge(super::ids::EdgeId::from_index(ei)) {
+            let face = c.fins[e.radial[0].index()].face;
+            forest.union(
+                side_slot(face, SideIndex::Ahead),
+                side_slot(face, SideIndex::Behind),
+            );
+            continue;
+        }
         if m < 2 {
             continue;
         }
@@ -135,8 +145,10 @@ pub(crate) fn assemble_shells(
     c.shells.clear();
     for fi in 0..c.faces.len() {
         let face = FaceId::from_index(fi);
-        if forest.find(side_slot(face, SideIndex::Ahead))
-            == forest.find(side_slot(face, SideIndex::Behind))
+        // A lamina's sides join where the sheet ends inside a region.
+        if !c.is_lamina(face)
+            && forest.find(side_slot(face, SideIndex::Ahead))
+                == forest.find(side_slot(face, SideIndex::Behind))
         {
             return Err(RegionDecline::SidesJoined { face });
         }
@@ -176,6 +188,10 @@ pub(crate) fn assign_membership(
     let mut bits: Vec<OperandSet> = vec![OperandSet::new(); ns];
     let mut classified = 0;
     for k in 0..c.operand_count {
+        // A sheet bounds no volume: no region lies inside it.
+        if c.lamina_operands.contains(k) {
+            continue;
+        }
         // Join shells across faces k does not own.
         let mut forest = Forest::new(ns);
         for face in &c.faces {
