@@ -16,8 +16,9 @@
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
-/// Sample count per half-edge pcurve when polygonizing the loop.
-const SAMPLES_PER_HALF_EDGE: usize = 8;
+#[path = "winding_honesty_samples.rs"]
+mod samples;
+use samples::{push_unwrapped, sample_fractions};
 
 /// Per-face verdict from [`BRep::audit_winding_honesty`].
 #[derive(Debug, Clone)]
@@ -431,10 +432,12 @@ impl BRep {
                 vec![(a.x, a.y), (b.x, b.y)]
             });
         }
-        let mut samples = Vec::with_capacity(SAMPLES_PER_HALF_EDGE);
-        for k in 0..SAMPLES_PER_HALF_EDGE {
-            let frac = k as f64 / (SAMPLES_PER_HALF_EDGE - 1) as f64;
-            let frac = if reversed { 1.0 - frac } else { frac };
+        let mut fractions = sample_fractions(pcurve, (t0, t1));
+        if reversed {
+            fractions.reverse();
+        }
+        let mut samples = Vec::with_capacity(fractions.len());
+        for frac in fractions {
             let uv = pcurve.point_at(t0 + (t1 - t0) * frac);
             if !(uv.x.is_finite() && uv.y.is_finite()) {
                 return Err("non-finite-uv-samples");
@@ -451,34 +454,6 @@ pub struct SignedUvArea {
     pub signed: f64,
     /// Polygon perimeter, for the perimeter-relative degeneracy floor.
     pub perimeter: f64,
-}
-
-/// Append a UV sample, shifting by whole periods so consecutive
-/// samples stay chart-continuous across periodic seams.
-fn push_unwrapped(
-    polygon: &mut Vec<(f64, f64)>,
-    uv: (f64, f64),
-    period_u: Option<f64>,
-    period_v: Option<f64>,
-) {
-    let Some(&(prev_u, prev_v)) = polygon.last() else {
-        polygon.push(uv);
-        return;
-    };
-    let unwrap = |value: f64, prev: f64, period: Option<f64>| -> f64 {
-        let Some(p) = period else {
-            return value;
-        };
-        if p <= 0.0 {
-            return value;
-        }
-        let shift = ((prev - value) / p).round();
-        value + shift * p
-    };
-    polygon.push((
-        unwrap(uv.0, prev_u, period_u),
-        unwrap(uv.1, prev_v, period_v),
-    ));
 }
 
 #[cfg(test)]

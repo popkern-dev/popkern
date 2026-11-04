@@ -34,6 +34,7 @@ pub mod fastener;
 mod feature;
 mod part;
 mod part_export;
+mod part_partition;
 mod part_polyhedron;
 pub mod poly;
 mod profile;
@@ -64,6 +65,7 @@ pub use part_export::{
     assert_step_roundtrip_of, export_step_of, export_step_of_in, step_bytes_of, step_bytes_of_in,
     step_bytes_of_styled,
 };
+pub use part_partition::{ImprintedPart, PartPartition, PartRegion, SplitPart};
 pub use popkern_shell::{
     JoinStyle, OffsetConstraint, PreviewMesh, SafeOffsetReport, ShellDirection, ShellOptions,
     TrimPolicy,

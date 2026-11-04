@@ -370,7 +370,7 @@ pub(crate) fn retire_pure_slit_faces_in(brep: &mut BRep, region: &ServeRegion) -
             brep.loops.remove(lh);
         }
         if whole_face {
-            brep.faces.remove(fh);
+            brep.remove_face_reanchored(fh);
         }
         for v in verts {
             match brep

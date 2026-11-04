@@ -32,7 +32,7 @@ pub(super) fn install_oriented(
 ) {
     let brep = match fr.operand {
         Operand::A => brep_a,
-        Operand::B => brep_b,
+        _ /* B */ => brep_b,
     };
     let surface = brep
         .faces

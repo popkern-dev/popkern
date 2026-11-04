@@ -14,14 +14,13 @@ use popkern_core::{
     topology::{EdgeHandle, FaceHandle, VertexHandle},
 };
 
-/// Identifies which boolean operand a piece of topology comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum Operand {
-    /// The first (left-hand) operand.
-    A,
-    /// The second (right-hand) operand.
-    B,
-}
+#[path = "graph_operand.rs"]
+mod graph_operand;
+pub(crate) use graph_operand::Operand;
+
+/// Two coincident faces of different operands (a coplanar or coaxial
+/// overlap), each qualified by its operand.
+pub(crate) type FacePair = (FaceRef, FaceRef);
 
 /// A face qualified by which operand it belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -35,10 +34,8 @@ pub(crate) struct FaceRef {
 /// Tracks the origin of a graph node.
 #[derive(Debug, Clone)]
 pub(crate) enum NodeSource {
-    /// Copied from an original vertex in operand A.
-    OriginalA(VertexHandle),
-    /// Copied from an original vertex in operand B.
-    OriginalB(VertexHandle),
+    /// Copied from an original vertex of an operand.
+    Original(Operand, VertexHandle),
     /// Created at a curve-curve or edge-face intersection point.
     Intersection,
 }
@@ -46,24 +43,22 @@ pub(crate) enum NodeSource {
 /// Tracks the origin of a graph edge.
 #[derive(Debug, Clone)]
 pub(crate) enum EdgeSource {
-    /// Copied from an original edge in operand A.
-    OriginalA(EdgeHandle),
-    /// Copied from an original edge in operand B.
-    OriginalB(EdgeHandle),
+    /// Copied from an original edge of an operand.
+    Original(Operand, EdgeHandle),
     /// A shared edge lying on the intersection of two faces.
     Shared {
         /// Face from operand A.
         face_a: FaceHandle,
         /// Face from operand B.
         face_b: FaceHandle,
+        /// The operands `face_a` and `face_b` belong to (A and B in a
+        /// two-operand boolean; any pair in an N-ary one).
+        operands: [Operand; 2],
     },
-    /// Created by splitting an original edge from operand A.
-    SplitA {
-        /// The original edge that was split.
-        original: EdgeHandle,
-    },
-    /// Created by splitting an original edge from operand B.
-    SplitB {
+    /// Created by splitting an original edge of an operand.
+    Split {
+        /// The operand.
+        operand: Operand,
         /// The original edge that was split.
         original: EdgeHandle,
     },
@@ -73,7 +68,7 @@ impl EdgeSource {
     /// A copy of an operand edge no split has touched (same curve, same
     /// span as in the operand).
     pub fn is_unsplit_original(&self) -> bool {
-        matches!(self, Self::OriginalA(_) | Self::OriginalB(_))
+        matches!(self, Self::Original(..))
     }
 }
 
@@ -127,6 +122,16 @@ pub(crate) struct IntersectionGraph {
     /// favour, so the chart treats them as that face's seam copies
     /// (PK-750; see `graph_duplicates`).
     pub seam_substitutes: std::collections::BTreeSet<(FaceRef, usize)>,
+    /// Operand half-edges the duplicate-cover pass removed, each to the
+    /// shared half-edge on the same face it duplicated. The removed
+    /// half's twin stays on its own face, and the two pairs are one
+    /// edge of the result (see `graph_duplicates`).
+    pub duplicate_of: std::collections::BTreeMap<usize, usize>,
+    /// Nodes on a sheet operand's free boundary (PK-978): a record of a
+    /// solid face ending at one dangles in that face where the sheet
+    /// ends, and is kept as a slit of the face rather than dropped as a
+    /// graze, so the cells on either side of the face stay apart.
+    pub lamina_boundary_nodes: std::collections::BTreeSet<usize>,
     /// Node indices keyed by their x coordinate (order-preserving bit
     /// key), so `find_node` scans a slab instead of every node: graph
     /// build looked up every operand vertex against every node before
@@ -153,6 +158,8 @@ impl IntersectionGraph {
             half_edges: Vec::new(),
             face_edges: BTreeMap::new(),
             seam_substitutes: std::collections::BTreeSet::new(),
+            duplicate_of: std::collections::BTreeMap::new(),
+            lamina_boundary_nodes: std::collections::BTreeSet::new(),
             node_index: BTreeMap::new(),
         }
     }
@@ -265,6 +272,27 @@ impl IntersectionGraph {
     }
 
     /// `find_node` by scanning every node (non-finite queries).
+    /// The lowest-indexed node at exactly `position`: the vertex
+    /// table's identity, where a resolved vertex is one point and every
+    /// node placed for it sits at its anchor.
+    pub fn find_node_exact(&self, position: &Point3) -> Option<usize> {
+        // -0.0 and 0.0 are one coordinate with two keys.
+        let x = position.x;
+        let (lo, hi) = if x == 0.0 {
+            (order_key(-0.0), order_key(0.0))
+        } else {
+            (order_key(x), order_key(x))
+        };
+        self.node_index
+            .range(lo..=hi)
+            .flat_map(|(_, ids)| ids.iter().copied())
+            .filter(|&i| {
+                let n = self.nodes[i].position;
+                n.x == x && n.y == position.y && n.z == position.z
+            })
+            .min()
+    }
+
     fn find_node_linear(&self, p: (f64, f64, f64), threshold_sq: f64) -> Option<usize> {
         self.nodes.iter().position(|n| {
             popkern_core::adaptive_precision::adaptive_dist_sq_lt(
@@ -307,7 +335,7 @@ pub(crate) fn trace_uv_scramble(
         };
         let brep = match fr.operand {
             Operand::A => brep_a,
-            Operand::B => brep_b,
+            _ /* B */ => brep_b,
         };
         let Some(surf) = brep.faces.get(fr.face).and_then(|f| f.surface.as_ref()) else {
             continue;
@@ -364,7 +392,8 @@ mod tests {
         let n1 = g.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
 
         let edge_h = popkern_core::topology::EdgeHandle::default();
-        let (fwd, twin) = g.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+        let (fwd, twin) =
+            g.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
 
         // Twin pairing
         assert_eq!(g.half_edges[fwd].twin, twin);
@@ -429,7 +458,8 @@ mod tests {
         let n0 = g.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let n1 = g.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let edge_h = popkern_core::topology::EdgeHandle::default();
-        let (fwd, _twin) = g.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+        let (fwd, _twin) =
+            g.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
 
         let face_ref = FaceRef {
             operand: Operand::A,

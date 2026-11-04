@@ -326,5 +326,8 @@ fn part_payload(error: &PartError) -> Value {
         }),
         PartError::NotApplicable(detail) => json!({ "kind": "NotApplicable", "detail": detail }),
         PartError::Cancelled => json!({ "kind": "Cancelled" }),
+        PartError::Measure { what, source } => {
+            json!({ "kind": "MeasureFailed", "what": what, "detail": source.to_string() })
+        }
     }
 }

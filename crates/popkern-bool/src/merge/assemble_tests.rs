@@ -19,9 +19,9 @@ fn assemble_single_triangle() {
         face: CoreFaceHandle::default(),
     };
 
-    let (fwd01, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(eh), None);
-    let (fwd12, _) = graph.add_half_edge_pair(n1, n2, EdgeSource::OriginalA(eh), None);
-    let (fwd20, _) = graph.add_half_edge_pair(n2, n0, EdgeSource::OriginalA(eh), None);
+    let (fwd01, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd12, _) = graph.add_half_edge_pair(n1, n2, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd20, _) = graph.add_half_edge_pair(n2, n0, EdgeSource::Original(Operand::A, eh), None);
 
     graph.set_half_edge_face(fwd01, face_ref);
     graph.set_half_edge_face(fwd12, face_ref);
@@ -123,9 +123,9 @@ fn unselected_fragments_are_skipped() {
         face: CoreFaceHandle::default(),
     };
 
-    let (fwd01, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(eh), None);
-    let (fwd12, _) = graph.add_half_edge_pair(n1, n2, EdgeSource::OriginalA(eh), None);
-    let (fwd20, _) = graph.add_half_edge_pair(n2, n0, EdgeSource::OriginalA(eh), None);
+    let (fwd01, _) = graph.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd12, _) = graph.add_half_edge_pair(n1, n2, EdgeSource::Original(Operand::A, eh), None);
+    let (fwd20, _) = graph.add_half_edge_pair(n2, n0, EdgeSource::Original(Operand::A, eh), None);
 
     graph.set_half_edge_face(fwd01, face_ref);
     graph.set_half_edge_face(fwd12, face_ref);

@@ -80,6 +80,11 @@ pub fn solve_transient(
     options: &AnalysisOptions,
 ) -> Result<TransientResult, AnalysisError> {
     let conduction = &problem.conduction;
+    if !conduction.contacts.is_empty() {
+        return Err(AnalysisError::Unsupported {
+            what: "contact interfaces in a transient solve",
+        });
+    }
     if conduction
         .faces
         .iter()

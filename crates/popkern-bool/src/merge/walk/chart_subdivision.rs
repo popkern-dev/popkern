@@ -203,10 +203,7 @@ pub(crate) fn build_face_subdivision(
     he_indices: &[usize],
     surface: &SurfaceGeometry,
     orientation: bool,
-    overlap_pairs: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::topology::FaceHandle,
-    )],
+    overlap_pairs: &[crate::merge::graph::FacePair],
     original_brep: &popkern_core::topology::BRep,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> FaceChartSubdivision {
@@ -268,10 +265,7 @@ fn build_face_subdivision_inner(
     tolerance: &popkern_core::tolerance::Tolerance,
     surface: &SurfaceGeometry,
     orientation: bool,
-    overlap_pairs: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::topology::FaceHandle,
-    )],
+    overlap_pairs: &[crate::merge::graph::FacePair],
     original_brep: &popkern_core::topology::BRep,
 ) -> FaceChartSubdivision {
     let mut sub = FaceChartSubdivision {
@@ -434,7 +428,12 @@ fn build_face_subdivision_inner(
 
     // I5 — duplicate-cover dedup, extracted to
     // `chart_duplicate_cover.rs` per the file-size rule.
-    super::chart_duplicate_cover::dedup_duplicate_covers(graph, &mut sub, overlap_pairs);
+    super::chart_duplicate_cover::dedup_duplicate_covers(
+        graph,
+        &mut sub,
+        overlap_pairs,
+        tolerance.linear(),
+    );
 
     // Node endpoints per half-edge (start = origin(h), end = origin(twin)).
     let ends = |h: usize| -> (usize, usize) {
@@ -628,12 +627,26 @@ fn build_face_subdivision_inner(
     // keep the 3D-Newell walk, recorded. A ZERO-EXTENT drop of the
     // operand's own degenerate pole BORDER is exempt: a pole is a
     // collapsed border by construction, and dropping its zero-length
-    // edge is precisely how the fan model expects to see it.
+    // edge is precisely how the fan model expects to see it. A
+    // DUPLICATE COVER is exempt too when its kept cover runs between
+    // the same two nodes: the chart segment and its connectivity at the
+    // pole survive (PK-1036: a cube face through a sphere's seam
+    // meridian makes a record that IS the seam's upper piece; dropping
+    // it for the seam sent the sphere face to the 3D walk, which lost
+    // the remainder region at the pole).
     if !sub.poles.is_empty() {
+        let same_segment = |a: usize, b: usize| {
+            let (ea, eb) = (ends(a), ends(b));
+            ea == eb || ea == (eb.1, eb.0)
+        };
         let dropped: Vec<(usize, bool)> = sub
             .report
             .filtered
             .iter()
+            .filter(|f| {
+                !matches!(f, FilteredRecord::DuplicateCover { dropped, kept }
+                    if same_segment(*dropped, *kept))
+            })
             .map(|f| match f {
                 FilteredRecord::ZeroExtent(h) => (*h, true),
                 FilteredRecord::InteriorGraze(h) => (*h, false),
@@ -715,13 +728,9 @@ fn build_face_subdivision_inner(
 /// Resolve a face's surface geometry and orientation flag.
 pub(crate) fn face_surface<'a>(
     face: &FaceRef,
-    brep_a: &'a popkern_core::topology::BRep,
-    brep_b: &'a popkern_core::topology::BRep,
+    operands: &[&'a popkern_core::topology::BRep],
 ) -> Option<(&'a SurfaceGeometry, bool)> {
-    let brep = match face.operand {
-        crate::merge::graph::Operand::A => brep_a,
-        crate::merge::graph::Operand::B => brep_b,
-    };
+    let brep = operands[face.operand.index()];
     let s = brep.faces.get(face.face)?.surface.as_ref()?;
     Some((&s.geometry, s.orientation))
 }

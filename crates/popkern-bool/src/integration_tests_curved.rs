@@ -217,6 +217,9 @@ fn cone_through_cube_union_produces_result() {
         9,
         "cube 6 + frustum + base cap + apex piece"
     );
+    // The count held for a wrong body too: the disc cut from the top
+    // face served in place of the apex piece (PK-1035).
+    assert_eq!(cone_face_z_spans(&result), vec![(-0.5, 0.0), (1.0, 1.5)]);
     assert!(
         result.validate_all().is_empty(),
         "{:?}",
@@ -242,6 +245,35 @@ fn cone_through_cube_subtraction_produces_result() {
         "Should have at least 2 inner loops (cone holes), got {}",
         inner_loop_count
     );
+    // A through hole: the wall runs from bottom to top, no disc caps
+    // it (PK-1035: the disc read Outside the cone and served).
+    assert_eq!(result.faces.len(), 7, "cube 6 + the hole's wall");
+    assert_eq!(cone_face_z_spans(&result), vec![(0.0, 1.0)]);
+}
+
+/// Each cone face's boundary-sample z extent, rounded and sorted.
+fn cone_face_z_spans(brep: &BRep) -> Vec<(f64, f64)> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let round = |z: f64| (z * 1e6).round() / 1e6;
+    let mut spans: Vec<(f64, f64)> = brep
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            f.surface
+                .as_ref()
+                .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Cone { .. }))
+        })
+        .map(|(fh, _)| {
+            let zs = brep
+                .face_boundary_sample_points(fh, 8)
+                .into_iter()
+                .map(|p| p.z);
+            zs.fold((f64::MAX, f64::MIN), |(lo, hi), z| (lo.min(z), hi.max(z)))
+        })
+        .map(|(lo, hi)| (round(lo), round(hi)))
+        .collect();
+    spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+    spans
 }
 
 // ── Cone × cube: disjoint ────────────────────────────────────────────────────

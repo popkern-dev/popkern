@@ -3,11 +3,14 @@
 operands (PK-758, PK-751).
 
 Usage:
-    <ocp-venv>/bin/python tools/occ-oracle/occ_fuse.py [--op fuse|cut] A.step B.step [C.step ...]
+    <ocp-venv>/bin/python tools/occ-oracle/occ_fuse.py [--op fuse|cut|common|exactly-one] A.step B.step [C.step ...]
 
 Reads every solid of every file and folds them left to right with
-BRepAlgoAPI_Fuse (default) or BRepAlgoAPI_Cut (the first operand minus
-each later one), then reports the result's validity and adaptive volume
+BRepAlgoAPI_Fuse (default), BRepAlgoAPI_Cut (the first operand minus
+each later one) or BRepAlgoAPI_Common. exactly-one (the N-body
+symmetric difference, PK-1048) is the compound of each operand cut by
+the fuse of the others: the pieces are disjoint, so its volume is
+their sum (OCC has no N-body exactly-one of its own). It then reports the result's validity and adaptive volume
 (1e-9 relative, BRepGProp). A popkern result served from the same
 operands is compared against this volume: the two kernels share no
 boolean code.
@@ -41,15 +44,40 @@ def main(paths, op="fuse"):
     from OCP.TopAbs import TopAbs_SOLID
     from OCP.TopExp import TopExp_Explorer
 
+    from OCP.BRep import BRep_Builder
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+    from OCP.TopoDS import TopoDS_Compound
+
+    def fold(algo_of, first, rest):
+        acc = first
+        for other in rest:
+            algo = algo_of(acc, other)
+            algo.Build()
+            if not algo.IsDone():
+                return None
+            acc = algo.Shape()
+        return acc
+
     shapes = [load(p) for p in paths]
-    fused = shapes[0]
-    for other in shapes[1:]:
-        algo = BRepAlgoAPI_Cut(fused, other) if op == "cut" else BRepAlgoAPI_Fuse(fused, other)
-        algo.Build()
-        if not algo.IsDone():
+    algos = {"cut": BRepAlgoAPI_Cut, "common": BRepAlgoAPI_Common, "fuse": BRepAlgoAPI_Fuse}
+    if op == "exactly-one":
+        compound = TopoDS_Compound()
+        builder = BRep_Builder()
+        builder.MakeCompound(compound)
+        fused = compound
+        for i, shape in enumerate(shapes):
+            others = shapes[:i] + shapes[i + 1 :]
+            rest = fold(BRepAlgoAPI_Fuse, others[0], others[1:])
+            piece = None if rest is None else fold(BRepAlgoAPI_Cut, shape, [rest])
+            if piece is None:
+                print(json.dumps({"done": False}))
+                return 1
+            builder.Add(compound, piece)
+    else:
+        fused = fold(algos[op], shapes[0], shapes[1:])
+        if fused is None:
             print(json.dumps({"done": False}))
             return 1
-        fused = algo.Shape()
     props = GProp_GProps()
     BRepGProp.VolumeProperties_s(fused, props, 1e-9)
     solids = 0

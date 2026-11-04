@@ -1,6 +1,7 @@
 //! The verified coincident-body containment shortcut (split from
 //! `operation.rs` under the 500-line file budget).
 
+use crate::error::BoolOperation;
 use crate::intersect::IntersectionResult;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -15,7 +16,16 @@ use popkern_core::topology::BRep;
 /// Inside the other. Bodies that merely SHARE some coplanar faces
 /// fall through to the full pipeline. Returns `true` when the
 /// no-intersection containment path applies.
+///
+/// Containment alone decides the result only where the shared
+/// faces cannot matter: A ∪ B = A and A ∩ B = B when B ⊂ A, and
+/// A − B = ∅ when A ⊂ B. A − B with B ⊂ A is NOT A with a cavity
+/// once B shares a face with A — the shared face opens the void to
+/// the outside (a corner notch flush on three faces was served as
+/// an outer shell plus a cavity coincident with it, validator-clean;
+/// PK-965). That case takes the full pipeline.
 pub(crate) fn coincident_containment_applies(
+    op: BoolOperation,
     a: &BRep,
     b: &BRep,
     intersection_result: &IntersectionResult,
@@ -109,7 +119,12 @@ pub(crate) fn coincident_containment_applies(
         true
     };
     let a_in_b = n_a <= n_b && contained(a, b, &intersection_result.aabbs_b);
-    let b_in_a = !a_in_b && n_b <= n_a && contained(b, a, &intersection_result.aabbs_a);
+    // Every overlap counted here is a coincident face pair, so a
+    // B ⊂ A subtraction always has B touching A's boundary.
+    let b_in_a = !a_in_b
+        && !matches!(op, BoolOperation::Subtraction)
+        && n_b <= n_a
+        && contained(b, a, &intersection_result.aabbs_a);
     if a_in_b || b_in_a {
         true
     } else {

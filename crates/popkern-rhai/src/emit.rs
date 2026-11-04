@@ -148,7 +148,7 @@ impl Emitter {
                 .iter()
                 .take(index)
                 .filter_map(|&id| tree.feature(id))
-                .find(|n| matches!(n.feature, Feature::Boolean { tool_body, .. } if tool_body == owner))
+                .find(|n| consumes(&n.feature, owner))
                 .map(|n| n.body);
             match consumed {
                 Some(host) if host != owner => owner = host,
@@ -414,4 +414,14 @@ pub fn to_rhai(model: &mut Model) -> Result<String, EmitError> {
     }
     emitter.line("m");
     Ok(emitter.out)
+}
+
+/// Whether `feature` consumes `body` as a tool.
+fn consumes(feature: &Feature, body: popkern_history::node::BodyId) -> bool {
+    match feature {
+        Feature::Boolean { tool_body, .. } => *tool_body == body,
+        Feature::Split { tools, .. } | Feature::NaryBoolean { tools, .. } => tools.contains(&body),
+        Feature::Imprint { tool } => *tool == body,
+        _ => false,
+    }
 }

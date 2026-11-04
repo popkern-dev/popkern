@@ -51,6 +51,20 @@ pub(super) fn is_once_winding_loop(curve_uv: &NurbsCurve, period: f64) -> bool {
     ((b.x - a.x).abs() - period).abs() < gate && (b.y - a.y).abs() < gate
 }
 
+/// Period translates tried when matching a closure point to the
+/// boundary: (u, v) multiples of the periods, the identity first.
+const LIFTS: [(f64, f64); 9] = [
+    (0.0, 0.0),
+    (-1.0, 0.0),
+    (1.0, 0.0),
+    (0.0, -1.0),
+    (0.0, 1.0),
+    (-1.0, -1.0),
+    (-1.0, 1.0),
+    (1.0, -1.0),
+    (1.0, 1.0),
+];
+
 /// Whether the boundary pcurves unroll more than one period in u
 /// (a multi-turn chart).
 /// The crossing a CLOSED query makes at its own closure point, when
@@ -62,24 +76,29 @@ pub(super) fn is_once_winding_loop(curve_uv: &NurbsCurve, period: f64) -> bool {
 /// curve crosses an even number of times, so the missing hit is the
 /// closure. The query is closed, and its closure point on the
 /// boundary, within 1e-5 of the boundary's uv diagonal: the record's uv
-/// fit leaves its ends ~8e-7 apart on a 6.3-wide chart.
+/// fit leaves its ends ~8e-7 apart on a 6.3-wide chart. "Closed"
+/// folds whole periods in BOTH directions: a torus band's plane record
+/// can wind once around the tube, its ends a v period apart (measured:
+/// a rim fillet's x = 0.4 cut oval starting on the band's v = 0 rim ran
+/// v 0..2π, read as open, and the band kept no piece of it, PK-1021).
 pub(super) fn closure_crossing(
     brep: &BRep,
     boundary: &[(HalfEdgeHandle, NurbsCurve)],
     curve_uv: &NurbsCurve,
     crossings: &[UvCrossing],
-    period: Option<f64>,
+    (period, period_v): (Option<f64>, Option<f64>),
 ) -> Option<UvCrossing> {
     if crossings.len().is_multiple_of(2) {
         return None;
     }
     let (t0, t1) = curve_uv.parameter_range();
     let (a, b) = (curve_uv.point_at(t0), curve_uv.point_at(t1));
-    let du = b.x - a.x;
-    let du = match period {
-        Some(p) if p > 0.0 => du - p * (du / p).round(),
-        _ => du,
+    let fold = |d: f64, period: Option<f64>| match period {
+        Some(p) if p > 0.0 => d - p * (d / p).round(),
+        _ => d,
     };
+    let du = fold(b.x - a.x, period);
+    let dv = fold(b.y - a.y, period_v);
     let (u_lo, u_hi, v_lo, v_hi) = boundary
         .iter()
         .flat_map(|(_, pc)| pc.control_points.iter())
@@ -94,7 +113,7 @@ pub(super) fn closure_crossing(
         );
     let diag = popkern_math::PortableMath::phypot(u_hi - u_lo, v_hi - v_lo);
     let band = (diag * 1e-5).max(1e-12);
-    if du.abs() > band || (b.y - a.y).abs() > band {
+    if du.abs() > band || dv.abs() > band {
         return None; // not closed in the chart
     }
     let mut best: Option<(f64, UvCrossing)> = None;
@@ -105,9 +124,10 @@ pub(super) fn closure_crossing(
         {
             continue; // a seam use
         }
-        for lift in [0.0, -1.0, 1.0] {
+        for (lift, lift_v) in LIFTS {
             let shift = period.map_or(0.0, |p| lift * p);
-            let q = popkern_core::geometry::Point3::new(a.x + shift, a.y, 0.0);
+            let shift_v = period_v.map_or(0.0, |p| lift_v * p);
+            let q = popkern_core::geometry::Point3::new(a.x + shift, a.y + shift_v, 0.0);
             let Some(s) = pc.closest_point(&q) else {
                 continue;
             };

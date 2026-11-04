@@ -154,13 +154,17 @@ impl ScriptBody {
         op: BoolOpKind,
         options: &Dynamic,
     ) -> Result<ScriptBody, Box<EvalAltResult>> {
-        let options = Options::parse("boolean", options, LABEL_ONLY)?;
+        let options = Options::parse("boolean", options, &["non_manifold", "label"])?;
+        let non_manifold = options
+            .with("non_manifold", crate::partition_api::non_manifold)?
+            .unwrap_or_default();
         let body = self
             .body
-            .boolean_with(
+            .boolean_under(
                 &mut self.model.borrow_mut(),
                 op,
                 tool.body,
+                non_manifold,
                 &options.label()?,
             )
             .script()?;

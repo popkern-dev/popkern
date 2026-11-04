@@ -4,6 +4,7 @@
 //!
 //! Split from `walk/mod.rs` to honour the structural line ratchet.
 
+use crate::merge::graph::Operand;
 use std::collections::HashSet;
 
 use crate::merge::graph::IntersectionGraph;
@@ -95,8 +96,8 @@ pub(super) fn apex_turnaround_candidate(
 ) -> Option<usize> {
     let node_is_original = matches!(
         graph.nodes[end_node].source,
-        super::super::graph::NodeSource::OriginalA(_)
-            | super::super::graph::NodeSource::OriginalB(_)
+        super::super::graph::NodeSource::Original(Operand::A, _)
+            | super::super::graph::NodeSource::Original(Operand::B, _)
     );
     let only_twin_departs = graph.nodes[end_node]
         .outgoing

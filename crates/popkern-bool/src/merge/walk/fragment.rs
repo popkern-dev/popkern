@@ -5,7 +5,7 @@ use super::super::graph::FaceRef;
 use super::FragmentChart;
 
 /// A face fragment — loops forming a subset of an original face.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Fragment {
     /// The face this fragment belongs to.
     pub face: FaceRef,

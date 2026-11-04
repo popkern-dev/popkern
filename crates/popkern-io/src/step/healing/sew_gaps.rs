@@ -62,11 +62,25 @@ impl HealingPass for SewGapsPass {
 ///
 /// Finds vertex pairs within tolerance, keeps the lower-index vertex, and
 /// rewires all half-edge origin references. Returns the number of vertices
-/// removed.
+/// removed. Vertices a recorded contact names (`BRep::topology_contacts`)
+/// are deliberate copies, one per piece meeting there, and are never
+/// merged: welding them made a non-manifold import's pieces one body
+/// again (PK-980, measured on every OCC-written non-manifold fixture
+/// under default healing).
 pub fn merge_coincident_vertices(brep: &mut BRep, tolerance: &Tolerance) -> usize {
+    let contact: std::collections::HashSet<VertexHandle> = brep
+        .topology_contacts
+        .iter()
+        .flat_map(|c| &c.entities)
+        .filter_map(|e| match e {
+            popkern_core::topology::ContactEntity::Vertex(v) => Some(*v),
+            _ => None,
+        })
+        .collect();
     let verts: Vec<(VertexHandle, _)> = brep
         .vertices
         .iter()
+        .filter(|(vh, _)| !contact.contains(vh))
         .map(|(vh, v)| (vh, v.position))
         .collect();
 

@@ -66,8 +66,9 @@ pub enum SheetBooleanResult {
 
 /// Sheet-aware boolean operation dispatcher (§2.3).
 ///
-/// Inspects whether each input is a sheet body (via [`is_sheet_body`]),
-/// classifies the (operation, is_a_sheet, is_b_sheet) tuple via
+/// Inspects whether each input is a sheet body (via [`is_sheet_body`];
+/// the core constructors' two-face sheets, a front face closed by its
+/// backside, count as the sheet of their front face), classifies the (operation, is_a_sheet, is_b_sheet) tuple via
 /// [`classify_sheet_operation`], and routes to the appropriate
 /// sub-operation:
 ///
@@ -75,9 +76,10 @@ pub enum SheetBooleanResult {
 /// |---|---|
 /// | `SolidSolid` | Delegates to standard [`crate::boolean`]. |
 /// | `SheetSheetIntersection` | Calls [`crate::ops::section::section`] and returns the curves. |
-/// | `SolidMinusSheet` | Planar sheets: half-space split producing possibly multiple sub-solids. Curved sheets: single-piece imprint fallback. |
-/// | `SheetIntersectSolid` | Imprints the solid's curves onto the sheet, then trims to the inside fragments. |
-/// | `InvalidSheetMinusSolid` | Rejects with [`crate::BoolError::OpenShellNotSupported`]. |
+/// | `SolidMinusSheet` | The solid's pieces either side of the sheet, by the cell complex (`split`); on a decline, planar sheets take the half-space split and curved ones a single-piece imprint. |
+/// | `SheetIntersectSolid` | The sheet's faces inside the solid, by the cell complex; on a decline, imprint then trim to the inside fragments. |
+/// | `SheetMinusSolid` | The sheet's faces outside the solid, by the cell complex. |
+/// | `SolidUnionSheet` | The solid, with the sheet's faces outside it (cell complex, else imprint and trim). |
 /// | Other variants | Returns [`crate::BoolError::OpenShellNotSupported`] (future work). |
 ///
 /// Use this entry point when you need sheet support; the standard
@@ -89,6 +91,12 @@ pub fn boolean_with_sheets(
     b: &BRep,
     tol: popkern_core::tolerance::Tolerance,
 ) -> Result<SheetBooleanResult, crate::BoolError> {
+    // The constructors' two-face sheets enter in the one-face form.
+    let (a_sheet, b_sheet) = (
+        super::complex_route::as_sheet(a),
+        super::complex_route::as_sheet(b),
+    );
+    let (a, b) = (a_sheet.as_ref().unwrap_or(a), b_sheet.as_ref().unwrap_or(b));
     let a_is_sheet = is_sheet_body(a);
     let b_is_sheet = is_sheet_body(b);
     let kind = classify_sheet_operation(op, a_is_sheet, b_is_sheet);
@@ -127,6 +135,14 @@ pub fn boolean_with_sheets(
             //    would need a sheet-aware merge pipeline (documented
             //    as future work in docs/reports/coverage/).
             let (sheet, solid) = if a_is_sheet { (a, b) } else { (b, a) };
+            match super::complex_route::solid_pieces(solid, sheet, tol) {
+                Ok(mut pieces) if pieces.len() == 1 => {
+                    return Ok(SheetBooleanResult::Solid(pieces.remove(0)));
+                }
+                Ok(pieces) if pieces.len() > 1 => return Ok(SheetBooleanResult::Pieces(pieces)),
+                Ok(_) => {}
+                Err(decline) => super::complex_route::log_fallback(kind, &decline),
+            }
             if let Some((origin, normal)) = is_planar_sheet(sheet) {
                 let pieces = split_solid_by_plane(solid, origin, normal, tol)?;
                 return match pieces.len() {
@@ -172,6 +188,10 @@ pub fn boolean_with_sheets(
             // fragments form the portion of the sheet inside the
             // solid — itself an open shell.
             let (sheet, solid) = if a_is_sheet { (a, b) } else { (b, a) };
+            match super::complex_route::sheet_part(sheet, solid, true, tol) {
+                Ok(inside) => return Ok(SheetBooleanResult::OpenShell(inside)),
+                Err(decline) => super::complex_route::log_fallback(kind, &decline),
+            }
             let imprint = crate::ops::imprint::imprint(sheet, solid, &tol)?;
             let trimmed = trim_sheet(imprint.imprinted_target, solid, &tol, KeepSide::Inside);
             Ok(SheetBooleanResult::OpenShell(trimmed))
@@ -261,18 +281,27 @@ pub fn boolean_with_sheets(
             // variant pairs the original solid with the trimmed
             // outside-of-solid fragment.
             let (sheet, solid) = if a_is_sheet { (a, b) } else { (b, a) };
-            let imprint = crate::ops::imprint::imprint(sheet, solid, &tol)?;
-            let outside = trim_sheet(imprint.imprinted_target, solid, &tol, KeepSide::Outside);
+            let outside = match super::complex_route::sheet_part(sheet, solid, false, tol) {
+                Ok(outside) => outside,
+                Err(decline) => {
+                    super::complex_route::log_fallback(kind, &decline);
+                    let imprint = crate::ops::imprint::imprint(sheet, solid, &tol)?;
+                    trim_sheet(imprint.imprinted_target, solid, &tol, KeepSide::Outside)
+                }
+            };
             Ok(SheetBooleanResult::Mixed {
                 solid: solid.clone(),
                 open_shell: Box::new(outside),
             })
         }
-        SheetOperationKind::InvalidSheetMinusSolid | SheetOperationKind::Unsupported => {
-            Err(crate::BoolError::OpenShellNotSupported {
-                a: a_is_sheet,
-                b: b_is_sheet,
-            })
+        SheetOperationKind::SheetMinusSolid => {
+            // The sheet's part outside the solid; no older path to
+            // fall back to, so the complex's decline is the answer.
+            super::complex_route::sheet_part(a, b, false, tol).map(SheetBooleanResult::OpenShell)
         }
+        SheetOperationKind::Unsupported => Err(crate::BoolError::OpenShellNotSupported {
+            a: a_is_sheet,
+            b: b_is_sheet,
+        }),
     }
 }

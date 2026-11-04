@@ -141,7 +141,10 @@ pub(super) fn filter_hairpins_and_grazes(
                     .map(|v| v.iter().all(|&x| x == h || x == tw))
                     .unwrap_or(true)
             };
-            if dead_end(a) || dead_end(b) {
+            // A record dead-ending where a sheet ends is a slit of this
+            // face, not a graze (PK-978).
+            let graze_end = |n: usize| dead_end(n) && !graph.lamina_boundary_nodes.contains(&n);
+            if graze_end(a) || graze_end(b) {
                 if popkern_core::trace::trace_enabled("chart-dump") {
                     eprintln!(
                         "    [chart] graze-root he {h}: dead a={} (n{a}) dead b={} (n{b})",

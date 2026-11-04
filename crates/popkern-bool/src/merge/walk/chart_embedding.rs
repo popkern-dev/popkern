@@ -394,12 +394,14 @@ fn pcurve_run(
         window = Some((pc.t_start, pc.t_end));
     }
     let (s0, s1) = window?;
-    let mut run = Vec::with_capacity(N_SAMPLES + 1);
-    for i in 0..=N_SAMPLES {
-        let t = s0 + (s1 - s0) * i as f64 / N_SAMPLES as f64;
-        let p = pc.point_at(t);
-        run.push((p.x, p.y));
-    }
+    let run: Vec<(f64, f64)> =
+        chart_embedding_unfold::run_parameters(pc, surface, (s0, s1), N_SAMPLES)
+            .into_iter()
+            .map(|t| {
+                let p = pc.point_at(t);
+                (p.x, p.y)
+            })
+            .collect();
     // Endpoint-refined direction samples at δ = span/1000, carried
     // BESIDE the run (see `ChartEmbedding::refined_first`).
     let pd0 = pc.point_at(s0 + (s1 - s0) * 1.0e-3);

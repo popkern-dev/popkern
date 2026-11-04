@@ -238,9 +238,13 @@ fn the_observer_sees_each_update_and_can_stop_the_solve() {
 }
 
 /// A 50 × 16 × 36 mm block with a bore along x on grid lines (y = 0,
-/// z = 18): the rotated cylinder leaves the end faces' corners an ulp
+/// z = 18): the rotated cylinder leaves the end faces' facets an ulp
 /// off the grid planes through them, and the solver's clipping reads the
-/// block short on the first grid (PK-963). The design (all of it, one
+/// block short on the first grid (PK-963). Which facets land so is a
+/// matter of where the rims' vertices sit: the bore turned 1.0 about its
+/// axis puts its seam where the tie drops a piece (unturned, it read
+/// short only while the rims kept a vertex at their tracer's start,
+/// which the vertex table now closes away). The design (all of it, one
 /// update: the fallback is under test, not the optimiser) serves on the
 /// shifted grid and says so.
 #[test]
@@ -259,7 +263,8 @@ fn a_design_space_that_reads_short_on_the_grid_is_solved_on_a_shifted_one() {
         .and_then(|c| {
             c.transform(
                 &Transform3::translation(-1.0, 0.0, 18.0)
-                    .compose(&Transform3::rotation_y(std::f64::consts::FRAC_PI_2)),
+                    .compose(&Transform3::rotation_y(std::f64::consts::FRAC_PI_2))
+                    .compose(&Transform3::rotation_z(1.0)),
             )
         })
         .unwrap_or_else(|e| panic!("{e}"));

@@ -12,7 +12,7 @@ use popkern_analysis::assess::{AssessOptions, assess, label_by_growth, local_pea
 use popkern_analysis::model::{AnalysisModel, FaceId};
 use popkern_analysis::setup::SupportKind;
 use popkern_analysis::setup::TemperatureSource;
-use popkern_analysis::structural::from_setup::{problem_from_setup, solve_structural_with};
+use popkern_analysis::structural::from_setup::{problem_from_setup, solve_structural_in_contact};
 use popkern_analysis::structural::submodel::refine_raiser;
 use popkern_analysis::thermal::from_setup::solve_thermal;
 use popkern_analysis::{AnalysisError, SolveReport};
@@ -21,9 +21,10 @@ use serde_json::{Value, json};
 
 use crate::png::write_field_png;
 use crate::setup_file::parse_setup;
-use crate::step_model::{model_from_step_file, sha256_hex};
+use crate::step_model::{model_from_step_file_with, sha256_hex};
 use crate::thermal_file::parse_thermal_setup;
 use crate::vtu::{VtuFields, write_vtu};
+use popkern_analysis_setup::Bodies;
 
 #[path = "run_generative.rs"]
 mod generative;
@@ -174,8 +175,27 @@ fn run_inner(
     let kind: Value = toml::from_str(&text).map_err(|e| Failure::new("SetupSyntax", e))?;
     let thermal = kind.get("analysis").and_then(Value::as_str) == Some("thermal");
     report["analysis"] = json!(if thermal { "thermal" } else { "structural" });
-    let model = model_from_step_file(step).map_err(|e| Failure::new("StepModel", e))?;
+    let bodies: Bodies = match kind.get("bodies") {
+        None => Bodies::Separate,
+        Some(v) => serde_json::from_value(v.clone())
+            .map_err(|e| Failure::new("SetupFile", format!("bodies: {e}")))?,
+    };
+    let touching =
+        model_from_step_file_with(step, bodies).map_err(|e| Failure::new("StepModel", e))?;
+    let model = touching.model;
     report["model"] = model_summary(&model);
+    if bodies != Bodies::Separate {
+        let key = if bodies == Bodies::Bonded {
+            "bonded_interfaces"
+        } else {
+            "contact_interfaces"
+        };
+        report["model"][key] = touching
+            .interfaces
+            .iter()
+            .map(|i| json!({ "bodies": [i.bodies.0, i.bodies.1], "area_mm2": i.area_mm2 }))
+            .collect();
+    }
     let (vtu, field, name) = if thermal {
         if options.samples.is_some() {
             return Err(Failure::new(
@@ -183,11 +203,37 @@ fn run_inner(
                 "surface samples are written for structural runs only",
             ));
         }
-        let (vtu, field) = run_thermal(&model, &text, options.refine, report)?;
+        let conductance = match (bodies, kind.get("contact_conductance_w_per_m2k")) {
+            (Bodies::Contact, Some(v)) => match v.as_f64() {
+                Some(h) if h.is_finite() && h > 0.0 => h,
+                _ => {
+                    return Err(Failure::new(
+                        "ThermalFile",
+                        "contact_conductance_w_per_m2k must be a positive number",
+                    ));
+                }
+            },
+            (Bodies::Contact, None) => {
+                return Err(Failure::new(
+                    "ThermalFile",
+                    "bodies = \"contact\" needs contact_conductance_w_per_m2k",
+                ));
+            }
+            _ => 0.0,
+        };
+        let contacts = touching
+            .patches
+            .iter()
+            .map(|patch| popkern_analysis::thermal::ThermalContact {
+                patch: patch.clone(),
+                conductance,
+            })
+            .collect();
+        let (vtu, field) = run_thermal(&model, &text, options.refine, contacts, report)?;
         (vtu, field, "temperature_c")
     } else {
         let dir = setup.parent().unwrap_or_else(|| Path::new("."));
-        run_structural(&model, &text, dir, options, report)?
+        run_structural(&model, &text, dir, options, &touching.patches, report)?
     };
     if let Some(path) = &options.png {
         let (lo, hi) = write_field_png(&model, &field, path).map_err(|e| Failure::new("Png", e))?;
@@ -233,6 +279,7 @@ fn run_structural(
     text: &str,
     setup_dir: &Path,
     run_options: &RunOptions,
+    contacts: &[popkern_analysis::contact::ContactPatch],
     report: &mut Value,
 ) -> Result<(String, Vec<Vec<f64>>, &'static str), Failure> {
     let setup = parse_setup(text).map_err(|e| Failure::new("SetupFile", e))?;
@@ -254,6 +301,12 @@ fn run_structural(
     // A thermoelastic setup naming a thermal setup: that solve first, on
     // the same part (a staggered solve).
     let temperature = match setup.thermal.as_ref().map(|t| &t.temperature) {
+        Some(TemperatureSource::ThermalSetup(_)) if !contacts.is_empty() => {
+            return Err(AnalysisError::Unsupported {
+                what: "contact bodies with a thermal setup's field (solve the thermal setup alone)",
+            }
+            .into());
+        }
         Some(TemperatureSource::ThermalSetup(path)) => {
             let path = setup_dir.join(path);
             let text = std::fs::read_to_string(&path).map_err(|e| Failure::new("SetupRead", e))?;
@@ -269,8 +322,13 @@ fn run_structural(
         }
         _ => None,
     };
-    let (result, material) =
-        solve_structural_with(model, &setup, &resolution.faces, temperature.as_ref())?;
+    let (result, material) = solve_structural_in_contact(
+        model,
+        &setup,
+        &resolution.faces,
+        temperature.as_ref(),
+        contacts,
+    )?;
     let assess_options = AssessOptions {
         build_direction: setup.build_direction,
         ..AssessOptions::default()

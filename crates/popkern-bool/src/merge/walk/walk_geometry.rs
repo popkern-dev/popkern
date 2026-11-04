@@ -9,7 +9,7 @@ use popkern_core::geometry::{CurveEval, Vec3};
 use popkern_core::topology::BRep;
 use popkern_math::PortableMath;
 
-use crate::merge::graph::{FaceRef, IntersectionGraph, Operand};
+use crate::merge::graph::{FaceRef, IntersectionGraph};
 
 /// Which walk axis the angular pick measures about on CURVED faces.
 ///
@@ -43,16 +43,14 @@ pub(super) fn pick_by_angle(
     he_idx: usize,
     candidates: &[usize],
     face: &FaceRef,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
 ) -> Option<usize> {
     pick_by_angle_ext(
         graph,
         he_idx,
         candidates,
         face,
-        brep_a,
-        brep_b,
+        operands,
         WalkAxis::MaterialLeft,
     )
 }
@@ -64,8 +62,7 @@ pub(super) fn pick_by_angle_ext(
     he_idx: usize,
     candidates: &[usize],
     face: &FaceRef,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     axis: WalkAxis,
 ) -> Option<usize> {
     let twin_idx = graph.half_edges[he_idx].twin;
@@ -114,10 +111,10 @@ pub(super) fn pick_by_angle_ext(
     // back along a collinear seam record instead of continuing down
     // its own boundary, dead-ending the walk).
     let curved_axis = || match axis {
-        WalkAxis::MaterialLeft => curved_walk_normal(graph, end_node, face, brep_a, brep_b),
-        WalkAxis::OutwardClaim => surface_normal_at_node(graph, end_node, face, brep_a, brep_b),
+        WalkAxis::MaterialLeft => curved_walk_normal(graph, end_node, face, operands),
+        WalkAxis::OutwardClaim => surface_normal_at_node(graph, end_node, face, operands),
     };
-    let normal = planar_walk_normal(face, brep_a, brep_b)
+    let normal = planar_walk_normal(face, operands)
         .or_else(curved_axis)
         .unwrap_or_else(|| {
             // Fallback: compute from incoming direction and candidates.
@@ -245,13 +242,10 @@ pub(super) fn pick_by_angle_ext(
 /// of a flush coplanar union plus the convex-corner base case.)
 /// Returns `None` for non-planar faces — curved charts keep the
 /// tuned UV-normal path.
-fn planar_walk_normal(face: &FaceRef, brep_a: &BRep, brep_b: &BRep) -> Option<Vec3> {
+fn planar_walk_normal(face: &FaceRef, operands: &[&BRep]) -> Option<Vec3> {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
-    let brep = match face.operand {
-        Operand::A => brep_a,
-        Operand::B => brep_b,
-    };
+    let brep = operands[face.operand.index()];
     let face_data = brep.faces.get(face.face)?;
     let surface = face_data.surface.as_ref()?;
     if !matches!(surface.geometry, SurfaceGeometry::Plane { .. }) {
@@ -298,14 +292,10 @@ fn curved_walk_normal(
     graph: &IntersectionGraph,
     node_idx: usize,
     face: &FaceRef,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
 ) -> Option<Vec3> {
-    let n = surface_normal_at_node(graph, node_idx, face, brep_a, brep_b)?;
-    let brep = match face.operand {
-        Operand::A => brep_a,
-        Operand::B => brep_b,
-    };
+    let n = surface_normal_at_node(graph, node_idx, face, operands)?;
+    let brep = operands[face.operand.index()];
     let outward_aligned = brep
         .faces
         .get(face.face)
@@ -363,15 +353,11 @@ pub(super) fn surface_normal_at_node(
     graph: &IntersectionGraph,
     node_idx: usize,
     face: &FaceRef,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
 ) -> Option<Vec3> {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
-    let brep = match face.operand {
-        Operand::A => brep_a,
-        Operand::B => brep_b,
-    };
+    let brep = operands[face.operand.index()];
     let face_data = brep.faces.get(face.face)?;
     let surface = face_data.surface.as_ref()?;
     let geom = &surface.geometry;

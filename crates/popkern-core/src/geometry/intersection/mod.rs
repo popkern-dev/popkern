@@ -45,6 +45,7 @@ pub mod surface_subdivision;
 pub mod surface_surface;
 mod surface_surface_consumed;
 mod surface_surface_crease_split;
+mod surface_surface_seam_dip;
 mod surface_surface_seam_split;
 pub(crate) mod torus_coaxial;
 

@@ -35,11 +35,11 @@ pub(crate) fn cellular_assemble(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
     selections: &[FragmentSelection],
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     tolerance: Tolerance,
     carried: &mut crate::serve_region::Carried,
     far: super::assemble_far_carry::FarCarry<'_>,
+    split: Option<&crate::complex::split_plan::SplitPlan>,
 ) -> Result<BRep, BoolDiagnostics> {
     let mut carry = super::assemble_far_carry::Carry::new(far);
     let mut builder = BRepBuilder::new(tolerance);
@@ -119,32 +119,7 @@ pub(crate) fn cellular_assemble(
     // zero-length curveless edges in the output (χ' drifted to 1 and
     // the mesher choked); skip creation and splice them out of the
     // fragment loops below.
-    let is_degenerate_key = |key: usize| -> bool {
-        let na = graph.half_edges[key].origin;
-        let nb = graph.half_edges[graph.half_edges[key].twin].origin;
-        if graph.nodes[na]
-            .position
-            .distance_to(&graph.nodes[nb].position)
-            >= 1.0e-9
-        {
-            return false;
-        }
-        // Coincident endpoints: a genuine closed rim (circle) has a
-        // curve with real extent — sample its midpoint. A degenerate
-        // stub's curve stays at the point.
-        let curve = graph.half_edges[key]
-            .curve
-            .as_ref()
-            .or_else(|| graph.half_edges[graph.half_edges[key].twin].curve.as_ref());
-        match curve {
-            None => true,
-            Some(c) => {
-                use popkern_core::geometry::curve::CurveEval;
-                let pm = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
-                pm.distance_to(&graph.nodes[na].position) < 1.0e-9
-            }
-        }
-    };
+    let is_degenerate_key = |key| super::assemble_edge_geometry::is_degenerate_key(graph, key);
     // COINCIDENT-PAIR UNIFICATION: a boundary edge piece and a record
     // spanning the SAME points with the SAME geometry share ONE brep
     // edge (creating both left a non-manifold seam along a flush
@@ -218,6 +193,14 @@ pub(crate) fn cellular_assemble(
         );
     }
 
+    let split = super::assemble_split::SplitBuild::new(
+        split,
+        &mut builder,
+        graph,
+        &node_to_vertex,
+        &mut carry,
+        carried,
+    );
     // Step 5: Wire fragment loops.
     // Track which half-edges have been used (to handle shared edges).
     // When both fwd and twin are used, create a duplicate edge.
@@ -238,7 +221,7 @@ pub(crate) fn cellular_assemble(
                 frag.outer_loop
             );
         }
-        assemble_material_audit::trace_material_sides(graph, frag, sel, brep_a, brep_b);
+        assemble_material_audit::trace_material_sides(graph, frag, sel, operands);
         let face_h = builder.add_face(shell);
         carry.face(frag.face, face_h, sel.flip, carried);
 
@@ -251,14 +234,11 @@ pub(crate) fn cellular_assemble(
         // while analytic charts get exact Linear/Arc pcurves from the
         // tuned recompute — installing graph pcurves on them regressed
         // the chamfered-socket corpus (898 open mesh edges).
-        let frag_surface = match frag.face.operand {
-            Operand::A => brep_a,
-            Operand::B => brep_b,
-        }
-        .faces
-        .get(frag.face.face)
-        .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.clone());
+        let frag_surface = operands[frag.face.operand.index()]
+            .faces
+            .get(frag.face.face)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| s.geometry.clone());
 
         // Resolve all graph half-edges to BRep half-edges upfront,
         // before calling builder methods that borrow mutably.
@@ -345,7 +325,8 @@ pub(crate) fn cellular_assemble(
                 (raw_hes.to_vec(), false)
             };
             let mut result = Vec::new();
-            for &raw_ghe in &order {
+            for &listed in &order {
+                let raw_ghe = listed;
                 let raw_ghe = if extra_twin {
                     graph.half_edges[raw_ghe].twin
                 } else {
@@ -385,7 +366,11 @@ pub(crate) fn cellular_assemble(
                         frag_surface.as_ref(),
                     );
                 };
-                if !used_hes.contains(&brep_he) {
+                if let Some(he) = split.half_edge(fi, listed, flip != extra_twin) {
+                    used_hes.insert(he);
+                    install_pcurve(builder, he);
+                    result.push(he);
+                } else if !used_hes.contains(&brep_he) {
                     used_hes.insert(brep_he);
                     if popkern_core::trace::trace_enabled("boolean") {
                         used_by.insert(brep_he, format!("{:?} ghe {ghe}", frag.face));
@@ -460,7 +445,11 @@ pub(crate) fn cellular_assemble(
                                     };
                                     let src = match &graph.half_edges[og].source {
                                         EdgeSource::Shared { .. } => "S",
-                                        EdgeSource::OriginalA(_) | EdgeSource::SplitA { .. } => "A",
+                                        EdgeSource::Original(Operand::A, _)
+                                        | EdgeSource::Split {
+                                            operand: Operand::A,
+                                            ..
+                                        } => "A",
                                         _ => "B",
                                     };
                                     row.push_str(&format!("{og}{src}[{status}] "));
@@ -522,10 +511,7 @@ pub(crate) fn cellular_assemble(
         }
 
         // Attach surface geometry
-        let source_brep = match frag.face.operand {
-            Operand::A => brep_a,
-            Operand::B => brep_b,
-        };
+        let source_brep = operands[frag.face.operand.index()];
         if let Some(face) = source_brep.faces.get(frag.face.face)
             && let Some(ref surface) = face.surface
         {
@@ -539,7 +525,7 @@ pub(crate) fn cellular_assemble(
 
     // Far faces (scoped run): appended before the cleanup, which would
     // drop the frontier edges' still-unwired far sides.
-    carry.far_faces(&mut builder, shell, (brep_a, brep_b), carried)?;
+    carry.far_faces(&mut builder, shell, operands, carried)?;
 
     // Cleanup: remove unwired half-edges, dangling edges, orphan vertices.
     cleanup_unwired(&mut builder);

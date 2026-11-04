@@ -29,8 +29,15 @@ pub(crate) fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
     // (measured: pockets into swept-cylinder caps silently
     // no-opped). Curve samples span the true extent; for straight
     // polygonal loops they add interpolants on the chords, which
-    // never widen the box.
-    points.extend(brep.face_outer_loop_sample_positions(face_handle, 8));
+    // never widen the box, so a loop of straight edges takes its
+    // vertices alone (PK-1032: the interpolants were most of a slot
+    // wall's box).
+    let samples = if straight_loop(brep, brep.faces[face_handle].outer_loop) {
+        0
+    } else {
+        8
+    };
+    points.extend(brep.face_outer_loop_sample_positions(face_handle, samples));
 
     // CONSERVATIVE curved-edge extents. Finite sampling of a curved
     // boundary UNDER-approximates its extent — 8 samples of a
@@ -45,8 +52,6 @@ pub(crate) fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
     // superset for arcs), NURBS curves their control-point hull
     // (positive weights ⇒ curve ⊂ hull), parabola/hyperbola their
     // endpoint + interior derivative-zero extremes.
-    let mut extend_curve_extent =
-        |c: &popkern_core::geometry::curve::CurveOnEdge| conservative_curve_extent(c, &mut points);
     let face = &brep.faces[face_handle];
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
@@ -54,6 +59,12 @@ pub(crate) fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
         let Some(lp) = brep.loops.get(lh) else {
             continue;
         };
+        // A straight loop's extent is its vertices (what a two-point
+        // NURBS span's sub-hull is, built per edge: PK-1032).
+        if straight_loop(brep, lh) {
+            points.extend(brep.loop_sample_positions(lh, 0));
+            continue;
+        }
         let start = lp.half_edge;
         let mut he = start;
         for _ in 0..brep.half_edges.len() + 1 {
@@ -63,7 +74,7 @@ pub(crate) fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
             if let Some(edge) = brep.edges.get(h.edge)
                 && let Some(c) = edge.curve.as_ref()
             {
-                extend_curve_extent(c);
+                conservative_curve_extent(c, &mut points);
             }
             he = h.next;
             if he == start {
@@ -106,6 +117,45 @@ pub(crate) fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
     }
 
     Aabb::from_points(&points)
+}
+
+/// The box holding every box of `boxes`; `None` for none.
+pub(crate) fn hull<'a>(boxes: impl IntoIterator<Item = &'a Aabb>) -> Option<Aabb> {
+    let corners: Vec<_> = boxes.into_iter().flat_map(|b| [b.min, b.max]).collect();
+    Aabb::from_points(&corners)
+}
+
+/// Whether every edge of loop `lh` is straight (a line, a two-point
+/// degree-1 NURBS: a rational one with positive weights stays on its
+/// chord) or curveless: its boundary lies in the box of its vertices.
+fn straight_loop(brep: &BRep, lh: popkern_core::topology::LoopHandle) -> bool {
+    use popkern_core::geometry::curve::CurveGeometry;
+    let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
+        return false;
+    };
+    let mut he = start;
+    for _ in 0..=brep.half_edges.len() {
+        let Some(h) = brep.half_edges.get(he) else {
+            return false;
+        };
+        let curved = brep
+            .edges
+            .get(h.edge)
+            .and_then(|e| e.curve.as_ref())
+            .is_some_and(|c| match &c.geometry {
+                CurveGeometry::Line { .. } => false,
+                CurveGeometry::Nurbs(n) => n.degree > 1 || n.control_points.len() > 2,
+                _ => true,
+            });
+        if curved {
+            return false;
+        }
+        he = h.next;
+        if he == start {
+            return true;
+        }
+    }
+    false
 }
 
 /// The sub-patch hull of a NURBS face whose trim window (padded by

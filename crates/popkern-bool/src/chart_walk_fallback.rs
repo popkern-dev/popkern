@@ -13,6 +13,7 @@
 //! [`take_chart_walk_fallback_events`], like
 //! [`crate::merge_fallback`].
 
+use crate::merge::graph::Operand;
 use std::sync::Mutex;
 
 /// One face that walked on the 3D-Newell fallback.
@@ -32,7 +33,7 @@ static EVENTS: Mutex<Vec<ChartWalkFallbackEvent>> = Mutex::new(Vec::new());
 pub(crate) fn record_chart_walk_fallback(face: &crate::merge::graph::FaceRef, reason: &str) {
     if let Ok(mut events) = EVENTS.lock() {
         events.push(ChartWalkFallbackEvent {
-            operand_a: face.operand == crate::merge::graph::Operand::A,
+            operand_a: face.operand == Operand::A,
             face: face.face,
             reason: reason.to_string(),
         });

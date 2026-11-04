@@ -152,7 +152,49 @@ pub enum BoolError {
     /// per-stage iteration limit exceeded, etc.
     #[error("system error: {0}")]
     SystemError(String),
+
+    /// The result would be non-manifold: the operands touch along an
+    /// edge or at a point, so the result has zero-thickness contacts
+    /// (PK-964, decision D1: decline by default). The input model is
+    /// unchanged; move a body or overlap it to merge the contact.
+    #[error(
+        "result would be non-manifold: {} zero-thickness contact(s), first at ({:.6}, {:.6}, {:.6})",
+        contacts.len(),
+        contacts.first().map_or(0.0, |c| c.location.x),
+        contacts.first().map_or(0.0, |c| c.location.y),
+        contacts.first().map_or(0.0, |c| c.location.z)
+    )]
+    NonManifoldResult {
+        /// Where the result would touch itself, for highlighting.
+        contacts: Vec<NonManifoldContact>,
+    },
+    /// An operand is not a kind of body the operation accepts (a sheet
+    /// given to an operation on solids).
+    #[error("{operation} needs {}; operand {operand} is a {}", accepted_label(accepted), kind.label())]
+    UnsupportedBodyKind {
+        /// The operation.
+        operation: &'static str,
+        /// The operand's index among the inputs.
+        operand: usize,
+        /// Its kind.
+        kind: popkern_core::topology::BodyKind,
+        /// The kinds the operation accepts.
+        accepted: &'static [popkern_core::topology::BodyKind],
+    },
+    /// More bodies than one operation takes at once.
+    #[error("a partition takes at most {limit} bodies; {given} were given")]
+    TooManyBodies {
+        /// The bodies given.
+        given: usize,
+        /// The most it takes.
+        limit: usize,
+    },
 }
+
+#[path = "error_contact.rs"]
+mod error_contact;
+use error_contact::accepted_label;
+pub use error_contact::{ContactKind, NonManifoldContact};
 
 /// Per-stage timing and counter sample (§16 telemetry).
 ///

@@ -12,6 +12,7 @@ use popkern_core::topology::BRep;
 use super::execute_boolean_pipeline;
 use crate::cancellation::CancellationToken;
 use crate::error::{BoolError, BoolOperation, PhaseMetric};
+use crate::options::NonManifoldPolicy;
 use crate::progress::ProgressReporter;
 
 /// Execute a boolean with full pipeline knobs: telemetry, cancellation,
@@ -22,6 +23,7 @@ use crate::progress::ProgressReporter;
 /// after each stage with a [`ProgressEvent`]. Returns
 /// [`BoolError::Cancelled`] as soon as a cancellation is observed;
 /// the input model is unchanged.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn execute_boolean_full(
     op: BoolOperation,
     a: &BRep,
@@ -30,6 +32,68 @@ pub(crate) fn execute_boolean_full(
     metrics: &mut Vec<PhaseMetric>,
     cancel: Option<&CancellationToken>,
     progress: Option<&mut dyn ProgressReporter>,
+    policy: NonManifoldPolicy,
+) -> Result<BRep, BoolError> {
+    let routes = execute_boolean_routes(op, a, b, tolerance, metrics, cancel, progress, policy);
+    let served = match routes {
+        Ok(served) => served,
+        // A union of operands that only touch fails inside the pipeline
+        // as often as not (the contact is a tangency or an edge lying
+        // on a face): say where they touch instead (PK-964, D1).
+        // Under the split policy a non-manifold verdict asks for the
+        // same thing: the touching bodies, side by side.
+        Err(e)
+            if op == BoolOperation::Union
+                && !matches!(e, BoolError::Cancelled)
+                && (policy == NonManifoldPolicy::SplitToManifold
+                    || !matches!(e, BoolError::NonManifoldResult { .. })) =>
+        {
+            let Some(contacts) = super::empty::touching_union_contacts(a, b, tolerance) else {
+                return Err(e);
+            };
+            // Split: the union of bodies that only touch is the two
+            // bodies side by side, meeting at the contacts.
+            return match policy {
+                NonManifoldPolicy::Decline => Err(BoolError::NonManifoldResult { contacts }),
+                NonManifoldPolicy::SplitToManifold => {
+                    let side_by_side = super::helpers::combine_breps(a.clone(), b.clone())?;
+                    crate::postprocess::contact_record::accept_split(side_by_side, tolerance)
+                }
+            };
+        }
+        Err(e) => return Err(e),
+    };
+    // Whatever route served it, a result that touches itself (two
+    // vertices or two edges in one place: bodies meeting along an
+    // edge or at a point; two shells meeting anywhere) is non-manifold
+    // and declines (PK-964, D1).
+    let mut contacts =
+        crate::postprocess::zero_thickness::zero_thickness_contacts(&served, tolerance);
+    if contacts.is_empty() {
+        contacts = crate::postprocess::shell_contact::shell_contacts(&served, tolerance);
+    }
+    if contacts.is_empty() {
+        return Ok(served);
+    }
+    match policy {
+        NonManifoldPolicy::Decline => Err(BoolError::NonManifoldResult { contacts }),
+        NonManifoldPolicy::SplitToManifold => {
+            crate::postprocess::contact_record::accept_split(served, tolerance)
+        }
+    }
+}
+
+/// The primary pipeline, then the mixed-sense rescue.
+#[allow(clippy::too_many_arguments)]
+fn execute_boolean_routes(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+    metrics: &mut Vec<PhaseMetric>,
+    cancel: Option<&CancellationToken>,
+    progress: Option<&mut dyn ProgressReporter>,
+    policy: NonManifoldPolicy,
 ) -> Result<BRep, BoolError> {
     // PK-478 stage 4: MIXED-sense rescue retry. A mixed operand pair
     // (one majority-inward — every blend-rebuilt body; one
@@ -60,10 +124,12 @@ pub(crate) fn execute_boolean_full(
 
     // `progress` is consumed by the primary run; the rescue run is
     // internal and reports no progress.
-    let primary = execute_boolean_pipeline(op, a, b, tolerance, metrics, cancel, progress);
+    let primary = execute_boolean_pipeline(op, a, b, tolerance, metrics, cancel, progress, policy);
     let err = match primary {
         Ok(result) => return Ok(result),
         Err(BoolError::Cancelled) => return Err(BoolError::Cancelled),
+        // A non-manifold verdict is about the result, not the senses.
+        Err(e @ BoolError::NonManifoldResult { .. }) => return Err(e),
         Err(e) => e,
     };
     let (mut ra, mut rb) = (a.clone(), b.clone());
@@ -97,7 +163,16 @@ pub(crate) fn execute_boolean_full(
             "  [exec] mixed-sense pair declined ({err}); retrying with the inward operand reversed"
         );
     }
-    match execute_boolean_pipeline(op, &ra, &rb, tolerance, &mut Vec::new(), cancel, None) {
+    match execute_boolean_pipeline(
+        op,
+        &ra,
+        &rb,
+        tolerance,
+        &mut Vec::new(),
+        cancel,
+        None,
+        policy,
+    ) {
         Ok(rescued) => {
             // Tear bar: a divergence at 1% of the body extent is a
             // feature-scale hole, not an approximation band

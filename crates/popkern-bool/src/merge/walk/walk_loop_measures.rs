@@ -47,9 +47,25 @@ pub(crate) fn loop_newell(graph: &IntersectionGraph, loop_hes: &[usize]) -> Vec3
             // Walk the samples in THIS half-edge's traversal
             // direction: a borrowed (twin) curve runs opposite.
             let n_s = 8;
+            // Which end the half-edge starts at is read off the
+            // geometry when its ends differ: a split piece keeps the
+            // original edge curve's direction, which can run against
+            // the half-edge that owns it (measured: three of a socket
+            // head's five top-rim arcs sampled backwards, the rim
+            // measured 30.6 against its 132.7, and the hex socket won
+            // the outer-loop election). A closed piece keeps the
+            // ownership rule.
+            let dst = graph.nodes[graph.half_edges[he.twin].origin].position;
+            let forward = if origin_pos.distance_to(&dst) > 1e-9 {
+                let (a, b) = (c.geometry.point_at(t0), c.geometry.point_at(t1));
+                a.distance_to(&origin_pos) + b.distance_to(&dst)
+                    <= b.distance_to(&origin_pos) + a.distance_to(&dst)
+            } else {
+                own
+            };
             for i in 0..n_s {
                 let f = i as f64 / n_s as f64;
-                let t = if own {
+                let t = if forward {
                     t0 + (t1 - t0) * f
                 } else {
                     t1 - (t1 - t0) * f
@@ -277,9 +293,25 @@ pub(crate) fn loop_newell_cancellation(graph: &IntersectionGraph, loop_hes: &[us
             // election's 8-sample rate — 8 samples over a 3-turn
             // helix read as a gentle arc.
             let n_s = 64;
+            // Which end the half-edge starts at is read off the
+            // geometry when its ends differ: a split piece keeps the
+            // original edge curve's direction, which can run against
+            // the half-edge that owns it (measured: three of a socket
+            // head's five top-rim arcs sampled backwards, the rim
+            // measured 30.6 against its 132.7, and the hex socket won
+            // the outer-loop election). A closed piece keeps the
+            // ownership rule.
+            let dst = graph.nodes[graph.half_edges[he.twin].origin].position;
+            let forward = if origin_pos.distance_to(&dst) > 1e-9 {
+                let (a, b) = (c.geometry.point_at(t0), c.geometry.point_at(t1));
+                a.distance_to(&origin_pos) + b.distance_to(&dst)
+                    <= b.distance_to(&origin_pos) + a.distance_to(&dst)
+            } else {
+                own
+            };
             for i in 0..n_s {
                 let f = i as f64 / n_s as f64;
-                let t = if own {
+                let t = if forward {
                     t0 + (t1 - t0) * f
                 } else {
                     t1 - (t1 - t0) * f
@@ -316,5 +348,67 @@ pub(crate) fn loop_newell_cancellation(graph: &IntersectionGraph, loop_hes: &[us
         1.0
     } else {
         total.length() / abs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+    use popkern_core::geometry::{Point3, Vec3};
+
+    use super::loop_newell;
+    use crate::merge::graph::{EdgeSource, IntersectionGraph, NodeSource, Operand};
+
+    /// A loop of arcs each owned by a half-edge running against its
+    /// curve (the curve's start at the half-edge's end, as a split
+    /// piece of an edge walked the other way keeps it) measures the
+    /// circle's area: |Newell| = 2·πr² to the sampling's chord error.
+    #[test]
+    fn arcs_owned_against_their_curve_measure_the_circle() {
+        let r = 6.5;
+        let circle = CurveGeometry::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, -1.0),
+            radius: r,
+        };
+        let quarter = std::f64::consts::FRAC_PI_2;
+        let mut g = IntersectionGraph::new();
+        let nodes: Vec<usize> = (0..4)
+            .map(|k| {
+                g.add_node(
+                    circle.point_at(quarter * k as f64),
+                    NodeSource::Intersection,
+                )
+            })
+            .collect();
+        // Walk the parameter backwards: half-edge k+1 -> k owns the arc
+        // [t_k, t_k+1], whose start is the half-edge's end.
+        let loop_hes: Vec<usize> = (0..4)
+            .rev()
+            .map(|k| {
+                let curve = CurveOnEdge {
+                    geometry: circle.clone(),
+                    t_start: quarter * k as f64,
+                    t_end: quarter * (k + 1) as f64,
+                };
+                g.add_half_edge_pair(
+                    nodes[(k + 1) % 4],
+                    nodes[k],
+                    EdgeSource::Shared {
+                        face_a: Default::default(),
+                        face_b: Default::default(),
+                        operands: [Operand::A, Operand::B],
+                    },
+                    Some(curve),
+                )
+                .0
+            })
+            .collect();
+        let doubled_area = loop_newell(&g, &loop_hes).length();
+        let want = 2.0 * std::f64::consts::PI * r * r;
+        assert!(
+            (doubled_area - want).abs() < 0.02 * want,
+            "measured {doubled_area}, want {want}"
+        );
     }
 }

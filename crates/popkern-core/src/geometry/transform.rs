@@ -124,6 +124,16 @@ impl Transform3 {
         Self::scale(s, s, s)
     }
 
+    /// Whether the linear part reverses orientation (a mirror):
+    /// its determinant is negative.
+    pub fn reverses_orientation(&self) -> bool {
+        let m = &self.matrix;
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+            < 0.0
+    }
+
     /// The uniform scale factor of this transform, when it is a
     /// similarity (rigid motion × uniform scale, mirror allowed):
     /// `Some(s)` with `s > 0` iff the linear part `L` satisfies

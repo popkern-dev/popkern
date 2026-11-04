@@ -60,6 +60,18 @@ impl BRep {
                     ));
                 }
                 self.half_edges[twin].twin = HalfEdgeHandle::default();
+                // The surviving twin becomes canonical; it traverses the
+                // curve backward, so the curve turns to run its way (the
+                // canonical-forward convention, PK-274, as face-region
+                // removal keeps it). A closed edge has no vertex to tell
+                // the two directions apart, so without this its pcurve
+                // checks against the curve reversed (PK-978: an open
+                // tube's top circle read 2R off).
+                if self.edges[edge].half_edge == *half_edge
+                    && let Some(curve) = self.edges[edge].curve.as_mut()
+                {
+                    std::mem::swap(&mut curve.t_start, &mut curve.t_end);
+                }
                 self.edges[edge].half_edge = twin;
                 self.boundary_edges.insert(edge);
                 exposed_edges.push(edge);
@@ -275,6 +287,30 @@ mod tests {
         assert_eq!(brep.edges.len(), 12);
         assert_eq!(brep.boundary_edges.len(), 4);
         brep.validate().unwrap();
+    }
+
+    /// A retired cap leaves its circle with one half-edge: the
+    /// survivor runs the circle backward, so the curve turns to run its
+    /// way, or the closed edge's pcurve checks against it reversed
+    /// (2R off, PK-978).
+    #[test]
+    fn retired_caps_leave_an_open_tube_that_validates() {
+        use crate::geometry::surface::SurfaceGeometry;
+        let mut tube = BRep::cylinder(0.3, 2.0, Tolerance::default()).expect("cylinder");
+        let caps: Vec<_> = tube
+            .faces
+            .iter()
+            .filter(|(_, f)| {
+                matches!(
+                    f.surface.as_ref().map(|s| &s.geometry),
+                    Some(SurfaceGeometry::Plane { .. })
+                )
+            })
+            .map(|(h, _)| h)
+            .collect();
+        tube.retire_faces_to_boundary(&caps).expect("caps retire");
+        let findings = tube.validate_all();
+        assert!(findings.is_empty(), "{findings:?}");
     }
 
     #[test]

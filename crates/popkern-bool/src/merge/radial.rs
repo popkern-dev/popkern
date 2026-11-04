@@ -148,7 +148,7 @@ fn find_node_normal(graph: &IntersectionGraph, node_idx: usize) -> Vec3 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::merge::graph::{EdgeSource, IntersectionGraph, NodeSource};
+    use crate::merge::graph::{EdgeSource, IntersectionGraph, NodeSource, Operand};
     use popkern_core::geometry::Point3;
 
     #[test]
@@ -166,10 +166,14 @@ mod tests {
         let eh = popkern_core::topology::EdgeHandle::default();
 
         // Add edges in scrambled order: +y, -x, +x, -y.
-        let (he_py, _) = graph.add_half_edge_pair(center, py, EdgeSource::OriginalA(eh), None);
-        let (he_mx, _) = graph.add_half_edge_pair(center, mx, EdgeSource::OriginalA(eh), None);
-        let (he_px, _) = graph.add_half_edge_pair(center, px, EdgeSource::OriginalA(eh), None);
-        let (he_my, _) = graph.add_half_edge_pair(center, my, EdgeSource::OriginalA(eh), None);
+        let (he_py, _) =
+            graph.add_half_edge_pair(center, py, EdgeSource::Original(Operand::A, eh), None);
+        let (he_mx, _) =
+            graph.add_half_edge_pair(center, mx, EdgeSource::Original(Operand::A, eh), None);
+        let (he_px, _) =
+            graph.add_half_edge_pair(center, px, EdgeSource::Original(Operand::A, eh), None);
+        let (he_my, _) =
+            graph.add_half_edge_pair(center, my, EdgeSource::Original(Operand::A, eh), None);
 
         // Sort with +z normal.
         sort_radial_at_node(&mut graph, center, Vec3::new(0.0, 0.0, 1.0));
@@ -235,7 +239,7 @@ mod tests {
         let n1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
 
         let eh = popkern_core::topology::EdgeHandle::default();
-        graph.add_half_edge_pair(center, n1, EdgeSource::OriginalA(eh), None);
+        graph.add_half_edge_pair(center, n1, EdgeSource::Original(Operand::A, eh), None);
 
         let before = graph.nodes[center].outgoing.clone();
         sort_radial_at_node(&mut graph, center, Vec3::new(0.0, 0.0, 1.0));
@@ -258,18 +262,18 @@ mod tests {
         let a1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let a2 = graph.add_node(Point3::new(0.0, 1.0, 0.0), NodeSource::Intersection);
         let a3 = graph.add_node(Point3::new(-1.0, 0.0, 0.0), NodeSource::Intersection);
-        graph.add_half_edge_pair(a, a2, EdgeSource::OriginalA(eh), None);
-        graph.add_half_edge_pair(a, a1, EdgeSource::OriginalA(eh), None);
-        graph.add_half_edge_pair(a, a3, EdgeSource::OriginalA(eh), None);
+        graph.add_half_edge_pair(a, a2, EdgeSource::Original(Operand::A, eh), None);
+        graph.add_half_edge_pair(a, a1, EdgeSource::Original(Operand::A, eh), None);
+        graph.add_half_edge_pair(a, a3, EdgeSource::Original(Operand::A, eh), None);
 
         // Node B at (5,0,0) with 3 spokes in the XY plane.
         let b = graph.add_node(Point3::new(5.0, 0.0, 0.0), NodeSource::Intersection);
         let b1 = graph.add_node(Point3::new(6.0, 0.0, 0.0), NodeSource::Intersection);
         let b2 = graph.add_node(Point3::new(5.0, 1.0, 0.0), NodeSource::Intersection);
         let b3 = graph.add_node(Point3::new(4.0, 0.0, 0.0), NodeSource::Intersection);
-        graph.add_half_edge_pair(b, b3, EdgeSource::OriginalA(eh), None);
-        graph.add_half_edge_pair(b, b1, EdgeSource::OriginalA(eh), None);
-        graph.add_half_edge_pair(b, b2, EdgeSource::OriginalA(eh), None);
+        graph.add_half_edge_pair(b, b3, EdgeSource::Original(Operand::A, eh), None);
+        graph.add_half_edge_pair(b, b1, EdgeSource::Original(Operand::A, eh), None);
+        graph.add_half_edge_pair(b, b2, EdgeSource::Original(Operand::A, eh), None);
 
         sort_all_radial(&mut graph);
 
@@ -327,7 +331,7 @@ mod tests {
         // Node with 1 outgoing edge.
         let n1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let n2 = graph.add_node(Point3::new(2.0, 0.0, 0.0), NodeSource::Intersection);
-        graph.add_half_edge_pair(n1, n2, EdgeSource::OriginalA(eh), None);
+        graph.add_half_edge_pair(n1, n2, EdgeSource::Original(Operand::A, eh), None);
 
         let before_iso = graph.nodes[iso].outgoing.clone();
         let before_n1 = graph.nodes[n1].outgoing.clone();
@@ -354,7 +358,7 @@ mod tests {
         let eh = popkern_core::topology::EdgeHandle::default();
         let a = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let b = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
-        graph.add_half_edge_pair(a, b, EdgeSource::OriginalA(eh), None);
+        graph.add_half_edge_pair(a, b, EdgeSource::Original(Operand::A, eh), None);
 
         let normal = find_node_normal(&graph, a);
         assert!((normal - Vec3::new(0.0, 0.0, 1.0)).length() < 1e-10);
@@ -367,8 +371,8 @@ mod tests {
         let center = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let px = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let py = graph.add_node(Point3::new(0.0, 1.0, 0.0), NodeSource::Intersection);
-        graph.add_half_edge_pair(center, px, EdgeSource::OriginalA(eh), None);
-        graph.add_half_edge_pair(center, py, EdgeSource::OriginalA(eh), None);
+        graph.add_half_edge_pair(center, px, EdgeSource::Original(Operand::A, eh), None);
+        graph.add_half_edge_pair(center, py, EdgeSource::Original(Operand::A, eh), None);
 
         let normal = find_node_normal(&graph, center);
         // Cross product of +X and +Y is +Z (or -Z depending on order).
@@ -386,8 +390,8 @@ mod tests {
         let center = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let px = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let mx = graph.add_node(Point3::new(-1.0, 0.0, 0.0), NodeSource::Intersection);
-        graph.add_half_edge_pair(center, px, EdgeSource::OriginalA(eh), None);
-        graph.add_half_edge_pair(center, mx, EdgeSource::OriginalA(eh), None);
+        graph.add_half_edge_pair(center, px, EdgeSource::Original(Operand::A, eh), None);
+        graph.add_half_edge_pair(center, mx, EdgeSource::Original(Operand::A, eh), None);
 
         let normal = find_node_normal(&graph, center);
         // Collinear edges produce a zero cross product -> falls back to +Z.
@@ -403,9 +407,9 @@ mod tests {
         let same = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let px = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let py = graph.add_node(Point3::new(0.0, 1.0, 0.0), NodeSource::Intersection);
-        graph.add_half_edge_pair(center, same, EdgeSource::OriginalA(eh), None);
-        graph.add_half_edge_pair(center, px, EdgeSource::OriginalA(eh), None);
-        graph.add_half_edge_pair(center, py, EdgeSource::OriginalA(eh), None);
+        graph.add_half_edge_pair(center, same, EdgeSource::Original(Operand::A, eh), None);
+        graph.add_half_edge_pair(center, px, EdgeSource::Original(Operand::A, eh), None);
+        graph.add_half_edge_pair(center, py, EdgeSource::Original(Operand::A, eh), None);
 
         let before = graph.nodes[center].outgoing.clone();
         // Should not panic even with a degenerate zero-length tangent.

@@ -36,21 +36,21 @@ pub(crate) enum EntityKind {
     Vertex,
 }
 
-/// Operand `a`'s named entities by name id, and the tool's box.
+/// Operand `a`'s named entities by name id, and each tool's box.
 pub(crate) struct CarryIndex {
     edges: HashMap<NameId, EdgeHandle>,
     faces: HashMap<NameId, FaceHandle>,
     vertices: HashMap<NameId, popkern_core::topology::VertexHandle>,
     face_boxes: HashMap<FaceHandle, Aabb>,
     a_face_boxes: Vec<(FaceHandle, Aabb)>,
-    tool: Option<Aabb>,
+    tools: Vec<Option<Aabb>>,
     on: f64,
 }
 
 impl CarryIndex {
-    /// Index `a`'s names; the tool box is `b`'s face boxes' union grown
-    /// by `on`.
-    pub(crate) fn new(a: &BRep, b: &BRep, on: f64) -> Self {
+    /// Index `a`'s names; each tool's box is its face boxes' union,
+    /// grown by `on` when tested.
+    pub(crate) fn new(a: &BRep, tools: &[&BRep], on: f64) -> Self {
         let edges = a
             .edges
             .iter()
@@ -68,9 +68,15 @@ impl CarryIndex {
             .collect();
         let a_face_boxes = crate::intersect::compute_face_aabbs(a);
         let face_boxes = a_face_boxes.iter().cloned().collect();
-        let corners: Vec<Point3> = crate::intersect::compute_face_aabbs(b)
+        let tools = tools
             .iter()
-            .flat_map(|(_, bb)| [bb.min, bb.max])
+            .map(|b| {
+                let corners: Vec<Point3> = crate::intersect::compute_face_aabbs(b)
+                    .iter()
+                    .flat_map(|(_, bb)| [bb.min, bb.max])
+                    .collect();
+                Aabb::from_points(&corners)
+            })
             .collect();
         Self {
             edges,
@@ -78,16 +84,18 @@ impl CarryIndex {
             vertices,
             face_boxes,
             a_face_boxes,
-            tool: Aabb::from_points(&corners),
+            tools,
             on,
         }
     }
 
-    /// `box_` is clear of the tool (grown by `on`).
+    /// `box_` is clear of every tool (each grown by `on`).
     fn clear_of_tool(&self, box_: &Aabb) -> bool {
-        self.tool
-            .as_ref()
-            .is_some_and(|tool| !tool.overlaps(box_, 2.0 * self.on))
+        !self.tools.is_empty()
+            && self.tools.iter().all(|tool| {
+                tool.as_ref()
+                    .is_some_and(|tool| !tool.overlaps(box_, 2.0 * self.on))
+            })
     }
 
     /// The name `result` gives `name` (an operand-`a` name value) is

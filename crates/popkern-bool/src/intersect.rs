@@ -168,12 +168,30 @@ pub(crate) fn find_intersections_with_aabbs(
     // order-independent, so BVH pair ordering is safe.
     use popkern_core::validation::bvh::Bvh;
     let n_a = aabbs_a.len();
-    let mut combined: Vec<(usize, Aabb)> = Vec::with_capacity(n_a + aabbs_b.len());
-    for (i, (_, aabb)) in aabbs_a.iter().enumerate() {
-        combined.push((i, aabb.clone()));
-    }
+    // Only a face overlapping the other operand's hull can pair, and
+    // the pairs come back sorted by id, so the tree holds those faces
+    // alone (PK-1032: a 259-face body against a slot cutter built and
+    // walked every face's same-operand overlaps to discard them).
+    let hull_b = crate::face_box::hull(aabbs_b.iter().map(|(_, f)| f));
+    let near_a: Vec<(usize, Aabb)> = aabbs_a
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, f))| {
+            hull_b
+                .as_ref()
+                .is_some_and(|h| f.overlaps(h, tolerance.linear()))
+        })
+        .map(|(i, (_, f))| (i, f.clone()))
+        .collect();
+    let hull_a = crate::face_box::hull(near_a.iter().map(|(_, f)| f));
+    let mut combined = near_a;
     for (i, (_, aabb)) in aabbs_b.iter().enumerate() {
-        combined.push((n_a + i, aabb.clone()));
+        if hull_a
+            .as_ref()
+            .is_some_and(|h| aabb.overlaps(h, tolerance.linear()))
+        {
+            combined.push((n_a + i, aabb.clone()));
+        }
     }
     let bvh = Bvh::build(&combined);
     let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear());
@@ -296,6 +314,17 @@ pub(crate) fn find_intersections_with_aabbs(
         }
     }
 
+    // Edges lying in the other operand's face: the face is imprinted
+    // along them even where the solver dropped the boundary curve.
+    crate::intersect_edge_in_face::recover_edge_in_face_records(
+        a,
+        b,
+        aabbs_a,
+        aabbs_b,
+        &mut records,
+        tolerance,
+    );
+
     // §4.2 branch-point labeling: if two intersection-curve endpoints
     // are coincident within tolerance, mark both as `OnBranchPoint`.
     // The label is informational today (downstream consumers are
@@ -321,36 +350,9 @@ pub(crate) fn find_intersections_with_aabbs(
     // deduplicated fragments with welded junctions.
     consolidate_records(&mut records, a, b, tolerance);
 
-    if popkern_core::trace::trace_enabled("uv-scramble") {
-        use popkern_core::geometry::curve::CurveEval as _;
-        use popkern_core::geometry::surface::SurfaceEval as _;
-        for (i, r) in records.iter().enumerate() {
-            for (label, brep, fh, uv) in [
-                ("uv1", a, r.face_a, &r.curve.curve_uv1),
-                ("uv2", b, r.face_b, &r.curve.curve_uv2),
-            ] {
-                let Some(surf) = brep.faces.get(fh).and_then(|f| f.surface.as_ref()) else {
-                    continue;
-                };
-                let (c0, c1) = r.curve.curve_3d.parameter_range();
-                let (u0, u1) = uv.parameter_range();
-                let mut worst = 0.0_f64;
-                for k in 0..=8 {
-                    let f = k as f64 / 8.0;
-                    let p3 = r.curve.curve_3d.point_at(c0 + (c1 - c0) * f);
-                    let q = uv.point_at(u0 + (u1 - u0) * f);
-                    let ps = surf.geometry.point_at(q.x, q.y);
-                    worst = worst.max(ps.distance_to(&p3));
-                }
-                if worst > tolerance.linear() * 100.0 {
-                    eprintln!(
-                        "  [uv-scramble] rec {i} ({:?},{:?}) {label} images {worst:.3e} off its 3D curve",
-                        r.face_a, r.face_b
-                    );
-                }
-            }
-        }
-    }
+    // One parameter for a record's three curves (PK-1031): consumers
+    // evaluate the uv curves at 3D parameters.
+    crate::record_coparam::coparameterize_records(&mut records, a, b, tolerance);
 
     // Build the coincidence map from dedicated coincidence detection.
     let bool_tol2 = crate::tolerance::BoolTolerance::from(*tolerance);

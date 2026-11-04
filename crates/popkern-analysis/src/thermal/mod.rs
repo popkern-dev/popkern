@@ -6,6 +6,7 @@
 //! is consistent, so linear temperature fields are reproduced exactly.
 
 pub mod assemble;
+mod contact;
 pub mod from_setup;
 mod radiation;
 pub mod sample;
@@ -81,6 +82,19 @@ pub struct ConductionProblem {
     pub body_sources: Vec<(SolidId, f64)>,
     /// Heat deflection temperature, °C, for the service warning.
     pub hdt_c: Option<f64>,
+    /// Contact interfaces between solids (`crate::contact`); steady
+    /// solves only.
+    pub contacts: Vec<ThermalContact>,
+}
+
+/// Two solids conducting across a shared patch: heat crosses in
+/// proportion to the temperature jump.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThermalContact {
+    /// The shared patch.
+    pub patch: crate::contact::ContactPatch,
+    /// Contact conductance, W/(m²·K).
+    pub conductance: f64,
 }
 
 /// Heat flows of a solution, W. Face flows are split into gross in and
@@ -214,6 +228,9 @@ fn solve_prepared(
     prepared: &mut system::Prepared,
     options: &AnalysisOptions,
 ) -> Result<Vec<f64>, AnalysisError> {
+    floating_solid(prepared).map_or(Ok(()), |solid| {
+        Err(AnalysisError::FloatingTemperature { solid })
+    })?;
     let empty = Csr::from_triplets(0, 0, &[]).map_err(|e| internal("assemble", e))?;
     let a = std::mem::replace(&mut prepared.a, empty);
     let positions = std::mem::take(&mut prepared.positions);
@@ -234,6 +251,57 @@ fn solve_prepared(
         });
     }
     Ok(solution.x)
+}
+
+/// A uniform temperature is a null field of conduction: within one
+/// group of solids joined by contacts (a contact conducts nothing at a
+/// uniform temperature either), 1ᵀ A 1 holds only what fixes the level
+/// (held faces, convection, radiation), against the group's diagonal
+/// sum as the scale. The first solid of the first group where that is
+/// round-off, if any.
+fn floating_solid(prepared: &system::Prepared) -> Option<crate::SolidId> {
+    let n = prepared.a.rows();
+    let count = prepared.offsets.len();
+    let mut group: Vec<usize> = (0..count).collect();
+    fn root(g: &mut [usize], mut x: usize) -> usize {
+        while g[x] != x {
+            g[x] = g[g[x]];
+            x = g[x];
+        }
+        x
+    }
+    for c in &prepared.contacts {
+        let (a, b) = (c.patch.solids.0.0 as usize, c.patch.solids.1.0 as usize);
+        if a < count && b < count {
+            let (ra, rb) = (root(&mut group, a), root(&mut group, b));
+            group[ra] = rb;
+        }
+    }
+    let ends: Vec<usize> = prepared
+        .offsets
+        .iter()
+        .skip(1)
+        .copied()
+        .chain([n])
+        .collect();
+    let mut sums: std::collections::BTreeMap<usize, (f64, f64, usize)> = Default::default();
+    for (s, (&start, &end)) in prepared.offsets.iter().zip(&ends).enumerate() {
+        let g = root(&mut group, s);
+        let entry = sums.entry(g).or_insert((0.0, 0.0, s));
+        for r in start..end {
+            for (c, v) in prepared.a.row(r) {
+                entry.0 += v;
+                if c == r {
+                    entry.1 += v;
+                }
+            }
+        }
+    }
+    sums.values()
+        .find(|(held, scale, _)| {
+            *scale != 0.0 && held.abs() <= crate::structural::RIGID_MODE_TOL * scale.abs()
+        })
+        .map(|&(_, _, s)| crate::SolidId(s as u32))
 }
 
 fn internal(stage: &'static str, e: impl std::fmt::Display) -> AnalysisError {
@@ -309,3 +377,7 @@ mod source_tests;
 #[cfg(test)]
 #[path = "thermal_tests.rs"]
 mod thermal_tests;
+
+#[cfg(test)]
+#[path = "contact_tests.rs"]
+mod contact_tests;

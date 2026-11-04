@@ -35,6 +35,7 @@ fn lf2_on_both_fixtures_at_five_offsets() {
                 ],
                 source_w: 0.0,
                 hdt_c: None,
+                contacts: Vec::new(),
                 body_sources: Vec::new(),
             };
             let options = AnalysisOptions {

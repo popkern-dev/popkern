@@ -10,8 +10,6 @@ use popkern_core::{
     topology::{BRep, FaceHandle},
 };
 
-use super::intersect::bounded_parameter_range;
-
 /// A detected edge-face intersection point.
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // Fields used for diagnostic inspection and future integration.
@@ -80,6 +78,13 @@ fn detect_edges_vs_faces(
 
     use popkern_core::geometry::curve::CurveGeometry;
 
+    // The face boxes' hull: an edge clear of it pierces none of them
+    // (PK-1032: rejected before its curve is cloned).
+    let region = crate::face_box::hull(face_aabbs.iter().map(|(_, b)| b));
+    // Each face's window, trim box and periodicity, computed once
+    // whatever number of edges cross it (PK-1032).
+    let mut windows: Vec<Option<crate::intersect_edge_face_window::FaceWindow>> =
+        vec![None; face_aabbs.len()];
     for (edge_h, edge) in &edge_brep.edges {
         // Get endpoint positions from vertices (always up-to-date, even if
         // the edge curve geometry is stale after vertex translation).
@@ -136,8 +141,14 @@ fn detect_edges_vs_faces(
             crate::intersect::conservative_curve_extent(c, &mut extent_points);
         }
         let edge_aabb = match Aabb::from_points(&extent_points) {
-            Some(a) => a,
-            None => continue,
+            Some(a)
+                if region
+                    .as_ref()
+                    .is_some_and(|r| a.overlaps(r, tolerance.linear())) =>
+            {
+                a
+            }
+            _ => continue,
         };
         let (edge_curve, t_range) = match stored {
             // The solver takes an ASCENDING window: a curve stored
@@ -163,7 +174,7 @@ fn detect_edges_vs_faces(
             }
         };
 
-        for (face_h, face_aabb) in face_aabbs {
+        for (k, (face_h, face_aabb)) in face_aabbs.iter().enumerate() {
             if !edge_aabb.overlaps(face_aabb, tolerance.linear()) {
                 continue;
             }
@@ -174,43 +185,17 @@ fn detect_edges_vs_faces(
                 None => continue,
             };
 
-            let ((mut u_min, mut u_max), (v_min, v_max)) =
-                bounded_parameter_range(face_brep, *face_h, surface_on_face);
-            // CLOSED-WALL CAVEAT (same family as the trim-box caveat
-            // below): a periodic wall bounded only by rims has 1–2
-            // loop vertices, ALL on the seam, so the vertex-derived u
-            // window collapses to ±padding around the seam azimuth
-            // and prunes legitimate far-side roots (measured: the
-            // cross-drilled boss — each seam-line × wall pair lost
-            // the root opposite the seam, the pierce curves never
-            // split at the missing nodes, and the graze filter
-            // cascaded ALL record pieces off both walls). A closed
-            // wall spans the full period: widen u to one full turn.
-            let distinct_positions = {
-                let ps = face_brep.face_outer_loop_positions(*face_h);
-                let mut distinct: Vec<popkern_core::geometry::Point3> = Vec::new();
-                for p in ps {
-                    if distinct
-                        .iter()
-                        .all(|q| q.distance_to(&p) > tolerance.linear())
-                    {
-                        distinct.push(p);
-                    }
-                }
-                distinct.len()
-            };
-            {
-                use popkern_core::geometry::SurfaceEval as _;
-                if let (Some(period), true) = (
-                    surface_on_face.parameter_periodicity().0,
-                    distinct_positions < 3,
-                ) && u_max - u_min < period
-                {
-                    let mid = 0.5 * (u_min + u_max);
-                    u_min = mid - 0.5 * period;
-                    u_max = mid + 0.5 * period;
-                }
-            }
+            let window = windows[k].get_or_insert_with(|| {
+                crate::intersect_edge_face_window::face_window(
+                    face_brep,
+                    *face_h,
+                    surface_on_face,
+                    tolerance,
+                )
+            });
+            let ((u_min, u_max), (v_min, v_max)) = (window.u, window.v);
+            let (trim_box, u_period, full_turn) =
+                (window.trim_box, window.u_period, window.full_turn);
 
             // An edge lying IN the surface has no crossings, only a
             // coincidence (see `edge_lies_on_surface`).
@@ -263,58 +248,8 @@ fn detect_edges_vs_faces(
                 }
             }
 
-            // Acceptance is trim-honest: the padded range above gives the
-            // SOLVER headroom, but a hit landing in the padding is not on
-            // the face (measured: a seat tool's wall plane crossed a deck
-            // outline edge 4 mm outside the wall's bounds; the phantom hit
-            // split the cellular graph edge there and the polluted loop
-            // broke the NEXT boolean on the body). Bound acceptance by the
-            // face's exact vertex-derived parameter box plus tolerance.
-            // CLOSED-RIM CAVEAT: a face bounded by closed edges (a
-            // cylinder cap's full-circle rim) has 1–2 loop vertices,
-            // so its vertex-derived box collapses and would reject
-            // every legitimate hit (measured: star-socket corner
-            // hits on a cylinder cap all filtered, 427 open edges).
-            // Fewer than 3 vertices → the pcurve window instead
-            // (PK-921), or no verdict without pcurves.
-            // Distinct-position guard (same reason as the widened u
-            // window above): a closed wall's loop visits its 1–2 seam
-            // vertices twice, so the RAW position count lies about
-            // the trim information available.
-            let face_positions =
-                crate::intersect_edge_face_coincident::trim_box_positions(face_brep, *face_h);
-            let trim_box = if distinct_positions >= 3 {
-                Some(crate::intersect_edge_face_coincident::vertex_trim_box(
-                    face_brep,
-                    *face_h,
-                    &face_positions,
-                    surface_on_face,
-                ))
-            } else {
-                crate::intersect_edge_face_coincident::pcurve_trim_box(face_brep, *face_h)
-            };
+            // Acceptance is trim-honest: see `face_window`.
             let uv_margin = tolerance.linear();
-            // A face that carries its own SEAM (an edge whose two
-            // half-edges both bound it) spans the whole u period, but
-            // its seam vertices project to u = 0 only, never 2π: the
-            // vertex box stops at the last vertex before the seam and
-            // rejects the strip beyond it. Measured (PK-746): a fin
-            // straddling a housing's seam put a root corner at
-            // u = 6.2427; a boss rod's seam edge pierced the housing
-            // at u = 6.2785, the hit was rejected, its ring carried
-            // no node at the rod's seam, the rod's chart walk fell
-            // back to 3D-Newell, and the union served without the
-            // boss wall. Such a face's u is not filtered.
-            let u_period = {
-                use popkern_core::geometry::SurfaceEval as _;
-                surface_on_face.parameter_periodicity().0
-            }
-            .filter(|_| !face_has_own_seam(face_brep, *face_h));
-            let full_turn = u_period.is_none() && {
-                use popkern_core::geometry::SurfaceEval as _;
-                surface_on_face.parameter_periodicity().0.is_some()
-            };
-
             if let Ok(result) = result {
                 for isect in &result.intersections {
                     if let SurfaceCurveIntersection::Point { t, u, v, .. } = *isect {
@@ -463,38 +398,4 @@ fn detect_edges_vs_faces(
             }
         }
     }
-}
-
-/// Whether `face` carries its own seam: an edge both of whose
-/// half-edges lie on loops of this face.
-fn face_has_own_seam(brep: &BRep, face: FaceHandle) -> bool {
-    let Some(f) = brep.faces.get(face) else {
-        return false;
-    };
-    std::iter::once(f.outer_loop)
-        .chain(f.inner_loops.iter().copied())
-        .any(|lh| {
-            let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
-                return false;
-            };
-            let mut h = start;
-            for _ in 0..=brep.half_edges.len() {
-                let Some(he) = brep.half_edges.get(h) else {
-                    return false;
-                };
-                let twin_on_face = brep
-                    .half_edges
-                    .get(he.twin)
-                    .and_then(|tw| brep.loops.get(tw.loop_))
-                    .is_some_and(|l| l.face == face);
-                if twin_on_face && he.twin != h {
-                    return true;
-                }
-                h = he.next;
-                if h == start {
-                    break;
-                }
-            }
-            false
-        })
 }

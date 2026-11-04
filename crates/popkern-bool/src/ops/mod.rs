@@ -1,8 +1,10 @@
 //! Extended boolean operations beyond union/intersection/subtraction.
 
+pub mod contact;
 pub mod face_level;
 pub(crate) mod half_space;
 pub mod imprint;
+mod imprint_classify;
 pub mod interference;
 pub mod plane_section;
 pub mod section;

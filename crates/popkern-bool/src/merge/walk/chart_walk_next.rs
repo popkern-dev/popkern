@@ -278,19 +278,29 @@ pub(crate) fn next_in_chart(
     let same_source = |x: usize, y: usize| -> bool {
         use crate::merge::graph::EdgeSource as S;
         match (&graph.half_edges[x].source, &graph.half_edges[y].source) {
-            (S::OriginalA(e1), S::OriginalA(e2)) | (S::OriginalB(e1), S::OriginalB(e2)) => e1 == e2,
+            (S::Original(o1, e1), S::Original(o2, e2)) => o1 == o2 && e1 == e2,
             (
                 S::Shared {
                     face_a: a1,
                     face_b: b1,
+                    operands: p1,
                 },
                 S::Shared {
                     face_a: a2,
                     face_b: b2,
+                    operands: p2,
                 },
-            ) => a1 == a2 && b1 == b2,
-            (S::SplitA { original: e1 }, S::SplitA { original: e2 })
-            | (S::SplitB { original: e1 }, S::SplitB { original: e2 }) => e1 == e2,
+            ) => a1 == a2 && b1 == b2 && p1 == p2,
+            (
+                S::Split {
+                    operand: o1,
+                    original: e1,
+                },
+                S::Split {
+                    operand: o2,
+                    original: e2,
+                },
+            ) => o1 == o2 && e1 == e2,
             _ => false,
         }
     };

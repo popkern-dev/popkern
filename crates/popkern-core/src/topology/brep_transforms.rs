@@ -11,6 +11,9 @@ use popkern_math::PortableMath;
 
 #[path = "brep_transform_gregory.rs"]
 mod brep_transform_gregory;
+#[cfg(test)]
+#[path = "brep_transform_mirror_tests.rs"]
+mod brep_transform_mirror_tests;
 use brep_transform_gregory::transform_gregory;
 
 /// Normalize a transformed direction field. The caller has already
@@ -329,6 +332,9 @@ impl crate::topology::BRep {
         for (_, vertex) in &mut result.vertices {
             vertex.position = t.apply_point(&vertex.position);
         }
+        for contact in &mut result.topology_contacts {
+            contact.location = t.apply_point(&contact.location);
+        }
         // Rotational charts (cylinder/cone/sphere/torus) anchor U to
         // orthonormal_basis(axis) — a convention of the axis
         // direction, not of the material. A rigid rotation moves the
@@ -339,6 +345,21 @@ impl crate::topology::BRep {
         // the UV clip kept a phantom intersection line while
         // rejecting nothing real). Compute the shift per face before
         // overwriting the surface, then re-anchor its pcurves.
+        //
+        // A reflection maps the anchor basis to the opposite
+        // handedness about the new axis, while the derived basis stays
+        // right-handed: a point's angle u becomes delta - u, not
+        // u + delta, and the chart normal du x dv (outward for these
+        // charts) keeps its side of the material while every loop's
+        // image winds the other way about it. So the face's pcurves
+        // reflect and its orientation flag toggles; a plane or spline
+        // chart, whose partials are mirrored themselves, needs neither
+        // (measured: a cone mirrored for a nut's lower chamfer kept
+        // shifted pcurves and an outward flag beside its inward-folded
+        // base, and the cell complex read its material inverted).
+        let reflected = t.reverses_orientation();
+        let mut reauthor: Vec<(crate::topology::FaceHandle, crate::topology::HalfEdgeHandle)> =
+            Vec::new();
         let mut face_u_shift: Vec<(crate::topology::FaceHandle, f64)> = Vec::new();
         for (fh, face) in &result.faces {
             let Some(sof) = face.surface.as_ref() else {
@@ -351,16 +372,20 @@ impl crate::topology::BRep {
                 | SurfaceGeometry::Torus { axis, .. } => *axis,
                 _ => continue,
             };
-            let axis_new = t.apply_direction(&axis_old);
+            // Unit like the stored axis: the basis assumes one (PK-978).
+            let axis_new = t.apply_direction(&axis_old) * (1.0 / scale);
             let (e1_old, _) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_old);
             let (f1, f2) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_new);
             let e1_img = t.apply_direction(&e1_old);
             let delta = e1_img.dot(&f2).patan2(e1_img.dot(&f1));
-            if delta.abs() > 1.0e-14 {
+            if reflected || delta.abs() > 1.0e-14 {
                 face_u_shift.push((fh, delta));
             }
         }
         for (fh, delta) in face_u_shift {
+            if reflected && let Some(sof) = result.faces[fh].surface.as_mut() {
+                sof.orientation = !sof.orientation;
+            }
             let face = &result.faces[fh];
             let mut loops = vec![face.outer_loop];
             loops.extend(face.inner_loops.iter().copied());
@@ -381,7 +406,11 @@ impl crate::topology::BRep {
             }
             for he in hes {
                 if let Some(pc) = result.half_edges[he].pcurve.as_mut() {
-                    pc.shift_u(delta);
+                    if !reflected {
+                        pc.shift_u(delta);
+                    } else if !pc.reflect_u(delta) {
+                        reauthor.push((fh, he));
+                    }
                 }
             }
         }
@@ -451,6 +480,19 @@ impl crate::topology::BRep {
                     }
                 }
             }
+        }
+        // Pcurves no exact form could reflect are re-authored from the
+        // transformed edges on the transformed chart.
+        for &(_, he) in &reauthor {
+            if let Some(h) = result.half_edges.get_mut(he) {
+                h.pcurve = None;
+            }
+        }
+        let mut reauthor_faces: Vec<crate::topology::FaceHandle> =
+            reauthor.iter().map(|&(f, _)| f).collect();
+        reauthor_faces.dedup();
+        for fh in reauthor_faces {
+            result.recompute_face_pcurves(fh)?;
         }
         result.attach_planar_pcurves()?;
         Ok(result)

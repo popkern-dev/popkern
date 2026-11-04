@@ -76,6 +76,7 @@ fn plate_with_pillar() -> (FeatureTree, BodyId) {
         Feature::Boolean {
             operation: BoolOpKind::Union,
             tool_body: pillar_body,
+            non_manifold: Default::default(),
         },
         "plate_plus_pillar",
         Some(plate_body),
