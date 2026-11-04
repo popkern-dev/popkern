@@ -2,7 +2,7 @@
 //! under the file budget): `.offset_solid(d, #{..})`,
 //! `.thicken(t, #{..})` and `.draft(faces, angle, neutral, #{..})`.
 
-use popkern_history::feature::{Feature, JoinStyleKind, TrimPolicyKind};
+use popkern_history::feature::{Feature, JoinStyleKind, ThickenSideKind, TrimPolicyKind};
 use popkern_history::feature_draft::NeutralPlaneDesc;
 use popkern_script::Model;
 
@@ -34,7 +34,10 @@ pub(super) fn call(
 ) -> Option<Result<String, EmitError>> {
     if !matches!(
         feature,
-        Feature::OffsetSolid { .. } | Feature::Thicken { .. } | Feature::Draft { .. }
+        Feature::OffsetSolid { .. }
+            | Feature::Thicken { .. }
+            | Feature::Draft { .. }
+            | Feature::RemoveFaces { .. }
     ) {
         return None;
     }
@@ -63,11 +66,20 @@ fn spelling(
             thickness,
             join_style,
             trim_policy,
-        } => format!(
-            ".thicken({}{})",
-            scalar(tree, *thickness, context)?,
-            options(offset_pairs(label, join_style, trim_policy))
-        ),
+            side,
+        } => {
+            let mut pairs = offset_pairs(label, join_style, trim_policy);
+            match side {
+                ThickenSideKind::Both => {}
+                ThickenSideKind::Outward => pairs.push(("side", quoted("outward"))),
+                ThickenSideKind::Inward => pairs.push(("side", quoted("inward"))),
+            }
+            format!(
+                ".thicken({}{})",
+                scalar(tree, *thickness, context)?,
+                options(pairs)
+            )
+        }
         Feature::Draft {
             faces,
             angle,
@@ -93,6 +105,11 @@ fn spelling(
                 options(vec![label_option(label)])
             )
         }
+        Feature::RemoveFaces { faces } => format!(
+            ".remove_faces({}{})",
+            spell("faces", faces, true)?,
+            options(vec![label_option(label)])
+        ),
         _ => return Err(EmitError::not_applicable(label, "shaping", "not an offset")),
     })
 }

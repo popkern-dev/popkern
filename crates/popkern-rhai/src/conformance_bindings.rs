@@ -417,7 +417,7 @@ pub const RHAI_BINDINGS: &[Binding] = &[
         "thicken",
         "thicken",
         &["thickness"],
-        &["label", "join", "trim"],
+        &["label", "join", "trim", "side"],
         &[],
     ),
     b(
@@ -427,6 +427,7 @@ pub const RHAI_BINDINGS: &[Binding] = &[
         &["label", "join", "trim"],
         &[],
     ),
+    b("remove_faces", "remove_faces", &["faces"], &["label"], &[]),
     b(
         "draft",
         "draft",

@@ -111,6 +111,7 @@ fn the_guides_option_keys_are_the_bindings_option_keys() {
         "offset_solid",
         "thicken",
         "draft",
+        "remove_faces",
         "translate",
         "rotate",
         "sweep",

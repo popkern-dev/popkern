@@ -4,6 +4,7 @@
 //! box = box.offset_solid(1.0, #{ join: "intersection" });
 //! sheet = sheet.thicken(0.5);
 //! box = box.draft(faces().facing("x"), 5.0, xy(), #{ label: "taper" });
+//! let sheet = box.remove_faces(faces().facing("z")).thicken(1.0, #{ side: "outward" });
 //! ```
 //!
 //! `draft`'s neutral plane is a face query (`faces()…` or
@@ -11,7 +12,7 @@
 //! `yz()`, `xy_at(z)` and the like with a literal offset, `plane_at(o,
 //! n)`: its normal pulls).
 
-use popkern_history::feature::BasePlane;
+use popkern_history::feature::{BasePlane, ThickenSideKind};
 use popkern_script::{FaceSelector, NeutralSpec, OffsetOptions, Plane, Scalar};
 use rhai::{Dynamic, Engine, EvalAltResult};
 
@@ -20,13 +21,19 @@ use crate::body_api::ScriptBody;
 use crate::error::{IntoScriptResult, argument_error};
 
 const OFFSET_OPTIONS: &[&str] = &["label", "join", "trim"];
+const THICKEN_OPTIONS: &[&str] = &["label", "join", "trim", "side"];
 const DRAFT_OPTIONS: &[&str] = &["label"];
 
 fn offset_options(
     op: &'static str,
     value: &Dynamic,
 ) -> Result<(OffsetOptions, String), Box<EvalAltResult>> {
-    let options = Options::parse(op, value, OFFSET_OPTIONS)?;
+    let keys = if op == "thicken" {
+        THICKEN_OPTIONS
+    } else {
+        OFFSET_OPTIONS
+    };
+    let options = Options::parse(op, value, keys)?;
     let mut offset = OffsetOptions::default();
     if let Some(j) = options.with("join", args::join_style)? {
         offset.join = j;
@@ -34,7 +41,26 @@ fn offset_options(
     if let Some(t) = options.with("trim", args::trim_policy)? {
         offset.trim = t;
     }
+    if op == "thicken"
+        && let Some(side) = options.with("side", thicken_side)?
+    {
+        offset.side = side;
+    }
     Ok((offset, options.label()?))
+}
+
+/// `side`: `"both"`, `"outward"` (along the faces' normals) or
+/// `"inward"`.
+fn thicken_side(argument: &str, value: &Dynamic) -> Result<ThickenSideKind, Box<EvalAltResult>> {
+    match value.clone().into_string().ok().as_deref() {
+        Some("both") => Ok(ThickenSideKind::Both),
+        Some("outward") => Ok(ThickenSideKind::Outward),
+        Some("inward") => Ok(ThickenSideKind::Inward),
+        _ => Err(argument_error(
+            argument,
+            "expects \"both\", \"outward\" or \"inward\"",
+        )),
+    }
 }
 
 /// A draft's neutral plane from a face query or a plane value.
@@ -100,6 +126,19 @@ impl ScriptBody {
         Ok(self.served(body))
     }
 
+    fn remove_faces(
+        &self,
+        faces: FaceSelector,
+        options: &Dynamic,
+    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let options = Options::parse("remove_faces", options, DRAFT_OPTIONS)?;
+        let body = self
+            .body
+            .remove_faces_with(&mut self.model.borrow_mut(), faces, &options.label()?)
+            .script()?;
+        Ok(self.served(body))
+    }
+
     fn draft(
         &self,
         faces: FaceSelector,
@@ -124,7 +163,8 @@ impl ScriptBody {
     }
 }
 
-/// Register `offset_solid`, `thicken` and `draft` on `Body`.
+/// Register `offset_solid`, `thicken`, `draft` and `remove_faces` on
+/// `Body`.
 pub fn register(engine: &mut Engine) {
     engine
         .register_fn("offset_solid", |b: &mut ScriptBody, d: Dynamic| {
@@ -140,6 +180,13 @@ pub fn register(engine: &mut Engine) {
         .register_fn("thicken", |b: &mut ScriptBody, t: Dynamic, o: Dynamic| {
             b.thicken(t, &o)
         })
+        .register_fn("remove_faces", |b: &mut ScriptBody, faces: FaceSelector| {
+            b.remove_faces(faces, &Dynamic::UNIT)
+        })
+        .register_fn(
+            "remove_faces",
+            |b: &mut ScriptBody, faces: FaceSelector, o: Dynamic| b.remove_faces(faces, &o),
+        )
         .register_fn(
             "draft",
             |b: &mut ScriptBody, faces: FaceSelector, angle: Dynamic, plane: Dynamic| {

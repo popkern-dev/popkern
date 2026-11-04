@@ -185,6 +185,16 @@ pub enum Feature {
         /// How globally self-intersecting offset regions are handled.
         #[serde(default)]
         trim_policy: TrimPolicyKind,
+        /// Which side of the faces the wall is on (both by default,
+        /// and then not written).
+        #[serde(default, skip_serializing_if = "ThickenSideKind::is_both")]
+        side: ThickenSideKind,
+    },
+    /// Take `faces` away, leaving the body open along their edges: a
+    /// solid becomes a sheet (thicken's usual input).
+    RemoveFaces {
+        /// Faces to remove, identified by stable name.
+        faces: Vec<EntityName>,
     },
     /// Offset every face of the solid: positive grows, negative
     /// shrinks (PK-328).
@@ -465,7 +475,9 @@ pub use crate::feature_pieces::PieceRule;
 
 pub use popkern_bool::{FaceClass, NonManifoldPolicy, SetExpr};
 
-pub use crate::feature_shell_kinds::{JoinStyleKind, ShellDirectionKind, TrimPolicyKind};
+pub use crate::feature_shell_kinds::{
+    JoinStyleKind, ShellDirectionKind, ThickenSideKind, TrimPolicyKind,
+};
 
 pub use crate::feature_kinds::{BoolOpKind, OperationMode};
 

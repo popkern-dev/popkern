@@ -94,6 +94,7 @@ fn save_load_all_feature_types() {
             thickness: tt,
             join_style: crate::feature::JoinStyleKind::default(),
             trim_policy: crate::feature::TrimPolicyKind::default(),
+            side: crate::feature::ThickenSideKind::default(),
         },
         "Thicken",
     );
@@ -331,4 +332,47 @@ fn a_boolean_saves_its_non_manifold_policy_only_when_not_the_default() {
             ..
         }
     ));
+}
+
+/// A thicken's side is written only when it is not both (so a two-sided
+/// thicken's document is what it was before sides existed), a document
+/// without one reads as both, and a sided one round-trips; a face
+/// removal round-trips its names.
+#[test]
+fn a_thicken_side_is_written_only_when_one_sided() {
+    use crate::feature::ThickenSideKind;
+    let mut tree = FeatureTree::new();
+    let t = add_param(&mut tree, "_t", 1.0, Unit::Millimeters);
+    let thicken = |side| Feature::Thicken {
+        thickness: t,
+        join_style: crate::feature::JoinStyleKind::default(),
+        trim_policy: crate::feature::TrimPolicyKind::default(),
+        side,
+    };
+    let both = serde_json::to_value(thicken(ThickenSideKind::Both)).expect("json");
+    assert!(
+        both.get("Thicken").and_then(|v| v.get("side")).is_none(),
+        "{both}"
+    );
+    let back: Feature = serde_json::from_value(both).expect("reads");
+    assert_eq!(
+        serde_json::to_value(back).expect("json"),
+        serde_json::to_value(thicken(ThickenSideKind::Both)).expect("json")
+    );
+    let outward = serde_json::to_value(thicken(ThickenSideKind::Outward)).expect("json");
+    assert_eq!(outward["Thicken"]["side"], "Outward", "{outward}");
+    let back: Feature = serde_json::from_value(outward).expect("reads");
+    assert!(matches!(
+        back,
+        Feature::Thicken {
+            side: ThickenSideKind::Outward,
+            ..
+        }
+    ));
+    let removal = Feature::RemoveFaces {
+        faces: vec![face_name(2), face_name(3)],
+    };
+    let back: Feature =
+        serde_json::from_value(serde_json::to_value(&removal).expect("json")).expect("reads");
+    assert!(matches!(back, Feature::RemoveFaces { ref faces } if faces.len() == 2));
 }

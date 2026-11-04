@@ -253,7 +253,8 @@ always works. `new_body`-mode ops start a new body and return it;
 | `chamfer` | stable | `chamfer(edges, distance, kind?)` | `Feature::Chamfer` | `kind`: `equal` (default), `two_distance(face, d2)`, `distance_angle(face, angle)`. |
 | `shell` | stable | `shell(faces_to_remove, thickness, direction?, join?, trim?)` | `Feature::Shell` | `direction`: `inward` (default) `| outward | midplane`; `join`: `arc | intersection`; `trim`: `trim | decline`. Empty `faces_to_remove` = closed hollow. |
 | `generative` | preview | `generative(supports, loads, volume_fraction, filter, keep?, material?, keep_depth?, cell?, build_direction?, max_iterations?, robust?, max_cells?, label?)` | `Feature::Generative` | Replaces the body (the design space) with the stiffest design at `volume_fraction` (PK-956): `supports` `[#{faces, kind: "fixed" \| "surface_roller"}]`, `loads` `[#{faces, force (N), direction}]`, `keep` face selections whose nearby material stays; `filter` (members ≈ 2×filter), `cell` (default filter/3), `build_direction` `"+x" … "-z"`. A planar-faced body; kept faces are modified from the design space's. Declines `GenerativeDeclined` (`generative_kind`: the solver's kind, `DesignDisconnected`, `DesignBody`, `NeedsSolve` where a host defers solving). |
-| `thicken` | preview | `thicken(thickness, join?, trim?)` | `Feature::Thicken` | symmetric ±t/2 (PK-323). Rhai: `body.thicken(t, #{join, trim, label})`. |
+| `thicken` | preview | `thicken(thickness, join?, trim?, side?)` | `Feature::Thicken` | `side`: `both` (±t/2, PK-323; the default), `outward` (the whole thickness along the faces' normals) or `inward`. Rhai: `body.thicken(t, #{join, trim, side, label})`. |
+| `remove_faces` | preview | `remove_faces(faces)` | `Feature::RemoveFaces` | The faces taken away, the body left open along their edges: a solid becomes a sheet, thicken's usual input. A face with holes is not removed yet (declines). Rhai: `body.remove_faces(faces, #{label})`. |
 | `offset_solid` | preview | `offset_solid(distance, join?, trim?)` | `Feature::OffsetSolid` | Rhai: `body.offset_solid(d, #{join, trim, label})`. |
 | `draft` | preview | `draft(faces, angle, neutral)` | `Feature::Draft` | `neutral`: `face(sel)` or `plane(origin, normal)`. Rhai: a face query or a plane value (`xy()`, `plane_at(o, n)`, …). |
 | `translate` / `rotate` / `transform` | stable / stable / preview | `translate(dx, dy, dz)`, `rotate(axis, angle)`, `transform(matrix4x4)` | `Feature::Transform { motion }` | Rigid motions of the active body. |
@@ -279,7 +280,7 @@ carry it verbatim:
 
 ```
 edge_query  := edges() ( "." predicate )* ( ".or(" edge_query ")" )* ( ".allow_empty()" )?
-face_query  := faces() ( "." predicate )* ( ".allow_empty()" )?
+face_query  := faces() ( "." predicate )* ( ".or(" face_query ")" )* ( ".allow_empty()" )?
 
 edge predicate :=
     circular() | straight() | conic() | nurbs()
@@ -290,13 +291,15 @@ edge predicate :=
 
 face predicate :=
     kind(SurfaceKind) | facing(Dir) | facing_neg(Dir) | at_height(z)
-  | labeled(label) | named(entity_name)
+  | labeled(label) | named(entity_name) | except(face_query) | not()
 
 SurfaceKind := plane | cylinder | cone | sphere | torus | nurbs
 ```
 
 Predicates compose by conjunction; `.or(...)` disjoins whole
-conjunctions (`EdgeQuery::or`). The vocabulary is
+conjunctions (`EdgeQuery::or`, and the same for faces).
+`except(face_query)` keeps the faces the inner query does not match,
+and `not()` is `faces().except(self)` (both `preview`). The vocabulary is
 `popkern_part::select::{EdgeQuery, FaceQuery}` today
 (`circular`, `straight`, `between`, `at_height`, `direction`,
 `chord_length_between`, `not_seam`; `kind`, `facing`, `facing_neg`,
@@ -435,7 +438,7 @@ and `message` is always the Rust `Display` string.
 
 | Class | Payload |
 |---|---|
-| `FeatureFailed` | `feature {id, label, operation}`, `error` (a `FeatureFailure` — §10.2 class carried as data: `kind` = `BlendDeclined` (`blend_kind`, `message`, `remediation`, `failed/total/failures[]` with `edge`, `edge_name`, `reason_kind`, `remediation`) \| `BooleanFailed` (`operation`, `bool_kind`, `stage?`, `detail`) \| `SweepFailed`/`ShellFailed` (`feature`, `detail`) \| `DraftFailed` \| `ValidationFailed` \| `InvalidParameter` \| `GenerativeDeclined` (`generative_kind`, `detail`) \| `PieceRuleMatchedNothing` (`feature`, `rule`, `pieces`) \| `Cancelled` \| `Other` (`detail`)), `report` (the partial `ReplayReport` up to the failure; the recorder's `Model::report()` after the call). Landed PK-388: `popkern_history::FeatureFailure`, carried by `ReplayError::FeatureFailed`, `FeatureResult::Failed`, `ReplayOutcome::Failed`, `ScriptError::FeatureFailed`; `Display` is the kernel's message. |
+| `FeatureFailed` | `feature {id, label, operation}`, `error` (a `FeatureFailure` — §10.2 class carried as data: `kind` = `BlendDeclined` (`blend_kind`, `message`, `remediation`, `failed/total/failures[]` with `edge`, `edge_name`, `reason_kind`, `remediation`) \| `BooleanFailed` (`operation`, `bool_kind`, `stage?`, `detail`) \| `SweepFailed`/`ShellFailed` (`feature`, `detail`) \| `DraftFailed` \| `ValidationFailed` \| `InvalidParameter` \| `GenerativeDeclined` (`generative_kind`, `detail`) \| `PieceRuleMatchedNothing` (`feature`, `rule`, `pieces`) \| `CutRemovedNothing` (`tool_faces`; a cut-mode feature whose result is its host unchanged) \| `Cancelled` \| `Other` (`detail`)), `report` (the partial `ReplayReport` up to the failure; the recorder's `Model::report()` after the call). Landed PK-388: `popkern_history::FeatureFailure`, carried by `ReplayError::FeatureFailed`, `FeatureResult::Failed`, `ReplayOutcome::Failed`, `ScriptError::FeatureFailed`; `Display` is the kernel's message. |
 | `ResolutionFailed` | `feature`, `name` (EntityName), `selection` (describe/labels), `resolved`/`expected` counts |
 | `CoreError` | `detail` |
 
@@ -525,7 +528,8 @@ host-language-neutral form; the Rust skin's mapping is one-to-one.
 
 | Date | Change | Marks affected |
 |---|---|---|
-| 2026-11-04 | Offset family and draft in both skins (brep-bench §4.3): Rhai `body.offset_solid(d, #{label, join, trim})`, `body.thicken(t, #{label, join, trim})`, `body.draft(faces, angle_deg, neutral, #{label})` with `neutral` a face query (`faces()…`, `on_face(…)`) or a plane (`xy()`, `xz()`, `yz()`, a base plane at a literal offset, `plane_at(o, n)`); Rust `Body::offset_solid_with`, `thicken_with`, `draft_with` (`OffsetOptions`, `NeutralSpec`). Recorded as the existing `Feature::OffsetSolid`, `Thicken` and `Draft`, and emitted back by `to_rhai`. Face queries join and negate (brep-bench §4.2): `faces()….or(F)`, `.except(F)`, `.not()` (`faces().except(self)`), spelled and parsed in the selection grammar; `facing` reads a flat face bounded by circles from its edge curves (§4.1: a cylinder's ends matched nothing). No format change. | `thicken`, `offset_solid`, `draft` bound (still preview); face `or`, `except`, `not` added |
+| 2026-11-04 | A `cut`-mode feature that removes no material fails with `CutRemovedNothing` (§10.3, brep-bench §4.5) instead of serving its host unchanged: an `on_face` sketch placed off the face, or a `blind` end running along the face's outward normal, away from the material. Judged from the result's face lineage, by volume only when every tool-born face lies flush on a face of the host. | §10.3 |
+| 2026-11-04 | Offset family and draft in both skins (brep-bench §4.3): Rhai `body.offset_solid(d, #{label, join, trim})`, `body.thicken(t, #{label, join, trim})`, `body.draft(faces, angle_deg, neutral, #{label})` with `neutral` a face query (`faces()…`, `on_face(…)`) or a plane (`xy()`, `xz()`, `yz()`, a base plane at a literal offset, `plane_at(o, n)`); Rust `Body::offset_solid_with`, `thicken_with`, `draft_with` (`OffsetOptions`, `NeutralSpec`). Recorded as the existing `Feature::OffsetSolid`, `Thicken` and `Draft`, and emitted back by `to_rhai`. Face queries join and negate (brep-bench §4.2): `faces()….or(F)`, `.except(F)`, `.not()` (`faces().except(self)`), spelled and parsed in the selection grammar; `facing` reads a flat face bounded by circles from its edge curves (§4.1: a cylinder's ends matched nothing). Sheets and sided thickening: `remove_faces(faces)` (`Feature::RemoveFaces`, new) opens a solid into a sheet; `thicken` takes `side` (`both` default, `outward`, `inward`), recorded as `Feature::Thicken::side` (additive, `serde(default)`, not written when `both`, so older documents load and save unchanged). | `thicken`, `offset_solid`, `draft` bound (still preview); `remove_faces` added preview; `thicken` gains `side`; face `or`, `except`, `not` added |
 | 2026-10-05 | Editing an assembly's part (PK-678, `docs/architecture/assemblies.md` §6.1): `a.edit_part(name, \|m\| …)` hands the part's recorded model to the closure (the part verbs: `insert_after`, fillets, parameters). The edited model replaces the definition, so every instance follows, and mates re-solve. Transactional: a raising closure, an emptied part (`EmptyDefinition`) or mates that no longer hold (`MateConflict`) leave the assembly unchanged. Family variants and sub-assemblies are `WrongDefinitionKind`. No format change. | `edit_part` added preview (assembly tier) |
 | 2026-10-05 | References survive upstream edits (PK-677, `docs/decisions/pk677-reference-provenance.md`): each feature keeps a by-value provenance snapshot of its references; a reference an upstream insert renumbered rebinds to the entity it was recorded on (a `Naming` fallback on the row), and an ambiguous one fails `ResolutionFailed` with `resolved: n, expected: 1` instead of binding by index. Naming scheme 2: booleans import operand names by value, so spelled names below a boolean (`label/Role/i@ancestors`) differ from scheme 1. Scheme-1 documents keep scheme-1 rules; new documents mint scheme 2. | none |
 | 2026-10-04 | Project migrations (PK-660, live-projects-and-history.md): host verb `previous()` returns the document earlier migrations built; a later migration must end with it (`DocumentError` `document_replaced`); in a project the file verbs resolve inside the project folder (`path_outside_project`, `file_not_found`). New `DocumentError` reasons; no format change. | `previous` added preview |

@@ -93,6 +93,15 @@ pub enum FeatureFailure {
         /// How many pieces the body had.
         pieces: usize,
     },
+    /// A cut removed no material (bench §4.5): no face of the result
+    /// descends from the tool and the body kept every piece, so the
+    /// tool missed the body (an `on_face` sketch placed off the face,
+    /// a cut extruded away from the material) and the feature is
+    /// opened for editing rather than served as a silent no-op.
+    CutRemovedNothing {
+        /// How many faces the tool body had.
+        tool_faces: usize,
+    },
     /// The operation was cancelled by the caller.
     Cancelled,
     /// A failure with no richer class (reference resolution details,
@@ -189,6 +198,7 @@ impl FeatureFailure {
             FeatureFailure::InvalidParameter { .. } => "InvalidParameter",
             FeatureFailure::GenerativeDeclined { .. } => "GenerativeDeclined",
             FeatureFailure::PieceRuleMatchedNothing { .. } => "PieceRuleMatchedNothing",
+            FeatureFailure::CutRemovedNothing { .. } => "CutRemovedNothing",
             FeatureFailure::Cancelled => "Cancelled",
             FeatureFailure::Other { .. } => "Other",
         }
@@ -232,6 +242,10 @@ impl std::fmt::Display for FeatureFailure {
             } => write!(
                 f,
                 "{feature}: the rule {rule} selects none of the body's {pieces} pieces"
+            ),
+            FeatureFailure::CutRemovedNothing { tool_faces } => write!(
+                f,
+                "the cut removes no material: none of the tool's {tool_faces} faces reaches the body (check the sketch placement and the extrude direction)"
             ),
             FeatureFailure::Cancelled => f.write_str("operation cancelled by caller"),
         }

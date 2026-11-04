@@ -221,11 +221,22 @@ pub(crate) fn execute_feature(
             thickness,
             join_style,
             trim_policy,
+            side,
         } => {
             let thick = resolve_param(param_table, *thickness)?;
-            let result = popkern_shell::thicken::thicken(
+            let side = match side {
+                crate::feature::ThickenSideKind::Both => popkern_shell::types::ThickenSide::Both,
+                crate::feature::ThickenSideKind::Outward => {
+                    popkern_shell::types::ThickenSide::Outward
+                }
+                crate::feature::ThickenSideKind::Inward => {
+                    popkern_shell::types::ThickenSide::Inward
+                }
+            };
+            let result = popkern_shell::thicken::thicken_sided(
                 brep,
                 thick,
+                side,
                 &to_shell_options(join_style, trim_policy),
                 *tolerance,
             )
@@ -236,6 +247,15 @@ pub(crate) fn execute_feature(
             let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
             Ok(ExecuteSideEffects::reported(evidence))
+        }
+        Feature::RemoveFaces { faces } => {
+            let handles = resolve_faces(faces, brep)?;
+            brep.retire_faces_to_boundary(&handles)
+                .map_err(|e| ReplayError::FeatureFailed {
+                    label: "remove_faces".into(),
+                    error: crate::failure::FeatureFailure::other(e.to_string()).into(),
+                })?;
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::OffsetSolid {
             distance,
