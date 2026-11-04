@@ -225,3 +225,75 @@ fn an_offset_pair_bonds_over_the_shared_patch() {
     assert!((area - 50.0).abs() < 1e-9, "{area}");
     assert_eq!(status(&report), "solved", "{report}");
 }
+
+/// In contact, heat crosses the joint through its conductance: the
+/// tip runs hotter than the uncut bar's by exactly Q / (h_c A).
+#[test]
+fn a_pair_in_contact_adds_the_contact_resistance() {
+    let bar = step_file("bar_contact", block(0.0, 0.0, 40.0));
+    let pair = pair("pair_contact", 20.0, 0.0);
+    let uncut = solve(&bar, THERMAL, None, "bar_contact");
+    let setup = format!("contact_conductance_w_per_m2k = 5000\n{THERMAL}");
+    let contact = solve(&pair, &setup, Some("contact"), "pair_contact");
+    assert_eq!(status(&contact), "solved", "{contact}");
+    let area = contact["model"]["contact_interfaces"][0]["area_mm2"]
+        .as_f64()
+        .unwrap_or(f64::NAN);
+    assert!((area - 100.0).abs() < 1e-9, "{contact}");
+    let hottest = |r: &Value| {
+        r["result"]["max_temperature_c"]
+            .as_f64()
+            .unwrap_or(f64::NAN)
+    };
+    // 1 W through 1 cm² at 5000 W/(m²·K): 2 K across the joint.
+    let jump = hottest(&contact) - hottest(&uncut);
+    assert!((jump - 2.0).abs() < 1e-6, "{jump}");
+    // A contact needs its conductance.
+    let missing = solve(&pair, THERMAL, Some("contact"), "pair_contact_missing");
+    assert_eq!(missing["error"]["kind"], "ThermalFile", "{missing}");
+}
+
+const ROLLERS: &str = r#"
+units = "mm"
+material = "PLA (FDM)"
+
+[faces]
+root = { plane = { normal = [-1, 0, 0], through = [0, 0, 0] } }
+side_y = { plane = { normal = [0, -1, 0], through = [0, 0, 0] }, expect = { at_least = 1 } }
+side_z = { plane = { normal = [0, 0, -1], through = [0, 0, 0] }, expect = { at_least = 1 } }
+tip = { plane = { normal = [1, 0, 0], through = [40, 0, 0] } }
+
+[[support]]
+faces = ["root", "side_y", "side_z"]
+kind = "roller"
+
+[[load]]
+faces = ["tip"]
+force_n = 100
+direction = [-1, 0, 0]
+"#;
+
+/// Pushed end on, a sliding contact carries the load as the bonded pair
+/// does, give or take the contact's own compliance (a penalty, so a
+/// little softer); loaded across, it carries no shear and the loaded
+/// block slides free.
+#[test]
+fn a_sliding_contact_carries_a_push_and_no_shear() {
+    let pair = pair("pair_sliding", 20.0, 0.0);
+    let bonded = solve(&pair, ROLLERS, Some("bonded"), "pair_sliding_bonded");
+    let contact = solve(&pair, ROLLERS, Some("contact"), "pair_sliding_contact");
+    assert_eq!(status(&bonded), "solved", "{bonded}");
+    assert_eq!(status(&contact), "solved", "{contact}");
+    let tip = |r: &Value| {
+        r["result"]["max_displacement_mm"]
+            .as_f64()
+            .unwrap_or(f64::NAN)
+    };
+    let (u_bonded, u_contact) = (tip(&bonded), tip(&contact));
+    assert!(
+        u_contact >= u_bonded && u_contact - u_bonded <= 1e-3 * u_bonded,
+        "contact {u_contact} vs bonded {u_bonded}"
+    );
+    let sheared = solve(&pair, STRUCTURAL, Some("contact"), "pair_sliding_shear");
+    assert_eq!(sheared["error"]["kind"], "FreeMotion", "{sheared}");
+}

@@ -72,6 +72,7 @@ fn a_linear_temperature_is_exact_beside_the_sliver() {
         source_w: 0.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     };
     let r = solve_conduction(&model, &problem, &options()).unwrap_or_else(|e| panic!("{e}"));
     assert!(r.report.split_cells > 0);

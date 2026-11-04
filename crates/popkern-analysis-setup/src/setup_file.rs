@@ -72,7 +72,8 @@ pub struct SetupFile {
     pub bodies: Option<Bodies>,
 }
 
-/// How bodies that touch over a face are analysed: `bodies = "bonded"`.
+/// How bodies that touch over a face are analysed: `bodies = "bonded"`
+/// or `"contact"`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Bodies {
@@ -83,6 +84,12 @@ pub enum Bodies {
     /// Bodies sharing face area are bonded there: each touching group
     /// is analysed as the one body their fusion makes.
     Bonded,
+    /// Bodies sharing face area stay separate and touch there: heat
+    /// crosses through a contact conductance
+    /// (`contact_conductance_w_per_m2k` in a thermal setup), and the
+    /// surfaces hold together along the normal and slide freely
+    /// (frictionless, no separation) in a structural one.
+    Contact,
 }
 
 /// `[thermal]`: the stress-free reference and exactly one of a uniform

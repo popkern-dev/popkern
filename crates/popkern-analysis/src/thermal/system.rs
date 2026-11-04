@@ -47,6 +47,8 @@ pub(super) struct Prepared {
     pub b: Vec<f64>,
     /// Per solid: boundary data kept across passes.
     pub caches: Vec<BoundaryCache>,
+    /// Contact interfaces between the solids.
+    pub contacts: Vec<super::ThermalContact>,
 }
 
 /// Grid, moments, aggregation and the reduced steady system;
@@ -134,6 +136,7 @@ pub(super) fn prepare(
         a: Csr::from_triplets(0, 0, &[]).map_err(|e| internal("assemble", e))?,
         b: Vec::new(),
         caches: Vec::new(),
+        contacts: problem.contacts.clone(),
     };
     // Facet terms are kept only for a radiating solve's repeated passes.
     let radiating = problem
@@ -198,6 +201,7 @@ pub(super) fn assemble(
         positions.extend(aggregation.extension.free_positions(&prepared.grid));
     }
     let n = b.len();
+    triplets.extend(super::contact::contact_triplets(prepared, &offsets)?);
     prepared.report.dof = n;
     prepared.a = Csr::from_triplets(n, n, &triplets).map_err(|e| internal("assemble", e))?;
     prepared.b = b;

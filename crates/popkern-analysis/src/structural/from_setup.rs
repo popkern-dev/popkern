@@ -150,6 +150,18 @@ pub fn solve_structural_with(
     resolved: &[ResolvedFace],
     field: Option<&crate::thermal::TemperatureField>,
 ) -> Result<(StructuralResult, &'static Material), AnalysisError> {
+    solve_structural_in_contact(model, setup, resolved, field, &[])
+}
+
+/// [`solve_structural_with`] with sliding contacts between solids
+/// (`super::contact_coupling`).
+pub fn solve_structural_in_contact(
+    model: &AnalysisModel,
+    setup: &StructuralSetup,
+    resolved: &[ResolvedFace],
+    field: Option<&crate::thermal::TemperatureField>,
+    contacts: &[crate::contact::ContactPatch],
+) -> Result<(StructuralResult, &'static Material), AnalysisError> {
     let (problem, material) = problem_from_setup(model, setup, resolved)?;
     let infill = setup.infill.as_ref().map(|i| super::infill::Infill {
         density: i.density,
@@ -196,11 +208,12 @@ pub fn solve_structural_with(
             })
         }
     };
-    let mut result = super::solve_with(
+    let mut result = super::solve_with_contacts(
         model,
         &problem,
         load.as_ref(),
         infill.as_ref(),
+        contacts,
         &setup.options,
     )?;
     result.report.resolved_faces = resolved.to_vec();

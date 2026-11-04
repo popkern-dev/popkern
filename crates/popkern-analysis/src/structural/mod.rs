@@ -3,6 +3,7 @@
 //! before solving, and the force balance (X6) after.
 
 pub mod assemble;
+pub mod contact_coupling;
 mod field;
 pub mod from_setup;
 pub mod generative;
@@ -198,6 +199,33 @@ pub fn solve_with(
     )
 }
 
+/// [`solve_with`] with sliding contacts between solids: each patch
+/// holds its two solids together along its normal and lets them slide
+/// (`contact_coupling`).
+pub fn solve_with_contacts(
+    model: &AnalysisModel,
+    problem: &ElasticProblem,
+    thermal: Option<&thermoelastic::ThermalLoad<'_>>,
+    infill: Option<&infill::Infill>,
+    contacts: &[crate::contact::ContactPatch],
+    options: &AnalysisOptions,
+) -> Result<StructuralResult, AnalysisError> {
+    solve::solve_core(
+        model,
+        problem,
+        options,
+        crate::recover::Fallback::InCell,
+        None,
+        crate::moments::Splitting::Exact,
+        &solve::Extras {
+            thermal,
+            infill,
+            contacts,
+            ..solve::Extras::default()
+        },
+    )
+}
+
 /// Solves `problem` on `model` with an infill: solid walls around a
 /// homogenised gyroid core (`infill`).
 pub fn solve_infilled(
@@ -284,3 +312,7 @@ mod wall_split_tests;
 #[cfg(test)]
 #[path = "wrap_tests.rs"]
 mod wrap_tests;
+
+#[cfg(test)]
+#[path = "contact_tests.rs"]
+mod contact_tests;

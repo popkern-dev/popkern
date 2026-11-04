@@ -22,6 +22,9 @@ use std::collections::BTreeMap;
 use popkern_bool::{BoolOptions, NonManifoldPolicy, SetExpr, partition};
 use popkern_core::topology::BRep;
 
+use popkern_analysis::SolidId;
+use popkern_analysis::contact::ContactPatch;
+
 use crate::step_model::PlacedBody;
 
 /// Two bodies bonded over the faces they share.
@@ -42,6 +45,9 @@ pub struct Bonded {
     pub bodies: Vec<PlacedBody>,
     /// Every pair of bodies bonded, in input order.
     pub interfaces: Vec<BondedInterface>,
+    /// The shared patches as contacts ([`in_contact`]; empty when
+    /// bonded).
+    pub patches: Vec<ContactPatch>,
 }
 
 /// Why bodies could not be bonded.
@@ -80,6 +86,21 @@ fn find(parent: &mut [usize], mut x: usize) -> usize {
 /// [`BondError::Interference`] when two bodies overlap;
 /// [`BondError::Kernel`] when the kernel declines.
 pub fn bond_touching(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
+    touching(bodies, false)
+}
+
+/// The bodies of `bodies`, each solid its own and kept apart, with every
+/// patch two of them share as a contact (`popkern_analysis::contact`):
+/// tessellated, wound with its normal out of the first body.
+///
+/// # Errors
+///
+/// As [`bond_touching`].
+pub fn in_contact(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
+    touching(bodies, true)
+}
+
+fn touching(bodies: Vec<PlacedBody>, contacts: bool) -> Result<Bonded, BondError> {
     let mut solids: Vec<PlacedBody> = Vec::new();
     for body in bodies {
         if body.brep.solids.len() <= 1 {
@@ -112,6 +133,7 @@ pub fn bond_touching(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
         return Ok(Bonded {
             bodies: solids,
             interfaces: Vec::new(),
+            patches: Vec::new(),
         });
     }
     // The loosest body tolerance: what every body's geometry is good to.
@@ -135,6 +157,7 @@ pub fn bond_touching(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
     let body_of = |i: usize| regions.solids.get(i).and_then(|r| r.bodies.iter().next());
     let mut parent: Vec<usize> = (0..solids.len()).collect();
     let mut shared: BTreeMap<(usize, usize), f64> = BTreeMap::new();
+    let mut patches = Vec::new();
     for interface in &regions.interfaces {
         let (Some(a), Some(b)) = (body_of(interface.solids.0), body_of(interface.solids.1)) else {
             continue;
@@ -148,6 +171,9 @@ pub fn bond_touching(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
                 popkern_measure::face_area(&interface.patch, face, &tolerance).map_err(kernel)?;
         }
         *shared.entry((a.min(b), a.max(b))).or_default() += area;
+        if contacts {
+            patches.push(contact_patch(&interface.patch, (a, b))?);
+        }
         let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
         parent[ra.max(rb)] = ra.min(rb);
     }
@@ -162,6 +188,13 @@ pub fn bond_touching(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
     for i in 0..solids.len() {
         let root = find(&mut parent, i);
         groups.entry(root).or_default().push(i);
+    }
+    if contacts {
+        return Ok(Bonded {
+            bodies: solids,
+            interfaces,
+            patches,
+        });
     }
     let options = BoolOptions {
         non_manifold: NonManifoldPolicy::SplitToManifold,
@@ -185,5 +218,37 @@ pub fn bond_touching(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
     Ok(Bonded {
         bodies: out,
         interfaces,
+        patches: Vec::new(),
+    })
+}
+
+/// `patch` (wound in the first body's sense) as the solver's contact
+/// between bodies `a` and `b`: its triangles, each wound with the mesh
+/// normals there (the face's outward sense, out of `a`).
+fn contact_patch(patch: &BRep, (a, b): (usize, usize)) -> Result<ContactPatch, BondError> {
+    let mesh = popkern_mesh::tessellate(patch, &popkern_mesh::TessellationOptions::display())
+        .map_err(kernel)?;
+    let at = |i: usize| mesh.vertices[i].position;
+    let triangles = mesh
+        .triangles
+        .iter()
+        .map(|t| {
+            let (p, q, r) = (at(t[0]), at(t[1]), at(t[2]));
+            let n = (q - p).cross(&(r - p));
+            let outward = t.iter().fold(
+                popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0),
+                |acc, &i| acc + mesh.vertices[i].normal,
+            );
+            let corners = if n.dot(&outward) < 0.0 {
+                [p, r, q]
+            } else {
+                [p, q, r]
+            };
+            corners.map(|c| [c.x, c.y, c.z])
+        })
+        .collect();
+    Ok(ContactPatch {
+        solids: (SolidId(a as u32), SolidId(b as u32)),
+        triangles,
     })
 }

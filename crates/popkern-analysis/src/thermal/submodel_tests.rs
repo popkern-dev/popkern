@@ -27,6 +27,7 @@ fn a_linear_field_is_reproduced_through_the_caps() {
         source_w: 0.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     };
     let parent =
         solve_conduction(&model, &problem, &options(1.0)).unwrap_or_else(|e| panic!("{e}"));
@@ -81,6 +82,7 @@ fn bore_flux(half: f64) -> ((f64, f64), (f64, f64)) {
         source_w: 0.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     };
     let parent =
         solve_conduction(&model, &problem, &options(1.0)).unwrap_or_else(|e| panic!("{e}"));
@@ -160,6 +162,7 @@ fn t3_the_bore_flux_refines_within_3_percent() {
         source_w: 0.0,
         body_sources: Vec::new(),
         hdt_c: None,
+        contacts: Vec::new(),
     };
     let wall = 1e3 * k * (ti - to) / (ri * (ro / ri).ln());
     let ratios: Vec<(f64, f64)> = [

@@ -34,6 +34,8 @@ pub(super) struct Extras<'a> {
     pub thermal: Option<&'a super::thermoelastic::ThermalLoad<'a>>,
     /// An infill core.
     pub infill: Option<&'a super::infill::Infill>,
+    /// Sliding contacts between solids (`contact_coupling`).
+    pub contacts: &'a [crate::contact::ContactPatch],
 }
 
 /// The assembled structural system and what produced it.
@@ -76,6 +78,7 @@ pub(super) fn prepare(
         prescribed,
         thermal,
         infill,
+        contacts,
     } = *extras;
 
     model.validate()?;
@@ -200,6 +203,8 @@ pub(super) fn prepare(
     let mut positions = Vec::new();
     let mut labels = Vec::new();
     let mut offsets = Vec::new();
+    let groups = super::contact_coupling::groups(solids.len(), contacts);
+    let mut free_nodes = Vec::new();
     for (s, (id, clipped, moments, aggregation)) in solids.iter().enumerate() {
         let input = SolidInput {
             grid: &grid,
@@ -225,7 +230,9 @@ pub(super) fn prepare(
             .map_err(|e| internal("rigid modes", e))?;
         report.rigid_mode_ratios.push(spectrum.ratios);
         let motions = motions_below(&spectrum, RIGID_MODE_TOL);
-        if !free && !motions.is_empty() {
+        // A solid in contact is checked with its group, after coupling.
+        let grouped = groups.iter().any(|g| g.contains(&s));
+        if !free && !grouped && !motions.is_empty() {
             return Err(AnalysisError::FreeMotion {
                 solid: *id,
                 motions,
@@ -244,6 +251,7 @@ pub(super) fn prepare(
                     rotations: axes,
                 });
         }
+        free_nodes.push(free_xyz);
         offsets.push(b.len());
         blocks.push(system.a);
         b.extend(system.b);
@@ -251,6 +259,56 @@ pub(super) fn prepare(
             positions.extend([ijk; 3]);
             labels.extend([0u8, 1, 2]);
         }
+    }
+    if !contacts.is_empty() {
+        let sides: Vec<_> = solids.iter().map(|(_, _, m, g)| (m, g)).collect();
+        let beta =
+            super::contact_coupling::SLIDING_PENALTY * (elastic.lambda + 2.0 * elastic.mu) / h;
+        for group in &groups {
+            // A group no face of which is held moves as one, whatever
+            // its contacts hold between its solids.
+            let held = model.faces.iter().any(|f| {
+                group.contains(&(f.solid.0 as usize))
+                    && matches!(
+                        problem.faces.get(f.id.0 as usize),
+                        Some(
+                            assemble::FaceMechanics::Support(_)
+                                | assemble::FaceMechanics::Prescribed
+                                | assemble::FaceMechanics::PrescribedTraction
+                        )
+                    )
+            });
+            if !free && !held {
+                return Err(AnalysisError::FreeMotion {
+                    solid: solids[group[0]].0,
+                    motions: Vec::new(),
+                });
+            }
+        }
+        let operator =
+            super::contact_coupling::coupled(&grid, &sides, &blocks, &offsets, contacts, beta)?;
+        for group in &groups {
+            // Each solid with its partners held: a sliding contact
+            // leaves its tangential motions free, so a solid held only
+            // through its contacts reads free.
+            for &s in group {
+                let range = [(offsets[s], offsets[s] + blocks[s].rows())];
+                let centre = centroid(&grid, &solids[s].2);
+                let motions = super::contact_coupling::group_motions(
+                    &operator,
+                    &range,
+                    &free_nodes[s],
+                    centre,
+                )?;
+                if !free && !motions.is_empty() {
+                    return Err(AnalysisError::FreeMotion {
+                        solid: solids[s].0,
+                        motions,
+                    });
+                }
+            }
+        }
+        blocks = vec![operator];
     }
     Ok(Prepared {
         grid,

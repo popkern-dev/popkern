@@ -16,7 +16,8 @@ use popkern_io::{StepDocument, StepImportOptions, import_step};
 use popkern_mesh::TessellationOptions;
 use sha2::{Digest, Sha256};
 
-use crate::bonded::{BondedInterface, bond_touching};
+use crate::bonded::{BondedInterface, bond_touching, in_contact};
+use popkern_analysis::contact::ContactPatch;
 
 /// Deepest product nesting followed (a cycle in a malformed file would
 /// otherwise recurse forever).
@@ -163,7 +164,18 @@ pub fn breps_from_step(bytes: &[u8]) -> Result<Vec<PlacedBody>, StepModelError> 
 /// The analysis model of the STEP file at `path`, with each solid named
 /// after its instance.
 pub fn model_from_step_file(path: &Path) -> Result<AnalysisModel, StepModelError> {
-    model_from_step_file_with(path, Bodies::Separate).map(|(model, _)| model)
+    model_from_step_file_with(path, Bodies::Separate).map(|m| m.model)
+}
+
+/// A model with how its touching bodies were taken.
+#[derive(Debug, Clone)]
+pub struct TouchingModel {
+    /// The model.
+    pub model: AnalysisModel,
+    /// The pairs of bodies sharing face area, with the area.
+    pub interfaces: Vec<BondedInterface>,
+    /// The shared patches as contacts (`bodies = "contact"`).
+    pub patches: Vec<ContactPatch>,
 }
 
 /// [`model_from_step_file`] with touching bodies analysed as `bodies`
@@ -171,16 +183,20 @@ pub fn model_from_step_file(path: &Path) -> Result<AnalysisModel, StepModelError
 pub fn model_from_step_file_with(
     path: &Path,
     bodies: Bodies,
-) -> Result<(AnalysisModel, Vec<BondedInterface>), StepModelError> {
+) -> Result<TouchingModel, StepModelError> {
     let bytes = std::fs::read(path).map_err(|e| StepModelError::Read {
         path: path.display().to_string(),
         detail: e.to_string(),
     })?;
-    let (bodies, interfaces) = match bodies {
-        Bodies::Separate => (breps_from_step(&bytes)?, Vec::new()),
+    let (bodies, interfaces, patches) = match bodies {
+        Bodies::Separate => (breps_from_step(&bytes)?, Vec::new(), Vec::new()),
         Bodies::Bonded => {
             let bonded = bond_touching(breps_from_step(&bytes)?)?;
-            (bonded.bodies, bonded.interfaces)
+            (bonded.bodies, bonded.interfaces, bonded.patches)
+        }
+        Bodies::Contact => {
+            let touching = in_contact(breps_from_step(&bytes)?)?;
+            (touching.bodies, touching.interfaces, touching.patches)
         }
     };
     let provenance = Provenance::Step {
@@ -199,5 +215,9 @@ pub fn model_from_step_file_with(
     for (solid, name) in model.solids.iter_mut().zip(names) {
         solid.name = Some(name);
     }
-    Ok((model, interfaces))
+    Ok(TouchingModel {
+        model,
+        interfaces,
+        patches,
+    })
 }
