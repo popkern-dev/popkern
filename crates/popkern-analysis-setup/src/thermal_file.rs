@@ -49,6 +49,10 @@ pub struct ThermalFile {
     /// Option overrides.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<OptionsFile>,
+    /// How bodies that touch over a face are analysed (default
+    /// separate).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bodies: Option<crate::setup_file::Bodies>,
 }
 
 /// `[transient]`.
@@ -283,6 +287,7 @@ pub fn parse_thermal_setup(text: &str) -> Result<ThermalSetup, ThermalFileError>
 pub fn write_thermal_setup(setup: &ThermalSetup) -> Result<String, ThermalFileError> {
     let file = ThermalFile {
         analysis: Some("thermal".to_string()),
+        bodies: None,
         units: Some("mm".to_string()),
         material: Some(setup.material.clone()),
         tolerance: Some(tolerance_file(&setup.tolerance)),

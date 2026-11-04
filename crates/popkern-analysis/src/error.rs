@@ -56,6 +56,18 @@ pub enum AnalysisError {
         motions: Vec<crate::structural::rigid::RigidMotion>,
     },
 
+    /// A solid of a steady thermal solve has no fixed temperature and
+    /// no convection or radiation on its faces: nothing sets its
+    /// temperature level (a separate body heated or cooled only
+    /// through flux).
+    #[error(
+        "solid {solid:?} has no fixed temperature or convection: its temperature level is undetermined"
+    )]
+    FloatingTemperature {
+        /// The solid.
+        solid: SolidId,
+    },
+
     /// A boundary condition names a face that no longer exists.
     #[error("boundary condition refers to face `{name}`, which no longer exists")]
     StaleBoundaryCondition {
@@ -208,6 +220,7 @@ impl AnalysisError {
             AnalysisError::NoSupport => "NoSupport",
             AnalysisError::NearlyIncompressible { .. } => "NearlyIncompressible",
             AnalysisError::FreeMotion { .. } => "FreeMotion",
+            AnalysisError::FloatingTemperature { .. } => "FloatingTemperature",
             AnalysisError::StaleBoundaryCondition { .. } => "StaleBoundaryCondition",
             AnalysisError::SelectorUnresolved { .. } => "SelectorUnresolved",
             AnalysisError::SelectorAmbiguous { .. } => "SelectorAmbiguous",

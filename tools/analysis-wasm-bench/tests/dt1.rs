@@ -89,10 +89,13 @@ const DT1_CELLS: usize = 4000;
 /// the model the solve runs on: re-pinned 2026-10-25 at the move into
 /// popkern (wasm reproduced all three; block_two_bores kept its 3,165
 /// cells, 11,808 dofs and 11 iterations, block_dimple's sphere sense was
-/// corrected, docs/architecture/analysis-integration.md fixture log).
+/// corrected, docs/architecture/analysis-integration.md fixture log);
+/// block_dimple re-pinned 2026-11-04 when its regenerated fixture's rim
+/// circle came out with an exact axis (3,333 cells, 12,132 dofs, 8
+/// iterations; wasm reproduced it).
 const PINNED: [(&str, u64); 3] = [
     ("block_two_bores", 0xe74b_1c78_84ae_bba3),
-    ("block_dimple", 0x7785_3ae9_0b50_5a5e),
+    ("block_dimple", 0x64c5_a60c_1838_4f86),
     ("l_bracket", 0xb952_afcf_f3d8_f6a5),
 ];
 

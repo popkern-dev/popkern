@@ -12,7 +12,7 @@
 pub mod setup_file;
 pub mod thermal_file;
 
-pub use setup_file::{SetupFileError, parse_setup, write_setup};
+pub use setup_file::{Bodies, SetupFileError, parse_setup, write_setup};
 pub use thermal_file::{ThermalFileError, parse_thermal_setup, write_thermal_setup};
 
 #[cfg(test)]

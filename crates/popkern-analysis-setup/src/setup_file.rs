@@ -66,6 +66,23 @@ pub struct SetupFile {
     /// Option overrides; unset fields keep their defaults.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<OptionsFile>,
+    /// How bodies that touch over a face are analysed (default
+    /// separate).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bodies: Option<Bodies>,
+}
+
+/// How bodies that touch over a face are analysed: `bodies = "bonded"`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Bodies {
+    /// Every body is its own part: touching bodies pass no load or heat
+    /// between them, and each must be supported.
+    #[default]
+    Separate,
+    /// Bodies sharing face area are bonded there: each touching group
+    /// is analysed as the one body their fusion makes.
+    Bonded,
 }
 
 /// `[thermal]`: the stress-free reference and exactly one of a uniform

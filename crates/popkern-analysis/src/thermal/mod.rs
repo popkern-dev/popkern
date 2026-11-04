@@ -214,6 +214,9 @@ fn solve_prepared(
     prepared: &mut system::Prepared,
     options: &AnalysisOptions,
 ) -> Result<Vec<f64>, AnalysisError> {
+    floating_solid(prepared).map_or(Ok(()), |solid| {
+        Err(AnalysisError::FloatingTemperature { solid })
+    })?;
     let empty = Csr::from_triplets(0, 0, &[]).map_err(|e| internal("assemble", e))?;
     let a = std::mem::replace(&mut prepared.a, empty);
     let positions = std::mem::take(&mut prepared.positions);
@@ -234,6 +237,33 @@ fn solve_prepared(
         });
     }
     Ok(solution.x)
+}
+
+/// A uniform temperature is a null field of conduction: within one
+/// solid's block, 1ᵀ A 1 holds only what fixes the level (held faces,
+/// convection, radiation), against the block's diagonal sum as the
+/// scale. The first solid where that is round-off, if any.
+fn floating_solid(prepared: &system::Prepared) -> Option<crate::SolidId> {
+    let n = prepared.a.rows();
+    let ends = prepared.offsets.iter().skip(1).copied().chain([n]);
+    for (s, (start, end)) in prepared.offsets.iter().copied().zip(ends).enumerate() {
+        if start == end {
+            continue;
+        }
+        let (mut held, mut scale) = (0.0, 0.0);
+        for r in start..end {
+            for (c, v) in prepared.a.row(r) {
+                held += v;
+                if c == r {
+                    scale += v;
+                }
+            }
+        }
+        if held.abs() <= crate::structural::RIGID_MODE_TOL * scale.abs() {
+            return Some(crate::SolidId(s as u32));
+        }
+    }
+    None
 }
 
 fn internal(stage: &'static str, e: impl std::fmt::Display) -> AnalysisError {

@@ -9,11 +9,14 @@ use std::path::Path;
 
 use popkern_analysis::{AnalysisModel, Provenance};
 use popkern_analysis_brep::{AdapterError, FeatureTolerances, model_from_breps};
+use popkern_analysis_setup::Bodies;
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::topology::BRep;
 use popkern_io::{StepDocument, StepImportOptions, import_step};
 use popkern_mesh::TessellationOptions;
 use sha2::{Digest, Sha256};
+
+use crate::bonded::{BondedInterface, bond_touching};
 
 /// Deepest product nesting followed (a cycle in a malformed file would
 /// otherwise recurse forever).
@@ -51,6 +54,9 @@ pub enum StepModelError {
     /// The adapter refused the geometry.
     #[error(transparent)]
     Adapter(#[from] AdapterError),
+    /// Bonded bodies could not be bonded.
+    #[error(transparent)]
+    Bond(#[from] crate::bonded::BondError),
 }
 
 /// One placed body: a BRep in model coordinates and its instance name.
@@ -157,11 +163,26 @@ pub fn breps_from_step(bytes: &[u8]) -> Result<Vec<PlacedBody>, StepModelError> 
 /// The analysis model of the STEP file at `path`, with each solid named
 /// after its instance.
 pub fn model_from_step_file(path: &Path) -> Result<AnalysisModel, StepModelError> {
+    model_from_step_file_with(path, Bodies::Separate).map(|(model, _)| model)
+}
+
+/// [`model_from_step_file`] with touching bodies analysed as `bodies`
+/// says, and the interfaces bonded (`crate::bonded`).
+pub fn model_from_step_file_with(
+    path: &Path,
+    bodies: Bodies,
+) -> Result<(AnalysisModel, Vec<BondedInterface>), StepModelError> {
     let bytes = std::fs::read(path).map_err(|e| StepModelError::Read {
         path: path.display().to_string(),
         detail: e.to_string(),
     })?;
-    let bodies = breps_from_step(&bytes)?;
+    let (bodies, interfaces) = match bodies {
+        Bodies::Separate => (breps_from_step(&bytes)?, Vec::new()),
+        Bodies::Bonded => {
+            let bonded = bond_touching(breps_from_step(&bytes)?)?;
+            (bonded.bodies, bonded.interfaces)
+        }
+    };
     let provenance = Provenance::Step {
         file_sha256: sha256_hex(&bytes),
     };
@@ -178,5 +199,5 @@ pub fn model_from_step_file(path: &Path) -> Result<AnalysisModel, StepModelError
     for (solid, name) in model.solids.iter_mut().zip(names) {
         solid.name = Some(name);
     }
-    Ok(model)
+    Ok((model, interfaces))
 }

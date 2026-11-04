@@ -21,9 +21,10 @@ use serde_json::{Value, json};
 
 use crate::png::write_field_png;
 use crate::setup_file::parse_setup;
-use crate::step_model::{model_from_step_file, sha256_hex};
+use crate::step_model::{model_from_step_file_with, sha256_hex};
 use crate::thermal_file::parse_thermal_setup;
 use crate::vtu::{VtuFields, write_vtu};
+use popkern_analysis_setup::Bodies;
 
 #[path = "run_generative.rs"]
 mod generative;
@@ -174,8 +175,20 @@ fn run_inner(
     let kind: Value = toml::from_str(&text).map_err(|e| Failure::new("SetupSyntax", e))?;
     let thermal = kind.get("analysis").and_then(Value::as_str) == Some("thermal");
     report["analysis"] = json!(if thermal { "thermal" } else { "structural" });
-    let model = model_from_step_file(step).map_err(|e| Failure::new("StepModel", e))?;
+    let bodies: Bodies = match kind.get("bodies") {
+        None => Bodies::Separate,
+        Some(v) => serde_json::from_value(v.clone())
+            .map_err(|e| Failure::new("SetupFile", format!("bodies: {e}")))?,
+    };
+    let (model, bonded) =
+        model_from_step_file_with(step, bodies).map_err(|e| Failure::new("StepModel", e))?;
     report["model"] = model_summary(&model);
+    if bodies == Bodies::Bonded {
+        report["model"]["bonded_interfaces"] = bonded
+            .iter()
+            .map(|i| json!({ "bodies": [i.bodies.0, i.bodies.1], "area_mm2": i.area_mm2 }))
+            .collect();
+    }
     let (vtu, field, name) = if thermal {
         if options.samples.is_some() {
             return Err(Failure::new(
