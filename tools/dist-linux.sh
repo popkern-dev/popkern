@@ -51,17 +51,22 @@ for target in "${TARGETS[@]}"; do
   fi
 done
 
-# The musl targets link with their self-contained CRT objects, so the
-# toolchain's own lld links both CPUs. The one C dependency (mimalloc)
-# compiles with zig cc, a cross C compiler for every target in one
-# binary (https://ziglang.org/download/).
+# zig is the cross C/C++ compiler and linker for both CPUs, in one
+# binary (https://ziglang.org/download/): mimalloc is C, and OpenH264
+# (the CLI's default h264 feature) is C++, which needs a static C++
+# runtime built for musl. rust-lld has none to link; zig c++ links its
+# own musl, libc++ and libunwind, so rustc hands it no self-contained
+# CRT objects (tools/zig-cc/*-linker).
 if ! command -v zig >/dev/null; then
-  echo "missing zig: install it from https://ziglang.org/download/ (0.14 or later)" >&2; exit 1
+  echo "missing zig: install it from https://ziglang.org/download/ (0.17 or later), or run tools/setup-linux-build.sh" >&2; exit 1
 fi
-export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
-export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld
-export CC_x86_64_unknown_linux_musl=$PWD/tools/zig-cc/x86_64-linux-musl-cc
-export CC_aarch64_unknown_linux_musl=$PWD/tools/zig-cc/aarch64-linux-musl-cc
+for cpu in x86_64 aarch64; do
+  triple=${cpu^^}_UNKNOWN_LINUX_MUSL
+  export "CARGO_TARGET_${triple}_LINKER=$PWD/tools/zig-cc/$cpu-linux-musl-linker"
+  export "CARGO_TARGET_${triple}_RUSTFLAGS=-C linker-flavor=gcc -C link-self-contained=no"
+  export "CC_${cpu}_unknown_linux_musl=$PWD/tools/zig-cc/$cpu-linux-musl-cc"
+  export "CXX_${cpu}_unknown_linux_musl=$PWD/tools/zig-cc/$cpu-linux-musl-c++"
+done
 export POPKERN_VERSION=$VERSION
 
 [[ $PAGE_BUILD == 1 ]] && tools/build-live.sh --web
@@ -79,6 +84,16 @@ for target in "${TARGETS[@]}"; do
   stage="$OUT/$name"
   mkdir -p "$stage/bin" "$stage/share/popkern/live"
   cp "$TARGET_DIR/$target/dist/popkern" "$stage/bin/popkern"
+  # One archive per CPU runs on any Linux only as a static binary: refuse
+  # an interpreter or a shared library rather than publish it. x86_64 is
+  # also a PIE (ASLR), as rustc links it; rustc links aarch64 musl
+  # without PIE, and so did the 0.1.0 release.
+  elf=$(readelf -h -l -d "$stage/bin/popkern")
+  if grep -qE 'INTERP|\(NEEDED\)' <<< "$elf" ||
+     { [[ $target == x86_64-* ]] && ! grep -q 'Type: *DYN' <<< "$elf"; }; then
+    echo "$target binary is not static$([[ $target == x86_64-* ]] && echo ' PIE'):" >&2
+    grep -E 'Type:|INTERP|interpreter|\(NEEDED\)' <<< "$elf" >&2; exit 1
+  fi
   # The runtime page only (the deploy's set, without bakes).
   tar -C web/live \
     --exclude './test' --exclude './bakes' --exclude './core.*' \

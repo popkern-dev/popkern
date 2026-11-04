@@ -1,0 +1,20 @@
+#!/bin/sh
+# Linker for the x86_64 musl release build (tools/dist-linux.sh). zig c++
+# links zig's own musl, libc++ and libunwind, which the C++ in the build
+# (OpenH264, through openh264-sys2) needs and rust-lld cannot supply.
+# rustc runs with -C link-self-contained=no, so it passes no CRT objects
+# of its own. -O2 makes it a release link: without it zig builds its
+# runtime in Debug and adds the UBSan runtime. Rewritten for zig:
+# -lstdc++ (what cc-rs asks for) is the libc++ zig c++ already links;
+# -Wl,-O1 zig ignores, with a warning;
+# zig ignores -static-pie, but builds the same static PIE (ASLR, as
+# rust-lld linked it) from -static -pie; the target flag is zig's.
+for arg in "$@"; do
+  shift
+  case "$arg" in
+    --target=* | -lstdc++ | -Wl,-O1) ;;
+    -static-pie) set -- "$@" -static -pie ;;
+    *) set -- "$@" "$arg" ;;
+  esac
+done
+exec zig c++ -target x86_64-linux-musl -O2 "$@"

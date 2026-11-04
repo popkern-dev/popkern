@@ -1,0 +1,44 @@
+#!/bin/sh
+# Linker for the aarch64 musl release build (tools/dist-linux.sh). zig c++
+# links zig's own musl, libc++ and libunwind, which the C++ in the build
+# (OpenH264, through openh264-sys2) needs and rust-lld cannot supply.
+# rustc runs with -C link-self-contained=no, so it passes no CRT objects
+# of its own. -O2 makes it a release link: without it zig builds its
+# runtime in Debug and adds the UBSan runtime. Rewritten for zig:
+# -lstdc++ (what cc-rs asks for) is the libc++ zig c++ already links;
+# -Wl,-O1 zig ignores, with a warning;
+# the target flag is zig's.
+#
+# rustc also asks for --fix-cortex-a53-843419, lld's patch for a
+# Cortex-A53 erratum (Raspberry Pi 3 and similar boards), which zig c++
+# refuses to pass on. So the link runs twice: once through zig c++ -v,
+# which prints the ld.lld command it runs, then that same command again
+# through zig's lld with the fix added, over the same output file.
+set -eu
+fix=
+for arg in "$@"; do
+  shift
+  case "$arg" in
+    *[[:space:]]*) echo "aarch64-linux-musl-linker: argument with whitespace: '$arg'" >&2; exit 1 ;;
+    --target=* | -lstdc++ | -Wl,-O1) ;;
+    -Wl,--fix-cortex-a53-843419) fix=--fix-cortex-a53-843419 ;;
+    -o) out=next; set -- "$@" "$arg" ;;
+    *) [ "${out:-}" = next ] && out=$arg; set -- "$@" "$arg" ;;
+  esac
+done
+if [ -z "$fix" ]; then
+  exec zig c++ -target aarch64-linux-musl -O2 "$@"
+fi
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+zig c++ -target aarch64-linux-musl -O2 -v "$@" 2>"$log" || { cat "$log" >&2; exit 1; }
+# The final link: not a relocatable (-r) link of zig's own CRT objects.
+link=$(grep -E "^ *ld\.lld .* -o $out( |\$)" "$log" | grep -v ' -r ' || true)
+if [ -z "$link" ] || [ "$(printf '%s\n' "$link" | wc -l)" -ne 1 ]; then
+  echo "aarch64-linux-musl-linker: cannot find zig's ld.lld command for $out in:" >&2
+  cat "$log" >&2; exit 1
+fi
+set -f
+# shellcheck disable=SC2086 # the command line zig printed, split as it ran
+set -- ${link#*ld.lld}
+exec zig ld.lld "$@" "$fix"
