@@ -112,7 +112,7 @@ pub(crate) fn detect_multi_incident_edges(graph: &IntersectionGraph) -> Manifold
     for (endpoints, face_set) in groups {
         if face_set.len() > 2 {
             let mut face_assignments: Vec<FaceRef> = face_set.into_iter().collect();
-            face_assignments.sort_by_key(|f| (f.operand as u8, f.face));
+            face_assignments.sort_by_key(|f| (f.operand.index(), f.face));
             multi_incident.push(MultiIncidentEdge {
                 endpoints,
                 face_assignments,
@@ -152,7 +152,8 @@ mod tests {
         let n0 = graph.add_node(Point3::new(0.0, 0.0, 0.0), NodeSource::Intersection);
         let n1 = graph.add_node(Point3::new(1.0, 0.0, 0.0), NodeSource::Intersection);
         let edge_h = EdgeHandle::default();
-        let (fwd, twin) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+        let (fwd, twin) =
+            graph.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
 
         let face_a = FaceRef {
             operand: Operand::A,
@@ -192,10 +193,12 @@ mod tests {
             operand: Operand::B,
             face: FaceHandle::default(),
         };
-        let (fwd1, twin1) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+        let (fwd1, twin1) =
+            graph.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
         graph.set_half_edge_face(fwd1, face_a);
         graph.set_half_edge_face(twin1, face_b);
-        let (fwd2, twin2) = graph.add_half_edge_pair(n0, n1, EdgeSource::OriginalA(edge_h), None);
+        let (fwd2, twin2) =
+            graph.add_half_edge_pair(n0, n1, EdgeSource::Original(Operand::A, edge_h), None);
         graph.set_half_edge_face(fwd2, face_a);
         graph.set_half_edge_face(twin2, face_b);
 

@@ -60,6 +60,7 @@ fn t1_a_slab_between_fixed_faces_is_exactly_linear() {
         faces,
         source_w: 0.0,
         hdt_c: None,
+        contacts: Vec::new(),
         body_sources: Vec::new(),
     };
     let r = solve(&model, &problem, 0.7);
@@ -95,6 +96,7 @@ fn t2_a_slab_with_convection_is_exactly_linear() {
         faces,
         source_w: 0.0,
         hdt_c: None,
+        contacts: Vec::new(),
         body_sources: Vec::new(),
     };
     let r = solve(&model, &problem, 0.6);
@@ -121,6 +123,7 @@ fn lf2_a_linear_field_on_all_faces_is_reproduced_at_five_offsets() {
         ],
         source_w: 0.0,
         hdt_c: None,
+        contacts: Vec::new(),
         body_sources: Vec::new(),
     };
     let mut dofs = Vec::new();
@@ -174,6 +177,7 @@ fn t3_a_tube_has_the_logarithmic_profile() {
         faces,
         source_w: 0.0,
         hdt_c: None,
+        contacts: Vec::new(),
         body_sources: Vec::new(),
     };
     let r = solve(&model, &problem, 1.0);
@@ -241,6 +245,7 @@ fn t4_a_pin_fin_matches_the_fin_equation() {
         faces,
         source_w: 0.0,
         hdt_c: None,
+        contacts: Vec::new(),
         body_sources: Vec::new(),
     };
     let r = solve(&model, &problem, 0.5);

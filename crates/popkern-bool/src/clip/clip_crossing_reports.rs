@@ -318,3 +318,73 @@ pub(super) fn resolve_contact_runs(
     }
     out
 }
+
+/// The verdict of the interval `(a, b)` of `curve_uv` that leaves and
+/// rejoins one boundary edge, from the record's signed side of that
+/// edge's curve (PK-1054): the same side as at `back` (a point of the
+/// preceding interval, whose verdict is `before`) is the same verdict,
+/// the other side the other. `None` unless both ends are crossings of
+/// one edge and the interval's middle and `back` both lie more than
+/// two linear tolerances off the edge in 3D — closer, a side is noise.
+///
+/// The face's trim query abstains within ten tolerances of the trim
+/// (its on-boundary band), and its tuned polygon within a chord's sag:
+/// a cap 1e-5 inside a ring's extreme cuts the web's side face along a
+/// line that leaves and rejoins the ring's rim arc 0.068 apart, 1e-5
+/// outside the face between, and both verdicts abstained there; the
+/// crossing hull then kept the gap, a phantom lens of the web face.
+pub(super) fn same_edge_side_verdict(
+    brep: &BRep,
+    face: FaceHandle,
+    curve_uv: &NurbsCurve,
+    crossings: &[UvCrossing],
+    (a, b): (f64, f64),
+    (back, before): (f64, bool),
+    tolerance: &Tolerance,
+) -> Option<bool> {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let span = {
+        let (t0, t1) = curve_uv.parameter_range();
+        (t1 - t0).abs().max(1e-12)
+    };
+    let at = |t: f64| {
+        crossings
+            .iter()
+            .find(move |c| (c.t_curve - t).abs() < span * 1e-7)
+            .map(|c| c.boundary_he)
+    };
+    let edge = at(a)?;
+    if crossings
+        .iter()
+        .filter(|c| (c.t_curve - b).abs() < span * 1e-7)
+        .all(|c| c.boundary_he != edge)
+    {
+        return None;
+    }
+    let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+    let boundary = crate::clip::face_uv_boundary(brep, face)?;
+    let pcurve = tight_nurbs(&boundary.iter().find(|(h, _)| *h == edge)?.1, tolerance);
+    // Signed side of the edge at the record's parameter t, and the 3D
+    // distance to the edge there.
+    let side = |t: f64| -> Option<(f64, f64)> {
+        let q = curve_uv.point_at(t);
+        let tb = crate::curve_projection::project_onto_curve_dense(&pcurve, &q)?;
+        let (p, tan) = (pcurve.point_at(tb), pcurve.tangent_at(tb));
+        let s = tan.x * (q.y - p.y) - tan.y * (q.x - p.x);
+        let d = surface
+            .point_at(q.x, q.y)
+            .distance_to(&surface.point_at(p.x, p.y));
+        Some((s, d))
+    };
+    let band = 2.0 * tolerance.linear();
+    let (s_mid, d_mid) = side(0.5 * (a + b))?;
+    let (s_back, d_back) = side(back)?;
+    if d_mid <= band || d_back <= band || s_mid == 0.0 || s_back == 0.0 {
+        return None;
+    }
+    Some(if s_mid.signum() == s_back.signum() {
+        before
+    } else {
+        !before
+    })
+}

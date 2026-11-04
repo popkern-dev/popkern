@@ -128,7 +128,7 @@ pub(crate) fn record_votes(
     let own = fragment.face.operand;
     let other_brep = match own {
         Operand::A => brep_b,
-        Operand::B => brep_a,
+        _ /* B */ => brep_a,
     };
 
     // Qualifying records, longest chord first: long records carry the
@@ -153,7 +153,7 @@ pub(crate) fn record_votes(
         if chord <= tolerance.linear() * 10.0 {
             continue;
         }
-        let EdgeSource::Shared { face_a, face_b } = graph.half_edges[ghe].source else {
+        let EdgeSource::Shared { face_a, face_b, .. } = graph.half_edges[ghe].source else {
             continue;
         };
         // The other operand's face at this record. A residue pair
@@ -161,7 +161,7 @@ pub(crate) fn record_votes(
         // here — skip it.
         let other_face = match own {
             Operand::A => face_b,
-            Operand::B => face_a,
+            _ /* B */ => face_a,
         };
         let Some(surface) = other_brep
             .faces

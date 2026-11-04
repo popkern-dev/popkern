@@ -59,7 +59,15 @@ fn scoped_matches_unscoped(
     let scopes = serving_scopes(a, b, &hits, op, &tol);
 
     let merge = |s: Option<&OperandScopes>| {
-        crate::cellular::boolean::cellular_graph_merge(a, b, &hits, op, &tol, s)
+        crate::cellular::boolean::cellular_graph_merge(
+            a,
+            b,
+            &hits,
+            op,
+            &tol,
+            s,
+            crate::complex::serve::SelectionSource::Cellular,
+        )
     };
     let (unscoped, _) = merge(None).expect("unscoped merge");
     let (scoped, carried) = merge(Some(&scopes)).expect("scoped merge");

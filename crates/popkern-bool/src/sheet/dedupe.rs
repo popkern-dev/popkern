@@ -38,7 +38,7 @@ pub(super) fn drop_faces_and_prune(brep: &mut BRep, faces_to_remove: &HashSet<Fa
             for il in inner_loops {
                 brep.loops.remove(il);
             }
-            brep.faces.remove(*fh);
+            brep.remove_face_reanchored(*fh);
         }
     }
 

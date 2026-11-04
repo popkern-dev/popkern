@@ -74,8 +74,9 @@ const IMAGE_HONESTY_PER_LINEAR: f64 = 1.0e3;
 
 /// Accept the hit when `(u, v)` lies on the cone or sphere face's trim,
 /// skip it when it lies clearly off, poison the ray at the trim's
-/// edge; [`HitGate::Accept`] for other faces and whenever the face's
-/// uv boundary cannot be trusted. FINAL bodies only (caller-guarded).
+/// edge; on a cylinder, only skip a hit clearly off the trim;
+/// [`HitGate::Accept`] for other faces and whenever the face's uv
+/// boundary cannot be trusted. FINAL bodies only (caller-guarded).
 pub(super) fn chart_trim_gate(
     brep: &BRep,
     face_handle: FaceHandle,
@@ -84,13 +85,25 @@ pub(super) fn chart_trim_gate(
     hit: &Point3,
     tolerance: &Tolerance,
 ) -> HitGate {
-    if !matches!(
-        surface,
-        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cone { .. }
-    ) {
-        return HitGate::Accept;
+    match surface {
+        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cone { .. } => {
+            chart_trim_verdict(brep, face_handle, surface, uv, hit, tolerance)
+                .unwrap_or(HitGate::Accept)
+        }
+        // A cylinder's angular and axial gates judge its edges; the
+        // trim only adds what they cannot see, a hit clearly off it: a
+        // near-full wall's narrow notch, where the angular gate
+        // abstains (span past pi) and its samples straddle the gap
+        // (PK-1038: a window wall a pin bites 2.7e-3 into took the
+        // classify ray's hit inside the bite).
+        SurfaceGeometry::Cylinder { .. } => {
+            match chart_trim_verdict(brep, face_handle, surface, uv, hit, tolerance) {
+                Some(HitGate::SkipHit) => HitGate::SkipHit,
+                _ => HitGate::Accept,
+            }
+        }
+        _ => HitGate::Accept,
     }
-    chart_trim_verdict(brep, face_handle, surface, uv, hit, tolerance).unwrap_or(HitGate::Accept)
 }
 
 /// The trim verdict for a hit on a TORUS face whose chart cell cannot
@@ -219,9 +232,9 @@ fn chart_trim_verdict(
     let band = (EDGE_BAND_FRACTION * extent)
         .max(tolerance.linear() * EDGE_BAND_FLOOR_PER_LINEAR)
         .min(EDGE_BAND_CEILING_FRACTION * extent);
-    let near_edge = boundary
-        .windows(2)
-        .any(|w| segment_distance(hit, &w[0], &w[1]) < band);
+    let near_edge = neighbour_edge_segments(brep, face_handle)
+        .iter()
+        .any(|[a, b]| segment_distance(hit, a, b) < band);
     if near_edge {
         if popkern_core::trace::trace_enabled("ray-classify") {
             eprintln!(
@@ -237,6 +250,73 @@ fn chart_trim_verdict(
         eprintln!("  [ray-rej-chart] {face_handle:?} uv=({u:.4},{v:.4}) off the trim");
     }
     Some(HitGate::SkipHit)
+}
+
+/// Chords of the outer loop's edges shared with a NEIGHBOUR face, at
+/// `STATIONS` per edge. A seam (both sides on this face) is left out:
+/// the face continues across it, the parity lifts over the period, and
+/// no neighbour's trim test can count the crossing twice. Counted, a
+/// cone's seam put every hit near the apex inside the band (a 0.18
+/// band at 1e-2 against hits 0.084 off the axis: the disc a cone cuts
+/// from a cube's top face read Outside and was served, PK-1035).
+fn neighbour_edge_segments(brep: &BRep, face: FaceHandle) -> Vec<[Point3; 2]> {
+    let mut out = Vec::new();
+    let Some(start) = brep
+        .faces
+        .get(face)
+        .and_then(|f| brep.loops.get(f.outer_loop))
+        .map(|l| l.half_edge)
+    else {
+        return out;
+    };
+    let mut he = start;
+    for _ in 0..=brep.half_edges.len() {
+        let Some(h) = brep.half_edges.get(he) else {
+            break;
+        };
+        let seam = brep
+            .half_edges
+            .get(h.twin)
+            .and_then(|t| brep.loops.get(t.loop_))
+            .is_some_and(|l| l.face == face);
+        if !seam {
+            let a = brep.vertices.get(h.origin).map(|v| v.position);
+            let b = brep
+                .half_edges
+                .get(h.next)
+                .and_then(|n| brep.vertices.get(n.origin))
+                .map(|v| v.position);
+            let mut pts: Vec<Point3> = a.into_iter().collect();
+            if let Some(c) = brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()) {
+                // Stations along the curve in this half-edge's direction.
+                let (t0, t1) = (c.t_start, c.t_end);
+                let mut inner: Vec<Point3> = (1..STATIONS)
+                    .map(|i| {
+                        c.geometry
+                            .point_at(t0 + (t1 - t0) * i as f64 / STATIONS as f64)
+                    })
+                    .collect();
+                let forward = match (a, inner.first()) {
+                    (Some(a), Some(_)) => {
+                        c.geometry.point_at(t0).distance_to(&a)
+                            <= c.geometry.point_at(t1).distance_to(&a)
+                    }
+                    _ => true,
+                };
+                if !forward {
+                    inner.reverse();
+                }
+                pts.extend(inner);
+            }
+            pts.extend(b);
+            out.extend(pts.windows(2).map(|w| [w[0], w[1]]));
+        }
+        he = h.next;
+        if he == start {
+            break;
+        }
+    }
+    out
 }
 
 /// Whether the closed sequence `values` winds round `period` (net

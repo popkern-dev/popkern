@@ -63,6 +63,7 @@ fn heating(model: &AnalysisModel, power: f64) -> Result<(f64, f64), String> {
             source_w: power,
             body_sources: Vec::new(),
             hdt_c: None,
+            contacts: Vec::new(),
         },
         density: RHO,
         specific_heat: C,

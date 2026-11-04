@@ -40,8 +40,7 @@ use super::graph::IntersectionGraph;
 pub(super) fn curve_co_directed_with_fwd(
     graph: &IntersectionGraph,
     he_idx: usize,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
 ) -> Option<bool> {
     let twin_idx = graph.half_edges[he_idx].twin;
     let curve = graph.half_edges[he_idx]
@@ -64,8 +63,11 @@ pub(super) fn curve_co_directed_with_fwd(
     // flush arm ∪ hub rims and stranded that union).
     use super::graph::EdgeSource;
     let (brep, eh) = match &graph.half_edges[he_idx].source {
-        EdgeSource::OriginalA(eh) | EdgeSource::SplitA { original: eh } => (brep_a, *eh),
-        EdgeSource::OriginalB(eh) | EdgeSource::SplitB { original: eh } => (brep_b, *eh),
+        EdgeSource::Original(o, eh)
+        | EdgeSource::Split {
+            operand: o,
+            original: eh,
+        } => (*operands.get(o.index())?, *eh),
         _ => return None,
     };
     let edge = brep.edges.get(eh)?;
@@ -187,8 +189,7 @@ pub(super) fn distribute_split_pcurves(
     split_point: &Point3,
     origin_pos: &Point3,
     end_pos: &Point3,
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     tolerance: f64,
 ) {
     // 3D midpoints of the two curve pieces (the HEAD keeps the
@@ -220,7 +221,7 @@ pub(super) fn distribute_split_pcurves(
     // served an EMPTY body).
     let nurbs_surface_of = |idx: usize| -> Option<SurfaceGeometry> {
         let face = graph.half_edges[idx].face?;
-        let (s, _) = super::walk::chart_subdivision::face_surface(&face, brep_a, brep_b)?;
+        let (s, _) = super::walk::chart_subdivision::face_surface(&face, operands)?;
         matches!(s, SurfaceGeometry::Nurbs(_)).then(|| s.clone())
     };
     let fwd_surface = nurbs_surface_of(he_idx);

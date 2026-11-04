@@ -134,10 +134,7 @@ pub(super) fn sample_fragment_point(
     for &he_idx in loop_hes {
         let he = &graph.half_edges[he_idx];
         match &he.source {
-            EdgeSource::OriginalA(_)
-            | EdgeSource::OriginalB(_)
-            | EdgeSource::SplitA { .. }
-            | EdgeSource::SplitB { .. } => {
+            EdgeSource::Original(..) | EdgeSource::Split { .. } => {
                 return he_curve_midpoint(graph, he_idx);
             }
             EdgeSource::Shared { .. } => continue,

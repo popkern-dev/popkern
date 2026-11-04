@@ -36,9 +36,13 @@ const MAX_DOUBLINGS: usize = 5;
 /// Fewest spans per segment (cubic interpolation needs four samples).
 const MIN_SEGMENT_SPANS: usize = 3;
 /// Initial gaps beyond this multiple of the target AND beyond
-/// `MISFIT_EXTENT_FRACTION` of the edge's own extent are not
-/// interpolation error (a branch or topology misfit on intermediate
-/// boolean bodies, measured up to 15) and are left unrefined.
+/// `MISFIT_EXTENT_FRACTION` of the edge's own extent may be a branch or
+/// topology misfit on intermediate boolean bodies (measured up to 15)
+/// rather than interpolation error: they are refined only while each
+/// doubling at least halves them, as interpolation error does (cubic:
+/// 16x). A gap that size can be interpolation error: a loop passing
+/// 0.05 from a sphere's pole sweeps half a turn of longitude there,
+/// and 23 samples left its pcurve 4.4e-2 off the edge (PK-1055).
 const REFINABLE_GAP_FACTOR: f64 = 1.0e4;
 /// A gap this fraction of the edge's chord extent or below is
 /// interpolation error at any model scale: the absolute floor alone
@@ -158,9 +162,8 @@ pub(super) fn measured_projection_interpolant(
     let target = PROJECTION_FIT_FRACTION * linear_tolerance;
     let mut best_gap = image_gap(&best, surface, curve_on_edge, (t_lo, t_hi), &breaks, &spans);
     let extent = edge_extent(curve_on_edge, (t_lo, t_hi));
-    if best_gap > REFINABLE_GAP_FACTOR * target && best_gap > MISFIT_EXTENT_FRACTION * extent {
-        return Some(best);
-    }
+    let misfit_sized =
+        best_gap > REFINABLE_GAP_FACTOR * target && best_gap > MISFIT_EXTENT_FRACTION * extent;
     for _ in 0..MAX_DOUBLINGS {
         if best_gap <= target {
             break;
@@ -176,7 +179,7 @@ pub(super) fn measured_projection_interpolant(
         // intersection pcurves at 44 spans when the steep end spans
         // improved 1.05e-3 -> 8.5e-4, serving them 1.03e-4 off their
         // edges (PK-885); two more doublings reach 2e-7.
-        if gap >= best_gap {
+        if gap >= best_gap || (misfit_sized && gap > 0.5 * best_gap) {
             break;
         }
         (best, best_gap) = (fit, gap);

@@ -250,7 +250,7 @@ pub(crate) fn assemble_result(
                 let surface = graph.half_edges[ghe_src].face.as_ref().and_then(|fr| {
                     let brep = match fr.operand {
                         Operand::A => brep_a,
-                        Operand::B => brep_b,
+                        _ /* B */ => brep_b,
                     };
                     brep.faces
                         .get(fr.face)
@@ -449,7 +449,7 @@ pub(crate) fn assemble_result(
         // Attach surface geometry from the original face.
         let source_brep = match fragment.face.operand {
             Operand::A => brep_a,
-            Operand::B => brep_b,
+            _ /* B */ => brep_b,
         };
 
         if let Some(face) = source_brep.faces.get(fragment.face.face)

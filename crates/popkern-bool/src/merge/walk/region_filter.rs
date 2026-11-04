@@ -43,7 +43,7 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::merge::graph::{EdgeSource, FaceRef, IntersectionGraph, Operand};
+use crate::merge::graph::{EdgeSource, FaceRef, IntersectionGraph};
 
 /// Stations per hole pcurve for the containment polygon.
 const HOLE_CONTOUR_STATIONS: usize = 256;
@@ -56,15 +56,11 @@ pub(super) fn drop_hole_interior_record_pieces(
     graph: &IntersectionGraph,
     face_ref: &FaceRef,
     he_indices: &[usize],
-    brep_a: &BRep,
-    brep_b: &BRep,
+    operands: &[&BRep],
     carried: Option<&std::collections::HashSet<popkern_core::topology::LoopHandle>>,
     tolerance: &Tolerance,
 ) -> Option<Vec<usize>> {
-    let brep = match face_ref.operand {
-        Operand::A => brep_a,
-        Operand::B => brep_b,
-    };
+    let brep = operands[face_ref.operand.index()];
     let face_data = brep.faces.get(face_ref.face)?;
     if face_data.inner_loops.is_empty() {
         return None;

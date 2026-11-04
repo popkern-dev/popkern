@@ -83,6 +83,16 @@ pub enum FeatureFailure {
         /// The message.
         detail: String,
     },
+    /// A piece rule selected no piece of the body (design 9): the
+    /// feature is opened for editing rather than serving an empty body.
+    PieceRuleMatchedNothing {
+        /// Operation identifier (`split`).
+        feature: String,
+        /// The rule, as recorded.
+        rule: String,
+        /// How many pieces the body had.
+        pieces: usize,
+    },
     /// The operation was cancelled by the caller.
     Cancelled,
     /// A failure with no richer class (reference resolution details,
@@ -117,6 +127,9 @@ impl FeatureFailure {
             BoolError::OpenShellNotSupported { .. } => ("OpenShellNotSupported", None),
             BoolError::InterferenceFailed(_) => ("InterferenceFailed", None),
             BoolError::SystemError(_) => ("SystemError", None),
+            BoolError::NonManifoldResult { .. } => ("NonManifoldResult", None),
+            BoolError::UnsupportedBodyKind { .. } => ("UnsupportedBodyKind", None),
+            BoolError::TooManyBodies { .. } => ("TooManyBodies", None),
         };
         FeatureFailure::BooleanFailed {
             operation: operation.to_string(),
@@ -175,6 +188,7 @@ impl FeatureFailure {
             FeatureFailure::ValidationFailed { .. } => "ValidationFailed",
             FeatureFailure::InvalidParameter { .. } => "InvalidParameter",
             FeatureFailure::GenerativeDeclined { .. } => "GenerativeDeclined",
+            FeatureFailure::PieceRuleMatchedNothing { .. } => "PieceRuleMatchedNothing",
             FeatureFailure::Cancelled => "Cancelled",
             FeatureFailure::Other { .. } => "Other",
         }
@@ -211,6 +225,14 @@ impl std::fmt::Display for FeatureFailure {
                 value,
                 reason,
             } => write!(f, "invalid parameter `{parameter}` = {value}: {reason}"),
+            FeatureFailure::PieceRuleMatchedNothing {
+                feature,
+                rule,
+                pieces,
+            } => write!(
+                f,
+                "{feature}: the rule {rule} selects none of the body's {pieces} pieces"
+            ),
             FeatureFailure::Cancelled => f.write_str("operation cancelled by caller"),
         }
     }

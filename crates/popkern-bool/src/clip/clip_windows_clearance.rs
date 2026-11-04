@@ -171,9 +171,41 @@ pub(super) fn on_outer_boundary_exact(
         return false;
     };
     let p = surface.geometry.point_at(uv.0, uv.1);
-    let Some(lp) = brep.loops.get(f.outer_loop) else {
+    loop_within(brep, f.outer_loop, &p, band)
+}
+
+/// [`on_outer_boundary_exact`] over every loop of the face, holes
+/// included.
+pub(super) fn on_any_boundary_exact(
+    brep: &BRep,
+    face: FaceHandle,
+    uv: (f64, f64),
+    band: f64,
+) -> bool {
+    use popkern_core::geometry::SurfaceEval;
+    let Some(f) = brep.faces.get(face) else {
         return false;
     };
+    let Some(surface) = f.surface.as_ref() else {
+        return false;
+    };
+    let p = surface.geometry.point_at(uv.0, uv.1);
+    std::iter::once(f.outer_loop)
+        .chain(f.inner_loops.iter().copied())
+        .any(|l| loop_within(brep, l, &p, band))
+}
+
+/// Whether `p` lies within `band` of an edge curve of loop `l`.
+fn loop_within(
+    brep: &BRep,
+    l: popkern_core::topology::LoopHandle,
+    p: &popkern_core::geometry::Point3,
+    band: f64,
+) -> bool {
+    let Some(lp) = brep.loops.get(l) else {
+        return false;
+    };
+    let p = *p;
     let start = lp.half_edge;
     let mut h = start;
     for _ in 0..=brep.half_edges.len() {

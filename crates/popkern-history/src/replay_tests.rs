@@ -306,6 +306,7 @@ fn boolean_missing_tool_body_fails() {
         Feature::Boolean {
             operation: crate::feature::BoolOpKind::Union,
             tool_body: crate::node::BodyId(1),
+            non_manifold: Default::default(),
         },
         "Union",
     );

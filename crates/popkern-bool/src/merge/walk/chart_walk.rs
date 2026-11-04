@@ -10,6 +10,7 @@
 //! loops are the orbits of a permutation — the partition cannot depend
 //! on seed order.
 
+use crate::merge::graph::Operand;
 use std::collections::BTreeSet;
 
 use super::chart_subdivision::FaceChartSubdivision;
@@ -165,32 +166,26 @@ pub(crate) struct ChartRoleAssembly {
 /// for the hole override in [`assemble_chart_roles`] (PK-341).
 pub(crate) fn source_inner_edge_set(
     face_ref: &super::super::graph::FaceRef,
-    brep_a: &popkern_core::topology::BRep,
-    brep_b: &popkern_core::topology::BRep,
+    operands: &[&popkern_core::topology::BRep],
 ) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
-    source_loop_edge_set(face_ref, brep_a, brep_b, false)
+    source_loop_edge_set(face_ref, operands, false)
 }
 
 /// The edge set of the source face's OUTER loop (see
 /// [`source_inner_edge_set`] for the inner-loop dual).
 pub(crate) fn source_outer_edge_set(
     face_ref: &super::super::graph::FaceRef,
-    brep_a: &popkern_core::topology::BRep,
-    brep_b: &popkern_core::topology::BRep,
+    operands: &[&popkern_core::topology::BRep],
 ) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
-    source_loop_edge_set(face_ref, brep_a, brep_b, true)
+    source_loop_edge_set(face_ref, operands, true)
 }
 
 fn source_loop_edge_set(
     face_ref: &super::super::graph::FaceRef,
-    brep_a: &popkern_core::topology::BRep,
-    brep_b: &popkern_core::topology::BRep,
+    operands: &[&popkern_core::topology::BRep],
     outer: bool,
 ) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
-    let source_brep = match face_ref.operand {
-        super::super::graph::Operand::A => brep_a,
-        super::super::graph::Operand::B => brep_b,
-    };
+    let source_brep = operands[face_ref.operand.index()];
     let mut edges = std::collections::BTreeSet::new();
     if let Some(face) = source_brep.faces.get(face_ref.face) {
         let loops: Vec<_> = if outer {
@@ -307,12 +302,17 @@ pub(crate) fn assemble_chart_roles(
         let all_inner = orbit.iter().all(|&h| {
             use super::super::graph::EdgeSource;
             match &graph.half_edges[h].source {
-                EdgeSource::OriginalA(e) | EdgeSource::OriginalB(e) => {
+                EdgeSource::Original(Operand::A, e) | EdgeSource::Original(Operand::B, e) => {
                     source_inner_edges.contains(e)
                 }
-                EdgeSource::SplitA { original } | EdgeSource::SplitB { original } => {
-                    source_inner_edges.contains(original)
+                EdgeSource::Split {
+                    operand: Operand::A,
+                    original,
                 }
+                | EdgeSource::Split {
+                    operand: Operand::B,
+                    original,
+                } => source_inner_edges.contains(original),
                 _ => false,
             }
         });
@@ -339,12 +339,17 @@ pub(crate) fn assemble_chart_roles(
         let any_outer = orbit.iter().any(|&h| {
             use super::super::graph::EdgeSource;
             match &graph.half_edges[h].source {
-                EdgeSource::OriginalA(e) | EdgeSource::OriginalB(e) => {
+                EdgeSource::Original(Operand::A, e) | EdgeSource::Original(Operand::B, e) => {
                     source_outer_edges.contains(e)
                 }
-                EdgeSource::SplitA { original } | EdgeSource::SplitB { original } => {
-                    source_outer_edges.contains(original)
+                EdgeSource::Split {
+                    operand: Operand::A,
+                    original,
                 }
+                | EdgeSource::Split {
+                    operand: Operand::B,
+                    original,
+                } => source_outer_edges.contains(original),
                 _ => false,
             }
         });

@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 #![forbid(unsafe_code)]
 
+pub mod bonded;
 pub mod png;
 pub mod run;
 pub mod samples;

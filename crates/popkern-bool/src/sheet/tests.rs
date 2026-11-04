@@ -122,7 +122,7 @@ fn classify_sheet_operation_solid_minus_sheet() {
 fn classify_sheet_operation_invalid_sheet_minus_solid() {
     use crate::BoolOperation;
     let kind = classify_sheet_operation(BoolOperation::Subtraction, true, false);
-    assert!(matches!(kind, SheetOperationKind::InvalidSheetMinusSolid));
+    assert!(matches!(kind, SheetOperationKind::SheetMinusSolid));
 }
 
 #[test]

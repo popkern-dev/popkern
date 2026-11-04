@@ -30,6 +30,7 @@ fn problem(
             source_w: 0.0,
             body_sources: Vec::new(),
             hdt_c: None,
+            contacts: Vec::new(),
         },
         density: RHO,
         specific_heat: CP,

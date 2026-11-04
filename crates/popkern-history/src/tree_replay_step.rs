@@ -278,6 +278,10 @@ impl FeatureTree {
                 for consumed in &side_effects.consumed_bodies {
                     body_breps.remove(consumed);
                 }
+                for (written, rewritten) in side_effects.written_bodies {
+                    body_breps.insert(written, rewritten);
+                    touched.insert(written);
+                }
                 let history = ctx.finish();
                 let fr = FeatureResult::Success { history };
                 self.features[id].last_result = Some(fr.clone());

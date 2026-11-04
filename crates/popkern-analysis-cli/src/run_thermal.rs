@@ -4,7 +4,9 @@
 use popkern_analysis::AnalysisError;
 use popkern_analysis::assess::AssessOptions;
 use popkern_analysis::model::AnalysisModel;
-use popkern_analysis::thermal::from_setup::{problem_from_setup as thermal_problem, solve_thermal};
+use popkern_analysis::thermal::from_setup::{
+    problem_from_setup as thermal_problem, solve_thermal_in_contact,
+};
 use popkern_analysis::thermal::submodel::{refine_flux, unresolved_flux_raisers};
 use popkern_analysis::thermal_setup::{ConvectionFaces, Emittance, HeatTransfer};
 use popkern_analysis_brep::resolve_faces;
@@ -18,6 +20,7 @@ pub(super) fn run_thermal(
     model: &AnalysisModel,
     text: &str,
     refine: bool,
+    contacts: Vec<popkern_analysis::thermal::ThermalContact>,
     report: &mut Value,
 ) -> Result<(String, Vec<Vec<f64>>), Failure> {
     let setup = parse_thermal_setup(text).map_err(|e| Failure::new("ThermalFile", e))?;
@@ -28,7 +31,7 @@ pub(super) fn run_thermal(
         }
         .into());
     }
-    let result = solve_thermal(model, &setup, &resolution.faces)?;
+    let result = solve_thermal_in_contact(model, &setup, &resolution.faces, contacts)?;
     // Unresolved bores and fillets carrying heat, each re-solved in a
     // submodel (judged as the structural bore check: 6 cells across the
     // radius, peak at least half the solid's).

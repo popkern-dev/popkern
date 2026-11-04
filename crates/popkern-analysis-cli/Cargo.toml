@@ -14,6 +14,8 @@ popkern-analysis = { path = "../popkern-analysis" }
 popkern-analysis-brep = { path = "../popkern-analysis-brep" }
 popkern-analysis-setup = { path = "../popkern-analysis-setup" }
 popkern-io = { path = "../popkern-io" }
+popkern-bool = { path = "../popkern-bool" }
+popkern-measure = { path = "../popkern-measure" }
 popkern-core = { path = "../popkern-core" }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-viz = { path = "../popkern-viz", default-features = false }

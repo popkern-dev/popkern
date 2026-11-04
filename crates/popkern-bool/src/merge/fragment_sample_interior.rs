@@ -21,7 +21,7 @@ pub(crate) fn interior_step_sample(
     use popkern_core::geometry::surface::SurfaceEval;
     let brep = match face.operand {
         Operand::A => brep_a,
-        Operand::B => brep_b,
+        _ /* B */ => brep_b,
     };
     let surface = &brep.faces.get(face.face)?.surface.as_ref()?.geometry;
 

@@ -205,19 +205,95 @@ impl Part {
         )
     }
 
+    /// A boolean under explicit [`popkern_bool::BoolOptions`]: with
+    /// `NonManifoldPolicy::SplitToManifold`, parts that only touch
+    /// combine into manifold pieces meeting at recorded contacts
+    /// instead of declining.
+    ///
+    /// # Errors
+    ///
+    /// [`PartError::Boolean`] with the kernel diagnostics.
+    pub fn boolean_with(
+        &self,
+        other: &Part,
+        op: popkern_bool::BoolOperation,
+        options: &popkern_bool::BoolOptions,
+    ) -> Result<Part, PartError> {
+        let name = match op {
+            popkern_bool::BoolOperation::Union => "union",
+            popkern_bool::BoolOperation::Subtraction => "subtract",
+            popkern_bool::BoolOperation::Intersection => "intersect",
+        };
+        self.combine_by(other, name, |a, b, tolerance| {
+            popkern_bool::boolean_with_options(op, a, b, tolerance, None, options)
+        })
+    }
+
+    /// The material in exactly one of the two parts (A ⊕ B). Where the
+    /// parts overlap, the two differences meet with zero thickness, so
+    /// this serves only under `NonManifoldPolicy::SplitToManifold`
+    /// (see [`popkern_bool::symmetric_difference`]).
+    ///
+    /// # Errors
+    ///
+    /// [`PartError::Boolean`] with the kernel diagnostics.
+    pub fn symmetric_difference(
+        &self,
+        other: &Part,
+        options: &popkern_bool::BoolOptions,
+    ) -> Result<Part, PartError> {
+        self.combine_by(other, "symmetric_difference", |a, b, tolerance| {
+            popkern_bool::symmetric_difference(a, b, tolerance, options)
+        })
+    }
+
     fn combine(
         &self,
         other: &Part,
         op: popkern_bool::BoolOperation,
         name: &'static str,
     ) -> Result<Part, PartError> {
+        self.combine_by(other, name, |a, b, tolerance| {
+            popkern_bool::boolean(op, a, b, tolerance, None)
+        })
+    }
+
+    /// A part from a kernel result `brep` derived from `inputs`: their
+    /// feature logs and blend histories carried, the result validated.
+    pub(crate) fn derived(
+        brep: BRep,
+        tolerance: Tolerance,
+        name: &'static str,
+        inputs: &[&Part],
+    ) -> Result<Part, PartError> {
+        let summary = format!("{name}: {} input part(s)", inputs.len());
+        let mut part = Part::from_validated(brep, tolerance, name, summary)?;
+        let mut log = FeatureLog::default();
+        for p in inputs {
+            log.extend_from(&p.features);
+        }
+        log.extend_from(&part.features);
+        part.features = log;
+        part.blend_history = inputs
+            .iter()
+            .flat_map(|p| p.blend_history.iter().cloned())
+            .collect();
+        Ok(part)
+    }
+
+    fn combine_by(
+        &self,
+        other: &Part,
+        name: &'static str,
+        run: impl FnOnce(BRep, BRep, Tolerance) -> Result<BRep, popkern_bool::BoolError>,
+    ) -> Result<Part, PartError> {
         let tolerance = finer(self.tolerance, other.tolerance);
-        let result =
-            popkern_bool::boolean(op, self.brep.clone(), other.brep.clone(), tolerance, None)
-                .map_err(|source| PartError::Boolean {
-                    operation: name,
-                    source,
-                })?;
+        let result = run(self.brep.clone(), other.brep.clone(), tolerance).map_err(|source| {
+            PartError::Boolean {
+                operation: name,
+                source,
+            }
+        })?;
         let mut part = Part::from_validated(
             result,
             tolerance,
@@ -416,6 +492,6 @@ impl Part {
 }
 
 /// The finer (smaller linear value) of two tolerances.
-fn finer(a: Tolerance, b: Tolerance) -> Tolerance {
+pub(crate) fn finer(a: Tolerance, b: Tolerance) -> Tolerance {
     if a.linear() <= b.linear() { a } else { b }
 }

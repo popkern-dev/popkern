@@ -132,11 +132,7 @@ pub(crate) fn split_graph_edge_with_pcurves(
     graph: &mut IntersectionGraph,
     he_idx: usize,
     split_point: Point3,
-    breps: Option<(
-        &popkern_core::topology::BRep,
-        &popkern_core::topology::BRep,
-        f64,
-    )>,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) -> usize {
     let twin_idx = graph.half_edges[he_idx].twin;
 
@@ -209,8 +205,10 @@ pub(crate) fn split_graph_edge_with_pcurves(
                 d_start <= d_end
             } else {
                 breps
-                    .and_then(|(a, b, _)| {
-                        super::graph_split_pcurve::curve_co_directed_with_fwd(graph, he_idx, a, b)
+                    .and_then(|(operands, _)| {
+                        super::graph_split_pcurve::curve_co_directed_with_fwd(
+                            graph, he_idx, operands,
+                        )
                     })
                     .unwrap_or(true)
             };
@@ -228,8 +226,7 @@ pub(crate) fn split_graph_edge_with_pcurves(
 
     // Derive a split source from the original.
     let split_source = match &source {
-        EdgeSource::OriginalA(eh) => EdgeSource::SplitA { original: *eh },
-        EdgeSource::OriginalB(eh) => EdgeSource::SplitB { original: *eh },
+        &EdgeSource::Original(operand, original) => EdgeSource::Split { operand, original },
         other => other.clone(),
     };
 
@@ -333,7 +330,7 @@ pub(crate) fn split_graph_edge_with_pcurves(
         graph.face_edges.entry(face).or_default().push(new_twin_idx);
     }
 
-    if let (Some((fwd_pc, twin_pc)), Some((brep_a, brep_b, tol))) = (split_side_pcurves, breps) {
+    if let (Some((fwd_pc, twin_pc)), Some((operands, tol))) = (split_side_pcurves, breps) {
         let end_pos = graph.nodes[end_node].position;
         super::graph_split_pcurve::distribute_split_pcurves(
             graph,
@@ -346,8 +343,7 @@ pub(crate) fn split_graph_edge_with_pcurves(
             &split_point,
             &start_pos,
             &end_pos,
-            brep_a,
-            brep_b,
+            operands,
             tol,
         );
     }

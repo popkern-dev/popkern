@@ -10,92 +10,18 @@
 
 use popkern_core::topology::BRep;
 
-/// Returns `true` if `brep` is a sheet body (open shell).
-///
-/// Detection: an edge whose two half-edges share the same face is
-/// "free" — but only if the underlying surface is NOT periodic in
-/// the direction of that edge. Periodic surfaces (cylinder seam,
-/// sphere meridian, torus seams) legitimately have face_a == face_b
-/// at their seam edges, and the body is still closed.
-///
-/// The check therefore: walks every edge, identifies free edges by
-/// the same-face criterion, and skips those whose hosting surface
-/// reports periodicity. Anything left over is a real open boundary.
+/// Returns `true` if `brep` is a sheet body (open shell): any body
+/// with a free edge or a wire edge, by
+/// [`BRep::body_kind`](popkern_core::topology::BRep::body_kind) (a
+/// sheet's open boundary is an edge one face holds on both sides
+/// without closing across it; a cylinder's seam is not free).
 ///
 /// Empty BReps (no edges, no faces) are NOT considered sheet bodies
 /// — they are simply degenerate, and the existing pre-check rejects
 /// them via the "no faces" finding.
 pub fn is_sheet_body(brep: &BRep) -> bool {
-    use popkern_core::geometry::surface::SurfaceGeometry;
-
-    if brep.edges.is_empty() {
-        return false;
-    }
-
-    for (_, edge) in &brep.edges {
-        let Some(he) = brep.half_edges.get(edge.half_edge) else {
-            return true;
-        };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
-            return true;
-        };
-        let face_a = brep.loops.get(he.loop_).map(|l| l.face);
-        let face_b = brep.loops.get(twin.loop_).map(|l| l.face);
-        let (face_a, face_b) = match (face_a, face_b) {
-            (Some(fa), Some(fb)) => (fa, fb),
-            _ => return true,
-        };
-
-        if face_a != face_b {
-            continue;
-        }
-
-        let Some(face) = brep.faces.get(face_a) else {
-            return true;
-        };
-        let Some(surf_on_face) = face.surface.as_ref() else {
-            return true;
-        };
-        let is_periodic = match &surf_on_face.geometry {
-            SurfaceGeometry::Cylinder { .. }
-            | SurfaceGeometry::Cone { .. }
-            | SurfaceGeometry::Sphere { .. }
-            | SurfaceGeometry::Torus { .. } => true,
-            // A seam edge on a NURBS surface is legitimate when the
-            // surface is geometrically closed in one direction
-            // (e.g. a swept circular profile — the sweep emits a
-            // closed NURBS side face with a seam, not an analytic
-            // cylinder).
-            SurfaceGeometry::Nurbs(_) => {
-                use popkern_core::geometry::surface::SurfaceEval;
-                let sfc = &surf_on_face.geometry;
-                let ((u0, u1), (v0, v1)) = sfc.parameter_range();
-                let gate = brep.tolerance.linear().max(1.0e-9) * 10.0;
-                let closed_u = (0..=4).all(|i| {
-                    let v = v0 + (v1 - v0) * i as f64 / 4.0;
-                    sfc.point_at(u0, v).distance_to(&sfc.point_at(u1, v)) < gate
-                });
-                let closed_v = (0..=4).all(|i| {
-                    let u = u0 + (u1 - u0) * i as f64 / 4.0;
-                    sfc.point_at(u, v0).distance_to(&sfc.point_at(u, v1)) < gate
-                });
-                closed_u || closed_v
-            }
-            _ => false,
-        };
-        if !is_periodic {
-            if popkern_core::trace::trace_enabled("boolean") {
-                let p0 = brep.vertices.get(he.origin).map(|v| v.position);
-                let p1 = brep.vertices.get(twin.origin).map(|v| v.position);
-                eprintln!(
-                    "  [sheet] same-face edge on non-closed face {face_a:?}: {:?} -> {:?}",
-                    p0, p1
-                );
-            }
-            return true;
-        }
-    }
-    false
+    use popkern_core::topology::BodyKind;
+    !matches!(brep.body_kind(), BodyKind::Solid | BodyKind::Empty)
 }
 
 /// Returns `true` if `brep` is a closed solid (no free edges).

@@ -91,12 +91,10 @@ fn strip_crossing_cutter(tol: Tolerance) -> BRep {
         .expect("translate")
 }
 
-/// Single-bite cutter: one wall (x = 0.4) through the fillet strip.
-/// Both SSI modes currently FAIL this boolean identically (split
-/// endpoint 1.848e-5 off the rim arc vs the 1e-5 insertion band — a
-/// pre-existing clip-sag defect, filed as its own task); the pin here
-/// is MODE PARITY, so the analytic arms can neither cause nor mask
-/// the defect.
+/// Single-bite cutter: one wall (x = 0.4) through the fillet strip,
+/// the fillet's chart seam inside the bite. Both SSI modes serve it
+/// (the y < 0 oval's closure crossing, PK-1021); the parity pin below
+/// keeps the analytic arms from flipping the outcome in one mode.
 fn single_bite_cutter(tol: Tolerance) -> BRep {
     BRep::unit_cube(tol)
         .expect("cube")
@@ -205,13 +203,14 @@ fn filleted_operand_boolean_serves_identically_under_analytic_arms() {
         "cut rim-fillet body must validate clean: {analytic_verdicts:?}"
     );
 
-    // The marching path on the SAME inputs is order-fragile: across
-    // processes (HashMap seed order) it sometimes completes and
-    // sometimes fails this very boolean with SplitFailed — the
-    // seed-order dependence the analytic arms remove. When it does
-    // complete, hold it to verdict parity and require the analytic
-    // wall to be no slower; when it fails, the analytic arms are
-    // strictly better and the ratio has no denominator to gate on.
+    // The marching path on the SAME inputs must serve too, with the
+    // same verdicts and faces. It used to fail: the strip's v seam is
+    // its rim, the y = ±0.9 walls cut ovals dipping across it, and
+    // the pcurve fitted through the chart's two period jumps swept the
+    // whole chart there; the face clip shed ~1e-3 pieces with 24 open
+    // ends and the walk left a loop open by 0.87 (PK-1030). A trace
+    // dipping across a seam now splits at its seam crossings
+    // (`surface_surface_seam_dip`).
     let (marching_outcome, marching_wall) = with_marching_pinned(|| {
         time_once(|| {
             boolean(
@@ -227,40 +226,57 @@ fn filleted_operand_boolean_serves_identically_under_analytic_arms() {
             })
         })
     });
-    match marching_outcome {
-        Ok((marching_result, marching_verdicts, marching_validate_wall)) => {
-            eprintln!(
-                "[pk279] filleted-operand boolean: analytic {analytic_bool_wall:?} \
-                 ({} faces, {} verdicts), marching {:?} ({} faces, {} verdicts); \
-                 validate_all: analytic {analytic_validate_wall:?}, marching \
-                 {marching_validate_wall:?}; combined ratio {:.1}×",
-                analytic_result.faces.len(),
-                analytic_verdicts.len(),
-                marching_wall - marching_validate_wall,
-                marching_result.faces.len(),
-                marching_verdicts.len(),
-                marching_wall.as_secs_f64() / analytic_wall.as_secs_f64().max(1e-12),
-            );
-            assert_eq!(
-                analytic_verdicts.len(),
-                marching_verdicts.len(),
-                "analytic arms must not change the validation verdict:\n  analytic: {analytic_verdicts:?}\n  marching: {marching_verdicts:?}"
-            );
-            assert!(
-                analytic_wall.as_secs_f64() <= marching_wall.as_secs_f64() * 1.25,
-                "analytic arms regressed the filleted-operand boolean: {analytic_wall:?} vs {marching_wall:?}"
-            );
-        }
-        Err(e) => {
-            eprintln!(
-                "[pk279] filleted-operand boolean: analytic {analytic_wall:?} \
-                 ({} faces, {} verdicts); marching FAILED in {marching_wall:?} ({e}) — \
-                 the order-fragile class the analytic arms remove",
-                analytic_result.faces.len(),
-                analytic_verdicts.len(),
-            );
-        }
+    let (marching_result, marching_verdicts, marching_validate_wall) =
+        marching_outcome.expect("the marching arm must serve the filleted operand too");
+    eprintln!(
+        "[pk279] filleted-operand boolean: analytic {analytic_bool_wall:?} \
+         ({} faces, {} verdicts), marching {:?} ({} faces, {} verdicts); \
+         validate_all: analytic {analytic_validate_wall:?}, marching \
+         {marching_validate_wall:?}; combined ratio {:.1}×",
+        analytic_result.faces.len(),
+        analytic_verdicts.len(),
+        marching_wall - marching_validate_wall,
+        marching_result.faces.len(),
+        marching_verdicts.len(),
+        marching_wall.as_secs_f64() / analytic_wall.as_secs_f64().max(1e-12),
+    );
+    assert_eq!(
+        analytic_result.faces.len(),
+        marching_result.faces.len(),
+        "the marching arm must serve the same faces"
+    );
+    assert_eq!(
+        analytic_verdicts.len(),
+        marching_verdicts.len(),
+        "analytic arms must not change the validation verdict:\n  analytic: {analytic_verdicts:?}\n  marching: {marching_verdicts:?}"
+    );
+    // The cost gate takes the best of K interleaved runs per arm, as
+    // gate 1 does: once the marching arm served (PK-1030) the two arms
+    // sit 1.1-1.2× apart, and a single sample per side under the
+    // workspace sweep read 659 ms vs 433 ms.
+    const K: usize = 5;
+    let run = || {
+        time_once(|| {
+            boolean(
+                BoolOperation::Subtraction,
+                part.clone(),
+                cutter.clone(),
+                tol,
+                None,
+            )
+            .map(|out| out.validate_all())
+        })
+        .1
+    };
+    let (mut analytic_best, mut marching_best) = (analytic_wall, marching_wall);
+    for _ in 0..K {
+        analytic_best = analytic_best.min(run());
+        marching_best = marching_best.min(with_marching_pinned(run));
     }
+    assert!(
+        analytic_best.as_secs_f64() <= marching_best.as_secs_f64() * 1.25,
+        "analytic arms regressed the filleted-operand boolean: {analytic_best:?} vs {marching_best:?}"
+    );
 }
 
 /// Gate 3: `validate_all` on a corpus-shape part whose torus faces
@@ -360,10 +376,9 @@ fn validate_all_on_double_rim_filleted_tube_is_not_slower_under_analytic_arms() 
 }
 
 /// Mode-parity pin for the single-bite configuration: both SSI modes
-/// must produce the SAME boolean outcome (today: the identical
-/// pre-existing SplitFailed; after the filed clip-sag fix lands:
-/// success in both). The analytic arms must never flip this outcome
-/// in one mode only.
+/// must produce the SAME boolean outcome (success in both since
+/// PK-1021). The analytic arms must never flip this outcome in one
+/// mode only.
 #[test]
 fn single_bite_boolean_outcome_is_mode_independent() {
     let _guard = ENV_LOCK.lock().expect("env lock");
@@ -407,9 +422,55 @@ fn single_bite_boolean_outcome_is_mode_independent() {
         );
     }
     eprintln!(
-        "[pk279] single-bite outcomes: analytic {:?}, marching {:?} (known clip-sag defect \
-         when failing; filed as its own boolean task)",
+        "[pk279] single-bite outcomes: analytic {:?}, marching {:?}",
         analytic.as_ref().map(|_| "ok").map_err(|e| format!("{e}")),
         marching.as_ref().map(|_| "ok").map_err(|e| format!("{e}")),
+    );
+}
+
+/// The single bite puts the rim fillet's chart seam inside the bite,
+/// and the x = 0.4 wall cuts the fillet in two ovals; the one at y < 0
+/// starts on the fillet's v = 0 rim and winds once around the tube.
+/// Its closure point is a boundary crossing a v period from its start
+/// (PK-1021): without it the fillet kept no piece of the oval, the
+/// cellular walk produced an open loop and the complex a fragment
+/// spanning the bite. Both classifiers now decide the cut: the cellular
+/// serve stands (no rescue) and the complex agrees with it.
+#[test]
+fn single_bite_cut_is_decided_by_both_classifiers() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let tol = Tolerance::default();
+    let part = rim_filleted_cylinder(tol);
+    let cutter = single_bite_cutter(tol);
+    let _ = popkern_bool::complex_shadow::take_complex_shadow_events();
+    let _ = popkern_bool::complex_shadow::take_complex_rescue_events();
+    // The cellular classifier serves and the complex shadows it, whatever
+    // mode the run is in (complex-primary, the default, records no
+    // shadow).
+    let primary = std::env::var_os("POPKERN_COMPLEX_PRIMARY");
+    // SAFETY: serialized by ENV_LOCK; restored right after the call.
+    unsafe {
+        std::env::set_var("POPKERN_COMPLEX_PRIMARY", "0");
+        std::env::set_var("POPKERN_COMPLEX_SHADOW", "1");
+    }
+    let cut = boolean(BoolOperation::Subtraction, part, cutter, tol, None);
+    unsafe {
+        std::env::remove_var("POPKERN_COMPLEX_SHADOW");
+        match primary {
+            Some(v) => std::env::set_var("POPKERN_COMPLEX_PRIMARY", v),
+            None => std::env::remove_var("POPKERN_COMPLEX_PRIMARY"),
+        }
+    }
+    let body = cut.expect("the single bite serves");
+    assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
+    let rescues = popkern_bool::complex_shadow::take_complex_rescue_events();
+    assert!(rescues.is_empty(), "cellular declined: {rescues:?}");
+    let shadow = popkern_bool::complex_shadow::take_complex_shadow_events();
+    assert!(
+        !shadow.is_empty()
+            && shadow
+                .iter()
+                .all(|e| e.outcome == popkern_bool::complex_shadow::ComplexShadowOutcome::Agree),
+        "{shadow:?}"
     );
 }

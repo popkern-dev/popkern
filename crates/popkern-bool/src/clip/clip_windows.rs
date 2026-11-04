@@ -175,8 +175,10 @@ fn clip_curve_uv_space_tuned(
     // keeps the tuned crossing machinery.
     let closed = curve.is_closed;
     let clip_one = |brep: &BRep, face: FaceHandle, uv| {
-        super::chart_cell::cell_clip(brep, face, uv, closed)
-            .unwrap_or_else(|| uv_clip_one_face(brep, face, uv, closed, open_windows_allowed))
+        super::chart_cell::cell_clip(brep, face, uv, closed).unwrap_or_else(|| {
+            let tuned = uv_clip_one_face(brep, face, uv, closed, open_windows_allowed);
+            super::clip_boundary_gaps::cut_boundary_gaps(brep, face, uv, closed, tuned)
+        })
     };
     let clip_a = clip_one(brep_a, face_a, &curve.curve_uv1);
     let clip_b = clip_one(brep_b, face_b, &curve.curve_uv2);
@@ -478,6 +480,16 @@ fn clip_curve_uv_space_tuned(
         };
         if !wrapped {
             pin_junction_ends(&mut piece, t_enter, t_exit);
+            if open_windows_allowed && pierce_scope {
+                super::clip_junction_pins::pin_shallow_crossing_ends(
+                    &mut piece,
+                    (brep_a, face_a),
+                    (brep_b, face_b),
+                    curve,
+                    surfs,
+                    cache,
+                );
+            }
         }
         out.push(piece);
     }

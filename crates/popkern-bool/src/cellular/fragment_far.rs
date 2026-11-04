@@ -65,7 +65,7 @@ impl FarGate {
     ) -> bool {
         let other = match fragment.face.operand {
             Operand::A => self.other_of_a.as_ref(),
-            Operand::B => self.other_of_b.as_ref(),
+            _ /* B */ => self.other_of_b.as_ref(),
         };
         let Some(other) = other else {
             return false;

@@ -123,6 +123,7 @@ pub fn problem_from_setup(
         source_w,
         body_sources,
         hdt_c,
+        contacts: Vec::new(),
     })
 }
 
@@ -133,7 +134,19 @@ pub fn solve_thermal(
     setup: &ThermalSetup,
     resolved: &[ResolvedFace],
 ) -> Result<ThermalResult, AnalysisError> {
-    let problem = problem_from_setup(model, setup, resolved)?;
+    solve_thermal_in_contact(model, setup, resolved, Vec::new())
+}
+
+/// [`solve_thermal`] with contact conductances between solids
+/// (`crate::contact`; a steady setup only).
+pub fn solve_thermal_in_contact(
+    model: &AnalysisModel,
+    setup: &ThermalSetup,
+    resolved: &[ResolvedFace],
+    contacts: Vec<super::ThermalContact>,
+) -> Result<ThermalResult, AnalysisError> {
+    let mut problem = problem_from_setup(model, setup, resolved)?;
+    problem.contacts = contacts;
     let mut result = match setup.transient {
         None => solve_conduction(model, &problem, &setup.options)?,
         Some(t) => {

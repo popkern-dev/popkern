@@ -74,7 +74,7 @@ pub(super) fn assign_holes_to_regions(
 /// outside test against a faraway notch piece and was reassigned to
 /// it, deleting the bore from the face). Used by the nesting pass:
 /// holes move fragments only on positive proof.
-fn loop_strictly_inside_outer(
+pub(crate) fn loop_strictly_inside_outer(
     graph: &IntersectionGraph,
     lp: &[usize],
     outer: &[usize],
@@ -255,7 +255,7 @@ impl<'a> OppositeAabbs<'a> {
     fn opposite(&self, operand: super::super::graph::Operand) -> (&BRep, &[(FaceHandle, Aabb)]) {
         match operand {
             super::super::graph::Operand::A => (self.brep_b, &self.b),
-            super::super::graph::Operand::B => (self.brep_a, &self.a),
+            _ /* B */ => (self.brep_a, &self.a),
         }
     }
 }

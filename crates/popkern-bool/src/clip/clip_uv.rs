@@ -236,13 +236,15 @@ pub(super) fn uv_clip_one_face(
             // boundary band's width while every other station sat
             // well inside — the sixth wall's corner cuts dropped
             // whole and the merge stranded 4 record sides (PK-464).
-            // With zero crossings all samples lie on one side modulo
-            // boundary noise, so the majority is the honest verdict.
+            // With zero crossings the majority is the honest verdict.
             use popkern_core::geometry::curve::CurveEval;
             let (t_min, t_max) = curve_uv.parameter_range();
-            // REGION containment (hole-aware): a record wholly inside
-            // a hole is off the face (the vent-slot class); a record
-            // crossing a hole has crossings and never reaches here.
+            // A record crossing a hole goes whole to the hole machinery.
+            let tol = &brep.tolerance;
+            if super::clip_inner_crossing::crosses_inner_loop(brep, face, curve_uv, tol) {
+                return UvClipResult::Windows(vec![(t_min, t_max)]);
+            }
+            // Hole-aware REGION containment: wholly in a hole is off the face.
             // BOUNDARY BAND + DENSE POLYGON (PK-465): the tuned
             // 8-per-pcurve polygon carries a chord sagitta far wider
             // than record-fit slop on a full-circle rim (0.2 uv on an
@@ -258,9 +260,7 @@ pub(super) fn uv_clip_one_face(
             // the remaining samples vote against a boundary polygon
             // refined well under the band.
             let band = uv_boundary_band(brep, curve_uv);
-            // Boundary stations and the region probe are built once for
-            // the five samples (PK-814: a 63-hole disc rebuilt both per
-            // sample, ~2 ms of every late slot cut).
+            // Stations and probe built once for the five samples (PK-814).
             let ring: Vec<popkern_core::geometry::Point3> =
                 crate::clip::face_uv_boundary(brep, face)
                     .iter()

@@ -29,9 +29,17 @@ fn merge(
 ) -> Result<BRep, String> {
     let hits = crate::intersect::find_intersections(a, b, &tol).map_err(|e| format!("{e:?}"))?;
     let scopes = crate::scope::serving_scopes(a, b, &hits, op, &tol);
-    crate::cellular::boolean::cellular_graph_merge(a, b, &hits, op, &tol, scoped.then_some(&scopes))
-        .map(|(body, _)| body)
-        .map_err(|d| format!("{d:?}").chars().take(300).collect())
+    crate::cellular::boolean::cellular_graph_merge(
+        a,
+        b,
+        &hits,
+        op,
+        &tol,
+        scoped.then_some(&scopes),
+        crate::complex::serve::SelectionSource::Cellular,
+    )
+    .map(|(body, _)| body)
+    .map_err(|d| format!("{d:?}").chars().take(300).collect())
 }
 
 #[test]

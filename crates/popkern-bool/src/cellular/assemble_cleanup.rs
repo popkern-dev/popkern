@@ -429,7 +429,7 @@ pub(crate) fn build_face_provenance(
         let frag = &fragments[fi];
         let source = match frag.face.operand {
             Operand::A => SourceBody::A,
-            Operand::B => SourceBody::B,
+            _ /* B */ => SourceBody::B,
         };
         map.faces.push((
             result_faces[i],

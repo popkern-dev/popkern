@@ -54,7 +54,7 @@ fn selection_for(
                     || (class == PointClassification::OnBoundary && cooriented != Some(true)),
                 false,
             ),
-            Operand::B => (class == PointClassification::Inside, true),
+            _ /* B */ => (class == PointClassification::Inside, true),
         },
     };
     FragmentSelection { keep, flip }
@@ -215,7 +215,7 @@ pub(super) fn classify_fragments_cellular(
         }
         let own_boxes = match fragments[i].face.operand {
             Operand::A => &aabbs_a,
-            Operand::B => &aabbs_b,
+            _ /* B */ => &aabbs_b,
         };
         results[i] = Some(if far.is_far(graph, &fragments[i], own_boxes) {
             let anchor = super::fragment_sample_helpers::sample_fragment_point(
@@ -361,7 +361,7 @@ pub(super) fn classify_fragments_cellular(
         let own_operand = fragment.face.operand;
         let other_aabbs: &[_] = match own_operand {
             Operand::A => &aabbs_b,
-            Operand::B => &aabbs_a,
+            _ /* B */ => &aabbs_a,
         };
         // Record-side witness votes (PK-494 layer 3): collected per
         // RAY-CLASSIFIED fragment, applied post-loop after per-face

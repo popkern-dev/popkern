@@ -17,7 +17,8 @@
 //!   arrived as two edge-face roots 6e-4 apart (the tolerance band
 //!   around a tangency), the circle split twice there and the walk
 //!   stranded the records. One contact is one root: union, subtract
-//!   and intersect serve for the axis tee and the x0 = −20 tee.
+//!   and intersect serve for the axis tee and the x0 = −20 tee (its
+//!   difference is pinched at the singular points and declines, PK-992).
 //!
 //! Volumes are checked against the analytic value: the overlap of a
 //! branch of radius `rb` through the main cylinder is
@@ -124,6 +125,14 @@ fn served_volume_of(script: &str) -> Option<f64> {
     )
 }
 
+/// The script's error text when the kernel declines it.
+fn declined_with(script: &str) -> String {
+    match ScriptHost::new().run(script, "tee.rhai") {
+        Ok(_) => "served".to_owned(),
+        Err(e) => format!("{e:?}"),
+    }
+}
+
 fn assert_volume(rb: f64, x0: f64, len: f64, got: f64) {
     let want = analytic(rb, x0, len);
     let rel = (got - want).abs() / want;
@@ -176,6 +185,18 @@ fn equal_radius_tees_serve_every_boolean_with_exact_volume() {
             ("intersect", both),
         ] {
             let script = tee_op(op, R, x0, len);
+            // Through the main cylinder the difference leaves the main
+            // body's material in two lobes touching only at the
+            // singular points (0, ±40, 60): a pinched result that
+            // declines by default (PK-992).
+            if op == "subtract" && x0 < 0.0 {
+                let err = declined_with(&script);
+                assert!(
+                    err.contains("result would be non-manifold: 2 zero-thickness contact(s)"),
+                    "subtract x0 {x0}: want the pinch decline, got {err}"
+                );
+                continue;
+            }
             let got = served_volume_of(&script)
                 .unwrap_or_else(|| panic!("{op} x0 {x0}: the equal-radius tee must serve"));
             let rel = (got - want).abs() / want;

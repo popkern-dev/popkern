@@ -437,12 +437,19 @@ pub(crate) fn find_uv_crossings(
     let mut crossings = resolve_contact_runs(brep, face, curve_uv, crossings, tolerance);
     // A closed query on the boundary at its closure point (PK-775).
     let period = surface_is_periodic.then(period_of);
+    let period_v = {
+        use popkern_core::geometry::SurfaceEval as _;
+        brep.faces
+            .get(face)
+            .and_then(|f| f.surface.as_ref())
+            .and_then(|s| s.geometry.parameter_periodicity().1)
+    };
     if let Some(c) = super::clip_lift_crossings::closure_crossing(
         brep,
         &boundary_nurbs,
         curve_uv,
         &crossings,
-        period,
+        (period, period_v),
     ) {
         crossings.insert(0, c);
     }

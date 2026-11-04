@@ -16,6 +16,8 @@ pub(super) struct FaceData {
     pub vertex_ids: Vec<EntityId>,
     /// All unique edge curve entity IDs in discovery order.
     pub edge_curve_ids: Vec<EntityId>,
+    /// Each edge curve's start and end vertex IDs.
+    pub edge_ends: HashMap<EntityId, (EntityId, EntityId)>,
     /// Per-face topology information.
     pub faces: Vec<FaceInfo>,
 }
@@ -71,6 +73,7 @@ pub(super) fn collect_face_data_reversing(
 ) -> Option<FaceData> {
     let mut vertex_ids = Vec::new();
     let mut edge_curve_ids = Vec::new();
+    let mut edge_ends = HashMap::new();
     let mut faces = Vec::new();
     let mut seen_vertices: HashMap<EntityId, ()> = HashMap::new();
     let mut seen_edges: HashMap<EntityId, ()> = HashMap::new();
@@ -197,6 +200,7 @@ pub(super) fn collect_face_data_reversing(
                 // Track unique edges
                 if seen_edges.insert(oe.edge_element, ()).is_none() {
                     edge_curve_ids.push(oe.edge_element);
+                    edge_ends.insert(oe.edge_element, (ec.start, ec.end));
                 }
 
                 // Compose ORIENTED_EDGE and FACE_BOUND orientations
@@ -237,6 +241,7 @@ pub(super) fn collect_face_data_reversing(
     Some(FaceData {
         vertex_ids,
         edge_curve_ids,
+        edge_ends,
         faces,
     })
 }
@@ -246,14 +251,7 @@ pub(super) fn collect_face_data_reversing(
 /// single bound is its own outer loop.
 pub(super) fn widest_bound(
     bounds: &[BoundInfo],
-    edge_map: &HashMap<
-        EntityId,
-        (
-            popkern_core::topology::EdgeHandle,
-            popkern_core::topology::HalfEdgeHandle,
-            popkern_core::topology::HalfEdgeHandle,
-        ),
-    >,
+    edge_of: &dyn Fn(EntityId) -> Option<popkern_core::topology::EdgeHandle>,
     brep: &popkern_core::topology::BRep,
 ) -> Option<usize> {
     use popkern_core::geometry::curve::CurveEval;
@@ -263,9 +261,8 @@ pub(super) fn widest_bound(
     let extent = |bound: &BoundInfo| {
         let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
         for oe in &bound.oriented_edges {
-            let Some(curve) = edge_map
-                .get(&oe.edge_curve_id)
-                .and_then(|(eh, _, _)| brep.edges.get(*eh))
+            let Some(curve) = edge_of(oe.edge_curve_id)
+                .and_then(|eh| brep.edges.get(eh))
                 .and_then(|e| e.curve.as_ref())
             else {
                 continue;

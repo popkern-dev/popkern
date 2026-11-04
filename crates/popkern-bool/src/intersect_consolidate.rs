@@ -351,7 +351,15 @@ pub(super) fn consolidate_records(
                 )
             };
             let d = s3.distance_to(&e3);
-            if d > tolerance.linear() && d < gate && d < 0.5 * ext {
+            let others = idxs
+                .iter()
+                .filter(|&&k| k != i && !drop[k])
+                .map(|&k| &records[k]);
+            if d > tolerance.linear()
+                && d < gate
+                && d < 0.5 * ext
+                && !gap::gap_bridged(&records[i], others, band)
+            {
                 let weld = popkern_core::geometry::Point3::new(
                     0.5 * (s3.x + e3.x),
                     0.5 * (s3.y + e3.y),

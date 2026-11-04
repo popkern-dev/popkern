@@ -310,6 +310,35 @@ impl<'a> EdgeNormalProbe<'a> {
         worst
     }
 
+    /// Whether the step between curve fractions `fa` and `fb`, on any
+    /// incident face's periodic chart (read as the nearest period
+    /// image), exceeds a quarter period. The face rings unwrap each
+    /// station step as the nearest image, which is faithful only under
+    /// half a period; near a pole the longitude sweeps half a turn over
+    /// a short, straight stretch of the edge that no 3D criterion
+    /// splits (PK-1059: a hole 0.005 from a sphere's poles meshed the
+    /// hole instead of the face, its volume read 3.34 for 1.40).
+    pub(crate) fn wide_uv_step(&self, fa: f64, fb: f64) -> bool {
+        self.traces.iter().any(|trace| {
+            let (t0, t1) = trace.pcurve.parameter_range();
+            let uv_at = |f: f64| {
+                let t = if trace.reversed {
+                    t1 - (t1 - t0) * f
+                } else {
+                    t0 + (t1 - t0) * f
+                };
+                trace.pcurve.point_at(t)
+            };
+            let (a, b) = (uv_at(fa), uv_at(fb));
+            let (period_u, period_v) = trace.surface.periodicity();
+            [(b.x - a.x, period_u), (b.y - a.y, period_v)]
+                .iter()
+                .any(|&(d, p)| {
+                    p.is_some_and(|p| p > 0.0 && (d - (d / p).round() * p).abs() > 0.25 * p)
+                })
+        })
+    }
+
     /// Largest normal turn (radians) any incident face shows across
     /// the curve fractions `fractions` (pairwise over the samples), or
     /// `None` when no face trace is available.

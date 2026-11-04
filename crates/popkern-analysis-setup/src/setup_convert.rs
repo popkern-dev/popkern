@@ -371,6 +371,7 @@ impl SetupFile {
     pub fn from_setup(setup: &StructuralSetup) -> Self {
         SetupFile {
             analysis: None,
+            bodies: None,
             units: Some("mm".to_string()),
             material: Some(setup.material.clone()),
             build_direction: setup.build_direction,

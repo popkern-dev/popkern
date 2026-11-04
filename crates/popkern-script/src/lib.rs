@@ -20,6 +20,7 @@ pub mod body;
 pub mod body_fastener;
 pub mod body_generative;
 pub mod body_hinge;
+pub mod body_partition;
 pub mod body_recipes;
 pub mod body_seam_hinge;
 pub mod body_sweep;
@@ -71,6 +72,7 @@ pub use selection_parse::{SelectionParseError, parse_edges, parse_faces};
 /// Everything a script needs in scope.
 pub mod prelude {
     pub use crate::body::{Body, End, RevolveEnd};
+    pub use crate::body_partition::PartitionOp;
     pub use crate::body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
     pub use crate::body_sweep::{HelixParams, LoftOptions};
     pub use crate::error::ScriptError;
@@ -81,8 +83,8 @@ pub mod prelude {
     pub use crate::selection::{EdgeSelector, FaceSelector, edges, faces};
     pub use popkern_history::SnapshotOrigin;
     pub use popkern_history::feature::{
-        AxisDesc, BasePlane, BoolOpKind, JoinStyleKind, OperationMode, ShellDirectionKind,
-        TrimPolicyKind, Vec3Desc,
+        AxisDesc, BasePlane, BoolOpKind, FaceClass, JoinStyleKind, NonManifoldPolicy,
+        OperationMode, PieceRule, SetExpr, ShellDirectionKind, TrimPolicyKind, Vec3Desc,
     };
     pub use popkern_history::feature_blend::{
         BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerCapDesc,

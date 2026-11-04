@@ -186,6 +186,90 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
 - **Seam edges** — edges where `face_1 == face_2` (e.g., cylinder seam). Can't be filleted. The fillet analysis rejects them, but other operations should also check.
 - **`validate()` vs `validate_all()`** — `validate()` is the fast path (structural + geometric, no self-intersection). `validate_all()` adds the expensive O(n^2) self-intersection check. Don't call `validate_all()` in hot paths.
 - **`find_starting_points` queue cap** — capped at 50k pairs. Near-coincident NURBS surfaces may produce incomplete results (missing branches). The coincident fast path in `intersect_surfaces` handles the common case.
+- **Non-manifold boolean results decline** — operands touching only
+  along an edge, a line or at a point make a result with zero-thickness
+  contacts. `boolean()` returns `BoolError::NonManifoldResult` with the
+  contact locations instead of serving coincident duplicate edges or
+  vertices, or separate shells that touch. `boolean_with_options` with
+  `NonManifoldPolicy::SplitToManifold` serves manifold pieces instead,
+  each contact recorded in `BRep::topology_contacts`; `validate_all`
+  excuses recorded contacts only. A later boolean or N-ary boolean
+  carries the contacts its operands recorded (re-recorded on the
+  result, `postprocess/contact_inherit.rs`) and still declines a new
+  one; fillets and motions keep the records. The cell complex
+  (`popkern-bool/src/complex/`) decides membership by region and is
+  the primary classifier, falling back to the cellular classifier on a
+  decline (a `PrimaryFallback` shadow line). `POPKERN_COMPLEX_PRIMARY=0`
+  makes the cellular classifier primary with the complex as its rescue,
+  `POPKERN_COMPLEX=0` disables the complex altogether,
+  `POPKERN_COMPLEX_SHADOW=1` (with `POPKERN_COMPLEX_SHADOW_LOG=<file>`,
+  under `POPKERN_COMPLEX_PRIMARY=0`) records its agreement with the
+  cellular classifier on every boolean,
+  and `POPKERN_COMPLEX_ARTIFACT=<dir>` dumps a declined complex as JSON.
+- **Vertex table** — `popkern-bool/src/tolerance_zone/` resolves every
+  intersection's candidate vertices together and decides the cellular
+  graph's record-end vertices and paves. `POPKERN_VERTEX_TABLE=0`
+  restores the graph's snap-then-adopt identity; a declined resolution
+  falls back to it for that boolean (a `VertexTableFallback` shadow
+  line, and its candidates under `POPKERN_COMPLEX_ARTIFACT`).
+- **N-body operations** — `popkern_bool::partition` builds one cell
+  complex over N solids (`popkern-bool/src/partition/`); `select` /
+  `nary_boolean` keep the regions a `SetExpr` accepts, `region_solids`
+  and `split` keep each region as its own solid with the faces
+  neighbours share (`Interface`), `imprint` classifies a target's faces
+  (`FaceClass`). Operations declare accepted `BodyKind`s
+  (`BoolError::UnsupportedBodyKind`). Coplanar faces between bodies
+  are held (operand-qualified `FacePair`s); a region bounded by several
+  shells (a body floating in another, an operand's cavity) keeps them
+  together (`partition/region_nesting.rs`); sheets enter as laminae
+  that cut regions without bounding volume (PK-978); record crossings of
+  different pairs adopt a node within 20 tolerances
+  (`partition/crossings.rs`), so crowded triple points share a vertex.
+  When a stage still declines, `nary_boolean` falls back to
+  two-operand booleans, logged as a `PartitionFallback` shadow line.
+  In the feature tree they are `Feature::Split { tools, keep }`,
+  `NaryBoolean { tools, expr, non_manifold }`, `Imprint`, and
+  `KeepPieces` / `SeparatePieces { source, rule }` (whole solids taken
+  out by `popkern_bool::pieces`, names kept; a body made by
+  `SeparatePieces` is chosen over the body its names point to); an
+  imprint's face classes are recorded by stable name in its report row
+  (`FeatureTree::imprint_class`, Rhai `m.imprint_class(name)`). Named by
+  `popkern_bool::name_from_operands` (the target's names carry, the
+  rest by the operand entities they are pieces of). The shortcut oracle
+  `POPKERN_SHORTCUT_ORACLE=1` runs the general path on every touching /
+  containment shortcut and logs agreement (`ShortcutOracle`).
+- **Sheet booleans** — `boolean_with_sheets` decides sheet ∩ solid,
+  sheet − solid, solid − sheet (pieces) and the union's appendage on
+  the cell complex (`sheet/complex_route.rs`, sheets as laminae:
+  `partition/lamina_part.rs`), falling back to the planar split or
+  imprint-and-trim path with a `PartitionFallback sheet` shadow line;
+  `boolean()` still declines sheets. A sheet's free edge is canonical:
+  a null twin with its edge in `boundary_edges`, the survivor the
+  edge's canonical half-edge with the curve run its way (a recorded
+  boundary edge reads as free even on a periodic face, where a twin on
+  the same face would read as the seam). The constructors' two-face
+  sheets are converted at entry. OCC oracle:
+  `tools/occ-oracle/occ_sheet.py`.
+- **Wire booleans and contacts** — `boolean_with_wire` cuts a wire
+  body where its curves cross the solid's faces and keeps pieces by
+  midpoint (∩ keeps inside and on-face pieces, − the outside, solid −
+  wire is the solid, ∪ a mixed body); on-face pieces are tested by
+  face distance first, because `point_in_solid_final` calls a point on
+  a face outside. A partition `Interface` carries `patch`, the shared
+  surface as a one-face sheet: region extraction merges co-surfacial
+  faces, so `faces` may reach past the patch, and contact or bonded
+  areas are measured on `patch`. Assembly interference reports a
+  touching pair's extent and area when asked (`contact_area`, off by
+  default: a partition per touching pair).
+- **STEP non-manifold bodies** — a `CLOSED_SHELL` that touches itself
+  (a contact edge with four face uses, or a vertex two closed sets of
+  faces share) imports as manifold pieces meeting at recorded contacts,
+  each piece its own solid with its own copies of the contact edges and
+  vertices (`popkern-io/src/step/mapping/topology/shell_pieces.rs`).
+  The pieces are the face sets joined through two-use edges; a piece
+  using an edge four times declines (PK-1070), as do odd uses (an
+  internal face, PK-1071) and touching void shells (PK-1072). Fixtures
+  are OCC-written (`tools/occ-oracle/occ_write_nonmanifold.py`).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks
