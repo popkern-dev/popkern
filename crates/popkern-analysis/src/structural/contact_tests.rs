@@ -205,7 +205,7 @@ fn a_pair_no_support_holds_is_free_whatever_its_contacts() {
     )
     .err();
     assert!(
-        matches!(e, Some(AnalysisError::FreeMotion { ref motions, .. }) if motions.is_empty()),
+        matches!(e, Some(AnalysisError::FreeMotion { ref motions, .. }) if motions.len() == 6),
         "{e:?}"
     );
 }

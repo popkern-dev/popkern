@@ -152,3 +152,17 @@ pub(super) fn group_motions(
     let spectrum = rigid_spectrum(&sub, positions, centre).map_err(internal)?;
     Ok(motions_below(&spectrum, super::RIGID_MODE_TOL))
 }
+
+/// All six rigid motions about `centre`: what a group no face of which
+/// is held is free to make (named in its decline, as the spectrum names
+/// a single solid's).
+pub(super) fn every_motion(centre: [f64; 3]) -> Vec<RigidMotion> {
+    let axes = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
+    axes.iter()
+        .map(|&direction| RigidMotion::Translation { direction })
+        .chain(axes.iter().map(|&direction| RigidMotion::Rotation {
+            point: centre,
+            direction,
+        }))
+        .collect()
+}

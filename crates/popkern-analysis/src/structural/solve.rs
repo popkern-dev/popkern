@@ -281,7 +281,10 @@ pub(super) fn prepare(
             if !free && !held {
                 return Err(AnalysisError::FreeMotion {
                     solid: solids[group[0]].0,
-                    motions: Vec::new(),
+                    motions: super::contact_coupling::every_motion(centroid(
+                        &grid,
+                        &solids[group[0]].2,
+                    )),
                 });
             }
         }
