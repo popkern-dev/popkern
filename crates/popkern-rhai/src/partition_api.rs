@@ -1,7 +1,8 @@
 //! The partition's operations on a script body (design: operations on
 //! the cell complex, 5.4): `b.split([t1, t2], keep?)`,
 //! `b.nary_boolean([t1, t2], expr, options?)`,
-//! `b.symmetric_difference(t)`, `b.imprint(t)`, with set expressions
+//! `b.symmetric_difference(t)`, `b.imprint(t)`, `b.keep_pieces(rule)`,
+//! `b.separate_pieces(rule)` (returns the new body), with set expressions
 //! built by `body(0).and(body(1))`, `at_least(2)`, `exactly_one()`, and
 //! piece rules by `all_pieces()`, `inside_tools(expr)`,
 //! `containing([x, y, z])`, `largest(n)`.
@@ -108,6 +109,16 @@ impl ScriptBody {
         self.partition(op, &options)
     }
 
+    fn pieces_by(
+        &self,
+        name: &'static str,
+        op: PartitionOp,
+        options: &Dynamic,
+    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let options = Options::parse(name, options, LABEL_ONLY)?;
+        self.partition(op, &options)
+    }
+
     fn imprint_with(
         &self,
         tool: ScriptBody,
@@ -210,5 +221,29 @@ pub fn register(engine: &mut Engine) {
         .register_fn(
             "imprint",
             |b: &mut ScriptBody, tool: ScriptBody, o: Dynamic| b.imprint_with(tool, &o),
+        )
+        .register_fn("keep_pieces", |b: &mut ScriptBody, rule: PieceRule| {
+            b.pieces_by(
+                "keep_pieces",
+                PartitionOp::KeepPieces { rule },
+                &Dynamic::UNIT,
+            )
+        })
+        .register_fn(
+            "keep_pieces",
+            |b: &mut ScriptBody, rule: PieceRule, o: Dynamic| {
+                b.pieces_by("keep_pieces", PartitionOp::KeepPieces { rule }, &o)
+            },
+        )
+        .register_fn("separate_pieces", |b: &mut ScriptBody, rule: PieceRule| {
+            let op = PartitionOp::SeparatePieces { rule };
+            b.pieces_by("separate_pieces", op, &Dynamic::UNIT)
+        })
+        .register_fn(
+            "separate_pieces",
+            |b: &mut ScriptBody, rule: PieceRule, o: Dynamic| {
+                let op = PartitionOp::SeparatePieces { rule };
+                b.pieces_by("separate_pieces", op, &o)
+            },
         );
 }

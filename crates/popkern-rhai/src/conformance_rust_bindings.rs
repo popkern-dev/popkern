@@ -52,6 +52,8 @@ pub const RUST_BINDINGS: &[(&str, &str)] = &[
     ("clearance_hole", "fn clearance_hole"),
     ("union", "fn union"),
     ("split", "fn split"),
+    ("keep_pieces", "fn keep_pieces"),
+    ("separate_pieces", "fn separate_pieces"),
     ("nary_boolean", "fn nary_boolean"),
     ("symmetric_difference", "fn symmetric_difference"),
     ("imprint", "fn imprint"),

@@ -142,6 +142,21 @@ pub enum Feature {
         /// The imprinting body.
         tool: BodyId,
     },
+    /// The pieces (solids) of the current body `rule` selects; the
+    /// other pieces are removed.
+    KeepPieces {
+        /// Which pieces stay (a geometric rule: `All`, `Containing`,
+        /// `Largest`).
+        rule: PieceRule,
+    },
+    /// A new body holding the pieces of `source` that `rule` selects;
+    /// `source` keeps the others.
+    SeparatePieces {
+        /// The body the pieces are taken from (not consumed).
+        source: BodyId,
+        /// Which pieces move (a geometric rule).
+        rule: PieceRule,
+    },
     /// Hollow out a solid by removing faces and offsetting the remaining surfaces.
     Shell {
         /// Faces to remove (the "opening"), identified by stable name.

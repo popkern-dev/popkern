@@ -75,6 +75,7 @@ pub(crate) mod replay;
 mod replay_exact_extrude;
 mod replay_exact_extrude_names;
 mod replay_partition;
+mod replay_pieces;
 pub mod replay_report;
 mod replay_side_effects;
 mod tree_replay_config;

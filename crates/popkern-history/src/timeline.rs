@@ -111,6 +111,8 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
         | Feature::Split { .. }
         | Feature::NaryBoolean { .. }
         | Feature::Imprint { .. }
+        | Feature::KeepPieces { .. }
+        | Feature::SeparatePieces { .. }
         | Feature::Thicken { .. }
         | Feature::OffsetSolid { .. }
         | Feature::RawBody { .. } => Vec::new(),
@@ -259,6 +261,8 @@ pub(crate) fn starts_new_body(feature: &Feature) -> bool {
                 ..
             }
             | Feature::LivingHinge { .. }
+            // Separated pieces are a new body; the source keeps the rest.
+            | Feature::SeparatePieces { .. }
     )
 }
 

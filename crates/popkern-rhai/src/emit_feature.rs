@@ -486,10 +486,8 @@ pub fn statement(
         other => emit_feature_partition::call(other, label, tool_var)
             .ok_or_else(|| decline("this operation has no spelling in the Rhai skin"))?,
     };
-    Ok(Statement {
-        call,
-        starts_body: false,
-    })
+    let starts_body = matches!(node.feature, Feature::SeparatePieces { .. });
+    Ok(Statement { call, starts_body })
 }
 
 #[path = "emit_feature_groups.rs"]

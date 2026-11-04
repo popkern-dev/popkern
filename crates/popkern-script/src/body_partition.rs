@@ -1,7 +1,8 @@
 //! The partition's operations on a body (design: operations on the cell
 //! complex, 5.4): a split keeping the pieces a rule selects, an N-ary
-//! boolean by set expression, the symmetric difference, an imprint.
-//! Each consumes its tools, as a boolean consumes its tool.
+//! boolean by set expression, the symmetric difference, an imprint,
+//! and taking a body's pieces apart. Each consumes its tools, as a
+//! boolean consumes its tool.
 
 use popkern_history::feature::{BoolOpKind, Feature, NonManifoldPolicy, PieceRule, SetExpr};
 use popkern_history::node::BodyId;
@@ -35,6 +36,32 @@ pub enum PartitionOp {
         /// The imprinting body.
         tool: Body,
     },
+    /// Keep the body's pieces (solids) `rule` selects, removing the
+    /// rest (a geometric rule: `All`, `Containing`, `Largest`).
+    KeepPieces {
+        /// Which pieces stay.
+        rule: PieceRule,
+    },
+    /// Move the body's pieces `rule` selects into a new body (the
+    /// result); the body keeps the rest.
+    SeparatePieces {
+        /// Which pieces move.
+        rule: PieceRule,
+    },
+}
+
+/// A piece rule a body's own pieces can answer: tool membership exists
+/// only on the split that made them.
+fn geometric(rule: PieceRule) -> Result<PieceRule, ScriptError> {
+    match rule {
+        PieceRule::InsideTools(_) => Err(ScriptError::Argument {
+            argument: "rule".into(),
+            reason: "a body's pieces have no tools to be inside: select by tool on the split, \
+                     or by `containing` / `largest` here"
+                .into(),
+        }),
+        rule => Ok(rule),
+    }
 }
 
 impl Body {
@@ -112,6 +139,19 @@ impl Body {
             PartitionOp::Imprint { tool } => Feature::Imprint {
                 tool: self.tool_ids(model, &[tool])?[0],
             },
+            PartitionOp::KeepPieces { rule } => {
+                self.require_alive(model)?;
+                Feature::KeepPieces {
+                    rule: geometric(rule)?,
+                }
+            }
+            PartitionOp::SeparatePieces { rule } => {
+                self.require_alive(model)?;
+                Feature::SeparatePieces {
+                    source: self.id,
+                    rule: geometric(rule)?,
+                }
+            }
         };
         self.record(model, feature, label, Vec::new())
     }
@@ -186,6 +226,26 @@ impl Body {
         label: &str,
     ) -> Result<Body, ScriptError> {
         self.boolean_labeled(model, operation, tool, non_manifold, label)
+    }
+
+    /// This body with only the pieces (solids) `rule` selects.
+    ///
+    /// # Errors
+    ///
+    /// As [`Body::partition_with`]; `InsideTools` is an argument error.
+    pub fn keep_pieces(self, model: &mut Model, rule: PieceRule) -> Result<Body, ScriptError> {
+        self.partition_with(model, PartitionOp::KeepPieces { rule }, "")
+    }
+
+    /// A new body of this body's pieces `rule` selects; this body keeps
+    /// the rest. Returns the new body.
+    ///
+    /// # Errors
+    ///
+    /// As [`Body::keep_pieces`]; a rule selecting every piece fails
+    /// (this body would be empty).
+    pub fn separate_pieces(self, model: &mut Model, rule: PieceRule) -> Result<Body, ScriptError> {
+        self.partition_with(model, PartitionOp::SeparatePieces { rule }, "")
     }
 
     /// This body with its faces split where `tool` (consumed) crosses

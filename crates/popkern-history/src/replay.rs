@@ -172,6 +172,9 @@ pub(crate) fn execute_feature(
         Feature::Boolean { .. } => {
             crate::replay_partition::execute_boolean(brep, feature, tracking, tolerance, body_breps)
         }
+        Feature::KeepPieces { .. } | Feature::SeparatePieces { .. } => {
+            crate::replay_pieces::execute(brep, feature, tolerance, body_breps)
+        }
         Feature::Split { .. } | Feature::NaryBoolean { .. } | Feature::Imprint { .. } => {
             crate::replay_partition::execute(brep, feature, tracking, tolerance, body_breps)
         }

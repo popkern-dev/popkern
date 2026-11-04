@@ -339,6 +339,14 @@ pub const RHAI_BINDINGS: &[Binding] = &[
         &[],
     ),
     b("split", "split", &["tools", "keep"], &["label"], &[]),
+    b("keep_pieces", "keep_pieces", &["rule"], &["label"], &[]),
+    b(
+        "separate_pieces",
+        "separate_pieces",
+        &["rule"],
+        &["label"],
+        &[],
+    ),
     b(
         "nary_boolean",
         "nary_boolean",

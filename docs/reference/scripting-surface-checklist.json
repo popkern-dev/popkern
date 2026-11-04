@@ -1301,6 +1301,18 @@
       "parameters": []
     },
     {
+      "name": "keep_pieces",
+      "section": "5",
+      "mark": "preview",
+      "signature": "body.keep_pieces(rule)",
+      "parameters": [
+        {
+          "name": "rule",
+          "optional": false
+        }
+      ]
+    },
+    {
       "name": "linear_pattern",
       "section": "5",
       "mark": "preview",
@@ -1572,6 +1584,18 @@
         },
         {
           "name": "angle",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "separate_pieces",
+      "section": "5",
+      "mark": "preview",
+      "signature": "body.separate_pieces(rule)",
+      "parameters": [
+        {
+          "name": "rule",
           "optional": false
         }
       ]

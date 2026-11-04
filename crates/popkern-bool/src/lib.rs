@@ -79,6 +79,7 @@ pub mod merge_fallback;
 mod pcurve_box;
 pub(crate) mod periodic_chart_parity;
 pub(crate) mod periodic_chart_parity_torus;
+pub mod pieces;
 pub mod propagation_report;
 pub(crate) mod record_side_witness;
 pub(crate) mod scope;

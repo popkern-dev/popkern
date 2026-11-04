@@ -16,7 +16,8 @@ fn run(host: &mut ScriptHost, source: &str, name: &str) -> Model {
 /// Face count, every face named, the sorted face names as text, and
 /// the volume to 1e-9.
 fn signature(m: &mut Model) -> (usize, Vec<String>, i64) {
-    let part = m.to_part().expect("part");
+    // Every alive body: a separated piece is a body of its own.
+    let part = m.to_part_all().expect("part");
     let brep = part.brep();
     assert!(brep.validate().is_ok(), "{:?}", brep.validate());
     let mut names: Vec<String> = brep
@@ -84,6 +85,17 @@ let b = m.tool(|m| m.profile(xy()).rect(1.0, 1.0).at(1.0, 1.0).sketch("b").extru
 a.union(b, #{ non_manifold: "split_to_manifold" });
 m"#,
     ),
+    (
+        "pieces",
+        r#"let m = model();
+let plate = m.profile(xy()).rect(2.4, 1.6).sketch("plate").extrude(blind(0.4));
+let s = m.tool(|m| m.profile(xy_at(-0.5)).rect(0.4, 3.0).sketch("s").extrude(blind(2.0)));
+plate.split([s]);
+let right = plate.separate_pieces(containing([1.0, 0.0, 0.2]), #{ label: "right" });
+plate.keep_pieces(largest(1));
+right.fillet(edges().straight().direction("z"), 0.05);
+m"#,
+    ),
 ];
 
 #[test]
@@ -142,4 +154,27 @@ fn a_two_body_boolean_records_its_non_manifold_policy() {
         "{}",
         error.render()
     );
+}
+
+#[test]
+fn piece_features_spell_their_rules_and_the_separated_body() {
+    let mut host = ScriptHost::new();
+    let mut m = run(&mut host, SCRIPTS[6].1, "pieces");
+    let emitted = to_rhai(&mut m).expect("emit");
+    assert!(
+        emitted.contains(
+            "let b2 = b0.separate_pieces(containing([1.0, 0.0, 0.2]), #{ label: \"right\" });"
+        ),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("b0 = b0.keep_pieces(largest(1)"),
+        "{emitted}"
+    );
+    assert!(
+        emitted.contains("b2 = b2.fillet("),
+        "the fillet stays on the piece"
+    );
+    let alive = m.bodies().into_iter().filter(|b| b.is_alive(&m)).count();
+    assert_eq!(alive, 2, "the plate and the separated piece");
 }

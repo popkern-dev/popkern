@@ -211,6 +211,8 @@ fn static_param_ids(feature: &Feature) -> Vec<(&'static str, ParameterId)> {
         | Feature::Split { .. }
         | Feature::NaryBoolean { .. }
         | Feature::Imprint { .. }
+        | Feature::KeepPieces { .. }
+        | Feature::SeparatePieces { .. }
         | Feature::Loft { .. }
         | Feature::Reference { .. }
         | Feature::Mirror { .. } => vec![],
@@ -245,6 +247,8 @@ impl Feature {
             Feature::Split { .. } => "split",
             Feature::NaryBoolean { .. } => "nary_boolean",
             Feature::Imprint { .. } => "imprint",
+            Feature::KeepPieces { .. } => "keep_pieces",
+            Feature::SeparatePieces { .. } => "separate_pieces",
             Feature::Shell { .. } => "shell",
             Feature::Generative { .. } => "generative",
             Feature::Transform { .. } => "transform",

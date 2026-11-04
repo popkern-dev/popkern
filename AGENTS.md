@@ -222,7 +222,10 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   When a stage still declines, `nary_boolean` falls back to
   two-operand booleans, logged as a `PartitionFallback` shadow line.
   In the feature tree they are `Feature::Split { tools, keep }`,
-  `NaryBoolean { tools, expr, non_manifold }` and `Imprint`, named by
+  `NaryBoolean { tools, expr, non_manifold }`, `Imprint`, and
+  `KeepPieces` / `SeparatePieces { source, rule }` (whole solids taken
+  out by `popkern_bool::pieces`, names kept; a body made by
+  `SeparatePieces` is chosen over the body its names point to), named by
   `popkern_bool::name_from_operands` (the target's names carry, the
   rest by the operand entities they are pieces of). The shortcut oracle
   `POPKERN_SHORTCUT_ORACLE=1` runs the general path on every touching /

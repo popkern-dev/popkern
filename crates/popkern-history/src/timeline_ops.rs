@@ -57,16 +57,7 @@ impl FeatureTree {
             &mut self.body_manager,
             &self.features,
         );
-        let body = match body {
-            Some(explicit)
-                if depends_on.is_empty()
-                    && !crate::timeline::starts_new_body(&feature)
-                    && self.body_manager.bodies().contains(&explicit) =>
-            {
-                explicit
-            }
-            _ => derived,
-        };
+        let body = self.chosen_body(&feature, &depends_on, body, derived, true);
 
         let node = FeatureNode {
             feature,
@@ -138,6 +129,23 @@ impl FeatureTree {
         feature: Feature,
         label: &str,
     ) -> Result<FeatureId, HistoryError> {
+        self.insert_feature_at_on(index, feature, label, None)
+    }
+
+    /// [`insert_feature_at`](Self::insert_feature_at) on `body` when
+    /// `body` was made by `SeparatePieces`: its entities carry the names
+    /// of the body they were taken from, so the inferred body is wrong.
+    ///
+    /// # Errors
+    ///
+    /// As [`insert_feature_at`](Self::insert_feature_at).
+    pub fn insert_feature_at_on(
+        &mut self,
+        index: usize,
+        feature: Feature,
+        label: &str,
+        body: Option<BodyId>,
+    ) -> Result<FeatureId, HistoryError> {
         if index > self.timeline.len() {
             return Err(HistoryError::InvalidPosition(index));
         }
@@ -161,12 +169,13 @@ impl FeatureTree {
         self.next_op_id += 1;
         let label = &self.mint_feature_label(&feature, label);
 
-        let body = resolve_body(
+        let derived = resolve_body(
             &feature,
             &depends_on,
             &mut self.body_manager,
             &self.features,
         );
+        let body = self.chosen_body(&feature, &depends_on, body, derived, false);
 
         let node = FeatureNode {
             feature,
@@ -214,8 +223,55 @@ impl FeatureTree {
         feature: Feature,
         label: &str,
     ) -> Result<FeatureId, HistoryError> {
+        self.insert_feature_at_rollback_on(feature, label, None)
+    }
+
+    /// [`insert_feature_at_rollback`](Self::insert_feature_at_rollback)
+    /// on `body`, as [`insert_feature_at_on`](Self::insert_feature_at_on).
+    ///
+    /// # Errors
+    ///
+    /// As [`insert_feature_at`](Self::insert_feature_at).
+    pub fn insert_feature_at_rollback_on(
+        &mut self,
+        feature: Feature,
+        label: &str,
+        body: Option<BodyId>,
+    ) -> Result<FeatureId, HistoryError> {
         let index = self.rollback_index.unwrap_or(self.timeline.len());
-        self.insert_feature_at(index, feature, label)
+        self.insert_feature_at_on(index, feature, label, body)
+    }
+
+    /// The body a feature lands on: the caller's `explicit` body when it
+    /// is alive, the feature does not start a body, and either nothing
+    /// the feature references chose a body (`derived`; when appending,
+    /// `unreferenced`) or `explicit` was
+    /// made by `SeparatePieces` — its entities keep the names minted by
+    /// the operations of the body they were taken from, so inferring
+    /// the body from those names finds the source instead.
+    fn chosen_body(
+        &self,
+        feature: &Feature,
+        depends_on: &[FeatureId],
+        explicit: Option<BodyId>,
+        derived: BodyId,
+        unreferenced: bool,
+    ) -> BodyId {
+        let Some(explicit) = explicit else {
+            return derived;
+        };
+        let separated = self
+            .features
+            .values()
+            .any(|n| n.body == explicit && matches!(n.feature, Feature::SeparatePieces { .. }));
+        if ((unreferenced && depends_on.is_empty()) || separated)
+            && !crate::timeline::starts_new_body(feature)
+            && self.body_manager.bodies().contains(&explicit)
+        {
+            explicit
+        } else {
+            derived
+        }
     }
 
     /// Move an existing feature to a new position in the timeline.

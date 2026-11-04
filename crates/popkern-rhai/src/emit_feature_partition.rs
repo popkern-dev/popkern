@@ -85,6 +85,18 @@ pub(super) fn call(
             tool_var(*tool),
             options(vec![label_option(label)])
         ),
+        Feature::KeepPieces { rule } => format!(
+            ".keep_pieces({}{})",
+            piece_rule(rule),
+            options(vec![label_option(label)])
+        ),
+        // A new body, spelled with its receiver: `let b2 = b0.separate_pieces(..)`.
+        Feature::SeparatePieces { source, rule } => format!(
+            "{}.separate_pieces({}{})",
+            tool_var(*source),
+            piece_rule(rule),
+            options(vec![label_option(label)])
+        ),
         _ => return None,
     })
 }

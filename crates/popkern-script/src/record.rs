@@ -29,7 +29,7 @@ pub(crate) fn record_feature(
     // Recording at a rollback bar inserts there (migration `insert_*`).
     let at_bar = tree.rollback_position().is_some();
     let id = if at_bar {
-        tree.insert_feature_at_rollback(feature, label)?
+        tree.insert_feature_at_rollback_on(feature, label, body)?
     } else {
         tree.add_feature_on(feature, label, body)
     };

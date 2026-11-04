@@ -3,8 +3,7 @@
 //! pieces a rule selects, an N-ary boolean, an imprint. Each consumes
 //! its tools and names its result after the target and the tools.
 
-use popkern_bool::{BoolError, BoolOptions, PointClassification};
-use popkern_core::geometry::Point3;
+use popkern_bool::{BoolError, BoolOptions};
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -62,6 +61,7 @@ pub(crate) fn execute_boolean(
     Ok(ExecuteSideEffects {
         consumed_bodies: vec![*tool_body],
         evidence,
+        written_bodies: Vec::new(),
     })
 }
 
@@ -118,6 +118,7 @@ pub(crate) fn execute(
     Ok(ExecuteSideEffects {
         consumed_bodies: tools,
         evidence,
+        written_bodies: Vec::new(),
     })
 }
 
@@ -130,50 +131,11 @@ fn split(
     tolerance: &Tolerance,
 ) -> Result<BRep, ReplayError> {
     let cut = popkern_bool::split(target, tools, *tolerance).map_err(|e| failed("split", &e))?;
-    let count = cut.pieces.len();
-    let kept: Vec<usize> = match keep {
-        PieceRule::All => (0..count).collect(),
-        PieceRule::InsideTools(expr) => (0..count)
-            .filter(|&i| expr.holds(&cut.pieces[i].inside_tools, tools.len()))
-            .collect(),
-        PieceRule::Containing([x, y, z]) => {
-            let p = Point3::new(*x, *y, *z);
-            (0..count)
-                .filter(|&i| {
-                    let body = &cut.pieces[i].body;
-                    let boxes = popkern_bool::adaptive_precision::body_face_aabbs(body);
-                    popkern_bool::adaptive_precision::robust_point_in_solid(
-                        &p, body, &boxes, tolerance,
-                    ) == PointClassification::Inside
-                })
-                .collect()
-        }
-        PieceRule::Largest(n) => {
-            let mut by_volume: Vec<(usize, f64)> = (0..count)
-                .map(|i| {
-                    let v =
-                        popkern_measure::body_volume(&cut.pieces[i].body, tolerance).unwrap_or(0.0);
-                    (i, v)
-                })
-                .collect();
-            // Largest first; equal volumes keep the partition's order.
-            by_volume.sort_by(|a, b| b.1.total_cmp(&a.1));
-            let mut kept: Vec<usize> = by_volume.into_iter().take(*n).map(|(i, _)| i).collect();
-            kept.sort_unstable();
-            kept
-        }
-    };
-    if kept.is_empty() {
-        return Err(ReplayError::FeatureFailed {
-            label: "split".into(),
-            error: FeatureFailure::PieceRuleMatchedNothing {
-                feature: "split".into(),
-                rule: format!("{keep:?}"),
-                pieces: count,
-            }
-            .into(),
-        });
-    }
+    let bodies: Vec<&BRep> = cut.pieces.iter().map(|p| &p.body).collect();
+    let inside: Vec<popkern_bool::BodySet> = cut.pieces.iter().map(|p| p.inside_tools).collect();
+    let membership = Some((inside.as_slice(), tools.len()));
+    let kept = crate::feature_pieces::select_pieces("split", keep, &bodies, membership, tolerance)
+        .map_err(|e| failed_with("split", e))?;
     let mut pieces = cut
         .pieces
         .into_iter()
