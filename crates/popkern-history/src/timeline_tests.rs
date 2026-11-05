@@ -358,6 +358,7 @@ fn sweep_entity_names_extracts_face_and_path() {
         path_edge: entity_name(2),
         twist: dummy_id,
         mode: OperationMode::NewBody,
+        path: None,
     };
     let names = feature_entity_names(&f);
     assert_eq!(names.len(), 2);

@@ -23,6 +23,47 @@ pub fn bishop_frames(
     twist: f64,
     is_closed: bool,
 ) -> Result<FrameSequence, SweepError> {
+    bishop_frames_from(
+        curve,
+        table,
+        BishopSampling {
+            n_samples,
+            twist,
+            is_closed,
+        },
+        None,
+    )
+}
+
+/// How [`bishop_frames_from`] samples the curve.
+#[derive(Debug, Clone, Copy)]
+pub struct BishopSampling {
+    /// Number of intervals (frames are `n_samples + 1`).
+    pub n_samples: usize,
+    /// Total twist over the path (radians).
+    pub twist: f64,
+    /// Correct the holonomy of a closed path.
+    pub is_closed: bool,
+}
+
+/// [`bishop_frames`] starting from `start` (made square to the start
+/// tangent) instead of the seed axis; `None` is [`bishop_frames`].
+///
+/// # Errors
+///
+/// [`SweepError::FrameFailed`] where the tangent vanishes or `start`
+/// lies along it.
+pub fn bishop_frames_from(
+    curve: &NurbsCurve,
+    table: &ArcLengthTable,
+    sampling: BishopSampling,
+    start: Option<Vec3>,
+) -> Result<FrameSequence, SweepError> {
+    let BishopSampling {
+        n_samples,
+        twist,
+        is_closed,
+    } = sampling;
     if n_samples == 0 {
         return Err(SweepError::InvalidPath("n_samples must be > 0".to_string()));
     }
@@ -53,7 +94,18 @@ pub fn bishop_frames(
 
     // Choose initial normal perpendicular to T0.
     let t0 = tangents[0];
-    let initial_normal = pick_perpendicular(t0)?;
+    let initial_normal = match start {
+        None => pick_perpendicular(t0)?,
+        Some(seed) => {
+            let unit = t0.normalized().unwrap_or(t0);
+            (seed - unit * seed.dot(&unit))
+                .normalized()
+                .ok_or_else(|| SweepError::FrameFailed {
+                    t: 0.0,
+                    reason: "the start normal lies along the path's tangent".to_string(),
+                })?
+        }
+    };
     let initial_binormal = t0.cross(&initial_normal);
 
     // Parallel transport using Rodrigues' rotation.

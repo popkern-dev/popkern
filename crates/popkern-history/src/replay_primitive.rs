@@ -36,6 +36,10 @@ use crate::resolve::resolve_param;
 
 #[path = "replay_primitive_polyhedra.rs"]
 mod replay_primitive_polyhedra;
+#[path = "replay_primitive_sheet.rs"]
+mod replay_primitive_sheet;
+#[path = "replay_primitive_wire.rs"]
+mod replay_primitive_wire;
 
 fn invalid(shape: &str, parameter: &str, value: f64, reason: &str) -> ReplayError {
     ReplayError::FeatureFailed {
@@ -62,6 +66,7 @@ pub(super) fn execute(
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
     table: &ParameterTable,
+    bodies: &crate::working_bodies::WorkingBodies,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     let shape = desc.shape.spelling();
     let value = |id: ParameterId| resolve_param(table, id);
@@ -90,6 +95,67 @@ pub(super) fn execute(
         None => None,
     };
     let mut local = match &desc.shape {
+        s @ (PrimitiveShape::SheetRect { .. }
+        | PrimitiveShape::SheetDisc { .. }
+        | PrimitiveShape::SheetPolygon { .. }
+        | PrimitiveShape::SheetFill { .. }) => {
+            let xy = SketchPlane::xy();
+            let mut local = match s {
+                PrimitiveShape::SheetRect { x, y, centred } => {
+                    let (x, y) = (positive("x", *x)?, positive("y", *y)?);
+                    let (x0, y0) = if *centred {
+                        (-x / 2.0, -y / 2.0)
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    let profile = AnalyticProfile::new(ProfileShape::Polygon {
+                        points: vec![[x0, y0], [x0 + x, y0], [x0 + x, y0 + y], [x0, y0 + y]],
+                    });
+                    replay_primitive_sheet::profile_sheet(shape, &profile, xy, *tolerance)?
+                }
+                PrimitiveShape::SheetDisc { radius } => {
+                    let profile = AnalyticProfile::new(ProfileShape::Circle {
+                        radius: positive("radius", *radius)?,
+                    });
+                    replay_primitive_sheet::profile_sheet(shape, &profile, xy, *tolerance)?
+                }
+                PrimitiveShape::SheetPolygon { points } => {
+                    if points.len() < 3 {
+                        return Err(invalid(
+                            shape,
+                            "points",
+                            points.len() as f64,
+                            "needs at least 3 points",
+                        ));
+                    }
+                    let profile = AnalyticProfile::new(ProfileShape::Polygon {
+                        points: points.clone(),
+                    });
+                    replay_primitive_sheet::profile_sheet(shape, &profile, xy, *tolerance)?
+                }
+                PrimitiveShape::SheetFill { edges } => {
+                    // World coordinates: the wire is already placed.
+                    let mut sheet = replay_primitive_sheet::fill(shape, edges, bodies, *tolerance)?;
+                    replay_primitive_sheet::name_sheet(&mut sheet, tracking);
+                    *brep = sheet;
+                    return Ok(ExecuteSideEffects::empty());
+                }
+                _ => return Err(invalid(shape, "shape", 0.0, "not a sheet")),
+            };
+            replay_primitive_sheet::name_sheet(&mut local, tracking);
+            *brep = placed(shape, &local, &desc.frame)?;
+            return Ok(ExecuteSideEffects::empty());
+        }
+        w @ (PrimitiveShape::WirePolyline { .. }
+        | PrimitiveShape::WireArc { .. }
+        | PrimitiveShape::WireCircle { .. }
+        | PrimitiveShape::WireHelix { .. }
+        | PrimitiveShape::WireSpline { .. }) => {
+            let mut local = wire(shape, w, &positive, *tolerance)?;
+            replay_primitive_wire::name_wire(&mut local, tracking);
+            *brep = placed(shape, &local, &desc.frame)?;
+            return Ok(ExecuteSideEffects::empty());
+        }
         PrimitiveShape::Box { x, y, z, centred } => {
             let (x, y, z) = (positive("x", *x)?, positive("y", *y)?, positive("z", *z)?);
             let (x0, y0, z0) = if *centred {
@@ -228,6 +294,46 @@ pub(super) fn execute(
     super::replay_primitive_names::name_by_role(&mut local, tracking, sweep.is_some());
     *brep = placed(shape, &local, &desc.frame)?;
     Ok(ExecuteSideEffects::empty())
+}
+
+/// A wire primitive in its local frame.
+fn wire(
+    shape: &str,
+    desc: &PrimitiveShape,
+    positive: &dyn Fn(&str, ParameterId) -> Result<f64, ReplayError>,
+    tolerance: Tolerance,
+) -> Result<BRep, ReplayError> {
+    match desc {
+        PrimitiveShape::WirePolyline { points, closed } => {
+            replay_primitive_wire::polyline(shape, points, *closed, tolerance)
+        }
+        PrimitiveShape::WireArc { start, via, end } => {
+            replay_primitive_wire::three_point_arc(shape, [*start, *via, *end], tolerance)
+        }
+        PrimitiveShape::WireCircle { radius } => Ok(replay_primitive_wire::circle(
+            positive("radius", *radius)?,
+            tolerance,
+        )),
+        PrimitiveShape::WireHelix {
+            radius,
+            pitch,
+            turns,
+            left_handed,
+        } => {
+            let dims = (
+                positive("radius", *radius)?,
+                positive("pitch", *pitch)?,
+                positive("turns", *turns)?,
+            );
+            replay_primitive_wire::helix(shape, dims, *left_handed, tolerance)
+        }
+        PrimitiveShape::WireSpline {
+            points,
+            degree,
+            control,
+        } => replay_primitive_wire::spline(shape, points, *degree, *control, tolerance),
+        _ => Err(invalid(shape, "shape", 0.0, "not a wire")),
+    }
 }
 
 /// A closed path of the xz section from `start` (x radial, z axial).

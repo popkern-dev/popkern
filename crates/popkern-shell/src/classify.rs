@@ -292,14 +292,55 @@ fn component_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>
             }
         }
 
-        let sense = brep
-            .component_material_sense(seed)
-            .ok_or(ShellError::MaterialSenseUnresolved { face: seed })?;
+        // An open component (a sheet) encloses nothing: a flat one's
+        // wedge integral is zero and its sense cannot be measured. Its
+        // outward side is then its faces' own normals (flag folded),
+        // the convention a sheet stripped from a solid already keeps
+        // (its faces were outward there). A closed component that
+        // cannot be measured still declines.
+        let multiplier = match brep.component_material_sense(seed) {
+            Some(sense) => sense.outward_multiplier(),
+            None if component_is_open(brep, &component) => 1.0,
+            None => return Err(ShellError::MaterialSenseUnresolved { face: seed }),
+        };
         for fh in component {
-            multipliers.insert(fh, sense.outward_multiplier());
+            multipliers.insert(fh, multiplier);
         }
     }
     Ok(multipliers)
+}
+
+/// Whether some face of `component` has a free edge (a sheet's rim:
+/// the edge recorded as boundary, or no face across it).
+fn component_is_open(brep: &BRep, component: &[FaceHandle]) -> bool {
+    component.iter().any(|&fh| {
+        let Some(face) = brep.faces.get(fh) else {
+            return false;
+        };
+        std::iter::once(face.outer_loop)
+            .chain(face.inner_loops.iter().copied())
+            .any(|l| {
+                let Some(loop_) = brep.loops.get(l) else {
+                    return false;
+                };
+                let start = loop_.half_edge;
+                let mut he = start;
+                while let Some(h) = brep.half_edges.get(he) {
+                    let across = brep
+                        .half_edges
+                        .get(h.twin)
+                        .and_then(|t| brep.loops.get(t.loop_));
+                    if across.is_none() || brep.boundary_edges.contains(&h.edge) {
+                        return true;
+                    }
+                    he = h.next;
+                    if he == start {
+                        break;
+                    }
+                }
+                false
+            })
+    })
 }
 
 #[cfg(test)]

@@ -230,6 +230,9 @@ pub enum Feature {
         /// Whether to create a new body, boss, or cut.
         #[serde(default)]
         mode: OperationMode,
+        /// More path edges and the corner treatment (one edge: none).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<crate::feature_sweep_path::SweepPath>,
     },
     /// Loft through multiple cross-section faces.
     Loft {
@@ -279,8 +282,10 @@ pub enum Feature {
         #[serde(default)]
         mode: OperationMode,
     },
-    /// A box, cylinder, cone, sphere or torus by its dimensions,
-    /// placed by a frame (new body; PK-1083).
+    /// A primitive solid (box, cylinder, cone, sphere, prism, pyramid,
+    /// wedge, torus) or wire (line, polyline, arc, circle, helix,
+    /// spline) by its dimensions, placed by a frame (new body;
+    /// PK-1083).
     Primitive(crate::feature_primitive::PrimitiveDesc),
     /// A generated fastener body with a real modeled thread
     /// (PK-460): bolt/screw/rod/nut, built in the insertion frame

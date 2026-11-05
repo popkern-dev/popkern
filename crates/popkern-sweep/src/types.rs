@@ -108,6 +108,10 @@ impl Default for SweepOptions {
 pub enum FrameMethod {
     /// Rotation-minimizing (Bishop) frame.
     Bishop,
+    /// Rotation-minimizing frame whose start normal is the given
+    /// direction (made square to the start tangent): a path of several
+    /// edges carries one frame across its corners this way.
+    BishopFrom(Vec3),
     /// Frenet-Serret frame (T, N, B from curvature).
     Frenet,
     /// Fixed up-direction projected onto the normal plane.

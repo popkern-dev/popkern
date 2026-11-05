@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_history::config::ParamOverride;
-use popkern_history::feature::{ExtrudeEnd, Feature, OperationMode};
+use popkern_history::feature::{Feature, OperationMode};
 use popkern_history::node::BodyId;
 use popkern_history::parameter::ParamScope;
 use popkern_script::Model;
@@ -53,6 +53,9 @@ impl EmitError {
 fn var(body: BodyId) -> String {
     format!("b{}", body.0)
 }
+
+#[path = "emit_other_body.rs"]
+mod emit_other_body;
 
 struct Emitter {
     out: String,
@@ -199,21 +202,7 @@ impl Emitter {
                 node.body,
                 !node.selections.is_empty(),
             );
-            // An extrude up to (or offset from) another body's face:
-            // that body is named in the end, and the face's selection
-            // is checked against it.
-            let end_owner = match &node.feature {
-                Feature::Extrude {
-                    end_condition:
-                        ExtrudeEnd::UpToSurface { face } | ExtrudeEnd::OffsetFromSurface { face, .. },
-                    ..
-                }
-                | Feature::Revolve {
-                    end_condition: popkern_history::feature::RevolveEnd::UpToSurface { face },
-                    ..
-                } => Self::owner_before(model, face.operation, index).filter(|o| *o != body),
-                _ => None,
-            };
+            let end_owner = Self::other_body(&*model, &node.feature, index, body);
             let before = if has_selections {
                 model
                     .body_before(index, body)
@@ -227,7 +216,7 @@ impl Emitter {
                         return Err(EmitError::not_applicable(
                             &label,
                             op,
-                            "the end face belongs to a body the script has not created",
+                            "the end face or path belongs to a body the script has not created",
                         ));
                     }
                     model
@@ -243,7 +232,7 @@ impl Emitter {
             })?;
             let spell = |role: &str, names: &[EntityName], faces: bool| {
                 let on = match (role, &end_before) {
-                    ("end_face", Some(owner)) => Some(owner),
+                    ("end_face" | "path_edge" | "fill_edges", Some(owner)) => Some(owner),
                     _ => before.as_ref(),
                 };
                 verified_selection(model, node, on, role, names, faces)
