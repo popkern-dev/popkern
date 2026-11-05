@@ -59,24 +59,30 @@ impl ScriptBody {
         end: ScriptEnd,
         options: &Dynamic,
     ) -> Result<ScriptBody, Box<EvalAltResult>> {
-        let options = Options::parse("revolve", options, LABEL_ONLY)?;
+        let options = Options::parse("revolve", options, EXTRUDE_OPTIONS)?;
         let end = match end {
             ScriptEnd::FullCircle => RevolveEnd::FullCircle,
             ScriptEnd::Extrude(End::Blind(angle)) => RevolveEnd::Blind(angle),
             ScriptEnd::Extrude(End::MidPlane(half)) => RevolveEnd::MidPlane(half),
+            ScriptEnd::Extrude(End::UpToSurface(sel)) => RevolveEnd::UpToSurface(sel),
+            ScriptEnd::Extrude(End::UpToSurfaceOn(on, sel)) => RevolveEnd::UpToSurfaceOn(on, sel),
             ScriptEnd::Extrude(_) => {
                 return Err(argument_error(
                     "end",
-                    "revolve ends are blind(angle), mid_plane(half_angle) or full_circle()",
+                    "revolve ends are blind(angle), mid_plane(half_angle), full_circle() or up_to_surface([body,] faces)",
                 ));
             }
         };
+        let mode = options
+            .with("mode", args::mode)?
+            .unwrap_or(popkern_history::feature::OperationMode::NewBody);
         let body = self
             .body
-            .revolve_with(
+            .revolve_as(
                 &mut self.model.borrow_mut(),
                 axis.spec(),
                 end,
+                mode,
                 &options.label()?,
             )
             .script()?;

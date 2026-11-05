@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_history::config::ParamOverride;
-use popkern_history::feature::{Feature, OperationMode};
+use popkern_history::feature::{ExtrudeEnd, Feature, OperationMode};
 use popkern_history::node::BodyId;
 use popkern_history::parameter::ParamScope;
 use popkern_script::Model;
@@ -58,6 +58,9 @@ struct Emitter {
     out: String,
     declared: BTreeSet<u32>,
     active: Option<BodyId>,
+    /// Entity labels already declared (right after the feature that
+    /// mints their entity, so a later selection can cite them).
+    labelled: BTreeSet<String>,
 }
 
 impl Emitter {
@@ -191,6 +194,21 @@ impl Emitter {
                 node.body,
                 !node.selections.is_empty(),
             );
+            // An extrude up to (or offset from) another body's face:
+            // that body is named in the end, and the face's selection
+            // is checked against it.
+            let end_owner = match &node.feature {
+                Feature::Extrude {
+                    end_condition:
+                        ExtrudeEnd::UpToSurface { face } | ExtrudeEnd::OffsetFromSurface { face, .. },
+                    ..
+                }
+                | Feature::Revolve {
+                    end_condition: popkern_history::feature::RevolveEnd::UpToSurface { face },
+                    ..
+                } => Self::owner_before(model, face.operation, index).filter(|o| *o != body),
+                _ => None,
+            };
             let before = if has_selections {
                 model
                     .body_before(index, body)
@@ -198,17 +216,40 @@ impl Emitter {
             } else {
                 None
             };
+            let end_before = match end_owner {
+                Some(owner) => {
+                    if !self.declared.contains(&owner.0) {
+                        return Err(EmitError::not_applicable(
+                            &label,
+                            op,
+                            "the end face belongs to a body the script has not created",
+                        ));
+                    }
+                    model
+                        .body_before(index, owner)
+                        .map_err(|e| EmitError::not_applicable(&label, op, e.to_string()))?
+                }
+                None => None,
+            };
             let model: &Model = &*model;
             let tree = model.tree();
             let node = tree.feature(*id).ok_or_else(|| {
                 EmitError::not_applicable("timeline", "feature", "feature vanished during emission")
             })?;
             let spell = |role: &str, names: &[EntityName], faces: bool| {
-                verified_selection(model, node, before.as_ref(), role, names, faces)
+                let on = match (role, &end_before) {
+                    ("end_face", Some(owner)) => Some(owner),
+                    _ => before.as_ref(),
+                };
+                verified_selection(model, node, on, role, names, faces)
             };
-            let stmt = statement(model, node, &var, &spell)?;
+            let stmt = statement(model, node, &var, end_owner, &spell)?;
             let served = match &node.feature {
                 Feature::Extrude {
+                    mode: OperationMode::Boss | OperationMode::Cut,
+                    ..
+                }
+                | Feature::Revolve {
                     mode: OperationMode::Boss | OperationMode::Cut,
                     ..
                 } => tree.merge_host(*id).unwrap_or(node.body),
@@ -238,6 +279,7 @@ impl Emitter {
             if node.suppressed {
                 self.line(&format!("m.feature({}).suppress();", quoted(&node.label)));
             }
+            self.entity_labels(model, Some(node.operation_id))?;
         }
         Ok(())
     }
@@ -254,7 +296,20 @@ impl Emitter {
             }
             self.line(&format!("m.label_body({}, {});", quoted(label), var(*body)));
         }
-        for (label, entity) in &tree.labels().entities {
+        self.entity_labels(model, None)
+    }
+
+    /// Declare the entity labels whose entity `operation` minted (every
+    /// one not yet declared, for `None`).
+    fn entity_labels(
+        &mut self,
+        model: &Model,
+        operation: Option<popkern_core::naming::OperationId>,
+    ) -> Result<(), EmitError> {
+        for (label, entity) in &model.tree().labels().entities {
+            if operation.is_some_and(|op| entity.operation != op) || self.labelled.contains(label) {
+                continue;
+            }
             let spelled = model
                 .spell_entity(entity)
                 .map_err(|e| EmitError::not_applicable(label, "label", e.to_string()))?;
@@ -263,6 +318,7 @@ impl Emitter {
                 quoted(label),
                 quoted(&spelled)
             ));
+            self.labelled.insert(label.clone());
         }
         Ok(())
     }
@@ -395,6 +451,7 @@ pub fn to_rhai(model: &mut Model) -> Result<String, EmitError> {
         out: String::new(),
         declared: BTreeSet::new(),
         active: None,
+        labelled: BTreeSet::new(),
     };
     emitter.header(model);
     emitter.globals(model)?;

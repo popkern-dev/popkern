@@ -226,6 +226,7 @@ pub(crate) fn try_execute_exact(
     face: &EntityName,
     direction: Option<&Vec3Desc>,
     end_condition: &crate::feature::ExtrudeEnd,
+    mode: crate::feature::OperationMode,
     draft_angle: Option<&ParameterId>,
     second_direction: Option<&ExtrudeSecondDir>,
     host_brep: Option<&BRep>,
@@ -256,12 +257,14 @@ pub(crate) fn try_execute_exact(
     } else {
         -exact.plane.normal
     };
-    let dist = crate::resolve::resolve_extrude_distance(
+    let dist = crate::extrude_conform::primary_end_distance(
         end_condition,
+        mode,
+        brep,
+        face_handle,
         centroid,
         dir,
         host_brep,
-        brep,
         param_table,
         tolerance,
     )?;

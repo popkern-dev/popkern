@@ -344,6 +344,19 @@ pub fn register(engine: &mut Engine) {
         .register_fn("up_to_surface", |sel: FaceSelector| {
             ScriptEnd::Extrude(End::UpToSurface(sel))
         })
+        .register_fn("up_to_surface", |on: ScriptBody, sel: FaceSelector| {
+            ScriptEnd::Extrude(End::UpToSurfaceOn(on.body, sel))
+        })
+        .register_fn(
+            "offset_from_surface",
+            |on: ScriptBody, sel: FaceSelector, d: Dynamic| {
+                Ok::<_, Box<EvalAltResult>>(ScriptEnd::Extrude(End::OffsetFromSurfaceOn(
+                    on.body,
+                    sel,
+                    args::scalar("distance", &d)?,
+                )))
+            },
+        )
         .register_fn("offset_from_surface", |sel: FaceSelector, d: Dynamic| {
             Ok::<_, Box<EvalAltResult>>(ScriptEnd::Extrude(End::OffsetFromSurface(
                 sel,

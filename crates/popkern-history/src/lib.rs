@@ -33,6 +33,7 @@ mod document;
 pub mod document_state;
 pub mod error;
 pub mod expression;
+pub(crate) mod extrude_conform;
 pub mod failure;
 pub mod failure_blend;
 pub mod feature;
