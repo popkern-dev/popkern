@@ -143,7 +143,10 @@ fn larger_sphere_cuts_two_exact_circles() {
 }
 
 #[test]
-fn off_axis_pairs_keep_the_marching_path() {
+fn off_axis_pairs_keep_the_marching_path_near_the_poles() {
+    // A rod along the sphere's pole axis, 0.1 off it: its loops sweep
+    // the chart's longitude round the poles, the marching path's to
+    // trace (the ruling scan declines there).
     let cyl = z_cylinder(0.6);
     let off = sphere(Point3::new(0.1, 0.0, 0.5), 1.0);
     assert!(
