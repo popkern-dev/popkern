@@ -33,6 +33,7 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Revolve { mode, .. } => *mode,
         Feature::Sketch { .. }
         | Feature::Fastener { .. }
+        | Feature::Primitive(_)
         | Feature::Hinge { .. }
         | Feature::SeamHinge { .. }
         | Feature::LivingHinge { .. }

@@ -279,6 +279,9 @@ pub enum Feature {
         #[serde(default)]
         mode: OperationMode,
     },
+    /// A box, cylinder, cone, sphere or torus by its dimensions,
+    /// placed by a frame (new body; PK-1083).
+    Primitive(crate::feature_primitive::PrimitiveDesc),
     /// A generated fastener body with a real modeled thread
     /// (PK-460): bolt/screw/rod/nut, built in the insertion frame
     /// (axis +Z, origin at the bearing plane). Always a new body.

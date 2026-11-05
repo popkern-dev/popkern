@@ -136,6 +136,7 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
         Feature::Loft { sections, .. } => sections.iter().collect(),
         Feature::Pipe { path_edge, .. } => vec![path_edge],
         Feature::Fastener { .. }
+        | Feature::Primitive(_)
         | Feature::Hinge { .. }
         | Feature::SeamHinge { .. }
         | Feature::LivingHinge { .. } => Vec::new(),
@@ -256,6 +257,7 @@ pub(crate) fn starts_new_body(feature: &Feature) -> bool {
             | Feature::RawBody { .. }
             | Feature::Pipe { .. }
             | Feature::Fastener { .. }
+            | Feature::Primitive(_)
             | Feature::Hinge { .. }
             | Feature::SeamHinge {
                 component: crate::feature_hinge::HingeComponentDesc::Pin,

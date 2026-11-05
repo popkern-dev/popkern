@@ -226,9 +226,12 @@ pub fn plane(
             spell("plane", std::slice::from_ref(face), true)?,
             scalar(tree, *distance, context)?
         ),
-        SketchPlaneDesc::Custom { origin, normal } => {
-            format!("plane_at({}, {})", vec3(*origin), vec3(*normal))
-        }
+        // The origin is recorded in SI; the script reads the model's unit.
+        SketchPlaneDesc::Custom { origin, normal } => format!(
+            "plane_at({}, {})",
+            vec3(origin.map(|c| model.length_unit().from_si(c))),
+            vec3(*normal)
+        ),
     })
 }
 

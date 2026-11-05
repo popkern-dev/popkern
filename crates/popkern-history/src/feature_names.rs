@@ -107,6 +107,7 @@ pub(crate) fn for_each_entity_name_mut(feature: &mut Feature, f: &mut dyn FnMut(
             f(path_edge);
         }
         Feature::Fastener { .. }
+        | Feature::Primitive(_)
         | Feature::Hinge { .. }
         | Feature::SeamHinge { .. }
         | Feature::LivingHinge { .. } => {}

@@ -266,6 +266,28 @@ m.assert_watertight();
 m
 ```
 
+### Primitives
+
+A primitive starts a new body from its dimensions, every one a parameter:
+
+| Verb | Dimensions | Options | Notes |
+|---|---|---|---|
+| `m.box(x, y, z)` | sizes along the local x, y, z | `label`, `at`, `axis`, `ref`, `centred` | a corner on the origin, or `centred: true` |
+| `m.cylinder(r, h)` | radius, height | `label`, `at`, `axis`, `ref` | stands on the origin along the axis |
+| `m.cone(r1, r2, h)` | base radius, top radius, height | `label`, `at`, `axis`, `ref` | a frustum; either radius may be 0 |
+| `m.sphere(r)` | radius | `label`, `at`, `axis`, `ref`, `lat` | `lat: [lo, hi]` degrees keeps the zone between two latitudes |
+| `m.torus(major, minor)` | axis to tube centre, tube radius | `label`, `at`, `axis`, `ref`, `angle` | `angle` degrees keeps a sector from `ref` |
+
+`at` is the local origin (model unit), `axis` the local z and `ref` the local x (made square to the axis); the default is the world frame. Faces are named by role under the feature's label: `Cap/0` the bottom, `Cap/1` the top (a sphere zone's caps too), `Cap/2` and `Cap/3` a torus sector's start and end, `Lateral/i` the rest round the axis.
+
+```rhai
+let m = model();
+let post = m.cylinder(2.0, 5.0, #{ at: [10.0, 0.0, 0.0], label: "post" });
+post = post.shell(faces().named("post/Cap/1"), 0.5);   // open at the top
+let ring = m.torus(5.0, 1.0, #{ angle: 90.0 });
+m
+```
+
 ## 6. Selecting edges and faces
 
 Queries are data: `edges()` or `faces()` followed by predicates, all
@@ -769,6 +791,7 @@ body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
 body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
 body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
 m.loft([s0, s1, …], #{label, mode, closed})
+m.box(x, y, z, #{centred}) m.cylinder(r, h) m.cone(r1, r2, h) m.sphere(r, #{lat}) m.torus(R, r, #{angle})   #{at, axis, ref, label}
 m.bolt(SPEC, len, #{label, head, thread_length, left_hand, starts})   m.threaded_rod(SPEC, len, #{…})
 m.hinge("butt"|"print_in_place", len, #{knuckles, pin, clearance, gap, angle, screw, holes, only})   m.living_hinge(STYLE, span, len)
 m.nut(SPEC, #{label, clearance, thickness, left_hand, starts, corner_chamfer, mouth_chamfer})

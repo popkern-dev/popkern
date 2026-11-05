@@ -119,6 +119,7 @@ pub(super) fn fastener_statement(
 /// The body-chained `.tapped_hole(..)` / `.clearance_hole(..)` call.
 pub(super) fn hole_call(
     tree: &FeatureTree,
+    unit: popkern_history::unit::Unit,
     context: &str,
     label: &str,
     spell: Speller<'_>,
@@ -149,7 +150,7 @@ pub(super) fn hole_call(
             pairs.push(label_option(label));
             Ok(format!(
                 ".tapped_hole({}, {spec}, {depth}{})",
-                axis(spell, a)?,
+                axis(spell, a, unit)?,
                 options(pairs)
             ))
         }
@@ -188,7 +189,7 @@ pub(super) fn hole_call(
             pairs.push(label_option(label));
             Ok(format!(
                 ".clearance_hole({}, {spec}, {depth}{})",
-                axis(spell, a)?,
+                axis(spell, a, unit)?,
                 options(pairs)
             ))
         }
