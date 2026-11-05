@@ -48,6 +48,7 @@ pub(crate) mod feature_names;
 mod feature_params;
 mod feature_pieces;
 mod feature_plane;
+pub mod feature_primitive;
 mod feature_shell_kinds;
 pub mod feature_sketch;
 pub mod feature_snapshot;

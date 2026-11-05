@@ -7,19 +7,14 @@ use popkern_history::feature::{
     AxisDesc, BoolOpKind, Feature, JoinStyleKind, NonManifoldPolicy, OperationMode,
     RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind,
 };
-use popkern_history::feature_blend::{
-    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerConstructionDesc,
-    CornerModeDesc, FilletRadiusLaw, FilletRecipeDesc, InterferencePolicyKind,
-};
+use popkern_history::feature_blend::ChamferKindDesc;
 use popkern_history::feature_sketch::SketchPayload;
 use popkern_history::feature_transform::RigidMotionDesc;
 use popkern_history::node::FeatureNode;
 use popkern_script::Model;
 
 use crate::emit::EmitError;
-use crate::emit_spelling::{
-    Speller, float, label_option, options, plane, quoted, scalar, shape, vec3,
-};
+use crate::emit_spelling::{Speller, label_option, options, plane, quoted, scalar, shape, vec3};
 
 #[path = "emit_feature_fastener.rs"]
 mod emit_feature_fastener;
@@ -27,6 +22,8 @@ mod emit_feature_fastener;
 mod emit_feature_generative;
 #[path = "emit_feature_hinge.rs"]
 mod emit_feature_hinge;
+#[path = "emit_feature_primitive.rs"]
+mod emit_feature_primitive;
 
 /// The receiver expression and the statement's right-hand side for a
 /// feature, plus whether the served body is a new one.
@@ -35,74 +32,6 @@ pub struct Statement {
     pub call: String,
     /// `true` when the call starts a body (`m.profile(..)...sketch(..)`).
     pub starts_body: bool,
-}
-
-fn fillet_options(
-    model: &Model,
-    recipe: &FilletRecipeDesc,
-    label: &str,
-    context: &str,
-    spell: Speller<'_>,
-) -> Result<String, EmitError> {
-    let tree = model.tree();
-    let mut pairs = vec![label_option(label)];
-    match recipe.continuity {
-        ContinuityKind::G1 => {}
-        ContinuityKind::G0 => pairs.push(("continuity", quoted("g0"))),
-        ContinuityKind::G2 => pairs.push(("continuity", quoted("g2"))),
-    }
-    match recipe.cap {
-        CapKindDesc::Open => {}
-        CapKindDesc::Flat => pairs.push(("cap", quoted("flat"))),
-        CapKindDesc::Rounded => pairs.push(("cap", quoted("rounded"))),
-        CapKindDesc::TangentMatch => pairs.push(("cap", quoted("tangent_match"))),
-    }
-    match recipe.profile {
-        BlendProfileKind::Circular => {}
-        BlendProfileKind::Conic { rho } => {
-            pairs.push(("profile", format!("conic({})", float(rho))))
-        }
-        BlendProfileKind::CurvatureContinuous => {
-            pairs.push(("profile", quoted("curvature_continuous")))
-        }
-    }
-    if recipe.interference == InterferencePolicyKind::ServeNonInterfering {
-        pairs.push(("interference", quoted("serve_non_interfering")));
-    }
-    if recipe.corner == CornerModeDesc::Mitre {
-        pairs.push(("corner", quoted("mitre")));
-    }
-    match recipe.corner_cap.construction {
-        CornerConstructionDesc::Auto => {}
-        CornerConstructionDesc::Setback => pairs.push(("corner_cap", quoted("setback"))),
-        CornerConstructionDesc::Fitted => pairs.push(("corner_cap", quoted("fitted"))),
-        CornerConstructionDesc::Classic => pairs.push(("corner_cap", quoted("classic"))),
-        CornerConstructionDesc::RollingBall => pairs.push(("corner_cap", quoted("rolling_ball"))),
-    }
-    if recipe.corner_cap.strict {
-        pairs.push(("corner_cap_strict", "true".to_string()));
-    }
-    pairs.extend(emit_feature_groups::setback_pairs(recipe, spell)?);
-    match &recipe.radius_law {
-        FilletRadiusLaw::Constant => {}
-        FilletRadiusLaw::Linear { end } => {
-            pairs.push(("law", format!("linear({})", scalar(tree, *end, context)?)))
-        }
-        FilletRadiusLaw::ByStations(stations) => {
-            let items: Vec<String> = stations
-                .iter()
-                .map(|s| {
-                    Ok(format!(
-                        "[{}, {}]",
-                        float(s.t),
-                        scalar(tree, s.radius, context)?
-                    ))
-                })
-                .collect::<Result<_, EmitError>>()?;
-            pairs.push(("law", format!("by_stations([{}])", items.join(", "))));
-        }
-    }
-    Ok(options(pairs))
 }
 
 /// The body owning the feature that minted `operation` (loft sections
@@ -118,11 +47,18 @@ fn body_of_operation(
         .map(|n| n.body)
 }
 
-pub(super) fn axis(spell: Speller<'_>, axis: &AxisDesc) -> Result<String, EmitError> {
+/// An axis; a literal origin is recorded in SI and spelled in `unit`.
+pub(super) fn axis(
+    spell: Speller<'_>,
+    axis: &AxisDesc,
+    unit: popkern_history::unit::Unit,
+) -> Result<String, EmitError> {
     Ok(match axis {
-        AxisDesc::Literal { origin, direction } => {
-            format!("axis_at({}, {})", vec3(*origin), vec3(*direction))
-        }
+        AxisDesc::Literal { origin, direction } => format!(
+            "axis_at({}, {})",
+            vec3(origin.map(|c| unit.from_si(c))),
+            vec3(*direction)
+        ),
         AxisDesc::Edge(edge) => {
             format!(
                 "axis({})",
@@ -232,7 +168,12 @@ pub fn statement(
                     spell("end_face", std::slice::from_ref(face), true)?
                 ),
             };
-            format!(".revolve({}, {}{})", axis(spell, a)?, end, options(pairs))
+            format!(
+                ".revolve({}, {}{})",
+                axis(spell, a, model.length_unit())?,
+                end,
+                options(pairs)
+            )
         }
         Feature::Sweep { mode, .. } => {
             if !matches!(mode, OperationMode::NewBody) {
@@ -327,7 +268,7 @@ pub fn statement(
             pairs.push(label_option(label));
             format!(
                 ".helical_sweep({}, {}, {}, {}{})",
-                axis(spell, a)?,
+                axis(spell, a, model.length_unit())?,
                 r,
                 scalar(tree, *pitch, context)?,
                 scalar(tree, *turns, context)?,
@@ -336,6 +277,15 @@ pub fn statement(
         }
         Feature::Fastener { .. } => {
             return emit_feature_fastener::fastener_statement(tree, context, label, &node.feature);
+        }
+        Feature::Primitive(desc) => {
+            return emit_feature_primitive::primitive_statement(
+                tree,
+                model.length_unit(),
+                context,
+                label,
+                desc,
+            );
         }
         Feature::Generative { spec } => {
             emit_feature_generative::generative_call(tree, context, label, spell, spec)?
@@ -350,7 +300,14 @@ pub fn statement(
             }
         }
         Feature::TappedHole { .. } | Feature::ClearanceHole { .. } => {
-            emit_feature_fastener::hole_call(tree, context, label, spell, &node.feature)?
+            emit_feature_fastener::hole_call(
+                tree,
+                model.length_unit(),
+                context,
+                label,
+                spell,
+                &node.feature,
+            )?
         }
         Feature::Fillet {
             edges,
@@ -367,7 +324,7 @@ pub fn statement(
             ".fillet({}, {}{})",
             spell("edges", edges, false)?,
             scalar(tree, *radius, context)?,
-            fillet_options(model, recipe, label, context, spell)?
+            emit_feature_groups::fillet_options(model, recipe, label, context, spell)?
         ),
         Feature::Chamfer {
             edges,
@@ -453,7 +410,7 @@ pub fn statement(
             ),
             RigidMotionDesc::Rotate { axis: a, angle } => format!(
                 ".rotate({}, {}{})",
-                axis(spell, a)?,
+                axis(spell, a, model.length_unit())?,
                 scalar(tree, *angle, context)?,
                 options(vec![label_option(label)])
             ),

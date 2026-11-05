@@ -860,6 +860,42 @@
       ]
     },
     {
+      "name": "box",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.box(x, y, z, centred?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "x",
+          "optional": false
+        },
+        {
+          "name": "y",
+          "optional": false
+        },
+        {
+          "name": "z",
+          "optional": false
+        },
+        {
+          "name": "centred",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "chamfer",
       "section": "5",
       "mark": "stable",
@@ -952,6 +988,38 @@
       ]
     },
     {
+      "name": "cone",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.cone(r1, r2, h, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r1",
+          "optional": false
+        },
+        {
+          "name": "r2",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "curve_pattern",
       "section": "5",
       "mark": "preview",
@@ -983,6 +1051,34 @@
         },
         {
           "name": "overrides",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "cylinder",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.cylinder(r, h, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
           "optional": true
         }
       ]
@@ -1691,6 +1787,34 @@
       ]
     },
     {
+      "name": "sphere",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.sphere(r, lat?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "lat",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "split",
       "section": "5",
       "mark": "preview",
@@ -1833,6 +1957,38 @@
         },
         {
           "name": "starts",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "torus",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.torus(major, minor, angle?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "major",
+          "optional": false
+        },
+        {
+          "name": "minor",
+          "optional": false
+        },
+        {
+          "name": "angle",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
           "optional": true
         }
       ]

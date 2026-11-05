@@ -23,6 +23,10 @@ pub(crate) mod replay_fns;
 mod replay_generative;
 #[path = "replay_hinge.rs"]
 mod replay_hinge;
+#[path = "replay_primitive.rs"]
+mod replay_primitive;
+#[path = "replay_primitive_names.rs"]
+mod replay_primitive_names;
 #[path = "replay_sweep.rs"]
 mod replay_sweep;
 use replay_fns::{
@@ -382,6 +386,9 @@ pub(crate) fn execute_feature(
             param_table,
             exact_profile,
         ),
+        Feature::Primitive(p) => {
+            replay_primitive::execute(brep, p, tracking, tolerance, param_table)
+        }
         f @ (Feature::Fastener { .. }
         | Feature::TappedHole { .. }
         | Feature::ClearanceHole { .. }) => {

@@ -69,14 +69,19 @@ impl Emitter {
         self.out.push('\n');
     }
 
+    /// The document's unit (literal lengths are spelled in it) and its
+    /// tolerance, as `model()` takes it: the metre model's tolerance,
+    /// which the unit scales.
     fn header(&mut self, model: &Model) {
-        let tolerance = model.tolerance();
-        if tolerance.linear() == Tolerance::default().linear() {
-            self.line("let m = model(#{ unit: \"m\" });");
+        let unit = model.length_unit();
+        let tolerance = model.tolerance().linear() / unit.to_si(1.0);
+        let name = unit_name(unit);
+        if (tolerance - Tolerance::default().linear()).abs() <= 1e-12 * tolerance {
+            self.line(&format!("let m = model(#{{ unit: \"{name}\" }});"));
         } else {
             self.line(&format!(
-                "let m = model(#{{ unit: \"m\", tolerance: {} }});",
-                float(tolerance.linear())
+                "let m = model(#{{ unit: \"{name}\", tolerance: {} }});",
+                float(tolerance)
             ));
         }
     }

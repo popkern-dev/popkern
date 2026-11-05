@@ -182,6 +182,23 @@ print(h.leaf_a.is_alive() &amp;&amp; h.leaf_b.is_alive() &amp;&amp; h.pin.is_ali
 m.assert_watertight();
 m
 </code></pre>
+<h3>Primitives</h3>
+<p>A primitive starts a new body from its dimensions, every one a parameter:</p>
+<table>
+<tr><th>Verb</th><th>Dimensions</th><th>Options</th><th>Notes</th></tr>
+<tr><td><code>m.box(x, y, z)</code></td><td>sizes along the local x, y, z</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>centred</code></td><td>a corner on the origin, or <code>centred: true</code></td></tr>
+<tr><td><code>m.cylinder(r, h)</code></td><td>radius, height</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code></td><td>stands on the origin along the axis</td></tr>
+<tr><td><code>m.cone(r1, r2, h)</code></td><td>base radius, top radius, height</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code></td><td>a frustum; either radius may be 0</td></tr>
+<tr><td><code>m.sphere(r)</code></td><td>radius</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>lat</code></td><td><code>lat: [lo, hi]</code> degrees keeps the zone between two latitudes</td></tr>
+<tr><td><code>m.torus(major, minor)</code></td><td>axis to tube centre, tube radius</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>angle</code></td><td><code>angle</code> degrees keeps a sector from <code>ref</code></td></tr>
+</table>
+<p><code>at</code> is the local origin (model unit), <code>axis</code> the local z and <code>ref</code> the local x (made square to the axis); the default is the world frame. Faces are named by role under the feature's label: <code>Cap/0</code> the bottom, <code>Cap/1</code> the top (a sphere zone's caps too), <code>Cap/2</code> and <code>Cap/3</code> a torus sector's start and end, <code>Lateral/i</code> the rest round the axis.</p>
+<pre class="lang-rhai"><code>let m = model();
+let post = m.cylinder(2.0, 5.0, #{ at: [10.0, 0.0, 0.0], label: "post" });
+post = post.shell(faces().named("post/Cap/1"), 0.5);   // open at the top
+let ring = m.torus(5.0, 1.0, #{ angle: 90.0 });
+m
+</code></pre>
 <h2>6. Selecting edges and faces</h2>
 <p>Queries are data: <code>edges()</code> or <code>faces()</code> followed by predicates, all of which must hold; <code>.or(...)</code> joins whole queries (edges and faces alike); <code>.allow_empty()</code> turns "matched nothing" from an error into a recorded no-op. A query that must name exactly one entity (a <code>label_edge</code>, an <code>on_face</code> plane, a chamfer's reference face) raises <code>SelectionCardinality</code> when it matches more.</p>
 <table>
@@ -489,6 +506,7 @@ body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
 body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
 body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
 m.loft([s0, s1, …], #{label, mode, closed})
+m.box(x, y, z, #{centred}) m.cylinder(r, h) m.cone(r1, r2, h) m.sphere(r, #{lat}) m.torus(R, r, #{angle})   #{at, axis, ref, label}
 m.bolt(SPEC, len, #{label, head, thread_length, left_hand, starts})   m.threaded_rod(SPEC, len, #{…})
 m.hinge("butt"|"print_in_place", len, #{knuckles, pin, clearance, gap, angle, screw, holes, only})   m.living_hinge(STYLE, span, len)
 m.nut(SPEC, #{label, clearance, thickness, left_hand, starts, corner_chamfer, mouth_chamfer})

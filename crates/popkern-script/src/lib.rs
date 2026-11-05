@@ -33,6 +33,7 @@ pub mod error_payload;
 pub mod feature_edit;
 pub mod migration;
 pub mod model;
+pub mod model_primitive;
 mod model_units;
 pub mod params;
 pub mod plane;
@@ -56,6 +57,7 @@ pub use error_payload::surface_parameter;
 pub use feature_edit::Edit;
 pub use migration::ParamInfo;
 pub use model::{FeatureHandle, Model};
+pub use model_primitive::Placement;
 pub use params::ConfigInfo;
 pub use plane::Plane;
 pub use popkern_history::deferred_certification::{
