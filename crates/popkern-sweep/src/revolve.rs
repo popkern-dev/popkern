@@ -185,26 +185,32 @@ pub(crate) fn revolve_impl(
         })
     };
     let dropped = spans.iter().filter(|s| on_axis(s)).count();
+    // A partial revolution keeps the axis run as the edge its two caps
+    // share (a sector): the line from the last pole back to the first.
+    let mut axis_run: Option<NurbsCurve> = None;
     if dropped > 0 {
-        if !is_full_revolution {
-            return Err(SweepError::InvalidProfile(
-                "a profile span on the axis is only supported for full revolutions".into(),
-            ));
-        }
         // Rotate the chain so it starts right after a dropped span,
         // then keep the off-axis spans in order (pole to pole).
         let n = spans.len();
         let first_off = (0..n)
             .find(|&i| on_axis(&spans[(i + n - 1) % n]) && !on_axis(&spans[i]))
             .unwrap_or(0);
-        spans = (0..n)
-            .map(|k| spans[(first_off + k) % n].clone())
-            .filter(|s| !on_axis(s))
-            .collect();
+        let chain: Vec<NurbsCurve> = (0..n).map(|k| spans[(first_off + k) % n].clone()).collect();
+        spans = chain.iter().filter(|s| !on_axis(s)).cloned().collect();
         if spans.is_empty() {
             return Err(SweepError::InvalidProfile(
                 "the whole profile lies on the revolution axis".into(),
             ));
+        }
+        if !is_full_revolution {
+            axis_run = Some(sector_axis_run(
+                &chain,
+                &spans,
+                &on_axis,
+                axis_origin,
+                axis_direction,
+                &tolerance,
+            )?);
         }
     }
     let wires = vec![spans.len()];
@@ -259,7 +265,25 @@ pub(crate) fn revolve_impl(
 
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let brep = if analyzed.is_closed && is_full_revolution {
+    let brep = if let Some(axis_span) = &axis_run {
+        let end_spans =
+            build_rotated_cap_curves(&analyzed.spans, axis_origin, axis_direction, angle);
+        let input = crate::topology::revolution_sector::SectorInput {
+            spans: &analyzed.spans,
+            axis_span,
+            surfaces: &surfaces,
+            end_spans: &end_spans,
+            axis_origin: *axis_origin,
+            axis_dir: *axis_direction,
+            angle,
+        };
+        let mut brep =
+            crate::topology::revolution_sector::build_sector_topology(&input, tolerance)?;
+        if let Some(ctx) = tracking {
+            crate::topology::side_faces::assign_sweep_names(&mut brep, ctx);
+        }
+        brep
+    } else if analyzed.is_closed && is_full_revolution {
         // Welded periodic faces: one seam per span, one circle per
         // profile vertex (PK-408).
         let mut brep = build_full_revolution_topology(
@@ -295,6 +319,62 @@ pub(crate) fn revolve_impl(
     Ok(SweepResult {
         brep,
         warnings: vec![],
+    })
+}
+
+/// The axis run of a sector's profile as one line from the last pole
+/// back to the first. `chain` is the whole profile starting at the
+/// first off-axis span, `off_axis` its off-axis spans. Declines a
+/// profile whose axis spans are not one run (it would meet the axis
+/// twice) or that touches the axis at a vertex between its poles (the
+/// sector would pinch there).
+fn sector_axis_run(
+    chain: &[NurbsCurve],
+    off_axis: &[NurbsCurve],
+    on_axis: &dyn Fn(&NurbsCurve) -> bool,
+    axis_origin: &Point3,
+    axis_direction: &Vec3,
+    tolerance: &Tolerance,
+) -> Result<NurbsCurve, SweepError> {
+    use popkern_core::geometry::CurveEval;
+    let runs = (0..chain.len())
+        .filter(|&i| on_axis(&chain[i]) && !on_axis(&chain[(i + chain.len() - 1) % chain.len()]))
+        .count();
+    if runs != 1 {
+        return Err(SweepError::InvalidProfile(format!(
+            "a sector's profile meets the axis along {runs} separate runs; one is supported"
+        )));
+    }
+    let axis = axis_direction
+        .normalized()
+        .ok_or_else(|| SweepError::InvalidProfile("zero-length revolution axis".into()))?;
+    let radius = |p: Point3| {
+        let d = p - *axis_origin;
+        (d - axis * d.dot(&axis)).length()
+    };
+    let start_of = |c: &NurbsCurve| c.point_at(c.parameter_range().0);
+    let end_of = |c: &NurbsCurve| c.point_at(c.parameter_range().1);
+    if let Some(pinch) = off_axis[1..]
+        .iter()
+        .map(start_of)
+        .find(|p| radius(*p) < tolerance.linear() * 10.0)
+    {
+        return Err(SweepError::InvalidProfile(format!(
+            "a sector's profile touches the axis at ({:.6}, {:.6}, {:.6}) between its poles",
+            pinch.x, pinch.y, pinch.z
+        )));
+    }
+    let (Some(first), Some(last)) = (off_axis.first(), off_axis.last()) else {
+        return Err(SweepError::InvalidProfile(
+            "a sector needs an off-axis span".into(),
+        ));
+    };
+    let (from, to) = (end_of(last), start_of(first));
+    Ok(NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![from, to],
+        weights: vec![1.0, 1.0],
     })
 }
 
@@ -335,3 +415,7 @@ fn build_rotated_cap_curves(
 #[cfg(test)]
 #[path = "revolve_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "revolve_sector_tests.rs"]
+mod sector_tests;

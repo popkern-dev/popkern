@@ -57,7 +57,7 @@ pub use error_payload::surface_parameter;
 pub use feature_edit::Edit;
 pub use migration::ParamInfo;
 pub use model::{FeatureHandle, Model};
-pub use model_primitive::Placement;
+pub use model_primitive::{Placement, RegularPolygon};
 pub use params::ConfigInfo;
 pub use plane::Plane;
 pub use popkern_history::deferred_certification::{

@@ -1,6 +1,7 @@
 //! Emission of `Feature::Primitive` (PK-1083) as the model-level
 //! `m.box(..)` / `m.cylinder(..)` / `m.cone(..)` / `m.sphere(..)` /
-//! `m.torus(..)` statement; the placement is spelled only when it is
+//! `m.prism(..)` / `m.pyramid(..)` / `m.wedge(..)` / `m.torus(..)`
+//! statement; the placement is spelled only when it is
 //! not the world frame, its origin in the model's unit.
 
 use popkern_history::FeatureTree;
@@ -28,25 +29,54 @@ pub(super) fn primitive_statement(
             }
             ("box", vec![s(*x)?, s(*y)?, s(*z)?])
         }
-        PrimitiveShape::Cylinder { radius, height } => ("cylinder", vec![s(*radius)?, s(*height)?]),
-        PrimitiveShape::Cone { r1, r2, height } => ("cone", vec![s(*r1)?, s(*r2)?, s(*height)?]),
-        PrimitiveShape::Sphere { radius, latitudes } => {
+        PrimitiveShape::Cylinder { radius, height, .. } => {
+            ("cylinder", vec![s(*radius)?, s(*height)?])
+        }
+        PrimitiveShape::Cone { r1, r2, height, .. } => {
+            ("cone", vec![s(*r1)?, s(*r2)?, s(*height)?])
+        }
+        PrimitiveShape::Sphere {
+            radius, latitudes, ..
+        } => {
             if let Some([lo, hi]) = latitudes {
                 pairs.push(("lat", format!("[{}, {}]", s(*lo)?, s(*hi)?)));
             }
             ("sphere", vec![s(*radius)?])
         }
-        PrimitiveShape::Torus {
-            major,
-            minor,
-            angle,
+        PrimitiveShape::Prism {
+            sides,
+            radius,
+            height,
+            flats,
         } => {
-            if let Some(a) = angle {
-                pairs.push(("angle", s(*a)?));
+            if *flats {
+                pairs.push(("flats", "true".to_string()));
             }
-            ("torus", vec![s(*major)?, s(*minor)?])
+            ("prism", vec![sides.to_string(), s(*radius)?, s(*height)?])
         }
+        PrimitiveShape::Pyramid {
+            sides,
+            r1,
+            r2,
+            height,
+            flats,
+        } => {
+            if *flats {
+                pairs.push(("flats", "true".to_string()));
+            }
+            (
+                "pyramid",
+                vec![sides.to_string(), s(*r1)?, s(*r2)?, s(*height)?],
+            )
+        }
+        PrimitiveShape::Wedge { x, y, z, top_x } => {
+            ("wedge", vec![s(*x)?, s(*y)?, s(*z)?, s(*top_x)?])
+        }
+        PrimitiveShape::Torus { major, minor, .. } => ("torus", vec![s(*major)?, s(*minor)?]),
     };
+    if let Some(a) = desc.shape.angle() {
+        pairs.push(("angle", s(a)?));
+    }
     let world = PrimitiveFrame::default();
     if desc.frame.origin != world.origin {
         pairs.push(("at", vec3(desc.frame.origin.map(|c| unit.from_si(c)))));

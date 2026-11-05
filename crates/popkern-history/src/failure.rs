@@ -102,6 +102,13 @@ pub enum FeatureFailure {
         /// How many faces the tool body had.
         tool_faces: usize,
     },
+    /// A cut sketched on a free plane, ending on no face, reaches more
+    /// than one body: which it cuts is not chosen for the user. Sketch
+    /// it on a face of the body, or end it on one.
+    CutTargetAmbiguous {
+        /// How many bodies the tool's box overlaps.
+        candidates: usize,
+    },
     /// An extrude or revolve up to (or offset from) a face could not
     /// end on it (brep-bench §4.4): the face lies `near`..`far` along
     /// the feature's travel (a distance for an extrude, an angle in
@@ -218,6 +225,7 @@ impl FeatureFailure {
             FeatureFailure::GenerativeDeclined { .. } => "GenerativeDeclined",
             FeatureFailure::PieceRuleMatchedNothing { .. } => "PieceRuleMatchedNothing",
             FeatureFailure::CutRemovedNothing { .. } => "CutRemovedNothing",
+            FeatureFailure::CutTargetAmbiguous { .. } => "CutTargetAmbiguous",
             FeatureFailure::UpToFaceDeclined { .. } => "UpToFaceDeclined",
             FeatureFailure::Cancelled => "Cancelled",
             FeatureFailure::Other { .. } => "Other",
@@ -266,6 +274,10 @@ impl std::fmt::Display for FeatureFailure {
             FeatureFailure::CutRemovedNothing { tool_faces } => write!(
                 f,
                 "the cut removes no material: none of the tool's {tool_faces} faces reaches the body (check the sketch placement and the extrude direction)"
+            ),
+            FeatureFailure::CutTargetAmbiguous { candidates } => write!(
+                f,
+                "the cut reaches {candidates} bodies and names none: sketch it on a face of the body to cut, or end it on one"
             ),
             FeatureFailure::UpToFaceDeclined { reason, near, far } => match reason.as_str() {
                 "curved_end_needs_boss" => write!(

@@ -83,6 +83,173 @@ fn tori_and_sectors() {
     assert_serves("m.torus(5.0, 1.0, #{ angle: 90.0 })", 2.5 * PI * PI, None);
 }
 
+/// Sectors of the solids of revolution: the caps meet on the axis.
+#[test]
+fn sectors_of_cylinders_cones_and_spheres() {
+    // Two r × h rectangles, two quarter discs and a quarter wall.
+    assert_serves(
+        "m.cylinder(2.0, 5.0, #{ angle: 90.0 })",
+        5.0 * PI,
+        Some(20.0 + 7.0 * PI),
+    );
+    assert_serves(
+        "m.cone(3.0, 1.0, 6.0, #{ angle: 120.0 })",
+        26.0 * PI / 3.0,
+        None,
+    );
+    assert_serves("m.cone(3.0, 0.0, 6.0, #{ angle: 180.0 })", 9.0 * PI, None);
+    // A quarter of the sphere's skin and two half discs.
+    assert_serves("m.sphere(3.0, #{ angle: 90.0 })", 9.0 * PI, Some(18.0 * PI));
+    let zone = PI * (3.0 * 3f64.sqrt() + 11.0 / 3.0);
+    assert_serves(
+        "m.sphere(2.0, #{ lat: [-30.0, 60.0], angle: 270.0 })",
+        0.75 * zone,
+        None,
+    );
+    // 360 is the whole solid.
+    assert_serves("m.cylinder(2.0, 5.0, #{ angle: 360.0 })", 20.0 * PI, None);
+}
+
+/// The flat-faced primitives: a regular prism (corner or flat radius),
+/// a pyramid upright, inverted and truncated, and a wedge and its ramp.
+#[test]
+fn prisms_pyramids_and_wedges() {
+    let r3 = 3f64.sqrt();
+    assert_serves("m.prism(6, 2.0, 5.0)", 30.0 * r3, Some(12.0 * r3 + 60.0));
+    // Apothem 2: the hexagon's area is 2 sqrt(3) a^2.
+    assert_serves("m.prism(6, 2.0, 5.0, #{ flats: true })", 40.0 * r3, None);
+    // A square of corner radius 2 has area 8.
+    assert_serves("m.pyramid(4, 2.0, 0.0, 3.0)", 8.0, None);
+    assert_serves("m.pyramid(4, 0.0, 2.0, 3.0)", 8.0, None);
+    // h/3 (A1 + A2 + sqrt(A1 A2)) = 8 + 2 + 4.
+    assert_serves("m.pyramid(4, 2.0, 1.0, 3.0)", 14.0, None);
+    // A trapezoid (4 + 1) / 2 * 2 along y for 3; the ramp's triangle.
+    assert_serves("m.wedge(4.0, 3.0, 2.0, 1.0)", 15.0, None);
+    assert_serves(
+        "m.wedge(4.0, 3.0, 2.0, 0.0)",
+        12.0,
+        Some(26.0 + 3.0 * 20f64.sqrt()),
+    );
+}
+
+/// Every primitive faces out of its material: a small box taken from
+/// inside it leaves exactly its volume less the box's. (Measured volume
+/// alone cannot tell: it is the absolute enclosed volume, and the Euler
+/// pyramid this kernel's pyramids start from is built inward.)
+#[test]
+fn every_primitive_faces_out_of_its_material() {
+    let r3 = 3f64.sqrt();
+    for (body, inside, volume) in [
+        ("m.box(2.0, 3.0, 4.0)", [1.0, 1.5, 2.0], 24.0),
+        ("m.cylinder(2.0, 5.0)", [0.5, 0.5, 2.5], 20.0 * PI),
+        (
+            "m.cylinder(2.0, 5.0, #{ angle: 90.0 })",
+            [0.8, 0.8, 2.5],
+            5.0 * PI,
+        ),
+        ("m.cone(3.0, 1.0, 6.0)", [0.5, 0.0, 2.0], 26.0 * PI),
+        ("m.sphere(3.0)", [0.5, 0.5, 0.5], 36.0 * PI),
+        ("m.sphere(3.0, #{ angle: 90.0 })", [1.0, 1.0, 0.5], 9.0 * PI),
+        ("m.torus(5.0, 1.0)", [5.0, 0.0, 0.0], 10.0 * PI * PI),
+        ("m.prism(6, 2.0, 5.0)", [0.0, 0.0, 2.5], 30.0 * r3),
+        ("m.pyramid(4, 2.0, 0.0, 3.0)", [0.0, 0.0, 1.0], 8.0),
+        ("m.pyramid(4, 0.0, 2.0, 3.0)", [0.0, 0.0, 2.0], 8.0),
+        ("m.pyramid(4, 2.0, 1.0, 3.0)", [0.0, 0.0, 1.5], 14.0),
+        ("m.wedge(4.0, 3.0, 2.0, 1.0)", [0.5, 1.5, 1.0], 15.0),
+        ("m.wedge(4.0, 3.0, 2.0, 0.0)", [0.5, 1.5, 0.5], 12.0),
+    ] {
+        let source = format!(
+            "let m = model();\nlet b = {body};\nlet t = m.tool(|m| m.box(0.2, 0.2, 0.2, #{{ centred: true, at: [{}, {}, {}] }}));\nb = b.subtract(t);\nm\n",
+            inside[0], inside[1], inside[2]
+        );
+        let mut model = run(&source).unwrap_or_else(|e| panic!("{body}: {e}"));
+        let (v, _) = measure(&mut model);
+        let exact = volume - 0.008;
+        assert!((v - exact).abs() <= 1e-9 * exact, "{body}: {v} vs {exact}");
+    }
+}
+
+/// A sector keeps its exact surfaces: the quarter cylinder's wall is a
+/// cylinder and its four flat faces planes.
+#[test]
+fn a_sector_keeps_exact_surfaces() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let source = "let m = model();\nlet b = m.cylinder(2.0, 5.0, #{ angle: 90.0 });\nm\n";
+    let mut model = run(source).expect("serves");
+    let parts = model.to_parts_all().expect("parts");
+    let kinds: Vec<&str> = parts[0]
+        .brep()
+        .faces
+        .values()
+        .filter_map(|f| f.surface.as_ref())
+        .map(|s| match s.geometry {
+            SurfaceGeometry::Plane { .. } => "plane",
+            SurfaceGeometry::Cylinder { .. } => "cylinder",
+            _ => "other",
+        })
+        .collect();
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "plane").count(),
+        4,
+        "{kinds:?}"
+    );
+    assert_eq!(
+        kinds.iter().filter(|k| **k == "cylinder").count(),
+        1,
+        "{kinds:?}"
+    );
+}
+
+/// A sector's flat faces are named by role: the bottom `Cap/0`, the top
+/// `Cap/1`, the start (on the reference direction) `Cap/2` and the end
+/// `Cap/3`, each with the outward normal of its place.
+#[test]
+fn a_sector_names_its_cut_faces() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    use popkern_core::naming::RoleCategory;
+    let source =
+        "let m = model();\nlet b = m.cylinder(2.0, 5.0, #{ angle: 90.0, label: \"q\" });\nm\n";
+    let mut model = run(source).expect("serves");
+    let parts = model.to_parts_all().expect("parts");
+    let brep = parts[0].brep();
+    let mut seen = Vec::new();
+    for face in brep.faces.values() {
+        let name = face
+            .name
+            .and_then(|id| brep.name_pool.get(id))
+            .expect("named");
+        if name.role.category != RoleCategory::Cap {
+            continue;
+        }
+        let Some(SurfaceGeometry::Plane { normal, .. }) =
+            face.surface.as_ref().map(|s| &s.geometry)
+        else {
+            panic!("cap {} is not planar", name.role.index);
+        };
+        let outward = if face.surface.as_ref().is_some_and(|s| s.orientation) {
+            *normal
+        } else {
+            -*normal
+        };
+        let expect = match name.role.index {
+            0 => [0.0, 0.0, -1.0],
+            1 => [0.0, 0.0, 1.0],
+            2 => [0.0, -1.0, 0.0],
+            3 => [-1.0, 0.0, 0.0],
+            i => panic!("unexpected cap {i}"),
+        };
+        let got = [outward.x, outward.y, outward.z];
+        assert!(
+            (0..3).all(|k| (got[k] - expect[k]).abs() < 1e-9),
+            "Cap {}: {got:?}",
+            name.role.index
+        );
+        seen.push(name.role.index);
+    }
+    seen.sort();
+    assert_eq!(seen, vec![0, 1, 2, 3]);
+}
+
 /// A box placed at (10, 0, 0) with its axis along +y and its x along
 /// +z: local x (2) runs up z, local y (3) along +x, local z (4) along y.
 #[test]
@@ -127,6 +294,14 @@ fn bad_dimensions_are_named() {
         ("m.cone(0.0, 0.0, 1.0)", "both be 0"),
         ("m.sphere(1.0, #{ lat: [30.0, 10.0] })", "lo < hi"),
         ("m.box(1.0, 0.0, 1.0)", "positive"),
+        (
+            "m.cylinder(1.0, 1.0, #{ angle: 400.0 })",
+            "0 < angle <= 360",
+        ),
+        ("m.cone(1.0, 0.0, 1.0, #{ angle: 0.0 })", "0 < angle <= 360"),
+        ("m.prism(2, 1.0, 1.0)", "at least 3"),
+        ("m.pyramid(4, 0.0, 0.0, 1.0)", "both be 0"),
+        ("m.wedge(1.0, 1.0, 1.0, -1.0)", "negative"),
     ] {
         let source = format!("let m = model();\nlet b = {body};\nm\n");
         match run(&source) {

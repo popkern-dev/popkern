@@ -20,6 +20,7 @@
 
 pub mod appearance;
 pub(crate) mod auto_merge;
+pub(crate) mod auto_merge_scope;
 pub(crate) mod body;
 mod body_query;
 pub mod cache;

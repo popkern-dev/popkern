@@ -1,5 +1,6 @@
 //! Parametric primitives (PK-1083): a box, cylinder, cone or frustum,
-//! sphere or torus built from its dimensions and placed by a frame,
+//! sphere, regular prism, pyramid or its frustum, wedge or torus built
+//! from its dimensions and placed by a frame,
 //! [`Feature::Primitive`](crate::feature::Feature::Primitive).
 //!
 //! Every dimension is a parameter (lengths in the model's unit, angles
@@ -38,15 +39,21 @@ pub enum PrimitiveShape {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         centred: bool,
     },
-    /// A cylinder on the axis, its base centred on the origin.
+    /// A cylinder on the axis, its base centred on the origin,
+    /// optionally a sector of `angle` degrees from the reference.
     Cylinder {
         /// Radius.
         radius: ParameterId,
         /// Height along the axis.
         height: ParameterId,
+        /// Sector angle in degrees from the reference direction
+        /// (`None`: whole).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        angle: Option<ParameterId>,
     },
     /// A cone or frustum on the axis: base radius `r1` at the origin,
-    /// top radius `r2` at `height` (either may be 0, not both).
+    /// top radius `r2` at `height` (either may be 0, not both),
+    /// optionally a sector.
     Cone {
         /// Base radius.
         r1: ParameterId,
@@ -54,15 +61,66 @@ pub enum PrimitiveShape {
         r2: ParameterId,
         /// Height along the axis.
         height: ParameterId,
+        /// Sector angle in degrees from the reference direction
+        /// (`None`: whole).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        angle: Option<ParameterId>,
     },
     /// A sphere centred on the origin, optionally only between two
-    /// latitudes (degrees from the equator, −90 ≤ lo < hi ≤ 90).
+    /// latitudes (degrees from the equator, −90 ≤ lo < hi ≤ 90) and
+    /// only a sector.
     Sphere {
         /// Radius.
         radius: ParameterId,
         /// `[lo, hi]` latitude limits.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         latitudes: Option<[ParameterId; 2]>,
+        /// Sector angle in degrees from the reference direction
+        /// (`None`: whole).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        angle: Option<ParameterId>,
+    },
+    /// A regular prism: a `sides`-gon on the origin, corner 0 on the
+    /// reference direction, standing `height` along the axis.
+    Prism {
+        /// Number of sides (at least 3).
+        sides: u32,
+        /// Centre to corner, or to the middle of a side when `flats`.
+        radius: ParameterId,
+        /// Height along the axis.
+        height: ParameterId,
+        /// `radius` is measured to the flats (the inscribed circle).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        flats: bool,
+    },
+    /// A regular pyramid or its frustum: base radius `r1` on the
+    /// origin, top radius `r2` at `height` (either may be 0, an apex;
+    /// not both), corner 0 of each on the reference direction.
+    Pyramid {
+        /// Number of sides (at least 3).
+        sides: u32,
+        /// Base radius (centre to corner, or to a flat when `flats`).
+        r1: ParameterId,
+        /// Top radius.
+        r2: ParameterId,
+        /// Height along the axis.
+        height: ParameterId,
+        /// The radii are measured to the flats.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        flats: bool,
+    },
+    /// A wedge: the box `x` × `y` × `z` on a corner at the origin
+    /// whose top runs only `top_x` along x from the origin's side (0:
+    /// a ramp, its section a right triangle).
+    Wedge {
+        /// Extent along the local x at the bottom.
+        x: ParameterId,
+        /// Extent along the local y.
+        y: ParameterId,
+        /// Height along the axis.
+        z: ParameterId,
+        /// Extent along x at the top.
+        top_x: ParameterId,
     },
     /// A torus about the axis, centred on the origin, optionally a
     /// sector of `angle` degrees from the reference direction.
@@ -108,28 +166,56 @@ impl PrimitiveFrame {
 
 impl PrimitiveShape {
     /// The operation spelling (`box`, `cylinder`, `cone`, `sphere`,
-    /// `torus`).
+    /// `prism`, `pyramid`, `wedge`, `torus`).
     pub fn spelling(&self) -> &'static str {
         match self {
             PrimitiveShape::Box { .. } => "box",
             PrimitiveShape::Cylinder { .. } => "cylinder",
             PrimitiveShape::Cone { .. } => "cone",
             PrimitiveShape::Sphere { .. } => "sphere",
+            PrimitiveShape::Prism { .. } => "prism",
+            PrimitiveShape::Pyramid { .. } => "pyramid",
+            PrimitiveShape::Wedge { .. } => "wedge",
             PrimitiveShape::Torus { .. } => "torus",
+        }
+    }
+
+    /// The sector angle, when the shape is only a sector of its
+    /// revolution.
+    pub fn angle(&self) -> Option<ParameterId> {
+        match self {
+            PrimitiveShape::Box { .. }
+            | PrimitiveShape::Prism { .. }
+            | PrimitiveShape::Pyramid { .. }
+            | PrimitiveShape::Wedge { .. } => None,
+            PrimitiveShape::Cylinder { angle, .. }
+            | PrimitiveShape::Cone { angle, .. }
+            | PrimitiveShape::Sphere { angle, .. }
+            | PrimitiveShape::Torus { angle, .. } => *angle,
         }
     }
 
     /// Every dimension with its role.
     pub fn param_ids(&self) -> Vec<(&'static str, ParameterId)> {
+        let mut v = self.dimensions();
+        if let Some(a) = self.angle() {
+            v.push(("angle", a));
+        }
+        v
+    }
+
+    fn dimensions(&self) -> Vec<(&'static str, ParameterId)> {
         match self {
             PrimitiveShape::Box { x, y, z, .. } => vec![("x", *x), ("y", *y), ("z", *z)],
-            PrimitiveShape::Cylinder { radius, height } => {
+            PrimitiveShape::Cylinder { radius, height, .. } => {
                 vec![("radius", *radius), ("height", *height)]
             }
-            PrimitiveShape::Cone { r1, r2, height } => {
+            PrimitiveShape::Cone { r1, r2, height, .. } => {
                 vec![("r1", *r1), ("r2", *r2), ("height", *height)]
             }
-            PrimitiveShape::Sphere { radius, latitudes } => {
+            PrimitiveShape::Sphere {
+                radius, latitudes, ..
+            } => {
                 let mut v = vec![("radius", *radius)];
                 if let Some([lo, hi]) = latitudes {
                     v.push(("lat_lo", *lo));
@@ -137,16 +223,17 @@ impl PrimitiveShape {
                 }
                 v
             }
-            PrimitiveShape::Torus {
-                major,
-                minor,
-                angle,
-            } => {
-                let mut v = vec![("major", *major), ("minor", *minor)];
-                if let Some(a) = angle {
-                    v.push(("angle", *a));
-                }
-                v
+            PrimitiveShape::Prism { radius, height, .. } => {
+                vec![("radius", *radius), ("height", *height)]
+            }
+            PrimitiveShape::Pyramid { r1, r2, height, .. } => {
+                vec![("r1", *r1), ("r2", *r2), ("height", *height)]
+            }
+            PrimitiveShape::Wedge { x, y, z, top_x } => {
+                vec![("x", *x), ("y", *y), ("z", *z), ("top_x", *top_x)]
+            }
+            PrimitiveShape::Torus { major, minor, .. } => {
+                vec![("major", *major), ("minor", *minor)]
             }
         }
     }
