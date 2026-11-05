@@ -25,7 +25,9 @@ pub struct ProfileBuilder<'m> {
 enum Shape {
     Rect(Scalar, Scalar),
     Circle(Scalar),
+    Ellipse(Scalar, Scalar),
     Polygon(Vec<[Scalar; 2]>),
+    Spline(Vec<[Scalar; 2]>, SplineOptions),
     Path {
         start: [Scalar; 2],
         segments: Vec<Segment>,
@@ -35,6 +37,36 @@ enum Shape {
 enum Segment {
     Line([Scalar; 2]),
     Arc([Scalar; 2], [Scalar; 2]),
+    Conic([Scalar; 2], [Scalar; 2], f64),
+    Spline(Vec<[Scalar; 2]>, [Scalar; 2], SplineOptions),
+}
+
+/// A spline's shape beyond its control points (spec §3.1): degree,
+/// rational weights and, for a path segment, a clamped knot vector.
+/// Weights and knots are dimensionless.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SplineOptions {
+    /// Degree (default 3).
+    pub degree: usize,
+    /// One weight per control point (empty: all 1).
+    pub weights: Vec<f64>,
+    /// Clamped knot vector (empty: clamped uniform). Path segments
+    /// only: a closed spline's knots are uniform.
+    pub knots: Vec<f64>,
+}
+
+impl Default for SplineOptions {
+    fn default() -> Self {
+        SplineOptions {
+            degree: 3,
+            weights: Vec::new(),
+            knots: Vec::new(),
+        }
+    }
+}
+
+fn literal(p: &(f64, f64)) -> [Scalar; 2] {
+    [Scalar::Literal(p.0), Scalar::Literal(p.1)]
 }
 
 impl<'m> ProfileBuilder<'m> {
@@ -54,6 +86,18 @@ impl<'m> ProfileBuilder<'m> {
     /// A circle centred on the placement.
     pub fn circle(mut self, radius: impl Into<Scalar>) -> Self {
         self.shape = Some(Shape::Circle(radius.into()));
+        self
+    }
+    /// An axis-aligned ellipse centred on the placement: semi-axis
+    /// `rx` along the plane's u, `ry` along its v.
+    pub fn ellipse(mut self, rx: impl Into<Scalar>, ry: impl Into<Scalar>) -> Self {
+        self.shape = Some(Shape::Ellipse(rx.into(), ry.into()));
+        self
+    }
+    /// A closed (periodic) B-spline by its control polygon (literal
+    /// coordinates, offset by the placement).
+    pub fn spline(mut self, points: &[(f64, f64)], options: SplineOptions) -> Self {
+        self.shape = Some(Shape::Spline(points.iter().map(literal).collect(), options));
         self
     }
     /// A closed polygon (literal coordinates).
@@ -91,6 +135,30 @@ impl<'m> ProfileBuilder<'m> {
         }
         self
     }
+    /// Conic arc to `to` whose end tangents meet at `control`, with
+    /// middle weight `weight` (below 1 an ellipse arc, 1 a parabola,
+    /// above 1 a hyperbola).
+    pub fn conic_to(mut self, control: (f64, f64), to: (f64, f64), weight: f64) -> Self {
+        if let Some(Shape::Path { segments, .. }) = &mut self.shape {
+            segments.push(Segment::Conic(literal(&control), literal(&to), weight));
+        }
+        self
+    }
+    /// Spline segment through the control points `points` (the last
+    /// is the end point), starting at the current point. An empty
+    /// `points` adds nothing.
+    pub fn spline_to(mut self, points: &[(f64, f64)], options: SplineOptions) -> Self {
+        if let Some(Shape::Path { segments, .. }) = &mut self.shape
+            && let Some((to, control)) = points.split_last()
+        {
+            segments.push(Segment::Spline(
+                control.iter().map(literal).collect(),
+                literal(to),
+                options,
+            ));
+        }
+        self
+    }
     /// Close the path (spec §3.1 `.close()`). Paths are always closed
     /// back to their start when compiled, so this records nothing; it
     /// exists so the canonical spelling reads as written.
@@ -114,7 +182,7 @@ impl<'m> ProfileBuilder<'m> {
         } = self;
         let shape = shape.ok_or_else(|| ScriptError::Argument {
             argument: "profile".into(),
-            reason: "no shape given (rect/circle/polygon/path)".into(),
+            reason: "no shape given (rect/circle/ellipse/polygon/spline/path)".into(),
         })?;
         let unit = model.unit;
         let mut bind = |role: &str, s: &Scalar| -> Result<ScalarBinding, ScriptError> {
@@ -134,14 +202,17 @@ impl<'m> ProfileBuilder<'m> {
             Shape::Circle(r) => ProfileShape::Circle {
                 radius: bind("radius", &r)?,
             },
+            Shape::Ellipse(rx, ry) => ProfileShape::Ellipse {
+                rx: bind("rx", &rx)?,
+                ry: bind("ry", &ry)?,
+            },
             Shape::Polygon(pts) => ProfileShape::Polygon {
-                points: pts
-                    .iter()
-                    .enumerate()
-                    .map(|(i, [x, y])| {
-                        Ok([bind(&format!("p{i}_x"), x)?, bind(&format!("p{i}_y"), y)?])
-                    })
-                    .collect::<Result<Vec<_>, ScriptError>>()?,
+                points: bind_points(&mut bind, "p", &pts)?,
+            },
+            Shape::Spline(pts, options) => ProfileShape::Spline {
+                points: bind_points(&mut bind, "p", &pts)?,
+                degree: options.degree,
+                weights: options.weights,
             },
             Shape::Path { start, segments } => ProfileShape::Path {
                 start: [bind("start_x", &start[0])?, bind("start_y", &start[1])?],
@@ -164,6 +235,27 @@ impl<'m> ProfileBuilder<'m> {
                                 bind(&format!("s{i}_x"), &to[0])?,
                                 bind(&format!("s{i}_y"), &to[1])?,
                             ],
+                        }),
+                        Segment::Conic(control, to, weight) => Ok(PathSegment::Conic {
+                            control: [
+                                bind(&format!("s{i}_ctl_x"), &control[0])?,
+                                bind(&format!("s{i}_ctl_y"), &control[1])?,
+                            ],
+                            to: [
+                                bind(&format!("s{i}_x"), &to[0])?,
+                                bind(&format!("s{i}_y"), &to[1])?,
+                            ],
+                            weight: *weight,
+                        }),
+                        Segment::Spline(control, to, options) => Ok(PathSegment::Spline {
+                            control: bind_points(&mut bind, &format!("s{i}_c"), control)?,
+                            to: [
+                                bind(&format!("s{i}_x"), &to[0])?,
+                                bind(&format!("s{i}_y"), &to[1])?,
+                            ],
+                            degree: options.degree,
+                            weights: options.weights.clone(),
+                            knots: options.knots.clone(),
                         }),
                     })
                     .collect::<Result<Vec<_>, ScriptError>>()?,
@@ -246,4 +338,22 @@ fn resolve_plane(
                 reason: "unsupported plane".into(),
             }),
     }
+}
+
+/// Bind a run of points as `{prefix}{i}_x` / `{prefix}{i}_y`.
+fn bind_points(
+    bind: &mut impl FnMut(&str, &Scalar) -> Result<ScalarBinding, ScriptError>,
+    prefix: &str,
+    points: &[[Scalar; 2]],
+) -> Result<Vec<[ScalarBinding; 2]>, ScriptError> {
+    points
+        .iter()
+        .enumerate()
+        .map(|(i, [x, y])| {
+            Ok([
+                bind(&format!("{prefix}{i}_x"), x)?,
+                bind(&format!("{prefix}{i}_y"), y)?,
+            ])
+        })
+        .collect()
 }

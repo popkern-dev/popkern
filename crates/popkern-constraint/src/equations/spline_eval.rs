@@ -247,6 +247,21 @@ fn eval_point_periodic(spline: &Spline, t: f64, sketch: &Sketch) -> SplineEvalRe
     let (span, t) = find_span(&ext_knots, degree, n_ext, t);
     let basis = basis_functions(&ext_knots, span, degree, t);
 
+    // Rational weights wrap with their control points (the BRep
+    // conversion's wrapped NURBS carries them the same way).
+    let weight = |cp_idx: usize| spline.weights.get(cp_idx).copied().unwrap_or(1.0);
+    let w_total: f64 = basis
+        .iter()
+        .enumerate()
+        .take(degree + 1)
+        .map(|(k, nk)| nk * weight((span - degree + k) % n))
+        .sum();
+    let inv_w = if w_total.abs() > f64::EPSILON {
+        1.0 / w_total
+    } else {
+        0.0
+    };
+
     let mut x = 0.0;
     let mut y = 0.0;
     let mut jac: Vec<(usize, f64, f64)> = Vec::with_capacity(2 * (degree + 1));
@@ -257,11 +272,13 @@ fn eval_point_periodic(spline: &Spline, t: f64, sketch: &Sketch) -> SplineEvalRe
         let [ix, iy] = pt.param_indices();
         let px = sketch.params[ix];
         let py = sketch.params[iy];
-        x += nk * px;
-        y += nk * py;
-        if nk.abs() > f64::EPSILON {
-            accumulate_jac(&mut jac, ix, nk, 0.0);
-            accumulate_jac(&mut jac, iy, 0.0, nk);
+        // R_k = N_k w_k / W: the rational basis (N_k when unweighted).
+        let rk = nk * weight(cp_idx) * inv_w;
+        x += rk * px;
+        y += rk * py;
+        if rk.abs() > f64::EPSILON {
+            accumulate_jac(&mut jac, ix, rk, 0.0);
+            accumulate_jac(&mut jac, iy, 0.0, rk);
         }
     }
     SplineEvalResult {

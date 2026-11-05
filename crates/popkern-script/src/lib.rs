@@ -64,7 +64,7 @@ pub use popkern_history::{
     BlendDeclineKind, BlendDeclined, BlendFailureReason, BlendFailureRecord, FeatureFailure,
     RemediationRecord,
 };
-pub use profile::ProfileBuilder;
+pub use profile::{ProfileBuilder, SplineOptions};
 pub use scalar::Scalar;
 pub use selection::{
     EdgePredicate, EdgeSelector, EntityRef, FacePredicate, FaceSelector, SelectionSnapshot,

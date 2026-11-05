@@ -253,19 +253,23 @@ pub fn shape(
         ProfileShape::Circle { radius } => {
             out.push_str(&format!(".circle({})", binding(tree, radius, context)?))
         }
+        ProfileShape::Ellipse { rx, ry } => out.push_str(&format!(
+            ".ellipse({}, {})",
+            binding(tree, rx, context)?,
+            binding(tree, ry, context)?
+        )),
         ProfileShape::Polygon { points } => {
-            let pts: Vec<String> = points
-                .iter()
-                .map(|[x, y]| {
-                    Ok(format!(
-                        "[{}, {}]",
-                        literal_only(tree, x, context)?,
-                        literal_only(tree, y, context)?
-                    ))
-                })
-                .collect::<Result<_, EmitError>>()?;
-            out.push_str(&format!(".polygon([{}])", pts.join(", ")));
+            out.push_str(&format!(".polygon({})", point_list(tree, points, context)?));
         }
+        ProfileShape::Spline {
+            points,
+            degree,
+            weights,
+        } => out.push_str(&format!(
+            ".spline({}{})",
+            point_list(tree, points, context)?,
+            spline_options(*degree, weights, &[])
+        )),
         ProfileShape::Path { start, segments } => {
             out.push_str(&format!(
                 ".path({}, {})",
@@ -286,6 +290,33 @@ pub fn shape(
                         literal_only(tree, &to[0], context)?,
                         literal_only(tree, &to[1], context)?
                     )),
+                    PathSegment::Conic {
+                        control,
+                        to,
+                        weight,
+                    } => out.push_str(&format!(
+                        ".conic_to([{}, {}], [{}, {}], {})",
+                        literal_only(tree, &control[0], context)?,
+                        literal_only(tree, &control[1], context)?,
+                        literal_only(tree, &to[0], context)?,
+                        literal_only(tree, &to[1], context)?,
+                        float(*weight)
+                    )),
+                    PathSegment::Spline {
+                        control,
+                        to,
+                        degree,
+                        weights,
+                        knots,
+                    } => {
+                        let mut points = control.clone();
+                        points.push(*to);
+                        out.push_str(&format!(
+                            ".spline_to({}{})",
+                            point_list(tree, &points, context)?,
+                            spline_options(*degree, weights, knots)
+                        ));
+                    }
                 }
             }
         }
@@ -305,4 +336,49 @@ pub fn shape(
         ));
     }
     Ok(out)
+}
+
+/// `[[x, y], ...]` of literal points.
+fn point_list(
+    tree: &FeatureTree,
+    points: &[[ScalarBinding; 2]],
+    context: &str,
+) -> Result<String, EmitError> {
+    let pts: Vec<String> = points
+        .iter()
+        .map(|[x, y]| {
+            Ok(format!(
+                "[{}, {}]",
+                literal_only(tree, x, context)?,
+                literal_only(tree, y, context)?
+            ))
+        })
+        .collect::<Result<_, EmitError>>()?;
+    Ok(format!("[{}]", pts.join(", ")))
+}
+
+/// A spline's options map, `, #{...}` with only what differs from the
+/// defaults (degree 3, unit weights, uniform knots), or nothing.
+fn spline_options(degree: usize, weights: &[f64], knots: &[f64]) -> String {
+    let list = |v: &[f64]| {
+        format!(
+            "[{}]",
+            v.iter().map(|x| float(*x)).collect::<Vec<_>>().join(", ")
+        )
+    };
+    let mut entries = Vec::new();
+    if degree != 3 {
+        entries.push(format!("degree: {degree}"));
+    }
+    if !weights.is_empty() {
+        entries.push(format!("weights: {}", list(weights)));
+    }
+    if !knots.is_empty() {
+        entries.push(format!("knots: {}", list(knots)));
+    }
+    if entries.is_empty() {
+        String::new()
+    } else {
+        format!(", #{{ {} }}", entries.join(", "))
+    }
 }

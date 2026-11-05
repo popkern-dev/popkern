@@ -210,6 +210,42 @@
       "parameters": []
     },
     {
+      "name": "conic_to",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "conic_to(control=[x,y], to=[x,y], weight)",
+      "parameters": [
+        {
+          "name": "control",
+          "optional": false
+        },
+        {
+          "name": "to",
+          "optional": false
+        },
+        {
+          "name": "weight",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "ellipse",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "ellipse(rx, ry)",
+      "parameters": [
+        {
+          "name": "rx",
+          "optional": false
+        },
+        {
+          "name": "ry",
+          "optional": false
+        }
+      ]
+    },
+    {
       "name": "line_to",
       "section": "3.1",
       "mark": "stable",
@@ -269,6 +305,20 @@
           "optional": true
         }
       ]
+    },
+    {
+      "name": "spline",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "spline([[x,y], ...], #{degree?, weights?})",
+      "parameters": []
+    },
+    {
+      "name": "spline_to",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "spline_to([[x,y], ...], #{degree?, weights?, knots?})",
+      "parameters": []
     },
     {
       "name": "angle",

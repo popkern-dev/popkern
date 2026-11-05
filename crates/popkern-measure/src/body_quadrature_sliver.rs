@@ -20,7 +20,7 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::oriented_term;
+use super::{Integrand, oriented_term};
 
 /// Pcurve samples a trim is located against before refinement.
 const LOCATE_SAMPLES: usize = 64;
@@ -166,6 +166,7 @@ pub(super) fn sliver_term(
     a: (f64, f64),
     b: (f64, f64),
     gate: f64,
+    kind: Integrand,
 ) -> Option<f64> {
     let chord = uv_distance(a, b);
     if chord.is_nan() || chord <= 0.0 {
@@ -265,7 +266,7 @@ pub(super) fn sliver_term(
     let fan = |pts: &[(f64, f64)]| -> f64 {
         pts.windows(2)
             .skip(1)
-            .map(|w| oriented_term(surface, [a, w[0], w[1]]))
+            .map(|w| oriented_term(surface, [a, w[0], w[1]], kind))
             .sum()
     };
     // The fan inscribes the trim: its shortfall falls as 1/panels², so

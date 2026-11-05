@@ -172,6 +172,10 @@ let post = m.tool(|m| m.profile(yz()).polygon([[-0.1, -0.1], [0.1, -0.1], [0.1, 
 post = post.translate(1.6, 0.0, 0.2);
 post = post.rotate(axis_at([1.6, 0.0, 0.2], [0.0, 0.0, 1.0]), 15.0);
 let lug = m.tool(|m| m.profile(xz()).path(-0.2, 0.0).line_to(0.2, 0.0).arc_to([0.15, 0.2], [0.0, 0.3]).close().sketch("lug_sketch").extrude(blind(0.1)));
+let oval = m.tool(|m| m.profile(xy_at(9.0)).ellipse(0.3, 0.2).sketch("oval_sketch").extrude(blind(0.1)));
+let bean = m.tool(|m| m.profile(xy_at(9.5)).spline([[0.0, 0.0], [0.4, -0.1], [0.6, 0.2], [0.3, 0.5], [-0.1, 0.3]], #{{ degree: 3, weights: [1.0, 2.0, 1.0, 1.0, 1.0] }}).sketch("bean_sketch").extrude(blind(0.1)));
+let dome = m.tool(|m| m.profile(xz_at(-3.0)).path(0.0, 10.0).conic_to([0.3, 10.0], [0.3, 10.3], 0.7071067811865476).spline_to([[0.2, 10.4], [0.1, 10.5], [0.0, 10.5]], #{{ degree: 2, knots: [0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0] }}).close().sketch("dome_sketch").extrude(blind(0.1)));
+print(oval.is_alive() && bean.is_alive() && dome.is_alive());
 let cup = m.tool(|m| m.profile(xy_at(2.0)).rect(0.6, 0.6).sketch("cup_sketch").extrude(blind(0.6)));
 cup = cup.chamfer(edges().straight().at_height(2.6), 0.05);
 cup = cup.shell(faces().facing("z"), 0.05);

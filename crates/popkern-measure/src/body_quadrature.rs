@@ -17,6 +17,11 @@
 //! seam-branch or pole corner) keeps its flat facet term. A triangle
 //! integrated on its surface also integrates the sliver between each of
 //! its boundary chords and the face's trim (`body_quadrature_sliver`).
+//!
+//! The same machinery measures a face's AREA (`∬ |∂u × ∂v| du dv`):
+//! summed facets fall short of a curved face by their sagitta's share
+//! (measured: an elliptic cylinder 4.5e-6, a paraboloid 5.8e-6), the
+//! exact integrand does not.
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
@@ -82,6 +87,17 @@ fn as_vec(p: Point3) -> Vec3 {
     Vec3::new(p.x, p.y, p.z)
 }
 
+/// What a quadrature integrates over the surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Integrand {
+    /// `⅓ r · (∂u × ∂v)`: the divergence-theorem volume term, signed
+    /// by the (u, v) winding.
+    Volume,
+    /// `|∂u × ∂v|`: area, signed by the (u, v) winding (the caller
+    /// multiplies by the face's winding sign to make it positive).
+    Area,
+}
+
 /// A corner whose one chart partial is under this fraction of the other
 /// is a pole of the chart (see `surface_term`).
 const POLE_RATIO: f64 = 1e-4;
@@ -98,6 +114,7 @@ fn surface_term(
     uv: [(f64, f64); 3],
     points: [Point3; 3],
     gate: f64,
+    kind: Integrand,
 ) -> Option<f64> {
     for (q, p) in uv.iter().zip(points) {
         if surface.point_at(q.0, q.1).distance_to(&p) > gate {
@@ -130,24 +147,32 @@ fn surface_term(
         } else {
             ((u, b.1), (u, c.1))
         };
-        return Some(oriented_term(surface, [pb, b, c]) + oriented_term(surface, [pb, c, pc]));
+        return Some(
+            oriented_term(surface, [pb, b, c], kind) + oriented_term(surface, [pb, c, pc], kind),
+        );
     }
-    Some(oriented_term(surface, uv))
+    Some(oriented_term(surface, uv, kind))
 }
 
-/// `⅓ ∬ r · (∂u × ∂v)` over the oriented (u, v) triangle `uv`.
-pub(super) fn oriented_term(surface: &SurfaceGeometry, uv: [(f64, f64); 3]) -> f64 {
+/// `kind`'s integrand over the oriented (u, v) triangle `uv`.
+pub(super) fn oriented_term(
+    surface: &SurfaceGeometry,
+    uv: [(f64, f64); 3],
+    kind: Integrand,
+) -> f64 {
     let signed_area = 0.5
         * ((uv[1].0 - uv[0].0) * (uv[2].1 - uv[0].1) - (uv[2].0 - uv[0].0) * (uv[1].1 - uv[0].1));
     let mut sum = 0.0;
     for (bary, w) in RULE {
         let u = bary[0] * uv[0].0 + bary[1] * uv[1].0 + bary[2] * uv[2].0;
         let v = bary[0] * uv[0].1 + bary[1] * uv[1].1 + bary[2] * uv[2].1;
-        let r = as_vec(surface.point_at(u, v));
         let n = surface.partial_u(u, v).cross(&surface.partial_v(u, v));
-        sum += w * r.dot(&n);
+        sum += w * match kind {
+            Integrand::Volume => as_vec(surface.point_at(u, v)).dot(&n) / 3.0,
+            Integrand::Area => n.length(),
+        };
     }
-    sum * signed_area / 3.0
+    sum * signed_area
 }
 
 /// The (u, v) winding sign of a face mesh's outward-wound triangles:
@@ -203,93 +228,133 @@ pub(crate) fn quadrature_volume(
             };
             continue;
         }
-        // Chords on the face's boundary: mesh edges of one triangle.
-        let mut uses = std::collections::HashMap::<(usize, usize), u32>::new();
-        for t in &fm.triangles {
-            for k in 0..3 {
-                let (i, j) = (t[k], t[(k + 1) % 3]);
-                *uses.entry((i.min(j), i.max(j))).or_default() += 1;
-            }
-        }
-        let trims = surface
-            .map(|_| sliver::face_trims(brep, fm.face))
-            .unwrap_or_default();
-        let winding = surface.and_then(|s| face_winding(s, fm));
-        for t in &fm.triangles {
-            let boundary = [0, 1, 2].map(|k| {
-                let (i, j) = (t[k], t[(k + 1) % 3]);
-                uses.get(&(i.min(j), i.max(j))) == Some(&1)
-            });
-            let [a, b, c] = t.map(|i| &fm.vertices[i]);
-            let points = [a.position, b.position, c.position];
-            let flat = facet_term(points[0], points[1], points[2]);
-            volume += surface
-                .and_then(|s| {
-                    // Corners on one branch of a periodic chart: a facet
-                    // across the seam keeps u = 0.1 and u = 6.2 as stored,
-                    // a (u, v) triangle spanning the whole period that
-                    // integrated a band of the surface (measured: an arm
-                    // part read 3.86x its volume). The anchor is the
-                    // corner with the largest chart Jacobian: a pole
-                    // corner's collapsed coordinate is arbitrary.
-                    let (pu, pv) = s.parameter_periodicity();
-                    let jacobian = |q: (f64, f64)| {
-                        s.partial_u(q.0, q.1).cross(&s.partial_v(q.0, q.1)).length()
-                    };
-                    let corners = [a.uv, b.uv, c.uv];
-                    let anchor = corners
-                        .iter()
-                        .copied()
-                        .max_by(|x, y| jacobian(*x).total_cmp(&jacobian(*y)))
-                        .unwrap_or(a.uv);
-                    let near = |x: f64, to: f64, period: Option<f64>| match period {
-                        Some(p) if p > 0.0 => x - p * ((x - to) / p).round(),
-                        _ => x,
-                    };
-                    let [a, b, c] =
-                        corners.map(|q| (near(q.0, anchor.0, pu), near(q.1, anchor.1, pv)));
-                    let exact =
-                        surface_term(s, [a, b, c], points, gate).filter(|x| x.is_finite())?;
-                    // The (u, v) triangle must be this facet's patch: its
-                    // centroid's image lies within the facet's diameter
-                    // of the facet's centroid.
-                    let diameter = points[0]
-                        .distance_to(&points[1])
-                        .max(points[1].distance_to(&points[2]))
-                        .max(points[2].distance_to(&points[0]));
-                    let image = s.point_at((a.0 + b.0 + c.0) / 3.0, (a.1 + b.1 + c.1) / 3.0);
-                    let centroid = Point3::new(
-                        (points[0].x + points[1].x + points[2].x) / 3.0,
-                        (points[0].y + points[1].y + points[2].y) / 3.0,
-                        (points[0].z + points[1].z + points[2].z) / 3.0,
-                    );
-                    if image.distance_to(&centroid) > diameter + gate {
-                        return None;
-                    }
-                    // The (u, v) orientation must be the face's: a
-                    // mirrored chart triangle flips the sign. Decided
-                    // against the face's own winding, not the facet's
-                    // normal: a sliver facet chording 27° of a helix
-                    // tips its normal across the surface's, and 50477 of
-                    // an M6 flank's triangles fell back to facets whose
-                    // errors no longer cancelled (0.7% of a tapped
-                    // block, PK-901).
-                    let signed_area = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
-                    let uv_sign = winding?;
-                    if signed_area * uv_sign <= 0.0 {
-                        return None;
-                    }
-                    let corners = [a, b, c];
-                    let slivers: f64 = (0..3)
-                        .filter(|&k| boundary[k] && !trims.is_empty())
-                        .filter_map(|k| {
-                            sliver::sliver_term(s, &trims, corners[k], corners[(k + 1) % 3], gate)
-                        })
-                        .sum();
-                    Some(exact + slivers)
-                })
-                .unwrap_or(flat);
-        }
+        volume += face_quadrature(brep, fm, surface, gate, Integrand::Volume);
     }
     volume
+}
+
+/// `kind` over one face's mesh triangles, each on the exact `surface`
+/// with its boundary slivers, or its flat facet where the (u, v)
+/// triangle is not the facet's patch.
+fn face_quadrature(
+    brep: &popkern_core::topology::BRep,
+    fm: &popkern_mesh::FaceMesh,
+    surface: Option<&SurfaceGeometry>,
+    gate: f64,
+    kind: Integrand,
+) -> f64 {
+    let mut out = 0.0;
+    // Chords on the face's boundary: mesh edges of one triangle.
+    let mut uses = std::collections::HashMap::<(usize, usize), u32>::new();
+    for t in &fm.triangles {
+        for k in 0..3 {
+            let (i, j) = (t[k], t[(k + 1) % 3]);
+            *uses.entry((i.min(j), i.max(j))).or_default() += 1;
+        }
+    }
+    let trims = surface
+        .map(|_| sliver::face_trims(brep, fm.face))
+        .unwrap_or_default();
+    let winding = surface.and_then(|s| face_winding(s, fm));
+    for t in &fm.triangles {
+        let boundary = [0, 1, 2].map(|k| {
+            let (i, j) = (t[k], t[(k + 1) % 3]);
+            uses.get(&(i.min(j), i.max(j))) == Some(&1)
+        });
+        let [a, b, c] = t.map(|i| &fm.vertices[i]);
+        let points = [a.position, b.position, c.position];
+        let flat = match kind {
+            Integrand::Volume => facet_term(points[0], points[1], points[2]),
+            Integrand::Area => facet_area(points[0], points[1], points[2]),
+        };
+        out += surface
+            .and_then(|s| {
+                // Corners on one branch of a periodic chart: a facet
+                // across the seam keeps u = 0.1 and u = 6.2 as stored,
+                // a (u, v) triangle spanning the whole period that
+                // integrated a band of the surface (measured: an arm
+                // part read 3.86x its volume). The anchor is the
+                // corner with the largest chart Jacobian: a pole
+                // corner's collapsed coordinate is arbitrary.
+                let (pu, pv) = s.parameter_periodicity();
+                let jacobian =
+                    |q: (f64, f64)| s.partial_u(q.0, q.1).cross(&s.partial_v(q.0, q.1)).length();
+                let corners = [a.uv, b.uv, c.uv];
+                let anchor = corners
+                    .iter()
+                    .copied()
+                    .max_by(|x, y| jacobian(*x).total_cmp(&jacobian(*y)))
+                    .unwrap_or(a.uv);
+                let near = |x: f64, to: f64, period: Option<f64>| match period {
+                    Some(p) if p > 0.0 => x - p * ((x - to) / p).round(),
+                    _ => x,
+                };
+                let [a, b, c] = corners.map(|q| (near(q.0, anchor.0, pu), near(q.1, anchor.1, pv)));
+                let exact =
+                    surface_term(s, [a, b, c], points, gate, kind).filter(|x| x.is_finite())?;
+                // The (u, v) triangle must be this facet's patch: its
+                // centroid's image lies within the facet's diameter
+                // of the facet's centroid.
+                let diameter = points[0]
+                    .distance_to(&points[1])
+                    .max(points[1].distance_to(&points[2]))
+                    .max(points[2].distance_to(&points[0]));
+                let image = s.point_at((a.0 + b.0 + c.0) / 3.0, (a.1 + b.1 + c.1) / 3.0);
+                let centroid = Point3::new(
+                    (points[0].x + points[1].x + points[2].x) / 3.0,
+                    (points[0].y + points[1].y + points[2].y) / 3.0,
+                    (points[0].z + points[1].z + points[2].z) / 3.0,
+                );
+                if image.distance_to(&centroid) > diameter + gate {
+                    return None;
+                }
+                // The (u, v) orientation must be the face's: a
+                // mirrored chart triangle flips the sign. Decided
+                // against the face's own winding, not the facet's
+                // normal: a sliver facet chording 27° of a helix
+                // tips its normal across the surface's, and 50477 of
+                // an M6 flank's triangles fell back to facets whose
+                // errors no longer cancelled (0.7% of a tapped
+                // block, PK-901).
+                let signed_area = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
+                let uv_sign = winding?;
+                if signed_area * uv_sign <= 0.0 {
+                    return None;
+                }
+                let corners = [a, b, c];
+                let slivers: f64 = (0..3)
+                    .filter(|&k| boundary[k] && !trims.is_empty())
+                    .filter_map(|k| {
+                        sliver::sliver_term(s, &trims, corners[k], corners[(k + 1) % 3], gate, kind)
+                    })
+                    .sum();
+                Some(match kind {
+                    Integrand::Volume => exact + slivers,
+                    // The winding makes a face's (u, v) triangles positive.
+                    Integrand::Area => (exact + slivers) * uv_sign,
+                })
+            })
+            .unwrap_or(flat);
+    }
+    out
+}
+
+/// Area of the flat facet `a b c`.
+fn facet_area(a: Point3, b: Point3, c: Point3) -> f64 {
+    0.5 * (b - a).cross(&(c - a)).length()
+}
+
+/// Area of a non-planar face from its measuring mesh: every triangle
+/// integrated on the exact surface (see the module notes).
+pub(crate) fn quadrature_face_area(
+    brep: &popkern_core::topology::BRep,
+    fm: &popkern_mesh::FaceMesh,
+    gate: f64,
+) -> f64 {
+    let surface = brep
+        .faces
+        .get(fm.face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| &s.geometry);
+    face_quadrature(brep, fm, surface, gate, Integrand::Area)
 }
