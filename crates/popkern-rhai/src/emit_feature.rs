@@ -69,8 +69,9 @@ pub(super) fn axis(
 }
 
 /// The statement for `node`. `tool_var` names the tool body of a
-/// boolean; `end_owner` is the body owning an extrude's end face, when
-/// that is not the extruded body.
+/// boolean; `end_owner` is the other body a feature names: the one
+/// owning an extrude's or revolve's end face, or a sweep's or pipe's
+/// path edge, when that is not the feature's own body.
 pub fn statement(
     model: &Model,
     node: &FeatureNode,
@@ -175,17 +176,38 @@ pub fn statement(
                 options(pairs)
             )
         }
-        Feature::Sweep { mode, .. } => {
+        Feature::Sweep {
+            path_edge,
+            twist,
+            mode,
+            path: chained,
+            ..
+        } => {
             if !matches!(mode, OperationMode::NewBody) {
                 return Err(decline("sweep boss/cut modes have no spelling in the skin"));
             }
-            // The path edge lives on another body; spelling it needs
-            // cross-body selection verification the emitter does not
-            // have yet (the recorded query would be re-verified against
-            // the wrong body's state).
-            return Err(decline(
-                "sweep paths cross bodies; the skin has no verified spelling for them yet",
-            ));
+            // The path edge is verified against the path body's state
+            // (the emitter's other-body check).
+            let path =
+                end_owner.ok_or_else(|| decline("the sweep's path body is not in the timeline"))?;
+            let mut pairs = vec![label_option(label)];
+            let twist = scalar(tree, *twist, context)?;
+            if twist != "0" {
+                pairs.push(("twist", twist));
+            }
+            let mut edges = vec![path_edge.clone()];
+            if let Some(chained) = chained {
+                edges.extend(chained.more_edges.iter().cloned());
+                if chained.corner == popkern_history::feature_sweep_path::SweepCorner::Round {
+                    pairs.push(("corner", quoted("round")));
+                }
+            }
+            format!(
+                ".sweep({}, {}{})",
+                tool_var(path),
+                spell("path_edge", &edges, false)?,
+                options(pairs)
+            )
         }
         Feature::Loft {
             sections,
@@ -229,12 +251,19 @@ pub fn statement(
             if !matches!(mode, OperationMode::NewBody) {
                 return Err(decline("pipe boss/cut modes have no spelling in the skin"));
             }
-            format!(
-                ".pipe({}, {}{})",
-                spell("path_edge", std::slice::from_ref(path_edge), false)?,
-                scalar(tree, *radius, context)?,
-                options(vec![label_option(label)])
-            )
+            // The tube is a new body called on the path body.
+            let path =
+                end_owner.ok_or_else(|| decline("the pipe's path body is not in the timeline"))?;
+            return Ok(Statement {
+                call: format!(
+                    "{}.pipe({}, {}{})",
+                    tool_var(path),
+                    spell("path_edge", std::slice::from_ref(path_edge), false)?,
+                    scalar(tree, *radius, context)?,
+                    options(vec![label_option(label)])
+                ),
+                starts_body: true,
+            });
         }
         Feature::HelicalSweep {
             axis: a,
@@ -279,6 +308,22 @@ pub fn statement(
             return emit_feature_fastener::fastener_statement(tree, context, label, &node.feature);
         }
         Feature::Primitive(desc) => {
+            if let popkern_history::feature_primitive::PrimitiveShape::SheetFill { edges } =
+                &desc.shape
+            {
+                // The fill names its wire and spells the edges on it.
+                let wire =
+                    end_owner.ok_or_else(|| decline("the fill's wire is not in the timeline"))?;
+                return Ok(Statement {
+                    call: format!(
+                        "m.sheet_fill({}, {}{})",
+                        tool_var(wire),
+                        spell("fill_edges", edges, false)?,
+                        options(vec![label_option(label)])
+                    ),
+                    starts_body: true,
+                });
+            }
             return emit_feature_primitive::primitive_statement(
                 tree,
                 model.length_unit(),

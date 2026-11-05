@@ -148,6 +148,7 @@ fn save_load_all_feature_types() {
             path_edge: face_name(2),
             twist: tw,
             mode: OperationMode::Cut,
+            path: None,
         },
         "Sweep",
     );

@@ -3,6 +3,7 @@
 //! sketch bodies, so there is no receiving body).
 
 use popkern_history::feature::{Feature, OperationMode};
+use popkern_history::feature_sweep_path::{SweepCorner, SweepPath};
 use popkern_history::unit::Unit;
 
 use crate::body::Body;
@@ -84,14 +85,47 @@ impl Body {
         mode: OperationMode,
         label: &str,
     ) -> Result<Body, ScriptError> {
+        self.sweep_cornered(
+            model,
+            path_body,
+            path,
+            SweepCorner::Mitre,
+            (twist.into(), mode),
+            label,
+        )
+    }
+
+    /// Sweep along every edge `path` selects on `path_body`, chained
+    /// end to end from the first (a polyline wire's edges, a box's
+    /// edge loop), with `corner` at its sharp corners; one edge is the
+    /// plain sweep. `twist_mode` is the twist (degrees, 0 for a path of
+    /// several edges) and the mode.
+    pub fn sweep_cornered(
+        self,
+        model: &mut Model,
+        path_body: Body,
+        path: EdgeSelector,
+        corner: SweepCorner,
+        twist_mode: (Scalar, OperationMode),
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let (twist, mode) = twist_mode;
         let face = self.last_sketch_face(model)?;
-        let mut records = Vec::new();
-        let path_edge = path_body.one_edge_recorded(model, "path_edge", &path, &mut records)?;
+        let snapshot = path_body.edges(model, &path)?;
+        let records = vec![Body::selection_record("path_edge", &snapshot)];
+        let mut names = snapshot.names.into_iter();
+        let path_edge = names.next().ok_or(ScriptError::EmptySelection {
+            selection: snapshot.describe,
+            kind: crate::error::SelectionKind::Edges,
+            available: 0,
+        })?;
+        let more_edges: Vec<_> = names.collect();
         let feature = Feature::Sweep {
             face,
             path_edge,
-            twist: Body::bind(model, "twist", &twist.into(), Unit::Degrees)?,
+            twist: Body::bind(model, "twist", &twist, Unit::Degrees)?,
             mode,
+            path: (!more_edges.is_empty()).then_some(SweepPath { more_edges, corner }),
         };
         self.record(model, feature, label, records)
     }

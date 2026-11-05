@@ -16,6 +16,13 @@ use crate::replay_side_effects::ExecuteSideEffects;
 use crate::resolve::{resolve_axis, resolve_edge, resolve_face};
 use popkern_core::naming::EntityName;
 
+#[path = "replay_pipe_arc.rs"]
+mod replay_pipe_arc;
+#[path = "replay_sweep_chain.rs"]
+mod replay_sweep_chain;
+#[path = "replay_sweep_corner.rs"]
+mod replay_sweep_corner;
+
 /// The `Feature::Sweep` arm: profile face along a path edge.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn execute_sweep(
@@ -28,9 +35,49 @@ pub(super) fn execute_sweep(
     body_breps: &WorkingBodies,
     param_table: &ParameterTable,
     exact_profile: Option<&crate::replay_exact_extrude::ExactProfileWire>,
+    path: Option<&crate::feature_sweep_path::SweepPath>,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     let tw = resolve_param(param_table, twist)?;
     let face_handle = resolve_face(face, brep)?;
+    if let Some(path) = path.filter(|p| !p.more_edges.is_empty()) {
+        if tw != 0.0 {
+            return Err(ReplayError::FeatureFailed {
+                label: "sweep".into(),
+                error: "a twist over a path of several edges is not supported".into(),
+            });
+        }
+        let profile = match exact_profile {
+            Some(exact) => popkern_sweep::SweepProfile::Wire(exact.flat.clone()),
+            None => popkern_sweep::SweepProfile::Face {
+                brep: Box::new(brep.clone()),
+                face: face_handle,
+            },
+        };
+        let mut curves = Vec::with_capacity(path.more_edges.len() + 1);
+        for name in std::iter::once(path_edge).chain(path.more_edges.iter()) {
+            let curve = std::iter::once(&*brep)
+                .chain(bodies_in_id_order(body_breps))
+                .find_map(|b| {
+                    resolve_edge(name, b)
+                        .ok()
+                        .and_then(|e| b.edges[e].curve.clone())
+                })
+                .ok_or_else(|| ReplayError::FeatureFailed {
+                    label: "sweep".into(),
+                    error: format!("sweep path edge {name:?} not found in any body").into(),
+                })?;
+            curves.push(curve);
+        }
+        let pieces = crate::curve_chain::chain(curves, tolerance.linear() * 10.0).map_err(|e| {
+            ReplayError::FeatureFailed {
+                label: "sweep".into(),
+                error: format!("the sweep path's edges do not chain end to end ({e:?})").into(),
+            }
+        })?;
+        *brep =
+            replay_sweep_chain::sweep_chain(&profile, &pieces, path.corner, tracking, *tolerance)?;
+        return Ok(ExecuteSideEffects::empty());
+    }
     // The path edge usually lives on another body (the profile
     // sketch body has no path edges): resolve here first, then
     // across the other bodies — referenced, not consumed.
@@ -168,20 +215,25 @@ pub(super) fn execute_pipe(
     param_table: &ParameterTable,
 ) -> Result<ExecuteSideEffects, ReplayError> {
     let r = resolve_param(param_table, radius)?;
-    let path_curve = if let Ok(e) = resolve_edge(path_edge, brep) {
-        extract_edge_curve(brep, e)?
-    } else if let Some(curve) = bodies_in_id_order(body_breps).find_map(|b| {
-        resolve_edge(path_edge, b)
-            .ok()
-            .map(|e| extract_edge_curve(b, e))
-    }) {
-        curve?
+    let path_owner = if resolve_edge(path_edge, brep).is_ok() {
+        Some(&*brep)
     } else {
+        bodies_in_id_order(body_breps).find(|b| resolve_edge(path_edge, b).is_ok())
+    };
+    let Some(owner) = path_owner else {
         return Err(ReplayError::FeatureFailed {
             label: "pipe".into(),
             error: format!("pipe path edge {path_edge:?} not found in any body").into(),
         });
     };
+    let edge = resolve_edge(path_edge, owner)?;
+    if let Some(curve) = owner.edges[edge].curve.as_ref()
+        && let Some(result) = replay_pipe_arc::pipe_along_arc(curve, r, tracking, tolerance)?
+    {
+        *brep = result;
+        return Ok(ExecuteSideEffects::empty());
+    }
+    let path_curve = extract_edge_curve(owner, edge)?;
     let result = popkern_sweep::pipe(
         &path_curve,
         &popkern_sweep::PipeRadius::Constant(r),

@@ -49,7 +49,11 @@ pub struct RegularPolygon {
 }
 
 impl Model {
-    fn bind_length(&mut self, role: &str, s: Scalar) -> Result<ParameterId, ScriptError> {
+    pub(crate) fn bind_length(
+        &mut self,
+        role: &str,
+        s: Scalar,
+    ) -> Result<ParameterId, ScriptError> {
         let unit = self.unit;
         bind_scalar(&mut self.tree, &mut self.pending_counter, role, &s, unit)
     }
@@ -64,11 +68,23 @@ impl Model {
         )
     }
 
-    fn primitive(
+    pub(crate) fn primitive(
         &mut self,
         shape: PrimitiveShape,
         placement: Placement,
         label: &str,
+    ) -> Result<Body, ScriptError> {
+        self.primitive_selecting(shape, placement, label, Vec::new())
+    }
+
+    /// [`Model::primitive`] recording the selections it was built from
+    /// (a fill's wire edges).
+    pub(crate) fn primitive_selecting(
+        &mut self,
+        shape: PrimitiveShape,
+        placement: Placement,
+        label: &str,
+        selections: Vec<popkern_history::SelectionRecord>,
     ) -> Result<Body, ScriptError> {
         let si = |v: [f64; 3], unit: Unit| v.map(|c| unit.to_si(c));
         let frame = PrimitiveFrame {
@@ -83,7 +99,7 @@ impl Model {
             feature,
             label,
             None,
-            Vec::new(),
+            selections,
             &mut self.geometry_current,
         )?;
         self.note_source(id);

@@ -102,7 +102,7 @@ m
 <tr><td><code>remove_faces(faces)</code></td><td><code>faces()...</code> to take away</td><td><code>label</code></td><td>The body is left open along their edges: a solid becomes a sheet, which <code>thicken</code> takes (a sheet keeps the solid's outward normals, so <code>side: "outward"</code> builds away from where the material was). A face with holes cannot be removed yet.</td></tr>
 <tr><td><code>draft(faces, angle_deg, neutral)</code></td><td><code>faces()...</code> to taper; the angle in degrees; the neutral plane: a planar face (<code>faces()...</code> or <code>on_face(...)</code>, pulled along its outward normal) or a plane (<code>xy()</code>, <code>xz()</code>, <code>yz()</code>, <code>xy_at(z)</code> and the like at a literal offset, <code>plane_at([o], [n])</code>, pulled along its normal)</td><td><code>label</code></td><td>Each face keeps its line on the neutral plane and leans by the angle, so the part draws along the pull direction.</td></tr>
 <tr><td><code>translate(dx, dy, dz)</code>, <code>rotate(axis, angle_deg)</code></td><td>rigid motions; the distances and the angle are scalars (<code>p()</code>/<code>expr()</code> apply)</td><td><code>label</code></td><td>Usually applied to tool bodies before a boolean. Selector arguments (<code>at_height(z)</code>, <code>chord_length_between</code>) are plain numbers, not parameters.</td></tr>
-<tr><td><code>sweep(path_body, path_edge)</code></td><td>the body carrying the path edge, then an edge query on it (exactly one edge)</td><td><code>label</code>, <code>mode</code>, <code>twist</code></td><td>The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. <code>twist</code> in degrees over the full path. The path body is referenced, not consumed.</td></tr>
+<tr><td><code>sweep(path_body, path_edge)</code></td><td>the body carrying the path, then an edge query on it (one edge, or several chained end to end)</td><td><code>label</code>, <code>mode</code>, <code>twist</code>, <code>corner</code></td><td>The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. <code>twist</code> in degrees over the full path (one edge only). A path of several edges carries one frame round its joints; at a sharp corner <code>corner: "mitre"</code> (the default) cuts each run by the plane bisecting it, <code>"round"</code> turns the section about the corner. The path body is referenced, not consumed.</td></tr>
 <tr><td><code>loft(sections)</code></td><td>on <code>Model</code>: <code>m.loft([s0, s1, …])</code> — ordered sketch bodies, each contributing its most recent sketch face</td><td><code>label</code>, <code>mode</code>, <code>closed</code></td><td>Records on the first section's body and consumes the others. Sections must be all closed or all open; matching point counts keep the surface smooth (circle sections stay exact circles).</td></tr>
 <tr><td><code>pipe(path_edge, radius)</code></td><td>an edge query on the receiving body (exactly one edge), then the tube radius</td><td><code>label</code>, <code>mode</code></td><td>The tube is a new body; the path body keeps its edge.</td></tr>
 <tr><td><code>bolt(spec, length)</code></td><td>on <code>Model</code>: <code>spec</code> is a designation string (<code>"M6"</code>, <code>"M6x0.75"</code>, <code>"1/4-20"</code>, <code>"#8-32"</code> — millimetre-magnitude numbers bound in model units) or <code>#{ major: .., pitch: .. }</code>; <code>length</code> is under-head (hex/socket) or overall (countersunk)</td><td><code>label</code>, <code>head</code> (<code>"hex"</code> default, <code>"socket"</code>, <code>"countersunk"</code>), <code>thread_length</code>, <code>left_hand</code>, <code>starts</code>, <code>tip_chamfer</code></td><td>Real modeled threads (PK-460). Bodies build in the insertion frame — axis +Z, origin at the bearing plane, threads toward +Z — and place with <code>translate</code>/<code>rotate</code>. Author fastener models in a default-unit session with millimetre-magnitude numbers.</td></tr>
@@ -202,6 +202,35 @@ post = post.shell(faces().named("post/Cap/1"), 0.5);   // open at the top
 let ring = m.torus(5.0, 1.0, #{ angle: 90.0 });
 m
 </code></pre>
+<h3>Wires</h3>
+<p>A wire is a body of edges on no face: a path for <code>sweep</code> and <code>pipe</code>, and construction geometry (it is not a part: it is not exported or meshed).</p>
+<table>
+<tr><th>Verb</th><th>Arguments</th><th>Options</th></tr>
+<tr><td><code>m.wire_line(from, to)</code></td><td>two points</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code></td></tr>
+<tr><td><code>m.wire_polyline(points)</code></td><td>a list of points</td><td><code>closed</code>, and the placement</td></tr>
+<tr><td><code>m.wire_arc(start, via, end)</code></td><td>three points on the arc</td><td>the placement</td></tr>
+<tr><td><code>m.wire_circle(r)</code></td><td>radius, about the axis from <code>ref</code></td><td>the placement</td></tr>
+<tr><td><code>m.wire_helix(r, pitch, turns)</code></td><td>radius, rise per turn, turns</td><td><code>left_hand</code>, and the placement</td></tr>
+<tr><td><code>m.wire_spline(points)</code></td><td>the points it passes through (or, with <code>control</code>, its control polygon)</td><td><code>degree</code> (3), <code>control</code>, and the placement</td></tr>
+</table>
+<p>Points are in the model unit, in the placement's frame. A wire's one edge is the path without a query: <code>profile_body.sweep(wire)</code>, <code>wire.pipe(r)</code>. A pipe along an arc or circle is an exact torus.</p>
+<pre class="lang-rhai"><code>let m = model();
+let coil = m.wire_helix(10.0, 4.0, 5.0);
+let spring = coil.pipe(1.0);
+let rail = m.wire_line([0.0, 0.0, 0.0], [50.0, 0.0, 0.0]);
+let bar = m.profile(xy()).rect(4.0, 2.0).sketch("section").sweep(rail);
+m
+</code></pre>
+<h3>Sheets</h3>
+<p>A sheet is one planar face with free edges: thicken it, offset it, cut with it.</p>
+<table>
+<tr><th>Verb</th><th>Arguments</th><th>Options</th></tr>
+<tr><td><code>m.sheet_rect(x, y)</code></td><td>sizes in the placement's xy plane</td><td><code>centred</code>, <code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code></td></tr>
+<tr><td><code>m.sheet_disc(r)</code></td><td>radius</td><td>the placement</td></tr>
+<tr><td><code>m.sheet_polygon(points)</code></td><td><code>[x, y]</code> corners</td><td>the placement</td></tr>
+<tr><td><code>m.sheet_fill(wire)</code></td><td>a closed planar wire (or <code>wire, edges()...</code>)</td><td><code>label</code></td></tr>
+</table>
+<p>A sheet faces its placement's axis: <code>thicken(t, #{ side: "outward" })</code> grows along it. Its face is <code>Cap/0</code>.</p>
 <h2>6. Selecting edges and faces</h2>
 <p>Queries are data: <code>edges()</code> or <code>faces()</code> followed by predicates, all of which must hold; <code>.or(...)</code> joins whole queries (edges and faces alike); <code>.allow_empty()</code> turns "matched nothing" from an error into a recorded no-op. A query that must name exactly one entity (a <code>label_edge</code>, an <code>on_face</code> plane, a chamfer's reference face) raises <code>SelectionCardinality</code> when it matches more.</p>
 <table>
@@ -506,11 +535,13 @@ body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, jo
 body.offset_solid(d, #{label, join, trim})  body.thicken(t, #{label, join, trim, side})  body.remove_faces(F, #{label})
 body.draft(F, deg, NEUTRAL, #{label})    NEUTRAL: faces()… on_face(F) xy() xz() yz() xy_at(z) plane_at([o],[n])
 body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
-body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
+body.sweep(path_body, E, #{label, mode, twist, corner})     body.pipe(E, r, #{label, mode})     body.sweep(wire) wire.pipe(r)
 body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
 m.loft([s0, s1, …], #{label, mode, closed})
 m.box(x, y, z, #{centred}) m.cylinder(r, h) m.cone(r1, r2, h) m.sphere(r, #{lat}) m.torus(R, r)   #{angle}
 m.prism(n, r, h, #{flats}) m.pyramid(n, r1, r2, h, #{flats}) m.wedge(x, y, z, top_x)   all #{at, axis, ref, label}
+m.sheet_rect(x, y, #{centred}) m.sheet_disc(r) m.sheet_polygon(P) m.sheet_fill(wire[, E])
+m.wire_line(a, b) m.wire_polyline(P, #{closed}) m.wire_arc(a, via, b) m.wire_circle(r) m.wire_helix(r, pitch, turns, #{left_hand}) m.wire_spline(P, #{degree, control})
 m.bolt(SPEC, len, #{label, head, thread_length, left_hand, starts})   m.threaded_rod(SPEC, len, #{…})
 m.hinge("butt"|"print_in_place", len, #{knuckles, pin, clearance, gap, angle, screw, holes, only})   m.living_hinge(STYLE, span, len)
 m.nut(SPEC, #{label, clearance, thickness, left_hand, starts, corner_chamfer, mouth_chamfer})

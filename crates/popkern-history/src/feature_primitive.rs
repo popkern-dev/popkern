@@ -9,6 +9,7 @@
 //! base centre or, for a box, a corner) and places it rigidly; faces
 //! carry role names under the feature's operation (`replay_primitive`).
 
+use popkern_core::naming::EntityName;
 use serde::{Deserialize, Serialize};
 
 use crate::parameter::ParameterId;
@@ -122,6 +123,87 @@ pub enum PrimitiveShape {
         /// Extent along x at the top.
         top_x: ParameterId,
     },
+    /// A wire: straight edges through `points` (local frame, metres),
+    /// the last joined back to the first when `closed`.
+    WirePolyline {
+        /// The corners, at least two.
+        points: Vec<[f64; 3]>,
+        /// Joined back to the first point.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        closed: bool,
+    },
+    /// A wire: the circular arc from `start` through `via` to `end`.
+    WireArc {
+        /// Start point.
+        start: [f64; 3],
+        /// A point on the arc between the ends.
+        via: [f64; 3],
+        /// End point.
+        end: [f64; 3],
+    },
+    /// A wire: the circle of `radius` about the axis in the local xy
+    /// plane, one closed edge starting on the reference direction.
+    WireCircle {
+        /// Radius.
+        radius: ParameterId,
+    },
+    /// A wire: a helix of `radius` about the axis from the reference
+    /// direction, rising `pitch` per turn for `turns`.
+    WireHelix {
+        /// Radius.
+        radius: ParameterId,
+        /// Rise per turn.
+        pitch: ParameterId,
+        /// Number of turns (fractional allowed).
+        turns: ParameterId,
+        /// Winding sense (`false`: right-hand).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        left_handed: bool,
+    },
+    /// A wire: the cubic (or `degree`) spline interpolating `points`
+    /// (local frame, metres) at chord-length parameters, or, when
+    /// `control`, the clamped uniform B-spline with `points` as its
+    /// control polygon (four points of degree 3: a Bézier curve).
+    WireSpline {
+        /// The points it passes through (or its control points), at
+        /// least `degree + 1`.
+        points: Vec<[f64; 3]>,
+        /// Polynomial degree.
+        degree: u32,
+        /// `points` are control points, not points on the curve.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        control: bool,
+    },
+    /// A sheet: the rectangle `x` × `y` in the local xy plane, a
+    /// corner on the origin (or centred on it), facing the axis.
+    SheetRect {
+        /// Extent along the local x.
+        x: ParameterId,
+        /// Extent along the local y.
+        y: ParameterId,
+        /// Centred on the origin instead of cornered there.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        centred: bool,
+    },
+    /// A sheet: the disc of `radius` about the origin in the local xy
+    /// plane, facing the axis.
+    SheetDisc {
+        /// Radius.
+        radius: ParameterId,
+    },
+    /// A sheet: the polygon through `points` (local xy, metres),
+    /// facing the axis.
+    SheetPolygon {
+        /// The corners, at least three.
+        points: Vec<[f64; 2]>,
+    },
+    /// A sheet: the planar face a closed chain of wire edges bounds
+    /// (in world coordinates; the frame is not used). The wire is
+    /// referenced, not consumed.
+    SheetFill {
+        /// The bounding edges, in any order and direction.
+        edges: Vec<EntityName>,
+    },
     /// A torus about the axis, centred on the origin, optionally a
     /// sector of `angle` degrees from the reference direction.
     Torus {
@@ -166,7 +248,9 @@ impl PrimitiveFrame {
 
 impl PrimitiveShape {
     /// The operation spelling (`box`, `cylinder`, `cone`, `sphere`,
-    /// `prism`, `pyramid`, `wedge`, `torus`).
+    /// `prism`, `pyramid`, `wedge`, `torus`, and the wires `wire_line`,
+    /// `wire_polyline`, `wire_arc`, `wire_circle`, `wire_helix`,
+    /// `wire_spline`).
     pub fn spelling(&self) -> &'static str {
         match self {
             PrimitiveShape::Box { .. } => "box",
@@ -177,7 +261,54 @@ impl PrimitiveShape {
             PrimitiveShape::Pyramid { .. } => "pyramid",
             PrimitiveShape::Wedge { .. } => "wedge",
             PrimitiveShape::Torus { .. } => "torus",
+            PrimitiveShape::WirePolyline { points, closed } => {
+                if points.len() == 2 && !closed {
+                    "wire_line"
+                } else {
+                    "wire_polyline"
+                }
+            }
+            PrimitiveShape::WireArc { .. } => "wire_arc",
+            PrimitiveShape::WireCircle { .. } => "wire_circle",
+            PrimitiveShape::WireHelix { .. } => "wire_helix",
+            PrimitiveShape::WireSpline { .. } => "wire_spline",
+            PrimitiveShape::SheetRect { .. } => "sheet_rect",
+            PrimitiveShape::SheetDisc { .. } => "sheet_disc",
+            PrimitiveShape::SheetPolygon { .. } => "sheet_polygon",
+            PrimitiveShape::SheetFill { .. } => "sheet_fill",
         }
+    }
+
+    /// Visit every entity name the shape references (a fill's edges).
+    pub fn for_each_name_mut(&mut self, f: &mut dyn FnMut(&mut EntityName)) {
+        if let PrimitiveShape::SheetFill { edges } = self {
+            for name in edges.iter_mut() {
+                f(name);
+            }
+        }
+    }
+
+    /// Whether the shape is a sheet (one face with free edges).
+    pub fn is_sheet(&self) -> bool {
+        matches!(
+            self,
+            PrimitiveShape::SheetRect { .. }
+                | PrimitiveShape::SheetDisc { .. }
+                | PrimitiveShape::SheetPolygon { .. }
+                | PrimitiveShape::SheetFill { .. }
+        )
+    }
+
+    /// Whether the shape is a wire (edges, no faces).
+    pub fn is_wire(&self) -> bool {
+        matches!(
+            self,
+            PrimitiveShape::WirePolyline { .. }
+                | PrimitiveShape::WireArc { .. }
+                | PrimitiveShape::WireCircle { .. }
+                | PrimitiveShape::WireHelix { .. }
+                | PrimitiveShape::WireSpline { .. }
+        )
     }
 
     /// The sector angle, when the shape is only a sector of its
@@ -187,7 +318,16 @@ impl PrimitiveShape {
             PrimitiveShape::Box { .. }
             | PrimitiveShape::Prism { .. }
             | PrimitiveShape::Pyramid { .. }
-            | PrimitiveShape::Wedge { .. } => None,
+            | PrimitiveShape::Wedge { .. }
+            | PrimitiveShape::WirePolyline { .. }
+            | PrimitiveShape::WireArc { .. }
+            | PrimitiveShape::WireCircle { .. }
+            | PrimitiveShape::WireHelix { .. }
+            | PrimitiveShape::WireSpline { .. }
+            | PrimitiveShape::SheetRect { .. }
+            | PrimitiveShape::SheetDisc { .. }
+            | PrimitiveShape::SheetPolygon { .. }
+            | PrimitiveShape::SheetFill { .. } => None,
             PrimitiveShape::Cylinder { angle, .. }
             | PrimitiveShape::Cone { angle, .. }
             | PrimitiveShape::Sphere { angle, .. }
@@ -235,6 +375,20 @@ impl PrimitiveShape {
             PrimitiveShape::Torus { major, minor, .. } => {
                 vec![("major", *major), ("minor", *minor)]
             }
+            PrimitiveShape::WireCircle { radius } => vec![("radius", *radius)],
+            PrimitiveShape::WireHelix {
+                radius,
+                pitch,
+                turns,
+                ..
+            } => vec![("radius", *radius), ("pitch", *pitch), ("turns", *turns)],
+            PrimitiveShape::SheetRect { x, y, .. } => vec![("x", *x), ("y", *y)],
+            PrimitiveShape::SheetDisc { radius } => vec![("radius", *radius)],
+            PrimitiveShape::WirePolyline { .. }
+            | PrimitiveShape::WireArc { .. }
+            | PrimitiveShape::WireSpline { .. }
+            | PrimitiveShape::SheetPolygon { .. }
+            | PrimitiveShape::SheetFill { .. } => Vec::new(),
         }
     }
 }

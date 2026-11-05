@@ -325,6 +325,7 @@ pub(crate) fn execute_feature(
             face,
             path_edge,
             twist,
+            path,
             ..
         } => replay_sweep::execute_sweep(
             brep,
@@ -336,6 +337,7 @@ pub(crate) fn execute_feature(
             body_breps,
             param_table,
             exact_profile,
+            path.as_ref(),
         ),
         Feature::Loft {
             sections, closed, ..
@@ -387,7 +389,7 @@ pub(crate) fn execute_feature(
             exact_profile,
         ),
         Feature::Primitive(p) => {
-            replay_primitive::execute(brep, p, tracking, tolerance, param_table)
+            replay_primitive::execute(brep, p, tracking, tolerance, param_table, body_breps)
         }
         f @ (Feature::Fastener { .. }
         | Feature::TappedHole { .. }

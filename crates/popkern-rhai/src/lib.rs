@@ -74,8 +74,10 @@ pub mod project_host;
 pub mod recipe_api;
 pub mod seam_hinge_api;
 pub mod selection_api;
+pub mod sheet_api;
 mod source_tracking;
 pub mod values;
+pub mod wire_api;
 
 pub use conformance::{Checklist, checklist_from_spec};
 pub use conformance_audit::{Finding, audit_error_classes, audit_rhai, audit_rust};
