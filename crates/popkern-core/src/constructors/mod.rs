@@ -6,6 +6,7 @@
 mod cone;
 mod cube;
 mod cylinder;
+mod frustum;
 mod open_box;
 mod prism;
 mod pyramid;

@@ -23,7 +23,7 @@ pub struct ScriptBody {
 
 const EXTRUDE_OPTIONS: &[&str] = &["label", "mode"];
 const LABEL_ONLY: &[&str] = &["label"];
-const SWEEP_OPTIONS: &[&str] = &["label", "mode", "twist"];
+const SWEEP_OPTIONS: &[&str] = &["label", "mode", "twist", "corner"];
 const HELICAL_OPTIONS: &[&str] = &["label", "mode", "taper_to", "start_angle", "left_hand"];
 
 impl ScriptBody {
@@ -31,7 +31,7 @@ impl ScriptBody {
         ScriptBody { model, body }
     }
 
-    fn served(&self, body: Body) -> ScriptBody {
+    pub(crate) fn served(&self, body: Body) -> ScriptBody {
         ScriptBody::new(self.model.clone(), body)
     }
 
@@ -59,24 +59,30 @@ impl ScriptBody {
         end: ScriptEnd,
         options: &Dynamic,
     ) -> Result<ScriptBody, Box<EvalAltResult>> {
-        let options = Options::parse("revolve", options, LABEL_ONLY)?;
+        let options = Options::parse("revolve", options, EXTRUDE_OPTIONS)?;
         let end = match end {
             ScriptEnd::FullCircle => RevolveEnd::FullCircle,
             ScriptEnd::Extrude(End::Blind(angle)) => RevolveEnd::Blind(angle),
             ScriptEnd::Extrude(End::MidPlane(half)) => RevolveEnd::MidPlane(half),
+            ScriptEnd::Extrude(End::UpToSurface(sel)) => RevolveEnd::UpToSurface(sel),
+            ScriptEnd::Extrude(End::UpToSurfaceOn(on, sel)) => RevolveEnd::UpToSurfaceOn(on, sel),
             ScriptEnd::Extrude(_) => {
                 return Err(argument_error(
                     "end",
-                    "revolve ends are blind(angle), mid_plane(half_angle) or full_circle()",
+                    "revolve ends are blind(angle), mid_plane(half_angle), full_circle() or up_to_surface([body,] faces)",
                 ));
             }
         };
+        let mode = options
+            .with("mode", args::mode)?
+            .unwrap_or(popkern_history::feature::OperationMode::NewBody);
         let body = self
             .body
-            .revolve_with(
+            .revolve_as(
                 &mut self.model.borrow_mut(),
                 axis.spec(),
                 end,
+                mode,
                 &options.label()?,
             )
             .script()?;
@@ -212,7 +218,7 @@ impl ScriptBody {
         Ok(self.served(body))
     }
 
-    fn sweep(
+    pub(crate) fn sweep_along(
         &self,
         path_body: ScriptBody,
         path: EdgeSelector,
@@ -225,21 +231,24 @@ impl ScriptBody {
         let twist = options
             .with("twist", args::scalar)?
             .unwrap_or_else(|| Scalar::from(0.0));
+        let corner = options
+            .with("corner", crate::wire_api::sweep_corner)?
+            .unwrap_or_default();
         let body = self
             .body
-            .sweep_with(
+            .sweep_cornered(
                 &mut self.model.borrow_mut(),
                 path_body.body,
                 path,
-                twist,
-                mode,
+                corner,
+                (twist, mode),
                 &options.label()?,
             )
             .script()?;
         Ok(self.served(body))
     }
 
-    fn pipe(
+    pub(crate) fn pipe_along(
         &self,
         path: EdgeSelector,
         radius: Dynamic,
@@ -438,25 +447,25 @@ pub fn register(engine: &mut Engine) {
         .register_fn(
             "sweep",
             |b: &mut ScriptBody, path_body: ScriptBody, path: EdgeSelector| {
-                b.sweep(path_body, path, &Dynamic::UNIT)
+                b.sweep_along(path_body, path, &Dynamic::UNIT)
             },
         )
         .register_fn(
             "sweep",
             |b: &mut ScriptBody, path_body: ScriptBody, path: EdgeSelector, o: Dynamic| {
-                b.sweep(path_body, path, &o)
+                b.sweep_along(path_body, path, &o)
             },
         )
         .register_fn(
             "pipe",
             |b: &mut ScriptBody, path: EdgeSelector, radius: Dynamic| {
-                b.pipe(path, radius, &Dynamic::UNIT)
+                b.pipe_along(path, radius, &Dynamic::UNIT)
             },
         )
         .register_fn(
             "pipe",
             |b: &mut ScriptBody, path: EdgeSelector, radius: Dynamic, o: Dynamic| {
-                b.pipe(path, radius, &o)
+                b.pipe_along(path, radius, &o)
             },
         )
         .register_fn(

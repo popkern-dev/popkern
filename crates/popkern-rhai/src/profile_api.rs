@@ -2,10 +2,10 @@
 //! §§1.4, 3.1, 5). A profile is a value the script builds up and
 //! records with `.sketch(label)`.
 
-use popkern_script::{AxisSpec, EdgeSelector, End, FaceSelector, Plane, Scalar};
+use popkern_script::{AxisSpec, EdgeSelector, End, FaceSelector, Plane, Scalar, SplineOptions};
 use rhai::{Dynamic, Engine, EvalAltResult};
 
-use crate::args;
+use crate::args::{self, Options};
 use crate::body_api::ScriptBody;
 use crate::error::{IntoScriptResult, argument_error};
 use crate::model_api::ScriptModel;
@@ -52,7 +52,9 @@ impl ScriptAxis {
 enum Shape {
     Rect(Scalar, Scalar),
     Circle(Scalar),
+    Ellipse(Scalar, Scalar),
     Polygon(Vec<(f64, f64)>),
+    Spline(Vec<(f64, f64)>, SplineOptions),
     Path {
         start: (Scalar, Scalar),
         segments: Vec<Segment>,
@@ -63,6 +65,50 @@ enum Shape {
 enum Segment {
     Line(Scalar, Scalar),
     Arc((f64, f64), (f64, f64)),
+    Conic((f64, f64), (f64, f64), f64),
+    Spline(Vec<(f64, f64)>, SplineOptions),
+}
+
+/// The options a closed spline takes; a path segment adds `knots`.
+const SPLINE_OPTIONS: &[&str] = &["degree", "weights"];
+const SPLINE_TO_OPTIONS: &[&str] = &["degree", "weights", "knots"];
+
+/// `#{degree, weights, knots}` for `spline` / `spline_to`.
+fn spline_options(
+    op: &'static str,
+    value: &Dynamic,
+    keys: &'static [&'static str],
+) -> Result<SplineOptions, Box<EvalAltResult>> {
+    let options = Options::parse(op, value, keys)?;
+    let mut out = SplineOptions::default();
+    if let Some(d) = options.with("degree", |a, v| {
+        let d = args::float(a, v)?;
+        if d.fract() != 0.0 || !(1.0..=32.0).contains(&d) {
+            return Err(argument_error(a, "a whole number from 1 to 32"));
+        }
+        Ok(d as usize)
+    })? {
+        out.degree = d;
+    }
+    if let Some(w) = options.with("weights", floats)? {
+        out.weights = w;
+    }
+    if keys.contains(&"knots")
+        && let Some(k) = options.with("knots", floats)?
+    {
+        out.knots = k;
+    }
+    Ok(out)
+}
+
+fn floats(argument: &str, value: &Dynamic) -> Result<Vec<f64>, Box<EvalAltResult>> {
+    value
+        .clone()
+        .into_array()
+        .map_err(|_| argument_error(argument, "expected an array of numbers"))?
+        .iter()
+        .map(|v| args::float(argument, v))
+        .collect()
 }
 
 /// A profile under construction (`model.profile(plane)`).
@@ -91,6 +137,14 @@ impl ScriptProfile {
     }
 
     fn push_segment(&self, segment: Segment) -> Result<ScriptProfile, Box<EvalAltResult>> {
+        if let Segment::Spline(points, _) = &segment
+            && points.is_empty()
+        {
+            return Err(argument_error(
+                "points",
+                "spline_to needs its control points, the last one its end",
+            ));
+        }
         let mut next = self.clone();
         match &mut next.shape {
             Some(Shape::Path { segments, .. }) => {
@@ -99,14 +153,17 @@ impl ScriptProfile {
             }
             _ => Err(argument_error(
                 "path",
-                "line_to/arc_to need a path started with .path(x, y)",
+                "line_to/arc_to/conic_to/spline_to need a path started with .path(x, y)",
             )),
         }
     }
 
     fn sketch(&self, label: &str) -> Result<ScriptBody, Box<EvalAltResult>> {
         let shape = self.shape.clone().ok_or_else(|| {
-            argument_error("profile", "no shape given (rect/circle/polygon/path)")
+            argument_error(
+                "profile",
+                "no shape given (rect/circle/ellipse/polygon/spline/path)",
+            )
         })?;
         let model = self.model.clone();
         let body = {
@@ -115,13 +172,17 @@ impl ScriptProfile {
             let builder = match shape {
                 Shape::Rect(w, h) => builder.rect(w, h),
                 Shape::Circle(r) => builder.circle(r),
+                Shape::Ellipse(rx, ry) => builder.ellipse(rx, ry),
                 Shape::Polygon(points) => builder.polygon(&points),
+                Shape::Spline(points, options) => builder.spline(&points, options),
                 Shape::Path { start, segments } => {
                     let mut b = builder.path(start.0, start.1);
                     for segment in segments {
                         b = match segment {
                             Segment::Line(x, y) => b.line_to(x, y),
                             Segment::Arc(via, to) => b.arc_to(via, to),
+                            Segment::Conic(control, to, w) => b.conic_to(control, to, w),
+                            Segment::Spline(points, options) => b.spline_to(&points, options),
                         };
                     }
                     b
@@ -189,9 +250,33 @@ pub fn register(engine: &mut Engine) {
         .register_fn("circle", |p: &mut ScriptProfile, r: Dynamic| {
             Ok::<_, Box<EvalAltResult>>(p.with_shape(Shape::Circle(args::scalar("radius", &r)?)))
         })
+        .register_fn(
+            "ellipse",
+            |p: &mut ScriptProfile, rx: Dynamic, ry: Dynamic| {
+                Ok::<_, Box<EvalAltResult>>(p.with_shape(Shape::Ellipse(
+                    args::scalar("rx", &rx)?,
+                    args::scalar("ry", &ry)?,
+                )))
+            },
+        )
         .register_fn("polygon", |p: &mut ScriptProfile, points: Dynamic| {
             Ok::<_, Box<EvalAltResult>>(p.with_shape(Shape::Polygon(polygon_points(&points)?)))
         })
+        .register_fn("spline", |p: &mut ScriptProfile, points: Dynamic| {
+            Ok::<_, Box<EvalAltResult>>(p.with_shape(Shape::Spline(
+                polygon_points(&points)?,
+                SplineOptions::default(),
+            )))
+        })
+        .register_fn(
+            "spline",
+            |p: &mut ScriptProfile, points: Dynamic, options: Dynamic| {
+                Ok::<_, Box<EvalAltResult>>(p.with_shape(Shape::Spline(
+                    polygon_points(&points)?,
+                    spline_options("spline", &options, SPLINE_OPTIONS)?,
+                )))
+            },
+        )
         .register_fn("path", |p: &mut ScriptProfile, x: Dynamic, y: Dynamic| {
             Ok::<_, Box<EvalAltResult>>(p.with_shape(Shape::Path {
                 start: (args::scalar("x", &x)?, args::scalar("y", &y)?),
@@ -211,6 +296,31 @@ pub fn register(engine: &mut Engine) {
             "arc_to",
             |p: &mut ScriptProfile, via: Dynamic, to: Dynamic| {
                 p.push_segment(Segment::Arc(pair("via", &via)?, pair("to", &to)?))
+            },
+        )
+        .register_fn(
+            "conic_to",
+            |p: &mut ScriptProfile, control: Dynamic, to: Dynamic, weight: Dynamic| {
+                p.push_segment(Segment::Conic(
+                    pair("control", &control)?,
+                    pair("to", &to)?,
+                    args::float("weight", &weight)?,
+                ))
+            },
+        )
+        .register_fn("spline_to", |p: &mut ScriptProfile, points: Dynamic| {
+            p.push_segment(Segment::Spline(
+                polygon_points(&points)?,
+                SplineOptions::default(),
+            ))
+        })
+        .register_fn(
+            "spline_to",
+            |p: &mut ScriptProfile, points: Dynamic, options: Dynamic| {
+                p.push_segment(Segment::Spline(
+                    polygon_points(&points)?,
+                    spline_options("spline_to", &options, SPLINE_TO_OPTIONS)?,
+                ))
             },
         )
         .register_fn("at", |p: &mut ScriptProfile, x: Dynamic, y: Dynamic| {
@@ -234,6 +344,19 @@ pub fn register(engine: &mut Engine) {
         .register_fn("up_to_surface", |sel: FaceSelector| {
             ScriptEnd::Extrude(End::UpToSurface(sel))
         })
+        .register_fn("up_to_surface", |on: ScriptBody, sel: FaceSelector| {
+            ScriptEnd::Extrude(End::UpToSurfaceOn(on.body, sel))
+        })
+        .register_fn(
+            "offset_from_surface",
+            |on: ScriptBody, sel: FaceSelector, d: Dynamic| {
+                Ok::<_, Box<EvalAltResult>>(ScriptEnd::Extrude(End::OffsetFromSurfaceOn(
+                    on.body,
+                    sel,
+                    args::scalar("distance", &d)?,
+                )))
+            },
+        )
         .register_fn("offset_from_surface", |sel: FaceSelector, d: Dynamic| {
             Ok::<_, Box<EvalAltResult>>(ScriptEnd::Extrude(End::OffsetFromSurface(
                 sel,

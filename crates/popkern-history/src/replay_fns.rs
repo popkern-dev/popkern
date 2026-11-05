@@ -251,6 +251,7 @@ pub(super) fn execute_extrude(
     face: &EntityName,
     direction: Option<&Vec3Desc>,
     end_condition: &ExtrudeEnd,
+    mode: crate::feature::OperationMode,
     draft_angle: Option<&ParameterId>,
     second_direction: Option<&ExtrudeSecondDir>,
     host_brep: Option<&BRep>,
@@ -290,12 +291,14 @@ pub(super) fn execute_extrude(
     // Compute centroid for distance resolution and draft neutral plane.
     let centroid = face_centroid(brep, face_handle);
 
-    let dist = resolve_extrude_distance(
+    let dist = crate::extrude_conform::primary_end_distance(
         end_condition,
+        mode,
+        brep,
+        face_handle,
         centroid,
         dir,
         host_brep,
-        brep,
         param_table,
         tolerance,
     )?;

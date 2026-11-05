@@ -295,8 +295,17 @@ impl FeatureTree {
                 // Auto-merge: Boss/Cut modes merge the tool body into the host.
                 let mut merged_into = None;
                 let mode = auto_merge::feature_mode(&feature);
+                let seed = carry.seed_feature_ids.contains(&id);
+                // A cut naming no host (a free sketch plane, a blind or
+                // through end) cuts the body it reaches.
+                let merge_host = match merge_host {
+                    None if matches!(mode, OperationMode::Cut) && !seed => Some(
+                        crate::auto_merge_scope::cut_scope_host(body, body_breps, tolerance)?,
+                    ),
+                    host => host,
+                };
                 if !matches!(mode, OperationMode::NewBody)
-                    && !carry.seed_feature_ids.contains(&id)
+                    && !seed
                     && let Some(host) = merge_host
                     && host != body
                 {

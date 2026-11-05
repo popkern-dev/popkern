@@ -32,6 +32,35 @@ impl Sketch {
         })
     }
 
+    /// Add a closed (periodic) B-spline over the given control points:
+    /// uniform one-period knots `0, 1, ..., n`, the curve wrapping from
+    /// the last control point's span back to the first. `weights` is
+    /// one per control point (empty: all `1.0`).
+    pub fn add_periodic_spline(
+        &mut self,
+        control_points: &[PointHandle],
+        degree: usize,
+        weights: &[f64],
+    ) -> SplineHandle {
+        if self.recording {
+            self.push_undo_snapshot();
+        }
+        let n = control_points.len();
+        let weights = if weights.len() == n {
+            weights.to_vec()
+        } else {
+            vec![1.0; n]
+        };
+        self.splines.insert(Spline {
+            control_points: control_points.to_vec(),
+            degree,
+            knots: (0..=n).map(|i| i as f64).collect(),
+            weights,
+            periodic: true,
+            construction: false,
+        })
+    }
+
     /// Override the rational weight for one control point.
     ///
     /// Returns [`ConstraintError::InvalidHandle`] if `spline` does not

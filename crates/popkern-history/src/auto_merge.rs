@@ -13,6 +13,7 @@ use popkern_core::topology::BRep;
 use slotmap::SlotMap;
 
 use crate::error::ReplayError;
+use crate::failure::FeatureFailure;
 use crate::feature::{Feature, OperationMode, SketchPlaneDesc};
 use crate::node::{BodyId, FeatureId, FeatureNode};
 use popkern_core::naming::EntityName;
@@ -32,6 +33,7 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Revolve { mode, .. } => *mode,
         Feature::Sketch { .. }
         | Feature::Fastener { .. }
+        | Feature::Primitive(_)
         | Feature::Hinge { .. }
         | Feature::SeamHinge { .. }
         | Feature::LivingHinge { .. }
@@ -52,6 +54,7 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::Thicken { .. }
         | Feature::OffsetSolid { .. }
         | Feature::Draft { .. }
+        | Feature::RemoveFaces { .. }
         | Feature::Reference { .. }
         | Feature::LinearPattern { .. }
         | Feature::CircularPattern { .. }
@@ -111,20 +114,25 @@ pub(crate) fn host_for_sketch_plane(
 }
 
 /// The body whose BRep resolves an extrude's up-to / offset target
-/// (surface or vertex) — the host such a feature is built against and,
-/// for a Boss/Cut, merges into. `None` for blind ends.
+/// (surface or vertex), or a revolve's up-to face — the host such a
+/// feature is built against and, for a Boss/Cut, merges into. `None`
+/// for blind ends.
 pub(crate) fn host_for_extrude_target(
     feature: &Feature,
     own_body: BodyId,
     body_breps: &WorkingBodies,
 ) -> Option<BodyId> {
-    let Feature::Extrude {
-        end_condition,
-        second_direction,
-        ..
-    } = feature
-    else {
-        return None;
+    let (end_condition, second_direction) = match feature {
+        Feature::Extrude {
+            end_condition,
+            second_direction,
+            ..
+        } => (end_condition, second_direction),
+        Feature::Revolve {
+            end_condition: crate::feature::RevolveEnd::UpToSurface { face },
+            ..
+        } => return owner_of(face, own_body, body_breps),
+        _ => return None,
     };
     let target = |end: &crate::feature::ExtrudeEnd| -> Option<EntityName> {
         match end {
@@ -139,13 +147,19 @@ pub(crate) fn host_for_extrude_target(
             .as_ref()
             .and_then(|s| target(&s.end_condition))
     })?;
+    owner_of(&name, own_body, body_breps)
+}
+
+/// The first body (by id) other than `own_body` whose BRep resolves
+/// `name`.
+fn owner_of(name: &EntityName, own_body: BodyId, body_breps: &WorkingBodies) -> Option<BodyId> {
     let mut bodies: Vec<&BodyId> = body_breps.keys().collect();
     bodies.sort_by_key(|b| b.0);
     bodies.into_iter().copied().find(|bid| {
         *bid != own_body
             && body_breps
                 .get(bid)
-                .is_some_and(|brep| !matches!(resolve_name(&name, brep), Resolution::NotFound))
+                .is_some_and(|brep| !matches!(resolve_name(name, brep), Resolution::NotFound))
     })
 }
 
@@ -233,14 +247,100 @@ pub(crate) fn execute_auto_merge(
         }
     };
 
+    // A cut's tool faces, to tell afterwards whether any reached the
+    // result (empty for a boss: a union that adds nothing is a
+    // touching or contained boss, not a silent no-op).
+    // The host is kept for a cut so a flush contact can be judged by
+    // volume (`cut_removed_nothing`).
+    let cut_witness = match mode {
+        OperationMode::Cut => Some(CutWitness {
+            tool_faces: face_names(&tool_brep),
+            host_faces: face_names(&host_brep),
+            host: host_brep.clone(),
+        }),
+        _ => None,
+    };
+
     let result = popkern_bool::boolean(bool_op, host_brep, tool_brep, *tolerance, Some(ctx))
         .map_err(|e| ReplayError::FeatureFailed {
             label: "auto_merge".into(),
             error: e.to_string().into(),
         })?;
 
+    if let Some(witness) = &cut_witness
+        && witness.removed_nothing(&result, tolerance)
+    {
+        return Err(ReplayError::FeatureFailed {
+            label: "auto_merge".into(),
+            error: Box::new(FeatureFailure::CutRemovedNothing {
+                tool_faces: witness.tool_faces.len(),
+            }),
+        });
+    }
+
     body_breps.insert(host_body, result);
     // tool body is consumed — NOT re-inserted
 
     Ok(())
+}
+
+/// The stable names of `brep`'s faces.
+fn face_names(brep: &BRep) -> Vec<EntityName> {
+    brep.faces
+        .values()
+        .filter_map(|f| f.name.and_then(|id| brep.name_pool.get(id).cloned()))
+        .collect()
+}
+
+/// What a cut's result is judged against: the tool's and the host's
+/// face names, and the host itself.
+struct CutWitness {
+    tool_faces: Vec<EntityName>,
+    host_faces: Vec<EntityName>,
+    host: BRep,
+}
+
+impl CutWitness {
+    /// Whether a cut's `result` is its host unchanged.
+    ///
+    /// Removing material bounds the removed region with tool surface
+    /// that was inside the host, so a result face descends from a tool
+    /// face, or else the tool swallowed a whole piece of the host and
+    /// a solid is gone. A result face descending from the tool alone
+    /// is such new boundary; no face descending from the tool at all
+    /// means every host piece lies wholly outside it. Faces descending
+    /// from both a tool face and a host face are flush contacts (the
+    /// tool resting on a face, its disc imprinted there) or a removal
+    /// flush with a host face (a boss cut off level with the face
+    /// round it): only the volumes tell those apart. A tool with no
+    /// named faces is never judged, nor is a body whose volume cannot
+    /// be measured.
+    fn removed_nothing(&self, result: &BRep, tolerance: &Tolerance) -> bool {
+        if self.tool_faces.is_empty() || result.solids.len() < self.host.solids.len() {
+            return false;
+        }
+        let descends =
+            |id, names: &[EntityName]| names.iter().any(|t| result.name_pool.descends(id, t));
+        let mut flush = false;
+        for id in result.faces.values().filter_map(|f| f.name) {
+            if descends(id, &self.tool_faces) {
+                if !descends(id, &self.host_faces) {
+                    return false;
+                }
+                flush = true;
+            }
+        }
+        if !flush {
+            return true;
+        }
+        match (
+            popkern_measure::body_volume(&self.host, tolerance),
+            popkern_measure::body_volume(result, tolerance),
+        ) {
+            // Relative to the body: a measurement's own error is far
+            // below it, any cut a user means is far above it.
+            (Ok(before), Ok(after)) => (before - after).abs() <= 1e-6 * before.abs(),
+            _ => false,
+        }
+    }
 }

@@ -23,6 +23,10 @@ pub(crate) mod replay_fns;
 mod replay_generative;
 #[path = "replay_hinge.rs"]
 mod replay_hinge;
+#[path = "replay_primitive.rs"]
+mod replay_primitive;
+#[path = "replay_primitive_names.rs"]
+mod replay_primitive_names;
 #[path = "replay_sweep.rs"]
 mod replay_sweep;
 use replay_fns::{
@@ -87,7 +91,7 @@ pub(crate) fn execute_feature(
             end_condition,
             draft_angle,
             second_direction,
-            ..
+            mode,
         } => {
             // Analytic profile + blind end: the exact wire sweep
             // `popkern-part` uses (one code path, one topology).
@@ -99,6 +103,7 @@ pub(crate) fn execute_feature(
                     face,
                     direction.as_ref(),
                     end_condition,
+                    *mode,
                     draft_angle.as_ref(),
                     second_direction.as_ref(),
                     host_brep,
@@ -132,6 +137,7 @@ pub(crate) fn execute_feature(
                 face,
                 direction.as_ref(),
                 end_condition,
+                *mode,
                 draft_angle.as_ref(),
                 second_direction.as_ref(),
                 host_brep,
@@ -221,11 +227,22 @@ pub(crate) fn execute_feature(
             thickness,
             join_style,
             trim_policy,
+            side,
         } => {
             let thick = resolve_param(param_table, *thickness)?;
-            let result = popkern_shell::thicken::thicken(
+            let side = match side {
+                crate::feature::ThickenSideKind::Both => popkern_shell::types::ThickenSide::Both,
+                crate::feature::ThickenSideKind::Outward => {
+                    popkern_shell::types::ThickenSide::Outward
+                }
+                crate::feature::ThickenSideKind::Inward => {
+                    popkern_shell::types::ThickenSide::Inward
+                }
+            };
+            let result = popkern_shell::thicken::thicken_sided(
                 brep,
                 thick,
+                side,
                 &to_shell_options(join_style, trim_policy),
                 *tolerance,
             )
@@ -236,6 +253,15 @@ pub(crate) fn execute_feature(
             let evidence = FeatureEvidence::shell(&result.warnings);
             *brep = result.brep;
             Ok(ExecuteSideEffects::reported(evidence))
+        }
+        Feature::RemoveFaces { faces } => {
+            let handles = resolve_faces(faces, brep)?;
+            brep.retire_faces_to_boundary(&handles)
+                .map_err(|e| ReplayError::FeatureFailed {
+                    label: "remove_faces".into(),
+                    error: crate::failure::FeatureFailure::other(e.to_string()).into(),
+                })?;
+            Ok(ExecuteSideEffects::empty())
         }
         Feature::OffsetSolid {
             distance,
@@ -299,6 +325,7 @@ pub(crate) fn execute_feature(
             face,
             path_edge,
             twist,
+            path,
             ..
         } => replay_sweep::execute_sweep(
             brep,
@@ -310,6 +337,7 @@ pub(crate) fn execute_feature(
             body_breps,
             param_table,
             exact_profile,
+            path.as_ref(),
         ),
         Feature::Loft {
             sections, closed, ..
@@ -360,6 +388,9 @@ pub(crate) fn execute_feature(
             param_table,
             exact_profile,
         ),
+        Feature::Primitive(p) => {
+            replay_primitive::execute(brep, p, tracking, tolerance, param_table, body_breps)
+        }
         f @ (Feature::Fastener { .. }
         | Feature::TappedHole { .. }
         | Feature::ClearanceHole { .. }) => {
@@ -372,7 +403,7 @@ pub(crate) fn execute_feature(
             face,
             axis,
             end_condition,
-            ..
+            mode,
         } => {
             let face_handle = resolve_face(face, brep)?;
             let (origin, direction) = resolve_axis(axis, brep)?;
@@ -393,7 +424,15 @@ pub(crate) fn execute_feature(
                 axis_origin: origin,
                 axis_dir: direction,
                 profile_centroid,
+                profile_points: match end_condition {
+                    crate::feature::RevolveEnd::UpToSurface { .. } => {
+                        crate::extrude_conform::section_points(brep, face_handle)
+                    }
+                    _ => Vec::new(),
+                },
                 brep,
+                host: merge_host.and_then(|h| body_breps.get(&h)),
+                mode: *mode,
                 tolerance,
             };
             let angle_val = resolve_revolve_angle(end_condition, param_table, Some(&revolve_ctx))?;

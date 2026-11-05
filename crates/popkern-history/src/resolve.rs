@@ -307,8 +307,9 @@ pub(crate) fn resolve_axis(desc: &AxisDesc, brep: &BRep) -> Result<(Point3, Vec3
 /// - [`ExtrudeEnd::UpToSurface`]: intersects a ray (from `extrude_origin`
 ///   along `extrude_dir`) with the target face's surface and returns the
 ///   distance to the nearest forward intersection.
-/// - [`ExtrudeEnd::OffsetFromSurface`]: delegates to `UpToSurface` and adds
-///   the signed offset distance.
+/// - [`ExtrudeEnd::OffsetFromSurface`]: delegates to `UpToSurface` and steps
+///   back by the signed offset (positive stops short of the face, negative
+///   runs past it), the feature's contract.
 /// - [`ExtrudeEnd::UpToVertex`]: projects the target vertex position onto the
 ///   extrude direction to compute the distance.
 /// - [`ExtrudeEnd::MidPlane`]: looks up the half_distance parameter value;
@@ -395,7 +396,7 @@ pub(crate) fn resolve_extrude_distance(
                 tolerance,
             )?;
             let off = resolve_param(param_table, *offset)?;
-            Ok(base_dist + off)
+            Ok(base_dist - off)
         }
         ExtrudeEnd::UpToVertex { vertex } => {
             let target_brep = host_brep.unwrap_or(brep);

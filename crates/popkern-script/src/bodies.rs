@@ -65,7 +65,31 @@ impl Model {
         self.tree
             .bodies()
             .into_iter()
-            .filter(|&b| self.tree.body_brep(b).is_some())
+            .filter(|&b| {
+                self.tree
+                    .body_brep(b)
+                    .is_some_and(|brep| brep.body_kind() != popkern_core::topology::BodyKind::Wire)
+            })
+            .map(Body::new)
+            .collect()
+    }
+
+    /// The live wire bodies (edges on no face: `wire_line` and the
+    /// other wire primitives), which [`Model::alive_bodies`] leaves
+    /// out: they are paths and construction geometry, not parts.
+    pub fn wire_bodies(&mut self) -> Vec<Body> {
+        if !self.geometry_current || self.tree.current_brep().is_none() {
+            let _ = self.tree.replay(self.tolerance);
+            self.note_full_replay();
+        }
+        self.tree
+            .bodies()
+            .into_iter()
+            .filter(|&b| {
+                self.tree
+                    .body_brep(b)
+                    .is_some_and(|brep| brep.body_kind() == popkern_core::topology::BodyKind::Wire)
+            })
             .map(Body::new)
             .collect()
     }

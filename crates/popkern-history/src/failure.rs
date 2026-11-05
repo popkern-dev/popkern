@@ -93,6 +93,41 @@ pub enum FeatureFailure {
         /// How many pieces the body had.
         pieces: usize,
     },
+    /// A cut removed no material (bench §4.5): no face of the result
+    /// descends from the tool and the body kept every piece, so the
+    /// tool missed the body (an `on_face` sketch placed off the face,
+    /// a cut extruded away from the material) and the feature is
+    /// opened for editing rather than served as a silent no-op.
+    CutRemovedNothing {
+        /// How many faces the tool body had.
+        tool_faces: usize,
+    },
+    /// A cut sketched on a free plane, ending on no face, reaches more
+    /// than one body: which it cuts is not chosen for the user. Sketch
+    /// it on a face of the body, or end it on one.
+    CutTargetAmbiguous {
+        /// How many bodies the tool's box overlaps.
+        candidates: usize,
+    },
+    /// An extrude or revolve up to (or offset from) a face could not
+    /// end on it (brep-bench §4.4): the face lies `near`..`far` along
+    /// the feature's travel (a distance for an extrude, an angle in
+    /// radians for a revolve) across the section, and `reason` says why
+    /// that end cannot be served (`curved_end_needs_boss`: only a boss
+    /// into the face's own body follows a face the section does not
+    /// meet all at once;
+    /// `thin_behind_face`: that body is thinner behind the face than
+    /// the end's depth; `face_out_of_reach`: a ray from the section
+    /// misses the face's surface).
+    UpToFaceDeclined {
+        /// Why, as a stable kind (see above).
+        reason: String,
+        /// The nearest distance along the extrude at which the face
+        /// lies under the section.
+        near: f64,
+        /// The farthest.
+        far: f64,
+    },
     /// The operation was cancelled by the caller.
     Cancelled,
     /// A failure with no richer class (reference resolution details,
@@ -189,6 +224,9 @@ impl FeatureFailure {
             FeatureFailure::InvalidParameter { .. } => "InvalidParameter",
             FeatureFailure::GenerativeDeclined { .. } => "GenerativeDeclined",
             FeatureFailure::PieceRuleMatchedNothing { .. } => "PieceRuleMatchedNothing",
+            FeatureFailure::CutRemovedNothing { .. } => "CutRemovedNothing",
+            FeatureFailure::CutTargetAmbiguous { .. } => "CutTargetAmbiguous",
+            FeatureFailure::UpToFaceDeclined { .. } => "UpToFaceDeclined",
             FeatureFailure::Cancelled => "Cancelled",
             FeatureFailure::Other { .. } => "Other",
         }
@@ -233,6 +271,28 @@ impl std::fmt::Display for FeatureFailure {
                 f,
                 "{feature}: the rule {rule} selects none of the body's {pieces} pieces"
             ),
+            FeatureFailure::CutRemovedNothing { tool_faces } => write!(
+                f,
+                "the cut removes no material: none of the tool's {tool_faces} faces reaches the body (check the sketch placement and the extrude direction)"
+            ),
+            FeatureFailure::CutTargetAmbiguous { candidates } => write!(
+                f,
+                "the cut reaches {candidates} bodies and names none: sketch it on a face of the body to cut, or end it on one"
+            ),
+            FeatureFailure::UpToFaceDeclined { reason, near, far } => match reason.as_str() {
+                "curved_end_needs_boss" => write!(
+                    f,
+                    "the section meets the end face from {near} to {far} along its travel, not all at once: only a boss into the face's own body (offset 0) follows it"
+                ),
+                "thin_behind_face" => write!(
+                    f,
+                    "the section meets the end face from {near} to {far} along its travel, and the face's body is thinner behind it than that: the boss would come through"
+                ),
+                _ => write!(
+                    f,
+                    "the end face is out of reach of the section ({reason}, {near}..{far})"
+                ),
+            },
             FeatureFailure::Cancelled => f.write_str("operation cancelled by caller"),
         }
     }

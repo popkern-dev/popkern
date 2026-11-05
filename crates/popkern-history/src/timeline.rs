@@ -129,12 +129,27 @@ pub(crate) fn feature_entity_names(feature: &Feature) -> Vec<&EntityName> {
             names.extend(neutral_plane.entity_name());
             names
         }
+        Feature::RemoveFaces { faces } => faces.iter().collect(),
         Feature::Sweep {
-            face, path_edge, ..
-        } => vec![face, path_edge],
+            face,
+            path_edge,
+            path,
+            ..
+        } => {
+            let mut names = vec![face, path_edge];
+            if let Some(p) = path {
+                names.extend(p.more_edges.iter());
+            }
+            names
+        }
         Feature::Loft { sections, .. } => sections.iter().collect(),
         Feature::Pipe { path_edge, .. } => vec![path_edge],
+        Feature::Primitive(crate::feature_primitive::PrimitiveDesc {
+            shape: crate::feature_primitive::PrimitiveShape::SheetFill { edges },
+            ..
+        }) => edges.iter().collect(),
         Feature::Fastener { .. }
+        | Feature::Primitive(_)
         | Feature::Hinge { .. }
         | Feature::SeamHinge { .. }
         | Feature::LivingHinge { .. } => Vec::new(),
@@ -255,6 +270,7 @@ pub(crate) fn starts_new_body(feature: &Feature) -> bool {
             | Feature::RawBody { .. }
             | Feature::Pipe { .. }
             | Feature::Fastener { .. }
+            | Feature::Primitive(_)
             | Feature::Hinge { .. }
             | Feature::SeamHinge {
                 component: crate::feature_hinge::HingeComponentDesc::Pin,

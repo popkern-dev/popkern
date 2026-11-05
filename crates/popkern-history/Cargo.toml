@@ -2,6 +2,7 @@
 name = "popkern-history"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Parametric feature tree for the popkern CAD kernel"
 
@@ -9,6 +10,7 @@ description = "Parametric feature tree for the popkern CAD kernel"
 popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-measure = { path = "../popkern-measure" }
+popkern-mesh = { path = "../popkern-mesh" }
 popkern-constraint = { path = "../popkern-constraint" }
 popkern-sketch = { path = "../popkern-sketch" }
 popkern-blend = { path = "../popkern-blend" }

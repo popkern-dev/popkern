@@ -6,8 +6,7 @@
 
 use popkern_core::naming::EntityName;
 use popkern_history::feature::{
-    AxisDesc, BoolOpKind, Feature, JoinStyleKind, RevolveEnd as TreeRevolveEnd, ShellDirectionKind,
-    TrimPolicyKind,
+    AxisDesc, BoolOpKind, Feature, JoinStyleKind, ShellDirectionKind, TrimPolicyKind,
 };
 use popkern_history::feature_blend::{
     ChamferKindDesc, FilletRadiusLaw, FilletRecipeDesc, RadiusStation,
@@ -15,7 +14,7 @@ use popkern_history::feature_blend::{
 use popkern_history::feature_transform::RigidMotionDesc;
 use popkern_history::unit::Unit;
 
-use crate::body::{Body, RevolveEnd};
+use crate::body::Body;
 use crate::error::{ScriptError, SelectionKind};
 use crate::model::Model;
 use crate::scalar::{Scalar, bind_scalar};
@@ -362,36 +361,6 @@ impl Body {
                 AxisDesc::Edge(self.one_edge_recorded(model, "axis", &selection, records)?)
             }
         })
-    }
-
-    /// Revolve the body's last sketch about a queried or literal axis,
-    /// with a label.
-    pub fn revolve_with(
-        self,
-        model: &mut Model,
-        axis: AxisSpec,
-        end: RevolveEnd,
-        label: &str,
-    ) -> Result<Body, ScriptError> {
-        let face = self.last_sketch_face(model)?;
-        let mut records = Vec::new();
-        let axis = self.axis(model, axis, &mut records)?;
-        let end_condition = match end {
-            RevolveEnd::Blind(a) => TreeRevolveEnd::Blind {
-                angle: Body::bind(model, "angle", &a, Unit::Degrees)?,
-            },
-            RevolveEnd::FullCircle => TreeRevolveEnd::FullCircle,
-            RevolveEnd::MidPlane(a) => TreeRevolveEnd::MidPlane {
-                half_angle: Body::bind(model, "half_angle", &a, Unit::Degrees)?,
-            },
-        };
-        let feature = Feature::Revolve {
-            face,
-            axis,
-            end_condition,
-            mode: popkern_history::feature::OperationMode::NewBody,
-        };
-        self.record(model, feature, label, records)
     }
 
     /// Boolean with an explicit label.

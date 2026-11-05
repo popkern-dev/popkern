@@ -46,6 +46,19 @@ pub fn compute_frames(
             let seq = bishop::bishop_frames(curve, table, n_samples, twist, is_closed)?;
             Ok((seq, vec![]))
         }
+        FrameMethod::BishopFrom(start) => {
+            let seq = bishop::bishop_frames_from(
+                curve,
+                table,
+                bishop::BishopSampling {
+                    n_samples,
+                    twist,
+                    is_closed,
+                },
+                Some(*start),
+            )?;
+            Ok((seq, vec![]))
+        }
         FrameMethod::Frenet => frenet::frenet_frames(curve, table, n_samples, twist),
         FrameMethod::Fixed(dir) => {
             let seq = fixed::fixed_frames(curve, table, *dir, n_samples, twist)?;

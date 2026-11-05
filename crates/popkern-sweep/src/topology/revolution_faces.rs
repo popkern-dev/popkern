@@ -105,6 +105,19 @@ fn axis_distance(point: &Point3, axis_origin: &Point3, axis_dir: &Vec3) -> f64 {
 /// The exact circle a vertex sweeps: an `Arc` anchored at the vertex,
 /// running in the sweep's sense about the axis.
 fn vertex_circle(point: &Point3, axis_origin: &Point3, axis_dir: &Vec3, sense: f64) -> CurveOnEdge {
+    vertex_arc(point, axis_origin, axis_dir, sense, TAU)
+}
+
+/// The arc `point` sweeps through `sweep` about the axis in `sense`,
+/// parameterised by angle (co-parameterised with the angle-linear
+/// canonical pcurves).
+pub(crate) fn vertex_arc(
+    point: &Point3,
+    axis_origin: &Point3,
+    axis_dir: &Vec3,
+    sense: f64,
+    sweep: f64,
+) -> CurveOnEdge {
     let d = *point - *axis_origin;
     let along = d.dot(axis_dir);
     let center = *axis_origin + *axis_dir * along;
@@ -119,15 +132,15 @@ fn vertex_circle(point: &Point3, axis_origin: &Point3, axis_dir: &Vec3, sense: f
             normal,
             radius,
             start_angle: theta0,
-            end_angle: theta0 + TAU,
+            end_angle: theta0 + sweep,
         },
         t_start: theta0,
-        t_end: theta0 + TAU,
+        t_end: theta0 + sweep,
     }
 }
 
 /// The sense of the sweep about the axis (`+1` = right-handed).
-fn sweep_sense(surface: &NurbsSurface, axis_origin: &Point3, axis_dir: &Vec3) -> f64 {
+pub(crate) fn sweep_sense(surface: &NurbsSurface, axis_origin: &Point3, axis_dir: &Vec3) -> f64 {
     let p0 = surface.point_at(0.5, 0.0);
     let p1 = surface.point_at(0.5, 0.05);
     let r0 = p0 - *axis_origin;
@@ -143,7 +156,9 @@ fn sweep_sense(surface: &NurbsSurface, axis_origin: &Point3, axis_dir: &Vec3) ->
 
 /// Pcurves of one canonical face's loop: `(seam_fwd, circle_next,
 /// seam_rev, circle_this)`.
-fn canonical_pcurves(chart: &RevolutionChart) -> (NurbsCurve, NurbsCurve, NurbsCurve, NurbsCurve) {
+pub(crate) fn canonical_pcurves(
+    chart: &RevolutionChart,
+) -> (NurbsCurve, NurbsCurve, NurbsCurve, NurbsCurve) {
     match chart {
         RevolutionChart::Angular {
             phi0,

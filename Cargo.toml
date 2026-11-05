@@ -7,6 +7,10 @@ exclude = ["probes/pyo3-diagnostics"]
 
 [workspace.package]
 edition = "2024"
+# The toolchain rust-toolchain.toml pins, stated for builds that do
+# not read it (popkern as a git dependency): an older rustc then says
+# so instead of failing on `if let` guards (brep-bench §5).
+rust-version = "1.99"
 license = "AGPL-3.0-only"
 
 # Test profile optimisation. Numerical hotspots (Bernstein evaluations,

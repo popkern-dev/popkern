@@ -14,6 +14,41 @@ pub enum ShellDirection {
     Midplane,
 }
 
+/// Which side of a body's faces a thicken builds its wall on, relative
+/// to their normals (a sheet made from a solid's faces keeps the
+/// solid's outward normals).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ThickenSide {
+    /// Half the thickness to each side.
+    #[default]
+    Both,
+    /// The whole thickness along the normals.
+    Outward,
+    /// The whole thickness against the normals.
+    Inward,
+}
+
+impl ThickenSide {
+    /// The distances the outer (along the normals) and inner skins
+    /// move for a wall `thickness` thick.
+    pub fn distances(self, thickness: f64) -> (f64, f64) {
+        match self {
+            ThickenSide::Both => (thickness / 2.0, thickness / 2.0),
+            ThickenSide::Outward => (thickness, 0.0),
+            ThickenSide::Inward => (0.0, thickness),
+        }
+    }
+
+    /// The shell direction the maximum-thickness check reads.
+    pub fn direction(self) -> ShellDirection {
+        match self {
+            ThickenSide::Both => ShellDirection::Midplane,
+            ThickenSide::Outward => ShellDirection::Outward,
+            ThickenSide::Inward => ShellDirection::Inward,
+        }
+    }
+}
+
 /// How gap edges — edges whose adjacent offset surfaces separate over
 /// their natural windows (convex w.r.t. the displacement direction) —
 /// are closed (design §5 Stage 3, PK-325).

@@ -181,7 +181,16 @@ pub fn thicken_with_control(
     run_controlled(
         control,
         crate::thicken::THICKEN_STAGE_COUNT,
-        |tracker| crate::thicken::thicken_impl(brep, thickness, options, tolerance, tracker),
+        |tracker| {
+            crate::thicken::thicken_impl(
+                brep,
+                thickness,
+                crate::types::ThickenSide::Both,
+                options,
+                tolerance,
+                tracker,
+            )
+        },
         |token| {
             let brep = brep.clone();
             let options = options.clone();
@@ -191,7 +200,14 @@ pub fn thicken_with_control(
                     Some(&mut sink),
                     crate::thicken::THICKEN_STAGE_COUNT,
                 );
-                crate::thicken::thicken_impl(&brep, thickness, &options, tolerance, &mut tracker)
+                crate::thicken::thicken_impl(
+                    &brep,
+                    thickness,
+                    crate::types::ThickenSide::Both,
+                    &options,
+                    tolerance,
+                    &mut tracker,
+                )
             }
         },
     )

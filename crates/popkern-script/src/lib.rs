@@ -22,7 +22,9 @@ pub mod body_generative;
 pub mod body_hinge;
 pub mod body_partition;
 pub mod body_recipes;
+pub mod body_revolve;
 pub mod body_seam_hinge;
+pub mod body_shaping;
 pub mod body_sweep;
 pub mod configs;
 pub mod entity_spelling;
@@ -31,7 +33,10 @@ pub mod error_payload;
 pub mod feature_edit;
 pub mod migration;
 pub mod model;
+pub mod model_primitive;
+pub mod model_sheet;
 mod model_units;
+pub mod model_wire;
 pub mod params;
 pub mod plane;
 pub mod profile;
@@ -47,12 +52,14 @@ pub use body_fastener::{
 };
 pub use body_generative::{GenerativeLoad, GenerativeSpec};
 pub use body_recipes::{AxisSpec, ChamferSpec, RadiusLaw, ShellOptions};
+pub use body_shaping::{NeutralSpec, OffsetOptions};
 pub use body_sweep::{HelixParams, LoftOptions};
 pub use error::{ProjectReason, ScriptError, SelectionKind};
 pub use error_payload::surface_parameter;
 pub use feature_edit::Edit;
 pub use migration::ParamInfo;
 pub use model::{FeatureHandle, Model};
+pub use model_primitive::{Placement, RegularPolygon};
 pub use params::ConfigInfo;
 pub use plane::Plane;
 pub use popkern_history::deferred_certification::{
@@ -62,7 +69,7 @@ pub use popkern_history::{
     BlendDeclineKind, BlendDeclined, BlendFailureReason, BlendFailureRecord, FeatureFailure,
     RemediationRecord,
 };
-pub use profile::ProfileBuilder;
+pub use profile::{ProfileBuilder, SplineOptions};
 pub use scalar::Scalar;
 pub use selection::{
     EdgePredicate, EdgeSelector, EntityRef, FacePredicate, FaceSelector, SelectionSnapshot,

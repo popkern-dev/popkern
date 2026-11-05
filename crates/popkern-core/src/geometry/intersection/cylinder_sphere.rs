@@ -24,7 +24,8 @@
 //!   4-7e-8 off both surfaces (PK-937: a sphere drilled through its
 //!   centre across its pole axis), which no later pass recovers.
 //!
-//! Non-coaxial pairs return `None` and keep the marching path.
+//! Non-coaxial pairs take the exact ruling scan
+//! (`cylinder_sphere_pierce`).
 
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::curve::CurveEval;
@@ -120,7 +121,18 @@ fn intersect_impl(
     let d = center - origin;
     let h_center = d.dot(&axis_n);
     if (d - axis_n * h_center).length() > lin {
-        return None; // off-axis → marching
+        // Off the axis: the exact ruling scan.
+        return super::cylinder_sphere_pierce::pierce(
+            origin,
+            axis,
+            rc,
+            cyl_windows.1,
+            center,
+            rs,
+            (cyl_surface, sphere_surface),
+            tolerance,
+            swapped,
+        );
     }
     let rc = rc.abs();
     let rs = rs.abs();

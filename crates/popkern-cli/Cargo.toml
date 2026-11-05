@@ -2,6 +2,7 @@
 name = "popkern-cli"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "The `popkern` command: run a Rhai model script, report, export STEP/PNG/.pkn, rebuild on save"
 

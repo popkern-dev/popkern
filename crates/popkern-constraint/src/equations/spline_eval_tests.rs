@@ -436,3 +436,30 @@ fn analytical_jac_scalar(jac: &[(usize, f64)], param_idx: usize) -> f64 {
     }
     0.0
 }
+
+/// A weighted periodic spline evaluates as the rational curve: the
+/// weighted mean of its wrapped control points. Unweighted evaluation
+/// put a closed rational outline's quarter points off its own edges.
+#[test]
+fn periodic_spline_point_honours_weights() {
+    let mut sk = Sketch::new();
+    let pts = [(0.0, 0.0), (4.0, -1.0), (6.0, 2.0), (3.0, 5.0), (-1.0, 3.0)];
+    let weights = [1.0, 2.0, 1.0, 0.5, 1.0];
+    let h: Vec<_> = pts.iter().map(|p| sk.add_point(p.0, p.1)).collect();
+    let sh = sk.add_periodic_spline(&h, 2, &weights);
+    let sp = &sk.splines[sh];
+    // Uniform quadratic over the extended knots -2, -1, ..., 7: t = 2
+    // opens span 4, whose basis at its first knot is (1/2, 1/2, 0) on
+    // control points 2, 3, 4, so the point is the weighted mean of
+    // points 2 and 3.
+    let r = eval_point(sp, 2.0, &sk);
+    let (w2, w3) = (weights[2], weights[3]);
+    let x = (w2 * pts[2].0 + w3 * pts[3].0) / (w2 + w3);
+    let y = (w2 * pts[2].1 + w3 * pts[3].1) / (w2 + w3);
+    assert!(
+        (r.x - x).abs() < 1e-12 && (r.y - y).abs() < 1e-12,
+        "({}, {}) vs ({x}, {y})",
+        r.x,
+        r.y
+    );
+}

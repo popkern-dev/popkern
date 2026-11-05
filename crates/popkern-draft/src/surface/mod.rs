@@ -33,6 +33,86 @@ pub fn compute_drafted_surface(
     options: &DraftOptions,
     tolerance: &Tolerance,
 ) -> Result<SurfaceGeometry, DraftError> {
+    let drafted = drafted_by(
+        brep,
+        face,
+        neutral,
+        angle,
+        variation,
+        pull_direction,
+        options,
+        tolerance,
+    )?;
+    // The sense: a drafted face leans so the part draws along the pull,
+    // its outward normal (out of the material) gaining a component
+    // along it. Above the neutral line the face then sits displaced
+    // against its outward normal: an outer wall leans in as it rises, a
+    // hole's wall out (the hole widens toward the pull). The rotation
+    // above follows the surface's own normal, whose side of the
+    // material a hole or pocket wall reverses (measured: a 3° hole
+    // narrowed upward, removing 16110 for 15320).
+    if wrong_sense(brep, face, neutral, pull_direction, &drafted, angle) == Some(true) {
+        return drafted_by(
+            brep,
+            face,
+            neutral,
+            -angle,
+            variation,
+            pull_direction,
+            options,
+            tolerance,
+        );
+    }
+    Ok(drafted)
+}
+
+/// Whether `drafted` leans the wrong way for `face` and the signed
+/// `angle` (see [`compute_drafted_surface`]): for a positive angle a
+/// point of the face above the neutral line moves along its outward
+/// normal; for a negative angle (leaning back, as un-drafting does) it
+/// moves against it. `None` when the face gives no such point.
+fn wrong_sense(
+    brep: &BRep,
+    face: FaceHandle,
+    neutral: &NeutralLine,
+    pull: &Vec3,
+    drafted: &SurfaceGeometry,
+    angle: f64,
+) -> Option<bool> {
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    let sof = brep.faces.get(face)?.surface.as_ref()?;
+    let pull = pull.normalized()?;
+    // The face's reach along the pull from the neutral line.
+    let reach = brep
+        .face_boundary_sample_points(face, 8)
+        .iter()
+        .map(|p| (*p - neutral.origin).dot(&pull))
+        .fold(0.0_f64, |m, h| if h.abs() > m.abs() { h } else { m });
+    if reach.abs() <= brep.tolerance.linear() * 100.0 {
+        return None;
+    }
+    let probe = neutral.origin + pull * reach;
+    let (u, v) = project_point_to_uv(&sof.geometry, &probe)?;
+    let on_face = sof.geometry.point_at(u, v);
+    let outward = sof.geometry.normal_at(u, v) * if sof.orientation { 1.0 } else { -1.0 };
+    let (du, dv) = project_point_to_uv(drafted, &on_face)?;
+    let moved = drafted.point_at(du, dv) - on_face;
+    let along = moved.dot(&outward) * reach.signum();
+    (along.abs() > brep.tolerance.linear()).then_some((along > 0.0) == (angle > 0.0))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drafted_by(
+    brep: &BRep,
+    face: FaceHandle,
+    neutral: &NeutralLine,
+    angle: f64,
+    variation: &AngleVariation,
+    pull_direction: &Vec3,
+    options: &DraftOptions,
+    tolerance: &Tolerance,
+) -> Result<SurfaceGeometry, DraftError> {
     let face_data = &brep.faces[face];
     let surface = face_data
         .surface

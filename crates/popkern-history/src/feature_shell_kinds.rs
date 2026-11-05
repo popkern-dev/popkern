@@ -45,3 +45,27 @@ pub enum TrimPolicyKind {
     /// Decline with diagnostics instead of trimming.
     Decline,
 }
+
+/// Which side of the faces a thicken builds its wall on.
+///
+/// Mirrors [`popkern_shell::types::ThickenSide`] with serde; converted
+/// at the replay boundary. Documents written before it existed carry
+/// none, and read as [`ThickenSideKind::Both`], the only thicken there
+/// was.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ThickenSideKind {
+    /// Half the thickness to each side (the default).
+    #[default]
+    Both,
+    /// The whole thickness along the faces' normals.
+    Outward,
+    /// The whole thickness against them.
+    Inward,
+}
+
+impl ThickenSideKind {
+    /// Whether this is the default (skipped on disk).
+    pub fn is_both(&self) -> bool {
+        *self == ThickenSideKind::Both
+    }
+}

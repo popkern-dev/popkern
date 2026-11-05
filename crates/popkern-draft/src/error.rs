@@ -40,6 +40,18 @@ pub enum DraftError {
     #[error("topology error: {0}")]
     Topology(String),
 
+    /// The drafted faces would consume a face they meet (its boundary
+    /// turned inside out: the drafted walls cross before reaching it, a
+    /// box drafted until its top is gone). Removing a consumed face is
+    /// not supported; a smaller angle, or a shorter body, keeps it.
+    #[error(
+        "the draft consumes face {face:?}: the drafted faces meet before reaching it (reduce the angle)"
+    )]
+    FaceConsumed {
+        /// The face the draft would consume.
+        face: popkern_core::topology::FaceHandle,
+    },
+
     /// An error propagated from popkern-core.
     #[error("core: {0}")]
     Core(#[from] CoreError),

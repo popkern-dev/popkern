@@ -203,3 +203,39 @@ fn thicken_preserves_no_warnings_for_simple_cube() {
         result.warnings
     );
 }
+
+/// An open box (a unit cube less one face) thickened to one side
+/// spans the whole thickness on that side of its faces and keeps its
+/// own faces on the other; both sides split it about them. Sharp joins,
+/// so the extents are exact.
+#[test]
+fn a_sheet_thickened_to_one_side_moves_only_that_side() {
+    let sheet = BRep::open_box(tol()).unwrap();
+    let options = ShellOptions {
+        join_style: crate::types::JoinStyle::Intersection,
+        ..ShellOptions::default()
+    };
+    let extent = |side| {
+        let r = thicken_sided(&sheet, 0.2, side, &options, tol())
+            .unwrap_or_else(|e| panic!("{side:?}: {e}"));
+        assert!(r.brep.validate().is_ok(), "{side:?}");
+        let coords: Vec<f64> = r
+            .brep
+            .vertices
+            .values()
+            .flat_map(|v| [v.position.x, v.position.y, v.position.z])
+            .collect();
+        (
+            coords.iter().copied().fold(f64::INFINITY, f64::min),
+            coords.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        )
+    };
+    let near =
+        |(lo, hi): (f64, f64), a: f64, b: f64| (lo - a).abs() < 1e-9 && (hi - b).abs() < 1e-9;
+    let outward = extent(ThickenSide::Outward);
+    assert!(near(outward, -0.2, 1.2), "{outward:?}");
+    let inward = extent(ThickenSide::Inward);
+    assert!(near(inward, 0.0, 1.0), "{inward:?}");
+    let both = extent(ThickenSide::Both);
+    assert!(near(both, -0.1, 1.1), "{both:?}");
+}

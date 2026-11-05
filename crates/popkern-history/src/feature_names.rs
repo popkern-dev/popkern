@@ -87,11 +87,24 @@ pub(crate) fn for_each_entity_name_mut(feature: &mut Feature, f: &mut dyn FnMut(
                 f(name);
             }
         }
+        Feature::RemoveFaces { faces } => {
+            for name in faces.iter_mut() {
+                f(name);
+            }
+        }
         Feature::Sweep {
-            face, path_edge, ..
+            face,
+            path_edge,
+            path,
+            ..
         } => {
             f(face);
             f(path_edge);
+            if let Some(p) = path {
+                for name in p.more_edges.iter_mut() {
+                    f(name);
+                }
+            }
         }
         Feature::Loft { sections, .. } => {
             for name in sections.iter_mut() {
@@ -101,6 +114,7 @@ pub(crate) fn for_each_entity_name_mut(feature: &mut Feature, f: &mut dyn FnMut(
         Feature::Pipe { path_edge, .. } => {
             f(path_edge);
         }
+        Feature::Primitive(p) => p.shape.for_each_name_mut(f),
         Feature::Fastener { .. }
         | Feature::Hinge { .. }
         | Feature::SeamHinge { .. }
