@@ -159,7 +159,7 @@ fn rim_spoke_split_partitions_the_unfiltered_measurement() {
         .iter()
         .find_map(|(_, e)| {
             let ha = brep.half_edges.get(e.half_edge)?;
-            let hb = brep.half_edges.get(ha.twin)?;
+            let hb = ha.mate().and_then(|m| brep.half_edges.get(m))?;
             let fa = brep.loops.get(ha.loop_)?.face;
             let fb = brep.loops.get(hb.loop_)?.face;
             (fa != fb).then_some((fa, fb))

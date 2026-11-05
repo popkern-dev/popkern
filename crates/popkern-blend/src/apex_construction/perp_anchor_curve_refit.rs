@@ -16,9 +16,9 @@ pub(super) fn relocate_vertex_with_curve_coherence(
         let Some(he) = brep.half_edges.get(primary) else {
             continue;
         };
-        let twin_he = brep
-            .half_edges
-            .get(he.twin)
+        let twin_he = he
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
             .ok_or_else(|| format!("edge {eh:?}: twin half-edge missing"))?;
         if he.origin == vertex {
             incidents.push((eh, EndChoice::PrimaryOrigin));
@@ -57,7 +57,7 @@ fn refit_edge_curve_for_relocated_endpoint(
         return Ok(());
     };
     let v_origin = he.origin;
-    let twin = he.twin;
+    let twin = he.require_mate().map_err(|e| e.to_string())?;
     let Some(twin_he) = brep.half_edges.get(twin) else {
         return Ok(());
     };

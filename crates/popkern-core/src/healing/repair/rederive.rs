@@ -43,7 +43,7 @@ const FIT_DEGREE: usize = 3;
 fn adjacent_faces(brep: &BRep, edge: EdgeHandle) -> Option<(FaceHandle, FaceHandle)> {
     let edge_data = brep.edges.get(edge)?;
     let he = brep.half_edges.get(edge_data.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let face_a = brep.loops.get(he.loop_)?.face;
     let face_b = brep.loops.get(twin.loop_)?.face;
     if face_a == face_b {

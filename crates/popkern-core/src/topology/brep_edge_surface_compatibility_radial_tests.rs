@@ -5,7 +5,7 @@ fn detects_radial_face_use_edge_surface_incompatibility() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let edge = first_repairable_edge(&brep);
     let base = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[base].twin;
+    let twin = brep.half_edges[base].mate().unwrap_or_default();
     let radial_use = brep.half_edges.insert(HalfEdge {
         origin: brep.half_edges[base].origin,
         twin,

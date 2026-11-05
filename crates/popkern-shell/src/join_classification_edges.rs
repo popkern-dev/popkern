@@ -34,7 +34,7 @@ pub(super) fn classify_edge(
     };
     let he_handle = edge.half_edge;
     let he = skin.half_edges.get(he_handle)?;
-    let twin_handle = he.twin;
+    let twin_handle = he.mate()?;
 
     let smooth_gate = tolerance.linear() * 0.5;
     let mut votes: Vec<EdgeJoinClass> = Vec::new();

@@ -81,7 +81,7 @@ fn g2_strip_boundary_geometry_is_on_surface() {
     let mut checked = 0;
     for (_, edge) in &brep.edges {
         let he = edge.half_edge;
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he].mate().unwrap_or_default();
         let faces = [
             brep.loops[brep.half_edges[he].loop_].face,
             brep.loops[brep.half_edges[twin].loop_].face,

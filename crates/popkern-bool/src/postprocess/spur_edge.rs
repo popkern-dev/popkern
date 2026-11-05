@@ -88,7 +88,7 @@ fn is_degenerate_self_twin(
     let Some(he) = brep.half_edges.get(heh) else {
         return false;
     };
-    if he.twin != heh {
+    if he.mate() != Some(heh) {
         return false;
     }
     let Some(edge) = brep.edges.get(he.edge) else {
@@ -207,14 +207,15 @@ fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64, region: &ServeRegion) 
         .iter()
         .filter_map(|(eh, d)| {
             let he = brep.half_edges.get(d.half_edge)?;
-            if he.twin == d.half_edge {
+            if he.mate() == Some(d.half_edge) {
                 return None; // self-twin: handled by the stub pass
             }
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin_h = he.mate()?;
+            let twin = brep.half_edges.get(twin_h)?;
             let a = brep.vertices.get(he.origin)?.position;
             let b = brep.vertices.get(twin.origin)?.position;
             (a.distance_to(&b) <= length_gate && region.admits_edge(brep, eh))
-                .then_some((d.half_edge, he.twin))
+                .then_some((d.half_edge, twin_h))
         })
         .collect();
     if short.is_empty() {
@@ -266,7 +267,7 @@ fn excise_one_self_twin_stub(brep: &mut BRep, length_gate: f64, region: &ServeRe
         .half_edges
         .iter()
         .filter_map(|(heh, he)| {
-            if he.twin != heh || !region.admits_face(brep.loops.get(he.loop_)?.face) {
+            if he.mate() != Some(heh) || !region.admits_face(brep.loops.get(he.loop_)?.face) {
                 return None;
             }
             // Degenerate: the stub's edge spans (numerically) one

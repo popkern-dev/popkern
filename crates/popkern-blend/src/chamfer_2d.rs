@@ -300,7 +300,7 @@ pub(crate) fn apply_chamfer_plan(
         loop_: loop_back,
         pcurve: None,
     });
-    brep.half_edges[new_front].twin = new_back;
+    brep.half_edges[new_front].set_mate(new_back);
     // Canonical half-edge matches the Line curve direction
     // `t1 → t2` (origin = `v_t1` ⇒ `new_back`).
     brep.edges[chamfer_edge].half_edge = new_back;

@@ -45,7 +45,7 @@ fn a_flipped_coedge_is_rejected() {
         .keys()
         .next()
         .unwrap_or_else(|| panic!("half-edge"));
-    let twin = b.half_edges[he].twin;
+    let twin = b.half_edges[he].mate().unwrap_or_default();
     b.half_edges[he].origin = b.half_edges[twin].origin;
     let found = variants(&b.validate_all());
     assert!(found.contains(&"InconsistentVertex"), "{found:?}");

@@ -94,7 +94,7 @@ fn reorder_recovers_twin_fallback_loop() {
         reorder_into_closed_chain(b.brep(), &scrambled).expect("twin set forms one closed cycle");
     assert_eq!(chained.len(), 4);
     let start_of = |h| b.brep().half_edges[h].origin;
-    let end_of = |h| b.brep().half_edges[b.brep().half_edges[h].twin].origin;
+    let end_of = |h| b.brep().half_edges[b.brep().half_edges[h].mate().unwrap_or_default()].origin;
     for i in 0..4 {
         assert_eq!(
             end_of(chained[i]),

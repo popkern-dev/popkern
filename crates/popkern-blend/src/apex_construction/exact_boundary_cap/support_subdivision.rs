@@ -32,7 +32,7 @@ pub(super) fn materialize_support_subdivision(
     let cap = brep.half_edges.get(cap_half_edge)?;
     let cap_edge = cap.edge;
     let cap_start = cap.origin;
-    let previous_cap_twin = cap.twin;
+    let previous_cap_twin = cap.mate()?;
     let cap_end = brep.half_edges.get(previous_cap_twin)?.origin;
     let candidate_face = brep
         .half_edges
@@ -65,7 +65,7 @@ pub(super) fn materialize_support_subdivision(
             loop_: LoopHandle::default(),
             pcurve: None,
         });
-        brep.half_edges[cap_half_edge].twin = support_half_edge;
+        brep.half_edges[cap_half_edge].set_mate(support_half_edge);
         brep.edges[cap_edge].half_edge = cap_half_edge;
 
         let closing = author_support_patch_closing_side(brep, cap_start, cap_end)?;
@@ -124,7 +124,7 @@ fn preserve_previous_cap_neighbor_side(
         loop_: LoopHandle::default(),
         pcurve: None,
     });
-    brep.half_edges[previous_cap_twin].twin = balancing_half_edge;
+    brep.half_edges[previous_cap_twin].set_mate(balancing_half_edge);
     let closing = author_support_patch_closing_side(brep, cap_end, cap_start)?;
     let residual_face =
         insert_face_with_outer_loop(brep, old_face, &[balancing_half_edge, closing]).ok()?;
@@ -169,7 +169,10 @@ fn validate_support_subdivision(
 ) -> Option<()> {
     let cap = brep.half_edges.get(cap_half_edge)?;
     let support = brep.half_edges.get(support_half_edge)?;
-    if cap.twin != support_half_edge || support.twin != cap_half_edge || cap.edge != support.edge {
+    if cap.mate() != Some(support_half_edge)
+        || support.mate() != Some(cap_half_edge)
+        || cap.edge != support.edge
+    {
         return None;
     }
     let owner = brep

@@ -385,7 +385,7 @@ fn split_straddling_remnant(
             .origin,
         {
             let he = brep.edges.get(r.edge)?.half_edge;
-            let tw = brep.half_edges.get(he)?.twin;
+            let tw = brep.half_edges.get(he)?.mate()?;
             brep.half_edges.get(tw)?.origin
         },
     );
@@ -428,8 +428,12 @@ fn absorb_piece(
     );
     let mut kef_he = None;
     for h in loop_half_edges(brep, piece) {
-        let tw = brep.half_edges.get(h)?.twin;
-        let Some(twd) = brep.half_edges.get(tw) else {
+        let Some(twd) = brep
+            .half_edges
+            .get(h)?
+            .mate()
+            .and_then(|tw| brep.half_edges.get(tw))
+        else {
             continue;
         };
         let f = brep.loops.get(twd.loop_)?.face;
@@ -455,7 +459,7 @@ fn absorb_piece(
     let (he, strip) = kef_he?;
     // kef kills the twin side's face: pass the half-edge ON the
     // strip (twin on the piece) so the piece merges into the strip.
-    let strip_side = brep.half_edges.get(he)?.twin;
+    let strip_side = brep.half_edges.get(he)?.mate()?;
     let strip_surface = brep.faces.get(strip)?.surface.clone();
     brep.faces[strip].surface = None;
     brep.faces[piece].surface = None;

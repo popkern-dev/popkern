@@ -137,7 +137,12 @@ pub(super) fn reauthor_fan_edge(
     tolerance: &Tolerance,
 ) -> Result<(), Reason> {
     let (curve, from_corner) = fan_curve(brep, f).ok_or(Reason::FanEndRejected)?;
-    let twin = brep.half_edges.get(f).ok_or(Reason::FanEndRejected)?.twin;
+    let twin = brep
+        .half_edges
+        .get(f)
+        .ok_or(Reason::FanEndRejected)?
+        .mate()
+        .ok_or(Reason::FanEndRejected)?;
     let edge = brep.half_edges.get(f).ok_or(Reason::FanEndRejected)?.edge;
     let far = at_fraction(&curve, from_corner, 1.0);
     let trimmed = match &curve.geometry {

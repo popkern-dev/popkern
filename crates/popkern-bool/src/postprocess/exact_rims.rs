@@ -143,7 +143,7 @@ fn vertex_ends(
     gate: f64,
 ) -> Option<(Point3, Point3)> {
     let forward = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
-    let backward = brep.half_edges.get(forward.twin)?;
+    let backward = forward.mate().and_then(|m| brep.half_edges.get(m))?;
     let a = brep.vertices.get(forward.origin)?.position;
     let b = brep.vertices.get(backward.origin)?.position;
     let (first, last) = (
@@ -176,7 +176,7 @@ fn rim_between_analytic_faces(brep: &BRep, edge: EdgeHandle) -> bool {
     let Some(forward) = brep.half_edges.get(e.half_edge) else {
         return false;
     };
-    let Some(backward) = brep.half_edges.get(forward.twin) else {
+    let Some(backward) = forward.mate().and_then(|m| brep.half_edges.get(m)) else {
         return false;
     };
     let face_of = |loop_| brep.loops.get(loop_).map(|l| l.face);

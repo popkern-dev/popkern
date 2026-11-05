@@ -162,7 +162,7 @@ fn unmeasurable_side_localization() {
             };
             let edge = &brep.edges[v.edge];
             let he = &brep.half_edges[edge.half_edge];
-            let tw = &brep.half_edges[he.twin];
+            let tw = &brep.half_edges[he.mate().unwrap_or_default()];
             let side = |h: &popkern_core::topology::HalfEdge| {
                 let face = brep.loops[h.loop_].face;
                 let surf = brep.faces[face]
@@ -266,7 +266,7 @@ fn blend_rim_lie_localization() {
                     a.x, a.y, b.x, b.y
                 );
             }
-            let tw = &brep.half_edges[he.twin];
+            let tw = &brep.half_edges[he.mate().unwrap_or_default()];
             let twf = brep.loops[tw.loop_].face;
             if let Some(pc) = &tw.pcurve {
                 let (t0, t1) = pc.parameter_range();
@@ -274,7 +274,11 @@ fn blend_rim_lie_localization() {
                 let b = pc.point_at(t1);
                 eprintln!(
                     "[loc] twin he {:?} on face {twf:?} pcurve ({:.3},{:.3})->({:.3},{:.3})",
-                    he.twin, a.x, a.y, b.x, b.y
+                    he.mate().unwrap_or_default(),
+                    a.x,
+                    a.y,
+                    b.x,
+                    b.y
                 );
             }
         }

@@ -357,7 +357,7 @@ fn sewing_declines_already_joined_candidate_with_explanation() {
     let (mut brep, left_edge, right_edge) = two_square_sheet();
     let left_half_edge = brep.edges[left_edge].half_edge;
     let right_half_edge = brep.edges[right_edge].half_edge;
-    brep.half_edges[left_half_edge].twin = right_half_edge;
+    brep.half_edges[left_half_edge].set_mate(right_half_edge);
 
     let result = sew_clean_boundary_edge_pairs(
         &brep,

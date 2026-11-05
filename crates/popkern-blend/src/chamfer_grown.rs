@@ -116,7 +116,7 @@ fn requested_bevels(
         .zip(planes)
         .map(|(spec, (origin, normal))| {
             let he = brep.half_edges.get(brep.edges.get(spec.edge)?.half_edge)?;
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let (a, b) = (
                 brep.vertices.get(he.origin)?.position,
                 brep.vertices.get(twin.origin)?.position,

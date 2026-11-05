@@ -109,7 +109,10 @@ fn sphere_cap_family_cycle_measured() {
         chosen.clear();
         for (e, d) in brep.edges.iter() {
             let he = &brep.half_edges[d.half_edge];
-            let ends = [he.origin, brep.half_edges[he.twin].origin];
+            let ends = [
+                he.origin,
+                brep.half_edges[he.mate().unwrap_or_default()].origin,
+            ];
             if ends.contains(&v) {
                 chosen.push(e);
             }
@@ -221,7 +224,10 @@ fn sphere_cap_modify_and_unfillet_measured() {
         chosen.clear();
         for (e, d) in brep.edges.iter() {
             let he = &brep.half_edges[d.half_edge];
-            let ends = [he.origin, brep.half_edges[he.twin].origin];
+            let ends = [
+                he.origin,
+                brep.half_edges[he.mate().unwrap_or_default()].origin,
+            ];
             if ends.contains(&v) {
                 chosen.push(e);
             }
@@ -292,7 +298,10 @@ fn pyramid4_apex_family_measured() {
     let mut lateral = Vec::new();
     for (e, d) in brep.edges.iter() {
         let he = &brep.half_edges[d.half_edge];
-        let ends = [he.origin, brep.half_edges[he.twin].origin];
+        let ends = [
+            he.origin,
+            brep.half_edges[he.mate().unwrap_or_default()].origin,
+        ];
         if ends.contains(&apex) {
             lateral.push(e);
         }

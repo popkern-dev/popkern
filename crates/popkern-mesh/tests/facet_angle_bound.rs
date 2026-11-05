@@ -44,7 +44,7 @@ fn rounded_bar(radius: FilletRadius) -> BRep {
         .find(|(_, d)| {
             let he = &bar.half_edges[d.half_edge];
             let a = bar.vertices[he.origin].position;
-            let b = bar.vertices[bar.half_edges[he.twin].origin].position;
+            let b = bar.vertices[bar.half_edges[he.mate().unwrap_or_default()].origin].position;
             (a.z - top).abs() < 1e-9
                 && (b.z - top).abs() < 1e-9
                 && (a.y - front).abs() < 1e-9

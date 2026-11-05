@@ -428,7 +428,7 @@ pub(crate) fn shell_impl(
             for (eh, edge) in &result.edges {
                 let ends = {
                     let he = &result.half_edges[edge.half_edge];
-                    let tw = &result.half_edges[he.twin];
+                    let tw = &result.half_edges[he.require_mate()?];
                     (
                         result.vertices[he.origin].position,
                         result.vertices[tw.origin].position,

@@ -154,7 +154,7 @@ impl BRep {
         });
 
         // Patch new_he's twin.
-        self.half_edges[new_he].twin = new_he_twin;
+        self.half_edges[new_he].set_mate(new_he_twin);
 
         // Wire prev/next pointers.
         self.half_edges[he1_prev].next = new_he;
@@ -218,7 +218,7 @@ impl BRep {
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
 
-        let he_twin_handle = he_data.twin;
+        let he_twin_handle = self.require_mate(half_edge)?;
         let edge_handle = he_data.edge;
         let he_prev = he_data.prev;
         let he_loop = he_data.loop_;
@@ -359,8 +359,8 @@ impl BRep {
         let twin = self.half_edges.get(result.half_edge_twin).ok_or_else(|| {
             CoreError::PreconditionFailed("mef twin half-edge is not live".into())
         })?;
-        if half_edge.twin != result.half_edge_twin
-            || twin.twin != result.half_edge
+        if half_edge.mate() != Some(result.half_edge_twin)
+            || twin.mate() != Some(result.half_edge)
             || half_edge.edge != result.edge
             || twin.edge != result.edge
             || half_edge.loop_ != old_loop

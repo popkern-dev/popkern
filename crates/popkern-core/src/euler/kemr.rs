@@ -68,7 +68,7 @@ impl BRep {
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
 
-        let he_twin = he_data.twin;
+        let he_twin = self.require_mate(half_edge)?;
         let edge_handle = he_data.edge;
         let he_prev = he_data.prev;
         let he_next = he_data.next;
@@ -248,7 +248,7 @@ impl BRep {
         });
 
         // Patch twin pointer.
-        self.half_edges[new_he].twin = new_he_twin;
+        self.half_edges[new_he].set_mate(new_he_twin);
 
         // Splice into the loops.
         self.half_edges[he_outer_prev].next = new_he;
@@ -371,8 +371,8 @@ impl BRep {
             .half_edges
             .get(applied.result.half_edge_twin)
             .ok_or_else(|| CoreError::PreconditionFailed("mekr twin is not live".into()))?;
-        if half_edge.twin != applied.result.half_edge_twin
-            || twin.twin != applied.result.half_edge
+        if half_edge.mate() != Some(applied.result.half_edge_twin)
+            || twin.mate() != Some(applied.result.half_edge)
             || half_edge.loop_ != applied.merged_loop
             || twin.loop_ != applied.merged_loop
         {

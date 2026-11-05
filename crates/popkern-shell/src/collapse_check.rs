@@ -74,7 +74,7 @@ pub fn check_skin_collapse(
         }
 
         let he = &outer.half_edges[edge.half_edge];
-        let twin = &outer.half_edges[he.twin];
+        let twin = &outer.half_edges[he.require_mate()?];
         let p0 = outer.vertices[he.origin].position;
         let p1 = outer.vertices[twin.origin].position;
         let old_chord = p1 - p0;
@@ -86,7 +86,7 @@ pub fn check_skin_collapse(
 
         let skin_edge = &skin.edges[skin_eh];
         let she = &skin.half_edges[skin_edge.half_edge];
-        let stwin = &skin.half_edges[she.twin];
+        let stwin = &skin.half_edges[she.require_mate()?];
         let q0 = skin.vertices[she.origin].position;
         let q1 = skin.vertices[stwin.origin].position;
         let proj = (q1 - q0).dot(&old_dir);

@@ -61,7 +61,7 @@ fn side_of(brep: &BRep, face: FaceHandle) -> Side {
                     let he = &brep.half_edges[e.half_edge];
                     let (fa, fb) = (
                         brep.loops[he.loop_].face,
-                        brep.loops[brep.half_edges[he.twin].loop_].face,
+                        brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face,
                     );
                     (fa == face && is_strip(fb)) || (fb == face && is_strip(fa))
                 })
@@ -89,7 +89,7 @@ fn pentagon5_fan_seams_certify_over_the_whole_edge() {
         let he = &brep.half_edges[data.half_edge];
         let (fa, fb) = (
             brep.loops[he.loop_].face,
-            brep.loops[brep.half_edges[he.twin].loop_].face,
+            brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face,
         );
         if fa == fb || !(faces.contains(&fa) || faces.contains(&fb)) {
             continue;

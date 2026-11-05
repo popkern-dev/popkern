@@ -316,7 +316,7 @@ fn reauthor_support_cell_shared_edge_curves(
 ) -> Result<(), CoreError> {
     for (slot_a, slot) in slots.iter().enumerate() {
         for &half_edge in &face_outer_half_edges(brep, slot.face)? {
-            let twin = brep.half_edges[half_edge].twin;
+            let twin = brep.half_edges[half_edge].require_mate()?;
             let Some(face_b) = brep
                 .loops
                 .get(brep.half_edges[twin].loop_)
@@ -342,7 +342,7 @@ fn reauthor_edge_curve_from_topology_vertices(
 ) -> Result<(), CoreError> {
     let edge = brep.half_edges[half_edge].edge;
     let canonical = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[canonical].twin;
+    let twin = brep.half_edges[canonical].require_mate()?;
     let start = brep.vertices[brep.half_edges[canonical].origin].position;
     let end = brep.vertices[brep.half_edges[twin].origin].position;
     let tolerance = brep.tolerance.linear().max(1.0e-12);

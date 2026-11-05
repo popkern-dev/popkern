@@ -539,7 +539,7 @@ impl BRep {
                 continue;
             };
             let v0h = he_data.origin;
-            let Some(twin) = self.half_edges.get(he_data.twin) else {
+            let Some(twin) = he_data.mate().and_then(|m| self.half_edges.get(m)) else {
                 continue;
             };
             let v1h = twin.origin;

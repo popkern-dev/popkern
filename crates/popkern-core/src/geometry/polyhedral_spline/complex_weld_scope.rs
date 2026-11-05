@@ -99,8 +99,8 @@ fn push_edge_scope(brep: &BRep, edge: EdgeHandle, scope: &mut PolyhedralBoundary
         return;
     };
     push_half_edge_scope(brep, edge_data.half_edge, scope);
-    if let Some(half_edge) = brep.half_edges.get(edge_data.half_edge) {
-        push_half_edge_scope(brep, half_edge.twin, scope);
+    if let Some(mate) = brep.mate(edge_data.half_edge) {
+        push_half_edge_scope(brep, mate, scope);
     }
 }
 

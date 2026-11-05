@@ -38,7 +38,10 @@ fn edges_at(brep: &BRep) -> BTreeMap<u64, Vec<EdgeHandle>> {
         let Some(h) = brep.half_edges.get(e.half_edge) else {
             continue;
         };
-        let twin_origin = brep.half_edges.get(h.twin).map(|t| t.origin);
+        let twin_origin = h
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
+            .map(|t| t.origin);
         for v in std::iter::once(h.origin).chain(twin_origin) {
             let list = out.entry(v.data().as_ffi()).or_default();
             if !list.contains(&eh) {

@@ -26,7 +26,7 @@ impl BRep {
             let mut cursor = start;
             for _ in 0..=self.half_edges.len() {
                 let he = self.half_edges.get(cursor)?;
-                let twin_loop = self.half_edges.get(he.twin)?.loop_;
+                let twin_loop = he.mate().and_then(|m| self.half_edges.get(m))?.loop_;
                 if twin_loop == ring || self.loops.get(twin_loop)?.face != face {
                     return Some(false);
                 }

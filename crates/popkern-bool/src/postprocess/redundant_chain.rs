@@ -30,10 +30,10 @@ fn mergeable_face_pair(
 ) -> Option<(FaceHandle, FaceHandle)> {
     let edge = brep.edges.get(eh)?;
     let he = brep.half_edges.get(edge.half_edge)?;
-    if he.twin == edge.half_edge {
+    if he.mate() == Some(edge.half_edge) {
         return None;
     }
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let face_a = brep.loops.get(he.loop_)?.face;
     let face_b = brep.loops.get(twin.loop_)?.face;
     if face_a == face_b {
@@ -52,7 +52,7 @@ fn mergeable_face_pair(
 fn endpoints(brep: &BRep, eh: EdgeHandle) -> Option<(VertexHandle, VertexHandle)> {
     let edge = brep.edges.get(eh)?;
     let he = brep.half_edges.get(edge.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((he.origin, twin.origin))
 }
 
@@ -79,7 +79,7 @@ pub(crate) fn shared_coplanar_chain(
         .iter()
         .filter_map(|(oh, other)| {
             let ohe = brep.half_edges.get(other.half_edge)?;
-            let otwin = brep.half_edges.get(ohe.twin)?;
+            let otwin = ohe.mate().and_then(|m| brep.half_edges.get(m))?;
             let fa = brep.loops.get(ohe.loop_)?.face;
             let fb = brep.loops.get(otwin.loop_)?.face;
             ((fa == face_a && fb == face_b) || (fa == face_b && fb == face_a)).then_some(oh)
@@ -165,7 +165,12 @@ pub(crate) fn dissolve_chain(brep: &mut BRep, chain: &[EdgeHandle]) -> Result<Fa
         let (a, b) = endpoints(brep, e).ok_or("stale chain edge")?;
         let edge = brep.edges.get(e).ok_or("stale chain edge")?;
         let he = edge.half_edge;
-        let twin = brep.half_edges.get(he).ok_or("stale half-edge")?.twin;
+        let twin = brep
+            .half_edges
+            .get(he)
+            .ok_or("stale half-edge")?
+            .mate()
+            .ok_or("chain edge without a mate")?;
         // kev kills the vertex at twin.origin — pick the half-edge
         // arriving at the valence-1 end.
         let arriving = if valence(brep, b) == 1 {

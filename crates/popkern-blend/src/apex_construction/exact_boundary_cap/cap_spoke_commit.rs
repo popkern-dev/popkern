@@ -46,7 +46,7 @@ pub(super) fn commit_cap_spoke_shared_trims(
             let Some(twin) = brep
                 .half_edges
                 .get(half_edge)
-                .map(|half_edge| half_edge.twin)
+                .and_then(|half_edge| half_edge.mate())
             else {
                 continue;
             };

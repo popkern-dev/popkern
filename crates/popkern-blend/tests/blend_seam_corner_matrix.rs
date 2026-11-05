@@ -26,7 +26,10 @@ fn adjacent_edge_pair(brep: &BRep) -> (EdgeHandle, EdgeHandle) {
             }
             let ends = |d: &popkern_core::topology::Edge| {
                 let h = &brep.half_edges[d.half_edge];
-                (h.origin, brep.half_edges[h.twin].origin)
+                (
+                    h.origin,
+                    brep.half_edges[h.mate().unwrap_or_default()].origin,
+                )
             };
             let (a1, b1) = ends(d1);
             let (a2, b2) = ends(d2);

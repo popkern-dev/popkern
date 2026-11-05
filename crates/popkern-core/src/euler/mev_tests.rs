@@ -71,8 +71,8 @@ fn mev_at_vertex_creates_first_edge() {
 
     let he = &brep.half_edges[mev_r.half_edge];
     let twin = &brep.half_edges[mev_r.half_edge_twin];
-    assert_eq!(he.twin, mev_r.half_edge_twin);
-    assert_eq!(twin.twin, mev_r.half_edge);
+    assert_eq!(he.mate().unwrap_or_default(), mev_r.half_edge_twin);
+    assert_eq!(twin.mate().unwrap_or_default(), mev_r.half_edge);
     assert_eq!(he.origin, mvfs_r.vertex);
     assert_eq!(twin.origin, mev_r.vertex);
     assert_eq!(he.next, mev_r.half_edge_twin);

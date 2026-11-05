@@ -161,7 +161,7 @@ pub(super) fn expose_owner_repair_spans(
                 None => true,
                 Some(data) => {
                     brep.boundary_edges.contains(&data.edge)
-                        && !brep.half_edges.contains_key(data.twin)
+                        && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
                 }
             }
         });
@@ -210,7 +210,8 @@ pub(super) fn expose_owner_repair_spans(
                     "owner repair exposure removed outside half-edge {outside_half_edge:?}"
                 ))
             })?;
-            if !brep.boundary_edges.contains(&data.edge) || brep.half_edges.contains_key(data.twin)
+            if !brep.boundary_edges.contains(&data.edge)
+                || data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
             {
                 return Err(CoreError::PreconditionFailed(format!(
                     "owner repair exposure did not expose outside half-edge {outside_half_edge:?}"
@@ -248,13 +249,13 @@ fn segment_twin_half_edge(
                 "owner repair span references stale outside half-edge {outside_half_edge:?}"
             ))
         })?
-        .twin;
-    if !brep.half_edges.contains_key(twin) {
-        return Err(CoreError::PreconditionFailed(format!(
+        .mate()
+        .filter(|m| brep.half_edges.contains_key(*m));
+    twin.ok_or_else(|| {
+        CoreError::PreconditionFailed(format!(
             "owner repair span outside half-edge {outside_half_edge:?} has no live twin"
-        )));
-    }
-    Ok(twin)
+        ))
+    })
 }
 
 fn segment_owner_loop(brep: &BRep, twin: HalfEdgeHandle) -> Result<LoopHandle, CoreError> {

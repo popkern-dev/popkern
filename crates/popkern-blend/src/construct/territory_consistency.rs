@@ -45,9 +45,9 @@ fn territory_faces(source: &BRep, served: &BRep) -> Vec<FaceHandle> {
         if !created.contains(&own) {
             continue;
         }
-        let Some(across) = served
-            .half_edges
-            .get(he.twin)
+        let Some(across) = he
+            .mate()
+            .and_then(|m| served.half_edges.get(m))
             .and_then(|tw| served.loops.get(tw.loop_))
             .map(|l| l.face)
         else {

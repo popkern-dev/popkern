@@ -136,7 +136,10 @@ pub(super) fn build_sector_faces(
             let edge = brep.half_edges[he].edge;
             let (a, b) = (
                 brep.half_edges[he].origin,
-                brep.half_edges[brep.half_edges[he].twin].origin,
+                brep.half_edges[brep.half_edges[he]
+                    .require_mate()
+                    .map_err(|e| e.to_string())?]
+                .origin,
             );
             if a == o_vertex || b == o_vertex {
                 continue;

@@ -282,7 +282,7 @@ impl BRep {
         let Some(he) = self.half_edges.get(cursor) else {
             return start;
         };
-        let Some(twin_data) = self.half_edges.get(he.twin) else {
+        let Some(twin_data) = he.mate().and_then(|m| self.half_edges.get(m)) else {
             return start;
         };
         twin_data.next

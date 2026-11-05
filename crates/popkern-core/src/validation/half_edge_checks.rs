@@ -11,14 +11,13 @@ impl BRep {
             if self.boundary_edges.contains(&he_data.edge) {
                 continue;
             }
-            let twin = self
-                .half_edges
-                .get(he_data.twin)
-                .ok_or(ValidationError::BrokenTwin {
+            let twin = he_data.mate().and_then(|m| self.half_edges.get(m)).ok_or(
+                ValidationError::BrokenTwin {
                     half_edge: he_handle,
-                })?;
+                },
+            )?;
 
-            if twin.twin != he_handle {
+            if twin.mate() != Some(he_handle) {
                 return Err(ValidationError::BrokenTwin {
                     half_edge: he_handle,
                 });
@@ -101,9 +100,10 @@ impl BRep {
             {
                 continue;
             }
-            let (Some(twin), Some(next)) =
-                (self.half_edges.get(he.twin), self.half_edges.get(he.next))
-            else {
+            let (Some(twin), Some(next)) = (
+                he.mate().and_then(|m| self.half_edges.get(m)),
+                self.half_edges.get(he.next),
+            ) else {
                 continue; // pairing and cycle checks own missing handles
             };
             if twin.origin != next.origin {
@@ -226,7 +226,7 @@ mod tests {
             .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
             .unwrap();
         // Corrupt the twin pointer.
-        brep.half_edges[mev.half_edge].twin = Default::default();
+        brep.half_edges[mev.half_edge].clear_mate();
         assert!(brep.validate_half_edge_pairing().is_err());
     }
 
@@ -308,7 +308,7 @@ mod tests {
             .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
             .unwrap();
         // Make mev1's twin's twin point to something else (mev2's half_edge)
-        brep.half_edges[mev1.half_edge_twin].twin = mev2.half_edge;
+        brep.half_edges[mev1.half_edge_twin].set_mate(mev2.half_edge);
         let result = brep.validate_half_edge_pairing();
         assert!(result.is_err());
     }

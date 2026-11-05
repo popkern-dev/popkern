@@ -80,8 +80,8 @@ pub(crate) fn handle_smooth_junction(
             // gate to 1.0 (measured).
             for l in [
                 brep.loops.get(he.loop_),
-                brep.half_edges
-                    .get(he.twin)
+                he.mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|tw| brep.loops.get(tw.loop_)),
             ]
             .into_iter()

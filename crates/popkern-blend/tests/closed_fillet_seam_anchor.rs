@@ -50,7 +50,7 @@ fn two_offset_bosses_fillet_watertight() {
             let e = &body.edges[eh];
             let he = &body.half_edges[e.half_edge];
             let f1 = body.loops[he.loop_].face;
-            let f2 = body.loops[body.half_edges[he.twin].loop_].face;
+            let f2 = body.loops[body.half_edges[he.mate().unwrap_or_default()].loop_].face;
             let s1 = body.faces[f1].surface.as_ref().map(|s| &s.geometry);
             let s2 = body.faces[f2].surface.as_ref().map(|s| &s.geometry);
             // Base seams only: cylinder × the plate top plane.
@@ -108,7 +108,7 @@ fn closed_rim_fillets_keep_seam_edges_on_surface() {
             let e = &body.edges[eh];
             let he = &body.half_edges[e.half_edge];
             let f1 = body.loops[he.loop_].face;
-            let f2 = body.loops[body.half_edges[he.twin].loop_].face;
+            let f2 = body.loops[body.half_edges[he.mate().unwrap_or_default()].loop_].face;
             let s1 = body.faces[f1].surface.as_ref().map(|s| &s.geometry);
             let s2 = body.faces[f2].surface.as_ref().map(|s| &s.geometry);
             matches!(
@@ -145,7 +145,7 @@ fn closed_rim_fillets_keep_seam_edges_on_surface() {
     // wrong-anchor class.
     for (eh, e) in &result.brep.edges {
         let he = &result.brep.half_edges[e.half_edge];
-        let twin = &result.brep.half_edges[he.twin];
+        let twin = &result.brep.half_edges[he.mate().unwrap_or_default()];
         let f1 = result.brep.loops[he.loop_].face;
         let f2 = result.brep.loops[twin.loop_].face;
         if f1 != f2 {

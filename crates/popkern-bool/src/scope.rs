@@ -68,7 +68,7 @@ impl ActiveScope {
         let Some(edge) = brep.edges.get(e) else {
             return false;
         };
-        let twin = brep.half_edges.get(edge.half_edge).map(|h| h.twin);
+        let twin = brep.half_edges.get(edge.half_edge).and_then(|h| h.mate());
         self.holds(brep, edge.half_edge) != twin.is_some_and(|t| self.holds(brep, t))
     }
 }
@@ -152,7 +152,7 @@ pub(crate) fn active_scope(
                 .and_then(|h| a.loops.get(h.loop_))
                 .map(|l| l.face)
         };
-        let twin = a.half_edges.get(e.half_edge).map(|h| h.twin);
+        let twin = a.half_edges.get(e.half_edge).and_then(|h| h.mate());
         let (f0, f1) = (face_of(e.half_edge), twin.and_then(face_of));
         if let (Some(f0), Some(f1)) = (f0, f1)
             && far_set.contains_key(f0) != far_set.contains_key(f1)
@@ -264,7 +264,7 @@ pub(crate) fn scope_violation(
         let p = brep.vertices.get(h.origin)?.position;
         let q = brep
             .vertices
-            .get(brep.half_edges.get(h.twin)?.origin)?
+            .get(h.mate().and_then(|m| brep.half_edges.get(m))?.origin)?
             .position;
         let (p, q) = (
             [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()],

@@ -249,7 +249,9 @@ fn collect_external_cap_support_edge(
     let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
         return;
     };
-    let twin = half_edge_data.twin;
+    let Some(twin) = half_edge_data.mate() else {
+        return;
+    };
     let Some(twin_data) = brep.half_edges.get(twin) else {
         return;
     };

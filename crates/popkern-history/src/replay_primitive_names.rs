@@ -122,7 +122,7 @@ pub(super) fn name_by_role(brep: &mut BRep, ctx: &mut TrackingContext, sector: b
         .iter()
         .map(|(eh, e)| {
             let he = e.half_edge;
-            let twin = brep.half_edges.get(he).map(|h| h.twin);
+            let twin = brep.half_edges.get(he).and_then(|h| h.mate());
             let mut names: Vec<NameId> = [Some(he), twin]
                 .into_iter()
                 .flatten()

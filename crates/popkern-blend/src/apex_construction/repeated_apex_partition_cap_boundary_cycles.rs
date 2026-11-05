@@ -126,7 +126,7 @@ pub(super) fn reversed_twin_cycle(
         .map(|half_edge| {
             brep.half_edges
                 .get(*half_edge)
-                .map(|half_edge_data| half_edge_data.twin)
+                .and_then(|half_edge_data| half_edge_data.mate())
                 .ok_or_else(|| ApexBuildError::PlanMismatch {
                     reason: format!(
                         "planned repeated-apex partition cap-boundary rewrite references stale \

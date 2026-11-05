@@ -160,7 +160,10 @@ pub(crate) fn copy_brep_into_mapped(
     for (old_h, he) in &b.half_edges {
         let new_h = he_map[&old_h];
         a.half_edges[new_h].origin = v_map.get(&he.origin).copied().unwrap_or_default();
-        a.half_edges[new_h].twin = he_map.get(&he.twin).copied().unwrap_or_default();
+        match he.mate().and_then(|t| he_map.get(&t).copied()) {
+            Some(mate) => a.half_edges[new_h].set_mate(mate),
+            None => a.half_edges[new_h].clear_mate(),
+        }
         a.half_edges[new_h].next = he_map.get(&he.next).copied().unwrap_or_default();
         a.half_edges[new_h].prev = he_map.get(&he.prev).copied().unwrap_or_default();
         a.half_edges[new_h].edge = e_map.get(&he.edge).copied().unwrap_or_default();

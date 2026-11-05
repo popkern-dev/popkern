@@ -44,7 +44,7 @@ fn removing_two_adjacent_faces_deletes_the_shared_edge() {
             let mut cursor = start;
             loop {
                 let he = &cube.half_edges[cursor];
-                let twin = &cube.half_edges[he.twin];
+                let twin = &cube.half_edges[he.mate().unwrap_or_default()];
                 if cube.loops[twin.loop_].face == fb {
                     pair = Some((fa, fb));
                     break 'outer;

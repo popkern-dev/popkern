@@ -275,11 +275,14 @@ pub(crate) fn resolve_axis(desc: &AxisDesc, brep: &BRep) -> Result<(Point3, Vec3
     match desc {
         AxisDesc::Edge(name) => {
             let edge_handle = resolve_edge(name, brep)?;
-            let edge = &brep.edges[edge_handle];
-            let he = &brep.half_edges[edge.half_edge];
-            let twin = &brep.half_edges[he.twin];
-            let start = brep.vertices[he.origin].position;
-            let end = brep.vertices[twin.origin].position;
+            let (a, b) =
+                brep.edge_vertices(edge_handle)
+                    .ok_or_else(|| ReplayError::FeatureFailed {
+                        label: "axis".into(),
+                        error: "axis edge has no end vertex".into(),
+                    })?;
+            let start = brep.vertices[a].position;
+            let end = brep.vertices[b].position;
             let dir = end - start;
             let unit = dir.normalized().ok_or_else(|| ReplayError::FeatureFailed {
                 label: "axis".into(),

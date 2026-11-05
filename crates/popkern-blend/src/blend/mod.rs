@@ -24,6 +24,7 @@ pub mod pns_adapter;
 #[path = "pns_adapter_tests.rs"]
 mod pns_adapter_tests;
 pub(crate) mod pns_cap_authoring;
+pub(crate) mod pns_patch_assignment;
 pub mod pns_promote;
 #[cfg(test)]
 #[path = "pns_promote_tests.rs"]

@@ -383,8 +383,8 @@ fn weld_boundary_pair(brep: &mut BRep, edge_a: EdgeHandle, edge_b: EdgeHandle) {
 
     replace_vertex(brep, b_start, a_end);
     replace_vertex(brep, b_end, a_start);
-    brep.half_edges[he_a].twin = he_b;
-    brep.half_edges[he_b].twin = he_a;
+    brep.half_edges[he_a].set_mate(he_b);
+    brep.half_edges[he_b].set_mate(he_a);
     brep.half_edges[he_b].edge = edge_a;
     brep.boundary_edges.remove(&edge_a);
     brep.boundary_edges.remove(&edge_b);

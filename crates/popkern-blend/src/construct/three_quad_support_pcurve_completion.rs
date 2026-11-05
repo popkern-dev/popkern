@@ -140,7 +140,9 @@ fn complete_cap_support_half_edge(
     let Some(half_edge_data) = brep.half_edges.get(half_edge).cloned() else {
         return CapSupportHalfEdgeCompletion::default();
     };
-    let twin = half_edge_data.twin;
+    let Some(twin) = half_edge_data.mate() else {
+        return CapSupportHalfEdgeCompletion::default();
+    };
     let Some(twin_data) = brep.half_edges.get(twin).cloned() else {
         return CapSupportHalfEdgeCompletion::default();
     };
@@ -439,7 +441,7 @@ fn unclamped_uv_point(surface: &SurfaceGeometry, point: &Point3) -> Point3 {
 
 fn twin_face_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<FaceHandle> {
     let half_edge_data = brep.half_edges.get(half_edge)?;
-    let twin_data = brep.half_edges.get(half_edge_data.twin)?;
+    let twin_data = half_edge_data.mate().and_then(|m| brep.half_edges.get(m))?;
     brep.loops
         .get(twin_data.loop_)
         .map(|loop_data| loop_data.face)
@@ -452,7 +454,9 @@ fn cap_face_half_edges(brep: &BRep, cap_face: FaceHandle) -> Vec<HalfEdgeHandle>
         let Some(first_data) = brep.half_edges.get(first) else {
             continue;
         };
-        let second = first_data.twin;
+        let Some(second) = first_data.mate() else {
+            continue;
+        };
         let Some(second_data) = brep.half_edges.get(second) else {
             continue;
         };

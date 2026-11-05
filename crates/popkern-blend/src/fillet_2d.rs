@@ -238,7 +238,7 @@ pub(crate) fn apply_corner_plan(
         loop_: loop_back,
         pcurve: None,
     });
-    brep.half_edges[new_front].twin = new_back;
+    brep.half_edges[new_front].set_mate(new_back);
     // Canonical half-edge direction matches the arc curve's
     // parameterisation: start_angle → t1, end_angle → t2. The
     // half-edge that starts at t1 is `new_back` (origin = v_t1).

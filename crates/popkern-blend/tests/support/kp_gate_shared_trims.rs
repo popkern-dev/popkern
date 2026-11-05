@@ -102,7 +102,7 @@ pub fn measure_shared_gregory_trims_with_sources(
         for _ in 0..brep.half_edges.len().max(1) {
             let he = &brep.half_edges[cursor];
             if visited_edges.insert(he.edge) {
-                let twin = &brep.half_edges[he.twin];
+                let twin = &brep.half_edges[he.mate().unwrap_or_default()];
                 let Some(twin_face) = brep.loops.get(twin.loop_).map(|loop_| loop_.face) else {
                     cursor = he.next;
                     continue;
@@ -113,7 +113,7 @@ pub fn measure_shared_gregory_trims_with_sources(
                         face,
                         cursor,
                         twin_face,
-                        he.twin,
+                        he.mate().unwrap_or_default(),
                         n_samples,
                         face_sources,
                         &mut metrics,

@@ -143,9 +143,11 @@ pub(super) fn attach_torus_edge_curves(brep: &mut BRep, major_radius: f64) {
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let twin = he_data.twin;
+        let Some(end) = brep.fin_end(he) else {
+            continue;
+        };
         let a = brep.vertices[he_data.origin].position;
-        let b = brep.vertices[brep.half_edges[twin].origin].position;
+        let b = brep.vertices[end].position;
         let ra = (a.x * a.x + a.y * a.y).sqrt();
         let rb = (b.x * b.x + b.y * b.y).sqrt();
 

@@ -317,7 +317,7 @@ pub(crate) fn classify_joins(
         for eh in plan.gap_edges.keys() {
             let edge = &skin.edges[*eh];
             let he = &skin.half_edges[edge.half_edge];
-            let twin = &skin.half_edges[he.twin];
+            let twin = &skin.half_edges[he.require_mate()?];
             gap_vertices.insert(he.origin);
             gap_vertices.insert(twin.origin);
         }
@@ -408,7 +408,7 @@ fn interior_edge_sides(
 ) -> Option<(FaceHandle, FaceHandle)> {
     let edge = skin.edges.get(eh)?;
     let he = skin.half_edges.get(edge.half_edge)?;
-    let twin = skin.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| skin.half_edges.get(m))?;
     let f1 = skin.loops.get(he.loop_)?.face;
     let f2 = skin.loops.get(twin.loop_)?.face;
     let of1 = reverse_face.get(&f1).copied()?;

@@ -376,7 +376,7 @@ fn boundary_pcurve_endpoint_gap(
     let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
         return f64::INFINITY;
     };
-    let Some(twin) = brep.half_edges.get(half_edge_data.twin) else {
+    let Some(twin) = half_edge_data.mate().and_then(|m| brep.half_edges.get(m)) else {
         return f64::INFINITY;
     };
     let Some(start) = brep
@@ -400,7 +400,7 @@ fn adjacent_faces(
 ) -> Option<(FaceHandle, FaceHandle, HalfEdgeHandle)> {
     let half_edge_data = brep.half_edges.get(half_edge)?;
     let cap_face = brep.loops.get(half_edge_data.loop_)?.face;
-    let twin = half_edge_data.twin;
+    let twin = half_edge_data.mate()?;
     let other_face = brep.loops.get(brep.half_edges.get(twin)?.loop_)?.face;
     (cap_face != other_face).then_some((cap_face, other_face, twin))
 }
@@ -409,7 +409,7 @@ fn has_analytic_neighbor(brep: &BRep, half_edge: HalfEdgeHandle) -> bool {
     let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
         return false;
     };
-    let Some(twin) = brep.half_edges.get(half_edge_data.twin) else {
+    let Some(twin) = half_edge_data.mate().and_then(|m| brep.half_edges.get(m)) else {
         return false;
     };
     let Some(twin_face) = brep.loops.get(twin.loop_).map(|loop_data| loop_data.face) else {

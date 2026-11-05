@@ -29,9 +29,9 @@ fn cylinder_top_rim_through_seam_vertex() {
     for (e, d) in brep.edges.iter() {
         let he = &brep.half_edges[d.half_edge];
         let a = brep.vertices[he.origin].position;
-        let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+        let b = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
         let f1 = brep.loops[he.loop_].face;
-        let f2 = brep.loops[brep.half_edges[he.twin].loop_].face;
+        let f2 = brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face;
         if f1 == f2 {
             seam.push(e);
             continue;
@@ -80,7 +80,7 @@ fn direct_seam_edge_spec_declines_structured() {
     let seam = brep.edges.iter().find(|(_, d)| {
         let he = &brep.half_edges[d.half_edge];
         let f1 = brep.loops[he.loop_].face;
-        let f2 = brep.loops[brep.half_edges[he.twin].loop_].face;
+        let f2 = brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face;
         f1 == f2
     });
     let Some((edge, _)) = seam else {
@@ -127,7 +127,7 @@ fn build_boss_chain_fixture() -> Option<(BRep, Vec<FilletSpec>)> {
         .find_map(|(_, d)| {
             let he = &cyl.half_edges[d.half_edge];
             let f1 = cyl.loops[he.loop_].face;
-            let f2 = cyl.loops[cyl.half_edges[he.twin].loop_].face;
+            let f2 = cyl.loops[cyl.half_edges[he.mate().unwrap_or_default()].loop_].face;
             (f1 == f2).then(|| {
                 let a = cyl.vertices[he.origin].position;
                 Vec3::new(a.x, a.y, 0.0)
@@ -170,7 +170,7 @@ fn build_boss_chain_fixture() -> Option<(BRep, Vec<FilletSpec>)> {
     for (e, d) in united.edges.iter() {
         let he = &united.half_edges[d.half_edge];
         let f1 = united.loops[he.loop_].face;
-        let f2 = united.loops[united.half_edges[he.twin].loop_].face;
+        let f2 = united.loops[united.half_edges[he.mate().unwrap_or_default()].loop_].face;
         let is_cyl = |f: popkern_core::topology::FaceHandle| {
             united.faces[f]
                 .surface
@@ -203,7 +203,7 @@ fn build_boss_chain_fixture() -> Option<(BRep, Vec<FilletSpec>)> {
     for &e in &chain {
         let he = &united.half_edges[united.edges[e].half_edge];
         let a = united.vertices[he.origin].position;
-        let b = united.vertices[united.half_edges[he.twin].origin].position;
+        let b = united.vertices[united.half_edges[he.mate().unwrap_or_default()].origin].position;
         eprintln!(
             "[seam-matrix]   chain edge ({:.2},{:.2},{:.2})->({:.2},{:.2},{:.2})",
             a.x, a.y, a.z, b.x, b.y, b.z
@@ -348,9 +348,9 @@ fn seam_fixtures_step_export_and_occ() {
         .filter(|(_, d)| {
             let he = &brep.half_edges[d.half_edge];
             let a = brep.vertices[he.origin].position;
-            let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+            let b = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
             let f1 = brep.loops[he.loop_].face;
-            let f2 = brep.loops[brep.half_edges[he.twin].loop_].face;
+            let f2 = brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face;
             f1 != f2 && (a.z - 2.0).abs() < 1e-9 && (b.z - 2.0).abs() < 1e-9
         })
         .map(|(edge, _)| FilletSpec {

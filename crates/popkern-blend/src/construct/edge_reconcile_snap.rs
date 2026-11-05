@@ -39,9 +39,8 @@ pub(crate) fn snap_vertex_and_adjacent_chords(
                 let he = e.half_edge;
                 brep.half_edges.get(he).is_some_and(|h| {
                     h.origin == vertex
-                        || brep
-                            .half_edges
-                            .get(h.twin)
+                        || h.mate()
+                            .and_then(|m| brep.half_edges.get(m))
                             .is_some_and(|t| t.origin == vertex)
                 })
             }
@@ -56,9 +55,11 @@ pub(crate) fn snap_vertex_and_adjacent_chords(
             continue;
         };
         let he = edge.half_edge;
-        let (va, vb) = {
-            let h = &brep.half_edges[he];
-            (h.origin, brep.half_edges[h.twin].origin)
+        let Some((va, vb)) = brep
+            .mate(he)
+            .map(|m| (brep.half_edges[he].origin, brep.half_edges[m].origin))
+        else {
+            continue;
         };
         let pa = brep.vertices[va].position;
         let pb = brep.vertices[vb].position;

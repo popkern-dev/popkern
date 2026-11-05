@@ -124,8 +124,8 @@ impl BRep {
         });
 
         // -- Wire twins --
-        brep.half_edges[he_seam_up].twin = he_seam_down;
-        brep.half_edges[he_seam_down].twin = he_seam_up;
+        brep.half_edges[he_seam_up].set_mate(he_seam_down);
+        brep.half_edges[he_seam_down].set_mate(he_seam_up);
 
         // -- Wire loop: next/prev --
         brep.half_edges[he_seam_up].next = he_seam_down;

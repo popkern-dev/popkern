@@ -213,7 +213,7 @@ pub(crate) fn candidate_region(brep: &BRep, committed_faces: &[FaceHandle]) -> V
         while let Some(half_edge) = brep.half_edges.get(cursor) {
             if let Some(neighbour) = brep
                 .half_edges
-                .get(half_edge.twin)
+                .get(half_edge.mate().unwrap_or_default())
                 .and_then(|twin| brep.loops.get(twin.loop_))
                 .map(|l| l.face)
                 && !region.contains(&neighbour)

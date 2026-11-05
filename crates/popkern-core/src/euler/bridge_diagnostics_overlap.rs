@@ -97,7 +97,7 @@ fn edge_has_same_loop_twin_pair(brep: &BRep, edge: EdgeHandle) -> bool {
     let Some(half_edge) = brep.half_edges.get(edge_data.half_edge) else {
         return false;
     };
-    let Some(twin) = brep.half_edges.get(half_edge.twin) else {
+    let Some(twin) = half_edge.mate().and_then(|m| brep.half_edges.get(m)) else {
         return false;
     };
     half_edge.edge == edge && twin.edge == edge && half_edge.loop_ == twin.loop_

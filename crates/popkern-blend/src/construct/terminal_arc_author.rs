@@ -24,7 +24,9 @@ pub(super) struct StagedStubArc {
     pub(super) curve: CurveOnEdge,
     pub(super) strip_half_edge: HalfEdgeHandle,
     pub(super) strip_pcurve: Pcurve,
-    pub(super) cap_half_edge: HalfEdgeHandle,
+    /// The cap side's fin: `None` at an open end, where the stub's
+    /// edge is free (no cap face across it).
+    pub(super) cap_half_edge: Option<HalfEdgeHandle>,
     pub(super) cap_pcurve: Pcurve,
 }
 
@@ -55,7 +57,7 @@ pub(super) fn compute_stub_arc(
             .get(edge)
             .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?
             .half_edge;
-        (he.twin, edge, primary)
+        (he.mate(), edge, primary)
     };
     // The edge's stored curve is oriented along its primary half-edge.
     let (p_start, p_end) = if primary == he_strip {
@@ -225,7 +227,7 @@ pub(super) fn compute_stub_chord(
             .get(edge)
             .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?
             .half_edge;
-        (he.twin, edge, primary)
+        (he.mate(), edge, primary)
     };
     // The edge's stored curve is oriented along its primary half-edge.
     let (p_start, p_end) = if primary == he_strip {

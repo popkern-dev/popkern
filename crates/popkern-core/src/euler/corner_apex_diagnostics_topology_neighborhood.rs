@@ -62,7 +62,7 @@ fn endpoint_role(brep: &BRep, edge: EdgeHandle, vertex: VertexHandle) -> EdgeEnd
     let Some(half_edge) = brep.half_edges.get(edge_record.half_edge) else {
         return EdgeEndpointRole::Unknown;
     };
-    let Some(twin) = brep.half_edges.get(half_edge.twin) else {
+    let Some(twin) = half_edge.mate().and_then(|m| brep.half_edges.get(m)) else {
         return EdgeEndpointRole::Unknown;
     };
     match (half_edge.origin == vertex, twin.origin == vertex) {
@@ -81,7 +81,9 @@ fn adjacent_face_pair(brep: &BRep, edge: EdgeHandle) -> CornerAdjacentFacePair {
         return missing_pair(edge);
     };
     let first_face = face_for_half_edge(brep, edge_record.half_edge);
-    let second_face = face_for_half_edge(brep, first_half_edge.twin);
+    let second_face = first_half_edge
+        .mate()
+        .and_then(|mate| face_for_half_edge(brep, mate));
     CornerAdjacentFacePair {
         edge: DiagnosticHandle::Edge(edge),
         first_face: first_face.map(DiagnosticHandle::Face),

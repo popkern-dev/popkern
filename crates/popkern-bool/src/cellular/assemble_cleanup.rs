@@ -27,12 +27,17 @@ pub(super) fn cleanup_unwired(builder: &mut BRepBuilder) {
 
     let twins: Vec<(HalfEdgeHandle, HalfEdgeHandle)> = dangling
         .iter()
-        .filter_map(|&h| brep.half_edges.get(h).map(|he| (h, he.twin)))
+        .filter_map(|&h| {
+            brep.half_edges
+                .get(h)
+                .and_then(|he| he.mate())
+                .map(|t| (h, t))
+        })
         .collect();
 
     for (h, twin_h) in &twins {
         if let Some(twin) = brep.half_edges.get_mut(*twin_h) {
-            twin.twin = *twin_h;
+            twin.set_mate(*twin_h);
         }
         // The surviving edge KEEPS its curve: edge geometry is a
         // property of the edge, not of its twin wiring — clearing it
@@ -133,10 +138,12 @@ pub(super) fn partition_shells(
         r
     }
     for (h, he) in brep.half_edges.iter() {
-        let twin = he.twin;
-        if twin == h || !brep.half_edges.contains_key(twin) {
+        let Some(twin) = he
+            .mate()
+            .filter(|t| *t != h && brep.half_edges.contains_key(*t))
+        else {
             continue;
-        }
+        };
         let (Some(l1), Some(l2)) = (
             brep.loops.get(he.loop_),
             brep.loops.get(brep.half_edges[twin].loop_),

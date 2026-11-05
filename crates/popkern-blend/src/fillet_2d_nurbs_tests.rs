@@ -24,7 +24,9 @@ fn find_edge(brep: &BRep, p_from: Point3, p_to: Point3) -> EdgeHandle {
     for (eh, edge) in &brep.edges {
         let he = edge.half_edge;
         let a = brep.vertices[brep.half_edges[he].origin].position;
-        let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        let b = brep.vertices
+            [brep.half_edges[brep.half_edges[he].mate().unwrap_or_default()].origin]
+            .position;
         let ok = (a.distance_to(&p_from) < 1e-9 && b.distance_to(&p_to) < 1e-9)
             || (a.distance_to(&p_to) < 1e-9 && b.distance_to(&p_from) < 1e-9);
         if ok {
@@ -44,7 +46,7 @@ fn find_vertex(brep: &BRep, pos: Point3) -> VertexHandle {
 
 fn rewrite_edge_as_linear_nurbs(brep: &mut BRep, edge: EdgeHandle) {
     let he = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he].mate().unwrap_or_default();
     let a = brep.vertices[brep.half_edges[he].origin].position;
     let b = brep.vertices[brep.half_edges[twin].origin].position;
     let nurbs = NurbsCurve {
@@ -62,7 +64,7 @@ fn rewrite_edge_as_linear_nurbs(brep: &mut BRep, edge: EdgeHandle) {
 
 fn rewrite_edge_as_quadratic_nurbs(brep: &mut BRep, edge: EdgeHandle, bulge: Point3) {
     let he = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he].mate().unwrap_or_default();
     let cp0 = brep.vertices[brep.half_edges[he].origin].position;
     let cp2 = brep.vertices[brep.half_edges[twin].origin].position;
     let nurbs = NurbsCurve {

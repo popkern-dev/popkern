@@ -169,7 +169,10 @@ pub fn cap_cap_seam(
     for (edge, data) in brep.edges.iter() {
         let he = brep.half_edges.get(data.half_edge)?;
         let a = brep.loops.get(he.loop_)?.face;
-        let b = brep.loops.get(brep.half_edges.get(he.twin)?.loop_)?.face;
+        let b = brep
+            .loops
+            .get(he.mate().and_then(|m| brep.half_edges.get(m))?.loop_)?
+            .face;
         if a == b || !faces.contains(&a) || !faces.contains(&b) {
             continue;
         }

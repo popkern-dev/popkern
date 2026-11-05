@@ -140,7 +140,7 @@ fn a_fillet_and_a_motion_keep_the_records() {
         .find(|(_, e)| {
             let he = &base.half_edges[e.half_edge];
             let a = base.vertices[he.origin].position;
-            let b = base.vertices[base.half_edges[he.twin].origin].position;
+            let b = base.vertices[base.half_edges[he.mate().unwrap_or_default()].origin].position;
             [a, b].iter().all(|p| p.x.abs() < 1e-9 && p.y.abs() < 1e-9)
         })
         .map(|(h, _)| h)

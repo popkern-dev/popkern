@@ -232,7 +232,7 @@ fn support_cell_adjacencies(
     for (slot_a, slot) in slots.iter().enumerate() {
         let half_edges = face_outer_half_edges(brep, slot.face)?;
         for (edge_a, &half_edge) in half_edges.iter().enumerate() {
-            let twin = brep.half_edges[half_edge].twin;
+            let twin = brep.half_edges[half_edge].require_mate()?;
             let Some(face_b) = brep
                 .loops
                 .get(brep.half_edges[twin].loop_)

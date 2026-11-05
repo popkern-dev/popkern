@@ -63,7 +63,7 @@ pub(super) fn record_boundary_tolerances(brep: &mut BRep, cap_faces: &[FaceHandl
         .filter_map(|&eh| {
             let edge = brep.edges.get(eh)?;
             let he = brep.half_edges.get(edge.half_edge)?;
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             Some([he.origin, twin.origin])
         })
         .flatten()
@@ -75,7 +75,7 @@ pub(super) fn record_boundary_tolerances(brep: &mut BRep, cap_faces: &[FaceHandl
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         if ring_vertices.contains(&he.origin) || ring_vertices.contains(&twin.origin) {
@@ -97,7 +97,7 @@ pub(super) fn record_boundary_tolerances(brep: &mut BRep, cap_faces: &[FaceHandl
         let Some(he_data) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        for half in [edge.half_edge, he_data.twin] {
+        for half in [Some(edge.half_edge), he_data.mate()].into_iter().flatten() {
             let Some(face) = brep
                 .half_edges
                 .get(half)

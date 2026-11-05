@@ -42,7 +42,7 @@ pub(super) fn detect_g0_g1_violations(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(loop_a) = brep.loops.get(he.loop_) else {

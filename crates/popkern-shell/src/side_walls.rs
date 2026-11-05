@@ -153,10 +153,12 @@ pub fn build_free_rim_walls(
     for (eh, edge) in &outer.edges {
         let he = &outer.half_edges[edge.half_edge];
         let he_loopless = !outer.loops.contains_key(he.loop_);
-        let twin_loopless = !outer.loops.contains_key(outer.half_edges[he.twin].loop_);
+        let twin_loopless = !outer
+            .loops
+            .contains_key(outer.half_edges[he.require_mate()?].loop_);
         match (he_loopless, twin_loopless) {
             (true, false) => rim_hes.push(edge.half_edge),
-            (false, true) => rim_hes.push(he.twin),
+            (false, true) => rim_hes.push(he.require_mate()?),
             (true, true) => {
                 return Err(ShellError::Topology(format!(
                     "edge {eh:?} has no live face on either side — not a sheet rim"
@@ -219,7 +221,7 @@ fn find_boundary_edges(
         let mut current = start_he;
         loop {
             let he = &outer.half_edges[current];
-            let twin = &outer.half_edges[he.twin];
+            let twin = &outer.half_edges[he.require_mate()?];
             let twin_loop = twin.loop_;
 
             if outer.loops.contains_key(twin_loop) {
@@ -304,7 +306,7 @@ fn build_one_side_wall(
     shell_handle: ShellHandle,
 ) -> Result<Option<FaceHandle>, ShellError> {
     let he = &outer.half_edges[rim_he];
-    let twin = &outer.half_edges[he.twin];
+    let twin = &outer.half_edges[he.require_mate()?];
     let (v0_orig, v1_orig) = (he.origin, twin.origin);
 
     let map_err = |what: &str| ShellError::Topology(format!("side wall: {what} not in map"));
@@ -384,7 +386,7 @@ fn build_one_side_wall(
     // still errors.
     expect_origin(builder, b_outer_rim, b_v0, "outer rim")?;
     let actual_iv1 = builder.brep().half_edges[b_inner_rim].origin;
-    let inner_twin = builder.brep().half_edges[b_inner_rim].twin;
+    let inner_twin = builder.brep().half_edges[b_inner_rim].require_mate()?;
     let actual_iv0 = builder.brep().half_edges[inner_twin].origin;
     if b_iv0.is_some() && b_iv0 != b_iv1 && Some(actual_iv1) == b_iv0 && Some(actual_iv0) == b_iv1 {
         return Err(ShellError::Topology(format!(

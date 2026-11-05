@@ -31,7 +31,7 @@ use super::postprocess::{
 pub(super) fn free_half_edges(brep: &BRep) -> usize {
     brep.half_edges
         .iter()
-        .filter(|(handle, he)| he.twin == *handle)
+        .filter(|(handle, he)| he.mate() == Some(*handle))
         .count()
 }
 

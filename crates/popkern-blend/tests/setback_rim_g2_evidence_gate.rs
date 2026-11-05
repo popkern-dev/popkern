@@ -49,7 +49,8 @@ fn pentagon_flagship_g2_request_measures_g2_on_every_rim_quarter() {
         .filter_map(|(eh, _)| {
             let he = pyramid.edges[eh].half_edge;
             let origin = pyramid.half_edges[he].origin;
-            let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            let twin_origin =
+                pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
             (origin == apex || twin_origin == apex).then_some(eh)
         })
         .collect();

@@ -121,7 +121,10 @@ impl BRep {
                     "boundary ring cap edge {edge:?} has no live surviving half-edge"
                 ))
             })?;
-            if self.half_edges.contains_key(surviving_data.twin) {
+            if surviving_data
+                .mate()
+                .is_some_and(|m| self.half_edges.contains_key(m))
+            {
                 return Err(CoreError::PreconditionFailed(format!(
                     "boundary ring cap edge {edge:?} is registered as boundary but its twin is live"
                 )));
@@ -242,7 +245,7 @@ impl BRep {
                 loop_,
                 pcurve: None,
             });
-            self.half_edges[step.surviving].twin = hole_side;
+            self.half_edges[step.surviving].set_mate(hole_side);
             self.boundary_edges.remove(&step.edge);
             hole_sides.push(hole_side);
         }
@@ -293,8 +296,8 @@ impl BRep {
             let surviving_twin = self
                 .half_edges
                 .get(step.surviving)
-                .map(|surviving| surviving.twin);
-            let hole_twin = self.half_edges.get(hole_side).map(|hole| hole.twin);
+                .and_then(|surviving| surviving.mate());
+            let hole_twin = self.half_edges.get(hole_side).and_then(|hole| hole.mate());
             if surviving_twin != Some(hole_side) || hole_twin != Some(step.surviving) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "cap_boundary_ring twin pairing broken on edge {:?}",

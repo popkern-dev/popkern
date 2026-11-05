@@ -201,15 +201,18 @@ fn shared_edge_sample_points(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some((mate, twin)) = he
+            .mate()
+            .and_then(|m| brep.half_edges.get(m).map(|t| (m, t)))
+        else {
             continue;
         };
         let fa = brep.loops.get(he.loop_).map(|l| l.face);
         let fb = brep.loops.get(twin.loop_).map(|l| l.face);
         let (side_a, side_b) = if fa == Some(face_a) && fb == Some(face_b) {
-            (edge.half_edge, he.twin)
+            (edge.half_edge, mate)
         } else if fa == Some(face_b) && fb == Some(face_a) {
-            (he.twin, edge.half_edge)
+            (mate, edge.half_edge)
         } else {
             continue;
         };

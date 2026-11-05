@@ -78,7 +78,8 @@ fn torus_band(pcurves: [Pcurve; 2]) -> (BRep, FaceHandle) {
             .loops
             .insert(popkern_core::topology::Loop { half_edge: h, face });
         let he = &mut body.half_edges[h];
-        (he.next, he.prev, he.twin, he.loop_) = (h, h, h, l);
+        (he.next, he.prev, he.loop_) = (h, h, l);
+        he.set_mate(h);
         body.edges[e].half_edge = h;
         loops.push(l);
     }

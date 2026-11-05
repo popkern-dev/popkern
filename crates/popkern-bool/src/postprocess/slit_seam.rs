@@ -51,7 +51,7 @@ pub(crate) fn dissolve_slit_seams_in(
         .iter()
         .filter_map(|(eh, ed)| {
             let he = brep.half_edges.get(ed.half_edge)?;
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             // Same loop, same face — the seam/slit shape.
             if he.loop_ != twin.loop_ {
                 return None;
@@ -59,7 +59,7 @@ pub(crate) fn dissolve_slit_seams_in(
             if popkern_core::trace::trace_enabled("slit") {
                 eprintln!(
                     "  [slit-scan] {eh:?} same_loop adj={}/{} pcurves={}/{}",
-                    he.next == he.twin,
+                    he.mate() == Some(he.next),
                     twin.next == ed.half_edge,
                     he.pcurve.is_some(),
                     twin.pcurve.is_some()
@@ -124,7 +124,7 @@ pub(crate) fn dissolve_slit_seams_in(
             let has_other = |v: popkern_core::topology::VertexHandle| {
                 brep.half_edges
                     .iter()
-                    .any(|(hh, hd)| hd.origin == v && hh != ed.half_edge && hh != he.twin)
+                    .any(|(hh, hd)| hd.origin == v && hh != ed.half_edge && he.mate() != Some(hh))
             };
             if !has_other(he.origin) || !has_other(twin.origin) {
                 return None;
@@ -196,8 +196,9 @@ pub(crate) fn dissolve_slit_seams_in(
                     }
                     Some(false)
                 };
-                let side_a = segment_on_seam(ed.half_edge, he.twin).unwrap_or(false);
-                let side_b = segment_on_seam(he.twin, ed.half_edge).unwrap_or(false);
+                let mate = he.mate()?;
+                let side_a = segment_on_seam(ed.half_edge, mate).unwrap_or(false);
+                let side_b = segment_on_seam(mate, ed.half_edge).unwrap_or(false);
                 if !side_a && !side_b {
                     if popkern_core::trace::trace_enabled("slit") {
                         eprintln!(
@@ -235,7 +236,9 @@ fn dissolve_one(brep: &mut BRep, eh: EdgeHandle) -> bool {
     let Some(hd) = brep.half_edges.get(h).cloned() else {
         return false;
     };
-    let t = hd.twin;
+    let Some(t) = hd.mate() else {
+        return false;
+    };
     let Some(td) = brep.half_edges.get(t).cloned() else {
         return false;
     };

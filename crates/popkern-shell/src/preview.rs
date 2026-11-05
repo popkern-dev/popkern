@@ -150,7 +150,7 @@ pub fn shell_preview(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let (Some(l1), Some(l2)) = (brep.loops.get(he.loop_), brep.loops.get(twin.loop_)) else {

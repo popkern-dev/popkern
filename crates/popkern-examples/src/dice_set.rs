@@ -841,7 +841,7 @@ fn build_polyhedron(
                 "polyhedron not closed: edge ({a},{b}) has no opposite face use"
             ))
         })?;
-        brep.half_edges[he].twin = twin;
+        brep.half_edges[he].set_mate(twin);
     }
 
     // Geometry: line curves; right-handed plane charts.
@@ -849,7 +849,7 @@ fn build_polyhedron(
     for eh in edge_handles {
         let he = brep.edges[eh].half_edge;
         let a = brep.vertices[brep.half_edges[he].origin].position;
-        let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        let b = brep.vertices[brep.fin_end(he).expect("edge end vertex")].position;
         let dir = b - a;
         let len = dir.length();
         brep.edges[eh].curve = Some(CurveOnEdge {

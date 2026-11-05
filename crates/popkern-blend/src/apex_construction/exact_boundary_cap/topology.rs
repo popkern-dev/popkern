@@ -401,8 +401,8 @@ fn half_edges_connect(brep: &BRep, left: HalfEdgeHandle, right: HalfEdgeHandle) 
 
 fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
     let data = brep.half_edges.get(half_edge)?;
-    brep.half_edges
-        .get(data.twin)
+    data.mate()
+        .and_then(|m| brep.half_edges.get(m))
         .map(|twin| twin.origin)
         .or_else(|| brep.half_edges.get(data.next).map(|next| next.origin))
 }

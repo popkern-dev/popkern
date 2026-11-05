@@ -93,7 +93,9 @@ pub(super) fn find_chord_pair_candidates(brep: &BRep, fh: FaceHandle) -> Vec<Cho
             continue;
         }
         let anchor_in = in_data.origin;
-        let twin_out = out_data.twin;
+        let Some(twin_out) = out_data.mate() else {
+            continue;
+        };
         let Some(twin_data) = brep.half_edges.get(twin_out) else {
             continue;
         };

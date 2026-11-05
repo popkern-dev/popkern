@@ -110,7 +110,7 @@ mod tests {
         for (k, &e) in lamina.edges.iter().enumerate() {
             let he = brep.edges[e].half_edge;
             let a = brep.half_edges[he].origin;
-            let b = brep.half_edges[brep.half_edges[he].twin].origin;
+            let b = brep.half_edges[brep.half_edges[he].mate().unwrap_or_default()].origin;
             let (v0, v1) = (lamina.vertices[k], lamina.vertices[(k + 1) % 4]);
             assert!((a, b) == (v0, v1) || (a, b) == (v1, v0), "edge {k}");
         }

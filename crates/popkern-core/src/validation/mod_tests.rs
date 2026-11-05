@@ -46,7 +46,7 @@ fn corrupted_brep_validate_all_collects_errors() {
         .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
         .unwrap();
     // Corrupt the twin pointer.
-    brep.half_edges[mev.half_edge].twin = Default::default();
+    brep.half_edges[mev.half_edge].clear_mate();
     let errors = brep.validate_all();
     // Should have at least 1 error (broken twin).
     assert!(!errors.is_empty());
@@ -112,8 +112,8 @@ fn validate_all_collects_multiple_errors() {
         .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
         .unwrap();
     // Corrupt twin AND next to trigger multiple validation errors
-    brep.half_edges[mev.half_edge].twin = Default::default();
-    brep.half_edges[mev.half_edge_twin].twin = Default::default();
+    brep.half_edges[mev.half_edge].clear_mate();
+    brep.half_edges[mev.half_edge_twin].clear_mate();
     let errors = brep.validate_all();
     // Should have multiple errors (broken twin, broken cycle, manifold, etc.)
     assert!(
@@ -136,7 +136,7 @@ fn validate_all_hits_all_check_branches() {
 
     // Corrupt a twin pointer to break pairing (check 2)
     let he_h = brep.half_edges.keys().next().unwrap();
-    brep.half_edges[he_h].twin = Default::default();
+    brep.half_edges[he_h].clear_mate();
 
     // Attach degenerate surface to trigger orientation failure (check 7)
     let face2_h = brep.faces.keys().next().unwrap();
@@ -252,7 +252,7 @@ fn validate_early_return_on_first_error() {
         .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
         .unwrap();
     // Corrupt twin to break pairing => validate fails on check 2
-    brep.half_edges[mev.half_edge].twin = Default::default();
+    brep.half_edges[mev.half_edge].clear_mate();
     let result = brep.validate();
     assert!(result.is_err());
 }

@@ -232,7 +232,7 @@ pub(crate) fn edge_endpoint_positions(
     half_edge: popkern_core::topology::HalfEdgeHandle,
 ) -> Option<(Point3, Point3)> {
     let he = brep.half_edges.get(half_edge)?;
-    let end_vertex = match brep.half_edges.get(he.twin) {
+    let end_vertex = match he.mate().and_then(|m| brep.half_edges.get(m)) {
         Some(twin) => twin.origin,
         None => brep.half_edges.get(he.next)?.origin,
     };

@@ -13,7 +13,7 @@
 //! potentially-hard configurations.
 
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 use popkern_math::PortableMath;
 
 use crate::analysis::{Convexity, analyze_edges};
@@ -187,9 +187,7 @@ fn edge_is_incident_to(brep: &BRep, edge: EdgeHandle, vertex: VertexHandle) -> b
         return true;
     }
     // Check twin (manifold edges) or loop-walk next (boundary).
-    let twin = he.twin;
-    if twin != HalfEdgeHandle::default()
-        && let Some(t) = brep.half_edges.get(twin)
+    if let Some(t) = he.mate().and_then(|twin| brep.half_edges.get(twin))
         && t.origin == vertex
     {
         return true;
@@ -210,7 +208,7 @@ fn is_boundary_edge(brep: &BRep, edge: EdgeHandle) -> bool {
             .edges
             .get(edge)
             .and_then(|e| brep.half_edges.get(e.half_edge))
-            .is_some_and(|he| he.twin == HalfEdgeHandle::default())
+            .is_some_and(|he| he.mate().is_none())
 }
 
 /// Is the dihedral angle at `edge` within `tolerance.angular()` of
@@ -230,10 +228,9 @@ fn is_edge_tangent(brep: &BRep, edge: EdgeHandle, tolerance: &Tolerance) -> bool
     let Some(he) = brep.half_edges.get(he_h) else {
         return false;
     };
-    let twin = he.twin;
-    if twin == HalfEdgeHandle::default() {
+    let Some(twin) = he.mate() else {
         return false; // boundary — no two-sided dihedral
-    }
+    };
     let Some(t_he) = brep.half_edges.get(twin) else {
         return false;
     };

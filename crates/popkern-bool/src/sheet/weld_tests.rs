@@ -164,7 +164,7 @@ fn build_duplicate_edges_fixture() -> (BRep, VertexHandle, VertexHandle, EdgeHan
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[he_a1].twin = he_a2;
+    brep.half_edges[he_a1].set_mate(he_a2);
     brep.edges[edge_a].half_edge = he_a1;
 
     let edge_b = brep.edges.insert(Edge {
@@ -193,7 +193,7 @@ fn build_duplicate_edges_fixture() -> (BRep, VertexHandle, VertexHandle, EdgeHan
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[he_b1].twin = he_b2;
+    brep.half_edges[he_b1].set_mate(he_b2);
     brep.edges[edge_b].half_edge = he_b1;
 
     (brep, v1, v2, edge_a, edge_b)
@@ -292,7 +292,7 @@ fn weld_edges_leaves_distinct_endpoints_untouched() {
             loop_: Default::default(),
             pcurve: None,
         });
-        brep.half_edges[h1].twin = h2;
+        brep.half_edges[h1].set_mate(h2);
         brep.edges[eh].half_edge = h1;
     }
     let welds = weld_coincident_edges(&mut brep);

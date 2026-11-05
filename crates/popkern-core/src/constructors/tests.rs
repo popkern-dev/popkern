@@ -180,7 +180,7 @@ fn cylinder_seam_edge_both_half_edges_on_lateral_face() {
     let mut found_seam = false;
     for edge in cyl.edges.values() {
         let he = &cyl.half_edges[edge.half_edge];
-        let twin = &cyl.half_edges[he.twin];
+        let twin = &cyl.half_edges[he.mate().unwrap_or_default()];
         let face_he = cyl.loops[he.loop_].face;
         let face_twin = cyl.loops[twin.loop_].face;
         if face_he == face_twin {
@@ -307,7 +307,7 @@ fn sphere_seam_edge_both_half_edges_on_same_face() {
     let sph = BRep::sphere(1.0, Tolerance::default()).unwrap();
     for edge in sph.edges.values() {
         let he = &sph.half_edges[edge.half_edge];
-        let twin = &sph.half_edges[he.twin];
+        let twin = &sph.half_edges[he.mate().unwrap_or_default()];
         let face_he = sph.loops[he.loop_].face;
         let face_twin = sph.loops[twin.loop_].face;
         assert_eq!(

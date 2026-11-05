@@ -450,7 +450,7 @@ fn refresh_pcurves(brep: &mut BRep, face: FaceHandle) -> Result<(), String> {
         if let Some(twin_face) = brep
             .half_edges
             .get(sample.he)
-            .and_then(|d| brep.half_edges.get(d.twin))
+            .and_then(|d| d.mate().and_then(|m| brep.half_edges.get(m)))
             .and_then(|t| brep.loops.get(t.loop_))
             .map(|l| l.face)
         {

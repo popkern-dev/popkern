@@ -50,11 +50,9 @@ pub fn recompute_draft_edges(
         }
 
         let he = &brep.half_edges[he_handle];
-        let twin_handle = he.twin;
-
-        if !brep.half_edges.contains_key(twin_handle) {
+        let Some(twin_handle) = he.mate().filter(|t| brep.half_edges.contains_key(*t)) else {
             continue;
-        }
+        };
 
         let twin = &brep.half_edges[twin_handle];
 
@@ -183,7 +181,7 @@ fn cone_seam_ruling(
         direction
     };
     let he = &brep.half_edges[edge.half_edge];
-    let twin = &brep.half_edges[he.twin];
+    let twin = &brep.half_edges[he.mate()?];
     let start = brep.vertices[he.origin].position;
     let end = brep.vertices[twin.origin].position;
     Some(CurveOnEdge {
@@ -221,7 +219,7 @@ fn compute_edge_curve(
 ) -> Result<EdgeCurveOutcome, DraftError> {
     let edge = &brep.edges[edge_handle];
     let he = &brep.half_edges[edge.half_edge];
-    let twin = &brep.half_edges[he.twin];
+    let twin = &brep.half_edges[he.require_mate()?];
     let start_pos = brep.vertices[he.origin].position;
     let end_pos = brep.vertices[twin.origin].position;
 

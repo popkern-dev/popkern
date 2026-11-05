@@ -42,7 +42,7 @@ pub(super) fn remove_apex_vertex(
             .half_edges
             .iter()
             .filter(|(_, h)| h.origin == v)
-            .map(|(h, hd)| (h, hd.loop_, hd.twin))
+            .filter_map(|(h, hd)| hd.mate().map(|t| (h, hd.loop_, t)))
             .collect();
         eprintln!(
             "[direct-apex-trace §14.8/D] enter remove_apex_vertex: V={v:?} has {} outgoings",
@@ -84,7 +84,7 @@ pub(super) fn remove_apex_vertex(
         let mut cross_face_in_cap: Option<popkern_core::topology::HalfEdgeHandle> = None;
         let mut cross_face_other: Option<popkern_core::topology::HalfEdgeHandle> = None;
         for &he in &outgoings {
-            let twin = brep.half_edges[he].twin;
+            let twin = brep.half_edges[he].require_mate()?;
             let he_loop = brep.half_edges[he].loop_;
             let twin_loop = brep.half_edges[twin].loop_;
             if he_loop == twin_loop {
@@ -110,7 +110,7 @@ pub(super) fn remove_apex_vertex(
 
         if let Some(he) = cross_face_in_cap {
             if trace {
-                let twin = brep.half_edges[he].twin;
+                let twin = brep.half_edges[he].require_mate()?;
                 let twin_face = brep.loops[brep.half_edges[twin].loop_].face;
                 eprintln!(
                     "[direct-apex-trace §14.8/D] kef cross-face he={he:?} (in cap_face={cap_face:?}, killing {twin_face:?}; V outgoings={})",
@@ -123,7 +123,7 @@ pub(super) fn remove_apex_vertex(
                 cause: format!("V cross-face kef (cap-side): {e}"),
             })?;
         } else if let Some(he) = cross_face_other {
-            let twin = brep.half_edges[he].twin;
+            let twin = brep.half_edges[he].require_mate()?;
             if trace {
                 let twin_face = brep.loops[brep.half_edges[twin].loop_].face;
                 eprintln!(

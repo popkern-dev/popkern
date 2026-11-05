@@ -259,7 +259,7 @@ pub(crate) fn construct_mixed_corner(
             if he.edge != res.edge {
                 retrim.insert(he.edge);
             }
-            let Some(twin) = skin.half_edges.get(he.twin) else {
+            let Some(twin) = he.mate().and_then(|m| skin.half_edges.get(m)) else {
                 break;
             };
             let next = twin.next;
@@ -291,7 +291,7 @@ pub(crate) fn retrim_edge_to_vertices(
     let Some(he_data) = skin.half_edges.get(he) else {
         return Ok(());
     };
-    let Some(twin) = skin.half_edges.get(he_data.twin) else {
+    let Some(twin) = he_data.mate().and_then(|m| skin.half_edges.get(m)) else {
         return Ok(());
     };
     if he_data.origin == twin.origin {
@@ -345,7 +345,7 @@ fn removed_surface_at_boundary(
         // Rim edges have a loopless side in the skin.
         let edge = skin.edges.get(entry.edge)?;
         let he = skin.half_edges.get(edge.half_edge)?;
-        let twin = skin.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| skin.half_edges.get(m))?;
         let rim = !skin.loops.contains_key(he.loop_) || !skin.loops.contains_key(twin.loop_);
         if !rim {
             continue;
@@ -353,7 +353,7 @@ fn removed_surface_at_boundary(
         let outer_eh = reverse_edge.get(&entry.edge)?;
         let o_edge = outer.edges.get(*outer_eh)?;
         let o_he = outer.half_edges.get(o_edge.half_edge)?;
-        let o_twin = outer.half_edges.get(o_he.twin)?;
+        let o_twin = o_he.mate().and_then(|m| outer.half_edges.get(m))?;
         for lh in [o_he.loop_, o_twin.loop_] {
             if let Some(l) = outer.loops.get(lh)
                 && !skinned_outer.contains(&l.face)

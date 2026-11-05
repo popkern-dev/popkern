@@ -243,7 +243,7 @@ fn find_runoff_candidate(
 
 /// Face on the other side of a half-edge.
 fn face_across(brep: &BRep, he: HalfEdgeHandle) -> Option<FaceHandle> {
-    let twin = brep.half_edges.get(he)?.twin;
+    let twin = brep.half_edges.get(he)?.mate()?;
     let loop_ = brep.half_edges.get(twin)?.loop_;
     Some(brep.loops.get(loop_)?.face)
 }
@@ -351,7 +351,9 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
     // extrapolated fillet diving into the solid.)
     let shared = shared_half_edge(brep, sliver, cand.end_face)
         .ok_or("no shared edge between sliver and end face")?;
-    let end_side = brep.half_edges[shared].twin;
+    let end_side = brep.half_edges[shared]
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     brep.kef(end_side).map_err(|e| format!("runoff kef: {e}"))?;
     // Residual bridge edges at the corner: dissolve to fixpoint.
     loop {
@@ -363,7 +365,7 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
         let mut he = start;
         for _ in 0..10_000 {
             let data = &brep.half_edges[he];
-            let twin = data.twin;
+            let twin = data.require_mate().map_err(|e| e.to_string())?;
             if brep.half_edges[twin].loop_ == data.loop_ {
                 bridge = Some(he);
                 break;
@@ -471,7 +473,7 @@ fn shared_half_edge(brep: &BRep, face_a: FaceHandle, face_b: FaceHandle) -> Opti
     let mut he = start;
     for _ in 0..10_000 {
         let data = &brep.half_edges[he];
-        let twin_loop = brep.half_edges[data.twin].loop_;
+        let twin_loop = brep.half_edges[data.mate()?].loop_;
         if brep.loops[twin_loop].face == face_b {
             return Some(he);
         }

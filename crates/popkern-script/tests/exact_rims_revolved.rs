@@ -201,7 +201,7 @@ fn a_torus_cut_through_its_equator_keeps_both_equators_as_shared_rims() {
         .filter(|e| {
             let he = &brep.half_edges[e.half_edge];
             let fa = brep.loops[he.loop_].face;
-            let fb = brep.loops[brep.half_edges[he.twin].loop_].face;
+            let fb = brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face;
             fa != fb
                 && matches!(
                     e.curve.as_ref().map(|c| &c.geometry),

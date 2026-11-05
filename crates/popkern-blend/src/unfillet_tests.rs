@@ -309,7 +309,7 @@ fn round_5c3_closed_fillet_on_cube_hole_rim() {
     let edge = subtracted.edges.keys().find(|e| {
         let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
         let fa = subtracted.loops[he.loop_].face;
-        let fb = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+        let fb = subtracted.loops[subtracted.half_edges[he.mate().unwrap_or_default()].loop_].face;
         let sa = subtracted.faces[fa].surface.as_ref().map(|s| &s.geometry);
         let sb = subtracted.faces[fb].surface.as_ref().map(|s| &s.geometry);
         matches!(

@@ -160,7 +160,7 @@ pub fn validate_shared_trim_edge(
             SharedTrimEdgeValidation::default(),
         ));
     }
-    if he_a.twin != input.half_edge_b || he_b.twin != input.half_edge_a {
+    if he_a.mate() != Some(input.half_edge_b) || he_b.mate() != Some(input.half_edge_a) {
         return Err(failure(
             SharedTrimEdgeFailureReason::HalfEdgesNotTwins,
             input.provenance,
@@ -250,7 +250,7 @@ fn canonical_edge_vertices(
     canonical_half_edge: HalfEdgeHandle,
 ) -> Option<(Point3, Point3)> {
     let he = brep.half_edges.get(canonical_half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((
         brep.vertices.get(he.origin)?.position,
         brep.vertices.get(twin.origin)?.position,

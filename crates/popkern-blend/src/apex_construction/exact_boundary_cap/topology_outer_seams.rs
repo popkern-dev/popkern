@@ -69,7 +69,10 @@ fn live_outer_seam(
         )
     })?;
     let primary = edge_data.half_edge;
-    let twin = brep.half_edges.get(primary).map(|half_edge| half_edge.twin);
+    let twin = brep
+        .half_edges
+        .get(primary)
+        .and_then(|half_edge| half_edge.mate());
     for half_edge in [Some(primary), twin] {
         let Some(half_edge) = half_edge else {
             continue;
@@ -77,7 +80,7 @@ fn live_outer_seam(
         if face_for_half_edge(brep, half_edge) != Some(sector.cap_face) {
             continue;
         }
-        let support_half_edge = brep.half_edges.get(half_edge).map(|data| data.twin);
+        let support_half_edge = brep.half_edges.get(half_edge).and_then(|data| data.mate());
         let support_face = support_half_edge.and_then(|support_half_edge| {
             face_for_half_edge(brep, support_half_edge).map(|face| (support_half_edge, face))
         });

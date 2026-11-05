@@ -79,11 +79,13 @@ pub(super) fn open_sheet(mut body: BRep) -> Result<BRep, BoolError> {
     let open: Vec<_> = body
         .half_edges
         .iter()
-        .filter(|(h, he)| he.twin == *h || !body.half_edges.contains_key(he.twin))
+        .filter(|(h, he)| {
+            he.mate() == Some(*h) || !he.mate().is_some_and(|m| body.half_edges.contains_key(m))
+        })
         .map(|(h, he)| (h, he.edge))
         .collect();
     for &(h, edge) in &open {
-        body.half_edges[h].twin = Default::default();
+        body.half_edges[h].clear_mate();
         body.boundary_edges.insert(edge);
     }
     body.recompute_pcurves_where_missing()

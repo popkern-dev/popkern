@@ -69,14 +69,9 @@ pub fn enforce_g0(
         .get(he_handle)
         .ok_or_else(|| CoreError::InvalidHandle("half-edge".to_string()))?;
     let start_vh = he.origin;
-    let twin_handle = he.twin;
-
-    // Get end vertex via the twin half-edge.
-    let twin = brep
-        .half_edges
-        .get(twin_handle)
-        .ok_or_else(|| CoreError::InvalidHandle("twin half-edge".to_string()))?;
-    let end_vh = twin.origin;
+    let end_vh = brep
+        .fin_end(he_handle)
+        .ok_or_else(|| CoreError::InvalidHandle("half-edge end vertex".to_string()))?;
 
     // Read current vertex positions.
     let start_pos = brep
@@ -339,9 +334,9 @@ pub(super) fn get_adjacent_surfaces(
         .half_edges
         .get(ed.half_edge)
         .ok_or_else(|| CoreError::InvalidHandle("half-edge".into()))?;
-    let he2 = brep
-        .half_edges
-        .get(he1.twin)
+    let he2 = he1
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
         .ok_or_else(|| CoreError::InvalidHandle("twin half-edge".into()))?;
     let l1 = brep
         .loops
@@ -382,7 +377,7 @@ pub(super) fn sample_edge_uvs(
     let Some(he1) = brep.half_edges.get(ed.half_edge) else {
         return Vec::new();
     };
-    let Some(he2) = brep.half_edges.get(he1.twin) else {
+    let Some(he2) = he1.mate().and_then(|m| brep.half_edges.get(m)) else {
         return Vec::new();
     };
     let Some(l1) = brep.loops.get(he1.loop_) else {

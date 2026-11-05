@@ -223,7 +223,7 @@ fn compute_edge_neutral(
 
     let he_handle = edge.half_edge;
     let he = &brep.half_edges[he_handle];
-    let twin = &brep.half_edges[he.twin];
+    let twin = &brep.half_edges[he.require_mate()?];
 
     let he_loop = he.loop_;
     let twin_loop = twin.loop_;

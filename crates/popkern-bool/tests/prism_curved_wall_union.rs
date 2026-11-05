@@ -48,9 +48,9 @@ fn union_preserves_boss_side_walls() {
     for (e, d) in united.edges.iter() {
         let he = &united.half_edges[d.half_edge];
         let a = united.vertices[he.origin].position;
-        let b = united.vertices[united.half_edges[he.twin].origin].position;
+        let b = united.vertices[united.half_edges[he.mate().unwrap_or_default()].origin].position;
         let f1 = united.loops[he.loop_].face;
-        let f2 = united.loops[united.half_edges[he.twin].loop_].face;
+        let f2 = united.loops[united.half_edges[he.mate().unwrap_or_default()].loop_].face;
         if f1 == f2 {
             continue; // seam edges legitimately close on themselves
         }

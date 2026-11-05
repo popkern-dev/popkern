@@ -89,8 +89,10 @@ impl BRep {
             let he_handle = self.edges[eh].half_edge;
             let he = &self.half_edges[he_handle];
             let start_pos = self.vertices[he.origin].position;
-            let twin = &self.half_edges[he.twin];
-            let end_pos = self.vertices[twin.origin].position;
+            let end = self.fin_end(he_handle).ok_or_else(|| {
+                CoreError::InvalidHandle(format!("edge {eh:?} has no end vertex"))
+            })?;
+            let end_pos = self.vertices[end].position;
             self.edges[eh].curve = Some(line_between(start_pos, end_pos));
         }
 

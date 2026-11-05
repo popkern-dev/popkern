@@ -70,7 +70,7 @@ impl BRep {
             // Open sheets have loopless (or absent) twins at free
             // rims — no neighbour across that edge.
             while let Some(he_data) = self.half_edges.get(he) {
-                if let Some(twin_data) = self.half_edges.get(he_data.twin)
+                if let Some(twin_data) = he_data.mate().and_then(|m| self.half_edges.get(m))
                     && let Some(partner_loop) = self.loops.get(twin_data.loop_)
                 {
                     let partner = partner_loop.face;

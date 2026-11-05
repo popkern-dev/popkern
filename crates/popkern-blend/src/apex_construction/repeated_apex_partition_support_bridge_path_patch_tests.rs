@@ -102,7 +102,9 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
     let cylinder_half_edge = patch.cylinder_half_edge;
     let support_patch_face = patch.support_patch_face;
 
-    let support_half_edge = brep.half_edges[cylinder_half_edge].twin;
+    let support_half_edge = brep.half_edges[cylinder_half_edge]
+        .mate()
+        .unwrap_or_default();
     let support_loop = brep.half_edges[support_half_edge].loop_;
     assert_eq!(brep.loops[support_loop].face, support_patch_face);
     assert_eq!(
@@ -189,7 +191,9 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
     let cylinder_half_edge = patch.cylinder_half_edge;
     let support_patch_face = patch.support_patch_face;
 
-    let support_half_edge = brep.half_edges[cylinder_half_edge].twin;
+    let support_half_edge = brep.half_edges[cylinder_half_edge]
+        .mate()
+        .unwrap_or_default();
     assert_eq!(
         half_edge_end_vertex(&brep, cylinder_half_edge),
         Some(vertices[1])

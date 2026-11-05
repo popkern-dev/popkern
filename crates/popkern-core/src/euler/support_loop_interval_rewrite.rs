@@ -149,7 +149,7 @@ impl BRep {
                     "interval rewrite: replacement side {r:?} is stale"
                 ))
             })?;
-            if self.half_edges.contains_key(data.twin) {
+            if data.mate().is_some_and(|m| self.half_edges.contains_key(m)) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "interval rewrite: replacement side {r:?} already has a live twin"
                 )));
@@ -221,7 +221,7 @@ impl BRep {
                 loop_: plan.loop_,
                 pcurve: None,
             });
-            self.half_edges[r].twin = new_h;
+            self.half_edges[r].set_mate(new_h);
             if plan.pair_removed_edges {
                 // Re-point the replacement side onto the adopted
                 // production edge and retire its duplicate record.
@@ -265,12 +265,12 @@ impl BRep {
             if plan.pair_removed_edges {
                 continue;
             }
-            if self.half_edges.contains_key(data.twin) {
+            if let Some(survivor) = data.mate().filter(|m| self.half_edges.contains_key(*m)) {
                 self.boundary_edges.insert(data.edge);
                 if let Some(edge) = self.edges.get_mut(data.edge)
                     && edge.half_edge == h
                 {
-                    edge.half_edge = data.twin;
+                    edge.half_edge = survivor;
                 }
                 exposed_edges.push(data.edge);
             } else if self.edges.remove(data.edge).is_some() {
@@ -333,8 +333,12 @@ impl BRep {
         }
         // Twin symmetry for the new chain.
         for &h in &result.created {
-            let twin = self.half_edges[h].twin;
-            if self.half_edges.get(twin).map(|t| t.twin) != Some(h) {
+            let twin = self.half_edges[h].mate();
+            if twin
+                .and_then(|t| self.half_edges.get(t))
+                .and_then(|t| t.mate())
+                != Some(h)
+            {
                 return Err(CoreError::PreconditionFailed(
                     "interval rewrite postcondition: created side's twin does not point back"
                         .into(),

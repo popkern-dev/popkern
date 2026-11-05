@@ -73,7 +73,7 @@ fn exact_authorable_shared_edge_merge_fixture() -> (BRep, TrimRewriteSubcomplexP
 
     let support_face = brep.faces.keys().next().expect("cube has a face");
     let shared_half_edge = first_shared_half_edge(&brep, support_face);
-    let shared_twin = brep.half_edges[shared_half_edge].twin;
+    let shared_twin = brep.half_edges[shared_half_edge].mate().unwrap_or_default();
     let outside_face = brep.loops[brep.half_edges[shared_twin].loop_].face;
     let cylinder_face = add_isolated_cylinder_carrier_face(&mut brep, support_face);
     let support_start = brep.half_edges[shared_half_edge].origin;
@@ -203,7 +203,7 @@ fn first_shared_half_edge(brep: &BRep, face: FaceHandle) -> HalfEdgeHandle {
     let start = brep.loops[loop_].half_edge;
     let mut cursor = start;
     loop {
-        let twin = brep.half_edges[cursor].twin;
+        let twin = brep.half_edges[cursor].mate().unwrap_or_default();
         if brep.half_edges[twin].loop_ != loop_ {
             return cursor;
         }

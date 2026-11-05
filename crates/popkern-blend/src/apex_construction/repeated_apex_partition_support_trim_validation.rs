@@ -8,7 +8,7 @@ pub(super) fn validate_replacement_loop_support_side_ownership(
 ) -> Result<(), ApexBuildError> {
     let mut missing = Vec::new();
     for half_edge in cycle {
-        let Some(twin) = brep.half_edges.get(*half_edge).map(|data| data.twin) else {
+        let Some(twin) = brep.half_edges.get(*half_edge).and_then(|data| data.mate()) else {
             missing.push(format!("{half_edge:?}: stale cylinder half-edge"));
             continue;
         };

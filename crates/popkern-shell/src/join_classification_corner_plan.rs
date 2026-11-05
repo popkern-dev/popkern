@@ -355,7 +355,7 @@ fn vertex_fan(skin: &BRep, vh: VertexHandle) -> Option<Vec<FanEntry>> {
     let bound = skin.half_edges.len();
     loop {
         let he = skin.half_edges.get(cursor)?;
-        let twin = skin.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| skin.half_edges.get(m))?;
         let my_face = skin.loops.get(he.loop_).map(|l| l.face);
         let twin_face = skin.loops.get(twin.loop_).map(|l| l.face);
         entries.push(FanEntry {

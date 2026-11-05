@@ -230,7 +230,7 @@ fn shared_edge_component(
             let start = loop_.half_edge;
             let mut he = start;
             while let Some(he_data) = brep.half_edges.get(he) {
-                if let Some(twin_data) = brep.half_edges.get(he_data.twin)
+                if let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m))
                     && let Some(partner_loop) = brep.loops.get(twin_data.loop_)
                 {
                     let partner = partner_loop.face;
@@ -286,7 +286,7 @@ fn component_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>
             // defensive access instead of indexing (PK-328: the
             // pre-flight query reaches classify on sheet bodies).
             while let Some(he_data) = brep.half_edges.get(he) {
-                if let Some(twin_data) = brep.half_edges.get(he_data.twin)
+                if let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m))
                     && let Some(partner_loop) = brep.loops.get(twin_data.loop_)
                 {
                     let partner = partner_loop.face;
@@ -339,9 +339,9 @@ fn component_is_open(brep: &BRep, component: &[FaceHandle]) -> bool {
                 let start = loop_.half_edge;
                 let mut he = start;
                 while let Some(h) = brep.half_edges.get(he) {
-                    let across = brep
-                        .half_edges
-                        .get(h.twin)
+                    let across = h
+                        .mate()
+                        .and_then(|m| brep.half_edges.get(m))
                         .and_then(|t| brep.loops.get(t.loop_));
                     if across.is_none() || brep.boundary_edges.contains(&h.edge) {
                         return true;

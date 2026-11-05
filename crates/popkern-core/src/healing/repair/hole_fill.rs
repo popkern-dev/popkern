@@ -54,7 +54,7 @@ fn find_free_edges(brep: &BRep) -> HashSet<EdgeHandle> {
             Some(h) => h,
             None => continue,
         };
-        let twin = match brep.half_edges.get(he.twin) {
+        let twin = match he.mate().and_then(|m| brep.half_edges.get(m)) {
             Some(t) => t,
             None => {
                 // Missing twin means this is a boundary edge.
@@ -84,7 +84,7 @@ fn find_free_edges(brep: &BRep) -> HashSet<EdgeHandle> {
 fn edge_endpoints(brep: &BRep, edge: EdgeHandle) -> Option<(VertexHandle, VertexHandle)> {
     let edge_data = brep.edges.get(edge)?;
     let he = brep.half_edges.get(edge_data.half_edge)?;
-    if let Some(twin) = brep.half_edges.get(he.twin) {
+    if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) {
         return Some((he.origin, twin.origin));
     }
     // Null-sentinel twin: a genuine free boundary edge. The surviving
@@ -224,7 +224,7 @@ fn sample_edge_points(brep: &BRep, edge: EdgeHandle, n: usize) -> Vec<crate::geo
         Some(h) => h,
         None => return Vec::new(),
     };
-    let twin = match brep.half_edges.get(he.twin) {
+    let twin = match he.mate().and_then(|m| brep.half_edges.get(m)) {
         Some(t) => t,
         None => return Vec::new(),
     };

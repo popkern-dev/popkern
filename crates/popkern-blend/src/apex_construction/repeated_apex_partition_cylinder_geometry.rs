@@ -115,7 +115,7 @@ pub(super) fn point_is_not_edge_endpoint(brep: &BRep, edge: EdgeHandle, point: P
     let Some(half_edge) = brep.half_edges.get(edge_data.half_edge) else {
         return false;
     };
-    let Some(twin) = brep.half_edges.get(half_edge.twin) else {
+    let Some(twin) = half_edge.mate().and_then(|m| brep.half_edges.get(m)) else {
         return false;
     };
     let start = brep.vertices[half_edge.origin].position;
@@ -226,7 +226,7 @@ fn cylinder_surfaces_match(a: &SurfaceGeometry, b: &SurfaceGeometry) -> bool {
 }
 
 pub(super) fn half_edge_end_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
-    let twin = brep.half_edges.get(half_edge)?.twin;
+    let twin = brep.half_edges.get(half_edge)?.mate()?;
     brep.half_edges.get(twin).map(|twin_data| twin_data.origin)
 }
 

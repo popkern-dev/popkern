@@ -56,12 +56,9 @@ pub fn remove_zero_length_edges(brep: &mut BRep, tolerance: &Tolerance) -> usize
             continue;
         };
         let start_vertex = he.origin;
-        let twin_handle = he.twin;
-
-        let Some(twin) = brep.half_edges.get(twin_handle) else {
+        let Some(end_vertex) = brep.fin_end(he_handle) else {
             continue;
         };
-        let end_vertex = twin.origin;
 
         // Skip seam edges where both half-edges originate from the same vertex.
         if start_vertex == end_vertex {

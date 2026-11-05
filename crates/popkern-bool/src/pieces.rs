@@ -92,9 +92,10 @@ pub fn retain_pieces(body: &BRep, keep: &[SolidHandle]) -> Result<BRep, BoolErro
     };
     for h in &half_edges {
         let he = &body.half_edges[*h];
-        let links = [he.twin, he.next, he.prev];
+        let links = [he.mate(), Some(he.next), Some(he.prev)];
         if links
             .iter()
+            .flatten()
             .any(|l| body.half_edges.contains_key(*l) && !half_edges.contains(l))
         {
             return Err(shared("a half-edge"));

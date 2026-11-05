@@ -128,7 +128,7 @@ pub(crate) fn zip_recorded_tolerance_cracks(
     for (_eh, edge) in brep.edges.iter() {
         let two_sided = (|| {
             let he = brep.half_edges.get(edge.half_edge)?;
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let fa = brep.loops.get(he.loop_)?.face;
             let fb = brep.loops.get(twin.loop_)?.face;
             Some(fa != fb)

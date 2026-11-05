@@ -27,7 +27,7 @@ pub(crate) fn complex_of_brep(brep: &BRep) -> CellComplex {
     let mut emap = HashMap::new();
     for (eh, e) in &brep.edges {
         let he = &brep.half_edges[e.half_edge];
-        let tw = &brep.half_edges[he.twin];
+        let tw = &brep.half_edges[he.mate().unwrap_or_default()];
         let id = c.add_edge(
             vmap[&he.origin],
             vmap[&tw.origin],

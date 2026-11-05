@@ -155,7 +155,7 @@ fn edge_vertices(
     he: crate::topology::HalfEdgeHandle,
 ) -> Option<(VertexHandle, VertexHandle)> {
     let hed = brep.half_edges.get(he)?;
-    let twin = brep.half_edges.get(hed.twin)?;
+    let twin = hed.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((hed.origin, twin.origin))
 }
 

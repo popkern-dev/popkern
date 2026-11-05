@@ -131,7 +131,9 @@ fn cut_along_seam(
         t_end: s1,
     });
     let he = brep.edges[mef.edge].half_edge;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he]
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     let faces = [
         brep.loops[brep.half_edges[he].loop_].face,
         brep.loops[brep.half_edges[twin].loop_].face,
@@ -180,7 +182,9 @@ fn author_neighbour_pcurves_outside(
     let gate = 10.0 * tolerance.linear();
     for &face in faces {
         for he in face_loop_half_edges(brep, face)? {
-            let twin = brep.half_edges[he].twin;
+            let twin = brep.half_edges[he]
+                .require_mate()
+                .map_err(|e| e.to_string())?;
             if cap.contains(&brep.loops[brep.half_edges[twin].loop_].face) {
                 continue;
             }

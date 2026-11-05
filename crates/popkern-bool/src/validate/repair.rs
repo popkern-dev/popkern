@@ -49,7 +49,7 @@ pub fn repair_vertex_positions(brep: &mut BRep, repair_tolerance: f64) -> Repair
             Some(h) => h,
             None => continue,
         };
-        let twin = match brep.half_edges.get(he.twin) {
+        let twin = match he.mate().and_then(|m| brep.half_edges.get(m)) {
             Some(t) => t,
             None => continue,
         };

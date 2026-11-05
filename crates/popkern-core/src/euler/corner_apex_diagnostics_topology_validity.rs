@@ -58,14 +58,7 @@ fn radial_topology(brep: &BRep, edges: &[EdgeHandle]) -> CornerRadialTopology {
     if edges.is_empty() {
         return CornerRadialTopology::UnknownInputFact;
     }
-    if edges.iter().any(|edge| {
-        let half_edge = brep.edges[*edge].half_edge;
-        brep.nonmanifold_radial.contains_key(&half_edge)
-            || brep
-                .half_edges
-                .get(half_edge)
-                .is_some_and(|he| brep.nonmanifold_radial.contains_key(&he.twin))
-    }) {
+    if edges.iter().any(|edge| brep.edge_fin_count(*edge) > 2) {
         CornerRadialTopology::NonManifoldRadial
     } else {
         CornerRadialTopology::Manifold

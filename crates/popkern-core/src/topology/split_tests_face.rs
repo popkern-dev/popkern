@@ -235,8 +235,8 @@ fn split_edge_preserves_pcurves() {
     assert!(cube.half_edges[he_a].pcurve.is_some());
     assert!(cube.half_edges[he_b].pcurve.is_some());
 
-    let twin_a = cube.half_edges[he_a].twin;
-    let twin_b = cube.half_edges[he_b].twin;
+    let twin_a = cube.half_edges[he_a].mate().unwrap_or_default();
+    let twin_b = cube.half_edges[he_b].mate().unwrap_or_default();
     assert!(cube.half_edges[twin_a].pcurve.is_some());
     assert!(cube.half_edges[twin_b].pcurve.is_some());
 }
@@ -301,7 +301,7 @@ fn split_face_assigns_pcurves_to_new_edge() {
 
     let new_edge = result.new_edges[0];
     let he_new = brep.edges[new_edge].half_edge;
-    let he_twin = brep.half_edges[he_new].twin;
+    let he_twin = brep.half_edges[he_new].mate().unwrap_or_default();
     assert!(brep.half_edges[he_new].pcurve.is_some());
     assert!(brep.half_edges[he_twin].pcurve.is_some());
 }
@@ -430,10 +430,12 @@ fn split_face_inner_loop_cut_pcurves_follow_half_edge_direction() {
             .unwrap_or_else(|e| panic!("inner-loop cut (reversed={reversed}): {e}"));
         let edge = result.new_edges[0];
         let he = brep.edges[edge].half_edge;
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he].mate().unwrap_or_default();
         for h in [he, twin] {
             let origin = brep.vertices[brep.half_edges[h].origin].position;
-            let dest = brep.vertices[brep.half_edges[brep.half_edges[h].twin].origin].position;
+            let dest = brep.vertices
+                [brep.half_edges[brep.half_edges[h].mate().unwrap_or_default()].origin]
+                .position;
             let pcurve = brep.half_edges[h].pcurve.as_ref().expect("trim pcurve");
             let (t0, t1) = pcurve.parameter_range();
             let s = pcurve.point_at(t0);

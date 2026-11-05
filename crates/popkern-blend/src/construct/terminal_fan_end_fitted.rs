@@ -40,7 +40,7 @@ pub(super) fn recorded_band(brep: &BRep, c: &CornerCandidate, pos_tol: f64) -> f
         brep.half_edges.get(c.he_in).map(|h| h.origin),
         brep.half_edges
             .get(c.he_out)
-            .and_then(|h| brep.half_edges.get(h.twin))
+            .and_then(|h| h.mate().and_then(|m| brep.half_edges.get(m)))
             .map(|tw| tw.origin),
     ];
     let face = brep.faces.get(c.strip_face).and_then(|f| f.tolerance);
@@ -83,7 +83,7 @@ pub(super) fn stage_marched_arc(
     first: bool,
 ) -> Result<StagedStubArc, Reason> {
     let h = brep.half_edges.get(he).ok_or(Reason::FanEndRejected)?;
-    let (edge, twin) = (h.edge, h.twin);
+    let (edge, twin) = (h.edge, h.mate());
     let strip_face = brep.loops.get(h.loop_).ok_or(Reason::FanEndRejected)?.face;
     let primary = brep
         .edges
@@ -129,12 +129,14 @@ pub(super) fn settle_single_cap(
         .half_edges
         .get(c.he_in)
         .ok_or(Reason::FanEndRejected)?
-        .twin;
+        .mate()
+        .ok_or(Reason::FanEndRejected)?;
     let twin_out = brep
         .half_edges
         .get(c.he_out)
         .ok_or(Reason::FanEndRejected)?
-        .twin;
+        .mate()
+        .ok_or(Reason::FanEndRejected)?;
     let cap = face_of(brep, twin_in).ok_or(Reason::NoCommonPlanarCap)?;
     if face_of(brep, twin_out) != Some(cap) {
         return Err(Reason::NoCommonPlanarCap);

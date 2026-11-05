@@ -80,7 +80,7 @@ pub(super) fn find(
                 brep,
                 brep.half_edges
                     .get(brep.edges.get(hd.edge)?.half_edge)?
-                    .twin,
+                    .mate()?,
             )?,
         );
         let is_strip = |f: FaceHandle| f == strips.0 || f == strips.1;
@@ -166,7 +166,8 @@ pub(super) fn reauthor_incident(
             .half_edges
             .get(primary)
             .ok_or(Reason::EulerRejected)?
-            .twin;
+            .mate()
+            .ok_or(Reason::EulerRejected)?;
         let origin = |h: HalfEdgeHandle| -> Result<Point3, Reason> {
             let o = brep.half_edges.get(h).ok_or(Reason::EulerRejected)?.origin;
             Ok(brep.vertices.get(o).ok_or(Reason::EulerRejected)?.position)
@@ -303,7 +304,8 @@ pub(super) fn reauthor_contact_rails(
             .half_edges
             .get(primary)
             .ok_or(Reason::EulerRejected)?
-            .twin;
+            .mate()
+            .ok_or(Reason::EulerRejected)?;
         let (Some(f0), Some(f1)) = (face_of(brep, primary), face_of(brep, twin)) else {
             continue;
         };
@@ -322,7 +324,10 @@ pub(super) fn reauthor_contact_rails(
             Ok(brep.vertices.get(o).ok_or(Reason::EulerRejected)?.position)
         };
         // The strip side's own ends, seeded from its pcurve.
-        let (from, to) = (origin(strip_he)?, origin(brep.half_edges[strip_he].twin)?);
+        let strip_mate = brep.half_edges[strip_he]
+            .mate()
+            .ok_or(Reason::EulerRejected)?;
+        let (from, to) = (origin(strip_he)?, origin(strip_mate)?);
         let seeds = brep
             .half_edges
             .get(strip_he)

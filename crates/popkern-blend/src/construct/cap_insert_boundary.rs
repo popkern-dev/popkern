@@ -84,7 +84,7 @@ pub(super) fn author_cap_boundary(
         .get(cap_half_edge)
         .ok_or("cap half-edge missing")?;
     let (he_strip, cap_face) = (
-        he_cap.twin,
+        he_cap.mate().ok_or("cap half-edge has no strip mate")?,
         face_of(brep, cap_half_edge).ok_or("cap face missing")?,
     );
     let strip_face = face_of(brep, he_strip).ok_or("strip face missing")?;

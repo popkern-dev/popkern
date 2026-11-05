@@ -49,7 +49,7 @@ pub(super) fn chain_links<'a>(
                 None
             }
         };
-        let q = brep.loops[brep.half_edges[brep.half_edges[h].twin].loop_].face;
+        let q = brep.loops[brep.half_edges[brep.half_edges[h].require_mate()?].loop_].face;
         let (Some(p_trim), Some(q_trim)) = (trims(p), trims(q)) else {
             return Err(decline(
                 format!("edge {edge:?} faces are not its supports"),
@@ -87,14 +87,14 @@ pub(super) fn chain_links<'a>(
         if !closed && step + 1 == members.len() {
             break;
         }
-        let v = brep.half_edges[brep.half_edges[h].twin].origin;
+        let v = brep.half_edges[brep.half_edges[h].require_mate()?].origin;
         let next = members
             .iter()
             .map(|&i| edge_geometries[i].analysis.edge)
             .filter(|e| *e != edge)
             .find_map(|e| {
                 let he = brep.edges[e].half_edge;
-                let tw = brep.half_edges[he].twin;
+                let tw = brep.half_edges[he].mate()?;
                 if brep.half_edges[he].origin == v {
                     Some(he)
                 } else if brep.half_edges[tw].origin == v {
@@ -106,7 +106,7 @@ pub(super) fn chain_links<'a>(
             .ok_or_else(|| decline("the chain does not close".into(), at))?;
         h = next;
     }
-    if closed && h != links[0].h && brep.half_edges[h].twin != links[0].h {
+    if closed && h != links[0].h && brep.half_edges[h].mate() != Some(links[0].h) {
         return Err(decline("the chain does not close on itself".into(), at));
     }
     Ok(links)
@@ -126,7 +126,7 @@ pub(super) fn junction_section(
     band: f64,
 ) -> Result<JunctionSection, BlendFailure> {
     let hi = &brep.half_edges[a.h];
-    let v = brep.half_edges[hi.twin].origin;
+    let v = brep.half_edges[hi.require_mate()?].origin;
     let vp = brep.vertices[v].position;
     let valence = brep.half_edges.values().filter(|he| he.origin == v).count();
     if valence != 2 && valence != 3 {
@@ -136,13 +136,13 @@ pub(super) fn junction_section(
         ));
     }
     let next_p = hi.next;
-    let next_q = brep.half_edges[brep.half_edges[b.h].twin].next;
+    let next_q = brep.half_edges[brep.half_edges[b.h].require_mate()?].next;
     let third = if next_p != b.h {
         Third {
             edge: Some(brep.half_edges[next_p].edge),
             on_p: true,
         }
-    } else if next_q != hi.twin {
+    } else if hi.mate() != Some(next_q) {
         Third {
             edge: Some(brep.half_edges[next_q].edge),
             on_p: false,
@@ -188,8 +188,11 @@ pub(super) fn junction_section(
             .as_ref()
             .map(|s| s.geometry.clone())
     };
-    let (Some(sp), Some(sq), Some(tangent)) = (surf(a.h), surf(hi.twin), chain_tangent(brep, a.h))
-    else {
+    let (Some(sp), Some(sq), Some(tangent)) = (
+        surf(a.h),
+        surf(hi.require_mate()?),
+        chain_tangent(brep, a.h),
+    ) else {
         return Err(decline(
             format!("junction {v:?} lacks supports or a tangent"),
             vp,

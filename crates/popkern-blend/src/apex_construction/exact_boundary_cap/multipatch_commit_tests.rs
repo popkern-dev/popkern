@@ -281,8 +281,8 @@ fn live_sector_fixture() -> (
     let loop_half_edges = loop_half_edges(&brep, cap_face);
     let selected = loop_half_edges[0];
     let companion = loop_half_edges[1];
-    let selected_twin = brep.half_edges[selected].twin;
-    let companion_twin = brep.half_edges[companion].twin;
+    let selected_twin = brep.half_edges[selected].mate().unwrap_or_default();
+    let companion_twin = brep.half_edges[companion].mate().unwrap_or_default();
     let selected_edge = brep.half_edges[selected].edge;
     let companion_edge = brep.half_edges[companion].edge;
     let selected_support_face = face_for_half_edge(&brep, selected_twin);
@@ -448,7 +448,7 @@ fn destination_vertex(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
 ) -> popkern_core::topology::VertexHandle {
-    brep.half_edges[brep.half_edges[half_edge].twin].origin
+    brep.half_edges[brep.half_edges[half_edge].mate().unwrap_or_default()].origin
 }
 
 fn face_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> FaceHandle {

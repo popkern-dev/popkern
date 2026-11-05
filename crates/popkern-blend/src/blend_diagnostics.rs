@@ -120,9 +120,7 @@ pub fn blend_highlight_kink_max(
     let bound = brep.half_edges.len().max(1);
     for _ in 0..=bound {
         let he = brep.half_edges.get(cursor)?;
-        let twin_h = he.twin;
-        if twin_h != popkern_core::topology::HalfEdgeHandle::default()
-            && let Some(twin) = brep.half_edges.get(twin_h)
+        if let Some(twin) = he.mate().and_then(|t| brep.half_edges.get(t))
             && let Some(loop_) = brep.loops.get(twin.loop_)
         {
             let f = loop_.face;
@@ -177,9 +175,7 @@ fn blend_support_pair(brep: &BRep, blend_face: FaceHandle) -> Option<(FaceHandle
     let bound = brep.half_edges.len().max(1);
     for _ in 0..=bound {
         let he = brep.half_edges.get(cursor)?;
-        let twin_h = he.twin;
-        if twin_h != popkern_core::topology::HalfEdgeHandle::default()
-            && let Some(twin) = brep.half_edges.get(twin_h)
+        if let Some(twin) = he.mate().and_then(|t| brep.half_edges.get(t))
             && let Some(loop_) = brep.loops.get(twin.loop_)
         {
             let f = loop_.face;

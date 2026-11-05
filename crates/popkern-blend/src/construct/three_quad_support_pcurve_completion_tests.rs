@@ -95,8 +95,8 @@ fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
 
     brep.half_edges[cap_half_edge].edge = edge;
     brep.half_edges[support_half_edge].edge = edge;
-    brep.half_edges[cap_half_edge].twin = support_half_edge;
-    brep.half_edges[support_half_edge].twin = cap_half_edge;
+    brep.half_edges[cap_half_edge].set_mate(support_half_edge);
+    brep.half_edges[support_half_edge].set_mate(cap_half_edge);
     brep.half_edges[cap_half_edge].next = support_half_edge;
     brep.half_edges[support_half_edge].next = cap_half_edge;
     brep.half_edges[cap_half_edge].prev = support_half_edge;

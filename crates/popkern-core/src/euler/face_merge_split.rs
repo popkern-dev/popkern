@@ -264,7 +264,7 @@ mod tests {
     fn adjacent_face_pair(brep: &BRep) -> (FaceHandle, FaceHandle) {
         for (half_edge, data) in &brep.half_edges {
             let first = brep.loops[data.loop_].face;
-            let second = brep.loops[brep.half_edges[data.twin].loop_].face;
+            let second = brep.loops[brep.half_edges[data.mate().unwrap_or_default()].loop_].face;
             if first != second {
                 return (first, second);
             }
@@ -276,7 +276,7 @@ mod tests {
     fn shared_half_edge(brep: &BRep, first: FaceHandle, second: FaceHandle) -> HalfEdgeHandle {
         for (half_edge, data) in &brep.half_edges {
             let source = brep.loops[data.loop_].face;
-            let target = brep.loops[brep.half_edges[data.twin].loop_].face;
+            let target = brep.loops[brep.half_edges[data.mate().unwrap_or_default()].loop_].face;
             if source == first && target == second {
                 return half_edge;
             }

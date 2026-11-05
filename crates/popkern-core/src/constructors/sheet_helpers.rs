@@ -34,8 +34,11 @@ pub(super) fn rewrite_edge_as_arc(
     // compute the angle at t_start.
     let canonical_he = brep.edges[edge_h].half_edge;
     let canonical_origin_vh = brep.half_edges[canonical_he].origin;
-    let canonical_twin_h = brep.half_edges[canonical_he].twin;
-    let canonical_twin_origin_vh = brep.half_edges[canonical_twin_h].origin;
+    let canonical_twin_origin_vh = brep.fin_end(canonical_he).ok_or_else(|| {
+        CoreError::PreconditionFailed(format!(
+            "arched_triangle: edge {edge_h:?} has no end vertex"
+        ))
+    })?;
     let canonical_origin_pos = brep.vertices[canonical_origin_vh].position;
     let canonical_twin_origin_pos = brep.vertices[canonical_twin_origin_vh].position;
 
@@ -67,11 +70,11 @@ fn find_edge_between_points(
     p_to: Point3,
     tol_eps: f64,
 ) -> Option<crate::topology::EdgeHandle> {
-    for (eh, edge) in &brep.edges {
-        let he_h = edge.half_edge;
-        let twin_h = brep.half_edges[he_h].twin;
-        let a = brep.vertices[brep.half_edges[he_h].origin].position;
-        let b = brep.vertices[brep.half_edges[twin_h].origin].position;
+    for eh in brep.edges.keys() {
+        let Some((va, vb)) = brep.edge_vertices(eh) else {
+            continue;
+        };
+        let (a, b) = (brep.vertices[va].position, brep.vertices[vb].position);
         let matches = (a.distance_to(&p_from) < tol_eps && b.distance_to(&p_to) < tol_eps)
             || (a.distance_to(&p_to) < tol_eps && b.distance_to(&p_from) < tol_eps);
         if matches {

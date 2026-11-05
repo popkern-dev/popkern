@@ -93,7 +93,7 @@ pub(super) fn settle_reflex_pair_corners(
 
 fn faces_of(brep: &BRep, edge: EdgeHandle) -> Option<(FaceHandle, FaceHandle)> {
     let he = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((
         brep.loops.get(he.loop_)?.face,
         brep.loops.get(twin.loop_)?.face,
@@ -137,13 +137,14 @@ fn recognize(
         let on_both = |p: Point3| {
             surface_distance(&ga, &p, None) <= pos_tol && surface_distance(&gb, &p, None) <= pos_tol
         };
-        let far = |h: HalfEdgeHandle| {
-            let twin = brep.half_edges[h].twin;
-            brep.half_edges[twin].origin
+        let (Some(far0), Some(far1)) = (brep.fin_end(outgoing[0]), brep.fin_end(outgoing[1]))
+        else {
+            continue;
         };
+        let far_ends = [far0, far1];
         let (Some(mut x0), Some(mut x1)) = (
-            brep.vertices.get(far(outgoing[0])).map(|d| d.position),
-            brep.vertices.get(far(outgoing[1])).map(|d| d.position),
+            brep.vertices.get(far0).map(|d| d.position),
+            brep.vertices.get(far1).map(|d| d.position),
         ) else {
             continue;
         };
@@ -152,7 +153,7 @@ fn recognize(
         let mut asymmetric = None;
         for (i, x) in [&mut x0, &mut x1].into_iter().enumerate() {
             if !on_both(*x)
-                && let Some(end) = wall_end::find(brep, far(outgoing[i]), fa, pos_tol)
+                && let Some(end) = wall_end::find(brep, far_ends[i], fa, pos_tol)
             {
                 *x = end.target;
                 asymmetric = Some(end);
@@ -170,10 +171,13 @@ fn recognize(
             continue;
         }
         // Either edge may survive; contract the second (T side).
+        let Some(stub_from_t) = brep.half_edges[outgoing[1]].mate() else {
+            continue;
+        };
         out.push(ReflexChain {
             corner: v,
             seam: edges[0],
-            stub_from_t: brep.half_edges[outgoing[1]].twin,
+            stub_from_t,
             strips: fa,
             wall_end: asymmetric,
         });
@@ -205,7 +209,8 @@ fn repair(brep: &mut BRep, c: &ReflexChain, tolerance: &Tolerance) -> Result<(),
         .half_edges
         .get(primary)
         .ok_or(Reason::EulerRejected)?
-        .twin;
+        .mate()
+        .ok_or(Reason::EulerRejected)?;
     let pos = |h: HalfEdgeHandle| -> Result<_, Reason> {
         let o = brep.half_edges.get(h).ok_or(Reason::EulerRejected)?.origin;
         Ok(brep.vertices.get(o).ok_or(Reason::EulerRejected)?.position)

@@ -55,7 +55,7 @@ fn circle_through(a: Point3, b: Point3, c: Point3) -> Option<(Point3, Vec3, f64)
 /// The two faces of an edge.
 fn faces_of(brep: &BRep, edge: EdgeHandle) -> Option<(FaceHandle, FaceHandle)> {
     let he = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
-    let tw = brep.half_edges.get(he.twin)?;
+    let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((
         brep.loops.get(he.loop_)?.face,
         brep.loops.get(tw.loop_)?.face,
@@ -65,7 +65,7 @@ fn faces_of(brep: &BRep, edge: EdgeHandle) -> Option<(FaceHandle, FaceHandle)> {
 /// The edge's other endpoint.
 fn far_end(brep: &BRep, edge: EdgeHandle, from: VertexHandle) -> Option<VertexHandle> {
     let he = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
-    let to = brep.half_edges.get(he.twin)?.origin;
+    let to = he.mate().and_then(|m| brep.half_edges.get(m))?.origin;
     Some(if he.origin == from { to } else { he.origin })
 }
 
@@ -89,7 +89,7 @@ pub(super) fn settle_junction_sections(
         let Some(he) = result.half_edges.get(data.half_edge) else {
             continue;
         };
-        let Some(tw) = result.half_edges.get(he.twin) else {
+        let Some(tw) = he.mate().and_then(|m| result.half_edges.get(m)) else {
             continue;
         };
         at.entry(he.origin).or_default().push(e);
@@ -165,7 +165,7 @@ fn settle_corner(
         let data = brep.edges.get_mut(edge)?;
         data.curve = Some(arc);
         let he = data.half_edge;
-        let tw = brep.half_edges.get(he)?.twin;
+        let tw = brep.half_edges.get(he)?.mate()?;
         for h in [he, tw] {
             if let Some(d) = brep.half_edges.get_mut(h) {
                 d.pcurve = None;
@@ -177,7 +177,7 @@ fn settle_corner(
     for (edge, end) in edges.iter().zip(ends) {
         let he = brep.edges.get(*edge)?.half_edge;
         if brep.half_edges.get(he)?.origin != end {
-            let tw = brep.half_edges.get(he)?.twin;
+            let tw = brep.half_edges.get(he)?.mate()?;
             brep.edges.get_mut(*edge)?.half_edge = tw;
         }
     }

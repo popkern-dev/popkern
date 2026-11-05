@@ -172,7 +172,7 @@ fn copy_skin_entities(
     let edge_reachable = |eh: EdgeHandle| -> bool {
         let edge = &source.edges[eh];
         let he = &source.half_edges[edge.half_edge];
-        for heh in [edge.half_edge, he.twin] {
+        for heh in [Some(edge.half_edge), he.mate()].into_iter().flatten() {
             let loop_h = source.half_edges[heh].loop_;
             if source.loops.contains_key(loop_h) {
                 let face = source.loops[loop_h].face;
@@ -193,7 +193,7 @@ fn copy_skin_entities(
             continue;
         }
         let he = &source.half_edges[edge.half_edge];
-        let twin = &source.half_edges[he.twin];
+        let twin = &source.half_edges[he.require_mate()?];
         needed_vertices.insert(he.origin);
         needed_vertices.insert(twin.origin);
     }
@@ -215,7 +215,7 @@ fn copy_skin_entities(
         }
         let he_handle = edge.half_edge;
         let he = &source.half_edges[he_handle];
-        let twin_handle = he.twin;
+        let twin_handle = he.require_mate()?;
         let twin = &source.half_edges[twin_handle];
 
         let new_v1 = *vertex_map

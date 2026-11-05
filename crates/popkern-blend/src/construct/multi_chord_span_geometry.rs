@@ -55,7 +55,7 @@ pub(super) fn find_sub_edge_containing_point(
     for &eh in sub_edges {
         let edata = brep.edges.get(eh)?;
         let he = brep.half_edges.get(edata.half_edge)?;
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         let v0 = brep.vertices[he.origin].position;
         let v1 = brep.vertices[twin.origin].position;
         let dx = v1.x - v0.x;
@@ -283,16 +283,16 @@ pub(super) fn rehome_spur_tip(
     let mut spur_out = None;
     let mut incident = 0usize;
     for (heh, he) in brep.half_edges.iter() {
-        let Some(tw) = brep.half_edges.get(he.twin) else {
+        let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         if tw.origin == tip {
             incident += 1;
-            if he.next == he.twin {
+            if he.mate() == Some(he.next) {
                 spur_out = Some(heh);
             }
         }
-        if he.origin == tip && he.twin != heh {
+        if he.origin == tip && he.mate() != Some(heh) {
             // counted via the twin side; nothing extra
         }
     }
@@ -363,7 +363,7 @@ pub(super) fn descendant_holders(
         .filter_map(|&de| {
             let e = brep.edges.get(de)?;
             let he = brep.half_edges.get(e.half_edge)?;
-            let tw = brep.half_edges.get(he.twin)?;
+            let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
             Some((
                 de,
                 brep.loops.get(he.loop_).map(|l| l.face),

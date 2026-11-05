@@ -107,7 +107,8 @@ fn settle(
         .half_edges
         .get(c.he_in)
         .ok_or(Reason::NoCommonPlanarCap)?
-        .twin;
+        .mate()
+        .ok_or(Reason::NoCommonPlanarCap)?;
     let mut fan: Vec<HalfEdgeHandle> = Vec::new();
     let mut cursor = brep
         .half_edges
@@ -115,7 +116,8 @@ fn settle(
             brep.half_edges
                 .get(c.he_out)
                 .ok_or(Reason::NoCommonPlanarCap)?
-                .twin,
+                .mate()
+                .ok_or(Reason::NoCommonPlanarCap)?,
         )
         .ok_or(Reason::NoCommonPlanarCap)?
         .next;
@@ -128,7 +130,8 @@ fn settle(
             .half_edges
             .get(cursor)
             .ok_or(Reason::NoCommonPlanarCap)?
-            .twin;
+            .mate()
+            .ok_or(Reason::NoCommonPlanarCap)?;
         cursor = brep
             .half_edges
             .get(twin)
@@ -160,7 +163,8 @@ fn settle(
         brep.half_edges
             .get(c.he_out)
             .ok_or(Reason::NoCommonPlanarCap)?
-            .twin,
+            .mate()
+            .ok_or(Reason::NoCommonPlanarCap)?,
     )
     .ok_or(Reason::NoCommonPlanarCap)?;
     if faces[m] != cap_last {
@@ -221,7 +225,7 @@ fn settle(
     let foot_b = brep
         .half_edges
         .get(c.he_out)
-        .and_then(|h| brep.half_edges.get(h.twin))
+        .and_then(|h| h.mate().and_then(|m| brep.half_edges.get(m)))
         .and_then(|tw| brep.vertices.get(tw.origin))
         .ok_or(Reason::ArcBranchUnresolved)?
         .position;
@@ -287,7 +291,11 @@ fn settle(
         let he = strip_half_edges[j];
         if face_of(
             brep,
-            brep.half_edges.get(he).ok_or(Reason::FanEndRejected)?.twin,
+            brep.half_edges
+                .get(he)
+                .ok_or(Reason::FanEndRejected)?
+                .mate()
+                .ok_or(Reason::FanEndRejected)?,
         ) != Some(faces[j])
         {
             return Err(Reason::FanEndRejected);
@@ -353,11 +361,13 @@ fn commit_stub(
         he.pcurve = Some(stub.strip_pcurve.clone());
     }
     brep.set_face_use_pcurve(strip_face, stub.strip_half_edge, stub.strip_pcurve);
-    if let Some(tw) = brep.half_edges.get_mut(stub.cap_half_edge) {
+    // A fan end always has its cap across the stub.
+    let cap_he = stub.cap_half_edge.ok_or(Reason::FanEndRejected)?;
+    if let Some(tw) = brep.half_edges.get_mut(cap_he) {
         tw.pcurve = Some(stub.cap_pcurve.clone());
     }
-    let cap = face_of(brep, stub.cap_half_edge).ok_or(Reason::FanEndRejected)?;
-    brep.set_face_use_pcurve(cap, stub.cap_half_edge, stub.cap_pcurve);
+    let cap = face_of(brep, cap_he).ok_or(Reason::FanEndRejected)?;
+    brep.set_face_use_pcurve(cap, cap_he, stub.cap_pcurve);
     Ok(())
 }
 

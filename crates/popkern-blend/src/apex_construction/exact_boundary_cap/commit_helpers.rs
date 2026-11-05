@@ -236,7 +236,7 @@ fn half_edge_destination_vertex(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
 ) -> Option<popkern_core::topology::VertexHandle> {
-    let twin = brep.half_edges.get(half_edge)?.twin;
+    let twin = brep.half_edges.get(half_edge)?.mate()?;
     brep.half_edges.get(twin).map(|twin| twin.origin)
 }
 
@@ -353,7 +353,7 @@ fn edge_endpoint_gap(brep: &BRep, edge: EdgeHandle, curve: &CurveOnEdge) -> Opti
         .vertices
         .get(
             brep.half_edges
-                .get(brep.half_edges.get(canonical)?.twin)?
+                .get(brep.half_edges.get(canonical)?.mate()?)?
                 .origin,
         )?
         .position;

@@ -90,7 +90,7 @@ fn analyze_single_edge(brep: &BRep, edge_handle: EdgeHandle) -> Result<EdgeAnaly
         .get(he1_handle)
         .ok_or_else(|| format!("half-edge {he1_handle:?} not found"))?;
 
-    let he2_handle = he1.twin;
+    let he2_handle = he1.require_mate().map_err(|e| e.to_string())?;
     let he2 = brep
         .half_edges
         .get(he2_handle)

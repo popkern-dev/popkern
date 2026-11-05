@@ -65,7 +65,7 @@ pub fn closed_side_census(brep: &BRep) -> Vec<ClosedSideCensusRow> {
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         if he.origin != twin.origin {

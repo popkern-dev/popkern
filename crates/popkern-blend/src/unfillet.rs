@@ -187,7 +187,12 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
             value: format!("{long_a:?}"),
             reason: "half-edge handle does not exist".to_string(),
         })?
-        .twin;
+        .mate()
+        .ok_or_else(|| BlendError::InvalidParameter {
+            parameter: "long_he_to_a".to_string(),
+            value: format!("{long_a:?}"),
+            reason: "half-edge handle does not exist".to_string(),
+        })?;
     out.kef(twin_of_long_a).map_err(BlendError::Topology)?;
 
     // 4b. KEF the long boundary on F-B. After step 4a, long_b is

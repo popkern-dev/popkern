@@ -274,9 +274,9 @@ fn neighbour_edge_segments(brep: &BRep, face: FaceHandle) -> Vec<[Point3; 2]> {
         let Some(h) = brep.half_edges.get(he) else {
             break;
         };
-        let seam = brep
-            .half_edges
-            .get(h.twin)
+        let seam = h
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
             .and_then(|t| brep.loops.get(t.loop_))
             .is_some_and(|l| l.face == face);
         if !seam {

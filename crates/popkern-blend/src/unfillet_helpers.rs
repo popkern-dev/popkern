@@ -55,7 +55,7 @@ pub(crate) fn find_torus_support_faces(
             break;
         }
         let he_data = brep.half_edges.get(he)?;
-        let twin_data = brep.half_edges.get(he_data.twin)?;
+        let twin_data = he_data.mate().and_then(|m| brep.half_edges.get(m))?;
         let neighbour_loop = brep.loops.get(twin_data.loop_)?;
         let neighbour = neighbour_loop.face;
 
@@ -227,7 +227,7 @@ pub(crate) fn collect_end_face_planes(
         let Some(he_data) = brep.half_edges.get(he) else {
             break;
         };
-        let twin = brep.half_edges.get(he_data.twin);
+        let twin = he_data.mate().and_then(|m| brep.half_edges.get(m));
         if let Some(twin_data) = twin
             && let Some(neighbour_loop) = brep.loops.get(twin_data.loop_)
         {
@@ -336,7 +336,7 @@ pub(crate) fn walk_blend_boundary(
         let Some(he_data) = brep.half_edges.get(he) else {
             break;
         };
-        let twin = brep.half_edges.get(he_data.twin);
+        let twin = he_data.mate().and_then(|m| brep.half_edges.get(m));
         if let Some(twin_data) = twin
             && let Some(neighbour_loop) = brep.loops.get(twin_data.loop_)
         {

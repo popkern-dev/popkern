@@ -141,7 +141,7 @@ fn watertight_twin_vertex_missing_skips() {
         .find(|&eh| brep.edges[eh].curve.is_some())
         .unwrap();
     let he_h = brep.edges[edge_h].half_edge;
-    let twin_h = brep.half_edges[he_h].twin;
+    let twin_h = brep.half_edges[he_h].mate().unwrap_or_default();
     let twin_origin = brep.half_edges[twin_h].origin;
 
     // Remove the twin's origin vertex
@@ -164,7 +164,7 @@ fn watertight_twin_missing_skips() {
         .unwrap();
     let he_h = brep.edges[edge_h].half_edge;
     // Make twin point to nonexistent handle
-    brep.half_edges[he_h].twin = Default::default();
+    brep.half_edges[he_h].clear_mate();
 
     // Should not panic — just skip
     let _ = brep.validate_watertight();
@@ -182,7 +182,7 @@ fn watertight_gap_end_detected() {
     for edge_h in brep.edges.keys().collect::<Vec<_>>() {
         if brep.edges[edge_h].curve.is_some() {
             let he_h = brep.edges[edge_h].half_edge;
-            let twin_h = brep.half_edges[he_h].twin;
+            let twin_h = brep.half_edges[he_h].mate().unwrap_or_default();
             let twin_origin = brep.half_edges[twin_h].origin;
             brep.vertices[twin_origin].position = Point3::new(999.0, 999.0, 999.0);
             break;

@@ -349,7 +349,9 @@ fn author_neighbour_pcurves(
     let gate = 10.0 * tolerance.linear();
     for &face in cap_faces {
         for he in face_loop_half_edges(brep, face)? {
-            let twin = brep.half_edges[he].twin;
+            let twin = brep.half_edges[he]
+                .require_mate()
+                .map_err(|e| e.to_string())?;
             let neighbour = brep.loops[brep.half_edges[twin].loop_].face;
             if cap_faces.contains(&neighbour) {
                 continue;
@@ -426,7 +428,9 @@ fn side_neighbour_orientation(
         }
     }
     let (_, he) = best.ok_or("blend face has no curved boundary edge")?;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he]
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     let face = brep.loops[brep.half_edges[twin].loop_].face;
     brep.faces
         .get(face)

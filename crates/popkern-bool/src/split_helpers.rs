@@ -113,7 +113,7 @@ pub(super) fn ensure_endpoint_vertices(
                 // Compute t relative to the edge's canonical direction.
                 let edge_he = brep.edges[he.edge].half_edge;
                 let edge_origin = brep.vertices[brep.half_edges[edge_he].origin].position;
-                let edge_twin = brep.half_edges[edge_he].twin;
+                let edge_twin = brep.half_edges[edge_he].require_mate()?;
                 let edge_end = brep.vertices[brep.half_edges[edge_twin].origin].position;
                 if let Some(t_edge) =
                     point_on_segment(&edge_origin, &edge_end, endpoint, tolerance.linear())

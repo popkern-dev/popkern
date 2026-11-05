@@ -362,6 +362,15 @@ pub enum CoreError {
     /// Invalid NURBS data (bad knot vector, wrong control point count, etc).
     #[error("invalid NURBS: {0}")]
     InvalidNurbs(String),
+
+    /// An operation that needs a manifold edge met a fin whose edge does
+    /// not have exactly two fins (a free edge, a non-manifold edge, or a
+    /// fin not linked into a ring).
+    #[error("edge {edge:?} is not a manifold edge: its radial ring does not hold exactly two fins")]
+    NoMate {
+        /// The edge of the fin asked for its mate.
+        edge: crate::topology::EdgeHandle,
+    },
 }
 
 #[cfg(test)]

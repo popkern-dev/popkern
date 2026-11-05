@@ -155,7 +155,7 @@ fn commit_validated_inputs(
             let support_residual =
                 support_loop_surface_residual(brep, support_face, &pair.support_surface);
             let requires_semantic_subdivision = pair.side == ExactBoundaryOuterSide::FaceEdge
-                && brep.half_edges[cap_half_edge].twin != support_half_edge;
+                && brep.half_edges[cap_half_edge].mate() != Some(support_half_edge);
             if (requires_semantic_subdivision
                 || support_surface.is_none()
                 || support_residual
@@ -203,7 +203,8 @@ fn commit_validated_inputs(
             );
             let cap_edge = brep.half_edges[cap_half_edge].edge;
             let support_edge = brep.half_edges[support_half_edge].edge;
-            let support_is_cap_twin = brep.half_edges[cap_half_edge].twin == support_half_edge;
+            let support_is_cap_twin =
+                brep.half_edges[cap_half_edge].mate() == Some(support_half_edge);
             let support_is_residual_patch = brep
                 .half_edges
                 .get(support_half_edge)

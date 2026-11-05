@@ -323,7 +323,7 @@ fn find_edge_with_endpoints(
         let Some(he) = brep.half_edges.get(he_h) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let v0_pos = brep.vertices[he.origin].position;
@@ -347,7 +347,7 @@ fn find_closed_plane_cylinder_edge(brep: &BRep) -> Option<EdgeHandle> {
         let Some(he) = brep.half_edges.get(he_h) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         if he.origin != twin.origin {

@@ -85,18 +85,20 @@ impl BRep {
                 CoreError::InvalidHandle("residual retire half-edge handle is invalid".into())
             })?;
             let edge = half_edge_data.edge;
-            let twin = half_edge_data.twin;
-            if doomed_half_edges.contains(&twin) {
+            let twin = half_edge_data.mate();
+            if twin.is_some_and(|t| doomed_half_edges.contains(&t)) {
                 removed_edges.insert(edge);
                 continue;
             }
-            if let Some(twin_data) = self.half_edges.get(twin) {
-                if twin_data.edge != edge || twin_data.twin != half_edge {
+            if let Some(twin) = twin
+                && let Some(twin_data) = self.half_edges.get(twin)
+            {
+                if twin_data.edge != edge || twin_data.mate() != Some(half_edge) {
                     return Err(CoreError::PreconditionFailed(
                         "residual retire found inconsistent surviving twin pairing".into(),
                     ));
                 }
-                self.half_edges[twin].twin = HalfEdgeHandle::default();
+                self.half_edges[twin].clear_mate();
                 self.edges[edge].half_edge = twin;
                 self.boundary_edges.insert(edge);
                 exposed_edges.insert(edge);
@@ -283,9 +285,7 @@ impl BRep {
             let half_edge_data = self.half_edges.get(half_edge).ok_or_else(|| {
                 CoreError::PreconditionFailed("residual retire exposed stale half-edge".into())
             })?;
-            if half_edge_data.twin != HalfEdgeHandle::default()
-                || !self.boundary_edges.contains(edge)
-            {
+            if half_edge_data.mate().is_some() || !self.boundary_edges.contains(edge) {
                 return Err(CoreError::PreconditionFailed(
                     "residual retire exposed edge is not a boundary side".into(),
                 ));
@@ -461,7 +461,9 @@ impl BRep {
             }
             if result.removed_half_edges.contains(&half_edge.next)
                 || result.removed_half_edges.contains(&half_edge.prev)
-                || result.removed_half_edges.contains(&half_edge.twin)
+                || half_edge
+                    .mate()
+                    .is_some_and(|m| result.removed_half_edges.contains(&m))
             {
                 return Err(CoreError::PreconditionFailed(format!(
                     "live half-edge {live_half_edge:?} references an unwired retired residual half-edge"

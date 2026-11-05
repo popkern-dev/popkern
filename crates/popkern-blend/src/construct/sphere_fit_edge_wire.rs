@@ -167,15 +167,15 @@ pub(crate) fn wire_substituted_boundary_to_edges(
 
         // Capture face surfaces for pcurve refit (this side + twin)
         // before we mutate the edge curve.
-        let twin_he = brep.half_edges[he_handle].twin;
-        let twin_he_live = brep.half_edges.contains_key(twin_he).then_some(twin_he);
+        let twin_he_live = brep.half_edges[he_handle]
+            .mate()
+            .filter(|t| brep.half_edges.contains_key(*t));
         let cap_face = brep
             .loops
             .get(brep.half_edges[he_handle].loop_)
             .map(|l| l.face);
-        let other_face = brep
-            .half_edges
-            .get(twin_he)
+        let other_face = twin_he_live
+            .and_then(|t| brep.half_edges.get(t))
             .and_then(|twin| brep.loops.get(twin.loop_))
             .map(|l| l.face);
         let cap_surf = cap_face.and_then(|f| {

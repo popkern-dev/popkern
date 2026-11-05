@@ -58,7 +58,7 @@ fn edge_key(brep: &BRep, edge: EdgeHandle) -> Option<EdgeKey> {
     let data = brep.edges.get(edge)?;
     let curve = data.curve.as_ref()?;
     let half_edge = brep.half_edges.get(data.half_edge)?;
-    let twin = brep.half_edges.get(half_edge.twin)?;
+    let twin = half_edge.mate().and_then(|m| brep.half_edges.get(m))?;
     let geometry = &curve.geometry as &dyn CurveEval;
     Some(EdgeKey {
         ends: [

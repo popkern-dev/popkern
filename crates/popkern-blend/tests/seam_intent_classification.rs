@@ -163,7 +163,7 @@ fn a_uniformly_creased_rail_stays_gated_and_fails_g1() {
         .values()
         .filter(|he| brep.loops.get(he.loop_).map(|l| l.face) == Some(strip))
         .find_map(|he| {
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let face = brep.loops.get(twin.loop_)?.face;
             let is_plane = matches!(
                 brep.faces[face].surface.as_ref().map(|s| &s.geometry),

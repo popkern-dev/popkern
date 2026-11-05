@@ -133,7 +133,7 @@ fn edge_neighbours(brep: &BRep, face: FaceHandle) -> Option<Vec<FaceHandle>> {
         let mut cursor = start;
         for _ in 0..=brep.half_edges.len() {
             let he = brep.half_edges.get(cursor)?;
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             out.push(brep.loops.get(twin.loop_)?.face);
             cursor = he.next;
             if cursor == start {

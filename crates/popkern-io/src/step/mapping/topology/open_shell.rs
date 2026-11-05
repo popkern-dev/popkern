@@ -14,7 +14,9 @@ pub(super) fn normalize_open_shell_boundaries(builder: &mut BRepBuilder) {
     let mut removals = Vec::new();
     for (edge, edge_data) in &builder.brep().edges {
         let first = edge_data.half_edge;
-        let second = builder.brep().half_edges[first].twin;
+        let Some(second) = builder.brep().half_edges[first].mate() else {
+            continue;
+        };
         let first_used = used_half_edges.contains(&first);
         let second_used = used_half_edges.contains(&second);
         match (first_used, second_used) {
@@ -30,7 +32,7 @@ pub(super) fn normalize_open_shell_boundaries(builder: &mut BRepBuilder) {
         {
             std::mem::swap(&mut curve.t_start, &mut curve.t_end);
         }
-        builder.brep_mut().half_edges[surviving_half_edge].twin = HalfEdgeHandle::default();
+        builder.brep_mut().half_edges[surviving_half_edge].clear_mate();
         let removed_origin = builder.brep().half_edges[removed_half_edge].origin;
         if builder.brep().vertices[removed_origin].outgoing == removed_half_edge
             && let Some(replacement) = builder

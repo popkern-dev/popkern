@@ -155,9 +155,9 @@ pub fn reconcile_edge_curves(brep: &mut BRep) -> usize {
             None => continue,
         };
 
-        let is_self_twin = he.twin == he_h;
+        let is_self_twin = he.mate() == Some(he_h);
 
-        let twin = match brep.half_edges.get(he.twin) {
+        let twin = match he.mate().and_then(|m| brep.half_edges.get(m)) {
             Some(t) => t,
             None => continue,
         };

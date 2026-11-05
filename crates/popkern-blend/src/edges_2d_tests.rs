@@ -88,7 +88,9 @@ fn fillet_edges_2d_disconnected_pair_is_no_op() {
     for (eh, edge) in &sheet.edges {
         let he = edge.half_edge;
         let a = sheet.vertices[sheet.half_edges[he].origin].position;
-        let b = sheet.vertices[sheet.half_edges[sheet.half_edges[he].twin].origin].position;
+        let b = sheet.vertices
+            [sheet.half_edges[sheet.half_edges[he].mate().unwrap_or_default()].origin]
+            .position;
         if a.y == 0.0 && b.y == 0.0 {
             bottom = Some(eh);
         } else if a.y == 1.0 && b.y == 1.0 {
@@ -226,7 +228,9 @@ fn fillet_edges_2d_variable_rejects_disconnected_set() {
     for (eh, edge) in &sheet.edges {
         let he = edge.half_edge;
         let a = sheet.vertices[sheet.half_edges[he].origin].position;
-        let b = sheet.vertices[sheet.half_edges[sheet.half_edges[he].twin].origin].position;
+        let b = sheet.vertices
+            [sheet.half_edges[sheet.half_edges[he].mate().unwrap_or_default()].origin]
+            .position;
         if a.y == 0.0 && b.y == 0.0 {
             bottom = Some(eh);
         } else if a.y == 1.0 && b.y == 1.0 {

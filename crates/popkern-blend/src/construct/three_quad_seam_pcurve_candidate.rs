@@ -41,7 +41,11 @@ pub(super) fn boundary_owned_candidate(
     segment: &BoundarySegment,
     segment_offset: usize,
 ) -> BoundaryOwnedCandidate {
-    let Some(twin) = brep.half_edges.get(he).map(|half_edge| half_edge.twin) else {
+    let Some(twin) = brep
+        .half_edges
+        .get(he)
+        .and_then(|half_edge| half_edge.mate())
+    else {
         return BoundaryOwnedCandidate::Unavailable;
     };
     let Some(twin_face) = brep
@@ -353,7 +357,7 @@ fn boundary_pcurve_endpoint_gap(
     let Some(half_edge) = brep.half_edges.get(he) else {
         return f64::INFINITY;
     };
-    let Some(twin) = brep.half_edges.get(half_edge.twin) else {
+    let Some(twin) = half_edge.mate().and_then(|m| brep.half_edges.get(m)) else {
         return f64::INFINITY;
     };
     let start = brep.vertices[half_edge.origin].position;

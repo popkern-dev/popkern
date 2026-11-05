@@ -89,8 +89,8 @@ impl BRep {
         let bound = self.half_edges.len();
         while *moved.last().unwrap_or(&he_first) != he_last {
             let current = moved[moved.len() - 1];
-            let twin = self.half_edges[current].twin;
-            let twin_data = self.half_edges.get(twin).ok_or_else(|| {
+            let twin = self.half_edges[current].mate();
+            let twin_data = twin.and_then(|t| self.half_edges.get(t)).ok_or_else(|| {
                 CoreError::PreconditionFailed(
                     "split_vertex fan walk crossed a boundary (null-twin) edge".into(),
                 )
@@ -120,7 +120,11 @@ impl BRep {
 
         // Sector must leave at least one edge at the old vertex: the
         // outgoing half-edge after he_last must not be he_first.
-        let twin_last = self.half_edges[he_last].twin;
+        let twin_last = self.half_edges[he_last].mate().ok_or_else(|| {
+            CoreError::PreconditionFailed(
+                "split_vertex fan walk crossed a boundary (null-twin) edge".into(),
+            )
+        })?;
         let twin_last_data = self.half_edges.get(twin_last).ok_or_else(|| {
             CoreError::PreconditionFailed(
                 "split_vertex fan walk crossed a boundary (null-twin) edge".into(),
@@ -175,7 +179,7 @@ impl BRep {
             loop_: cut2_loop,
             pcurve: None,
         });
-        self.half_edges[c_vu].twin = c_uv;
+        self.half_edges[c_vu].set_mate(c_uv);
         self.edges[edge].half_edge = c_vu;
 
         // Re-home the sector.
@@ -234,8 +238,8 @@ impl BRep {
         let c_uv = self.half_edges.get(result.half_edge_twin).ok_or_else(|| {
             CoreError::PreconditionFailed("split_vertex connector twin is not live".into())
         })?;
-        if c_vu.twin != result.half_edge_twin
-            || c_uv.twin != result.half_edge
+        if c_vu.mate() != Some(result.half_edge_twin)
+            || c_uv.mate() != Some(result.half_edge)
             || c_vu.edge != result.edge
             || c_uv.edge != result.edge
             || c_uv.origin != result.vertex

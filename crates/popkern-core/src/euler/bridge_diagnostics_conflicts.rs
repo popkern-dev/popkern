@@ -107,7 +107,7 @@ mod tests {
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let edge = brep.edges.keys().next().expect("cube has edges");
         let first = brep.edges[edge].half_edge;
-        let second = brep.half_edges[first].twin;
+        let second = brep.half_edges[first].mate().unwrap_or_default();
         let first_loop = brep.half_edges[first].loop_;
         let second_loop = brep.half_edges[second].loop_;
         let first_after = brep.half_edges[first].next;

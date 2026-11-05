@@ -190,7 +190,7 @@ fn find_adjacent_descendant_halfedge(
                 .get(cursor)
                 .ok_or_else(|| format!("half-edge {cursor:?} not found"))?;
             if descendants.contains(&he.edge) {
-                let twin_handle = he.twin;
+                let twin_handle = he.require_mate().map_err(|e| e.to_string())?;
                 let twin_face = brep.loops[brep.half_edges[twin_handle].loop_].face;
                 if twin_face == consumed_2 {
                     return Ok(cursor);
@@ -235,7 +235,7 @@ mod tests {
         let edge_data = &cube.edges[edge];
         let he = &cube.half_edges[edge_data.half_edge];
         let face_of_he = cube.loops[he.loop_].face;
-        let twin = &cube.half_edges[he.twin];
+        let twin = &cube.half_edges[he.mate().unwrap_or_default()];
         let twin_face = cube.loops[twin.loop_].face;
 
         let found = find_adjacent_descendant_halfedge(
@@ -260,7 +260,7 @@ mod tests {
         let edge_not_on_either = cube.edges.keys().find(|&e| {
             let he_handle = cube.edges[e].half_edge;
             let face_1 = cube.loops[cube.half_edges[he_handle].loop_].face;
-            let twin_handle = cube.half_edges[he_handle].twin;
+            let twin_handle = cube.half_edges[he_handle].mate().unwrap_or_default();
             let face_2 = cube.loops[cube.half_edges[twin_handle].loop_].face;
             face_1 != face_a && face_1 != face_b && face_2 != face_a && face_2 != face_b
         });
@@ -293,7 +293,7 @@ mod tests {
         let edge = cube.edges.keys().next().unwrap();
         let edge_he = cube.edges[edge].half_edge;
         let face_of_edge = cube.loops[cube.half_edges[edge_he].loop_].face;
-        let twin_handle = cube.half_edges[edge_he].twin;
+        let twin_handle = cube.half_edges[edge_he].mate().unwrap_or_default();
         let twin_face = cube.loops[cube.half_edges[twin_handle].loop_].face;
 
         // Find a face that is NOT face_of_edge or twin_face.
@@ -324,7 +324,7 @@ mod tests {
 
         // Check a face that does NOT contain this edge.
         if let Some(other_face) = cube.faces.keys().find(|&f| f != face_of_edge) {
-            let twin_he = cube.half_edges[edge_he].twin;
+            let twin_he = cube.half_edges[edge_he].mate().unwrap_or_default();
             let twin_face = cube.loops[cube.half_edges[twin_he].loop_].face;
             if twin_face != other_face {
                 let contains =

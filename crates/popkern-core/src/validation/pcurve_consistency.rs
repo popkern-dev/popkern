@@ -82,8 +82,8 @@ impl BRep {
         else {
             return false;
         };
-        self.half_edges
-            .get(he.twin)
+        he.mate()
+            .and_then(|m| self.half_edges.get(m))
             .is_some_and(|tw| tw.origin == he.origin)
     }
 

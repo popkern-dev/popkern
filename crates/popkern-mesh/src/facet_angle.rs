@@ -244,10 +244,13 @@ impl<'a> EdgeNormalProbe<'a> {
         };
         let q = curve_at(0.25);
         let mut half_edges = vec![edge.half_edge];
-        if let Some(he) = brep.half_edges.get(edge.half_edge)
-            && he.twin != edge.half_edge
+        if let Some(mate) = brep
+            .half_edges
+            .get(edge.half_edge)
+            .and_then(|he| he.mate())
+            .filter(|m| *m != edge.half_edge)
         {
-            half_edges.push(he.twin);
+            half_edges.push(mate);
         }
         for heh in half_edges {
             let Some(he) = brep.half_edges.get(heh) else {

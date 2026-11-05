@@ -33,6 +33,10 @@ use super::terminal_arc_trim::{CornerCandidate, incident_edge_count};
 use super::terminal_chord_trim::StripPlane;
 use super::terminal_corner_recognition::strip_pcurve_span;
 
+#[path = "terminal_arc_circumcircle.rs"]
+mod terminal_arc_circumcircle;
+use terminal_arc_circumcircle::circumcircle_2d;
+
 pub(super) fn repair_corner_swept(
     brep: &mut BRep,
     c: &CornerCandidate,
@@ -51,7 +55,7 @@ pub(super) fn repair_corner_swept(
 
     // Both twins must bound one shared planar cap face.
     let twin_face = |he: HalfEdgeHandle| -> Option<FaceHandle> {
-        let tw = brep.half_edges.get(brep.half_edges.get(he)?.twin)?;
+        let tw = brep.half_edges.get(brep.half_edges.get(he)?.mate()?)?;
         Some(brep.loops.get(tw.loop_)?.face)
     };
     let cap_face = twin_face(c.he_in).ok_or(TerminalArcTrimDeclineReason::NoCommonPlanarCap)?;
@@ -265,10 +269,12 @@ pub(super) fn repair_corner_swept(
                 if let Some(e) = brep.edges.get_mut(stub.edge) {
                     e.curve = Some(stub.curve);
                 }
-                if let Some(tw) = brep.half_edges.get_mut(stub.cap_half_edge) {
-                    tw.pcurve = Some(stub.cap_pcurve.clone());
+                if let Some(cap_he) = stub.cap_half_edge {
+                    if let Some(tw) = brep.half_edges.get_mut(cap_he) {
+                        tw.pcurve = Some(stub.cap_pcurve.clone());
+                    }
+                    brep.set_face_use_pcurve(cap_face, cap_he, stub.cap_pcurve);
                 }
-                brep.set_face_use_pcurve(cap_face, stub.cap_half_edge, stub.cap_pcurve);
             }
             return Ok(());
         }
@@ -340,27 +346,14 @@ pub(super) fn repair_corner_swept(
         if let Some(e) = brep.edges.get_mut(stub.edge) {
             e.curve = Some(stub.curve);
         }
-        if let Some(tw) = brep.half_edges.get_mut(stub.cap_half_edge) {
-            tw.pcurve = Some(stub.cap_pcurve.clone());
+        if let Some(cap_he) = stub.cap_half_edge {
+            if let Some(tw) = brep.half_edges.get_mut(cap_he) {
+                tw.pcurve = Some(stub.cap_pcurve.clone());
+            }
+            brep.set_face_use_pcurve(cap_face, cap_he, stub.cap_pcurve);
         }
-        brep.set_face_use_pcurve(cap_face, stub.cap_half_edge, stub.cap_pcurve);
     }
     Ok(())
-}
-
-/// Circumcircle through three 2-D points; returns (cu, cv, r).
-fn circumcircle_2d(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> Option<(f64, f64, f64)> {
-    let d = 2.0 * (a.0 * (b.1 - c.1) + b.0 * (c.1 - a.1) + c.0 * (a.1 - b.1));
-    if d.abs() < 1e-30 {
-        return None;
-    }
-    let a2 = a.0 * a.0 + a.1 * a.1;
-    let b2 = b.0 * b.0 + b.1 * b.1;
-    let c2 = c.0 * c.0 + c.1 * c.1;
-    let cu = (a2 * (b.1 - c.1) + b2 * (c.1 - a.1) + c2 * (a.1 - b.1)) / d;
-    let cv = (a2 * (c.0 - b.0) + b2 * (a.0 - c.0) + c2 * (b.0 - a.0)) / d;
-    let r = ((a.0 - cu).powi(2) + (a.1 - cv).powi(2)).sqrt();
-    Some((cu, cv, r))
 }
 
 /// Author one swept-strip stub as an exact arc of the fitted terminal
@@ -399,7 +392,7 @@ fn compute_swept_stub_arc(
             .or(he.pcurve.as_ref())
             .cloned()
             .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?;
-        (he.twin, edge, primary, pc)
+        (he.mate(), edge, primary, pc)
     };
     let (p_start, p_end) = if primary == he_strip {
         (start_pos, end_pos)

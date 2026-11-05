@@ -264,7 +264,7 @@ pub fn trim_self_intersections(
                         let Some(he) = split_body.half_edges.get(cur) else {
                             break;
                         };
-                        if let Some(tw) = split_body.half_edges.get(he.twin)
+                        if let Some(tw) = he.mate().and_then(|m| split_body.half_edges.get(m))
                             && let Some(tl) = split_body.loops.get(tw.loop_)
                             && !comp.contains_key(&tl.face)
                         {

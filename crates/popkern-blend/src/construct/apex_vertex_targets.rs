@@ -111,7 +111,8 @@ pub(super) fn find_target_for_vertex(
             continue;
         };
         let face_a = brep.loops[brep.half_edges[edge.half_edge].loop_].face;
-        let face_b = brep.loops[brep.half_edges[brep.half_edges[edge.half_edge].twin].loop_].face;
+        let face_b =
+            brep.loops[brep.half_edges[brep.half_edges[edge.half_edge].mate()?].loop_].face;
         let a_is_cap = cap_set.contains(&face_a);
         let b_is_cap = cap_set.contains(&face_b);
         if a_is_cap == b_is_cap {

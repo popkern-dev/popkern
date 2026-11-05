@@ -159,7 +159,7 @@ impl BRep {
             twin_hes.push(twin_he);
 
             // Patch inner half-edge twin.
-            self.half_edges[inner_he].twin = twin_he;
+            self.half_edges[inner_he].set_mate(twin_he);
 
             // Update edge to point to its inner half-edge.
             self.edges[edge_h].half_edge = inner_he;
@@ -303,7 +303,7 @@ impl BRep {
                 pcurve: None,
             });
             twin_hes.push(twin_he);
-            self.half_edges[inner_he].twin = twin_he;
+            self.half_edges[inner_he].set_mate(twin_he);
             self.edges[edge_h].half_edge = inner_he;
             self.vertices[vertices[i]].outgoing = inner_he;
         }

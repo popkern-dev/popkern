@@ -95,10 +95,10 @@ impl BRep {
         for &heh in &doomed_hes {
             let he = &candidate.half_edges[heh];
             let edge_h = he.edge;
-            let twin_h = he.twin;
-            let twin_survives =
-                candidate.half_edges.contains_key(twin_h) && !doomed_set.contains(&twin_h);
-            if twin_survives {
+            let surviving_twin = he
+                .mate()
+                .filter(|t| candidate.half_edges.contains_key(*t) && !doomed_set.contains(t));
+            if let Some(twin_h) = surviving_twin {
                 // Rim: repoint the edge at the surviving twin, keeping
                 // the canonical-forward convention true (the twin
                 // traverses the curve backward — PK-274).
@@ -108,7 +108,7 @@ impl BRep {
                     std::mem::swap(&mut curve.t_start, &mut curve.t_end);
                 }
                 candidate.edges[edge_h].half_edge = twin_h;
-                candidate.half_edges[twin_h].twin = HalfEdgeHandle::default();
+                candidate.half_edges[twin_h].clear_mate();
                 candidate.boundary_edges.insert(edge_h);
                 result.rim_edges.push(edge_h);
             } else {

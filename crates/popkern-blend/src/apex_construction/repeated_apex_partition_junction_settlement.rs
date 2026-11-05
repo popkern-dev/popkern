@@ -64,8 +64,10 @@ pub(crate) fn settle_planned_loop_junction_gaps(
             if following_start != Some(current_data.origin) {
                 continue;
             }
-            let twin = current_data.twin;
-            if brep.half_edges.get(twin).is_some() {
+            if let Some(twin) = current_data
+                .mate()
+                .filter(|t| brep.half_edges.contains_key(*t))
+            {
                 if crate::direct_apex_trace::enabled() {
                     eprintln!(
                         "[junction-settle] member {current:?} reversed against the cycle — \
@@ -212,7 +214,7 @@ pub(in super::super) fn half_edge_destination_vertex(
     half_edge: HalfEdgeHandle,
 ) -> Option<VertexHandle> {
     let data = brep.half_edges.get(half_edge)?;
-    if let Some(twin) = brep.half_edges.get(data.twin) {
+    if let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) {
         return Some(twin.origin);
     }
     if !brep.boundary_edges.contains(&data.edge) {

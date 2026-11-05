@@ -99,10 +99,9 @@ pub(super) fn build_wire_worklist(
             // time is still NurbsSurface (Gregory replaces it
             // *after* the wire step in the pipeline). Membership
             // in `sub_faces` is the topology-stable signal.
-            let twin_he = he.twin;
-            let twin_face = brep
-                .half_edges
-                .get(twin_he)
+            let twin_face = he
+                .mate()
+                .and_then(|twin_he| brep.half_edges.get(twin_he))
                 .and_then(|twin| brep.loops.get(twin.loop_))
                 .map(|l| l.face);
             let twin_is_cap = twin_face

@@ -26,7 +26,9 @@ pub(super) fn dissolve_v_bridges_until_valence_le_1(brep: &mut BRep, vertex: Ver
             let Some(he_data) = brep.half_edges.get(he) else {
                 continue;
             };
-            let twin = he_data.twin;
+            let Some(twin) = he_data.mate() else {
+                continue;
+            };
             let Some(twin_data) = brep.half_edges.get(twin) else {
                 continue;
             };

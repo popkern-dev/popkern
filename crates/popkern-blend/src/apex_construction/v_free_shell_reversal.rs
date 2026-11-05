@@ -59,8 +59,11 @@ pub(super) fn reverse_class_loops(brep: &mut BRep, faces: &BTreeSet<FaceHandle>)
             let mut new_pcurves = Vec::with_capacity(cycle.len());
             let mut flipped_origins = Vec::new();
             for (side, end) in cycle.iter().zip(&ends).rev() {
-                match brep.half_edges.get(brep.half_edges[*side].twin) {
-                    Some(_) => new_cycle.push(brep.half_edges[*side].twin),
+                match brep.half_edges[*side]
+                    .mate()
+                    .filter(|m| brep.half_edges.contains_key(*m))
+                {
+                    Some(mate) => new_cycle.push(mate),
                     None => {
                         new_cycle.push(*side);
                         flipped_origins.push((*side, *end));

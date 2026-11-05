@@ -26,7 +26,7 @@ fn pentagon_apex() -> (BRep, VertexHandle, Vec<EdgeHandle>) {
         .iter()
         .filter_map(|(eh, edge)| {
             let he = &pyramid.half_edges[edge.half_edge];
-            let twin_origin = pyramid.half_edges[he.twin].origin;
+            let twin_origin = pyramid.half_edges[he.mate().unwrap_or_default()].origin;
             (he.origin == apex || twin_origin == apex).then_some(eh)
         })
         .collect();

@@ -233,10 +233,10 @@ impl BRep {
         });
 
         // -- Wire twins --
-        brep.half_edges[he_base_arc].twin = he_base_cap;
-        brep.half_edges[he_base_cap].twin = he_base_arc;
-        brep.half_edges[he_seam_up].twin = he_seam_down;
-        brep.half_edges[he_seam_down].twin = he_seam_up;
+        brep.half_edges[he_base_arc].set_mate(he_base_cap);
+        brep.half_edges[he_base_cap].set_mate(he_base_arc);
+        brep.half_edges[he_seam_up].set_mate(he_seam_down);
+        brep.half_edges[he_seam_down].set_mate(he_seam_up);
 
         // -- Wire lateral loop: next/prev --
         brep.half_edges[he_base_arc].next = he_seam_up;

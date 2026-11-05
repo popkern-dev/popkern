@@ -104,7 +104,7 @@ pub(super) fn attach_fillet_end_curve_to_edge(
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!("attach_fillet_end_curve_to_edge: edge {edge:?} missing"),
             })?;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he].require_mate()?;
     let he_origin = brep.vertices[brep.half_edges[he].origin].position;
     let twin_origin = brep.vertices[brep.half_edges[twin].origin].position;
     let surface = fillet_surfaces
@@ -217,7 +217,7 @@ pub(super) fn attach_curve_to_edge_aligned(
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!("attach_curve_to_edge_aligned: edge {edge:?} missing"),
             })?;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he].require_mate()?;
     let he_origin = brep.vertices[brep.half_edges[he].origin].position;
     let twin_origin = brep.vertices[brep.half_edges[twin].origin].position;
 
@@ -319,10 +319,9 @@ pub(super) fn assign_fillet_strip_surface(
             .is_none()
         {
             let start = brep.vertices[brep.half_edges[cursor].origin].position;
-            let twin = brep.half_edges[cursor].twin;
-            let Some(end_vertex) = brep
-                .half_edges
-                .get(twin)
+            let twin = brep.half_edges[cursor].mate();
+            let Some(end_vertex) = twin
+                .and_then(|t| brep.half_edges.get(t))
                 .map(|half_edge| half_edge.origin)
                 .or_else(|| {
                     let next = brep.half_edges[cursor].next;

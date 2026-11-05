@@ -23,7 +23,9 @@ pub(crate) fn snap_incident_edge_curve_endpoints_robust(
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let twin = he_data.twin;
+        let Some(twin) = he_data.mate() else {
+            continue;
+        };
         let Some(twin_data) = brep.half_edges.get(twin) else {
             continue;
         };
@@ -140,7 +142,9 @@ pub(super) fn snap_incident_edge_curve_endpoints(
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let twin = he_data.twin;
+        let Some(twin) = he_data.mate() else {
+            continue;
+        };
         let Some(twin_data) = brep.half_edges.get(twin) else {
             continue;
         };

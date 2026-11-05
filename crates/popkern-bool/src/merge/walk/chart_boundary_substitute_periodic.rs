@@ -85,9 +85,9 @@ fn boundary_pieces<'a>(brep: &'a BRep, face: &FaceRef, linear: f64) -> Vec<Bound
                 // A SEAM edge bounds the face in both directions (one
                 // per chart border): a record on it keeps both, and
                 // the seam machinery owns it.
-                let seam = brep
-                    .half_edges
-                    .get(h.twin)
+                let seam = h
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|tw| brep.loops.get(tw.loop_))
                     .is_some_and(|l| l.face == face.face);
                 pieces.push(BoundaryPiece {

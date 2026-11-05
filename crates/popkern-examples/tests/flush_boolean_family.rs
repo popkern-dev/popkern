@@ -54,7 +54,7 @@ fn triple_flush_l_union_is_watertight_with_merged_corners() {
     for (_, edge) in brep.edges.iter() {
         let he = &brep.half_edges[edge.half_edge];
         let a = brep.vertices[he.origin].position;
-        let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+        let b = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
         if (a.x + 30.0).abs() < 1e-9
             && (b.x + 30.0).abs() < 1e-9
             && (a.y + 20.0).abs() < 1e-9

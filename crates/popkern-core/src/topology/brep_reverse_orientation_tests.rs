@@ -1,5 +1,6 @@
 //! Tests for whole-body orientation reversal.
 
+use crate::geometry::curve::CurveEval;
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
 
@@ -39,7 +40,10 @@ fn reversal_is_an_involution() {
         assert_eq!(round.origin, he.origin);
         assert_eq!(round.next, he.next);
         assert_eq!(round.prev, he.prev);
-        assert_eq!(round.twin, he.twin);
+        assert_eq!(
+            round.mate().unwrap_or_default(),
+            he.mate().unwrap_or_default()
+        );
         assert_eq!(round.loop_, he.loop_);
     }
     for (vh, v) in &original.vertices {
@@ -60,7 +64,7 @@ fn reversal_keeps_structural_validity() {
     // Twins stay opposite: each half-edge's origin equals its twin's
     // destination (= twin.twin.origin's neighbour via next chain).
     for (_, he) in &brep.half_edges {
-        let twin = &brep.half_edges[he.twin];
+        let twin = &brep.half_edges[he.mate().unwrap_or_default()];
         assert_ne!(
             he.origin, twin.origin,
             "twin halves must originate at opposite ends"
@@ -75,7 +79,8 @@ fn reversal_keeps_structural_validity() {
             let next = &brep.half_edges[he.next];
             // Continuity: this half-edge's destination is the next's origin.
             assert_eq!(
-                brep.half_edges[he.twin].origin, next.origin,
+                brep.half_edges[he.mate().unwrap_or_default()].origin,
+                next.origin,
                 "loop traversal must stay vertex-continuous"
             );
             assert_eq!(brep.half_edges[next.prev].origin, he.origin, "prev inverse");
@@ -92,5 +97,38 @@ fn reversal_keeps_structural_validity() {
             brep.half_edges[vertex.outgoing].origin, vh,
             "outgoing half-edge must originate at its vertex"
         );
+    }
+}
+
+/// A sheet reverses like a solid: its free fins turn with the rest (the
+/// mate-based reversal left them unturned, pointed their vertices'
+/// outgoing at nothing and dropped the free edges' canonical fin), and
+/// reversing twice restores it.
+#[test]
+fn reversal_turns_a_sheet_with_its_free_edges() {
+    let original = BRep::open_box(Tolerance::default()).unwrap();
+    let mut brep = original.clone();
+    brep.reverse_body_orientation();
+    brep.validate().expect("reversed open box validates");
+    for (vh, vertex) in &brep.vertices {
+        assert_eq!(brep.half_edges[vertex.outgoing].origin, vh);
+    }
+    for &edge in &brep.boundary_edges {
+        let fin = brep.edges[edge].half_edge;
+        assert!(brep.half_edges.contains_key(fin), "free edge keeps its fin");
+        let curve = brep.edges[edge].curve.as_ref().expect("edge curve");
+        let start = brep.vertices[brep.half_edges[fin].origin].position;
+        assert!(
+            curve.geometry.point_at(curve.t_start).distance_to(&start) < 1e-9,
+            "the free fin starts at the curve's start"
+        );
+    }
+    brep.reverse_body_orientation();
+    for (h, he) in &brep.half_edges {
+        let o = &original.half_edges[h];
+        assert_eq!((he.origin, he.next, he.prev), (o.origin, o.next, o.prev));
+    }
+    for (e, edge) in &brep.edges {
+        assert_eq!(edge.half_edge, original.edges[e].half_edge);
     }
 }

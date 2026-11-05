@@ -142,7 +142,9 @@ fn create_multi_run_bridge_boundary_twins(
                     "multi-run bridge path after-last half-edge is stale".into(),
                 )
             })?;
-        if !consumed_edges.insert(edge) || brep.half_edges.contains_key(data.twin) {
+        if !consumed_edges.insert(edge)
+            || data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+        {
             twins.push(insert_multi_run_bridge_separator(brep, half_edge, origin)?);
             separator_edges += 1;
             continue;
@@ -161,7 +163,7 @@ fn create_multi_run_bridge_boundary_twins(
             loop_: Default::default(),
             pcurve: None,
         });
-        brep.half_edges[half_edge].twin = twin;
+        brep.half_edges[half_edge].set_mate(twin);
         brep.boundary_edges.remove(&edge);
         twins.push(twin);
     }
