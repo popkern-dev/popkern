@@ -1,4 +1,5 @@
 use super::*;
+use crate::topology::RadialLinks;
 use std::collections::HashSet;
 
 use crate::geometry::Point3;
@@ -105,7 +106,7 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),
@@ -385,9 +386,7 @@ fn sewing_declines_already_joined_candidate_with_explanation() {
 #[test]
 fn sewing_declines_radial_nonmanifold_candidate_with_explanation() {
     let (mut brep, left_edge, right_edge) = two_square_sheet();
-    let left_half_edge = brep.edges[left_edge].half_edge;
-    brep.nonmanifold_radial
-        .insert(left_half_edge, left_half_edge);
+    brep.thread_test_third_fin(left_edge);
 
     let result = sew_clean_boundary_edge_pairs(
         &brep,

@@ -5,6 +5,7 @@ use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::*;
 
 /// Result of adding an inner trim loop to a face.
@@ -136,9 +137,9 @@ impl BRep {
             // Inner half-edge: goes from vertex[i] to vertex[j] on this face.
             let inner_he = self.half_edges.insert(HalfEdge {
                 origin: vertices[i],
-                twin: Default::default(), // patched below
-                next: Default::default(), // patched below
-                prev: Default::default(), // patched below
+                ring: RadialLinks::alone(), // patched below
+                next: Default::default(),   // patched below
+                prev: Default::default(),   // patched below
                 edge: edge_h,
                 loop_: inner_loop,
                 pcurve: Some(pcurve.into()),
@@ -149,7 +150,7 @@ impl BRep {
             // Origin is vertex[j] (opposite direction).
             let twin_he = self.half_edges.insert(HalfEdge {
                 origin: vertices[j],
-                twin: inner_he,
+                ring: RadialLinks::pair(inner_he),
                 next: Default::default(), // self-twinned twins have no chain
                 prev: Default::default(),
                 edge: edge_h,
@@ -285,7 +286,7 @@ impl BRep {
             edges.push(edge_h);
             let inner_he = self.half_edges.insert(HalfEdge {
                 origin: vertices[i],
-                twin: Default::default(),
+                ring: RadialLinks::alone(),
                 next: Default::default(),
                 prev: Default::default(),
                 edge: edge_h,
@@ -295,7 +296,7 @@ impl BRep {
             inner_hes.push(inner_he);
             let twin_he = self.half_edges.insert(HalfEdge {
                 origin: vertices[j],
-                twin: inner_he,
+                ring: RadialLinks::pair(inner_he),
                 next: Default::default(),
                 prev: Default::default(),
                 edge: edge_h,

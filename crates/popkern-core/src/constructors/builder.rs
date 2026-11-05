@@ -6,6 +6,7 @@
 use crate::error::CoreError;
 use crate::geometry::point::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::*;
 
 /// Builder for constructing BRep topology directly (without Euler operators).
@@ -75,7 +76,7 @@ impl BRepBuilder {
 
         let he1 = self.brep.half_edges.insert(HalfEdge {
             origin: v1,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: edge_handle,
@@ -85,7 +86,7 @@ impl BRepBuilder {
 
         let he2 = self.brep.half_edges.insert(HalfEdge {
             origin: v2,
-            twin: he1,
+            ring: RadialLinks::pair(he1),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: edge_handle,

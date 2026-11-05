@@ -3,6 +3,7 @@
 //! tracing. The no-intersection dispatch
 //! lives in `operation_no_intersection.rs` (500-line cap).
 
+use popkern_core::topology::RadialLinks;
 use std::collections::HashMap;
 
 use popkern_core::topology::BRep;
@@ -98,7 +99,7 @@ pub(crate) fn copy_brep_into_mapped(
     for (old_h, _he) in &b.half_edges {
         let new_h = a.half_edges.insert(HalfEdge {
             origin: popkern_core::topology::VertexHandle::default(),
-            twin: popkern_core::topology::HalfEdgeHandle::default(),
+            ring: RadialLinks::pair(popkern_core::topology::HalfEdgeHandle::default()),
             next: popkern_core::topology::HalfEdgeHandle::default(),
             prev: popkern_core::topology::HalfEdgeHandle::default(),
             edge: popkern_core::topology::EdgeHandle::default(),

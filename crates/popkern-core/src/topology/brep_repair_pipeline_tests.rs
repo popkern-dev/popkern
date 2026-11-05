@@ -2,6 +2,7 @@ use super::*;
 use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, BrepRepairActionOutcome, BrepRepairTopologyHandle, BrepSewingOptions,
     BrepSewingProvenance, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop,
@@ -127,9 +128,7 @@ fn pipeline_repairs_clean_non_pns_pair_transactionally() {
 #[test]
 fn pipeline_declines_nonmanifold_candidate_before_mutation() {
     let (mut brep, left_edge, right_edge) = two_square_sheet();
-    let left_half_edge = brep.edges[left_edge].half_edge;
-    brep.nonmanifold_radial
-        .insert(left_half_edge, left_half_edge);
+    brep.thread_test_third_fin(left_edge);
 
     let failure = repair_brep_boundary_edges_transactionally(
         &brep,
@@ -433,7 +432,7 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),

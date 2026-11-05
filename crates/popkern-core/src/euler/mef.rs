@@ -134,7 +134,7 @@ impl BRep {
         // Create new_he: v1 -> v2 (stays with old loop)
         let new_he = self.half_edges.insert(HalfEdge {
             origin: v1,
-            twin: Default::default(),
+            ring: crate::topology::RadialLinks::alone(),
             next: he2,
             prev: he1_prev,
             edge,
@@ -145,7 +145,7 @@ impl BRep {
         // Create new_he_twin: v2 -> v1 (goes to new loop)
         let new_he_twin = self.half_edges.insert(HalfEdge {
             origin: v2,
-            twin: new_he,
+            ring: crate::topology::RadialLinks::pair(new_he),
             next: he1,
             prev: he2_prev,
             edge,

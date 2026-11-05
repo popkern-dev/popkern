@@ -393,7 +393,7 @@ pub(crate) fn apply_closed_fillet(
 
     let he_seam_support = brep.half_edges.insert(HalfEdge {
         origin: v_with_seam,
-        twin: HalfEdgeHandle::default(),
+        ring: popkern_core::topology::RadialLinks::alone(),
         next: seam_old_next,
         prev: seam_old_prev,
         edge: edge_seam_side,
@@ -402,7 +402,7 @@ pub(crate) fn apply_closed_fillet(
     });
     let he_seam_fillet = brep.half_edges.insert(HalfEdge {
         origin: v_with_seam,
-        twin: he_seam_support,
+        ring: popkern_core::topology::RadialLinks::pair(he_seam_support),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: edge_seam_side,
@@ -417,7 +417,7 @@ pub(crate) fn apply_closed_fillet(
 
     let he_fresh_support = brep.half_edges.insert(HalfEdge {
         origin: v_fresh,
-        twin: HalfEdgeHandle::default(),
+        ring: popkern_core::topology::RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: edge_fresh_side,
@@ -429,7 +429,7 @@ pub(crate) fn apply_closed_fillet(
 
     let he_fresh_fillet = brep.half_edges.insert(HalfEdge {
         origin: v_fresh,
-        twin: he_fresh_support,
+        ring: popkern_core::topology::RadialLinks::pair(he_fresh_support),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: edge_fresh_side,

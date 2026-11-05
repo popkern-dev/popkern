@@ -801,7 +801,7 @@ fn build_polyhedron(
                     let eh = edge_of[&(a.min(b), a.max(b))];
                     let he = brep.half_edges.insert(HalfEdge {
                         origin: vhs[a],
-                        twin: Default::default(),
+                        ring: popkern_core::topology::RadialLinks::alone(),
                         next: Default::default(),
                         prev: Default::default(),
                         edge: eh,

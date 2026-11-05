@@ -50,6 +50,7 @@
 //! never mutated).
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{BRep, Edge, HalfEdge, VertexHandle};
 
 use crate::corner_2d_helpers::{rebuild_edge_curve_clipped, topology_failure};
@@ -220,7 +221,7 @@ pub(crate) fn apply_corner_plan(
     // before `he_out_a` in the front loop.
     let new_front = brep.half_edges.insert(HalfEdge {
         origin: v_t2,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: plan.he_out_a,
         prev: prev_front,
         edge: arc_edge,
@@ -231,7 +232,7 @@ pub(crate) fn apply_corner_plan(
     // before `he_out_b` in the back loop.
     let new_back = brep.half_edges.insert(HalfEdge {
         origin: v_t1,
-        twin: new_front,
+        ring: RadialLinks::pair(new_front),
         next: plan.he_out_b,
         prev: prev_back,
         edge: arc_edge,

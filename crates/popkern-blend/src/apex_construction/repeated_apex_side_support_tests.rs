@@ -1,8 +1,8 @@
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, Shell, ShellHandle, Solid,
-    Vertex, VertexHandle,
+    BRep, Edge, Face, FaceHandle, HalfEdge, Loop, Shell, ShellHandle, Solid, Vertex, VertexHandle,
 };
 
 use super::super::repeated_apex_region_candidates::{CandidateStatus, RegionOperationKind};
@@ -470,7 +470,7 @@ fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,

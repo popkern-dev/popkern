@@ -5,6 +5,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, VertexHandle,
 };
@@ -273,7 +274,7 @@ fn execute_face_ring(
                     .map(|next| next.origin)?;
                 let new_side = brep.half_edges.insert(HalfEdge {
                     origin: dead_end,
-                    twin: *dead,
+                    ring: RadialLinks::pair(*dead),
                     next: Default::default(),
                     prev: Default::default(),
                     edge: dead_edge,

@@ -3,6 +3,7 @@
 
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
+use crate::topology::RadialLinks;
 use crate::topology::{BRep, Edge, EdgeHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle};
 
 /// Result of the kemr (Kill Edge, Make Ring) operator.
@@ -228,7 +229,7 @@ impl BRep {
         // Create new_he: v_outer -> v_inner (spliced into the merged loop)
         let new_he = self.half_edges.insert(HalfEdge {
             origin: v_outer,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: he_inner,
             prev: he_outer_prev,
             edge,
@@ -239,7 +240,7 @@ impl BRep {
         // Create new_he_twin: v_inner -> v_outer
         let new_he_twin = self.half_edges.insert(HalfEdge {
             origin: v_inner,
-            twin: new_he,
+            ring: RadialLinks::pair(new_he),
             next: he_outer,
             prev: he_inner_prev,
             edge,

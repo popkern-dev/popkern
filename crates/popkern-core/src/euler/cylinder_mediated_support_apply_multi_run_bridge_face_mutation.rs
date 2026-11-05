@@ -1,5 +1,6 @@
 //! Mutation for multi-run bridge-face plans.
 
+use crate::topology::RadialLinks;
 use std::collections::{BTreeSet, HashSet};
 
 use crate::error::CoreError;
@@ -156,7 +157,7 @@ fn create_multi_run_bridge_boundary_twins(
         }
         let twin = brep.half_edges.insert(HalfEdge {
             origin,
-            twin: half_edge,
+            ring: RadialLinks::pair(half_edge),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -208,7 +209,7 @@ fn insert_multi_run_bridge_separator(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge,
@@ -312,7 +313,7 @@ fn insert_multi_run_bridge_connector(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge,

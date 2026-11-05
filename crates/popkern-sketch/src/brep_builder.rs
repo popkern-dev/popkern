@@ -16,6 +16,7 @@ use crate::nesting::NestingNode;
 use crate::plane::SketchPlane;
 use popkern_constraint::Sketch;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     Edge, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, VertexHandle,
 };
@@ -330,7 +331,7 @@ fn build_hole_loop(
 
         let he_fwd = brep.half_edges.insert(HalfEdge {
             origin: vertices[i],
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: edge_h,
@@ -340,7 +341,7 @@ fn build_hole_loop(
 
         let he_rev = brep.half_edges.insert(HalfEdge {
             origin: vertices[j],
-            twin: he_fwd,
+            ring: RadialLinks::pair(he_fwd),
             next: Default::default(),
             prev: Default::default(),
             edge: edge_h,

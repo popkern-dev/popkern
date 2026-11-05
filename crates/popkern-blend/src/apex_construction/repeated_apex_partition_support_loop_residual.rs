@@ -1,4 +1,5 @@
 use super::*;
+use popkern_core::topology::RadialLinks;
 
 pub(in crate::apex_construction) fn materialize_authored_support_boundary_residual_cycles(
     brep: &mut BRep,
@@ -88,7 +89,7 @@ fn materialize_support_boundary_residual_cycles_candidate(
                     })?;
                 let residual = brep.half_edges.insert(HalfEdge {
                     origin: residual_origin,
-                    twin: half_edge,
+                    ring: RadialLinks::pair(half_edge),
                     next: HalfEdgeHandle::default(),
                     prev: HalfEdgeHandle::default(),
                     edge: half_edge_data.edge,

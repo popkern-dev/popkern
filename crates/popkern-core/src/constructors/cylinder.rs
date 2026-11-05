@@ -1,5 +1,6 @@
 //! Cylinder constructor — proper 3-face BRep.
 
+use crate::topology::RadialLinks;
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, TAU};
 
 use crate::error::CoreError;
@@ -221,7 +222,7 @@ impl BRep {
         //   he_bot_arc -> he_seam_up -> he_top_arc -> he_seam_down -> he_bot_arc
         let he_bot_arc = brep.half_edges.insert(HalfEdge {
             origin: v_bot,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_bot_circle,
@@ -230,7 +231,7 @@ impl BRep {
         });
         let he_seam_up = brep.half_edges.insert(HalfEdge {
             origin: v_bot,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -239,7 +240,7 @@ impl BRep {
         });
         let he_top_arc = brep.half_edges.insert(HalfEdge {
             origin: v_top,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_top_circle,
@@ -248,7 +249,7 @@ impl BRep {
         });
         let he_seam_down = brep.half_edges.insert(HalfEdge {
             origin: v_top,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -259,7 +260,7 @@ impl BRep {
         // Cap face loops (1 half-edge each, self-loop):
         let he_bot_cap = brep.half_edges.insert(HalfEdge {
             origin: v_bot,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_bot_circle,
@@ -268,7 +269,7 @@ impl BRep {
         });
         let he_top_cap = brep.half_edges.insert(HalfEdge {
             origin: v_top,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_top_circle,

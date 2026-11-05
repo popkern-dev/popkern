@@ -1,5 +1,6 @@
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
 
 use super::*;
@@ -326,7 +327,7 @@ fn add_boundary_loop_face(
             });
             let half_edge = brep.half_edges.insert(HalfEdge {
                 origin: vertex,
-                twin: Default::default(),
+                ring: RadialLinks::alone(),
                 next: Default::default(),
                 prev: Default::default(),
                 edge,

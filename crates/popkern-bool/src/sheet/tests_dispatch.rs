@@ -334,18 +334,18 @@ fn boolean_with_sheets_sheet_sheet_union_transversal_concatenates() {
                  (4 + 4 corners + 4 imprint - 2 welds), got {}",
                 combined.vertices.len()
             );
-            // Non-manifold radial cycle: edge welding should
-            // populate nonmanifold_radial with the 4 half-edges
-            // sharing the crossing edge, threaded into a closed
-            // cycle. Verify the cycle is populated and walks to
-            // completion via BRep::radial_next.
+            // Non-manifold radial ring: edge welding links the 4
+            // half-edges sharing the crossing edge into one ring.
+            // Verify it walks to completion via BRep::radial_next.
+            let crossing = combined
+                .edges
+                .keys()
+                .find(|&e| combined.edge_fin_count(e) >= 4);
             assert!(
-                combined.nonmanifold_radial.len() >= 4,
-                "expected non-manifold radial cycle of length >= 4 \
-                 (the 4 half-edges sharing the crossing edge), got {}",
-                combined.nonmanifold_radial.len()
+                crossing.is_some(),
+                "expected a non-manifold ring of >= 4 fins (the 4 half-edges sharing the crossing edge)"
             );
-            if let Some((&start, _)) = combined.nonmanifold_radial.iter().next() {
+            if let Some(start) = crossing.map(|e| combined.edges[e].half_edge) {
                 let mut cursor = start;
                 let mut steps = 0;
                 loop {

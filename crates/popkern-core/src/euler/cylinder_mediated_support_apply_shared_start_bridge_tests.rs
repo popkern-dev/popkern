@@ -5,6 +5,7 @@ use crate::euler::{
 };
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex,
 };
@@ -167,7 +168,7 @@ fn add_boundary_polygon(
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,

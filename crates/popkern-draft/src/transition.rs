@@ -4,6 +4,7 @@
 //! extend to match, a small ruled-surface quad face is inserted to bridge
 //! the gap between old and new vertex positions.
 
+use popkern_core::topology::RadialLinks;
 use std::collections::HashMap;
 
 use crate::error::DraftError;
@@ -170,7 +171,7 @@ fn build_quad_face(
 
         let he = brep.half_edges.insert(HalfEdge {
             origin,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: Default::default(),
@@ -179,7 +180,7 @@ fn build_quad_face(
         });
         let tw = brep.half_edges.insert(HalfEdge {
             origin: dest,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: Default::default(),

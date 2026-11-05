@@ -1,6 +1,7 @@
 //! Existing support-boundary ownership claims for repeated-apex trim materialization.
 
 use super::*;
+use popkern_core::topology::RadialLinks;
 
 pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
     brep: &mut BRep,
@@ -62,7 +63,7 @@ pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
         }
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: start,
-            twin: support_half_edge,
+            ring: RadialLinks::pair(support_half_edge),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge,

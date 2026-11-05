@@ -1,6 +1,7 @@
 use super::*;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, BrepSewingProvenance, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
     Shell, ShellHandle, Solid, Vertex,
@@ -111,7 +112,7 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),

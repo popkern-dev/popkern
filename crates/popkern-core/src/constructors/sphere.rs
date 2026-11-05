@@ -1,5 +1,6 @@
 //! Sphere constructor — proper 1-face BRep.
 
+use crate::topology::RadialLinks;
 use std::f64::consts::{PI, TAU};
 
 use crate::error::CoreError;
@@ -106,7 +107,7 @@ impl BRep {
         // he_seam_down: north -> south (left seam, u=0)
         let he_seam_up = brep.half_edges.insert(HalfEdge {
             origin: v_south,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -115,7 +116,7 @@ impl BRep {
         });
         let he_seam_down = brep.half_edges.insert(HalfEdge {
             origin: v_north,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,

@@ -7,6 +7,7 @@ use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace};
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::brep_edge_surface_compatibility_helpers::adjacent_surfaced_pair;
 use crate::topology::{
     BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
@@ -422,7 +423,7 @@ fn vertex(position: Point3) -> Vertex {
 fn half_edge(origin: crate::topology::VertexHandle, loop_: LoopHandle) -> HalfEdge {
     HalfEdge {
         origin,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: Default::default(),

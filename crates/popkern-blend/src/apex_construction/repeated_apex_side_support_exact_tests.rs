@@ -1,6 +1,7 @@
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, Vertex, VertexHandle,
 };
@@ -178,7 +179,7 @@ fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle)
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,

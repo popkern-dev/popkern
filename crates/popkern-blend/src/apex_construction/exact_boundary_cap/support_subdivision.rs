@@ -2,6 +2,7 @@
 
 use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, TopologyRole,
 };
@@ -58,7 +59,7 @@ pub(super) fn materialize_support_subdivision(
         preserve_previous_cap_neighbor_side(brep, previous_cap_twin, cap_start, cap_end)?;
         let support_half_edge = brep.half_edges.insert(HalfEdge {
             origin: cap_end,
-            twin: cap_half_edge,
+            ring: RadialLinks::pair(cap_half_edge),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: cap_edge,
@@ -117,7 +118,7 @@ fn preserve_previous_cap_neighbor_side(
 
     let balancing_half_edge = brep.half_edges.insert(HalfEdge {
         origin: cap_start,
-        twin: previous_cap_twin,
+        ring: RadialLinks::pair(previous_cap_twin),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: preserved_edge,

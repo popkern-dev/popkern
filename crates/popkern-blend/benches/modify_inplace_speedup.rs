@@ -75,7 +75,8 @@ fn closed_setup() -> Option<(BRep, FaceHandle)> {
     let edge = subtracted.edges.keys().find(|e| {
         let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
         let fa = subtracted.loops[he.loop_].face;
-        let fb = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+        let fb =
+            subtracted.loops[subtracted.half_edges[he.mate().expect("manifold edge")].loop_].face;
         let sa = subtracted.faces[fa].surface.as_ref().map(|s| &s.geometry);
         let sb = subtracted.faces[fb].surface.as_ref().map(|s| &s.geometry);
         matches!(
@@ -126,7 +127,7 @@ fn find_open_restored_edge(
     };
     unfilleted.edges.keys().find(|e| {
         let he = &unfilleted.half_edges[unfilleted.edges[*e].half_edge];
-        let twin = &unfilleted.half_edges[he.twin];
+        let twin = &unfilleted.half_edges[he.mate().expect("manifold edge")];
         let v0 = unfilleted.vertices[he.origin].position;
         let v1 = unfilleted.vertices[twin.origin].position;
         (close(&v0, &p0) && close(&v1, &p1)) || (close(&v0, &p1) && close(&v1, &p0))
@@ -234,11 +235,14 @@ fn bench_closed_constant(c: &mut Criterion) {
                 .keys()
                 .find(|e| {
                     let he = &unfilleted.half_edges[unfilleted.edges[*e].half_edge];
-                    if he.origin != unfilleted.half_edges[he.twin].origin {
+                    if he.origin != unfilleted.half_edges[he.mate().expect("manifold edge")].origin
+                    {
                         return false;
                     }
                     let fa = unfilleted.loops[he.loop_].face;
-                    let fb = unfilleted.loops[unfilleted.half_edges[he.twin].loop_].face;
+                    let fb = unfilleted.loops
+                        [unfilleted.half_edges[he.mate().expect("manifold edge")].loop_]
+                        .face;
                     let sa = unfilleted.faces[fa].surface.as_ref().map(|s| &s.geometry);
                     let sb = unfilleted.faces[fb].surface.as_ref().map(|s| &s.geometry);
                     matches!(

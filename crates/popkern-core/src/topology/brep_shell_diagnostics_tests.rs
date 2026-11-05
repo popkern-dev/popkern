@@ -1,6 +1,7 @@
 use super::*;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
     ShellHandle, Solid, Vertex,
@@ -78,8 +79,9 @@ fn diagnostics_reports_corrupted_loop_and_radial_entry() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let loop_handle = brep.loops.keys().next().unwrap();
     brep.loops[loop_handle].half_edge = HalfEdgeHandle::default();
-    brep.nonmanifold_radial
-        .insert(HalfEdgeHandle::default(), HalfEdgeHandle::default());
+    // A ring link to a fin that does not exist.
+    let corrupt = brep.half_edges.keys().next().unwrap();
+    brep.half_edges[corrupt].ring.next = HalfEdgeHandle::default();
 
     let report = analyze_brep_loop_shell_validity(&brep);
 
@@ -164,7 +166,7 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),

@@ -4,6 +4,7 @@
 mod side_support_bridge_path_patch;
 
 use super::*;
+use popkern_core::topology::RadialLinks;
 use side_support_bridge_path_patch::{
     SideSupportBridgePathPatch, SideSupportBridgePathPatchRequest,
     author_side_support_bridge_path_patch_for_cylinder_trim, trace_side_support_bridge_claim_miss,
@@ -72,7 +73,7 @@ pub(super) fn claim_side_support_bridge_boundary_for_cylinder_trim(
         }
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: start,
-            twin: support_half_edge,
+            ring: RadialLinks::pair(support_half_edge),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge,

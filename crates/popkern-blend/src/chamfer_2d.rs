@@ -38,6 +38,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{BRep, Edge, HalfEdge, HalfEdgeHandle, VertexHandle};
 use popkern_math::PortableMath;
 
@@ -284,7 +285,7 @@ pub(crate) fn apply_chamfer_plan(
 
     let new_front = brep.half_edges.insert(HalfEdge {
         origin: v_t2,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: plan.he_out_a,
         prev: prev_front,
         edge: chamfer_edge,
@@ -293,7 +294,7 @@ pub(crate) fn apply_chamfer_plan(
     });
     let new_back = brep.half_edges.insert(HalfEdge {
         origin: v_t1,
-        twin: new_front,
+        ring: RadialLinks::pair(new_front),
         next: plan.he_out_b,
         prev: prev_back,
         edge: chamfer_edge,

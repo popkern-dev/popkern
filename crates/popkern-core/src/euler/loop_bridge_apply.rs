@@ -1,3 +1,4 @@
+use crate::topology::RadialLinks;
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;
@@ -99,7 +100,7 @@ impl BRep {
 
         let start_bridge_half_edge = self.half_edges.insert(HalfEdge {
             origin: first_start_vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: second_start,
             prev: first_end,
             edge: start_bridge_edge,
@@ -108,7 +109,7 @@ impl BRep {
         });
         let start_bridge_half_edge_twin = self.half_edges.insert(HalfEdge {
             origin: second_start_vertex,
-            twin: start_bridge_half_edge,
+            ring: RadialLinks::pair(start_bridge_half_edge),
             next: first_start,
             prev: second_end,
             edge: start_bridge_edge,
@@ -119,7 +120,7 @@ impl BRep {
 
         let end_bridge_half_edge = self.half_edges.insert(HalfEdge {
             origin: first_end_vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: second_end,
             prev: first_start,
             edge: end_bridge_edge,
@@ -128,7 +129,7 @@ impl BRep {
         });
         let end_bridge_half_edge_twin = self.half_edges.insert(HalfEdge {
             origin: second_end_vertex,
-            twin: end_bridge_half_edge,
+            ring: RadialLinks::pair(end_bridge_half_edge),
             next: first_end,
             prev: second_start,
             edge: end_bridge_edge,
@@ -256,7 +257,7 @@ impl BRep {
         let origin = self.half_edges[next].origin;
         let twin = self.half_edges.insert(HalfEdge {
             origin,
-            twin: half_edge,
+            ring: RadialLinks::pair(half_edge),
             next: Default::default(),
             prev: Default::default(),
             edge,
