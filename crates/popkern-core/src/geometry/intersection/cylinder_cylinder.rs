@@ -16,7 +16,7 @@
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
-use super::cylinder_cylinder_singular::{crossing_branches, singular_crossings};
+use super::cylinder_cylinder_singular::singular_crossings;
 use crate::error::CoreError;
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::curve_on_surface::CurveOnSurface;
@@ -119,21 +119,10 @@ pub(crate) fn try_cylinder_cylinder(
     // Scan the discriminant over one period.
     let n = LOOP_SAMPLES;
     let discs: Vec<f64> = (0..n).map(|i| quad(i as f64 / n as f64 * TAU).0).collect();
-    let all_positive = discs.iter().all(|&d| d > 0.0);
     let all_negative = discs.iter().all(|&d| d <= 0.0);
     if all_negative {
         return Some(Vec::new()); // no intersection (or grazing below resolution)
     }
-
-    let root = |theta: f64, low: bool| -> f64 {
-        let (disc, b, _) = quad(theta);
-        let s = disc.max(0.0).sqrt();
-        if low {
-            (-b - s) / (2.0 * a_coef)
-        } else {
-            (-b + s) / (2.0 * a_coef)
-        }
-    };
 
     // Fit to tolerance: the samples are exact surface points, but the
     // cubic through them is not — at millimetre scale a 512-sample
@@ -146,101 +135,8 @@ pub(crate) fn try_cylinder_cylinder(
     let mut density = n;
     loop {
         let mut worst = 0.0_f64;
-        let mut loops: Vec<Vec<(f64, f64)>> = Vec::new(); // (θ, t) sequences
-        let crossing_split = if crossings.is_empty() {
-            None
-        } else {
-            crossing_branches(&quad, &discs, &crossings, a_coef, density)
-        };
-        let open_branches = crossing_split.is_some();
-        if let Some(branches) = crossing_split {
-            loops = branches;
-        } else if all_positive {
-            // Full pierce: two disjoint closed loops, one per root branch.
-            for low in [true, false] {
-                let pts: Vec<(f64, f64)> = (0..=density)
-                    .map(|i| {
-                        let theta = i as f64 / density as f64 * TAU;
-                        (theta, root(theta, low))
-                    })
-                    .collect();
-                loops.push(pts);
-            }
-        } else {
-            // Partial pierce: one closed loop per positive-discriminant
-            // interval — out along the low root, back along the high
-            // root, joined at the tangency angles (disc = 0), refined by
-            // bisection.
-            let refine = |mut neg: f64, mut pos: f64| -> f64 {
-                for _ in 0..60 {
-                    let mid = 0.5 * (neg + pos);
-                    if quad(mid).0 > 0.0 {
-                        pos = mid;
-                    } else {
-                        neg = mid;
-                    }
-                }
-                0.5 * (neg + pos)
-            };
-            // Find sign-change boundaries walking the scan circularly.
-            let mut intervals: Vec<(f64, f64)> = Vec::new();
-            for i in 0..n {
-                let j = (i + 1) % n;
-                if discs[i] <= 0.0 && discs[j] > 0.0 {
-                    // entering positive: find matching exit
-                    let theta_in = refine(i as f64 / n as f64 * TAU, j as f64 / n as f64 * TAU);
-                    let mut k = j;
-                    while discs[(k + 1) % n] > 0.0 {
-                        k = (k + 1) % n;
-                        if k == i {
-                            break;
-                        }
-                    }
-                    // The exit bracket [last positive, first non-positive]
-                    // unwrapped TOGETHER past θ_in: an interval running
-                    // through θ = 0 bracketed [26°, 385°] when each end
-                    // was unwrapped on its own, and the loop ran the full
-                    // turn through negative discriminants (PK-782: 9.53
-                    // off the second cylinder, densified to 32770 points).
-                    let mut exit_pos = k as f64 / n as f64 * TAU;
-                    if exit_pos < theta_in {
-                        exit_pos += TAU;
-                    }
-                    let theta_out = refine(exit_pos + TAU / n as f64, exit_pos);
-                    let theta_out = if theta_out > theta_in {
-                        theta_out
-                    } else {
-                        theta_out + TAU
-                    };
-                    intervals.push((theta_in, theta_out));
-                }
-            }
-            for (theta_in, theta_out) in intervals {
-                let span = theta_out - theta_in;
-                let m = ((span / TAU * density as f64).ceil() as usize).max(16);
-                // Cosine spacing: at the tangency ends the roots move as
-                // √(θ − θ_end), which no uniform θ sampling fits — a
-                // 50° loop of two r5 cylinders densified to the cap,
-                // 32770 points (PK-782). In φ, with θ the cosine map,
-                // √disc ∝ sin φ and the loop is smooth.
-                let at = |i: usize| {
-                    let phi = std::f64::consts::PI * i as f64 / m as f64;
-                    theta_in + span * 0.5 * (1.0 - phi.pcos())
-                };
-                let mut pts: Vec<(f64, f64)> = Vec::with_capacity(2 * m + 2);
-                for i in 0..=m {
-                    let theta = at(i);
-                    pts.push((theta, root(theta, true)));
-                }
-                for i in (0..=m).rev() {
-                    let theta = at(i);
-                    pts.push((theta, root(theta, false)));
-                }
-                // Close back to the start point (same tangency point).
-                loops.push(pts);
-            }
-        }
-
+        let (loops, open_branches) =
+            super::ruling_pierce::ruling_loops(&quad, &discs, a_coef, &crossings, density);
         // Chart parameters for a point on each cylinder, continuously
         // unwrapped along the sample sequence.
         let chart = |surface: &SurfaceGeometry, p: Point3, prev_u: Option<f64>| -> (f64, f64) {
@@ -302,7 +198,12 @@ pub(crate) fn try_cylinder_cylinder(
             }
             match fit_march_samples(&samples, !open_branches) {
                 Ok(curve) => {
-                    worst = worst.max(fit_deviation(&curve, surface1, surface2, samples.len()));
+                    worst = worst.max(super::ruling_pierce::fit_deviation(
+                        &curve,
+                        surface1,
+                        surface2,
+                        samples.len(),
+                    ));
                     results.push(SurfaceSurfaceIntersection::Curve(curve));
                 }
                 Err(CoreError::PreconditionFailed(_)) => continue,
@@ -416,42 +317,6 @@ fn try_parallel_axes(
         }));
     }
     Some(results)
-}
-
-/// The largest distance from `curve` (sampled at four points per fit
-/// sample) to either cylinder, measured on the implicit surfaces.
-fn fit_deviation(
-    curve: &CurveOnSurface,
-    surface1: &SurfaceGeometry,
-    surface2: &SurfaceGeometry,
-    samples: usize,
-) -> f64 {
-    use crate::geometry::curve::CurveEval;
-    let off = |surface: &SurfaceGeometry, p: Point3| -> f64 {
-        let SurfaceGeometry::Cylinder {
-            origin,
-            axis,
-            radius,
-        } = surface
-        else {
-            return 0.0;
-        };
-        let Some(a) = axis.normalized() else {
-            return 0.0;
-        };
-        let rel = p - *origin;
-        ((rel - a * rel.dot(&a)).length() - radius).abs()
-    };
-    let (t0, t1) = curve.curve_3d.parameter_range();
-    let k = 4 * samples.max(1);
-    (0..=k)
-        .map(|i| {
-            let p = curve
-                .curve_3d
-                .point_at(t0 + (t1 - t0) * i as f64 / k as f64);
-            off(surface1, p).max(off(surface2, p))
-        })
-        .fold(0.0, f64::max)
 }
 
 /// Normalize an angle into the cylinder chart's [0, 2π) branch.

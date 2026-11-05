@@ -97,6 +97,9 @@ pub fn draft_faces(
     // vertex/edge recomputation, adjacent face handling).
     let (mut result_brep, warnings) =
         topology::apply_draft_topology(brep, &drafted_surfaces, options, &tolerance)?;
+    if let Some(face) = consumed_face(brep, &result_brep) {
+        return Err(DraftError::FaceConsumed { face });
+    }
 
     // Assign stable names when tracking is active.
     // Draft modifies faces in place (tilts surfaces), so all faces are Modified.
@@ -107,6 +110,39 @@ pub fn draft_faces(
     Ok(DraftResult {
         brep: result_brep,
         warnings,
+    })
+}
+
+/// A planar face whose boundary the draft turned inside out: its
+/// loop's area normal (Newell, over its vertices) reversed against the
+/// same loop before the draft, or collapsed. The recomputed vertices of
+/// a face the drafted walls cross before reaching lie past each other.
+fn consumed_face(before: &BRep, after: &BRep) -> Option<popkern_core::topology::FaceHandle> {
+    use popkern_core::geometry::Vec3;
+    let newell = |brep: &BRep, face| {
+        let pts = brep.face_outer_loop_positions(face);
+        let mut n = Vec3::new(0.0, 0.0, 0.0);
+        for (i, p) in pts.iter().enumerate() {
+            let q = pts[(i + 1) % pts.len()];
+            n = n + Vec3::new(
+                (p.y - q.y) * (p.z + q.z),
+                (p.z - q.z) * (p.x + q.x),
+                (p.x - q.x) * (p.y + q.y),
+            );
+        }
+        n
+    };
+    after.faces.iter().find_map(|(fh, f)| {
+        let planar = matches!(
+            f.surface.as_ref().map(|s| &s.geometry),
+            Some(popkern_core::geometry::surface::SurfaceGeometry::Plane { .. })
+        );
+        if !planar || !before.faces.contains_key(fh) {
+            return None;
+        }
+        let (was, now) = (newell(before, fh), newell(after, fh));
+        let scale = was.length();
+        (scale > 0.0 && was.dot(&now) <= 1e-9 * scale * scale).then_some(fh)
     })
 }
 
