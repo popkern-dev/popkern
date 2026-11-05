@@ -22,6 +22,7 @@ pub mod body_generative;
 pub mod body_hinge;
 pub mod body_partition;
 pub mod body_recipes;
+pub mod body_revolve;
 pub mod body_seam_hinge;
 pub mod body_shaping;
 pub mod body_sweep;

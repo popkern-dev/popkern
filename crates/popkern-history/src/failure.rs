@@ -102,6 +102,25 @@ pub enum FeatureFailure {
         /// How many faces the tool body had.
         tool_faces: usize,
     },
+    /// An extrude or revolve up to (or offset from) a face could not
+    /// end on it (brep-bench §4.4): the face lies `near`..`far` along
+    /// the feature's travel (a distance for an extrude, an angle in
+    /// radians for a revolve) across the section, and `reason` says why
+    /// that end cannot be served (`curved_end_needs_boss`: only a boss
+    /// into the face's own body follows a face the section does not
+    /// meet all at once;
+    /// `thin_behind_face`: that body is thinner behind the face than
+    /// the end's depth; `face_out_of_reach`: a ray from the section
+    /// misses the face's surface).
+    UpToFaceDeclined {
+        /// Why, as a stable kind (see above).
+        reason: String,
+        /// The nearest distance along the extrude at which the face
+        /// lies under the section.
+        near: f64,
+        /// The farthest.
+        far: f64,
+    },
     /// The operation was cancelled by the caller.
     Cancelled,
     /// A failure with no richer class (reference resolution details,
@@ -199,6 +218,7 @@ impl FeatureFailure {
             FeatureFailure::GenerativeDeclined { .. } => "GenerativeDeclined",
             FeatureFailure::PieceRuleMatchedNothing { .. } => "PieceRuleMatchedNothing",
             FeatureFailure::CutRemovedNothing { .. } => "CutRemovedNothing",
+            FeatureFailure::UpToFaceDeclined { .. } => "UpToFaceDeclined",
             FeatureFailure::Cancelled => "Cancelled",
             FeatureFailure::Other { .. } => "Other",
         }
@@ -247,6 +267,20 @@ impl std::fmt::Display for FeatureFailure {
                 f,
                 "the cut removes no material: none of the tool's {tool_faces} faces reaches the body (check the sketch placement and the extrude direction)"
             ),
+            FeatureFailure::UpToFaceDeclined { reason, near, far } => match reason.as_str() {
+                "curved_end_needs_boss" => write!(
+                    f,
+                    "the section meets the end face from {near} to {far} along its travel, not all at once: only a boss into the face's own body (offset 0) follows it"
+                ),
+                "thin_behind_face" => write!(
+                    f,
+                    "the section meets the end face from {near} to {far} along its travel, and the face's body is thinner behind it than that: the boss would come through"
+                ),
+                _ => write!(
+                    f,
+                    "the end face is out of reach of the section ({reason}, {near}..{far})"
+                ),
+            },
             FeatureFailure::Cancelled => f.write_str("operation cancelled by caller"),
         }
     }

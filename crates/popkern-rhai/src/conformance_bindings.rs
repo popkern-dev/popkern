@@ -180,8 +180,8 @@ pub const RHAI_BINDINGS: &[Binding] = &[
         "revolve",
         "revolve",
         &["axis", "end"],
-        &["label"],
-        &["face", "mode"],
+        &["label", "mode"],
+        &["face"],
     ),
     b(
         "sweep",

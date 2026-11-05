@@ -2281,6 +2281,9 @@
         "rule",
         "pieces",
         "tool_faces",
+        "reason",
+        "near",
+        "far",
         "detail",
         "report"
       ]

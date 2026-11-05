@@ -113,20 +113,25 @@ pub(crate) fn host_for_sketch_plane(
 }
 
 /// The body whose BRep resolves an extrude's up-to / offset target
-/// (surface or vertex) — the host such a feature is built against and,
-/// for a Boss/Cut, merges into. `None` for blind ends.
+/// (surface or vertex), or a revolve's up-to face — the host such a
+/// feature is built against and, for a Boss/Cut, merges into. `None`
+/// for blind ends.
 pub(crate) fn host_for_extrude_target(
     feature: &Feature,
     own_body: BodyId,
     body_breps: &WorkingBodies,
 ) -> Option<BodyId> {
-    let Feature::Extrude {
-        end_condition,
-        second_direction,
-        ..
-    } = feature
-    else {
-        return None;
+    let (end_condition, second_direction) = match feature {
+        Feature::Extrude {
+            end_condition,
+            second_direction,
+            ..
+        } => (end_condition, second_direction),
+        Feature::Revolve {
+            end_condition: crate::feature::RevolveEnd::UpToSurface { face },
+            ..
+        } => return owner_of(face, own_body, body_breps),
+        _ => return None,
     };
     let target = |end: &crate::feature::ExtrudeEnd| -> Option<EntityName> {
         match end {
@@ -141,13 +146,19 @@ pub(crate) fn host_for_extrude_target(
             .as_ref()
             .and_then(|s| target(&s.end_condition))
     })?;
+    owner_of(&name, own_body, body_breps)
+}
+
+/// The first body (by id) other than `own_body` whose BRep resolves
+/// `name`.
+fn owner_of(name: &EntityName, own_body: BodyId, body_breps: &WorkingBodies) -> Option<BodyId> {
     let mut bodies: Vec<&BodyId> = body_breps.keys().collect();
     bodies.sort_by_key(|b| b.0);
     bodies.into_iter().copied().find(|bid| {
         *bid != own_body
             && body_breps
                 .get(bid)
-                .is_some_and(|brep| !matches!(resolve_name(&name, brep), Resolution::NotFound))
+                .is_some_and(|brep| !matches!(resolve_name(name, brep), Resolution::NotFound))
     })
 }
 

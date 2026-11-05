@@ -6,7 +6,7 @@ use popkern_core::naming::{EntityName, EntityRole, RoleCategory};
 use popkern_history::SelectionRecord;
 use popkern_history::feature::{
     AxisDesc, BoolOpKind, ExtrudeEnd, Feature, JoinStyleKind, NonManifoldPolicy, OperationMode,
-    RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind, Vec3Desc,
+    ShellDirectionKind, TrimPolicyKind, Vec3Desc,
 };
 use popkern_history::feature_blend::{ChamferKindDesc, ContinuityKind, FilletRecipeDesc};
 use popkern_history::feature_transform::RigidMotionDesc;
@@ -37,10 +37,15 @@ pub enum End {
     Blind(Scalar),
     /// Through everything.
     ThroughAll,
-    /// Up to a face.
+    /// Up to a face of the extruded body.
     UpToSurface(FaceSelector),
-    /// Offset from a face.
+    /// Up to a face of another body (brep-bench §4.4): the pad down to
+    /// a drum, the post up to a dome.
+    UpToSurfaceOn(Body, FaceSelector),
+    /// Offset from a face of the extruded body.
     OffsetFromSurface(FaceSelector, Scalar),
+    /// Offset from a face of another body.
+    OffsetFromSurfaceOn(Body, FaceSelector, Scalar),
     /// Symmetric about the sketch plane.
     MidPlane(Scalar),
 }
@@ -54,6 +59,11 @@ pub enum RevolveEnd {
     FullCircle,
     /// Symmetric half angle.
     MidPlane(Scalar),
+    /// Until the section meets a face of the revolved body.
+    UpToSurface(FaceSelector),
+    /// Until the section meets a face of another body (a rib turned to
+    /// a stop).
+    UpToSurfaceOn(Body, FaceSelector),
 }
 
 impl Body {
@@ -221,8 +231,15 @@ impl Body {
             End::UpToSurface(sel) => ExtrudeEnd::UpToSurface {
                 face: self.one_face_recorded(model, "end_face", &sel, records)?,
             },
+            End::UpToSurfaceOn(on, sel) => ExtrudeEnd::UpToSurface {
+                face: on.one_face_recorded(model, "end_face", &sel, records)?,
+            },
             End::OffsetFromSurface(sel, d) => ExtrudeEnd::OffsetFromSurface {
                 face: self.one_face_recorded(model, "end_face", &sel, records)?,
+                offset: Self::bind(model, "offset", &d, unit)?,
+            },
+            End::OffsetFromSurfaceOn(on, sel, d) => ExtrudeEnd::OffsetFromSurface {
+                face: on.one_face_recorded(model, "end_face", &sel, records)?,
                 offset: Self::bind(model, "offset", &d, unit)?,
             },
             End::MidPlane(d) => ExtrudeEnd::MidPlane {
@@ -256,33 +273,6 @@ impl Body {
             second_direction: None,
         };
         self.record(model, feature, label, records)
-    }
-
-    /// Revolve the body's last sketch about `axis`.
-    pub fn revolve(
-        self,
-        model: &mut Model,
-        axis: AxisDesc,
-        end: RevolveEnd,
-        label: &str,
-    ) -> Result<Body, ScriptError> {
-        let face = self.last_sketch_face(model)?;
-        let end_condition = match end {
-            RevolveEnd::Blind(a) => TreeRevolveEnd::Blind {
-                angle: Self::bind(model, "angle", &a, Unit::Degrees)?,
-            },
-            RevolveEnd::FullCircle => TreeRevolveEnd::FullCircle,
-            RevolveEnd::MidPlane(a) => TreeRevolveEnd::MidPlane {
-                half_angle: Self::bind(model, "half_angle", &a, Unit::Degrees)?,
-            },
-        };
-        let feature = Feature::Revolve {
-            face,
-            axis,
-            end_condition,
-            mode: OperationMode::NewBody,
-        };
-        self.record(model, feature, label, Vec::new())
     }
 
     /// Constant-radius fillet with the default recipe (G1, rolling ball).

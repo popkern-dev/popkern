@@ -4,7 +4,7 @@
 //! dropped.
 
 use popkern_history::feature::{
-    AxisDesc, BoolOpKind, ExtrudeEnd, Feature, JoinStyleKind, NonManifoldPolicy, OperationMode,
+    AxisDesc, BoolOpKind, Feature, JoinStyleKind, NonManifoldPolicy, OperationMode,
     RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind,
 };
 use popkern_history::feature_blend::{
@@ -105,38 +105,6 @@ fn fillet_options(
     Ok(options(pairs))
 }
 
-fn end_condition(
-    model: &Model,
-    spell: Speller<'_>,
-    end: &ExtrudeEnd,
-    context: &str,
-) -> Result<String, EmitError> {
-    let tree = model.tree();
-    Ok(match end {
-        ExtrudeEnd::Blind { distance } => format!("blind({})", scalar(tree, *distance, context)?),
-        ExtrudeEnd::ThroughAll => "through_all()".into(),
-        ExtrudeEnd::UpToSurface { face } => format!(
-            "up_to_surface({})",
-            spell("end_face", std::slice::from_ref(face), true)?
-        ),
-        ExtrudeEnd::OffsetFromSurface { face, offset } => format!(
-            "offset_from_surface({}, {})",
-            spell("end_face", std::slice::from_ref(face), true)?,
-            scalar(tree, *offset, context)?
-        ),
-        ExtrudeEnd::MidPlane { half_distance } => {
-            format!("mid_plane({})", scalar(tree, *half_distance, context)?)
-        }
-        ExtrudeEnd::UpToVertex { .. } => {
-            return Err(EmitError::not_applicable(
-                context,
-                "extrude",
-                "up_to_vertex has no spelling in the skin",
-            ));
-        }
-    })
-}
-
 /// The body owning the feature that minted `operation` (loft sections
 /// name their sketch's operation; that sketch's node carries the body).
 fn body_of_operation(
@@ -165,11 +133,13 @@ pub(super) fn axis(spell: Speller<'_>, axis: &AxisDesc) -> Result<String, EmitEr
 }
 
 /// The statement for `node`. `tool_var` names the tool body of a
-/// boolean.
+/// boolean; `end_owner` is the body owning an extrude's end face, when
+/// that is not the extruded body.
 pub fn statement(
     model: &Model,
     node: &FeatureNode,
     tool_var: &dyn Fn(popkern_history::node::BodyId) -> String,
+    end_owner: Option<popkern_history::node::BodyId>,
     spell: Speller<'_>,
 ) -> Result<Statement, EmitError> {
     let tree = model.tree();
@@ -224,7 +194,13 @@ pub fn statement(
             }
             format!(
                 ".extrude({}{})",
-                end_condition(model, spell, end, context)?,
+                crate::emit_spelling::end_condition(
+                    model,
+                    spell,
+                    end,
+                    end_owner.map(tool_var),
+                    context
+                )?,
                 options(pairs)
             )
         }
@@ -234,10 +210,11 @@ pub fn statement(
             mode,
             ..
         } => {
-            if !matches!(mode, OperationMode::NewBody) {
-                return Err(decline(
-                    "revolve boss/cut modes have no spelling in the skin",
-                ));
+            let mut pairs = vec![label_option(label)];
+            match mode {
+                OperationMode::NewBody => {}
+                OperationMode::Boss => pairs.push(("mode", quoted("boss"))),
+                OperationMode::Cut => pairs.push(("mode", quoted("cut"))),
             }
             let end = match end {
                 TreeRevolveEnd::Blind { angle } => {
@@ -247,16 +224,15 @@ pub fn statement(
                 TreeRevolveEnd::MidPlane { half_angle } => {
                     format!("mid_plane({})", scalar(tree, *half_angle, context)?)
                 }
-                TreeRevolveEnd::UpToSurface { .. } => {
-                    return Err(decline("revolve up_to_surface has no spelling in the skin"));
-                }
+                TreeRevolveEnd::UpToSurface { face } => format!(
+                    "up_to_surface({}{})",
+                    end_owner
+                        .map(|b| format!("{}, ", tool_var(b)))
+                        .unwrap_or_default(),
+                    spell("end_face", std::slice::from_ref(face), true)?
+                ),
             };
-            format!(
-                ".revolve({}, {}{})",
-                axis(spell, a)?,
-                end,
-                options(vec![label_option(label)])
-            )
+            format!(".revolve({}, {}{})", axis(spell, a)?, end, options(pairs))
         }
         Feature::Sweep { mode, .. } => {
             if !matches!(mode, OperationMode::NewBody) {

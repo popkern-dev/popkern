@@ -3686,6 +3686,7 @@ dependencies = [
  "popkern-hinge",
  "popkern-math",
  "popkern-measure",
+ "popkern-mesh",
  "popkern-shell",
  "popkern-sketch",
  "popkern-sweep",

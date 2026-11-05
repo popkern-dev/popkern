@@ -87,7 +87,7 @@ pub(crate) fn execute_feature(
             end_condition,
             draft_angle,
             second_direction,
-            ..
+            mode,
         } => {
             // Analytic profile + blind end: the exact wire sweep
             // `popkern-part` uses (one code path, one topology).
@@ -99,6 +99,7 @@ pub(crate) fn execute_feature(
                     face,
                     direction.as_ref(),
                     end_condition,
+                    *mode,
                     draft_angle.as_ref(),
                     second_direction.as_ref(),
                     host_brep,
@@ -132,6 +133,7 @@ pub(crate) fn execute_feature(
                 face,
                 direction.as_ref(),
                 end_condition,
+                *mode,
                 draft_angle.as_ref(),
                 second_direction.as_ref(),
                 host_brep,
@@ -392,7 +394,7 @@ pub(crate) fn execute_feature(
             face,
             axis,
             end_condition,
-            ..
+            mode,
         } => {
             let face_handle = resolve_face(face, brep)?;
             let (origin, direction) = resolve_axis(axis, brep)?;
@@ -413,7 +415,15 @@ pub(crate) fn execute_feature(
                 axis_origin: origin,
                 axis_dir: direction,
                 profile_centroid,
+                profile_points: match end_condition {
+                    crate::feature::RevolveEnd::UpToSurface { .. } => {
+                        crate::extrude_conform::section_points(brep, face_handle)
+                    }
+                    _ => Vec::new(),
+                },
                 brep,
+                host: merge_host.and_then(|h| body_breps.get(&h)),
+                mode: *mode,
                 tolerance,
             };
             let angle_val = resolve_revolve_angle(end_condition, param_table, Some(&revolve_ctx))?;

@@ -4,7 +4,7 @@
 
 use popkern_history::FeatureTree;
 use popkern_history::expression::Expression;
-use popkern_history::feature::{BasePlane, SketchPlaneDesc};
+use popkern_history::feature::{BasePlane, ExtrudeEnd, SketchPlaneDesc};
 use popkern_history::feature_sketch::ScalarBinding;
 use popkern_history::parameter::ParameterId;
 use popkern_script::Model;
@@ -381,4 +381,40 @@ fn spline_options(degree: usize, weights: &[f64], knots: &[f64]) -> String {
     } else {
         format!(", #{{ {} }}", entries.join(", "))
     }
+}
+
+/// An extrude's end. `on` is the variable of the body owning the end
+/// face when it is not the extruded body (`up_to_surface(on, ...)`).
+pub(crate) fn end_condition(
+    model: &Model,
+    spell: Speller<'_>,
+    end: &ExtrudeEnd,
+    on: Option<String>,
+    context: &str,
+) -> Result<String, EmitError> {
+    let tree = model.tree();
+    let on = on.map(|v| format!("{v}, ")).unwrap_or_default();
+    Ok(match end {
+        ExtrudeEnd::Blind { distance } => format!("blind({})", scalar(tree, *distance, context)?),
+        ExtrudeEnd::ThroughAll => "through_all()".into(),
+        ExtrudeEnd::UpToSurface { face } => format!(
+            "up_to_surface({on}{})",
+            spell("end_face", std::slice::from_ref(face), true)?
+        ),
+        ExtrudeEnd::OffsetFromSurface { face, offset } => format!(
+            "offset_from_surface({on}{}, {})",
+            spell("end_face", std::slice::from_ref(face), true)?,
+            scalar(tree, *offset, context)?
+        ),
+        ExtrudeEnd::MidPlane { half_distance } => {
+            format!("mid_plane({})", scalar(tree, *half_distance, context)?)
+        }
+        ExtrudeEnd::UpToVertex { .. } => {
+            return Err(EmitError::not_applicable(
+                context,
+                "extrude",
+                "up_to_vertex has no spelling in the skin",
+            ));
+        }
+    })
 }
