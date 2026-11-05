@@ -36,6 +36,9 @@ impl BRep {
     ///   (shouldn't happen for well-formed inputs).
     pub fn open_box(tolerance: Tolerance) -> Result<Self, CoreError> {
         let mut brep = Self::unit_cube(tolerance)?;
+        // The cube is built facing into itself; a sheet's outward side
+        // is its faces' own normals, so face out of the box first.
+        brep.reverse_body_orientation();
 
         // Pick the first face to remove.
         let face_to_remove = brep
@@ -99,6 +102,8 @@ impl BRep {
             .ok_or_else(|| {
                 CoreError::PreconditionFailed(format!("prism({n}) has no {n}-sided cap face"))
             })?;
+        // Facing out of the prism (see `open_box`).
+        brep.reverse_body_orientation();
         brep.remove_face_to_boundary(cap)?;
         Ok(brep)
     }

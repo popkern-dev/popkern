@@ -144,6 +144,15 @@ fn face_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, She
             continue;
         }
         let component = shared_edge_component(brep, seed, &mut assigned);
+        // A sheet's outward side is its faces' folded normals (see
+        // `component_outward_multipliers`): the stored normal times the
+        // flag, so the multiplier is 1.
+        if component_is_open(brep, &component) {
+            for &fh in &component {
+                multipliers.insert(fh, 1.0);
+            }
+            continue;
+        }
         match crate::classify_sense::component_stored_normal_out_signs(brep, &component, &senses) {
             Some(signs) => {
                 for &fh in &component {
@@ -292,16 +301,20 @@ fn component_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>
             }
         }
 
-        // An open component (a sheet) encloses nothing: a flat one's
-        // wedge integral is zero and its sense cannot be measured. Its
-        // outward side is then its faces' own normals (flag folded),
-        // the convention a sheet stripped from a solid already keeps
-        // (its faces were outward there). A closed component that
-        // cannot be measured still declines.
-        let multiplier = match brep.component_material_sense(seed) {
-            Some(sense) => sense.outward_multiplier(),
-            None if component_is_open(brep, &component) => 1.0,
-            None => return Err(ShellError::MaterialSenseUnresolved { face: seed }),
+        // An open component (a sheet) encloses no material: its
+        // outward side is its faces' own normals (flag folded), the
+        // convention a sheet stripped from a solid already keeps (its
+        // faces were outward there). The wedge integral measures
+        // nothing on it: zero on a flat sheet (which declined), and on
+        // a saddle a sign of no meaning (the inner half of a torus
+        // thickened outward grew toward its middle circle). A closed
+        // component that cannot be measured still declines.
+        let multiplier = if component_is_open(brep, &component) {
+            1.0
+        } else {
+            brep.component_material_sense(seed)
+                .ok_or(ShellError::MaterialSenseUnresolved { face: seed })?
+                .outward_multiplier()
         };
         for fh in component {
             multipliers.insert(fh, multiplier);
