@@ -42,18 +42,13 @@ fn tessellate_area(
         ..TessellationOptions::default()
     };
     let face_mesh = measuring_mesh(brep, face, &opts)?;
-    let area: f64 = face_mesh
-        .triangles
-        .iter()
-        .map(|tri| {
-            triangle_area(
-                face_mesh.vertices[tri[0]].position,
-                face_mesh.vertices[tri[1]].position,
-                face_mesh.vertices[tri[2]].position,
-            )
-        })
-        .sum();
-    Ok(area)
+    // Each triangle on the exact surface (its flat facet where its
+    // (u, v) triangle is not its patch): summed facets fall short of a
+    // curved face by their sagitta's share.
+    let gate = 100.0 * brep.tolerance.linear().max(1e-9);
+    Ok(crate::body_quadrature::quadrature_face_area(
+        brep, &face_mesh, gate,
+    ))
 }
 
 /// The face's uv bounding rectangle when its outer loop bounds exactly

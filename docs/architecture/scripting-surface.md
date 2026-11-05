@@ -133,15 +133,26 @@ Two dialects (D2), never silently converted.
 
 ```
 model.profile(plane)            -> ProfileBuilder
-  .rect(w, h) | .circle(r) | .polygon([[x,y], ...])
-  | .path([x0,y0]).line_to([x,y]).arc_to(via=[x,y], to=[x,y]).close()
+  .rect(w, h) | .circle(r) | .ellipse(rx, ry) | .polygon([[x,y], ...])
+  | .spline([[x,y], ...], #{degree?, weights?})   // closed periodic, control points
+  | .path([x0,y0]).line_to([x,y]).arc_to(via=[x,y], to=[x,y])
+      .conic_to(control=[x,y], to=[x,y], weight)  // rational quadratic
+      .spline_to([[x,y], ...], #{degree?, weights?, knots?})   // last point = end
+      .close()
   .at(cx, cy)                    // placement on the plane, default [0,0]
   .sketch(label?)                -> Feature   // records Feature::Sketch { Analytic }
 ```
 
 Records `Feature::Sketch { plane, sketch_data: Analytic(AnalyticProfile<ScalarBinding>) }`;
 every scalar is a scalar binding (§1.3), so a profile's dimensions are
-parameters. Compilation is `popkern_sketch::profile_compile`, shared
+parameters. Every curve is exact: an ellipse is four rational quadratic
+quarters; `conic_to` one rational quadratic span (weight below 1 an
+ellipse arc, 1 a parabola, above 1 a hyperbola); `spline` a periodic
+B-spline over its control polygon with uniform knots (degree 3 by
+default); `spline_to` a clamped NURBS from the current point through
+its control points (knots clamped uniform unless given, `n + degree +
+1` long). Weights and knots are dimensionless numbers, not bindings. A
+path may be one curved segment closed by its chord. Compilation is `popkern_sketch::profile_compile`, shared
 with `popkern-part` — the recorder and the direct API produce
 identical faces (parity fixtures, design §13).
 
@@ -528,6 +539,7 @@ host-language-neutral form; the Rust skin's mapping is one-to-one.
 
 | Date | Change | Marks affected |
 |---|---|---|
+| 2026-11-04 | Exact curves in profiles (brep-bench §4.6): `.ellipse(rx, ry)`, `.spline(points, #{degree, weights})` (closed periodic), and path segments `.conic_to(control, to, weight)` and `.spline_to(points, #{degree, weights, knots})`, in both skins (Rust `ProfileBuilder::ellipse`, `spline`, `conic_to`, `spline_to` with `SplineOptions`). Recorded as the new `ProfileShape::Ellipse` / `Spline` and `PathSegment::Conic` / `Spline` (additive). Weights and knots are dimensionless literals; a path may be a single curved segment closed by its chord. | §3.1 |
 | 2026-11-04 | A `cut`-mode feature that removes no material fails with `CutRemovedNothing` (§10.3, brep-bench §4.5) instead of serving its host unchanged: an `on_face` sketch placed off the face, or a `blind` end running along the face's outward normal, away from the material. Judged from the result's face lineage, by volume only when every tool-born face lies flush on a face of the host. | §10.3 |
 | 2026-11-04 | Offset family and draft in both skins (brep-bench §4.3): Rhai `body.offset_solid(d, #{label, join, trim})`, `body.thicken(t, #{label, join, trim})`, `body.draft(faces, angle_deg, neutral, #{label})` with `neutral` a face query (`faces()…`, `on_face(…)`) or a plane (`xy()`, `xz()`, `yz()`, a base plane at a literal offset, `plane_at(o, n)`); Rust `Body::offset_solid_with`, `thicken_with`, `draft_with` (`OffsetOptions`, `NeutralSpec`). Recorded as the existing `Feature::OffsetSolid`, `Thicken` and `Draft`, and emitted back by `to_rhai`. Face queries join and negate (brep-bench §4.2): `faces()….or(F)`, `.except(F)`, `.not()` (`faces().except(self)`), spelled and parsed in the selection grammar; `facing` reads a flat face bounded by circles from its edge curves (§4.1: a cylinder's ends matched nothing). Sheets and sided thickening: `remove_faces(faces)` (`Feature::RemoveFaces`, new) opens a solid into a sheet; `thicken` takes `side` (`both` default, `outward`, `inward`), recorded as `Feature::Thicken::side` (additive, `serde(default)`, not written when `both`, so older documents load and save unchanged). | `thicken`, `offset_solid`, `draft` bound (still preview); `remove_faces` added preview; `thicken` gains `side`; face `or`, `except`, `not` added |
 | 2026-10-05 | Editing an assembly's part (PK-678, `docs/architecture/assemblies.md` §6.1): `a.edit_part(name, \|m\| …)` hands the part's recorded model to the closure (the part verbs: `insert_after`, fillets, parameters). The edited model replaces the definition, so every instance follows, and mates re-solve. Transactional: a raising closure, an emptied part (`EmptyDefinition`) or mates that no longer hold (`MateConflict`) leave the assembly unchanged. Family variants and sub-assemblies are `WrongDefinitionKind`. No format change. | `edit_part` added preview (assembly tier) |

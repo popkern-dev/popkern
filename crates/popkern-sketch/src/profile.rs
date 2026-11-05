@@ -46,7 +46,30 @@ pub enum ProfileShape<S> {
         /// Vertices in order.
         points: Vec<[S; 2]>,
     },
-    /// Mixed line/arc outline. An outline whose last segment does not
+    /// Axis-aligned ellipse: semi-axis `rx` along X, `ry` along Y,
+    /// centred on the placement. Exact: four rational quadratic
+    /// quarters.
+    Ellipse {
+        /// Semi-axis along sketch X.
+        rx: S,
+        /// Semi-axis along sketch Y.
+        ry: S,
+    },
+    /// Closed (periodic) B-spline by its control polygon, uniform
+    /// knots: the curve wraps smoothly from the last control point's
+    /// span back to the first. Not centred: control points are in
+    /// sketch coordinates, offset by the placement.
+    Spline {
+        /// Control points in order (first NOT repeated).
+        points: Vec<[S; 2]>,
+        /// Degree (at least 1, below the control point count).
+        degree: usize,
+        /// Rational weights, one per control point (empty: all 1).
+        /// Dimensionless, so not scalar bindings.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        weights: Vec<f64>,
+    },
+    /// Mixed line/arc/conic/spline outline. An outline whose last segment does not
     /// end at `start` is closed by a straight segment back to it.
     Path {
         /// Outline start point.
@@ -72,6 +95,38 @@ pub enum PathSegment<S> {
         /// End point.
         to: [S; 2],
     },
+    /// Conic arc from the current point to `to`: the rational
+    /// quadratic Bézier with middle control point `control` and middle
+    /// weight `weight` (below 1 an ellipse arc, 1 a parabola, above 1
+    /// a hyperbola). Exact.
+    Conic {
+        /// The shoulder control point (where the end tangents meet).
+        control: [S; 2],
+        /// End point.
+        to: [S; 2],
+        /// Middle weight, positive. Dimensionless.
+        weight: f64,
+    },
+    /// Clamped NURBS from the current point through the control
+    /// points `control` to `to` (the curve starts at the current point
+    /// and ends at `to`, and touches the others only in general).
+    Spline {
+        /// The interior control points, in order.
+        control: Vec<[S; 2]>,
+        /// End point (the last control point).
+        to: [S; 2],
+        /// Degree (at least 1, below the control point count with
+        /// both ends counted).
+        degree: usize,
+        /// Rational weights, one per control point with both ends
+        /// counted (empty: all 1).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        weights: Vec<f64>,
+        /// Clamped knot vector, `control points + degree + 1` long
+        /// (empty: clamped uniform). Only ratios matter.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        knots: Vec<f64>,
+    },
 }
 
 /// A closed analytic profile: one shape and its in-plane placement.
@@ -92,13 +147,22 @@ pub enum ProfileError {
         /// Vertices supplied.
         got: usize,
     },
-    /// A path needs at least two segments to enclose area.
-    #[error("path profile needs at least 2 segments")]
+    /// A path needs at least two segments, or one curved segment, to
+    /// enclose area.
+    #[error("path profile needs at least 2 segments, or one curved segment")]
     PathTooShort,
     /// The three points of an arc segment are collinear (no circle
     /// passes through them).
     #[error("arc_to points are collinear")]
     CollinearArc,
+    /// A spline or conic is malformed (degree, weights, knots).
+    #[error("{what}: {reason}")]
+    InvalidSpline {
+        /// Which curve (`spline`, `spline_to`, `conic_to`).
+        what: &'static str,
+        /// What is wrong with it.
+        reason: String,
+    },
     /// A dimension that must be strictly positive is not.
     #[error("{what} must be positive and finite, got {value}")]
     NonPositiveDimension {
@@ -115,7 +179,10 @@ impl<S> ProfileShape<S> {
         match self {
             ProfileShape::Rect { width, height } => vec![width, height],
             ProfileShape::Circle { radius } => vec![radius],
-            ProfileShape::Polygon { points } => points.iter().flatten().collect(),
+            ProfileShape::Ellipse { rx, ry } => vec![rx, ry],
+            ProfileShape::Polygon { points } | ProfileShape::Spline { points, .. } => {
+                points.iter().flatten().collect()
+            }
             ProfileShape::Path { start, segments } => {
                 let mut out: Vec<&S> = start.iter().collect();
                 for seg in segments {
@@ -123,6 +190,14 @@ impl<S> ProfileShape<S> {
                         PathSegment::Line { to } => out.extend(to.iter()),
                         PathSegment::Arc { via, to } => {
                             out.extend(via.iter());
+                            out.extend(to.iter());
+                        }
+                        PathSegment::Conic { control, to, .. } => {
+                            out.extend(control.iter());
+                            out.extend(to.iter());
+                        }
+                        PathSegment::Spline { control, to, .. } => {
+                            out.extend(control.iter().flatten());
                             out.extend(to.iter());
                         }
                     }
@@ -145,8 +220,21 @@ impl<S> ProfileShape<S> {
                 height: f(height)?,
             },
             ProfileShape::Circle { radius } => ProfileShape::Circle { radius: f(radius)? },
+            ProfileShape::Ellipse { rx, ry } => ProfileShape::Ellipse {
+                rx: f(rx)?,
+                ry: f(ry)?,
+            },
             ProfileShape::Polygon { points } => ProfileShape::Polygon {
                 points: points.iter().map(&mut pt).collect::<Result<_, E>>()?,
+            },
+            ProfileShape::Spline {
+                points,
+                degree,
+                weights,
+            } => ProfileShape::Spline {
+                points: points.iter().map(&mut pt).collect::<Result<_, E>>()?,
+                degree: *degree,
+                weights: weights.clone(),
             },
             ProfileShape::Path { start, segments } => {
                 let start = pt(start)?;
@@ -157,6 +245,28 @@ impl<S> ProfileShape<S> {
                         PathSegment::Arc { via, to } => PathSegment::Arc {
                             via: pt(via)?,
                             to: pt(to)?,
+                        },
+                        PathSegment::Conic {
+                            control,
+                            to,
+                            weight,
+                        } => PathSegment::Conic {
+                            control: pt(control)?,
+                            to: pt(to)?,
+                            weight: *weight,
+                        },
+                        PathSegment::Spline {
+                            control,
+                            to,
+                            degree,
+                            weights,
+                            knots,
+                        } => PathSegment::Spline {
+                            control: control.iter().map(&mut pt).collect::<Result<_, E>>()?,
+                            to: pt(to)?,
+                            degree: *degree,
+                            weights: weights.clone(),
+                            knots: knots.clone(),
                         },
                     });
                 }
@@ -193,14 +303,17 @@ impl<S> AnalyticProfile<S> {
     /// parameter names a feature tree registers for an analytic
     /// sketch (`center_x`, `center_y`, then the shape's own roles —
     /// `width`/`height`, `radius`, `p{i}_x`/`p{i}_y`, or
-    /// `start_x`/`start_y` followed by `s{i}_via_x`/`s{i}_via_y`/
-    /// `s{i}_x`/`s{i}_y` per path segment).
+    /// `rx`/`ry`, `start_x`/`start_y` followed by per-segment
+    /// `s{i}_via_x`/`s{i}_via_y` (arc), `s{i}_ctl_x`/`s{i}_ctl_y`
+    /// (conic) or `s{i}_c{j}_x`/`s{i}_c{j}_y` (spline control points)
+    /// and then `s{i}_x`/`s{i}_y`).
     pub fn scalar_roles(&self) -> Vec<String> {
         let mut out = vec!["center_x".to_string(), "center_y".to_string()];
         match &self.shape {
             ProfileShape::Rect { .. } => out.extend(["width".to_string(), "height".to_string()]),
             ProfileShape::Circle { .. } => out.push("radius".to_string()),
-            ProfileShape::Polygon { points } => {
+            ProfileShape::Ellipse { .. } => out.extend(["rx".to_string(), "ry".to_string()]),
+            ProfileShape::Polygon { points } | ProfileShape::Spline { points, .. } => {
                 for i in 0..points.len() {
                     out.push(format!("p{i}_x"));
                     out.push(format!("p{i}_y"));
@@ -209,9 +322,22 @@ impl<S> AnalyticProfile<S> {
             ProfileShape::Path { segments, .. } => {
                 out.extend(["start_x".to_string(), "start_y".to_string()]);
                 for (i, seg) in segments.iter().enumerate() {
-                    if matches!(seg, PathSegment::Arc { .. }) {
-                        out.push(format!("s{i}_via_x"));
-                        out.push(format!("s{i}_via_y"));
+                    match seg {
+                        PathSegment::Line { .. } => {}
+                        PathSegment::Arc { .. } => {
+                            out.push(format!("s{i}_via_x"));
+                            out.push(format!("s{i}_via_y"));
+                        }
+                        PathSegment::Conic { .. } => {
+                            out.push(format!("s{i}_ctl_x"));
+                            out.push(format!("s{i}_ctl_y"));
+                        }
+                        PathSegment::Spline { control, .. } => {
+                            for j in 0..control.len() {
+                                out.push(format!("s{i}_c{j}_x"));
+                                out.push(format!("s{i}_c{j}_y"));
+                            }
+                        }
                     }
                     out.push(format!("s{i}_x"));
                     out.push(format!("s{i}_y"));
@@ -246,6 +372,10 @@ impl AnalyticProfile<f64> {
         match &self.shape {
             ProfileShape::Rect { width, height } => format!("rect {width}×{height}{at}"),
             ProfileShape::Circle { radius } => format!("circle r={radius}{at}"),
+            ProfileShape::Ellipse { rx, ry } => format!("ellipse {rx}×{ry}{at}"),
+            ProfileShape::Spline { points, degree, .. } => {
+                format!("spline[{} pts, degree {degree}]{at}", points.len())
+            }
             ProfileShape::Polygon { points } => format!("polygon[{}]{at}", points.len()),
             ProfileShape::Path { segments, .. } => {
                 format!("path[{} segs]{at}", segments.len())

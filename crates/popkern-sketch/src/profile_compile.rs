@@ -90,7 +90,20 @@ fn three_point_arc(a: (f64, f64), via: (f64, f64), b: (f64, f64)) -> Result<Arc2
 enum Piece {
     Line((f64, f64), (f64, f64)),
     Arc(Arc2),
+    /// A conic or an ellipse quarter: one rational quadratic span.
+    Quadratic(QuadraticSpan),
+    /// A clamped spline segment.
+    Nurbs(NurbsCurve),
+    /// A closed periodic spline (a whole shape).
+    Periodic {
+        points: Vec<(f64, f64)>,
+        degree: usize,
+        weights: Vec<f64>,
+    },
 }
+
+#[path = "profile_compile_curves.rs"]
+mod curves;
 
 fn positive(what: &'static str, value: f64) -> Result<f64, ProfileError> {
     if value.is_finite() && value > 0.0 {
@@ -127,6 +140,21 @@ fn pieces(profile: &AnalyticProfile<f64>, dx: f64, dy: f64) -> Result<Vec<Piece>
             a0: 0.0,
             sweep: std::f64::consts::TAU,
         })],
+        ProfileShape::Ellipse { rx, ry } => curves::ellipse_pieces(
+            dx,
+            dy,
+            positive("ellipse rx", *rx)?,
+            positive("ellipse ry", *ry)?,
+        ),
+        ProfileShape::Spline {
+            points,
+            degree,
+            weights,
+        } => vec![curves::periodic_piece(
+            points.iter().map(sh).collect(),
+            *degree,
+            weights,
+        )?],
         ProfileShape::Polygon { points } => {
             if points.len() < 3 {
                 return Err(ProfileError::PolygonTooShort { got: points.len() });
@@ -134,7 +162,10 @@ fn pieces(profile: &AnalyticProfile<f64>, dx: f64, dy: f64) -> Result<Vec<Piece>
             polygon(points.iter().map(sh).collect())
         }
         ProfileShape::Path { start, segments } => {
-            if segments.len() < 2 {
+            // One curved segment closed by its chord encloses area; one
+            // line does not.
+            let curved = |s: &PathSegment<f64>| !matches!(s, PathSegment::Line { .. });
+            if segments.len() < 2 && !segments.first().is_some_and(curved) {
                 return Err(ProfileError::PathTooShort);
             }
             let start = sh(start);
@@ -150,6 +181,29 @@ fn pieces(profile: &AnalyticProfile<f64>, dx: f64, dy: f64) -> Result<Vec<Piece>
                     PathSegment::Arc { via, to } => {
                         let to = sh(to);
                         out.push(Piece::Arc(three_point_arc(cur, sh(via), to)?));
+                        cur = to;
+                    }
+                    PathSegment::Conic {
+                        control,
+                        to,
+                        weight,
+                    } => {
+                        let to = sh(to);
+                        out.push(curves::conic_piece(cur, sh(control), to, *weight)?);
+                        cur = to;
+                    }
+                    PathSegment::Spline {
+                        control,
+                        to,
+                        degree,
+                        weights,
+                        knots,
+                    } => {
+                        let to = sh(to);
+                        let control: Vec<(f64, f64)> = control.iter().map(sh).collect();
+                        out.push(curves::spline_piece(
+                            cur, &control, to, *degree, weights, knots,
+                        )?);
                         cur = to;
                     }
                 }
@@ -248,6 +302,10 @@ impl AnalyticProfile<f64> {
                     sk.add_arc(arc.cx, arc.cy, arc.r, a0, a1);
                     last_point = None;
                 }
+                other => {
+                    curves::add_curve_element(&mut sk, &other);
+                    last_point = None;
+                }
             }
         }
         Ok(sk)
@@ -309,7 +367,7 @@ fn wire_2d(pieces: &[Piece], shape: &ProfileShape<f64>) -> Result<NurbsCurve, Pr
                 .iter()
                 .filter_map(|p| match p {
                     Piece::Line(a, _) => Some(*a),
-                    Piece::Arc(_) => None,
+                    _ => None,
                 })
                 .collect();
             polygon_wire(&pts, 0.0)
@@ -318,6 +376,27 @@ fn wire_2d(pieces: &[Piece], shape: &ProfileShape<f64>) -> Result<NurbsCurve, Pr
             Some(Piece::Arc(a)) => circle_wire(a.cx, a.cy, a.r, 0.0),
             _ => return Err(ProfileError::PathTooShort),
         },
+        ProfileShape::Ellipse { .. } => {
+            let spans: Vec<QuadraticSpan> = pieces
+                .iter()
+                .filter_map(|p| match p {
+                    Piece::Quadratic(s) => Some(*s),
+                    _ => None,
+                })
+                .collect();
+            assemble_quadratic(&spans)
+        }
+        ProfileShape::Spline { .. } => match pieces.first() {
+            Some(Piece::Periodic {
+                points,
+                degree,
+                weights,
+            }) => curves::periodic_wire(points, *degree, weights)?,
+            _ => return Err(ProfileError::PathTooShort),
+        },
+        ProfileShape::Path { .. } if pieces.iter().any(|p| matches!(p, Piece::Nurbs(_))) => {
+            curves::general_wire(pieces)?
+        }
         ProfileShape::Path { .. } => {
             let mut spans: Vec<QuadraticSpan> = Vec::new();
             for piece in pieces {
@@ -328,21 +407,9 @@ fn wire_2d(pieces: &[Piece], shape: &ProfileShape<f64>) -> Result<NurbsCurve, Pr
                         0.0,
                         0.0,
                     )),
-                    Piece::Arc(arc) => {
-                        let (a0, a1) = (
-                            arc.a0.min(arc.a0 + arc.sweep),
-                            arc.a0.max(arc.a0 + arc.sweep),
-                        );
-                        let mut run = arc_spans(arc.cx, arc.cy, arc.r, a0, a1, 0.0);
-                        if arc.sweep < 0.0 {
-                            // Traverse clockwise: reverse the span run.
-                            run.reverse();
-                            for s in &mut run {
-                                std::mem::swap(&mut s.p0, &mut s.p2);
-                            }
-                        }
-                        spans.extend(run);
-                    }
+                    Piece::Arc(arc) => spans.extend(arc_run(arc)),
+                    Piece::Quadratic(span) => spans.push(*span),
+                    Piece::Nurbs(_) | Piece::Periodic { .. } => {}
                 }
             }
             // Uniform knot labels, one interval per span on [0, 1].
@@ -355,6 +422,23 @@ fn wire_2d(pieces: &[Piece], shape: &ProfileShape<f64>) -> Result<NurbsCurve, Pr
         }
     };
     Ok(curve)
+}
+
+/// An arc's exact spans in traversal order.
+fn arc_run(arc: &Arc2) -> Vec<QuadraticSpan> {
+    let (a0, a1) = (
+        arc.a0.min(arc.a0 + arc.sweep),
+        arc.a0.max(arc.a0 + arc.sweep),
+    );
+    let mut run = arc_spans(arc.cx, arc.cy, arc.r, a0, a1, 0.0);
+    if arc.sweep < 0.0 {
+        // Traverse clockwise: reverse the span run.
+        run.reverse();
+        for s in &mut run {
+            std::mem::swap(&mut s.p0, &mut s.p2);
+        }
+    }
+    run
 }
 
 #[cfg(test)]

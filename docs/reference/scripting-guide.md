@@ -100,7 +100,11 @@ as a feature and starts a new body.
 | `on_face(faces()...)`, `on_face_offset(faces()..., d)` | the plane of a planar face (the query must pick exactly one face). Its frame is the face surface's own: the origin where the feature that made the face put it (often that feature's sketch origin, not the face's centre), the normal outward from the material, so `.at(...)` coordinates are measured from that origin |
 | `plane_at([ox, oy, oz], [nx, ny, nz])` | a custom plane by origin and normal |
 | `.rect(w, h)`, `.circle(r)`, `.polygon([[x, y], ...])` | closed outlines centred on the plane origin |
+| `.ellipse(rx, ry)` | an ellipse centred on the plane origin, semi-axis `rx` along u and `ry` along v (exact: four rational quarters) |
+| `.spline([[x, y], ...], #{degree, weights})` | a closed, smooth B-spline over its control polygon (the curve passes near the points, not through them); degree 3 unless given, one weight per point |
 | `.path(x0, y0).line_to(x, y).arc_to([vx, vy], [x, y]).close()` | a path of lines and three-point arcs, closed back to its start |
+| `.conic_to([cx, cy], [x, y], w)` | a conic arc to `[x, y]` whose end tangents meet at `[cx, cy]`: weight below 1 an ellipse arc (`0.7071…` a quarter ellipse in its bounding box), 1 a parabola, above 1 a hyperbola |
+| `.spline_to([[x, y], ..., [xn, yn]], #{degree, weights, knots})` | a spline from the current point through control points to the last one (its end); degree 3 unless given, `knots` clamped, `points + degree + 2` long counting the start |
 | `.at(cx, cy)` | place the outline's centre |
 
 ```rhai
@@ -744,7 +748,8 @@ that lists the names it does have.
 
 ```text
 model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
-m.profile(PLANE).rect|circle|polygon|path…close().at(cx, cy).sketch(label)
+m.profile(PLANE).rect|circle|ellipse|polygon|spline|path…close().at(cx, cy).sketch(label)
+path(x0, y0).line_to(x, y) arc_to(via, to) conic_to(ctl, to, w) spline_to(pts, #{degree, weights, knots})
 PLANE: xy() xz() yz() xy_at(z) xz_at(y) yz_at(x) on_face(F) on_face_offset(F, d) plane_at(o, n)
 END:   blind(d) through_all() up_to_surface(F) offset_from_surface(F, d) mid_plane(h) full_circle()
 AXIS:  axis_at([ox,oy,oz], [dx,dy,dz])   axis(E)
