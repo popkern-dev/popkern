@@ -171,6 +171,9 @@ fn thicken_open_sheet_serves_closed_solid_with_rim_walls() {
     // pipeline first served two disconnected skins while claiming to
     // build side walls, then declined with OpenBoundary as containment).
     let mut brep = BRep::unit_cube(tol()).unwrap();
+    // Facing out of the cube: a sheet's outward side is its faces'
+    // normals, and the core cube is built facing into itself.
+    brep.reverse_body_orientation();
     let fh = brep.faces.keys().next().unwrap();
     let outer_loop = brep.faces[fh].outer_loop;
     brep.loops.remove(outer_loop);

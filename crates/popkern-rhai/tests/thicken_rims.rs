@@ -73,3 +73,18 @@ fn a_hemisphere_thickens_inward() {
     let exact = 2.0 / 3.0 * PI * (125.0 - 64.0);
     assert!((v - exact).abs() < 1e-7 * exact, "{v} vs {exact}");
 }
+
+/// brep-bench thicken/torus-inner-half: the inner half of a torus
+/// (tube 2 about the middle circle 6) thickened 1 outward, away from
+/// the middle circle: the sheet, the inner half of the tube-3 torus and
+/// two cylinders of radius 6, 1 tall. The side came from a wedge
+/// integral, meaningless on an open saddle, and it grew toward the
+/// middle circle (148.33 for 216.50).
+#[test]
+fn an_inner_half_torus_thickens_away_from_its_middle_circle() {
+    let v = volume(
+        "let m = model();\nlet t = m.profile(xz()).path(6.0, -2.0).arc_to([4.0, 0.0], [6.0, 2.0]).line_to(6.0, -2.0).close().sketch(\"h\").revolve(axis_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]), full_circle());\nt = t.remove_faces(faces().kind(\"cylinder\"));\nt = t.thicken(1.0, #{ side: \"outward\" });\nm\n",
+    );
+    let exact = 216.501118142;
+    assert!((v - exact).abs() < 1e-8 * exact, "{v} vs {exact}");
+}
