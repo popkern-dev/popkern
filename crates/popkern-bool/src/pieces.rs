@@ -92,10 +92,9 @@ pub fn retain_pieces(body: &BRep, keep: &[SolidHandle]) -> Result<BRep, BoolErro
     };
     for h in &half_edges {
         let he = &body.half_edges[*h];
-        let links = [he.mate(), Some(he.next), Some(he.prev)];
+        let links = [he.ring.next, he.ring.prev, he.next, he.prev];
         if links
             .iter()
-            .flatten()
             .any(|l| body.half_edges.contains_key(*l) && !half_edges.contains(l))
         {
             return Err(shared("a half-edge"));
@@ -122,8 +121,6 @@ pub fn retain_pieces(body: &BRep, keep: &[SolidHandle]) -> Result<BRep, BoolErro
     out.edges.retain(|h, _| edges.contains(&h));
     out.vertices.retain(|h, _| vertices.contains(&h));
     out.boundary_edges.retain(|e| edges.contains(e));
-    out.nonmanifold_radial
-        .retain(|a, b| half_edges.contains(a) && half_edges.contains(b));
     out.surface_boundary_hints
         .retain(|h, _| half_edges.contains(h));
     out.surface_boundary_declines

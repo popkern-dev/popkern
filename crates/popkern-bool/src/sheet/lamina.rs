@@ -10,6 +10,7 @@
 //! planar fronts; a curved front keeps its own and the moved half-edges
 //! take theirs from the front's twins.
 
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// Whether `a` and `b` lie on one plane with opposite oriented normals.
@@ -141,7 +142,7 @@ fn twin_open_boundary(view: &mut BRep) {
         let ring = view.loops.insert(Loop { half_edge: h, face });
         let twin = view.half_edges.insert(HalfEdge {
             origin: end,
-            twin: h,
+            ring: RadialLinks::pair(h),
             next: h,
             prev: h,
             edge,

@@ -1,5 +1,6 @@
 //! Same-loop bridge-face construction for disjoint boundary intervals.
 
+use crate::topology::RadialLinks;
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;
@@ -193,7 +194,7 @@ impl BRep {
             }
             let twin = self.half_edges.insert(HalfEdge {
                 origin,
-                twin: half_edge,
+                ring: RadialLinks::pair(half_edge),
                 next: Default::default(),
                 prev: Default::default(),
                 edge,
@@ -298,7 +299,7 @@ impl BRep {
         });
         let half_edge = self.half_edges.insert(HalfEdge {
             origin,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,

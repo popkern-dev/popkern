@@ -11,6 +11,7 @@
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts, verify_loop_contains_half_edges};
 use crate::geometry::Point3;
+use crate::topology::RadialLinks;
 use crate::topology::{BRep, Edge, HalfEdge, HalfEdgeHandle, Vertex};
 
 /// Result of the split_vertex operator.
@@ -163,7 +164,7 @@ impl BRep {
         // c_uv (new -> old) into cut wedge 2.
         let c_vu = self.half_edges.insert(HalfEdge {
             origin: old_vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: he_first,
             prev: cut1_in,
             edge,
@@ -172,7 +173,7 @@ impl BRep {
         });
         let c_uv = self.half_edges.insert(HalfEdge {
             origin: new_vertex,
-            twin: c_vu,
+            ring: RadialLinks::pair(c_vu),
             next: after_sector,
             prev: twin_last,
             edge,

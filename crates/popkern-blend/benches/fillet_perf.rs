@@ -169,7 +169,7 @@ fn bench_cylinder_base_fillet(c: &mut Criterion) {
         .keys()
         .find(|&e| {
             let he = cyl.edges[e].half_edge;
-            let twin = cyl.half_edges[he].twin;
+            let twin = cyl.half_edges[he].mate().expect("manifold edge");
             let face_a = cyl.loops[cyl.half_edges[he].loop_].face;
             let face_b = cyl.loops[cyl.half_edges[twin].loop_].face;
             face_a != face_b
@@ -194,7 +194,7 @@ fn bench_cone_base_fillet(c: &mut Criterion) {
         .keys()
         .find(|&e| {
             let he = cone.edges[e].half_edge;
-            let twin = cone.half_edges[he].twin;
+            let twin = cone.half_edges[he].mate().expect("manifold edge");
             let face_a = cone.loops[cone.half_edges[he].loop_].face;
             let face_b = cone.loops[cone.half_edges[twin].loop_].face;
             face_a != face_b

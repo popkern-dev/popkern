@@ -1,4 +1,5 @@
 //! Cone constructor — proper 2-face BRep.
+use crate::topology::RadialLinks;
 use popkern_math::PortableMath;
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, TAU};
 
@@ -195,7 +196,7 @@ impl BRep {
         //   he_base_arc -> he_seam_up -> he_seam_down -> he_base_arc
         let he_base_arc = brep.half_edges.insert(HalfEdge {
             origin: v_base,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_base_circle,
@@ -204,7 +205,7 @@ impl BRep {
         });
         let he_seam_up = brep.half_edges.insert(HalfEdge {
             origin: v_base,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -213,7 +214,7 @@ impl BRep {
         });
         let he_seam_down = brep.half_edges.insert(HalfEdge {
             origin: v_apex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -224,7 +225,7 @@ impl BRep {
         // Cap face loop (1 half-edge, self-loop):
         let he_base_cap = brep.half_edges.insert(HalfEdge {
             origin: v_base,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_base_circle,

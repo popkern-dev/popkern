@@ -1,6 +1,7 @@
 //! Low-level topology helpers for planned repeated-apex partitioning.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, TopologyRole,
     VertexHandle,
@@ -58,7 +59,7 @@ pub(super) fn insert_unwired_edge_pair(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: start,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
@@ -67,7 +68,7 @@ pub(super) fn insert_unwired_edge_pair(
     });
     let twin = brep.half_edges.insert(HalfEdge {
         origin: end,
-        twin: half_edge,
+        ring: RadialLinks::pair(half_edge),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
@@ -99,7 +100,7 @@ pub(super) fn insert_boundary_half_edge(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: start,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,

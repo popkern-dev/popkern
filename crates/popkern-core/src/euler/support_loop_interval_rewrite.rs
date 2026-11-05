@@ -36,6 +36,7 @@
 //! (`dV = dF = dL = 0`, `dE = replacement.len() - retired`).
 
 use crate::error::CoreError;
+use crate::topology::RadialLinks;
 use crate::topology::{BRep, EdgeHandle, HalfEdge, HalfEdgeHandle, LoopHandle};
 
 /// Plan for one in-place support-loop interval rewrite.
@@ -214,7 +215,7 @@ impl BRep {
             };
             let new_h = self.half_edges.insert(HalfEdge {
                 origin,
-                twin: r,
+                ring: RadialLinks::pair(r),
                 next: HalfEdgeHandle::default(),
                 prev: HalfEdgeHandle::default(),
                 edge,

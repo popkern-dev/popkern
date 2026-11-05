@@ -5,6 +5,7 @@ use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveOnEdge;
 use crate::geometry::pcurve::Pcurve;
+use crate::topology::RadialLinks;
 use crate::topology::*;
 
 use super::split::SplitEdgeResult;
@@ -67,7 +68,7 @@ impl BRep {
 
         let he_vb = self.half_edges.insert(HalfEdge {
             origin: vertex_v,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: he_ab_next,
             prev: he_ab,
             edge: edge_b,

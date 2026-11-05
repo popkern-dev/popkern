@@ -22,7 +22,7 @@ pub mod vertex;
 
 pub use edge::{CanonicalForm, Edge};
 pub use face::Face;
-pub use half_edge::HalfEdge;
+pub use half_edge::{HalfEdge, RadialLinks};
 pub use handles::*;
 pub use loop_::Loop;
 pub use role::TopologyRole;

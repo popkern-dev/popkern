@@ -2,6 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 use popkern_core::geometry::{CurveEval, CurveOnEdge, NurbsCurve, Point3};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, TopologyRole, Vertex,
     VertexHandle,
@@ -206,7 +207,7 @@ fn insert_generated_edge_pair(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: start,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
@@ -215,7 +216,7 @@ fn insert_generated_edge_pair(
     });
     let twin = brep.half_edges.insert(HalfEdge {
         origin: end,
-        twin: half_edge,
+        ring: RadialLinks::pair(half_edge),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,

@@ -1,3 +1,4 @@
+use crate::topology::RadialLinks;
 use std::collections::HashMap;
 
 use super::readiness::{PatchEdgeRole, validate_brep_readiness};
@@ -243,7 +244,7 @@ fn intern_half_edge(
         }
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: build.start_vertex,
-            twin: other,
+            ring: RadialLinks::pair(other),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge,
@@ -264,7 +265,7 @@ fn intern_half_edge(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: build.start_vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,

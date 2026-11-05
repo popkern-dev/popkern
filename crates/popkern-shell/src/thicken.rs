@@ -9,6 +9,7 @@ use crate::error::ShellError;
 use crate::types::{ShellDirection, ShellOptions, ShellResult, ThickenSide};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_core::topology::RadialLinks;
 
 /// Thicken a body into a solid wall body.
 ///
@@ -402,7 +403,7 @@ fn materialize_boundary_twins(brep: &mut BRep) -> Result<(), ShellError> {
         let edge = brep.half_edges[*s].edge;
         let new = brep.half_edges.insert(HalfEdge {
             origin: dest,
-            twin: *s,
+            ring: RadialLinks::pair(*s),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge,

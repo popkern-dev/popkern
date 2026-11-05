@@ -10,6 +10,7 @@
 //! u_axis, so STEP export needs no sense compensation), recomputes
 //! pcurves, and validates.
 
+use popkern_core::topology::RadialLinks;
 use popkern_math::PortableMath;
 use std::collections::HashMap;
 
@@ -285,7 +286,7 @@ pub fn build_polyhedron_brep(
                 let eh = edge_of[&(a.min(b), a.max(b))];
                 let he = brep.half_edges.insert(HalfEdge {
                     origin: vhs[a],
-                    twin: Default::default(),
+                    ring: RadialLinks::alone(),
                     next: Default::default(),
                     prev: Default::default(),
                     edge: eh,

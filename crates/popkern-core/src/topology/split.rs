@@ -11,6 +11,7 @@ use crate::error::CoreError;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{split_helpers::chart_branch_occurrences, *};
 
 #[path = "split_results.rs"]
@@ -157,7 +158,7 @@ impl BRep {
         // Create new half-edges: he_vb (V->B) and he_bv (B->V).
         let he_vb = self.half_edges.insert(HalfEdge {
             origin: vertex_v,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: he_ab_next,
             prev: he_ab,
             edge: edge_b,
@@ -167,7 +168,7 @@ impl BRep {
 
         let he_bv = self.half_edges.insert(HalfEdge {
             origin: vertex_b,
-            twin: he_vb,
+            ring: RadialLinks::pair(he_vb),
             next: he_ba,
             prev: he_ba_prev,
             edge: edge_b,

@@ -143,8 +143,7 @@ fn edge_policy_state(brep: &BRep, edge: EdgeHandle) -> BrepEdgePolicyState {
     let half_edge_data = half_edge.and_then(|handle| brep.half_edges.get(handle));
     let has_existing_twin = half_edge_data
         .is_some_and(|data| data.mate().is_some_and(|m| brep.half_edges.contains_key(m)));
-    let has_radial_cycle =
-        half_edge.is_some_and(|handle| brep.nonmanifold_radial.contains_key(&handle));
+    let has_radial_cycle = brep.edge_fin_count(edge) > 2;
     let ambiguous = edge_data.is_some()
         && (half_edge_data.is_none() || half_edge_data.is_some_and(|data| data.edge != edge));
     BrepEdgePolicyState {

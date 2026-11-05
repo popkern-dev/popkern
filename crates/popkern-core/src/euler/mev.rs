@@ -4,6 +4,7 @@
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts, verify_loop_contains_half_edges};
 use crate::geometry::Point3;
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, Edge, EdgeHandle, HalfEdge, HalfEdgeHandle, LoopHandle, Vertex, VertexHandle,
 };
@@ -95,7 +96,7 @@ impl BRep {
         // Create half-edges with placeholder handles; we'll patch after insertion.
         let he = self.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -105,7 +106,7 @@ impl BRep {
 
         let he_twin = self.half_edges.insert(HalfEdge {
             origin: new_vertex,
-            twin: he,
+            ring: RadialLinks::pair(he),
             next: he,
             prev: he,
             edge,
@@ -201,7 +202,7 @@ impl BRep {
         // Create he_out: existing_vertex -> new_vertex
         let he_out = self.half_edges.insert(HalfEdge {
             origin: existing_vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: old_prev,
             edge,
@@ -212,7 +213,7 @@ impl BRep {
         // Create he_in: new_vertex -> existing_vertex
         let he_in = self.half_edges.insert(HalfEdge {
             origin: new_vertex,
-            twin: he_out,
+            ring: RadialLinks::pair(he_out),
             next: half_edge,
             prev: he_out,
             edge,

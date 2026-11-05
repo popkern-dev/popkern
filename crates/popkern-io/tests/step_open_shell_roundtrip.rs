@@ -1,3 +1,4 @@
+use popkern_core::topology::RadialLinks;
 use std::sync::Arc;
 
 use popkern_core::geometry::curve::CurveGeometry;
@@ -167,7 +168,7 @@ fn collapsed_trim_sheet() -> BRep {
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: EdgeHandle::default(),

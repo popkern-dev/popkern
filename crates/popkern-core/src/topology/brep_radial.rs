@@ -5,9 +5,8 @@
 //!
 //! An edge's fins form its radial ring: none for a wire edge, one for a
 //! free (sheet) edge, two for a manifold edge or a seam, more for a
-//! non-manifold edge. N > 2 rings are currently threaded through
-//! [`BRep::nonmanifold_radial`] by welders that merge coincident edges
-//! (the sheet-sheet union welder in `popkern-bool`).
+//! non-manifold edge. Each fin links to its ring neighbours
+//! (`radial_next`, `radial_prev`); a lone fin has null links.
 
 use crate::error::CoreError;
 use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle};
@@ -17,9 +16,6 @@ impl BRep {
     /// `None` for a free edge, a non-manifold edge, or an unknown
     /// handle.
     pub fn mate(&self, he: HalfEdgeHandle) -> Option<HalfEdgeHandle> {
-        if self.nonmanifold_radial.contains_key(&he) {
-            return None;
-        }
         self.half_edges.get(he)?.mate()
     }
 
@@ -56,15 +52,41 @@ impl BRep {
     /// the next fin of the ring on a non-manifold edge, `he` itself on
     /// a free edge. `None` only for an unknown handle.
     pub fn radial_next(&self, he: HalfEdgeHandle) -> Option<HalfEdgeHandle> {
-        if let Some(next) = self.nonmanifold_radial.get(&he) {
-            return Some(*next);
-        }
         let fin = self.half_edges.get(he)?;
         Some(
-            fin.mate()
-                .filter(|m| self.half_edges.contains_key(*m))
+            Some(fin.ring.next)
+                .filter(|n| self.half_edges.contains_key(*n))
                 .unwrap_or(he),
         )
+    }
+
+    /// The previous fin around `he`'s edge (`he` itself on a free
+    /// edge). `None` only for an unknown handle.
+    pub fn radial_prev(&self, he: HalfEdgeHandle) -> Option<HalfEdgeHandle> {
+        let fin = self.half_edges.get(he)?;
+        Some(
+            Some(fin.ring.prev)
+                .filter(|p| self.half_edges.contains_key(*p))
+                .unwrap_or(he),
+        )
+    }
+
+    /// Link `fins` into one radial ring in the given order (each fin's
+    /// `radial_next` is the following one, cyclically). One fin is left
+    /// alone (a free edge, null links), two become mates. The caller
+    /// keeps the fins' `edge` fields and the edge's `half_edge` in step.
+    pub fn link_ring(&mut self, fins: &[HalfEdgeHandle]) {
+        let n = fins.len();
+        for (i, &fin) in fins.iter().enumerate() {
+            let (next, prev) = if n < 2 {
+                (HalfEdgeHandle::default(), HalfEdgeHandle::default())
+            } else {
+                (fins[(i + 1) % n], fins[(i + n - 1) % n])
+            };
+            if let Some(f) = self.half_edges.get_mut(fin) {
+                f.ring = crate::topology::RadialLinks { next, prev };
+            }
+        }
     }
 
     /// Every fin of `edge`'s ring, starting at the edge's first fin and
@@ -127,19 +149,21 @@ impl BRep {
 
 #[cfg(test)]
 impl BRep {
-    /// Test fixture: give `edge` a third fin (a copy of its first fin's
-    /// loop use) and thread the three into one radial ring, so the edge
-    /// reads as non-manifold everywhere the ring is asked. Returns the
-    /// new fin. The body is not valid afterwards (the copy is in no
+    /// Test fixture: add copies of `edge`'s first fin (its loop use)
+    /// until its ring holds three fins, so the edge reads as
+    /// non-manifold everywhere the ring is asked. Returns the last fin
+    /// added. The body is not valid afterwards (the copy is in no
     /// loop cycle); tests use it to check that classifiers see N > 2.
     pub(crate) fn thread_test_third_fin(&mut self, edge: EdgeHandle) -> HalfEdgeHandle {
         let base = self.edges[edge].half_edge;
-        let mate = self.mate(base).unwrap_or(base);
-        let copy = self.half_edges[base].clone();
-        let third = self.half_edges.insert(copy);
-        self.nonmanifold_radial.insert(base, mate);
-        self.nonmanifold_radial.insert(mate, third);
-        self.nonmanifold_radial.insert(third, base);
-        third
+        let mut ring = self.radial_fins(edge);
+        let mut last = base;
+        while ring.len() < 3 {
+            let copy = self.half_edges[base].clone();
+            last = self.half_edges.insert(copy);
+            ring.push(last);
+        }
+        self.link_ring(&ring);
+        last
     }
 }

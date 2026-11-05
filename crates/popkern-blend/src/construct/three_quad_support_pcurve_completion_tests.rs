@@ -1,3 +1,4 @@
+use popkern_core::topology::RadialLinks;
 use std::collections::BTreeSet;
 
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
@@ -128,7 +129,7 @@ fn vertex(position: Point3) -> Vertex {
 fn half_edge(origin: VertexHandle, loop_: LoopHandle) -> HalfEdge {
     HalfEdge {
         origin,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: Default::default(),

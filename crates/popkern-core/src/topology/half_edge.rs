@@ -1,6 +1,34 @@
 use crate::topology::{EdgeHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 use serde::{Deserialize, Serialize};
 
+/// A fin's neighbours in its edge's radial ring: `next` is the following
+/// fin counter-clockwise about the edge's direction, `prev` the one
+/// before. Both are the mate on a manifold edge and null for a fin alone
+/// on its edge (a free edge).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct RadialLinks {
+    /// The next fin around the edge.
+    pub next: HalfEdgeHandle,
+    /// The previous fin around the edge.
+    pub prev: HalfEdgeHandle,
+}
+
+impl RadialLinks {
+    /// A fin alone on its edge.
+    pub fn alone() -> Self {
+        Self::default()
+    }
+
+    /// One of the two fins of a manifold edge, `mate` the other (null:
+    /// alone).
+    pub fn pair(mate: HalfEdgeHandle) -> Self {
+        Self {
+            next: mate,
+            prev: mate,
+        }
+    }
+}
+
 /// A fin: one loop's directed use of an edge.
 ///
 /// The fins of an edge form its radial ring (none for a wire edge, one
@@ -9,13 +37,16 @@ use serde::{Deserialize, Serialize};
 /// [`BRep`](crate::topology::BRep) radial accessors, never through the
 /// link fields: their encoding is the ring's, not the manifold pair's.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "HalfEdgeRecord")]
 pub struct HalfEdge {
     /// Vertex at the start of this half-edge.
     pub origin: VertexHandle,
-    /// The opposite-direction half-edge of a manifold pair, null when
-    /// the fin has no mate. Read it with [`HalfEdge::mate`] and write it
-    /// with [`HalfEdge::set_mate`] / [`HalfEdge::clear_mate`].
-    pub twin: HalfEdgeHandle,
+    /// This fin's neighbours in its edge's radial ring. Read it with
+    /// [`HalfEdge::mate`] or the [`BRep`](crate::topology::BRep) radial
+    /// accessors; write it with
+    /// [`BRep::link_ring`](crate::topology::BRep::link_ring),
+    /// [`HalfEdge::set_mate`] or [`HalfEdge::clear_mate`].
+    pub ring: RadialLinks,
     /// Next half-edge in the face loop.
     pub next: HalfEdgeHandle,
     /// Previous half-edge in the face loop.
@@ -51,7 +82,9 @@ impl HalfEdge {
     /// code walking a non-manifold edge uses the radial accessors.
     pub fn mate(&self) -> Option<HalfEdgeHandle> {
         use slotmap::Key;
-        (!self.twin.is_null()).then_some(self.twin)
+        // A ring of two links each fin both ways to the other; a longer
+        // ring has distinct neighbours, a lone fin none.
+        (!self.ring.next.is_null() && self.ring.next == self.ring.prev).then_some(self.ring.next)
     }
 
     /// [`HalfEdge::mate`] for code that requires a manifold edge.
@@ -69,7 +102,7 @@ impl HalfEdge {
     /// the other fin back, usually through
     /// [`BRep::set_mates`](crate::topology::BRep::set_mates)).
     pub fn set_mate(&mut self, other: HalfEdgeHandle) {
-        self.twin = other;
+        self.ring = RadialLinks::pair(other);
     }
 
     /// Whether this fin lies in a loop (a face's use of its edge); the
@@ -81,7 +114,42 @@ impl HalfEdge {
 
     /// Leave this fin alone on its edge (a free edge).
     pub fn clear_mate(&mut self) {
-        self.twin = HalfEdgeHandle::default();
+        self.ring = RadialLinks::alone();
+    }
+}
+
+/// The serialized form of a fin: the ring links, or the `twin` of
+/// bodies written before the radial ring (a manifold pair, read as a
+/// ring of two).
+#[derive(Deserialize)]
+struct HalfEdgeRecord {
+    origin: VertexHandle,
+    #[serde(default)]
+    ring: Option<RadialLinks>,
+    #[serde(default)]
+    twin: Option<HalfEdgeHandle>,
+    next: HalfEdgeHandle,
+    prev: HalfEdgeHandle,
+    edge: EdgeHandle,
+    loop_: LoopHandle,
+    #[serde(default)]
+    pcurve: Option<crate::geometry::pcurve::Pcurve>,
+}
+
+impl From<HalfEdgeRecord> for HalfEdge {
+    fn from(r: HalfEdgeRecord) -> Self {
+        let ring = r
+            .ring
+            .unwrap_or_else(|| RadialLinks::pair(r.twin.unwrap_or_default()));
+        HalfEdge {
+            origin: r.origin,
+            ring,
+            next: r.next,
+            prev: r.prev,
+            edge: r.edge,
+            loop_: r.loop_,
+            pcurve: r.pcurve,
+        }
     }
 }
 

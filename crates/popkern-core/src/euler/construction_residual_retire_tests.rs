@@ -1,4 +1,5 @@
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{BRep, TopologyRole};
 
 #[test]
@@ -51,7 +52,7 @@ fn retire_unwired_construction_residual_edges_removes_null_loop_half_edges() {
     });
     let half_edge = brep.half_edges.insert(crate::topology::HalfEdge {
         origin: vertex,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge,

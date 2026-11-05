@@ -2,6 +2,7 @@ use super::*;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
     Solid, Vertex,
@@ -97,7 +98,7 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: Default::default(),

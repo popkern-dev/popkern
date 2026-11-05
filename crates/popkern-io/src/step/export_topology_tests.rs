@@ -545,7 +545,7 @@ fn collapsed_trim_sheet() -> BRep {
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: popkern_core::topology::RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: EdgeHandle::default(),

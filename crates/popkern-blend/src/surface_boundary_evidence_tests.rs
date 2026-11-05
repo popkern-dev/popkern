@@ -3,6 +3,7 @@ use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregory};
 use popkern_core::geometry::{Point3, SurfaceOnFace, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle, Solid,
     SurfaceBoundaryAuditOutcome, Vertex,
@@ -120,7 +121,7 @@ fn vertex(position: Point3) -> Vertex {
 fn half_edge(origin: popkern_core::topology::VertexHandle, loop_: LoopHandle) -> HalfEdge {
     HalfEdge {
         origin,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: Default::default(),

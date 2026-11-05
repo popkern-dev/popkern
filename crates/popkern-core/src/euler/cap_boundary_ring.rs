@@ -14,6 +14,7 @@
 
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts, verify_loop_contains_half_edges};
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
     VertexHandle,
@@ -238,7 +239,7 @@ impl BRep {
         for step in &plan.steps {
             let hole_side = self.half_edges.insert(HalfEdge {
                 origin: step.hole_origin,
-                twin: step.surviving,
+                ring: RadialLinks::pair(step.surviving),
                 next: Default::default(),
                 prev: Default::default(),
                 edge: step.edge,

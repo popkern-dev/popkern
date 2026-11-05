@@ -8,6 +8,7 @@
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::*;
 use popkern_math::PortableMath;
 
@@ -139,7 +140,7 @@ impl BRep {
         let mk_he = |brep: &mut BRep, origin, edge, loop_| {
             brep.half_edges.insert(HalfEdge {
                 origin,
-                twin: Default::default(),
+                ring: RadialLinks::alone(),
                 next: Default::default(),
                 prev: Default::default(),
                 edge,

@@ -6,6 +6,7 @@
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, VertexHandle,
 };
@@ -338,7 +339,7 @@ pub(super) fn orient_strip(
 pub(super) fn blank(origin: VertexHandle, edge: EdgeHandle) -> HalfEdge {
     HalfEdge {
         origin,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
