@@ -6,7 +6,7 @@
 
 use crate::ShellWarning;
 use crate::error::ShellError;
-use crate::types::{ShellDirection, ShellOptions, ShellResult};
+use crate::types::{ShellDirection, ShellOptions, ShellResult, ThickenSide};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -31,9 +31,28 @@ pub fn thicken(
     options: &ShellOptions,
     tolerance: Tolerance,
 ) -> Result<ShellResult, ShellError> {
+    thicken_sided(brep, thickness, ThickenSide::Both, options, tolerance)
+}
+
+/// [`thicken`] with the wall on one `side` of the faces: the whole
+/// thickness along their normals ([`ThickenSide::Outward`]), against
+/// them ([`ThickenSide::Inward`]), or half each way. The faces of the
+/// unmoved side are the input's own.
+///
+/// # Errors
+///
+/// As [`thicken`].
+pub fn thicken_sided(
+    brep: &BRep,
+    thickness: f64,
+    side: ThickenSide,
+    options: &ShellOptions,
+    tolerance: Tolerance,
+) -> Result<ShellResult, ShellError> {
     thicken_impl(
         brep,
         thickness,
+        side,
         options,
         tolerance,
         &mut popkern_core::progress::StageTracker::inert(),
@@ -41,7 +60,7 @@ pub fn thicken(
     .map_err(|e| {
         crate::max_safe::upgrade_trim_decline(
             brep,
-            crate::types::ShellDirection::Midplane,
+            side.direction(),
             thickness,
             tolerance,
             options.trim_policy,
@@ -60,6 +79,7 @@ pub(crate) const THICKEN_STAGE_COUNT: usize = 2 * crate::skin_ladder::SKIN_LADDE
 pub(crate) fn thicken_impl(
     brep: &BRep,
     thickness: f64,
+    side: ThickenSide,
     options: &ShellOptions,
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
@@ -84,57 +104,71 @@ pub(crate) fn thicken_impl(
         brep
     };
 
-    let half = thickness / 2.0;
+    let (d_out, d_in) = side.distances(thickness);
     let stage_tol = Tolerance::default().with_linear(tolerance.linear() / 4.0);
 
     // Offset outward to create the outer skin. The ladder's collapse
-    // gate reports the caller's full-thickness units (scale 2.0).
-    let (outer, outer_map, offset_out, joins_out, routing_out) =
-        crate::skin_ladder::offset_skin_ladder(
-            brep,
-            half,
-            &[],
-            ShellDirection::Outward,
-            &[],
-            false,
-            options.allow_partial,
-            options.join_style,
-            true,
-            &stage_tol,
-            2.0,
-            [
-                "thicken.outward.classify_faces",
-                "thicken.outward.offset_surfaces",
-                "thicken.outward.skin",
-                "thicken.outward.recompute",
-                "thicken.outward.apply_offset_geometry",
-            ],
-            tracker,
-        )?;
+    // gate reports the caller's full-thickness units.
+    let (outer, outer_map, offset_out, joins_out, routing_out) = side_skin(
+        brep,
+        d_out,
+        thickness,
+        &mut |distance, scale, tracker: &mut popkern_core::progress::StageTracker<'_, '_>| {
+            crate::skin_ladder::offset_skin_ladder(
+                brep,
+                distance,
+                &[],
+                ShellDirection::Outward,
+                &[],
+                false,
+                options.allow_partial,
+                options.join_style,
+                true,
+                &stage_tol,
+                scale,
+                [
+                    "thicken.outward.classify_faces",
+                    "thicken.outward.offset_surfaces",
+                    "thicken.outward.skin",
+                    "thicken.outward.recompute",
+                    "thicken.outward.apply_offset_geometry",
+                ],
+                tracker,
+            )
+        },
+        tracker,
+    )?;
 
     // Offset inward to create the inner skin.
-    let (mut inner, inner_map, offset_in, joins_in, mut routing_in) =
-        crate::skin_ladder::offset_skin_ladder(
-            brep,
-            half,
-            &[],
-            ShellDirection::Inward,
-            &[],
-            false,
-            options.allow_partial,
-            options.join_style,
-            true,
-            &stage_tol,
-            2.0,
-            [
-                "thicken.inward.classify_faces",
-                "thicken.inward.offset_surfaces",
-                "thicken.inward.skin",
-                "thicken.inward.recompute",
-                "thicken.inward.apply_offset_geometry",
-            ],
-            tracker,
-        )?;
+    let (mut inner, inner_map, offset_in, joins_in, mut routing_in) = side_skin(
+        brep,
+        d_in,
+        thickness,
+        &mut |distance, scale, tracker: &mut popkern_core::progress::StageTracker<'_, '_>| {
+            crate::skin_ladder::offset_skin_ladder(
+                brep,
+                distance,
+                &[],
+                ShellDirection::Inward,
+                &[],
+                false,
+                options.allow_partial,
+                options.join_style,
+                true,
+                &stage_tol,
+                scale,
+                [
+                    "thicken.inward.classify_faces",
+                    "thicken.inward.offset_surfaces",
+                    "thicken.inward.skin",
+                    "thicken.inward.recompute",
+                    "thicken.inward.apply_offset_geometry",
+                ],
+                tracker,
+            )
+        },
+        tracker,
+    )?;
 
     // Mirror the inner skin's material side honestly: winding and
     // orientation flags flip together (a flag-only flip ships the
@@ -192,9 +226,10 @@ pub(crate) fn thicken_impl(
     // strips) get their honest value here (PK-325).
     result.reconcile_orientation_flags();
 
-    // Global self-intersection trim stage (PK-327): both skins moved
-    // by t/2, so every mapped face expects that distance; walls and
-    // corner sectors (unmapped) are exempt.
+    // Global self-intersection trim stage (PK-327): each skin's faces
+    // expect the distance that skin moved (0 for an unmoved side: on
+    // the source, never sampled); walls and corner sectors (unmapped)
+    // are exempt.
     let mut routing = routing_out;
     routing
         .inverted_edges
@@ -203,9 +238,17 @@ pub(crate) fn thicken_impl(
         routing.deferred = routing_in.deferred.take();
     }
     let mut provenance = crate::global_si_trim::TrimProvenance {
-        default_distance: half,
+        default_distance: d_out.max(d_in),
         ..Default::default()
     };
+    for (faces, distance) in [
+        (&assembly_maps.outer_faces, d_out),
+        (&assembly_maps.inner_faces, d_in),
+    ] {
+        for result_face in faces.values() {
+            provenance.expected.insert(*result_face, distance);
+        }
+    }
     let mapped: std::collections::BTreeSet<_> = assembly_maps
         .outer_faces
         .values()
@@ -217,9 +260,9 @@ pub(crate) fn thicken_impl(
             provenance.always_keep.insert(fh);
         }
     }
-    for (offset, ladder_map, assembly_faces) in [
-        (&offset_out, &outer_map, &assembly_maps.outer_faces),
-        (&offset_in, &inner_map, &assembly_maps.inner_faces),
+    for (offset, ladder_map, assembly_faces, distance) in [
+        (&offset_out, &outer_map, &assembly_maps.outer_faces, d_out),
+        (&offset_in, &inner_map, &assembly_maps.inner_faces, d_in),
     ] {
         provenance
             .free_form_offsets
@@ -233,7 +276,7 @@ pub(crate) fn thicken_impl(
                         .and_then(|s| assembly_faces.get(s))
                         .copied()
                 },
-                |_| half,
+                |_| distance,
             ));
     }
     let trim_warnings = crate::global_si_trim::run_trim_stage(
@@ -246,11 +289,10 @@ pub(crate) fn thicken_impl(
         &tolerance,
     )
     .map_err(|e| {
-        // Thicken is symmetric ±t/2: midplane semantics for the
-        // pre-flight bound.
+        // The pre-flight bound in the side's direction.
         crate::max_safe::upgrade_trim_decline(
             brep,
-            crate::types::ShellDirection::Midplane,
+            side.direction(),
             thickness,
             tolerance,
             options.trim_policy,
@@ -286,6 +328,49 @@ pub(crate) fn thicken_impl(
         brep: result,
         warnings,
     })
+}
+
+/// One skin type: the offset body, its map, offsets, joins and trim
+/// routing (as `offset_skin_ladder` returns them).
+type Skin = (
+    BRep,
+    crate::skin_map::SkinMap,
+    crate::surface_offset::OffsetResult,
+    crate::skin_ladder::JoinOutcome,
+    crate::collapse_check::TrimRouting,
+);
+
+/// The skin `distance` from `brep`: the offset ladder (its collapse
+/// gate in units of the whole `thickness`; a negative distance goes to
+/// the ladder, which declines it), or, for a side that does not move,
+/// the input itself under the identity map.
+fn side_skin(
+    brep: &BRep,
+    distance: f64,
+    thickness: f64,
+    ladder: &mut dyn FnMut(
+        f64,
+        f64,
+        &mut popkern_core::progress::StageTracker<'_, '_>,
+    ) -> Result<Skin, ShellError>,
+    tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+) -> Result<Skin, ShellError> {
+    if distance != 0.0 {
+        return ladder(distance, thickness / distance, tracker);
+    }
+    let map = crate::skin_map::SkinMap {
+        vertices: brep.vertices.keys().map(|k| (k, k)).collect(),
+        edges: brep.edges.keys().map(|k| (k, k)).collect(),
+        half_edges: brep.half_edges.keys().map(|k| (k, k)).collect(),
+        faces: brep.faces.keys().map(|k| (k, k)).collect(),
+    };
+    Ok((
+        brep.clone(),
+        map,
+        Default::default(),
+        Default::default(),
+        Default::default(),
+    ))
 }
 
 /// Materialize the missing twin half-edges of null-sentinel boundary

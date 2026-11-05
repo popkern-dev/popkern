@@ -210,6 +210,42 @@
       "parameters": []
     },
     {
+      "name": "conic_to",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "conic_to(control=[x,y], to=[x,y], weight)",
+      "parameters": [
+        {
+          "name": "control",
+          "optional": false
+        },
+        {
+          "name": "to",
+          "optional": false
+        },
+        {
+          "name": "weight",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "ellipse",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "ellipse(rx, ry)",
+      "parameters": [
+        {
+          "name": "rx",
+          "optional": false
+        },
+        {
+          "name": "ry",
+          "optional": false
+        }
+      ]
+    },
+    {
       "name": "line_to",
       "section": "3.1",
       "mark": "stable",
@@ -269,6 +305,20 @@
           "optional": true
         }
       ]
+    },
+    {
+      "name": "spline",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "spline([[x,y], ...], #{degree?, weights?})",
+      "parameters": []
+    },
+    {
+      "name": "spline_to",
+      "section": "3.1",
+      "mark": "stable",
+      "signature": "spline_to([[x,y], ...], #{degree?, weights?, knots?})",
+      "parameters": []
     },
     {
       "name": "angle",
@@ -810,6 +860,42 @@
       ]
     },
     {
+      "name": "box",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.box(x, y, z, centred?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "x",
+          "optional": false
+        },
+        {
+          "name": "y",
+          "optional": false
+        },
+        {
+          "name": "z",
+          "optional": false
+        },
+        {
+          "name": "centred",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "chamfer",
       "section": "5",
       "mark": "stable",
@@ -902,6 +988,42 @@
       ]
     },
     {
+      "name": "cone",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.cone(r1, r2, h, angle?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r1",
+          "optional": false
+        },
+        {
+          "name": "r2",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        },
+        {
+          "name": "angle",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "curve_pattern",
       "section": "5",
       "mark": "preview",
@@ -933,6 +1055,38 @@
         },
         {
           "name": "overrides",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "cylinder",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.cylinder(r, h, angle?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        },
+        {
+          "name": "angle",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
           "optional": true
         }
       ]
@@ -1517,6 +1671,82 @@
       ]
     },
     {
+      "name": "prism",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.prism(sides, r, h, flats?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "sides",
+          "optional": false
+        },
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        },
+        {
+          "name": "flats",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "pyramid",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.pyramid(sides, r1, r2, h, flats?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "sides",
+          "optional": false
+        },
+        {
+          "name": "r1",
+          "optional": false
+        },
+        {
+          "name": "r2",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        },
+        {
+          "name": "flats",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "raw_body",
       "section": "5",
       "mark": "preview",
@@ -1544,6 +1774,18 @@
         },
         {
           "name": "query",
+          "optional": false
+        }
+      ]
+    },
+    {
+      "name": "remove_faces",
+      "section": "5",
+      "mark": "preview",
+      "signature": "remove_faces(faces)",
+      "parameters": [
+        {
+          "name": "faces",
           "optional": false
         }
       ]
@@ -1601,6 +1843,102 @@
       ]
     },
     {
+      "name": "sheet_disc",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.sheet_disc(r, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "sheet_fill",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.sheet_fill(wire, edges?)",
+      "parameters": [
+        {
+          "name": "wire",
+          "optional": false
+        },
+        {
+          "name": "edges",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "sheet_polygon",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.sheet_polygon(points, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "points",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "sheet_rect",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.sheet_rect(x, y, centred?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "x",
+          "optional": false
+        },
+        {
+          "name": "y",
+          "optional": false
+        },
+        {
+          "name": "centred",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "shell",
       "section": "5",
       "mark": "stable",
@@ -1624,6 +1962,38 @@
         },
         {
           "name": "trim",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "sphere",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.sphere(r, lat?, angle?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "lat",
+          "optional": true
+        },
+        {
+          "name": "angle",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
           "optional": true
         }
       ]
@@ -1655,7 +2025,7 @@
       "name": "sweep",
       "section": "5",
       "mark": "stable",
-      "signature": "sweep(face, path_body, path_edge, twist?, mode?)",
+      "signature": "sweep(face, path_body, path_edge, twist?, mode?, corner?)",
       "parameters": [
         {
           "name": "face",
@@ -1675,6 +2045,10 @@
         },
         {
           "name": "mode",
+          "optional": true
+        },
+        {
+          "name": "corner",
           "optional": true
         }
       ]
@@ -1731,7 +2105,7 @@
       "name": "thicken",
       "section": "5",
       "mark": "preview",
-      "signature": "thicken(thickness, join?, trim?)",
+      "signature": "thicken(thickness, join?, trim?, side?)",
       "parameters": [
         {
           "name": "thickness",
@@ -1743,6 +2117,10 @@
         },
         {
           "name": "trim",
+          "optional": true
+        },
+        {
+          "name": "side",
           "optional": true
         }
       ]
@@ -1767,6 +2145,38 @@
         },
         {
           "name": "starts",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "torus",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.torus(major, minor, angle?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "major",
+          "optional": false
+        },
+        {
+          "name": "minor",
+          "optional": false
+        },
+        {
+          "name": "angle",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
           "optional": true
         }
       ]
@@ -1815,6 +2225,222 @@
         },
         {
           "name": "non_manifold",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "wedge",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.wedge(x, y, z, top_x, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "x",
+          "optional": false
+        },
+        {
+          "name": "y",
+          "optional": false
+        },
+        {
+          "name": "z",
+          "optional": false
+        },
+        {
+          "name": "top_x",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "wire_arc",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.wire_arc(start, via, end, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "start",
+          "optional": false
+        },
+        {
+          "name": "via",
+          "optional": false
+        },
+        {
+          "name": "end",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "wire_circle",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.wire_circle(r, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "wire_helix",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.wire_helix(r, pitch, turns, left_hand?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "pitch",
+          "optional": false
+        },
+        {
+          "name": "turns",
+          "optional": false
+        },
+        {
+          "name": "left_hand",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "wire_line",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.wire_line(from, to, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "from",
+          "optional": false
+        },
+        {
+          "name": "to",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "wire_polyline",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.wire_polyline(points, closed?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "points",
+          "optional": false
+        },
+        {
+          "name": "closed",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "wire_spline",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.wire_spline(points, degree?, control?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "points",
+          "optional": false
+        },
+        {
+          "name": "degree",
+          "optional": true
+        },
+        {
+          "name": "control",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
           "optional": true
         }
       ]
@@ -2051,6 +2677,16 @@
       "name": "named",
       "kind": "face",
       "mark": "preview"
+    },
+    {
+      "name": "except",
+      "kind": "face",
+      "mark": "stable"
+    },
+    {
+      "name": "not",
+      "kind": "face",
+      "mark": "stable"
     }
   ],
   "error_classes": [
@@ -2204,6 +2840,10 @@
         "feature",
         "rule",
         "pieces",
+        "tool_faces",
+        "reason",
+        "near",
+        "far",
         "detail",
         "report"
       ]

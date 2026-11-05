@@ -2,6 +2,7 @@
 name = "popkern-analysis-setup"
 version = "0.1.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Analysis setup files: the TOML format the CLI and popkern live read and write"
 

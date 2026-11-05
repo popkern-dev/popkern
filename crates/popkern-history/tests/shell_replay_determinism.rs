@@ -99,6 +99,7 @@ fn build_offset_family_tree() -> FeatureTree {
             thickness: wall,
             join_style: JoinStyleKind::Arc,
             trim_policy: TrimPolicyKind::Trim,
+            side: Default::default(),
         },
         "Thicken1",
     );

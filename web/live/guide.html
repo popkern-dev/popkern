@@ -67,10 +67,14 @@ m
 <tr><th>Spelling</th><th>Meaning</th></tr>
 <tr><td><code>xy()</code>, <code>xz()</code>, <code>yz()</code></td><td>the base planes</td></tr>
 <tr><td><code>xy_at(z)</code>, <code>xz_at(y)</code>, <code>yz_at(x)</code></td><td>a base plane offset along its normal. In-plane coordinates <code>(u, v)</code> are <code>(x, y)</code> on XY, <code>(x, z)</code> on XZ and <code>(y, z)</code> on YZ; <code>plane_at</code> uses the frame of its normal (u along the least-aligned world axis)</td></tr>
-<tr><td><code>on_face(faces()...)</code>, <code>on_face_offset(faces()..., d)</code></td><td>the plane of a planar face (the query must pick exactly one face)</td></tr>
+<tr><td><code>on_face(faces()...)</code>, <code>on_face_offset(faces()..., d)</code></td><td>the plane of a planar face (the query must pick exactly one face). Its frame is the face surface's own: the origin where the feature that made the face put it (often that feature's sketch origin, not the face's centre), the normal outward from the material, so <code>.at(...)</code> coordinates are measured from that origin</td></tr>
 <tr><td><code>plane_at([ox, oy, oz], [nx, ny, nz])</code></td><td>a custom plane by origin and normal</td></tr>
 <tr><td><code>.rect(w, h)</code>, <code>.circle(r)</code>, <code>.polygon([[x, y], ...])</code></td><td>closed outlines centred on the plane origin</td></tr>
+<tr><td><code>.ellipse(rx, ry)</code></td><td>an ellipse centred on the plane origin, semi-axis <code>rx</code> along u and <code>ry</code> along v (exact: four rational quarters)</td></tr>
+<tr><td><code>.spline([[x, y], ...], #{degree, weights})</code></td><td>a closed, smooth B-spline over its control polygon (the curve passes near the points, not through them); degree 3 unless given, one weight per point</td></tr>
 <tr><td><code>.path(x0, y0).line_to(x, y).arc_to([vx, vy], [x, y]).close()</code></td><td>a path of lines and three-point arcs, closed back to its start</td></tr>
+<tr><td><code>.conic_to([cx, cy], [x, y], w)</code></td><td>a conic arc to <code>[x, y]</code> whose end tangents meet at <code>[cx, cy]</code>: weight below 1 an ellipse arc (<code>0.7071…</code> a quarter ellipse in its bounding box), 1 a parabola, above 1 a hyperbola</td></tr>
+<tr><td><code>.spline_to([[x, y], ..., [xn, yn]], #{degree, weights, knots})</code></td><td>a spline from the current point through control points to the last one (its end); degree 3 unless given, <code>knots</code> clamped, <code>points + degree + 2</code> long counting the start</td></tr>
 <tr><td><code>.at(cx, cy)</code></td><td>place the outline's centre</td></tr>
 </table>
 <pre class="lang-rhai"><code>let m = model();
@@ -86,15 +90,19 @@ m
 <p>Every feature verb is a method on a body; every one returns the body it served; every one takes an optional trailing options map with at least <code>label</code>.</p>
 <table>
 <tr><th>Verb</th><th>Positional arguments</th><th>Options</th><th>Notes</th></tr>
-<tr><td><code>extrude(end)</code></td><td><code>end</code>: <code>blind(d)</code>, <code>through_all()</code>, <code>up_to_surface(faces()...)</code>, <code>offset_from_surface(faces()..., d)</code>, <code>mid_plane(half_d)</code></td><td><code>label</code>, <code>mode</code> (<code>"new_body"</code> default, <code>"boss"</code>, <code>"cut"</code>)</td><td><code>boss</code>/<code>cut</code> fold the new body into the body the sketch sits on (<code>on_face</code> sketches); a base-plane sketch is its own body — combine it with <code>union</code>/<code>subtract</code>.</td></tr>
-<tr><td><code>revolve(axis, end)</code></td><td><code>axis</code>: <code>axis_at([o], [d])</code> or <code>axis(edges()...)</code>; <code>end</code>: <code>blind(angle_deg)</code>, <code>full_circle()</code>, <code>mid_plane(half_angle)</code></td><td><code>label</code></td><td>Revolved spans become exact planes, cylinders, cones and tori.</td></tr>
+<tr><td><code>extrude(end)</code></td><td><code>end</code>: <code>blind(d)</code>, <code>through_all()</code>, <code>up_to_surface(faces()...)</code> or <code>up_to_surface(body, faces()...)</code>, <code>offset_from_surface(faces()..., d)</code> or <code>offset_from_surface(body, faces()..., d)</code>, <code>mid_plane(half_d)</code></td><td><code>label</code>, <code>mode</code> (<code>"new_body"</code> default, <code>"boss"</code>, <code>"cut"</code>)</td><td><code>boss</code>/<code>cut</code> fold the new body into the body the sketch sits on (<code>on_face</code> sketches) or ends on; a base-plane sketch is its own body (combine it with <code>union</code>/<code>subtract</code>), except that a <code>cut</code> cuts the one body it reaches, failing with <code>CutTargetAmbiguous</code> when it reaches several. A <code>blind(d)</code> end runs along the plane's normal, which on a face points out of the material: a cut into the face takes a negative <code>d</code>. A cut that removes no material (placed off the face, or run away from it) fails with <code>CutRemovedNothing</code> rather than serving the body unchanged. <code>up_to_surface(body, ...)</code> stops at a face of another body (a pad down to a drum: <code>mode: "boss"</code> joins it to that body). A face that is not square to the extrude is followed exactly only by such a boss; a new body or a cut up to it fails with <code>UpToFaceDeclined</code>. <code>offset_from_surface</code> stops a positive <code>d</code> short of the face.</td></tr>
+<tr><td><code>revolve(axis, end)</code></td><td><code>axis</code>: <code>axis_at([o], [d])</code> or <code>axis(edges()...)</code>; <code>end</code>: <code>blind(angle_deg)</code>, <code>full_circle()</code>, <code>mid_plane(half_angle)</code>, <code>up_to_surface([body,] faces()...)</code></td><td><code>label</code>, <code>mode</code> (<code>"new_body"</code> default, <code>"boss"</code>, <code>"cut"</code>)</td><td>Revolved spans become exact planes, cylinders, cones and tori. Turned up to a stop on another body, <code>mode: "boss"</code> joins the turned body to it; a stop the section meets at several angles (not a half-plane through the axis) is followed only by that boss.</td></tr>
 <tr><td><code>union(tool)</code>, <code>subtract(tool)</code>, <code>intersect(tool)</code></td><td>a body from <code>m.tool(...)</code></td><td><code>label</code>, <code>non_manifold</code> (<code>"decline"</code> default, <code>"split_to_manifold"</code>)</td><td>The tool body is consumed; rebinding (<code>plate = plate.union(boss)</code>) keeps the live body. Bodies touching only along an edge or at a point decline by default; <code>split_to_manifold</code> serves manifold pieces meeting at recorded contacts.</td></tr>
 <tr><td><code>fillet(edges, radius)</code></td><td><code>edges()...</code> query; <code>radius</code> scalar</td><td><code>label</code>, <code>continuity</code> (<code>"g0"</code>, <code>"g1"</code>, <code>"g2"</code>), <code>cap</code> (<code>"open"</code>, <code>"flat"</code>, <code>"rounded"</code>, <code>"tangent_match"</code>), <code>profile</code> (<code>circular()</code>, <code>conic(rho)</code>, <code>curvature_continuous()</code>), <code>interference</code> (<code>"decline"</code>, <code>"serve_non_interfering"</code>), <code>law</code> (<code>constant()</code>, <code>linear(end_radius)</code>, <code>by_stations([[t, r], ...])</code>), <code>corner</code> (<code>"smooth"</code>, <code>"mitre"</code>: trim every strip pair at a corner to its mutual intersection), <code>corner_cap</code> (<code>"auto"</code>, <code>"setback"</code>, <code>"fitted"</code>, <code>"classic"</code>, <code>"rolling_ball"</code>: which construction closes a corner where three or more rounds meet; <code>"rolling_ball"</code> gives the exact rolling-ball sphere where three rounds of one radius meet on flat faces), <code>corner_cap_strict</code> (true: that construction or a failure, never a fallback; needs <code>"setback"</code>, <code>"fitted"</code> or <code>"rolling_ball"</code>), <code>setback</code> (a positive distance: each round ends that far from a corner where three or more rounds meet), <code>setback_ends</code> (a list of [edges, at, distance] groups: the end of each edge of the first selection at the corner it shares with an edge of the second, overriding <code>setback</code>)</td><td>A radius the edge cannot carry is a <code>FeatureFailed</code> with the maximum radius and a <code>ReduceRadius</code> remediation. A mitre with no point shared by every strip is a <code>FeatureFailed</code> naming the mitre's reason. A strict <code>corner_cap</code> that cannot serve a corner is a <code>FeatureFailed</code> naming the corner and every decline. A <code>setback</code> the corner cannot take is a <code>FeatureFailed</code> naming the admissible range.</td></tr>
 <tr><td><code>fillet_each(groups)</code></td><td><code>[[edges()..., radius], ...]</code>: one radius per group of edges</td><td><code>label</code>, <code>continuity</code>, <code>cap</code>, <code>profile</code>, <code>interference</code>, <code>corner</code>, <code>corner_cap</code>, <code>corner_cap_strict</code>, <code>setback</code>, <code>setback_ends</code> (as for fillet; radius laws are not taken)</td><td>One fillet whose groups carry different radii: the edges meeting at a corner blend together as one corner even when their radii differ. An edge selected by two groups is refused (the message names every overlapping pair). The first group's radius is the feature's <code>radius</code> parameter, later groups' are <code>radius_1</code>, <code>radius_2</code>, …</td></tr>
 <tr><td><code>chamfer(edges, distance)</code></td><td>as fillet</td><td><code>label</code>, <code>kind</code> (<code>equal()</code> default, <code>two_distance(faces()..., d2)</code>, <code>distance_angle(faces()..., angle_deg)</code>)</td><td>The face query of a kind must resolve on the chamfered body.</td></tr>
 <tr><td><code>shell(faces_to_remove, thickness)</code></td><td><code>faces()...</code> (may be <code>.allow_empty()</code> for a closed hollow)</td><td><code>label</code>, <code>direction</code> (<code>"inward"</code> default, <code>"outward"</code>, <code>"midplane"</code>), <code>join</code> (<code>"arc"</code>, <code>"intersection"</code>), <code>trim</code> (<code>"trim"</code>, <code>"decline"</code>)</td><td></td></tr>
+<tr><td><code>offset_solid(distance)</code></td><td>a scalar: positive grows the solid, negative shrinks it</td><td><code>label</code>, <code>join</code> (<code>"arc"</code> default: corners rounded at the distance, <code>"intersection"</code>: sharp), <code>trim</code> (<code>"trim"</code>, <code>"decline"</code>)</td><td>Every face moves along its normal; no face is removed.</td></tr>
+<tr><td><code>thicken(thickness)</code></td><td>a scalar: the wall's whole thickness</td><td><code>label</code>, <code>join</code>, <code>trim</code> (as for the offset above), <code>side</code> (<code>"both"</code> default: half to each side of the faces; <code>"outward"</code>: all of it along their normals; <code>"inward"</code>: against them)</td><td>A sheet becomes a closed solid; a closed body becomes a hollow one (two shells).</td></tr>
+<tr><td><code>remove_faces(faces)</code></td><td><code>faces()...</code> to take away</td><td><code>label</code></td><td>The body is left open along their edges: a solid becomes a sheet, which <code>thicken</code> takes (a sheet keeps the solid's outward normals, so <code>side: "outward"</code> builds away from where the material was). A face with holes cannot be removed yet.</td></tr>
+<tr><td><code>draft(faces, angle_deg, neutral)</code></td><td><code>faces()...</code> to taper; the angle in degrees; the neutral plane: a planar face (<code>faces()...</code> or <code>on_face(...)</code>, pulled along its outward normal) or a plane (<code>xy()</code>, <code>xz()</code>, <code>yz()</code>, <code>xy_at(z)</code> and the like at a literal offset, <code>plane_at([o], [n])</code>, pulled along its normal)</td><td><code>label</code></td><td>Each face keeps its line on the neutral plane and leans by the angle, so the part draws along the pull direction.</td></tr>
 <tr><td><code>translate(dx, dy, dz)</code>, <code>rotate(axis, angle_deg)</code></td><td>rigid motions; the distances and the angle are scalars (<code>p()</code>/<code>expr()</code> apply)</td><td><code>label</code></td><td>Usually applied to tool bodies before a boolean. Selector arguments (<code>at_height(z)</code>, <code>chord_length_between</code>) are plain numbers, not parameters.</td></tr>
-<tr><td><code>sweep(path_body, path_edge)</code></td><td>the body carrying the path edge, then an edge query on it (exactly one edge)</td><td><code>label</code>, <code>mode</code>, <code>twist</code></td><td>The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. <code>twist</code> in degrees over the full path. The path body is referenced, not consumed.</td></tr>
+<tr><td><code>sweep(path_body, path_edge)</code></td><td>the body carrying the path, then an edge query on it (one edge, or several chained end to end)</td><td><code>label</code>, <code>mode</code>, <code>twist</code>, <code>corner</code></td><td>The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. <code>twist</code> in degrees over the full path (one edge only). A path of several edges carries one frame round its joints; at a sharp corner <code>corner: "mitre"</code> (the default) cuts each run by the plane bisecting it, <code>"round"</code> turns the section about the corner. The path body is referenced, not consumed.</td></tr>
 <tr><td><code>loft(sections)</code></td><td>on <code>Model</code>: <code>m.loft([s0, s1, …])</code> — ordered sketch bodies, each contributing its most recent sketch face</td><td><code>label</code>, <code>mode</code>, <code>closed</code></td><td>Records on the first section's body and consumes the others. Sections must be all closed or all open; matching point counts keep the surface smooth (circle sections stay exact circles).</td></tr>
 <tr><td><code>pipe(path_edge, radius)</code></td><td>an edge query on the receiving body (exactly one edge), then the tube radius</td><td><code>label</code>, <code>mode</code></td><td>The tube is a new body; the path body keeps its edge.</td></tr>
 <tr><td><code>bolt(spec, length)</code></td><td>on <code>Model</code>: <code>spec</code> is a designation string (<code>"M6"</code>, <code>"M6x0.75"</code>, <code>"1/4-20"</code>, <code>"#8-32"</code> — millimetre-magnitude numbers bound in model units) or <code>#{ major: .., pitch: .. }</code>; <code>length</code> is under-head (hex/socket) or overall (countersunk)</td><td><code>label</code>, <code>head</code> (<code>"hex"</code> default, <code>"socket"</code>, <code>"countersunk"</code>), <code>thread_length</code>, <code>left_hand</code>, <code>starts</code>, <code>tip_chamfer</code></td><td>Real modeled threads (PK-460). Bodies build in the insertion frame — axis +Z, origin at the bearing plane, threads toward +Z — and place with <code>translate</code>/<code>rotate</code>. Author fastener models in a default-unit session with millimetre-magnitude numbers.</td></tr>
@@ -174,8 +182,57 @@ print(h.leaf_a.is_alive() &amp;&amp; h.leaf_b.is_alive() &amp;&amp; h.pin.is_ali
 m.assert_watertight();
 m
 </code></pre>
+<h3>Primitives</h3>
+<p>A primitive starts a new body from its dimensions, every one a parameter:</p>
+<table>
+<tr><th>Verb</th><th>Dimensions</th><th>Options</th><th>Notes</th></tr>
+<tr><td><code>m.box(x, y, z)</code></td><td>sizes along the local x, y, z</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>centred</code></td><td>a corner on the origin, or <code>centred: true</code></td></tr>
+<tr><td><code>m.cylinder(r, h)</code></td><td>radius, height</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>angle</code></td><td>stands on the origin along the axis</td></tr>
+<tr><td><code>m.cone(r1, r2, h)</code></td><td>base radius, top radius, height</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>angle</code></td><td>a frustum; either radius may be 0</td></tr>
+<tr><td><code>m.sphere(r)</code></td><td>radius</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>lat</code>, <code>angle</code></td><td><code>lat: [lo, hi]</code> degrees keeps the zone between two latitudes</td></tr>
+<tr><td><code>m.prism(sides, r, h)</code></td><td>side count, radius, height</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>flats</code></td><td>a regular polygon, corner 0 on <code>ref</code>; <code>flats: true</code> measures <code>r</code> to the sides</td></tr>
+<tr><td><code>m.pyramid(sides, r1, r2, h)</code></td><td>side count, base radius, top radius, height</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>flats</code></td><td>an apex where a radius is 0; both above 0 a frustum</td></tr>
+<tr><td><code>m.wedge(x, y, z, top_x)</code></td><td>box sizes, top length along x</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code></td><td>the top runs <code>top_x</code> from the x = 0 side; 0 is a ramp</td></tr>
+<tr><td><code>m.torus(major, minor)</code></td><td>axis to tube centre, tube radius</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code>, <code>angle</code></td><td><code>minor</code> &lt; <code>major</code></td></tr>
+</table>
+<p><code>at</code> is the local origin (model unit), <code>axis</code> the local z and <code>ref</code> the local x (made square to the axis); the default is the world frame. <code>angle</code> (degrees) keeps only the sector of a cylinder, cone, sphere or torus that turns from <code>ref</code> about the axis. Faces are named by role under the feature's label: <code>Cap/0</code> the bottom, <code>Cap/1</code> the top (a sphere zone's caps too), <code>Cap/2</code> and <code>Cap/3</code> a sector's start and end, <code>Lateral/i</code> the rest round the axis.</p>
+<pre class="lang-rhai"><code>let m = model();
+let post = m.cylinder(2.0, 5.0, #{ at: [10.0, 0.0, 0.0], label: "post" });
+post = post.shell(faces().named("post/Cap/1"), 0.5);   // open at the top
+let ring = m.torus(5.0, 1.0, #{ angle: 90.0 });
+m
+</code></pre>
+<h3>Wires</h3>
+<p>A wire is a body of edges on no face: a path for <code>sweep</code> and <code>pipe</code>, and construction geometry (it is not a part: it is not exported or meshed).</p>
+<table>
+<tr><th>Verb</th><th>Arguments</th><th>Options</th></tr>
+<tr><td><code>m.wire_line(from, to)</code></td><td>two points</td><td><code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code></td></tr>
+<tr><td><code>m.wire_polyline(points)</code></td><td>a list of points</td><td><code>closed</code>, and the placement</td></tr>
+<tr><td><code>m.wire_arc(start, via, end)</code></td><td>three points on the arc</td><td>the placement</td></tr>
+<tr><td><code>m.wire_circle(r)</code></td><td>radius, about the axis from <code>ref</code></td><td>the placement</td></tr>
+<tr><td><code>m.wire_helix(r, pitch, turns)</code></td><td>radius, rise per turn, turns</td><td><code>left_hand</code>, and the placement</td></tr>
+<tr><td><code>m.wire_spline(points)</code></td><td>the points it passes through (or, with <code>control</code>, its control polygon)</td><td><code>degree</code> (3), <code>control</code>, and the placement</td></tr>
+</table>
+<p>Points are in the model unit, in the placement's frame. A wire's one edge is the path without a query: <code>profile_body.sweep(wire)</code>, <code>wire.pipe(r)</code>. A pipe along an arc or circle is an exact torus.</p>
+<pre class="lang-rhai"><code>let m = model();
+let coil = m.wire_helix(10.0, 4.0, 5.0);
+let spring = coil.pipe(1.0);
+let rail = m.wire_line([0.0, 0.0, 0.0], [50.0, 0.0, 0.0]);
+let bar = m.profile(xy()).rect(4.0, 2.0).sketch("section").sweep(rail);
+m
+</code></pre>
+<h3>Sheets</h3>
+<p>A sheet is one planar face with free edges: thicken it, offset it, cut with it.</p>
+<table>
+<tr><th>Verb</th><th>Arguments</th><th>Options</th></tr>
+<tr><td><code>m.sheet_rect(x, y)</code></td><td>sizes in the placement's xy plane</td><td><code>centred</code>, <code>label</code>, <code>at</code>, <code>axis</code>, <code>ref</code></td></tr>
+<tr><td><code>m.sheet_disc(r)</code></td><td>radius</td><td>the placement</td></tr>
+<tr><td><code>m.sheet_polygon(points)</code></td><td><code>[x, y]</code> corners</td><td>the placement</td></tr>
+<tr><td><code>m.sheet_fill(wire)</code></td><td>a closed planar wire (or <code>wire, edges()...</code>)</td><td><code>label</code></td></tr>
+</table>
+<p>A sheet faces its placement's axis: <code>thicken(t, #{ side: "outward" })</code> grows along it. Its face is <code>Cap/0</code>.</p>
 <h2>6. Selecting edges and faces</h2>
-<p>Queries are data: <code>edges()</code> or <code>faces()</code> followed by predicates, all of which must hold; <code>.or(...)</code> joins whole queries; <code>.allow_empty()</code> turns "matched nothing" from an error into a recorded no-op. A query that must name exactly one entity (a <code>label_edge</code>, an <code>on_face</code> plane, a chamfer's reference face) raises <code>SelectionCardinality</code> when it matches more.</p>
+<p>Queries are data: <code>edges()</code> or <code>faces()</code> followed by predicates, all of which must hold; <code>.or(...)</code> joins whole queries (edges and faces alike); <code>.allow_empty()</code> turns "matched nothing" from an error into a recorded no-op. A query that must name exactly one entity (a <code>label_edge</code>, an <code>on_face</code> plane, a chamfer's reference face) raises <code>SelectionCardinality</code> when it matches more.</p>
 <table>
 <tr><th>Edge predicate</th><th>Meaning</th></tr>
 <tr><td><code>circular()</code>, <code>straight()</code>, <code>conic()</code>, <code>nurbs()</code></td><td>the edge's curve kind</td></tr>
@@ -194,6 +251,8 @@ m
 <tr><td><code>facing("z")</code>, <code>facing_neg("z")</code></td><td>outward normal along ± an axis (or <code>[x, y, z]</code>)</td></tr>
 <tr><td><code>at_height(z)</code></td><td>a planar face at that z</td></tr>
 <tr><td><code>labeled("name")</code>, <code>named("plate_sketch/Generated/0")</code></td><td>as for edges</td></tr>
+<tr><td><code>.except(faces()...)</code></td><td>not a face the inner query matches: <code>faces().except(faces().facing_neg("z"))</code> is every face but the bottom</td></tr>
+<tr><td><code>.not()</code></td><td>every face the query does not match (<code>faces().except(query)</code>)</td></tr>
 </table>
 <pre class="lang-rhai"><code>let m = model();
 // A triangular prism: its top face has exactly one edge along x.
@@ -458,11 +517,12 @@ film
 <p>A target is an occurrence path (<code>"pair_1"</code> moves everything under it, <code>"pair_1/high"</code> one pin), <code>"body N"</code> in a part document, <code>"design label"</code> for a generative design's layer, or <code>"all"</code>. A name the document does not have is an <code>ArgumentError</code> at its line that lists the names it does have.</p>
 <h2>15. Cheat-sheet</h2>
 <pre class="lang-text"><code>model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
-m.profile(PLANE).rect|circle|polygon|path…close().at(cx, cy).sketch(label)
+m.profile(PLANE).rect|circle|ellipse|polygon|spline|path…close().at(cx, cy).sketch(label)
+path(x0, y0).line_to(x, y) arc_to(via, to) conic_to(ctl, to, w) spline_to(pts, #{degree, weights, knots})
 PLANE: xy() xz() yz() xy_at(z) xz_at(y) yz_at(x) on_face(F) on_face_offset(F, d) plane_at(o, n)
-END:   blind(d) through_all() up_to_surface(F) offset_from_surface(F, d) mid_plane(h) full_circle()
+END:   blind(d) through_all() up_to_surface([body,] F) offset_from_surface([body,] F, d) mid_plane(h) full_circle()
 AXIS:  axis_at([ox,oy,oz], [dx,dy,dz])   axis(E)
-body.extrude(END, #{label, mode})        body.revolve(AXIS, END, #{label})
+body.extrude(END, #{label, mode})        body.revolve(AXIS, END, #{label, mode})
 body.union(tool) subtract(tool) intersect(tool)      tool = m.tool(|m| …)
 body.split([t, …], KEEP)   body.nary_boolean([t, …], EXPR, #{label, non_manifold})   body.symmetric_difference(t)   body.imprint(t)
 body.keep_pieces(KEEP)     piece = body.separate_pieces(KEEP)   (geometric KEEP only: all_pieces, containing, largest)
@@ -472,10 +532,16 @@ EXPR: body(i) any_body() all_bodies() exactly_one() odd() at_least(k) .and(EXPR)
 body.fillet(E, r, #{label, continuity, cap, profile, interference, law, corner, corner_cap, corner_cap_strict, setback, setback_ends})
 body.fillet_each([[E, r], …], #{…as fillet, no law})
 body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, join, trim})
+body.offset_solid(d, #{label, join, trim})  body.thicken(t, #{label, join, trim, side})  body.remove_faces(F, #{label})
+body.draft(F, deg, NEUTRAL, #{label})    NEUTRAL: faces()… on_face(F) xy() xz() yz() xy_at(z) plane_at([o],[n])
 body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
-body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
+body.sweep(path_body, E, #{label, mode, twist, corner})     body.pipe(E, r, #{label, mode})     body.sweep(wire) wire.pipe(r)
 body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
 m.loft([s0, s1, …], #{label, mode, closed})
+m.box(x, y, z, #{centred}) m.cylinder(r, h) m.cone(r1, r2, h) m.sphere(r, #{lat}) m.torus(R, r)   #{angle}
+m.prism(n, r, h, #{flats}) m.pyramid(n, r1, r2, h, #{flats}) m.wedge(x, y, z, top_x)   all #{at, axis, ref, label}
+m.sheet_rect(x, y, #{centred}) m.sheet_disc(r) m.sheet_polygon(P) m.sheet_fill(wire[, E])
+m.wire_line(a, b) m.wire_polyline(P, #{closed}) m.wire_arc(a, via, b) m.wire_circle(r) m.wire_helix(r, pitch, turns, #{left_hand}) m.wire_spline(P, #{degree, control})
 m.bolt(SPEC, len, #{label, head, thread_length, left_hand, starts})   m.threaded_rod(SPEC, len, #{…})
 m.hinge("butt"|"print_in_place", len, #{knuckles, pin, clearance, gap, angle, screw, holes, only})   m.living_hinge(STYLE, span, len)
 m.nut(SPEC, #{label, clearance, thickness, left_hand, starts, corner_chamfer, mouth_chamfer})
@@ -484,7 +550,7 @@ body.clearance_hole(AXIS, SPEC, DEPTH, #{label, fit, diameter, countersink, coun
 SPEC: "M6" "M6x0.75" "1/4-20" "#8-32" (mm) or #{ major, pitch } (model units)   DEPTH: blind(d) through_all()
 E: edges().circular().straight().conic().nurbs().between(k, k).at_height(z).direction(d)
    .chord_length_between(a, b).not_seam().labeled(l).named(n).or(E).allow_empty()
-F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).allow_empty()
+F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).or(F).except(F).not().allow_empty()
 m.param(name, v, unit) param_expr(name, text, unit) set_param set_expr clear_expr
   set_bounds clear_bounds rename_param params()      p("name")  expr("a * 2")
 m.label_edge label_face unlabel rename_label labels()

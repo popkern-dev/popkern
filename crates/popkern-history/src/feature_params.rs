@@ -89,8 +89,10 @@ fn static_param_ids(feature: &Feature) -> Vec<(&'static str, ParameterId)> {
         Feature::Thicken { thickness, .. } => vec![("thickness", *thickness)],
         Feature::OffsetSolid { distance, .. } => vec![("distance", *distance)],
         Feature::Draft { angle, .. } => vec![("angle", *angle)],
+        Feature::RemoveFaces { .. } => Vec::new(),
         Feature::Sweep { twist, .. } => vec![("twist", *twist)],
         Feature::Pipe { radius, .. } => vec![("radius", *radius)],
+        Feature::Primitive(p) => p.shape.param_ids(),
         Feature::Fastener {
             thread,
             length,
@@ -255,10 +257,12 @@ impl Feature {
             Feature::Thicken { .. } => "thicken",
             Feature::OffsetSolid { .. } => "offset_solid",
             Feature::Draft { .. } => "draft",
+            Feature::RemoveFaces { .. } => "remove_faces",
             Feature::Sweep { .. } => "sweep",
             Feature::Loft { .. } => "loft",
             Feature::Pipe { .. } => "pipe",
             Feature::HelicalSweep { .. } => "helical_sweep",
+            Feature::Primitive(p) => p.shape.spelling(),
             Feature::Fastener { kind, .. } => match kind {
                 crate::feature_fastener::FastenerKind::HexBolt => "hex_bolt",
                 crate::feature_fastener::FastenerKind::SocketCapScrew => "socket_cap_screw",

@@ -26,7 +26,8 @@ pub enum ExtrudeEnd {
         face: EntityName,
     },
     /// Extrude until the profile touches the given face, then step back by an
-    /// offset distance.
+    /// offset distance (positive stops short of the face, negative runs past
+    /// it).
     OffsetFromSurface {
         /// Target face, identified by stable name.
         face: EntityName,

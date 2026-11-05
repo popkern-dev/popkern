@@ -97,10 +97,14 @@ as a feature and starts a new body.
 |---|---|
 | `xy()`, `xz()`, `yz()` | the base planes |
 | `xy_at(z)`, `xz_at(y)`, `yz_at(x)` | a base plane offset along its normal. In-plane coordinates `(u, v)` are `(x, y)` on XY, `(x, z)` on XZ and `(y, z)` on YZ; `plane_at` uses the frame of its normal (u along the least-aligned world axis) |
-| `on_face(faces()...)`, `on_face_offset(faces()..., d)` | the plane of a planar face (the query must pick exactly one face) |
+| `on_face(faces()...)`, `on_face_offset(faces()..., d)` | the plane of a planar face (the query must pick exactly one face). Its frame is the face surface's own: the origin where the feature that made the face put it (often that feature's sketch origin, not the face's centre), the normal outward from the material, so `.at(...)` coordinates are measured from that origin |
 | `plane_at([ox, oy, oz], [nx, ny, nz])` | a custom plane by origin and normal |
 | `.rect(w, h)`, `.circle(r)`, `.polygon([[x, y], ...])` | closed outlines centred on the plane origin |
+| `.ellipse(rx, ry)` | an ellipse centred on the plane origin, semi-axis `rx` along u and `ry` along v (exact: four rational quarters) |
+| `.spline([[x, y], ...], #{degree, weights})` | a closed, smooth B-spline over its control polygon (the curve passes near the points, not through them); degree 3 unless given, one weight per point |
 | `.path(x0, y0).line_to(x, y).arc_to([vx, vy], [x, y]).close()` | a path of lines and three-point arcs, closed back to its start |
+| `.conic_to([cx, cy], [x, y], w)` | a conic arc to `[x, y]` whose end tangents meet at `[cx, cy]`: weight below 1 an ellipse arc (`0.7071…` a quarter ellipse in its bounding box), 1 a parabola, above 1 a hyperbola |
+| `.spline_to([[x, y], ..., [xn, yn]], #{degree, weights, knots})` | a spline from the current point through control points to the last one (its end); degree 3 unless given, `knots` clamped, `points + degree + 2` long counting the start |
 | `.at(cx, cy)` | place the outline's centre |
 
 ```rhai
@@ -124,15 +128,19 @@ least `label`.
 
 | Verb | Positional arguments | Options | Notes |
 |---|---|---|---|
-| `extrude(end)` | `end`: `blind(d)`, `through_all()`, `up_to_surface(faces()...)`, `offset_from_surface(faces()..., d)`, `mid_plane(half_d)` | `label`, `mode` (`"new_body"` default, `"boss"`, `"cut"`) | `boss`/`cut` fold the new body into the body the sketch sits on (`on_face` sketches); a base-plane sketch is its own body — combine it with `union`/`subtract`. |
-| `revolve(axis, end)` | `axis`: `axis_at([o], [d])` or `axis(edges()...)`; `end`: `blind(angle_deg)`, `full_circle()`, `mid_plane(half_angle)` | `label` | Revolved spans become exact planes, cylinders, cones and tori. |
+| `extrude(end)` | `end`: `blind(d)`, `through_all()`, `up_to_surface(faces()...)` or `up_to_surface(body, faces()...)`, `offset_from_surface(faces()..., d)` or `offset_from_surface(body, faces()..., d)`, `mid_plane(half_d)` | `label`, `mode` (`"new_body"` default, `"boss"`, `"cut"`) | `boss`/`cut` fold the new body into the body the sketch sits on (`on_face` sketches) or ends on; a base-plane sketch is its own body (combine it with `union`/`subtract`), except that a `cut` cuts the one body it reaches, failing with `CutTargetAmbiguous` when it reaches several. A `blind(d)` end runs along the plane's normal, which on a face points out of the material: a cut into the face takes a negative `d`. A cut that removes no material (placed off the face, or run away from it) fails with `CutRemovedNothing` rather than serving the body unchanged. `up_to_surface(body, ...)` stops at a face of another body (a pad down to a drum: `mode: "boss"` joins it to that body). A face that is not square to the extrude is followed exactly only by such a boss; a new body or a cut up to it fails with `UpToFaceDeclined`. `offset_from_surface` stops a positive `d` short of the face. |
+| `revolve(axis, end)` | `axis`: `axis_at([o], [d])` or `axis(edges()...)`; `end`: `blind(angle_deg)`, `full_circle()`, `mid_plane(half_angle)`, `up_to_surface([body,] faces()...)` | `label`, `mode` (`"new_body"` default, `"boss"`, `"cut"`) | Revolved spans become exact planes, cylinders, cones and tori. Turned up to a stop on another body, `mode: "boss"` joins the turned body to it; a stop the section meets at several angles (not a half-plane through the axis) is followed only by that boss. |
 | `union(tool)`, `subtract(tool)`, `intersect(tool)` | a body from `m.tool(...)` | `label`, `non_manifold` (`"decline"` default, `"split_to_manifold"`) | The tool body is consumed; rebinding (`plate = plate.union(boss)`) keeps the live body. Bodies touching only along an edge or at a point decline by default; `split_to_manifold` serves manifold pieces meeting at recorded contacts. |
 | `fillet(edges, radius)` | `edges()...` query; `radius` scalar | `label`, `continuity` (`"g0"`, `"g1"`, `"g2"`), `cap` (`"open"`, `"flat"`, `"rounded"`, `"tangent_match"`), `profile` (`circular()`, `conic(rho)`, `curvature_continuous()`), `interference` (`"decline"`, `"serve_non_interfering"`), `law` (`constant()`, `linear(end_radius)`, `by_stations([[t, r], ...])`), `corner` (`"smooth"`, `"mitre"`: trim every strip pair at a corner to its mutual intersection), `corner_cap` (`"auto"`, `"setback"`, `"fitted"`, `"classic"`, `"rolling_ball"`: which construction closes a corner where three or more rounds meet; `"rolling_ball"` gives the exact rolling-ball sphere where three rounds of one radius meet on flat faces), `corner_cap_strict` (true: that construction or a failure, never a fallback; needs `"setback"`, `"fitted"` or `"rolling_ball"`), `setback` (a positive distance: each round ends that far from a corner where three or more rounds meet), `setback_ends` (a list of [edges, at, distance] groups: the end of each edge of the first selection at the corner it shares with an edge of the second, overriding `setback`) | A radius the edge cannot carry is a `FeatureFailed` with the maximum radius and a `ReduceRadius` remediation. A mitre with no point shared by every strip is a `FeatureFailed` naming the mitre's reason. A strict `corner_cap` that cannot serve a corner is a `FeatureFailed` naming the corner and every decline. A `setback` the corner cannot take is a `FeatureFailed` naming the admissible range. |
 | `fillet_each(groups)` | `[[edges()..., radius], ...]`: one radius per group of edges | `label`, `continuity`, `cap`, `profile`, `interference`, `corner`, `corner_cap`, `corner_cap_strict`, `setback`, `setback_ends` (as for fillet; radius laws are not taken) | One fillet whose groups carry different radii: the edges meeting at a corner blend together as one corner even when their radii differ. An edge selected by two groups is refused (the message names every overlapping pair). The first group's radius is the feature's `radius` parameter, later groups' are `radius_1`, `radius_2`, … |
 | `chamfer(edges, distance)` | as fillet | `label`, `kind` (`equal()` default, `two_distance(faces()..., d2)`, `distance_angle(faces()..., angle_deg)`) | The face query of a kind must resolve on the chamfered body. |
 | `shell(faces_to_remove, thickness)` | `faces()...` (may be `.allow_empty()` for a closed hollow) | `label`, `direction` (`"inward"` default, `"outward"`, `"midplane"`), `join` (`"arc"`, `"intersection"`), `trim` (`"trim"`, `"decline"`) | |
+| `offset_solid(distance)` | a scalar: positive grows the solid, negative shrinks it | `label`, `join` (`"arc"` default: corners rounded at the distance, `"intersection"`: sharp), `trim` (`"trim"`, `"decline"`) | Every face moves along its normal; no face is removed. |
+| `thicken(thickness)` | a scalar: the wall's whole thickness | `label`, `join`, `trim` (as for the offset above), `side` (`"both"` default: half to each side of the faces; `"outward"`: all of it along their normals; `"inward"`: against them) | A sheet becomes a closed solid; a closed body becomes a hollow one (two shells). |
+| `remove_faces(faces)` | `faces()...` to take away | `label` | The body is left open along their edges: a solid becomes a sheet, which `thicken` takes (a sheet keeps the solid's outward normals, so `side: "outward"` builds away from where the material was). A face with holes cannot be removed yet. |
+| `draft(faces, angle_deg, neutral)` | `faces()...` to taper; the angle in degrees; the neutral plane: a planar face (`faces()...` or `on_face(...)`, pulled along its outward normal) or a plane (`xy()`, `xz()`, `yz()`, `xy_at(z)` and the like at a literal offset, `plane_at([o], [n])`, pulled along its normal) | `label` | Each face keeps its line on the neutral plane and leans by the angle, so the part draws along the pull direction. |
 | `translate(dx, dy, dz)`, `rotate(axis, angle_deg)` | rigid motions; the distances and the angle are scalars (`p()`/`expr()` apply) | `label` | Usually applied to tool bodies before a boolean. Selector arguments (`at_height(z)`, `chord_length_between`) are plain numbers, not parameters. |
-| `sweep(path_body, path_edge)` | the body carrying the path edge, then an edge query on it (exactly one edge) | `label`, `mode`, `twist` | The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. `twist` in degrees over the full path. The path body is referenced, not consumed. |
+| `sweep(path_body, path_edge)` | the body carrying the path, then an edge query on it (one edge, or several chained end to end) | `label`, `mode`, `twist`, `corner` | The receiver's last sketch is the profile; it contributes its shape — placement comes from the path. `twist` in degrees over the full path (one edge only). A path of several edges carries one frame round its joints; at a sharp corner `corner: "mitre"` (the default) cuts each run by the plane bisecting it, `"round"` turns the section about the corner. The path body is referenced, not consumed. |
 | `loft(sections)` | on `Model`: `m.loft([s0, s1, …])` — ordered sketch bodies, each contributing its most recent sketch face | `label`, `mode`, `closed` | Records on the first section's body and consumes the others. Sections must be all closed or all open; matching point counts keep the surface smooth (circle sections stay exact circles). |
 | `pipe(path_edge, radius)` | an edge query on the receiving body (exactly one edge), then the tube radius | `label`, `mode` | The tube is a new body; the path body keeps its edge. |
 | `bolt(spec, length)` | on `Model`: `spec` is a designation string (`"M6"`, `"M6x0.75"`, `"1/4-20"`, `"#8-32"` — millimetre-magnitude numbers bound in model units) or `#{ major: .., pitch: .. }`; `length` is under-head (hex/socket) or overall (countersunk) | `label`, `head` (`"hex"` default, `"socket"`, `"countersunk"`), `thread_length`, `left_hand`, `starts`, `tip_chamfer` | Real modeled threads (PK-460). Bodies build in the insertion frame — axis +Z, origin at the bearing plane, threads toward +Z — and place with `translate`/`rotate`. Author fastener models in a default-unit session with millimetre-magnitude numbers. |
@@ -258,10 +266,78 @@ m.assert_watertight();
 m
 ```
 
+### Primitives
+
+A primitive starts a new body from its dimensions, every one a parameter:
+
+| Verb | Dimensions | Options | Notes |
+|---|---|---|---|
+| `m.box(x, y, z)` | sizes along the local x, y, z | `label`, `at`, `axis`, `ref`, `centred` | a corner on the origin, or `centred: true` |
+| `m.cylinder(r, h)` | radius, height | `label`, `at`, `axis`, `ref`, `angle` | stands on the origin along the axis |
+| `m.cone(r1, r2, h)` | base radius, top radius, height | `label`, `at`, `axis`, `ref`, `angle` | a frustum; either radius may be 0 |
+| `m.sphere(r)` | radius | `label`, `at`, `axis`, `ref`, `lat`, `angle` | `lat: [lo, hi]` degrees keeps the zone between two latitudes |
+| `m.prism(sides, r, h)` | side count, radius, height | `label`, `at`, `axis`, `ref`, `flats` | a regular polygon, corner 0 on `ref`; `flats: true` measures `r` to the sides |
+| `m.pyramid(sides, r1, r2, h)` | side count, base radius, top radius, height | `label`, `at`, `axis`, `ref`, `flats` | an apex where a radius is 0; both above 0 a frustum |
+| `m.wedge(x, y, z, top_x)` | box sizes, top length along x | `label`, `at`, `axis`, `ref` | the top runs `top_x` from the x = 0 side; 0 is a ramp |
+| `m.torus(major, minor)` | axis to tube centre, tube radius | `label`, `at`, `axis`, `ref`, `angle` | `minor` < `major` |
+
+`at` is the local origin (model unit), `axis` the local z and `ref` the local x (made square to the axis); the default is the world frame. `angle` (degrees) keeps only the sector of a cylinder, cone, sphere or torus that turns from `ref` about the axis. Faces are named by role under the feature's label: `Cap/0` the bottom, `Cap/1` the top (a sphere zone's caps too), `Cap/2` and `Cap/3` a sector's start and end, `Lateral/i` the rest round the axis.
+
+```rhai
+let m = model();
+let post = m.cylinder(2.0, 5.0, #{ at: [10.0, 0.0, 0.0], label: "post" });
+post = post.shell(faces().named("post/Cap/1"), 0.5);   // open at the top
+let ring = m.torus(5.0, 1.0, #{ angle: 90.0 });
+m
+```
+
+### Wires
+
+A wire is a body of edges on no face: a path for `sweep` and `pipe`, and
+construction geometry (it is not a part: it is not exported or meshed).
+
+| Verb | Arguments | Options |
+|---|---|---|
+| `m.wire_line(from, to)` | two points | `label`, `at`, `axis`, `ref` |
+| `m.wire_polyline(points)` | a list of points | `closed`, and the placement |
+| `m.wire_arc(start, via, end)` | three points on the arc | the placement |
+| `m.wire_circle(r)` | radius, about the axis from `ref` | the placement |
+| `m.wire_helix(r, pitch, turns)` | radius, rise per turn, turns | `left_hand`, and the placement |
+| `m.wire_spline(points)` | the points it passes through (or, with `control`, its control polygon) | `degree` (3), `control`, and the placement |
+
+Points are in the model unit, in the placement's frame. A wire's one edge
+is the path without a query: `profile_body.sweep(wire)`, `wire.pipe(r)`.
+A pipe along an arc or circle is an exact torus.
+
+```rhai
+let m = model();
+let coil = m.wire_helix(10.0, 4.0, 5.0);
+let spring = coil.pipe(1.0);
+let rail = m.wire_line([0.0, 0.0, 0.0], [50.0, 0.0, 0.0]);
+let bar = m.profile(xy()).rect(4.0, 2.0).sketch("section").sweep(rail);
+m
+```
+
+### Sheets
+
+A sheet is one planar face with free edges: thicken it, offset it, cut
+with it.
+
+| Verb | Arguments | Options |
+|---|---|---|
+| `m.sheet_rect(x, y)` | sizes in the placement's xy plane | `centred`, `label`, `at`, `axis`, `ref` |
+| `m.sheet_disc(r)` | radius | the placement |
+| `m.sheet_polygon(points)` | `[x, y]` corners | the placement |
+| `m.sheet_fill(wire)` | a closed planar wire (or `wire, edges()...`) | `label` |
+
+A sheet faces its placement's axis: `thicken(t, #{ side: "outward" })`
+grows along it. Its face is `Cap/0`.
+
 ## 6. Selecting edges and faces
 
 Queries are data: `edges()` or `faces()` followed by predicates, all
-of which must hold; `.or(...)` joins whole queries; `.allow_empty()`
+of which must hold; `.or(...)` joins whole queries (edges and faces
+alike); `.allow_empty()`
 turns "matched nothing" from an error into a recorded no-op. A query
 that must name exactly one entity (a `label_edge`, an `on_face`
 plane, a chamfer's reference face) raises `SelectionCardinality` when
@@ -285,6 +361,8 @@ it matches more.
 | `facing("z")`, `facing_neg("z")` | outward normal along ± an axis (or `[x, y, z]`) |
 | `at_height(z)` | a planar face at that z |
 | `labeled("name")`, `named("plate_sketch/Generated/0")` | as for edges |
+| `.except(faces()...)` | not a face the inner query matches: `faces().except(faces().facing_neg("z"))` is every face but the bottom |
+| `.not()` | every face the query does not match (`faces().except(query)`) |
 
 ```rhai
 let m = model();
@@ -737,11 +815,12 @@ that lists the names it does have.
 
 ```text
 model(#{ unit: "mm" })            open(path)   save(path)   to_step(path)   to_rhai()
-m.profile(PLANE).rect|circle|polygon|path…close().at(cx, cy).sketch(label)
+m.profile(PLANE).rect|circle|ellipse|polygon|spline|path…close().at(cx, cy).sketch(label)
+path(x0, y0).line_to(x, y) arc_to(via, to) conic_to(ctl, to, w) spline_to(pts, #{degree, weights, knots})
 PLANE: xy() xz() yz() xy_at(z) xz_at(y) yz_at(x) on_face(F) on_face_offset(F, d) plane_at(o, n)
-END:   blind(d) through_all() up_to_surface(F) offset_from_surface(F, d) mid_plane(h) full_circle()
+END:   blind(d) through_all() up_to_surface([body,] F) offset_from_surface([body,] F, d) mid_plane(h) full_circle()
 AXIS:  axis_at([ox,oy,oz], [dx,dy,dz])   axis(E)
-body.extrude(END, #{label, mode})        body.revolve(AXIS, END, #{label})
+body.extrude(END, #{label, mode})        body.revolve(AXIS, END, #{label, mode})
 body.union(tool) subtract(tool) intersect(tool)      tool = m.tool(|m| …)
 body.split([t, …], KEEP)   body.nary_boolean([t, …], EXPR, #{label, non_manifold})   body.symmetric_difference(t)   body.imprint(t)
 body.keep_pieces(KEEP)     piece = body.separate_pieces(KEEP)   (geometric KEEP only: all_pieces, containing, largest)
@@ -751,10 +830,16 @@ EXPR: body(i) any_body() all_bodies() exactly_one() odd() at_least(k) .and(EXPR)
 body.fillet(E, r, #{label, continuity, cap, profile, interference, law, corner, corner_cap, corner_cap_strict, setback, setback_ends})
 body.fillet_each([[E, r], …], #{…as fillet, no law})
 body.chamfer(E, d, #{label, kind})       body.shell(F, t, #{label, direction, join, trim})
+body.offset_solid(d, #{label, join, trim})  body.thicken(t, #{label, join, trim, side})  body.remove_faces(F, #{label})
+body.draft(F, deg, NEUTRAL, #{label})    NEUTRAL: faces()… on_face(F) xy() xz() yz() xy_at(z) plane_at([o],[n])
 body.translate(dx, dy, dz)               body.rotate(AXIS, deg)
-body.sweep(path_body, E, #{label, mode, twist})     body.pipe(E, r, #{label, mode})
+body.sweep(path_body, E, #{label, mode, twist, corner})     body.pipe(E, r, #{label, mode})     body.sweep(wire) wire.pipe(r)
 body.helical_sweep(AXIS, r, pitch, turns, #{label, mode, taper_to, start_angle, left_hand})
 m.loft([s0, s1, …], #{label, mode, closed})
+m.box(x, y, z, #{centred}) m.cylinder(r, h) m.cone(r1, r2, h) m.sphere(r, #{lat}) m.torus(R, r)   #{angle}
+m.prism(n, r, h, #{flats}) m.pyramid(n, r1, r2, h, #{flats}) m.wedge(x, y, z, top_x)   all #{at, axis, ref, label}
+m.sheet_rect(x, y, #{centred}) m.sheet_disc(r) m.sheet_polygon(P) m.sheet_fill(wire[, E])
+m.wire_line(a, b) m.wire_polyline(P, #{closed}) m.wire_arc(a, via, b) m.wire_circle(r) m.wire_helix(r, pitch, turns, #{left_hand}) m.wire_spline(P, #{degree, control})
 m.bolt(SPEC, len, #{label, head, thread_length, left_hand, starts})   m.threaded_rod(SPEC, len, #{…})
 m.hinge("butt"|"print_in_place", len, #{knuckles, pin, clearance, gap, angle, screw, holes, only})   m.living_hinge(STYLE, span, len)
 m.nut(SPEC, #{label, clearance, thickness, left_hand, starts, corner_chamfer, mouth_chamfer})
@@ -763,7 +848,7 @@ body.clearance_hole(AXIS, SPEC, DEPTH, #{label, fit, diameter, countersink, coun
 SPEC: "M6" "M6x0.75" "1/4-20" "#8-32" (mm) or #{ major, pitch } (model units)   DEPTH: blind(d) through_all()
 E: edges().circular().straight().conic().nurbs().between(k, k).at_height(z).direction(d)
    .chord_length_between(a, b).not_seam().labeled(l).named(n).or(E).allow_empty()
-F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).allow_empty()
+F: faces().kind(k).facing(d).facing_neg(d).at_height(z).labeled(l).named(n).or(F).except(F).not().allow_empty()
 m.param(name, v, unit) param_expr(name, text, unit) set_param set_expr clear_expr
   set_bounds clear_bounds rename_param params()      p("name")  expr("a * 2")
 m.label_edge label_face unlabel rename_label labels()

@@ -362,33 +362,29 @@ impl CurveEval for NurbsCurve {
         (self.knots[p], self.knots[n + 1])
     }
 
+    /// The arc length from `t0` to `t1`: |C'| integrated over each
+    /// knot span separately (the speed is smooth only within a span)
+    /// by 5-point Gauss-Legendre, each piece halved until the halves
+    /// agree with the whole to 1e-13 of it. One rule over the whole
+    /// range read a three-turn helix of 24 arcs 1.4% short.
     fn length_between(&self, t0: f64, t1: f64) -> f64 {
-        // 5-point Gauss-Legendre quadrature
-        let nodes: [f64; 5] = [
-            -0.906_179_845_938_664,
-            -0.538_469_310_105_683,
-            0.0,
-            0.538_469_310_105_683,
-            0.906_179_845_938_664,
-        ];
-        let weights: [f64; 5] = [
-            0.236_926_885_056_189_1,
-            0.478_628_670_499_366_5,
-            0.568_888_888_888_889,
-            0.478_628_670_499_366_5,
-            0.236_926_885_056_189_1,
-        ];
-
-        let mid = 0.5 * (t1 + t0);
-        let half_len = 0.5 * (t1 - t0);
-
-        let mut sum = 0.0;
-        for i in 0..5 {
-            let t = mid + half_len * nodes[i];
-            let d = self.derivative_at(t, 1);
-            sum += weights[i] * d.length();
+        let (lo, hi, sign) = if t1 >= t0 {
+            (t0, t1, 1.0)
+        } else {
+            (t1, t0, -1.0)
+        };
+        let mut breaks = vec![lo];
+        for k in &self.knots {
+            if *k > lo && *k < hi && breaks.last().is_some_and(|b| k > b) {
+                breaks.push(*k);
+            }
         }
-        sum * half_len
+        breaks.push(hi);
+        let total: f64 = breaks
+            .windows(2)
+            .map(|w| nurbs_length_adaptive(self, w[0], w[1], 0))
+            .sum();
+        sign * total
     }
 
     fn closest_point(&self, point: &Point3) -> Option<f64> {
@@ -413,3 +409,60 @@ mod derivative_tests;
 
 #[path = "exact_derivatives.rs"]
 mod exact_derivatives;
+
+/// 5-point Gauss-Legendre estimate of the arc length over `[a, b]`.
+fn nurbs_length_gauss(curve: &NurbsCurve, a: f64, b: f64) -> f64 {
+    const NODES: [f64; 5] = [
+        -0.906_179_845_938_664,
+        -0.538_469_310_105_683,
+        0.0,
+        0.538_469_310_105_683,
+        0.906_179_845_938_664,
+    ];
+    const WEIGHTS: [f64; 5] = [
+        0.236_926_885_056_189_1,
+        0.478_628_670_499_366_5,
+        0.568_888_888_888_889,
+        0.478_628_670_499_366_5,
+        0.236_926_885_056_189_1,
+    ];
+    let mid = 0.5 * (a + b);
+    let half = 0.5 * (b - a);
+    let sum: f64 = NODES
+        .iter()
+        .zip(WEIGHTS)
+        .map(|(x, w)| w * curve.derivative_at(mid + half * x, 1).length())
+        .sum();
+    sum * half
+}
+
+/// The arc length over `[a, b]` (within one knot span): halved until
+/// the halves' sum agrees with the whole to 1e-10 of the span's length
+/// (`goal`), at most 8 halvings deep. The bound matters: a goal tied to
+/// the piece rather than the span, 24 deep, could not be met in
+/// round-off and recursed exponentially (a fillet test went from 60 s
+/// to over 30 minutes).
+fn nurbs_length_adaptive(curve: &NurbsCurve, a: f64, b: f64, depth: u32) -> f64 {
+    let whole = nurbs_length_gauss(curve, a, b);
+    nurbs_length_refine(curve, a, b, whole, 1e-10 * whole.abs(), depth)
+}
+
+fn nurbs_length_refine(
+    curve: &NurbsCurve,
+    a: f64,
+    b: f64,
+    whole: f64,
+    goal: f64,
+    depth: u32,
+) -> f64 {
+    let m = 0.5 * (a + b);
+    let (left, right) = (
+        nurbs_length_gauss(curve, a, m),
+        nurbs_length_gauss(curve, m, b),
+    );
+    if depth >= 8 || (left + right - whole).abs() <= goal {
+        return left + right;
+    }
+    nurbs_length_refine(curve, a, m, left, goal * 0.5, depth + 1)
+        + nurbs_length_refine(curve, m, b, right, goal * 0.5, depth + 1)
+}

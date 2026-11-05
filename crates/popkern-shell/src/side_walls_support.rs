@@ -11,6 +11,7 @@ use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{
     BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, ShellHandle, VertexHandle,
 };
+use popkern_math::PortableMath;
 
 use super::VerticalEdge;
 
@@ -75,6 +76,10 @@ pub(super) fn set_wall_surface(
         builder.set_face_surface(face, wall_sof);
         return Ok(());
     }
+    if let Some(wall) = circular_rim_wall(builder, outer, rim_he, [p0, p2, p3])? {
+        builder.set_face_surface(face, wall);
+        return Ok(());
+    }
     let Some(surface) = plane_from_quad(p0, p1, p2, p3) else {
         return Err(ShellError::Topology(format!(
             "free-rim wall quad for half-edge {rim_he:?} is degenerate"
@@ -114,6 +119,136 @@ pub(super) fn set_wall_surface(
     );
 
     Ok(())
+}
+
+/// The wall of a free rim that is a circle or an arc (a tube's end, a
+/// cap's rim): the rim and its offset are coaxial circles, so the wall
+/// is exactly a plane (an annulus, the two in one plane), a cylinder
+/// (equal radii) or a cone, the strip between them. `None` when the rim
+/// is not circular or the offset rim is not coaxial with it (the planar
+/// quad path then decides). A closed rim's quad collapsed (its ends are
+/// one vertex), so every tube, cap and pipe thickened declined.
+///
+/// The wall faces out of the body across the rim: away from the sheet
+/// face's interior there.
+fn circular_rim_wall(
+    builder: &BRepBuilder,
+    outer: &BRep,
+    rim_he: HalfEdgeHandle,
+    [p0, p2, p3]: [Point3; 3],
+) -> Result<Option<SurfaceOnFace>, ShellError> {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    let lin = builder.brep().tolerance.linear();
+    let Some(he) = outer.half_edges.get(rim_he) else {
+        return Ok(None);
+    };
+    let Some(curve) = outer.edges.get(he.edge).and_then(|e| e.curve.as_ref()) else {
+        return Ok(None);
+    };
+    let (c1, axis, r1) = match curve.geometry {
+        CurveGeometry::Arc {
+            center,
+            normal,
+            radius,
+            ..
+        }
+        | CurveGeometry::Circle {
+            center,
+            normal,
+            radius,
+        } => (center, normal, radius),
+        _ => return Ok(None),
+    };
+    let Some(a) = axis.normalized() else {
+        return Ok(None);
+    };
+    let c2 = c1 + a * (p3 - c1).dot(&a);
+    let r2 = (p3 - c2).length();
+    // The offset rim's other end must lie on the same circle.
+    let c2_end = c1 + a * (p2 - c1).dot(&a);
+    if c2_end.distance_to(&c2) > lin || ((p2 - c2).length() - r2).abs() > lin {
+        return Ok(None);
+    }
+    let rise = (c2 - c1).dot(&a);
+    let geometry = if rise.abs() <= lin {
+        let (u, v) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(a);
+        SurfaceGeometry::Plane {
+            origin: c1,
+            normal: a,
+            u_axis: u,
+            v_axis: v,
+        }
+    } else if (r1 - r2).abs() <= lin {
+        SurfaceGeometry::Cylinder {
+            origin: c1,
+            axis: a,
+            radius: r1,
+        }
+    } else {
+        // The generator from the rim to its offset meets the axis at
+        // the apex, where the radius runs out.
+        let slope = (r2 - r1) / rise;
+        let apex = c1 - a * (r1 / slope);
+        let axis = if slope > 0.0 { a } else { -a };
+        SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle: slope.abs().patan2(1.0),
+        }
+    };
+    // Outward: across the rim, away from the sheet face's interior. The
+    // free side of a rim belongs to no loop; the sheet face is across
+    // its twin, which runs the other way.
+    let on_face = if outer.loops.contains_key(he.loop_) {
+        Some(rim_he)
+    } else {
+        Some(he.twin).filter(|t| {
+            outer
+                .half_edges
+                .get(*t)
+                .is_some_and(|h| outer.loops.contains_key(h.loop_))
+        })
+    };
+    let Some(face_he) = on_face else {
+        return Ok(None);
+    };
+    let Some(sheet) = outer
+        .half_edges
+        .get(face_he)
+        .and_then(|h| outer.loops.get(h.loop_))
+        .and_then(|l| outer.faces.get(l.face))
+        .and_then(|f| f.surface.as_ref())
+    else {
+        return Ok(None);
+    };
+    let (t0, t1) = (curve.t_start, curve.t_end);
+    let rim_dir = curve.geometry.tangent_at(t0) * if t1 >= t0 { 1.0 } else { -1.0 };
+    // The curve runs along its edge's canonical half-edge; the sheet
+    // face's half-edge decides the traversal.
+    let along_he = if outer
+        .edges
+        .get(he.edge)
+        .is_some_and(|e| e.half_edge == face_he)
+    {
+        1.0
+    } else {
+        -1.0
+    };
+    let Some((u, v)) = project_point_to_uv(&sheet.geometry, &p0) else {
+        return Ok(None);
+    };
+    let folded = sheet.geometry.normal_at(u, v) * if sheet.orientation { 1.0 } else { -1.0 };
+    let interior = folded.cross(&(rim_dir * along_he));
+    let Some((wu, wv)) = project_point_to_uv(&geometry, &(p0 + (p3 - p0) * 0.5)) else {
+        return Ok(None);
+    };
+    let normal = geometry.normal_at(wu, wv);
+    Ok(Some(SurfaceOnFace {
+        geometry,
+        orientation: normal.dot(&interior) < 0.0,
+    }))
 }
 
 /// Set a line curve on an edge.

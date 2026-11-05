@@ -105,21 +105,6 @@ pub const RHAI_UNBOUND_PREVIEW: &[(&str, &str, &str)] = &[
         "constraint-sketch builder is not in the Rust skin yet (spec §3.2)",
     ),
     (
-        "thicken",
-        "",
-        "offset-family features are not in the Rust skin yet (spec §5 preview)",
-    ),
-    (
-        "offset_solid",
-        "",
-        "offset-family features are not in the Rust skin yet (spec §5 preview)",
-    ),
-    (
-        "draft",
-        "",
-        "draft is not in the Rust skin yet (spec §5 preview)",
-    ),
-    (
         "transform",
         "",
         "general 4x4 transforms are not in the Rust skin yet (spec §5 preview)",

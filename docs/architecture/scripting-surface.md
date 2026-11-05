@@ -133,15 +133,26 @@ Two dialects (D2), never silently converted.
 
 ```
 model.profile(plane)            -> ProfileBuilder
-  .rect(w, h) | .circle(r) | .polygon([[x,y], ...])
-  | .path([x0,y0]).line_to([x,y]).arc_to(via=[x,y], to=[x,y]).close()
+  .rect(w, h) | .circle(r) | .ellipse(rx, ry) | .polygon([[x,y], ...])
+  | .spline([[x,y], ...], #{degree?, weights?})   // closed periodic, control points
+  | .path([x0,y0]).line_to([x,y]).arc_to(via=[x,y], to=[x,y])
+      .conic_to(control=[x,y], to=[x,y], weight)  // rational quadratic
+      .spline_to([[x,y], ...], #{degree?, weights?, knots?})   // last point = end
+      .close()
   .at(cx, cy)                    // placement on the plane, default [0,0]
   .sketch(label?)                -> Feature   // records Feature::Sketch { Analytic }
 ```
 
 Records `Feature::Sketch { plane, sketch_data: Analytic(AnalyticProfile<ScalarBinding>) }`;
 every scalar is a scalar binding (§1.3), so a profile's dimensions are
-parameters. Compilation is `popkern_sketch::profile_compile`, shared
+parameters. Every curve is exact: an ellipse is four rational quadratic
+quarters; `conic_to` one rational quadratic span (weight below 1 an
+ellipse arc, 1 a parabola, above 1 a hyperbola); `spline` a periodic
+B-spline over its control polygon with uniform knots (degree 3 by
+default); `spline_to` a clamped NURBS from the current point through
+its control points (knots clamped uniform unless given, `n + degree +
+1` long). Weights and knots are dimensionless numbers, not bindings. A
+path may be one curved segment closed by its chord. Compilation is `popkern_sketch::profile_compile`, shared
 with `popkern-part` — the recorder and the direct API produce
 identical faces (parity fixtures, design §13).
 
@@ -227,12 +238,30 @@ always works. `new_body`-mode ops start a new body and return it;
 
 | Op | Mark | Canonical signature | Records | Notes |
 |---|---|---|---|---|
-| `extrude` | stable | `extrude(face, end, direction?, mode?, draft_angle?, second?)` | `Feature::Extrude` | `end`: `blind(d)`, `through_all()`, `up_to_surface(face)`, `offset_from_surface(face, d)`, `up_to_vertex(v)`, `mid_plane(half_d)`. `second`: `{direction, end, draft_angle?}` (`ExtrudeSecondDir`). `face` defaults to the last sketch's face. |
-| `revolve` | stable | `revolve(face, axis, end, mode?)` | `Feature::Revolve` | `end`: `blind(angle)`, `full_circle()`, `mid_plane(half_angle)`, `up_to_surface(face)`. |
-| `sweep` | stable | `sweep(face, path_body, path_edge, twist?, mode?)` | `Feature::Sweep` | `path_edge` is a single edge of `path_body` (the profile sketch body has no path edges; the path body is referenced, not consumed). The profile contributes its shape; placement comes from the path. `twist` in degrees, default 0. |
+| `extrude` | stable | `extrude(face, end, direction?, mode?, draft_angle?, second?)` | `Feature::Extrude` | `end`: `blind(d)`, `through_all()`, `up_to_surface(face)` or `up_to_surface(body, face)` (a face of another body), `offset_from_surface(face, d)` or `offset_from_surface(body, face, d)` (a positive `d` stops short of the face, a negative one runs past it), `up_to_vertex(v)`, `mid_plane(half_d)`. An up-to end follows a face that is not square to the extrude only as a boss into the face's own body with no offset (everything past the face lies in that body, checked); otherwise it fails with `UpToFaceDeclined`. `second`: `{direction, end, draft_angle?}` (`ExtrudeSecondDir`). `face` defaults to the last sketch's face. |
+| `revolve` | stable | `revolve(face, axis, end, mode?)` | `Feature::Revolve` | `end`: `blind(angle)`, `full_circle()`, `mid_plane(half_angle)`, `up_to_surface(face)` or `up_to_surface(body, face)`; every profile point's angle is measured from the point itself. As for an extrude, a face the section meets at several angles is followed only by a boss (`mode`) into the face's own body, else `UpToFaceDeclined`. |
+| `sweep` | stable | `sweep(face, path_body, path_edge, twist?, mode?, corner?)` | `Feature::Sweep` | `path_edge` selects the path's edges on `path_body` (the profile sketch body has no path edges; the path body is referenced, not consumed): one edge, or several chained end to end from the first (a polyline wire's, a box's edge loop), one frame carried round the joints. `corner` at a sharp corner: `"mitre"` (default; each run cut by the bisecting plane) or `"round"` (the section turned about the corner). The profile contributes its shape; placement comes from the path. `twist` in degrees, default 0 (one edge only). A U-turn fails. |
 | `loft` | stable | `m.loft(sections, closed?, mode?)` | `Feature::Loft` | `sections` is an ordered list of sketch bodies, each contributing its most recent sketch face; the loft records on the first section's body and consumes the others. Mixed open/closed sections are rejected. |
 | `pipe` | stable | `pipe(path_edge, radius, mode?)` | `Feature::Pipe` | `path_edge` is a single edge of the receiving body. |
 | `helical_sweep` | stable | `helical_sweep(face, axis, radius, pitch, turns, taper_to?, start_angle?, left_hand?, mode?)` | `Feature::HelicalSweep` | Sweeps the profile face along a helix about `axis` (springs, coils, auger flights, thread forms). `radius`/`pitch` are lengths; `turns` is a count (fractional allowed); `taper_to` is the end radius of a conical helix; `start_angle` (degrees, default 0) phases the helix about the axis — what places multi-start threads and multiple blades apart; `left_hand` (default false) mirrors the winding. The profile contributes its shape; placement comes from the helix. |
+| `box` | stable | `m.box(x, y, z, centred?, at?, axis?, ref?)` | `Feature::Primitive` | A new body: the box `x` × `y` × `z` in its local frame, a corner at the origin (or `centred`). Every primitive stands in the frame `at` (origin, model unit), `axis` (local z) and `ref` (local x, made square to the axis), default the world frame; every dimension is a parameter. Faces are named by role under the feature: `Cap/0` the bottom, `Cap/1` the top, `Lateral/i` the sides in order of angle about the axis (`faces().named("label/Cap/1")`). Rust `Model::cuboid`. |
+| `cylinder` | stable | `m.cylinder(r, h, angle?, at?, axis?, ref?)` | `Feature::Primitive` | Standing on the origin along the axis: one periodic cylinder face and two discs. `angle` (degrees, 0 < angle ≤ 360) keeps the sector from `ref`; its cut faces `Cap/2` (start) and `Cap/3` (end) meet on the axis. |
+| `cone` | stable | `m.cone(r1, r2, h, angle?, at?, axis?, ref?)` | `Feature::Primitive` | A frustum, base radius `r1` on the origin and top radius `r2` at `h`; either may be 0 (an apex), not both. `angle` keeps a sector, as for `cylinder`. |
+| `sphere` | stable | `m.sphere(r, lat?, angle?, at?, axis?, ref?)` | `Feature::Primitive` | Centred on the origin. `lat: [lo, hi]` (degrees from the equator, −90 ≤ lo < hi ≤ 90) keeps the zone between them, its flat caps `Cap/0` and `Cap/1`; `angle` keeps a sector, as for `cylinder`. |
+| `prism` | stable | `m.prism(sides, r, h, flats?, at?, axis?, ref?)` | `Feature::Primitive` | A regular `sides`-gon (at least 3) standing on the origin, corner 0 on `ref`; `r` runs to the corners, or with `flats` to the middle of the sides. Faces `Cap/0`, `Cap/1`, `Lateral/i`. |
+| `pyramid` | stable | `m.pyramid(sides, r1, r2, h, flats?, at?, axis?, ref?)` | `Feature::Primitive` | A regular pyramid: base radius `r1` on the origin, top radius `r2` at `h`; either may be 0 (an apex), not both; both above 0 is a frustum. Every face planar and exact. |
+| `wedge` | stable | `m.wedge(x, y, z, top_x, at?, axis?, ref?)` | `Feature::Primitive` | The box `x` × `y` × `z` on a corner at the origin whose top runs only `top_x` along x from the x = 0 side; `top_x` 0 is a ramp (a right-triangle section along y). |
+| `wire_line` | stable | `m.wire_line(from, to, at?, axis?, ref?)` | `Feature::Primitive` | A wire body (edges on no face): the straight edge between two points (model unit, in the placement's frame). Wires are paths and construction geometry, not parts: `Model::wire_bodies` lists them, `alive_bodies` leaves them out. |
+| `wire_polyline` | stable | `m.wire_polyline(points, closed?, at?, axis?, ref?)` | `Feature::Primitive` | Straight edges through the points, the last joined back to the first when `closed`. |
+| `wire_arc` | stable | `m.wire_arc(start, via, end, at?, axis?, ref?)` | `Feature::Primitive` | The exact circular arc from `start` through `via` to `end` (collinear points fail). |
+| `wire_circle` | stable | `m.wire_circle(r, at?, axis?, ref?)` | `Feature::Primitive` | The circle about the axis, one closed edge starting on `ref`. |
+| `wire_helix` | stable | `m.wire_helix(r, pitch, turns, left_hand?, at?, axis?, ref?)` | `Feature::Primitive` | A helix about the axis from `ref`, rising `pitch` per turn; the sweep kernel's exact arcs. |
+| `wire_spline` | stable | `m.wire_spline(points, degree?, control?, at?, axis?, ref?)` | `Feature::Primitive` | The spline of `degree` (default 3) through the points, at chord-length parameters; with `control`, the clamped uniform B-spline over them as control points (four of degree 3: a Bézier). |
+| `sheet_rect` | stable | `m.sheet_rect(x, y, centred?, at?, axis?, ref?)` | `Feature::Primitive` | A sheet body: one planar face with free edges (the form `remove_faces` leaves), the rectangle in the placement's xy plane facing its axis. Its face is `Cap/0`, its edges `Intersection/i`. A sheet thickens along its face's normal (`outward`), against it (`inward`) or both. |
+| `sheet_disc` | stable | `m.sheet_disc(r, at?, axis?, ref?)` | `Feature::Primitive` | The disc about the placement's origin. |
+| `sheet_polygon` | stable | `m.sheet_polygon(points, at?, axis?, ref?)` | `Feature::Primitive` | The polygon through `[x, y]` points in the placement's xy plane. |
+| `sheet_fill` | stable | `m.sheet_fill(wire, edges?)` | `Feature::Primitive` | The planar face a closed chain of the wire's edges bounds (default every edge; any order and direction). The wire is referenced, not consumed; a chain that does not close or lie in one plane fails naming why. |
+| `torus` | stable | `m.torus(major, minor, angle?, at?, axis?, ref?)` | `Feature::Primitive` | About the axis, centred on the origin; `minor` < `major` (a spindle or horn torus is a revolve). `angle` (degrees) keeps the sector from `ref`, its cut faces `Cap/2` (start) and `Cap/3` (end). |
 | `bolt` | preview | `m.bolt(spec, length, head?, thread_length?, left_hand?, starts?)` | `Feature::Fastener` | Preview until the PK-460 walk-class campaign closes (heads/nuts/holes exercise merge classes still being rooted; `threaded_rod` is the stable representative). A hex / socket-cap / countersunk screw with a real modeled thread, built in the insertion frame (axis +Z, origin at the bearing plane, threads toward +Z) and placed with the transform verbs. `spec`: a designation string (`"M6"`, `"M6x0.75"`, `"1/4-20"`, `"#8-32"` — millimetre dimensions regardless of the model unit) or `#{ major, pitch }` in model units; `head`: `"hex"` (default) `\| "socket" \| "countersunk"`; `thread_length` limits the threaded stretch (default full). |
 | `threaded_rod` | stable | `m.threaded_rod(spec, length, left_hand?, starts?)` | `Feature::Fastener` | Full-length external thread, both ends free-running, tip lead-in chamfer. |
 | `nut` | preview | `m.nut(spec, clearance?, thickness?, left_hand?, starts?)` | `Feature::Fastener` | Hex nut with a modeled internal thread; `clearance` is the printed-fit grow of the internal form (0.15–0.3 typical for FDM); `thickness` overrides the ISO 4032 nominal. |
@@ -253,9 +282,10 @@ always works. `new_body`-mode ops start a new body and return it;
 | `chamfer` | stable | `chamfer(edges, distance, kind?)` | `Feature::Chamfer` | `kind`: `equal` (default), `two_distance(face, d2)`, `distance_angle(face, angle)`. |
 | `shell` | stable | `shell(faces_to_remove, thickness, direction?, join?, trim?)` | `Feature::Shell` | `direction`: `inward` (default) `| outward | midplane`; `join`: `arc | intersection`; `trim`: `trim | decline`. Empty `faces_to_remove` = closed hollow. |
 | `generative` | preview | `generative(supports, loads, volume_fraction, filter, keep?, material?, keep_depth?, cell?, build_direction?, max_iterations?, robust?, max_cells?, label?)` | `Feature::Generative` | Replaces the body (the design space) with the stiffest design at `volume_fraction` (PK-956): `supports` `[#{faces, kind: "fixed" \| "surface_roller"}]`, `loads` `[#{faces, force (N), direction}]`, `keep` face selections whose nearby material stays; `filter` (members ≈ 2×filter), `cell` (default filter/3), `build_direction` `"+x" … "-z"`. A planar-faced body; kept faces are modified from the design space's. Declines `GenerativeDeclined` (`generative_kind`: the solver's kind, `DesignDisconnected`, `DesignBody`, `NeedsSolve` where a host defers solving). |
-| `thicken` | preview | `thicken(thickness, join?, trim?)` | `Feature::Thicken` | symmetric ±t/2 (PK-323). |
-| `offset_solid` | preview | `offset_solid(distance, join?, trim?)` | `Feature::OffsetSolid` | |
-| `draft` | preview | `draft(faces, angle, neutral)` | `Feature::Draft` | `neutral`: `face(sel)` or `plane(origin, normal)`. |
+| `thicken` | preview | `thicken(thickness, join?, trim?, side?)` | `Feature::Thicken` | `side`: `both` (±t/2, PK-323; the default), `outward` (the whole thickness along the faces' normals) or `inward`. Rhai: `body.thicken(t, #{join, trim, side, label})`. |
+| `remove_faces` | preview | `remove_faces(faces)` | `Feature::RemoveFaces` | The faces taken away, the body left open along their edges: a solid becomes a sheet, thicken's usual input. A face with holes is not removed yet (declines). Rhai: `body.remove_faces(faces, #{label})`. |
+| `offset_solid` | preview | `offset_solid(distance, join?, trim?)` | `Feature::OffsetSolid` | Rhai: `body.offset_solid(d, #{join, trim, label})`. |
+| `draft` | preview | `draft(faces, angle, neutral)` | `Feature::Draft` | `neutral`: `face(sel)` or `plane(origin, normal)`. Rhai: a face query or a plane value (`xy()`, `plane_at(o, n)`, …). |
 | `translate` / `rotate` / `transform` | stable / stable / preview | `translate(dx, dy, dz)`, `rotate(axis, angle)`, `transform(matrix4x4)` | `Feature::Transform { motion }` | Rigid motions of the active body. |
 | `linear_pattern` | preview | `linear_pattern(seeds, primary, secondary?, geometry_pattern?, overrides?)` | `Feature::LinearPattern` | `primary`/`secondary`: `{direction, count, total_distance}`. Seeds: contiguous features of one body starting with a sketch and containing a boss/cut (`HistoryError` seed rules). |
 | `circular_pattern` | preview | `circular_pattern(seeds, axis, count, total_angle, geometry_pattern?, overrides?)` | `Feature::CircularPattern` | |
@@ -279,7 +309,7 @@ carry it verbatim:
 
 ```
 edge_query  := edges() ( "." predicate )* ( ".or(" edge_query ")" )* ( ".allow_empty()" )?
-face_query  := faces() ( "." predicate )* ( ".allow_empty()" )?
+face_query  := faces() ( "." predicate )* ( ".or(" face_query ")" )* ( ".allow_empty()" )?
 
 edge predicate :=
     circular() | straight() | conic() | nurbs()
@@ -290,13 +320,15 @@ edge predicate :=
 
 face predicate :=
     kind(SurfaceKind) | facing(Dir) | facing_neg(Dir) | at_height(z)
-  | labeled(label) | named(entity_name)
+  | labeled(label) | named(entity_name) | except(face_query) | not()
 
 SurfaceKind := plane | cylinder | cone | sphere | torus | nurbs
 ```
 
 Predicates compose by conjunction; `.or(...)` disjoins whole
-conjunctions (`EdgeQuery::or`). The vocabulary is
+conjunctions (`EdgeQuery::or`, and the same for faces).
+`except(face_query)` keeps the faces the inner query does not match,
+and `not()` is `faces().except(self)` (both `preview`). The vocabulary is
 `popkern_part::select::{EdgeQuery, FaceQuery}` today
 (`circular`, `straight`, `between`, `at_height`, `direction`,
 `chord_length_between`, `not_seam`; `kind`, `facing`, `facing_neg`,
@@ -435,7 +467,7 @@ and `message` is always the Rust `Display` string.
 
 | Class | Payload |
 |---|---|
-| `FeatureFailed` | `feature {id, label, operation}`, `error` (a `FeatureFailure` — §10.2 class carried as data: `kind` = `BlendDeclined` (`blend_kind`, `message`, `remediation`, `failed/total/failures[]` with `edge`, `edge_name`, `reason_kind`, `remediation`) \| `BooleanFailed` (`operation`, `bool_kind`, `stage?`, `detail`) \| `SweepFailed`/`ShellFailed` (`feature`, `detail`) \| `DraftFailed` \| `ValidationFailed` \| `InvalidParameter` \| `GenerativeDeclined` (`generative_kind`, `detail`) \| `PieceRuleMatchedNothing` (`feature`, `rule`, `pieces`) \| `Cancelled` \| `Other` (`detail`)), `report` (the partial `ReplayReport` up to the failure; the recorder's `Model::report()` after the call). Landed PK-388: `popkern_history::FeatureFailure`, carried by `ReplayError::FeatureFailed`, `FeatureResult::Failed`, `ReplayOutcome::Failed`, `ScriptError::FeatureFailed`; `Display` is the kernel's message. |
+| `FeatureFailed` | `feature {id, label, operation}`, `error` (a `FeatureFailure` — §10.2 class carried as data: `kind` = `BlendDeclined` (`blend_kind`, `message`, `remediation`, `failed/total/failures[]` with `edge`, `edge_name`, `reason_kind`, `remediation`) \| `BooleanFailed` (`operation`, `bool_kind`, `stage?`, `detail`) \| `SweepFailed`/`ShellFailed` (`feature`, `detail`) \| `DraftFailed` \| `ValidationFailed` \| `InvalidParameter` \| `GenerativeDeclined` (`generative_kind`, `detail`) \| `PieceRuleMatchedNothing` (`feature`, `rule`, `pieces`) \| `CutRemovedNothing` (`tool_faces`; a cut-mode feature whose result is its host unchanged) \| `UpToFaceDeclined` (`reason`, `near`, `far`) \| `Cancelled` \| `Other` (`detail`)), `report` (the partial `ReplayReport` up to the failure; the recorder's `Model::report()` after the call). Landed PK-388: `popkern_history::FeatureFailure`, carried by `ReplayError::FeatureFailed`, `FeatureResult::Failed`, `ReplayOutcome::Failed`, `ScriptError::FeatureFailed`; `Display` is the kernel's message. |
 | `ResolutionFailed` | `feature`, `name` (EntityName), `selection` (describe/labels), `resolved`/`expected` counts |
 | `CoreError` | `detail` |
 
@@ -525,6 +557,17 @@ host-language-neutral form; the Rust skin's mapping is one-to-one.
 
 | Date | Change | Marks affected |
 |---|---|---|
+| 2026-11-05 | Sweeps along several edges (§sweep): `sweep` chains every edge its query selects, mitring (`corner: "mitre"`, the default) or rounding (`"round"`) its sharp corners (additive: a query selecting several edges used to fail its one-edge check). `wire_spline` takes `control: true` for a control polygon (a Bézier). | §5 |
+| 2026-11-05 | Sheets (PK-1083, stage 4): `m.sheet_rect`, `sheet_disc`, `sheet_polygon`, `sheet_fill` (additive). Thicken resolves a flat sheet's side by its face's normal: the side of a component enclosing no volume could not be measured and declined. | §5 |
+| 2026-11-05 | Wires (PK-1083, stage 3): `m.wire_line`, `wire_polyline`, `wire_arc`, `wire_circle`, `wire_helix`, `wire_spline` (additive); `body.sweep(wire)` and `wire.pipe(r)` take the wire's one edge without a query. Sweeps now emit through `to_rhai` (they declined), and a pipe emits on its path body (it was spelled on the tube, which the script had not made). A pipe along an arc or circle is the exact torus (the general pipe's sampled frames read 0.06% short), and a NURBS edge's length integrates each knot span (one rule over the whole curve read a three-turn helix 1.4% short). | §5 |
+| 2026-11-05 | Flat-faced primitives (PK-1083, stage 2): `m.prism`, `m.pyramid` (and its frustum), `m.wedge` (additive). A cut sketched on a base plane (no face named) cuts the one body it reaches; it used to be kept as a positive body of its own. Reaching none fails `CutRemovedNothing`, several `CutTargetAmbiguous`. | §5 |
+| 2026-11-05 | Sectors (PK-1083, stage 2): `angle` on `m.cylinder`, `m.cone` and `m.sphere` (additive). A revolve turned less than a whole turn may now have a profile edge on the axis: the two cut faces share it (they declined before), and the faces keep their exact surfaces. | §5 |
+| 2026-11-05 | Primitives (PK-1083, stage 1): `m.box`, `m.cylinder`, `m.cone`, `m.sphere` (`lat`), `m.torus` (`angle`), each placed by `at` / `axis` / `ref`, recording the new `Feature::Primitive` (additive). Built from exact profiles by the sweep kernel, faces named by role. The emitter now writes a document in its own unit (it wrote metres over millimetre literals: a mm script came back 1000 times too large) and spells `plane_at` and `axis_at` origins in it (recorded in SI). | §5 |
+| 2026-11-04 | Revolve up to a face, in the skins (`revolve(axis, up_to_surface([body,] faces()…), #{mode})`): the angle was measured from the circle curve's own reference direction, not from the profile (a rib to a stop at 120° turned 4143 against 5085 of volume), and resolved on the revolved body only; now every profile point's angle is its own, and a face met at several angles is followed only by a boss into its body. `mode` (`boss`, `cut`) is a revolve option. | §5 |
+| 2026-11-04 | Extrude ends on another body's face (brep-bench §4.4): `up_to_surface(body, faces()…)` and `offset_from_surface(body, faces()…, d)` select the end face on the named body, emitted the same way. Every section point casts its ray: a face square to the extrude keeps the flat end, a curved or tilted face is followed by a boss into its own body, anything else fails with `UpToFaceDeclined` (it used to end flat at the centroid's distance). `offset_from_surface` steps back by a positive offset, as `Feature::Extrude` documents (replay added it). | §5, §10.3 |
+| 2026-11-04 | Exact curves in profiles (brep-bench §4.6): `.ellipse(rx, ry)`, `.spline(points, #{degree, weights})` (closed periodic), and path segments `.conic_to(control, to, weight)` and `.spline_to(points, #{degree, weights, knots})`, in both skins (Rust `ProfileBuilder::ellipse`, `spline`, `conic_to`, `spline_to` with `SplineOptions`). Recorded as the new `ProfileShape::Ellipse` / `Spline` and `PathSegment::Conic` / `Spline` (additive). Weights and knots are dimensionless literals; a path may be a single curved segment closed by its chord. | §3.1 |
+| 2026-11-04 | A `cut`-mode feature that removes no material fails with `CutRemovedNothing` (§10.3, brep-bench §4.5) instead of serving its host unchanged: an `on_face` sketch placed off the face, or a `blind` end running along the face's outward normal, away from the material. Judged from the result's face lineage, by volume only when every tool-born face lies flush on a face of the host. | §10.3 |
+| 2026-11-04 | Offset family and draft in both skins (brep-bench §4.3): Rhai `body.offset_solid(d, #{label, join, trim})`, `body.thicken(t, #{label, join, trim})`, `body.draft(faces, angle_deg, neutral, #{label})` with `neutral` a face query (`faces()…`, `on_face(…)`) or a plane (`xy()`, `xz()`, `yz()`, a base plane at a literal offset, `plane_at(o, n)`); Rust `Body::offset_solid_with`, `thicken_with`, `draft_with` (`OffsetOptions`, `NeutralSpec`). Recorded as the existing `Feature::OffsetSolid`, `Thicken` and `Draft`, and emitted back by `to_rhai`. Face queries join and negate (brep-bench §4.2): `faces()….or(F)`, `.except(F)`, `.not()` (`faces().except(self)`), spelled and parsed in the selection grammar; `facing` reads a flat face bounded by circles from its edge curves (§4.1: a cylinder's ends matched nothing). Sheets and sided thickening: `remove_faces(faces)` (`Feature::RemoveFaces`, new) opens a solid into a sheet; `thicken` takes `side` (`both` default, `outward`, `inward`), recorded as `Feature::Thicken::side` (additive, `serde(default)`, not written when `both`, so older documents load and save unchanged). | `thicken`, `offset_solid`, `draft` bound (still preview); `remove_faces` added preview; `thicken` gains `side`; face `or`, `except`, `not` added |
 | 2026-10-05 | Editing an assembly's part (PK-678, `docs/architecture/assemblies.md` §6.1): `a.edit_part(name, \|m\| …)` hands the part's recorded model to the closure (the part verbs: `insert_after`, fillets, parameters). The edited model replaces the definition, so every instance follows, and mates re-solve. Transactional: a raising closure, an emptied part (`EmptyDefinition`) or mates that no longer hold (`MateConflict`) leave the assembly unchanged. Family variants and sub-assemblies are `WrongDefinitionKind`. No format change. | `edit_part` added preview (assembly tier) |
 | 2026-10-05 | References survive upstream edits (PK-677, `docs/decisions/pk677-reference-provenance.md`): each feature keeps a by-value provenance snapshot of its references; a reference an upstream insert renumbered rebinds to the entity it was recorded on (a `Naming` fallback on the row), and an ambiguous one fails `ResolutionFailed` with `resolved: n, expected: 1` instead of binding by index. Naming scheme 2: booleans import operand names by value, so spelled names below a boolean (`label/Role/i@ancestors`) differ from scheme 1. Scheme-1 documents keep scheme-1 rules; new documents mint scheme 2. | none |
 | 2026-10-04 | Project migrations (PK-660, live-projects-and-history.md): host verb `previous()` returns the document earlier migrations built; a later migration must end with it (`DocumentError` `document_replaced`); in a project the file verbs resolve inside the project folder (`path_outside_project`, `file_not_found`). New `DocumentError` reasons; no format change. | `previous` added preview |
