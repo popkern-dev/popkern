@@ -103,7 +103,7 @@ pub(super) fn closed_he_runs_curve_forward(
     use popkern_core::geometry::curve::CurveEval;
     let brep = ctx.brep;
     let he = brep.half_edges.get(he_h)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let curve = brep.edges.get(he.edge)?.curve.as_ref()?;
     let tm = 0.5 * (curve.t_start + curve.t_end);
     let p = curve.geometry.point_at(tm);
@@ -111,7 +111,7 @@ pub(super) fn closed_he_runs_curve_forward(
     let v_own = material_left_vote(ctx, he_h, &p, &tangent, SignBasis::RayParityOutward, true);
     let v_twin = material_left_vote(
         ctx,
-        he.twin,
+        he.mate()?,
         &p,
         &tangent,
         SignBasis::RayParityOutward,
@@ -145,7 +145,7 @@ pub(super) fn closed_he_runs_curve_forward(
                 // lost its opposing weld partner and the offset
                 // declined).
                 let own_len = loop_half_edge_count(brep, he_h);
-                let twin_len = loop_half_edge_count(brep, he.twin);
+                let twin_len = he.mate().map_or(0, |t| loop_half_edge_count(brep, t));
                 if popkern_core::trace::trace_enabled("closed-side") {
                     eprintln!(
                         "      [closed-side-loops] own {own_len} twin {twin_len} pc-claim {:?}",
@@ -349,7 +349,9 @@ pub(super) fn census_probe(
     let Some(he) = brep.half_edges.get(he_h) else {
         return empty;
     };
-    let twin_h = he.twin;
+    let Some(twin_h) = he.mate() else {
+        return empty;
+    };
     let Some(curve) = brep.edges.get(he.edge).and_then(|e| e.curve.as_ref()) else {
         return empty;
     };

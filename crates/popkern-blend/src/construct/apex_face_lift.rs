@@ -189,9 +189,9 @@ pub(crate) fn lift_all_apex_plane_faces(brep: &mut BRep, cap_faces: &[FaceHandle
             let Some(he) = brep.half_edges.get(cur) else {
                 break;
             };
-            let twin_face = brep
-                .loops
-                .get(brep.half_edges[he.twin].loop_)
+            let twin_face = he
+                .mate()
+                .and_then(|m| brep.loops.get(brep.half_edges[m].loop_))
                 .map(|l| l.face);
             if let Some(tf) = twin_face
                 && !cap_set.contains(&tf)
@@ -271,7 +271,9 @@ pub(super) fn write_analytic_boundary_pcurve_on_support_side(
     };
     let (t_start, t_end) = (coe.t_start, coe.t_end);
     let primary = edge_data.half_edge;
-    let twin = brep.half_edges[primary].twin;
+    let Some(twin) = brep.half_edges[primary].mate() else {
+        return;
+    };
     let primary_face = brep.loops[brep.half_edges[primary].loop_].face;
     let support_he = if primary_face == support_face {
         primary

@@ -315,8 +315,8 @@ fn nurbs_nurbs_boundary_fixture() -> BRep {
     });
     brep.half_edges[he_a].edge = edge;
     brep.half_edges[he_b].edge = edge;
-    brep.half_edges[he_a].twin = he_b;
-    brep.half_edges[he_b].twin = he_a;
+    brep.half_edges[he_a].set_mate(he_b);
+    brep.half_edges[he_b].set_mate(he_a);
     brep.half_edges[he_a].next = he_b;
     brep.half_edges[he_b].next = he_a;
     brep.half_edges[he_a].prev = he_b;
@@ -392,8 +392,8 @@ fn gregory_plane_boundary_fixture() -> BRep {
     });
     brep.half_edges[he_a].edge = edge;
     brep.half_edges[he_b].edge = edge;
-    brep.half_edges[he_a].twin = he_b;
-    brep.half_edges[he_b].twin = he_a;
+    brep.half_edges[he_a].set_mate(he_b);
+    brep.half_edges[he_b].set_mate(he_a);
     brep.half_edges[he_a].next = he_b;
     brep.half_edges[he_b].next = he_a;
     brep.half_edges[he_a].prev = he_b;

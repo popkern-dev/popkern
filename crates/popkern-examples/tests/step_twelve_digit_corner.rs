@@ -123,7 +123,7 @@ fn matched(
         let d = b.edges.get(e)?;
         let c = d.curve.as_ref()?;
         let h = b.half_edges.get(d.half_edge)?;
-        let t = b.half_edges.get(h.twin)?;
+        let t = h.mate().and_then(|m| b.half_edges.get(m))?;
         Some((
             [
                 b.vertices.get(h.origin)?.position,

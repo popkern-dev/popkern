@@ -195,7 +195,7 @@ mod tests {
     fn trim_endpoint_label_contains_compact_fields() {
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let half_edge = brep.half_edges.keys().next().expect("cube has half-edge");
-        let adjacent_half_edge = brep.half_edges[half_edge].twin;
+        let adjacent_half_edge = brep.half_edges[half_edge].mate().unwrap_or_default();
         let facts = BrepTrimEndpointAgreementFacts {
             half_edge,
             adjacent_half_edge,
@@ -216,7 +216,7 @@ mod tests {
         let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let half_edge = brep.half_edges.keys().next().expect("cube has half-edge");
         let half_edge_data = &brep.half_edges[half_edge];
-        let adjacent_half_edge = half_edge_data.twin;
+        let adjacent_half_edge = half_edge_data.mate().unwrap_or_default();
         let adjacent_data = &brep.half_edges[adjacent_half_edge];
         let adjacency = BrepLoopAdjacencyFacts {
             face: brep.loops[half_edge_data.loop_].face,

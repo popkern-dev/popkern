@@ -56,7 +56,10 @@ pub fn check_edge_surface_consistency(
         let t_range = (curve_on_edge.t_start, curve_on_edge.t_end);
 
         // Check against both adjacent faces (via the two half-edges).
-        let twin_handle = brep.half_edges.get(edge_data.half_edge).map(|he| he.twin);
+        let twin_handle = brep
+            .half_edges
+            .get(edge_data.half_edge)
+            .and_then(|he| he.mate());
         let half_edges_to_check = [Some(edge_data.half_edge), twin_handle];
 
         for maybe_he_handle in half_edges_to_check.iter().flatten() {
@@ -133,7 +136,7 @@ pub fn check_tolerance_hierarchy(brep: &BRep, report: &mut HealingReport) {
         check_vertex_edge_tolerance(brep, he.origin, edge_handle, edge_tol, report);
 
         // Check origin vertex of twin half-edge.
-        if let Some(twin) = brep.half_edges.get(he.twin) {
+        if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) {
             check_vertex_edge_tolerance(brep, twin.origin, edge_handle, edge_tol, report);
         }
     }

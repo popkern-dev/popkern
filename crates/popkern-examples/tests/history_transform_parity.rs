@@ -215,7 +215,7 @@ fn rotate_about_edge_axis_replays_to_part_parity() {
         .expect("edge handle");
     let he = &cube.half_edges[cube.edges[edge_handle].half_edge];
     let start = cube.vertices[he.origin].position;
-    let end = cube.vertices[cube.half_edges[he.twin].origin].position;
+    let end = cube.vertices[cube.half_edges[he.mate().unwrap_or_default()].origin].position;
     let ang = add_param(&mut tree, "ang", 1.1, Unit::Radians);
     let replayed = replay_transform(
         tree,

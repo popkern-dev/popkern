@@ -157,7 +157,7 @@ pub(crate) fn remove_spur_slits(brep: &mut BRep, plane_face: FaceHandle) -> usiz
             let mut he = start_he;
             for _ in 0..brep.half_edges.len() + 1 {
                 let d = &brep.half_edges[he];
-                if d.next == d.twin {
+                if d.mate() == Some(d.next) {
                     target = Some(he);
                     break 'outer;
                 }

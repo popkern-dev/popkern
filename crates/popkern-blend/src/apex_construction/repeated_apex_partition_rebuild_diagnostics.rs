@@ -76,7 +76,7 @@ pub(super) fn adjacent_face_across_half_edge(
     cylinder_face: FaceHandle,
     half_edge: HalfEdgeHandle,
 ) -> Option<FaceHandle> {
-    let twin = brep.half_edges.get(half_edge)?.twin;
+    let twin = brep.half_edges.get(half_edge)?.mate()?;
     let twin_loop = brep.half_edges.get(twin)?.loop_;
     let twin_face = brep.loops.get(twin_loop)?.face;
     (twin_face != cylinder_face).then_some(twin_face)

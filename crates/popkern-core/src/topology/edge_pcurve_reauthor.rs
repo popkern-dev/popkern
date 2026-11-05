@@ -40,7 +40,7 @@ pub fn coparameterised_pcurves(
 ) -> Option<Vec<(HalfEdgeHandle, Pcurve)>> {
     let e = brep.edges.get(edge)?;
     let forward = e.half_edge;
-    let backward = brep.half_edges.get(forward)?.twin;
+    let backward = brep.half_edges.get(forward)?.mate()?;
     let range = (curve.t_start, curve.t_end);
     let mut out = Vec::with_capacity(2);
     for (he, default_reversed) in [(forward, false), (backward, true)] {

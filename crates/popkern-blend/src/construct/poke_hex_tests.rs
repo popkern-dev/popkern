@@ -105,7 +105,7 @@ fn poke_hex_produces_three_quadrilateral_subfaces() {
         .half_edges
         .values()
         .filter(|he| {
-            let twin = he.twin;
+            let twin = he.mate().unwrap_or_default();
             brep.half_edges
                 .get(twin)
                 .is_some_and(|t| t.origin == central)

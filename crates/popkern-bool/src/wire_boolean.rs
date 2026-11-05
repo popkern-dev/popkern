@@ -213,9 +213,9 @@ fn wire_part(
         };
         let he = &wire.half_edges[edge.half_edge];
         let start_vertex = he.origin;
-        let end_vertex = wire
-            .half_edges
-            .get(he.twin)
+        let end_vertex = he
+            .mate()
+            .and_then(|m| wire.half_edges.get(m))
             .map_or(start_vertex, |t| t.origin);
         let (lo, hi) = (
             curve.t_start.min(curve.t_end),

@@ -151,7 +151,7 @@ fn soft_supports_reclassifies_near_collapsed_edge() {
     // multiplier (10×) makes it 1e-5. Move the vertex by 5e-6 —
     // above strict threshold, below soft threshold.
     let he = brep.edges[target_edge].half_edge;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he].mate().unwrap_or_default();
     let v_start = brep.half_edges[he].origin;
     let v_end = brep.half_edges[twin].origin;
     let end_pos = brep.vertices[v_end].position;

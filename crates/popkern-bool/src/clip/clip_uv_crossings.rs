@@ -133,10 +133,11 @@ pub(crate) fn find_uv_crossings(
                 continue;
             }
 
-            let twin_he = brep.half_edges[*he_handle].twin;
-            if brep.half_edges.contains_key(twin_he)
-                && brep.half_edges[twin_he].loop_ == brep.half_edges[*he_handle].loop_
-            {
+            let seam_use = brep.half_edges[*he_handle].mate().is_some_and(|twin_he| {
+                brep.half_edges.contains_key(twin_he)
+                    && brep.half_edges[twin_he].loop_ == brep.half_edges[*he_handle].loop_
+            });
+            if seam_use {
                 continue;
             }
 

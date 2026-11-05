@@ -209,7 +209,7 @@ fn remapped_boundary_half_edge(
         ))
     })?;
     let not_boundary = !brep.boundary_edges.contains(&edge);
-    let live_twin = half_edge_data.twin != HalfEdgeHandle::default();
+    let live_twin = half_edge_data.mate().is_some();
     let unavailable = CylinderBridgeUnavailableEdge {
         not_boundary,
         live_twin,
@@ -234,8 +234,7 @@ fn desired_side_blocking_faces(brep: &BRep, desired_half_edge: HalfEdgeHandle) -
     let Some(desired) = brep.half_edges.get(desired_half_edge) else {
         return Vec::new();
     };
-    let twin = desired.twin;
-    let Some(twin_data) = brep.half_edges.get(twin) else {
+    let Some(twin_data) = desired.mate().and_then(|m| brep.half_edges.get(m)) else {
         return Vec::new();
     };
     brep.loops
@@ -251,11 +250,11 @@ fn desired_side_blocking_half_edges(
     let Some(desired) = brep.half_edges.get(desired_half_edge) else {
         return Vec::new();
     };
-    if brep.half_edges.contains_key(desired.twin) {
-        vec![desired.twin]
-    } else {
-        Vec::new()
-    }
+    desired
+        .mate()
+        .filter(|m| brep.half_edges.contains_key(*m))
+        .into_iter()
+        .collect()
 }
 
 fn blocking_spans(
@@ -331,7 +330,7 @@ fn blocking_span_summary(
 fn edge_owner_faces(brep: &BRep, half_edge: HalfEdgeHandle) -> Vec<FaceHandle> {
     [
         Some(half_edge),
-        brep.half_edges.get(half_edge).map(|data| data.twin),
+        brep.half_edges.get(half_edge).and_then(|data| data.mate()),
     ]
     .into_iter()
     .flatten()

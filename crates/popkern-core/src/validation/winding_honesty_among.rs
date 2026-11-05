@@ -91,9 +91,9 @@ impl BRep {
             let Some(he) = self.half_edges.get(cur) else {
                 break;
             };
-            if let Some(n) = self
-                .half_edges
-                .get(he.twin)
+            if let Some(n) = he
+                .mate()
+                .and_then(|m| self.half_edges.get(m))
                 .and_then(|t| self.loops.get(t.loop_))
                 .map(|l| l.face)
                 && n != face

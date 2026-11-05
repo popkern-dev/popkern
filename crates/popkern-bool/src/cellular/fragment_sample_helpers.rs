@@ -22,9 +22,9 @@ pub(super) fn point_near_any_edge(
             continue;
         };
         let a = brep.vertices[he.origin].position;
-        let b = brep
-            .half_edges
-            .get(he.twin)
+        let b = he
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
             .map(|t| brep.vertices[t.origin].position)
             .unwrap_or(a);
         if let Some(c) = edge.curve.as_ref() {

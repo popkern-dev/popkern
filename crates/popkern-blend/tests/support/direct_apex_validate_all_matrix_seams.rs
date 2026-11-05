@@ -62,7 +62,7 @@ fn direct_apex_native_cap_support_seam_ownership_inventory() {
             let Some(ha) = result.brep.half_edges.get(he) else {
                 continue;
             };
-            let Some(hb) = result.brep.half_edges.get(ha.twin) else {
+            let Some(hb) = ha.mate().and_then(|m| result.brep.half_edges.get(m)) else {
                 continue;
             };
             let Some(loop_a) = result.brep.loops.get(ha.loop_) else {
@@ -81,8 +81,16 @@ fn direct_apex_native_cap_support_seam_ownership_inventory() {
             if a_is_cap == b_is_cap {
                 continue;
             }
-            let cap_he = if a_is_cap { he } else { ha.twin };
-            let support_he = if a_is_cap { ha.twin } else { he };
+            let cap_he = if a_is_cap {
+                he
+            } else {
+                ha.mate().unwrap_or_default()
+            };
+            let support_he = if a_is_cap {
+                ha.mate().unwrap_or_default()
+            } else {
+                he
+            };
             let support_face = if a_is_cap { face_b } else { face_a };
             let support_kind = result
                 .brep
@@ -119,7 +127,9 @@ fn direct_apex_native_cap_support_seam_ownership_inventory() {
             let missing_support_pcurve = result.brep.half_edges[support_he].pcurve.is_none();
             if issue.is_some() || missing_cap_pcurve || missing_support_pcurve {
                 let start = result.brep.half_edges[cap_he].origin;
-                let end = result.brep.half_edges[result.brep.half_edges[cap_he].twin].origin;
+                let end = result.brep.half_edges
+                    [result.brep.half_edges[cap_he].mate().unwrap_or_default()]
+                .origin;
                 let cap_face = if a_is_cap { face_a } else { face_b };
                 let on_cap_outer = result
                     .brep

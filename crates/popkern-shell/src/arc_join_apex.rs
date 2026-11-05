@@ -208,7 +208,7 @@ fn construct_one_apex_cap(
         if he.origin != v_t {
             break;
         }
-        let Some(twin) = skin.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| skin.half_edges.get(m)) else {
             break;
         };
         if twin.origin == vh {
@@ -338,7 +338,9 @@ fn loop_spur_into(
     let mut cursor = start;
     for _ in 0..skin.half_edges.len() {
         let he = skin.half_edges.get(cursor)?;
-        if he.next == he.twin && skin.half_edges.get(he.twin)?.origin == vh {
+        if he.mate() == Some(he.next)
+            && he.mate().and_then(|m| skin.half_edges.get(m))?.origin == vh
+        {
             return Some(cursor);
         }
         cursor = he.next;

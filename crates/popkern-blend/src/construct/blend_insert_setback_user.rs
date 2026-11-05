@@ -175,7 +175,7 @@ fn edge_length(brep: &popkern_core::topology::BRep, edge: EdgeHandle) -> Option<
         return Some((0..CHORDS).map(|k| at(k).distance_to(&at(k + 1))).sum());
     }
     let he = brep.half_edges.get(data.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some(
         brep.vertices[he.origin]
             .position

@@ -34,7 +34,7 @@ use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::edge_triple::{EdgeAnchors, EdgeTripleOptions, compute_edge_geometry};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle};
 use popkern_math::PortableMath;
 
 #[path = "edge_reconcile_fit.rs"]
@@ -42,6 +42,10 @@ mod edge_reconcile_fit;
 #[path = "edge_reconcile_snap.rs"]
 mod edge_reconcile_snap;
 use edge_reconcile_fit::try_curved_fit;
+
+#[path = "edge_reconcile_direction.rs"]
+mod edge_reconcile_direction;
+use edge_reconcile_direction::half_edge_runs_backward;
 pub(crate) use edge_reconcile_snap::snap_vertex_and_adjacent_chords;
 
 /// Walk every edge in `brep`. For each edge bordered on one side
@@ -66,7 +70,9 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     let Some(he_data) = brep.half_edges.get(he) else {
         return false;
     };
-    let twin = he_data.twin;
+    let Some(twin) = he_data.mate() else {
+        return false;
+    };
     let Some(twin_data) = brep.half_edges.get(twin) else {
         return false;
     };
@@ -475,25 +481,4 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         }
     }
     true
-}
-
-/// Whether `half_edge` (on an open edge) starts at its edge curve's
-/// `range.1` end: its origin vertex is clearly nearer that end.
-fn half_edge_runs_backward(brep: &BRep, half_edge: HalfEdgeHandle, range: (f64, f64)) -> bool {
-    let Some(h) = brep.half_edges.get(half_edge) else {
-        return false;
-    };
-    let (Some(origin), Some(curve)) = (
-        brep.vertices.get(h.origin).map(|v| v.position),
-        brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()),
-    ) else {
-        return false;
-    };
-    let (a, b) = (
-        curve.geometry.point_at(range.0),
-        curve.geometry.point_at(range.1),
-    );
-    let chord = a.distance_to(&b);
-    let (da, db) = (origin.distance_to(&a), origin.distance_to(&b));
-    chord > brep.tolerance.linear() && db + 1.0e-3 * chord < da
 }

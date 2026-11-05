@@ -265,7 +265,7 @@ fn attach_edge_geometry(
         brep.edges[edge_handle].curve = Some(curve);
 
         let he_a = brep.edges[edge_handle].half_edge;
-        let he_b = brep.half_edges[he_a].twin;
+        let he_b = brep.require_mate(he_a)?;
         let (he_forward, he_backward) = if brep.half_edges[he_a].origin == vertices[k] {
             (he_a, he_b)
         } else {
@@ -348,7 +348,7 @@ fn build_hole_loop(
             pcurve: None,
         });
 
-        brep.half_edges[he_fwd].twin = he_rev;
+        brep.half_edges[he_fwd].set_mate(he_rev);
         brep.edges[edge_h].half_edge = he_fwd;
         if brep.vertices[vertices[i]].outgoing == HalfEdgeHandle::default() {
             brep.vertices[vertices[i]].outgoing = he_fwd;

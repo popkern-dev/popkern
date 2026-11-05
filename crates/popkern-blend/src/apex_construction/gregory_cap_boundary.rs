@@ -140,7 +140,7 @@ pub(super) fn half_edge_for_face_on_edge(
     if primary_face == Some(face) {
         return Some(primary);
     }
-    let twin = brep.half_edges.get(primary)?.twin;
+    let twin = brep.half_edges.get(primary)?.mate()?;
     let twin_face = brep
         .half_edges
         .get(twin)
@@ -186,7 +186,7 @@ pub(super) fn missing_adjacent_face_error(
             .get(primary)
             .and_then(|he| brep.loops.get(he.loop_))
             .map(|l| l.face);
-        let twin = brep.half_edges.get(primary).map(|he| he.twin);
+        let twin = brep.half_edges.get(primary).and_then(|he| he.mate());
         let pb = twin
             .and_then(|t| brep.half_edges.get(t))
             .and_then(|he| brep.loops.get(he.loop_))
@@ -381,7 +381,7 @@ pub(super) fn find_face_across_edge(
     let edge_data = brep.edges.get(edge)?;
     let primary = edge_data.half_edge;
     let primary_he = brep.half_edges.get(primary)?;
-    let twin_he = brep.half_edges.get(primary_he.twin)?;
+    let twin_he = primary_he.mate().and_then(|m| brep.half_edges.get(m))?;
     let face_a = brep.loops.get(primary_he.loop_)?.face;
     let face_b = brep.loops.get(twin_he.loop_)?.face;
     if face_a == cap_face {

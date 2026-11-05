@@ -248,7 +248,7 @@ pub(crate) fn faces_incident_to_edges(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        for h in [edge.half_edge, he.twin] {
+        for h in [Some(edge.half_edge), he.mate()].into_iter().flatten() {
             if let Some(hd) = brep.half_edges.get(h)
                 && let Some(lp) = brep.loops.get(hd.loop_)
             {

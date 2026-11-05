@@ -32,7 +32,9 @@ fn cube_with_retired_side() -> (BRep, FaceHandle) {
 fn boundary_side(brep: &BRep, edge: crate::topology::EdgeHandle) -> HalfEdgeHandle {
     let h = brep.edges[edge].half_edge;
     assert!(
-        !brep.half_edges.contains_key(brep.half_edges[h].twin),
+        !brep.half_edges[h]
+            .mate()
+            .is_some_and(|m| brep.half_edges.contains_key(m)),
         "expected a twinless boundary side"
     );
     h
@@ -137,7 +139,10 @@ fn rewrite_declines_replacement_with_live_twin() {
     let twinned = brep
         .half_edges
         .iter()
-        .find(|(h, data)| brep.half_edges.contains_key(data.twin) && !plan.removed.contains(h))
+        .find(|(h, data)| {
+            data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+                && !plan.removed.contains(h)
+        })
         .map(|(h, _)| h)
         .expect("cube has twinned sides");
     plan.replacement[0] = twinned;

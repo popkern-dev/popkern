@@ -50,8 +50,8 @@ fn trace_face_loop_walk(brep: &BRep, face: FaceHandle, ring: usize) -> Vec<FaceH
         let Some(side) = brep.half_edges.get(he) else {
             continue;
         };
-        let twin_desc = match brep.half_edges.get(side.twin) {
-            None => format!("twin {:?} DEAD", side.twin),
+        let twin_desc = match side.mate().and_then(|m| brep.half_edges.get(m)) {
+            None => format!("twin {:?} DEAD", side.mate()),
             Some(twin_side) => match brep.loops.get(twin_side.loop_) {
                 None => format!("twin loop {:?} stale", twin_side.loop_),
                 Some(loop_data) => {

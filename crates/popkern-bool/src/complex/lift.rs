@@ -129,7 +129,7 @@ fn components(brep: &BRep) -> Vec<Vec<FaceHandle>> {
                     let Some(h) = brep.half_edges.get(he) else {
                         break;
                     };
-                    if let Some(tw) = brep.half_edges.get(h.twin)
+                    if let Some(tw) = h.mate().and_then(|m| brep.half_edges.get(m))
                         && let Some(tl) = brep.loops.get(tw.loop_)
                         && !seen.contains(&tl.face)
                     {

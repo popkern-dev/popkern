@@ -250,7 +250,7 @@ fn intern_half_edge(
             loop_: LoopHandle::default(),
             pcurve: None,
         });
-        brep.half_edges[other].twin = half_edge;
+        brep.half_edges[other].set_mate(half_edge);
         return Ok(half_edge);
     }
 

@@ -79,7 +79,7 @@ pub(crate) fn apex_edges(body: &BRep) -> (Point3, Vec<Point3>) {
         .filter_map(|e| {
             let he = &body.half_edges[e.half_edge];
             let o = body.vertices[he.origin].position;
-            let d = body.vertices[body.half_edges[he.twin].origin].position;
+            let d = body.vertices[body.half_edges[he.mate().unwrap_or_default()].origin].position;
             if o.distance_to(&apex) < 1e-9 {
                 Some(d)
             } else if d.distance_to(&apex) < 1e-9 {

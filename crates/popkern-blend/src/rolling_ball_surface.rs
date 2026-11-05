@@ -100,7 +100,7 @@ pub(crate) fn set_ball_surface(
 pub(crate) fn round_sense(brep: &BRep, face: FaceHandle) -> Option<(Point3, bool)> {
     for he in loop_half_edges(brep, face) {
         let h = brep.half_edges.get(he)?;
-        let other = face_of(brep, h.twin)?;
+        let other = face_of(brep, h.mate()?)?;
         let sof = brep.faces.get(other)?.surface.as_ref()?;
         let SurfaceGeometry::Cylinder { origin, axis, .. } = &sof.geometry else {
             continue;

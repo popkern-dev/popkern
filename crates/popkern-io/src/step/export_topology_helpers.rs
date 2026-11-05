@@ -360,7 +360,7 @@ pub(super) fn edge_end_vertex(
             });
     }
     brep.half_edges
-        .get(he.twin)
+        .get(he.mate().unwrap_or_default())
         .map(|twin| twin.origin)
         .ok_or_else(|| IoError::Export("Half-edge references missing twin".into()))
 }

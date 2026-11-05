@@ -20,7 +20,7 @@ fn g1_kp20_commit_produces_valid_blend() {
         .filter_map(|(eh, _)| {
             let he = pyramid.edges[eh].half_edge;
             let o = pyramid.half_edges[he].origin;
-            let t = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            let t = pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
             (o == apex || t == apex).then_some(eh)
         })
         .collect();

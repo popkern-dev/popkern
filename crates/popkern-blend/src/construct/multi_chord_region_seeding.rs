@@ -18,7 +18,7 @@ pub(in crate::construct) fn descendant_trim_fraction(
     use popkern_core::geometry::curve::CurveEval;
     let ed = brep.edges.get(e)?;
     let he = brep.half_edges.get(ed.half_edge)?;
-    let tw = brep.half_edges.get(he.twin)?;
+    let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let a = brep.vertices.get(he.origin)?.position;
     let b = brep.vertices.get(tw.origin)?.position;
     let m = popkern_core::geometry::Point3 {

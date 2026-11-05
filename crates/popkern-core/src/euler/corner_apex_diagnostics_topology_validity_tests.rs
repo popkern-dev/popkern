@@ -34,8 +34,7 @@ fn live_nonmanifold_vertex_has_radial_validity_fact() {
     let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
     let edges = incident_edges(&cube, vertex);
-    let half_edge = cube.edges[edges[0]].half_edge;
-    cube.nonmanifold_radial.insert(half_edge, half_edge);
+    cube.thread_test_third_fin(edges[0]);
 
     let report =
         cube.diagnose_corner_apex(request(vertex, &edges, BlendKind::FilletConstantRadius));
@@ -109,7 +108,7 @@ fn incident_edges(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> {
         if half_edge.origin == vertex
             || brep
                 .half_edges
-                .get(half_edge.twin)
+                .get(half_edge.mate().unwrap_or_default())
                 .is_some_and(|twin| twin.origin == vertex)
         {
             edges.insert(half_edge.edge);

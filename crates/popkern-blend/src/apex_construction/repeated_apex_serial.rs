@@ -363,18 +363,22 @@ fn trace_repeated_apex_partition_inputs(
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let twin = he_data.twin;
+        let twin = he_data.mate();
         let he_face = brep
             .loops
             .get(he_data.loop_)
             .map(|loop_data| loop_data.face);
-        let twin_face = brep.half_edges.get(twin).and_then(|twin_data| {
-            brep.loops
-                .get(twin_data.loop_)
-                .map(|loop_data| loop_data.face)
-        });
+        let twin_face = twin
+            .and_then(|t| brep.half_edges.get(t))
+            .and_then(|twin_data| {
+                brep.loops
+                    .get(twin_data.loop_)
+                    .map(|loop_data| loop_data.face)
+            });
         let he_origin = he_data.origin;
-        let twin_origin = brep.half_edges.get(twin).map(|twin_data| twin_data.origin);
+        let twin_origin = twin
+            .and_then(|t| brep.half_edges.get(t))
+            .map(|twin_data| twin_data.origin);
         eprintln!(
             "[direct-apex-trace §14.9/partition]   FaceEdge[{k}] edge={edge:?} he={he:?} \
              {he_origin:?}->{twin_origin:?} face={he_face:?}; twin={twin:?} face={twin_face:?}; \

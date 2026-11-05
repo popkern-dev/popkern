@@ -39,7 +39,7 @@ pub(super) fn edge_length(brep: &BRep, eh: EdgeHandle) -> f64 {
     let Some(he) = brep.half_edges.get(edge.half_edge) else {
         return 0.0;
     };
-    let Some(twin) = brep.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
         return 0.0;
     };
     let pa = brep.vertices[he.origin].position;
@@ -58,7 +58,7 @@ pub(super) fn edge_midpoint(brep: &BRep, eh: EdgeHandle) -> Point3 {
     let Some(he) = brep.half_edges.get(edge.half_edge) else {
         return Point3::new(0.0, 0.0, 0.0);
     };
-    let Some(twin) = brep.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
         return Point3::new(0.0, 0.0, 0.0);
     };
     let pa = brep.vertices[he.origin].position;

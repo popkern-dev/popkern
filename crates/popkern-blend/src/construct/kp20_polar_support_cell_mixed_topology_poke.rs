@@ -369,7 +369,7 @@ fn collect_vertex_outgoing_edges(
     for _ in 0..brep.half_edges.len() {
         let he = &brep.half_edges[cursor];
         edges.push(he.edge);
-        cursor = brep.half_edges[he.twin].next;
+        cursor = brep.half_edges[he.require_mate()?].next;
         if cursor == start {
             return Ok(edges);
         }

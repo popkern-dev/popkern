@@ -387,7 +387,7 @@ fn build_perp_anchor_override(
     let Some(he) = brep.half_edges.get(primary) else {
         return helpers::PerpAnchorOverride::default();
     };
-    let Some(twin_he) = brep.half_edges.get(he.twin) else {
+    let Some(twin_he) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
         return helpers::PerpAnchorOverride::default();
     };
     let v_start = he.origin;

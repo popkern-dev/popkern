@@ -63,8 +63,8 @@ fn append_edge_fact_ids(
         return;
     };
     append_half_edge_fact_ids(graph, brep, edge_data.half_edge, ids);
-    if let Some(half_edge) = brep.half_edges.get(edge_data.half_edge) {
-        append_half_edge_fact_ids(graph, brep, half_edge.twin, ids);
+    if let Some(mate) = brep.mate(edge_data.half_edge) {
+        append_half_edge_fact_ids(graph, brep, mate, ids);
     }
 }
 

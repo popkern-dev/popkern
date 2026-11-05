@@ -116,7 +116,7 @@ pub(crate) fn extend_through_end(
             let Some(he) = work.half_edges.get(cur) else {
                 return false;
             };
-            let Some(tw) = work.half_edges.get(he.twin) else {
+            let Some(tw) = he.mate().and_then(|m| work.half_edges.get(m)) else {
                 return false;
             };
             if work
@@ -164,7 +164,7 @@ pub(crate) fn extend_through_end(
                 let Some(he) = work.half_edges.get(cur) else {
                     break;
                 };
-                let Some(tw) = work.half_edges.get(he.twin) else {
+                let Some(tw) = he.mate().and_then(|m| work.half_edges.get(m)) else {
                     break;
                 };
                 if work
@@ -201,7 +201,7 @@ pub(crate) fn extend_through_end(
                 let Some(he) = work.half_edges.get(cur) else {
                     break;
                 };
-                if he.next == he.twin {
+                if he.mate() == Some(he.next) {
                     tip = Some(cur);
                     break 'outer;
                 }
@@ -216,7 +216,7 @@ pub(crate) fn extend_through_end(
             let Some(hed) = work.half_edges.get(he) else {
                 break;
             };
-            let Some(tw) = work.half_edges.get(hed.twin) else {
+            let Some(tw) = hed.mate().and_then(|m| work.half_edges.get(m)) else {
                 break;
             };
             tw.origin

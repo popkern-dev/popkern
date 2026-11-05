@@ -45,7 +45,7 @@ pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (
         let Some(he_data) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin_data) = brep.half_edges.get(he_data.twin) else {
+        let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let (Some(loop_a), Some(loop_b)) = (
@@ -82,7 +82,7 @@ pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (
         };
         let (Some(sa), Some(sb)) = (
             side(loop_a.face, edge.half_edge),
-            side(loop_b.face, he_data.twin),
+            he_data.mate().and_then(|m| side(loop_b.face, m)),
         ) else {
             continue;
         };
@@ -258,7 +258,7 @@ pub(super) fn refresh_fan_seam_curves(brep: &mut BRep, cap_faces: &[FaceHandle])
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let Some(twin_data) = brep.half_edges.get(he_data.twin) else {
+        let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let (Some(loop_a), Some(loop_b)) = (
@@ -371,7 +371,7 @@ pub(super) fn refresh_fan_seam_curves(brep: &mut BRep, cap_faces: &[FaceHandle])
         let Some(he_data) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin_data) = brep.half_edges.get(he_data.twin) else {
+        let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(curve) = edge.curve.as_ref() else {

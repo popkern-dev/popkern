@@ -183,7 +183,7 @@ fn walker_path_populates_newton_iterations() {
         .keys()
         .find(|&e| {
             let he = cone.edges[e].half_edge;
-            let twin = cone.half_edges[he].twin;
+            let twin = cone.half_edges[he].mate().unwrap_or_default();
             let face_a = cone.loops[cone.half_edges[he].loop_].face;
             let face_b = cone.loops[cone.half_edges[twin].loop_].face;
             face_a != face_b

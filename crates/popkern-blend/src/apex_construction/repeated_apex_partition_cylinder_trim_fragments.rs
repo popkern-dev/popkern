@@ -50,7 +50,7 @@ impl RetiredCylinderTrimFragment {
         let adjacent_faces = path
             .iter()
             .filter_map(|half_edge| {
-                let twin = brep.half_edges.get(*half_edge)?.twin;
+                let twin = brep.half_edges.get(*half_edge)?.mate()?;
                 let twin_loop = brep.half_edges.get(twin)?.loop_;
                 let twin_face = brep.loops.get(twin_loop)?.face;
                 (twin_face != face).then_some(twin_face)

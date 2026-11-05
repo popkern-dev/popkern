@@ -264,7 +264,7 @@ fn merge_rewires_half_edge_origins() {
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[he].twin = he; // self-twin for simplicity
+    brep.half_edges[he].set_mate(he); // self-twin for simplicity
     brep.edges[edge_handle].half_edge = he;
     brep.vertices[v1].outgoing = he;
 

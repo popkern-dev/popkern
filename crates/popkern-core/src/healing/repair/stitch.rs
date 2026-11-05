@@ -62,7 +62,7 @@ pub fn find_free_edges(brep: &BRep) -> Vec<EdgeHandle> {
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             // Missing twin means this is definitely a boundary edge.
             free.push(eh);
             continue;
@@ -97,7 +97,7 @@ pub(super) fn sample_edge_points(
 ) -> Option<Vec<Point3>> {
     let edge_data = brep.edges.get(edge)?;
     let he = brep.half_edges.get(edge_data.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let start_pos = brep.vertices.get(he.origin)?.position;
     let end_pos = brep.vertices.get(twin.origin)?.position;
 
@@ -133,7 +133,7 @@ pub(super) fn sample_edge_points(
 fn edge_endpoints(brep: &BRep, edge: EdgeHandle) -> Option<(VertexHandle, VertexHandle)> {
     let edge_data = brep.edges.get(edge)?;
     let he = brep.half_edges.get(edge_data.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((he.origin, twin.origin))
 }
 

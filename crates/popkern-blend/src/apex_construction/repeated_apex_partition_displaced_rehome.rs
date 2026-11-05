@@ -118,7 +118,7 @@ fn half_edge_chain_end(
         .ok_or_else(|| ApexBuildError::PlanMismatch {
             reason: format!("displaced chain tail {half_edge:?} is stale"),
         })?;
-    if let Some(twin) = brep.half_edges.get(data.twin) {
+    if let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) {
         return Ok(twin.origin);
     }
     brep.half_edges

@@ -32,7 +32,7 @@ pub(crate) fn rebuild_rim_edge_curve(
     let Some(he) = skin.half_edges.get(edge.half_edge) else {
         return false;
     };
-    let Some(twin) = skin.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| skin.half_edges.get(m)) else {
         return false;
     };
     // Exactly one live side qualifies this as a rim edge.
@@ -88,7 +88,7 @@ pub(crate) fn verify_join_faces(
                 ));
             }
             let he = &skin.half_edges[cursor];
-            let twin = &skin.half_edges[he.twin];
+            let twin = &skin.half_edges[he.require_mate()?];
             let edge = &skin.edges[he.edge];
             let Some(curve) = edge.curve.as_ref() else {
                 return Err(join_verify_error(face, "join boundary edge has no curve"));

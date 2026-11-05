@@ -36,8 +36,9 @@ fn g2_rim() -> BlendResult {
         .filter(|(_, d)| {
             let he = &brep.half_edges[d.half_edge];
             let a = brep.vertices[he.origin].position;
-            let b = brep.vertices[brep.half_edges[he.twin].origin].position;
-            brep.loops[he.loop_].face != brep.loops[brep.half_edges[he.twin].loop_].face
+            let b = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
+            brep.loops[he.loop_].face
+                != brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face
                 && (a.z - 2.0).abs() < 1e-9
                 && (b.z - 2.0).abs() < 1e-9
         })
@@ -255,7 +256,7 @@ fn the_g2_rim_rails_certify_under_projected_correspondence() {
         let he = &brep.half_edges[data.half_edge];
         let faces = [
             brep.loops[he.loop_].face,
-            brep.loops[brep.half_edges[he.twin].loop_].face,
+            brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face,
         ];
         if !faces.contains(&face) || faces[0] == faces[1] {
             continue;

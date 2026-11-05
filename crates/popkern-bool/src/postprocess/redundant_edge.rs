@@ -66,10 +66,10 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
         let edge = brep.edges.get(eh)?;
 
         let he = brep.half_edges.get(edge.half_edge)?;
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         // A self-twinned half-edge is already residue, never a
         // dissolution candidate.
-        if he.twin == edge.half_edge {
+        if he.mate() == Some(edge.half_edge) {
             return Some(false);
         }
         let loop_a = brep.loops.get(he.loop_)?;
@@ -111,7 +111,7 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
                 let Some(ohe) = brep.half_edges.get(other.half_edge) else {
                     return false;
                 };
-                let Some(otwin) = brep.half_edges.get(ohe.twin) else {
+                let Some(otwin) = ohe.mate().and_then(|m| brep.half_edges.get(m)) else {
                     return false;
                 };
                 let (Some(ola), Some(olb)) =

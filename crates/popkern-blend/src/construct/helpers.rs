@@ -148,7 +148,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         .half_edges
         .get(he_fwd)
         .ok_or_else(|| "half-edge not found".to_string())?;
-    let he_rev = he_fwd_data.twin;
+    let he_rev = he_fwd_data.mate().unwrap_or_default();
     let v_start = he_fwd_data.origin;
     let v_end = brep_snapshot
         .half_edges

@@ -31,18 +31,21 @@ pub(super) fn trace_cycle_structure(primitive: &FaceFamilyBridgePrimitivePlan, c
                         continue;
                     };
                     let p = v.position;
-                    let twin = candidate.half_edges.get(data.twin).map(|t| {
-                        let f = candidate.loops.get(t.loop_).map(|l| l.face);
-                        let kind = f.and_then(|f| candidate.faces.get(f)).map(|fd| {
-                            (
-                                fd.role,
-                                fd.surface
-                                    .as_ref()
-                                    .map(|s| std::mem::discriminant(&s.geometry)),
-                            )
+                    let twin = data
+                        .mate()
+                        .and_then(|m| candidate.half_edges.get(m))
+                        .map(|t| {
+                            let f = candidate.loops.get(t.loop_).map(|l| l.face);
+                            let kind = f.and_then(|f| candidate.faces.get(f)).map(|fd| {
+                                (
+                                    fd.role,
+                                    fd.surface
+                                        .as_ref()
+                                        .map(|s| std::mem::discriminant(&s.geometry)),
+                                )
+                            });
+                            format!("{f:?} {kind:?}")
                         });
-                        format!("{f:?} {kind:?}")
-                    });
                     eprintln!(
                         "[slir] c{ci} {label} {h:?} o=({:.3},{:.3},{:.3}) twin {}",
                         p.x,
@@ -87,7 +90,12 @@ fn trace_gap_chain(
     let dead: Vec<_> = candidate
         .half_edges
         .iter()
-        .filter(|(h, data)| !candidate.half_edges.contains_key(data.twin) && !removed.contains(h))
+        .filter(|(h, data)| {
+            !data
+                .mate()
+                .is_some_and(|m| candidate.half_edges.contains_key(m))
+                && !removed.contains(h)
+        })
         .map(|(h, _)| h)
         .collect();
     let dest_of = |h| {

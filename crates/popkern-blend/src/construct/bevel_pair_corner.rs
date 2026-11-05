@@ -226,7 +226,10 @@ fn incident_face_on(
 fn faces_of(out: &BRep, he: HalfEdgeHandle) -> Option<(FaceHandle, FaceHandle)> {
     let h = out.half_edges.get(he)?;
     let f1 = out.loops.get(h.loop_)?.face;
-    let f2 = out.loops.get(out.half_edges.get(h.twin)?.loop_)?.face;
+    let f2 = out
+        .loops
+        .get(h.mate().and_then(|m| out.half_edges.get(m))?.loop_)?
+        .face;
     Some((f1, f2))
 }
 
@@ -288,7 +291,12 @@ fn settle_one(
             .find(|&he| destination(out, he) != Some(pv))
             .ok_or("stale corner has no onward edge")?;
         let far = destination(out, onward).ok_or("onward edge without destination")?;
-        let far_to_corner = out.half_edges.get(onward).ok_or("stale onward edge")?.twin;
+        let far_to_corner = out
+            .half_edges
+            .get(onward)
+            .ok_or("stale onward edge")?
+            .require_mate()
+            .map_err(|e| e.to_string())?;
         out.kve(far_to_corner)
             .map_err(|e| format!("kve stale corner: {e}"))?;
         x = far;

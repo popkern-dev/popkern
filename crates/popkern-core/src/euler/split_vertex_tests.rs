@@ -63,7 +63,7 @@ fn split_face_wedge_sector_rehomes_face_corner() {
     // both wedge edges, so the wedge face's corner re-homes entirely.
     let x = brep.half_edges[o].prev;
     let wedge_loop = brep.half_edges[o].loop_;
-    let he_first = brep.half_edges[x].twin;
+    let he_first = brep.half_edges[x].mate().unwrap_or_default();
     let pos = Point3::new(-1.0, -1.0, -1.0);
 
     let result = brep.split_vertex(he_first, o, pos).unwrap();
@@ -98,7 +98,7 @@ fn split_vertex_rejects_full_fan_sector() {
     // Walk the fan to the last outgoing before wrapping.
     let mut last = o;
     loop {
-        let succ = brep.half_edges[brep.half_edges[last].twin].next;
+        let succ = brep.half_edges[brep.half_edges[last].mate().unwrap_or_default()].next;
         if succ == o {
             break;
         }

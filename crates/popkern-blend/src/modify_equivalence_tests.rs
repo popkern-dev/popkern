@@ -164,7 +164,7 @@ fn closed_in_place_matches_remove_recreate_geometry() {
     let edge = subtracted.edges.keys().find(|e| {
         let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
         let fa = subtracted.loops[he.loop_].face;
-        let fb = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+        let fb = subtracted.loops[subtracted.half_edges[he.mate().unwrap_or_default()].loop_].face;
         let sa = subtracted.faces[fa].surface.as_ref().map(|s| &s.geometry);
         let sb = subtracted.faces[fb].surface.as_ref().map(|s| &s.geometry);
         matches!(
@@ -218,11 +218,12 @@ fn closed_in_place_matches_remove_recreate_geometry() {
         .keys()
         .find(|e| {
             let he = &unfilleted.half_edges[unfilleted.edges[*e].half_edge];
-            if he.origin != unfilleted.half_edges[he.twin].origin {
+            if he.origin != unfilleted.half_edges[he.mate().unwrap_or_default()].origin {
                 return false;
             }
             let fa = unfilleted.loops[he.loop_].face;
-            let fb = unfilleted.loops[unfilleted.half_edges[he.twin].loop_].face;
+            let fb =
+                unfilleted.loops[unfilleted.half_edges[he.mate().unwrap_or_default()].loop_].face;
             let sa = unfilleted.faces[fa].surface.as_ref().map(|s| &s.geometry);
             let sb = unfilleted.faces[fb].surface.as_ref().map(|s| &s.geometry);
             matches!(
@@ -322,7 +323,7 @@ fn open_in_place_matches_remove_recreate_geometry() {
         .keys()
         .find(|e| {
             let he = &unfilleted.half_edges[unfilleted.edges[*e].half_edge];
-            let twin = &unfilleted.half_edges[he.twin];
+            let twin = &unfilleted.half_edges[he.mate().unwrap_or_default()];
             let v0 = unfilleted.vertices[he.origin].position;
             let v1 = unfilleted.vertices[twin.origin].position;
             (close(&v0, &p0) && close(&v1, &p1)) || (close(&v0, &p1) && close(&v1, &p0))
@@ -428,7 +429,7 @@ fn open_in_place_variable_matches_remove_recreate_geometry() {
     };
     let restored_edge = match unfilleted.edges.keys().find(|e| {
         let he = &unfilleted.half_edges[unfilleted.edges[*e].half_edge];
-        let twin = &unfilleted.half_edges[he.twin];
+        let twin = &unfilleted.half_edges[he.mate().unwrap_or_default()];
         let v0 = unfilleted.vertices[he.origin].position;
         let v1 = unfilleted.vertices[twin.origin].position;
         (close(&v0, &p0) && close(&v1, &p1)) || (close(&v0, &p1) && close(&v1, &p0))

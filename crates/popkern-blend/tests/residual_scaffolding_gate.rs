@@ -39,7 +39,7 @@ fn assert_no_unglued_scaffolding(brep: &BRep, label: &str) {
             brep.loops.get(half_edge.loop_).map(|l| l.face) == Some(face)
                 && brep
                     .half_edges
-                    .get(half_edge.twin)
+                    .get(half_edge.mate().unwrap_or_default())
                     .and_then(|twin| brep.loops.get(twin.loop_))
                     .and_then(|loop_data| brep.faces.get(loop_data.face))
                     .is_some_and(|owner| owner.role != TopologyRole::ConstructionResidual)

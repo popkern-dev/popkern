@@ -71,10 +71,13 @@ pub(crate) fn excise_same_face_slit_pairs_in(brep: &mut BRep, region: &ServeRegi
             let Some(he) = brep.half_edges.get(edge.half_edge) else {
                 continue;
             };
-            let Some(tw) = brep.half_edges.get(he.twin) else {
+            let Some((tw_h, tw)) = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m).map(|t| (m, t)))
+            else {
                 continue;
             };
-            if he.twin == edge.half_edge {
+            if he.mate() == Some(edge.half_edge) {
                 continue;
             }
             let (Some(l1), Some(l2)) = (brep.loops.get(he.loop_), brep.loops.get(tw.loop_)) else {
@@ -92,7 +95,7 @@ pub(crate) fn excise_same_face_slit_pairs_in(brep: &mut BRep, region: &ServeRegi
                 }
                 continue;
             }
-            target = Some((eh, edge.half_edge, he.twin, he.loop_, tw.loop_, l1.face));
+            target = Some((eh, edge.half_edge, tw_h, he.loop_, tw.loop_, l1.face));
             break;
         }
         let Some((eh, h, t, lh1, lh2, fh)) = target else {
@@ -286,11 +289,11 @@ pub(crate) fn retire_pure_slit_faces_in(brep: &mut BRep, region: &ServeRegion) -
                         is_slit = false;
                         break;
                     };
-                    let Some(tw) = brep.half_edges.get(he.twin) else {
+                    let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
                         is_slit = false;
                         break;
                     };
-                    if tw.loop_ != lh || he.twin == heh {
+                    if tw.loop_ != lh || he.mate() == Some(heh) {
                         is_slit = false;
                         break;
                     }

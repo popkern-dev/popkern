@@ -16,10 +16,14 @@
 //! fragments still wired to scaffold-interior topology (e.g. the
 //! retired apex vertex spurs) are left for the apex-cell teardown.
 
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::TopologyRole;
 
 use super::*;
+
+#[path = "repeated_apex_partition_carrier_fit.rs"]
+mod repeated_apex_partition_carrier_fit;
+use repeated_apex_partition_carrier_fit::fragment_absorbability;
 
 /// Absorb coplanar residual fragments into adjacent planar production
 /// faces until no more qualify; returns how many rewrites were applied.
@@ -162,7 +166,7 @@ struct BigonWeldOperands {
 
 fn bigon_weld_operands(brep: &BRep, production_side: HalfEdgeHandle) -> Option<BigonWeldOperands> {
     let data = brep.half_edges.get(production_side)?;
-    let near_side = data.twin;
+    let near_side = data.mate()?;
     let near = brep.half_edges.get(near_side)?;
     let fragment_loop = near.loop_;
     let fragment_face = brep.loops.get(fragment_loop)?.face;
@@ -176,14 +180,14 @@ fn bigon_weld_operands(brep: &BRep, production_side: HalfEdgeHandle) -> Option<B
     }
     let far_side = cycle.into_iter().find(|he| *he != near_side)?;
     let far = brep.half_edges.get(far_side)?;
-    let far_twin = far.twin;
+    let far_twin = far.mate()?;
     // Only a mutual partner outside the fragment can become the
     // production twin (scaffold twin pointers are non-mutual).
     if far_twin == near_side || far_twin == far_side || far_twin == production_side {
         return None;
     }
     let far_twin_data = brep.half_edges.get(far_twin)?;
-    if far_twin_data.twin != far_side {
+    if far_twin_data.mate() != Some(far_side) {
         return None;
     }
     brep.loops.get(far_twin_data.loop_)?; // never adopt an unwired boundary record
@@ -237,8 +241,7 @@ fn weld_across_bigon(brep: &mut BRep, production_side: HalfEdgeHandle) -> Result
         .map(|data| data.edge)
         .ok_or_else(|| "stale far side".to_owned())?;
     // Re-pair.
-    brep.half_edges[production_side].twin = operands.far_twin;
-    brep.half_edges[operands.far_twin].twin = production_side;
+    brep.set_mates(production_side, operands.far_twin);
     brep.half_edges[operands.far_twin].edge = production_edge;
     if brep
         .edges
@@ -293,11 +296,11 @@ fn local_weld_postconditions(
         .half_edges
         .get(production_side)
         .ok_or_else(|| "production side vanished".to_owned())?;
-    let twin = brep
-        .half_edges
-        .get(data.twin)
+    let twin = data
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
         .ok_or_else(|| "new twin vanished".to_owned())?;
-    if twin.twin != production_side {
+    if twin.mate() != Some(production_side) {
         return Err("twin pairing is not mutual".to_owned());
     }
     if twin.edge != data.edge {
@@ -307,7 +310,10 @@ fn local_weld_postconditions(
     // only needs to not get WORSE (scaffold chains may be pre-broken).
     for (side, must_close) in [
         (production_side, true),
-        (data.twin, far_twin_loop_closed_before),
+        (
+            data.require_mate().map_err(|e| e.to_string())?,
+            far_twin_loop_closed_before,
+        ),
     ] {
         if !must_close {
             continue;
@@ -384,7 +390,7 @@ fn next_absorbable_side(
             let Some(twin) = brep
                 .half_edges
                 .get(side)
-                .and_then(|data| brep.half_edges.get(data.twin))
+                .and_then(|data| data.mate().and_then(|m| brep.half_edges.get(m)))
             else {
                 continue;
             };
@@ -435,66 +441,4 @@ fn production_loop_vertices(brep: &BRep) -> std::collections::BTreeSet<VertexHan
         }
     }
     vertices
-}
-
-/// Every fragment side fits the plane carrier and every fragment vertex
-/// already participates in production topology.
-fn fragment_absorbability(
-    brep: &BRep,
-    fragment: FaceHandle,
-    carrier: &SurfaceGeometry,
-    production_vertices: &std::collections::BTreeSet<VertexHandle>,
-) -> Result<(), String> {
-    let fragment_data = brep
-        .faces
-        .get(fragment)
-        .ok_or_else(|| "stale fragment".to_owned())?;
-    let cycle = collect_loop_half_edges(brep, fragment_data.outer_loop)
-        .map_err(|_| "fragment loop does not close".to_owned())?;
-    let fit_tolerance = brep.tolerance.linear().max(1.0e-9) * 10.0;
-    for side in cycle {
-        let data = brep
-            .half_edges
-            .get(side)
-            .ok_or_else(|| format!("stale side {side:?}"))?;
-        if !production_vertices.contains(&data.origin) {
-            return Err(format!(
-                "vertex {:?} is scaffold-interior (not on any production loop)",
-                data.origin
-            ));
-        }
-        let origin = brep
-            .vertices
-            .get(data.origin)
-            .ok_or_else(|| format!("stale vertex on {side:?}"))?;
-        let vertex_gap = point_plane_distance(carrier, origin.position);
-        if vertex_gap > fit_tolerance {
-            return Err(format!(
-                "vertex {:?} off the carrier by {vertex_gap:.3e}",
-                data.origin
-            ));
-        }
-        if let Some(curve) = brep
-            .edges
-            .get(data.edge)
-            .and_then(|edge| edge.curve.as_ref())
-        {
-            let midpoint = curve.geometry.point_at(0.5 * (curve.t_start + curve.t_end));
-            let midpoint_gap = point_plane_distance(carrier, midpoint);
-            if midpoint_gap > fit_tolerance {
-                return Err(format!(
-                    "edge {:?} midpoint off the carrier by {midpoint_gap:.3e}",
-                    data.edge
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn point_plane_distance(carrier: &SurfaceGeometry, point: popkern_core::geometry::Point3) -> f64 {
-    let Some((u, v)) = carrier.closest_point(&point) else {
-        return f64::INFINITY;
-    };
-    carrier.point_at(u, v).distance_to(&point)
 }

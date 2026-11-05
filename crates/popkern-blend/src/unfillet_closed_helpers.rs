@@ -234,7 +234,7 @@ pub(crate) fn rebuild_line_curve(brep: &mut BRep, edge: EdgeHandle) {
     let Some(he) = brep.half_edges.get(he_h).cloned() else {
         return;
     };
-    let Some(twin) = brep.half_edges.get(he.twin).cloned() else {
+    let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)).cloned() else {
         return;
     };
     let v0 = brep.vertices[he.origin].position;

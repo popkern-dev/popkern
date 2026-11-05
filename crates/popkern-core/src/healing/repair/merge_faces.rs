@@ -42,7 +42,7 @@ pub fn detect_coplanar_pairs(brep: &BRep, tolerance: &Tolerance) -> Vec<(FaceHan
         let Some(he) = brep.half_edges.get(edge_data.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
 
@@ -199,7 +199,10 @@ fn attempt_face_merge(
         let Some(he) = brep.half_edges.get(edge_data.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(mate) = he.mate() else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(mate) else {
             continue;
         };
 
@@ -215,9 +218,9 @@ fn attempt_face_merge(
         if (f_he == face_a && f_twin == face_b) || (f_he == face_b && f_twin == face_a) {
             // Ensure he_a is on face_a, he_b is on face_b.
             let (he_a, he_b) = if f_he == face_a {
-                (edge_data.half_edge, he.twin)
+                (edge_data.half_edge, mate)
             } else {
-                (he.twin, edge_data.half_edge)
+                (mate, edge_data.half_edge)
             };
             shared_edges.push((edge_handle, he_a, he_b));
         }

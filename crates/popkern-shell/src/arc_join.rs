@@ -150,7 +150,7 @@ pub(crate) fn construct_arc_joins(
         let h1 = skin.edges[*eh].half_edge;
         let h1_next = skin.half_edges[h1].next;
         let res1 = skin.mef(h1, h1_next)?;
-        let h2 = skin.half_edges[h1].twin;
+        let h2 = skin.require_mate(h1)?;
         let h2_next = skin.half_edges[h2].next;
         let res2 = skin.mef(h2, h2_next)?;
         skin.kef(h1)?;
@@ -171,7 +171,9 @@ pub(crate) fn construct_arc_joins(
         });
 
         let v_a = skin.half_edges[skin.edges[res1.edge].half_edge].origin;
-        let v_b = skin.half_edges[skin.half_edges[skin.edges[res1.edge].half_edge].twin].origin;
+        let v_b = skin.half_edges
+            [skin.half_edges[skin.edges[res1.edge].half_edge].require_mate()?]
+        .origin;
         corner_vertices.insert(v_a);
         corner_vertices.insert(v_b);
         strip_sources.insert(res1.face, gap.outer_edge);
@@ -309,7 +311,7 @@ fn edge_is_closed(skin: &BRep, eh: EdgeHandle) -> bool {
     let Some(he) = skin.half_edges.get(edge.half_edge) else {
         return false;
     };
-    let Some(twin) = skin.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| skin.half_edges.get(m)) else {
         return false;
     };
     he.origin == twin.origin
@@ -351,7 +353,7 @@ fn neighbor_flag(skin: &BRep, strip_face: FaceHandle, _gap: &GapEdge) -> Option<
     let mut cursor = start;
     for _ in 0..skin.half_edges.len() {
         let he = skin.half_edges.get(cursor)?;
-        let twin = skin.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| skin.half_edges.get(m))?;
         let nb_face = skin.loops.get(twin.loop_)?.face;
         if nb_face != strip_face {
             return skin
@@ -393,7 +395,9 @@ pub(crate) fn author_corner_arc(
 ) -> Result<(), String> {
     let he = skin.edges[edge].half_edge;
     let a = skin.vertices[skin.half_edges[he].origin].position;
-    let twin = skin.half_edges[he].twin;
+    let twin = skin.half_edges[he]
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     let b = skin.vertices[skin.half_edges[twin].origin].position;
     let arc: CurveOnEdge = great_arc(center, radius, a, b, tolerance)
         .ok_or_else(|| "corner arc endpoints are antipodal or degenerate".to_string())?;
@@ -413,7 +417,7 @@ pub(crate) fn cap_orientation(
     let mut cursor = start;
     for _ in 0..skin.half_edges.len() {
         let he = skin.half_edges.get(cursor)?;
-        let twin = skin.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| skin.half_edges.get(m))?;
         let nb_face = skin.loops.get(twin.loop_)?.face;
         if nb_face != cap_face
             && let Some(nb) = skin.faces.get(nb_face).and_then(|f| f.surface.as_ref())

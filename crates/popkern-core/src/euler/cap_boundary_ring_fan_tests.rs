@@ -102,7 +102,7 @@ fn fan_spokes_connect_ring_vertices_to_pole() {
         let ring_vertex = brep.half_edges[result.rim_half_edges[index]].origin;
         let he = brep.edges[spoke].half_edge;
         let origin = brep.half_edges[he].origin;
-        let end = brep.half_edges[brep.half_edges[he].twin].origin;
+        let end = brep.half_edges[brep.half_edges[he].mate().unwrap_or_default()].origin;
         let endpoints = std::collections::BTreeSet::from([origin, end]);
         assert_eq!(
             endpoints,

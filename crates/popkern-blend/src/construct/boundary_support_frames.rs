@@ -168,14 +168,15 @@ fn collect_support_sides(brep: &BRep, cap_face: FaceHandle) -> Vec<SupportSide> 
         };
         if let Some(pcurve) = he.pcurve.as_ref()
             && let Some(side) = classify_boundary_side(pcurve)
+            && let Some(mate) = he.mate()
         {
-            let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
+            let twin_face = brep.loops[brep.half_edges[mate].loop_].face;
             if let Some(support) = brep
                 .faces
                 .get(twin_face)
                 .and_then(|f| f.surface.as_ref())
                 .map(|s| s.geometry.clone())
-                && let Some(twin_pcurve) = brep.half_edges[he.twin].pcurve.clone()
+                && let Some(twin_pcurve) = brep.half_edges[mate].pcurve.clone()
             {
                 sides.push(SupportSide {
                     side,

@@ -41,7 +41,7 @@ pub(super) fn trace_cap_support_seam_census(
         let Some(he) = brep.half_edges.get(half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let (Some(v0), Some(v1)) = (brep.vertices.get(he.origin), brep.vertices.get(twin.origin))

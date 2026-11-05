@@ -232,7 +232,7 @@ pub(super) fn compute_swept_stub_conic(
             .or(he.pcurve.as_ref())
             .cloned()
             .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?;
-        (edge, primary, pc, he.twin)
+        (edge, primary, pc, he.mate())
     };
 
     // Walk direction along the loop is (start → end) for the staged

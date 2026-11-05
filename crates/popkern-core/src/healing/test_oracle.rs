@@ -170,9 +170,8 @@ pub fn cube_with_small_edge() -> TestModel {
     if let Some(he_handle) = first_edge_he
         && let Some(he) = brep.half_edges.get(he_handle)
     {
-        let twin = he.twin;
         let origin = he.origin;
-        if let Some(twin_he) = brep.half_edges.get(twin) {
+        if let Some(twin_he) = he.mate().and_then(|m| brep.half_edges.get(m)) {
             let twin_origin = twin_he.origin;
             // Get origin position and move twin_origin very close.
             if let Some(v0) = brep.vertices.get(origin) {

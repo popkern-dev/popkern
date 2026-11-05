@@ -233,7 +233,7 @@ fn close_torus_seam(
             .ok_or_else(|| CoreError::InvalidHandle("mvfs boundary half-edge missing".into()))?;
         let a = he_m_data.origin;
         let b = brep.half_edges[brep.half_edges[he_m].next].origin;
-        let ring1_he = he_m_data.twin;
+        let ring1_he = brep.require_mate(he_m)?;
 
         // Find the cap half-edge that goes from b→a (opposite direction).
         let he_c = cap_boundary
@@ -248,7 +248,7 @@ fn close_torus_seam(
                 CoreError::PreconditionFailed("no matching cap half-edge for mvfs boundary".into())
             })?;
 
-        let ring4_he = brep.half_edges[he_c].twin;
+        let ring4_he = brep.require_mate(he_c)?;
 
         stitches.push((ring1_he, ring4_he, he_m, he_c));
     }
@@ -256,8 +256,8 @@ fn close_torus_seam(
     // Apply stitches.
     for &(ring1_he, ring4_he, he_m, he_c) in &stitches {
         // Rewire twins.
-        brep.half_edges[ring1_he].twin = ring4_he;
-        brep.half_edges[ring4_he].twin = ring1_he;
+        brep.half_edges[ring1_he].set_mate(ring4_he);
+        brep.half_edges[ring4_he].set_mate(ring1_he);
 
         // The ring-4 half-edge inherits ring-1's edge handle so that one
         // canonical Edge entity survives for this seam edge.

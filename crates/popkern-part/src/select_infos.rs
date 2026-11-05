@@ -74,9 +74,9 @@ pub fn edge_infos(brep: &BRep) -> Vec<EdgeInfo> {
         let (faces, is_seam) = match brep.half_edges.get(he) {
             Some(h) => {
                 let f1 = brep.loops.get(h.loop_).map(|l| l.face);
-                let f2 = brep
-                    .half_edges
-                    .get(h.twin)
+                let f2 = h
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|t| brep.loops.get(t.loop_))
                     .map(|l| l.face);
                 let kind_of = |f: Option<popkern_core::topology::FaceHandle>| {
@@ -91,9 +91,9 @@ pub fn edge_infos(brep: &BRep) -> Vec<EdgeInfo> {
         };
         let endpoints = brep.half_edges.get(edge.half_edge).and_then(|h| {
             let a = brep.vertices.get(h.origin)?.position;
-            let b = brep
-                .half_edges
-                .get(h.twin)
+            let b = h
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|t| brep.vertices.get(t.origin))?
                 .position;
             Some((a, b))

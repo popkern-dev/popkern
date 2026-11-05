@@ -301,7 +301,13 @@ fn live_bridge_blockers(
             ));
             continue;
         };
-        let blocking_half_edge = source.twin;
+        let Some(blocking_half_edge) = source.mate() else {
+            errors.push(format!(
+                "aggregate bridge half-edge {:?} is not boundary but has no live blocking twin",
+                half_edge
+            ));
+            continue;
+        };
         let Some(blocking) = candidate.half_edges.get(blocking_half_edge) else {
             errors.push(format!(
                 "aggregate bridge half-edge {:?} is not boundary but has no live blocking twin",
@@ -363,13 +369,14 @@ fn expose_live_blocker_interval(
             blocked.remove(&half_edge);
             continue;
         };
-        let twin = data.twin;
-        if !protected_half_edges.contains(&twin) || data.loop_ != candidate.half_edges[twin].loop_ {
+        let Some(twin) = data.mate().filter(|twin| {
+            protected_half_edges.contains(twin) && data.loop_ == candidate.half_edges[*twin].loop_
+        }) else {
             return LiveExposureProgress::Rejected(format!(
                 "live bridge boundary exposure would retire protected half-edge {:?} on face {:?}",
                 half_edge, face
             ));
-        }
+        };
         if let Err(err) = candidate.expose_same_loop_edge_as_boundary(half_edge) {
             return LiveExposureProgress::Rejected(format!(
                 "live bridge boundary self-owned exposure rejected for {:?}: {err}",

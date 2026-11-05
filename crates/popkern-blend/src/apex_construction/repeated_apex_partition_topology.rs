@@ -27,10 +27,10 @@ pub(super) fn oriented_edge_half_edges_on_face(
     let edge_data = brep.edges.get(edge)?;
     for he in [
         edge_data.half_edge,
-        brep.half_edges.get(edge_data.half_edge)?.twin,
+        brep.half_edges.get(edge_data.half_edge)?.mate()?,
     ] {
         let half_edge = brep.half_edges.get(he)?;
-        let twin = half_edge.twin;
+        let twin = half_edge.mate()?;
         let half_edge_face = brep.loops.get(half_edge.loop_)?.face;
         if half_edge_face != face {
             continue;
@@ -74,7 +74,7 @@ pub(super) fn insert_unwired_edge_pair(
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[half_edge].twin = twin;
+    brep.half_edges[half_edge].set_mate(twin);
     brep.edges[edge].half_edge = half_edge;
     if brep.vertices[start].outgoing == HalfEdgeHandle::default() {
         brep.vertices[start].outgoing = half_edge;
@@ -445,7 +445,7 @@ fn collect_loop_half_edges(
 
 fn edge_incident_faces(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<(FaceHandle, FaceHandle)> {
     let side_a = brep.half_edges.get(half_edge)?;
-    let side_b = brep.half_edges.get(side_a.twin)?;
+    let side_b = side_a.mate().and_then(|m| brep.half_edges.get(m))?;
     let face_a = brep
         .loops
         .get(side_a.loop_)

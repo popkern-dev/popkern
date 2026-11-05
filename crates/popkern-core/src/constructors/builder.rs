@@ -93,7 +93,7 @@ impl BRepBuilder {
             pcurve: None,
         });
 
-        self.brep.half_edges[he1].twin = he2;
+        self.brep.half_edges[he1].set_mate(he2);
         self.brep.edges[edge_handle].half_edge = he1;
         if self.brep.vertices[v1].outgoing == HalfEdgeHandle::default() {
             self.brep.vertices[v1].outgoing = he1;
@@ -255,8 +255,8 @@ mod tests {
         let v1 = b.add_vertex(Point3::new(0.0, 0.0, 0.0));
         let v2 = b.add_vertex(Point3::new(1.0, 0.0, 0.0));
         let (edge, he1, he2) = b.add_edge(v1, v2);
-        assert_eq!(b.brep.half_edges[he1].twin, he2);
-        assert_eq!(b.brep.half_edges[he2].twin, he1);
+        assert_eq!(b.brep.half_edges[he1].mate().unwrap_or_default(), he2);
+        assert_eq!(b.brep.half_edges[he2].mate().unwrap_or_default(), he1);
         assert_eq!(b.brep.half_edges[he1].origin, v1);
         assert_eq!(b.brep.half_edges[he2].origin, v2);
         assert_eq!(b.brep.half_edges[he1].edge, edge);

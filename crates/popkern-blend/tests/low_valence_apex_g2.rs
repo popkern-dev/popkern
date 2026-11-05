@@ -36,7 +36,8 @@ fn apex_g2(n: usize) {
         .iter()
         .filter_map(|(eh, edge)| {
             let he = &pyramid.half_edges[edge.half_edge];
-            (he.origin == apex || pyramid.half_edges[he.twin].origin == apex).then_some(eh)
+            (he.origin == apex || pyramid.half_edges[he.mate().unwrap_or_default()].origin == apex)
+                .then_some(eh)
         })
         .map(|edge| FilletSpec {
             edge,

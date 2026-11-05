@@ -68,7 +68,7 @@ impl crate::topology::BRep {
                 .get(e)
                 .map(|edge| {
                     let he = edge.half_edge;
-                    let twin = self.half_edges.get(he).map(|h| h.twin);
+                    let twin = self.half_edges.get(he).and_then(|h| h.mate());
                     [Some(he), twin]
                         .into_iter()
                         .flatten()

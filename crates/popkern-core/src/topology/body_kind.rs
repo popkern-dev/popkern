@@ -121,7 +121,7 @@ impl BRep {
         let Some(he) = self.half_edges.get(e.half_edge) else {
             return EdgeUse::Free;
         };
-        match (face_of(e.half_edge), face_of(he.twin)) {
+        match (face_of(e.half_edge), he.mate().and_then(face_of)) {
             (None, None) => EdgeUse::Wire,
             (Some(a), Some(b)) if a != b => EdgeUse::Bounded,
             (Some(a), Some(_)) if self.face_closed_across_seam(a) => EdgeUse::Bounded,

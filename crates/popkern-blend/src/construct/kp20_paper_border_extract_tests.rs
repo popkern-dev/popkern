@@ -25,7 +25,8 @@ fn pyramid_apex_extraction_is_closed_and_exact() {
         .filter_map(|(eh, _)| {
             let he = pyramid.edges[eh].half_edge;
             let origin = pyramid.half_edges[he].origin;
-            let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            let twin_origin =
+                pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
             (origin == apex || twin_origin == apex).then_some(eh)
         })
         .collect();
@@ -119,7 +120,8 @@ fn blunt_pyramid_setback_corners_are_exact_trim_crossings() {
             .filter_map(|(eh, _)| {
                 let he = pyramid.edges[eh].half_edge;
                 let origin = pyramid.half_edges[he].origin;
-                let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+                let twin_origin =
+                    pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
                 (origin == apex || twin_origin == apex).then_some(eh)
             })
             .collect();
@@ -246,7 +248,8 @@ fn mixed_radius_setback_corners_are_convex_face_angle_turns() {
             .filter_map(|(eh, _)| {
                 let he = pyramid.edges[eh].half_edge;
                 let origin = pyramid.half_edges[he].origin;
-                let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+                let twin_origin =
+                    pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
                 (origin == apex || twin_origin == apex).then_some(eh)
             })
             .collect();

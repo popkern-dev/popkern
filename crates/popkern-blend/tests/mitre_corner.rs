@@ -36,7 +36,7 @@ fn incident_edges(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> {
         .iter()
         .filter(|(_, e)| {
             let he = &brep.half_edges[e.half_edge];
-            he.origin == vertex || brep.half_edges[he.twin].origin == vertex
+            he.origin == vertex || brep.half_edges[he.mate().unwrap_or_default()].origin == vertex
         })
         .map(|(h, _)| h)
         .collect()
@@ -223,7 +223,8 @@ fn skewed_square_pyramid(dx: f64, dy: f64) -> BRep {
     for e in edges {
         let he = b.edges[e].half_edge;
         let s = b.vertices[b.half_edges[he].origin].position;
-        let t = b.vertices[b.half_edges[b.half_edges[he].twin].origin].position;
+        let t =
+            b.vertices[b.half_edges[b.half_edges[he].mate().unwrap_or_default()].origin].position;
         b.edges[e].curve = Some(CurveOnEdge {
             geometry: CurveGeometry::Line {
                 origin: s,

@@ -260,10 +260,9 @@ fn faces_at_vertex(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
         if let Some(lp) = brep.loops.get(he.loop_) {
             faces.insert(lp.face);
         }
-        let twin = he.twin;
-        if !brep.half_edges.contains_key(twin) {
+        let Some(twin) = he.mate().filter(|t| brep.half_edges.contains_key(*t)) else {
             break;
-        }
+        };
         let next_outgoing = brep.half_edges[twin].next;
         if next_outgoing == start_he || !brep.half_edges.contains_key(next_outgoing) {
             break;
@@ -305,10 +304,9 @@ fn find_adjacent_outer_faces(
 
         // Move to the next half-edge around the vertex:
         // twin's next gives the next outgoing half-edge from this vertex.
-        let twin = he.twin;
-        if !inner.half_edges.contains_key(twin) {
+        let Some(twin) = he.mate().filter(|t| inner.half_edges.contains_key(*t)) else {
             break;
-        }
+        };
         let next_outgoing = inner.half_edges[twin].next;
         if next_outgoing == start_he || !inner.half_edges.contains_key(next_outgoing) {
             break;

@@ -55,18 +55,20 @@ impl BRep {
             .half_edges
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("same-loop half-edge is invalid".into()))?;
-        let twin = data.twin;
+        let twin = data.mate();
         let edge = data.edge;
         if self.boundary_edges.contains(&edge) {
             return Err(CoreError::PreconditionFailed(
                 "same-loop edge is already boundary".into(),
             ));
         }
+        let twin =
+            twin.ok_or_else(|| CoreError::InvalidHandle("same-loop twin is invalid".into()))?;
         let twin_data = self
             .half_edges
             .get(twin)
             .ok_or_else(|| CoreError::InvalidHandle("same-loop twin is invalid".into()))?;
-        if twin_data.twin != half_edge || twin_data.edge != edge {
+        if twin_data.mate() != Some(half_edge) || twin_data.edge != edge {
             return Err(CoreError::PreconditionFailed(
                 "same-loop edge has inconsistent twin pairing".into(),
             ));
@@ -97,8 +99,8 @@ impl BRep {
             role: original_edge.role,
         });
         self.edges[edge].half_edge = half_edge;
-        self.half_edges[half_edge].twin = HalfEdgeHandle::default();
-        self.half_edges[twin].twin = HalfEdgeHandle::default();
+        self.half_edges[half_edge].clear_mate();
+        self.half_edges[twin].clear_mate();
         self.half_edges[twin].edge = second_edge;
         self.boundary_edges.insert(edge);
         self.boundary_edges.insert(second_edge);
@@ -149,7 +151,7 @@ impl BRep {
                     "same-loop exposed twin half-edge no longer exists".into(),
                 )
             })?;
-        if first.twin != HalfEdgeHandle::default() || second.twin != HalfEdgeHandle::default() {
+        if first.mate().is_some() || second.mate().is_some() {
             return Err(CoreError::PreconditionFailed(
                 "same-loop exposed half-edge kept a live twin".into(),
             ));
@@ -294,9 +296,14 @@ mod tests {
         assert_eq!(brep.half_edges[spur.half_edge_twin].loop_, loop_);
         assert!(brep.boundary_edges.contains(&result.first_boundary_edge));
         assert!(brep.boundary_edges.contains(&result.second_boundary_edge));
-        assert_eq!(brep.half_edges[spur.half_edge].twin, Default::default());
         assert_eq!(
-            brep.half_edges[spur.half_edge_twin].twin,
+            brep.half_edges[spur.half_edge].mate().unwrap_or_default(),
+            Default::default()
+        );
+        assert_eq!(
+            brep.half_edges[spur.half_edge_twin]
+                .mate()
+                .unwrap_or_default(),
             Default::default()
         );
         brep.validate_half_edge_pairing().unwrap();

@@ -30,7 +30,9 @@ pub(super) fn half_edge_runs_curve_forward(
     curve: &NurbsCurve,
 ) -> bool {
     let half_edge = &brep.half_edges[he];
-    let twin_origin = brep.half_edges[half_edge.twin].origin;
+    let Some(twin_origin) = half_edge.mate().map(|m| brep.half_edges[m].origin) else {
+        return false;
+    };
     if half_edge.origin == twin_origin {
         return brep.edges[half_edge.edge].half_edge == he;
     }

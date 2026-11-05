@@ -134,7 +134,7 @@ fn cone_seam_edge_both_half_edges_on_lateral_face() {
     let mut found_seam = false;
     for edge in cone.edges.values() {
         let he = &cone.half_edges[edge.half_edge];
-        let twin = &cone.half_edges[he.twin];
+        let twin = &cone.half_edges[he.mate().unwrap_or_default()];
         let face_he = cone.loops[he.loop_].face;
         let face_twin = cone.loops[twin.loop_].face;
         if face_he == face_twin {
@@ -178,7 +178,7 @@ fn cone_base_rim_uses_keep_their_faces_on_the_left() {
     let mut checked = 0;
     for (he, h) in &cone.half_edges {
         let edge = &cone.edges[h.edge];
-        if h.origin != cone.half_edges[h.twin].origin {
+        if h.origin != cone.half_edges[h.mate().unwrap_or_default()].origin {
             continue; // the seam
         }
         let curve = edge.curve.as_ref().unwrap();

@@ -47,7 +47,7 @@ fn modify_closed_in_place_preserves_topology_and_changes_radius() {
     let edge = subtracted.edges.keys().find(|e| {
         let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
         let fa = subtracted.loops[he.loop_].face;
-        let fb = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+        let fb = subtracted.loops[subtracted.half_edges[he.mate().unwrap_or_default()].loop_].face;
         let sa = subtracted.faces[fa].surface.as_ref().map(|s| &s.geometry);
         let sb = subtracted.faces[fb].surface.as_ref().map(|s| &s.geometry);
         matches!(
@@ -155,7 +155,7 @@ fn modify_closed_in_place_is_at_least_2x_faster_than_remove_recreate() {
     let edge = subtracted.edges.keys().find(|e| {
         let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
         let fa = subtracted.loops[he.loop_].face;
-        let fb = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+        let fb = subtracted.loops[subtracted.half_edges[he.mate().unwrap_or_default()].loop_].face;
         let sa = subtracted.faces[fa].surface.as_ref().map(|s| &s.geometry);
         let sb = subtracted.faces[fb].surface.as_ref().map(|s| &s.geometry);
         matches!(
@@ -214,11 +214,13 @@ fn modify_closed_in_place_is_at_least_2x_faster_than_remove_recreate() {
                 crate::unfillet_closed::unfillet_closed_annulus(&r1.brep, annulus).unwrap();
             let rim = unfilleted.edges.keys().find(|e| {
                 let he = &unfilleted.half_edges[unfilleted.edges[*e].half_edge];
-                if he.origin != unfilleted.half_edges[he.twin].origin {
+                if he.origin != unfilleted.half_edges[he.mate().unwrap_or_default()].origin {
                     return false;
                 }
                 let fa = unfilleted.loops[he.loop_].face;
-                let fb = unfilleted.loops[unfilleted.half_edges[he.twin].loop_].face;
+                let fb = unfilleted.loops
+                    [unfilleted.half_edges[he.mate().unwrap_or_default()].loop_]
+                    .face;
                 let sa = unfilleted.faces[fa].surface.as_ref().map(|s| &s.geometry);
                 let sb = unfilleted.faces[fb].surface.as_ref().map(|s| &s.geometry);
                 matches!(
@@ -359,7 +361,7 @@ fn modify_open_in_place_is_at_least_2x_faster_than_remove_recreate() {
             let p1 = plan.restored_edge_end;
             let restored_edge = unfilleted.edges.keys().find(|e| {
                 let he = &unfilleted.half_edges[unfilleted.edges[*e].half_edge];
-                let twin = &unfilleted.half_edges[he.twin];
+                let twin = &unfilleted.half_edges[he.mate().unwrap_or_default()];
                 let v0 = unfilleted.vertices[he.origin].position;
                 let v1 = unfilleted.vertices[twin.origin].position;
                 let close = |a: &popkern_core::geometry::Point3,
@@ -409,7 +411,7 @@ fn assert_strip_flag_shell_honest(brep: &BRep, strip: popkern_core::topology::Fa
     let mut cur = start;
     for _ in 0..brep.half_edges.len() + 1 {
         let hd = &brep.half_edges[cur];
-        let td = &brep.half_edges[hd.twin];
+        let td = &brep.half_edges[hd.mate().unwrap_or_default()];
         let other = brep.loops[td.loop_].face;
         if other != strip
             && let Some(sof) = brep.faces[other].surface.as_ref()

@@ -85,7 +85,7 @@ fn dump_pyramid3_uniform() {
         .filter(|(_, e)| {
             let primary = e.half_edge;
             let he = &brep.half_edges[primary];
-            let twin_he = &brep.half_edges[he.twin];
+            let twin_he = &brep.half_edges[he.mate().unwrap_or_default()];
             he.origin == apex_vh || twin_he.origin == apex_vh
         })
         .map(|(eh, _)| eh)
@@ -172,7 +172,7 @@ fn dump_vertex_blend() {
             let twin_face = result
                 .brep
                 .half_edges
-                .get(he.twin)
+                .get(he.mate().unwrap_or_default())
                 .and_then(|t| result.brep.loops.get(t.loop_))
                 .map(|l| l.face);
             let p = result.brep.vertices.get(he.origin).map(|v| v.position);

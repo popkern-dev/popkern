@@ -97,7 +97,10 @@ pub fn collect_brep_loop_adjacencies(
                 let Some(data) = brep.half_edges.get(half_edge) else {
                     continue;
                 };
-                let Some(twin) = brep.half_edges.get(data.twin) else {
+                let Some((mate, twin)) = data
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m).map(|t| (m, t)))
+                else {
                     continue;
                 };
                 let Some(adjacent_face) = seeded_loops.get(&twin.loop_).copied() else {
@@ -109,7 +112,7 @@ pub fn collect_brep_loop_adjacencies(
                     half_edge,
                     adjacent_face,
                     adjacent_loop: twin.loop_,
-                    adjacent_half_edge: data.twin,
+                    adjacent_half_edge: mate,
                 });
             }
         }
@@ -139,7 +142,7 @@ pub fn collect_brep_adjacent_faces(
                 let Some(data) = brep.half_edges.get(half_edge) else {
                     continue;
                 };
-                let Some(twin) = brep.half_edges.get(data.twin) else {
+                let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) else {
                     continue;
                 };
                 let Some(twin_loop) = brep.loops.get(twin.loop_) else {

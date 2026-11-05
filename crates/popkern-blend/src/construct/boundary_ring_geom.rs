@@ -83,7 +83,9 @@ pub(super) fn junction_vertex(
             for he in face_loop_half_edges(brep, face)? {
                 let hd = &brep.half_edges[he];
                 let p = brep.vertices[hd.origin].position;
-                let other = brep.loops[brep.half_edges[hd.twin].loop_].face;
+                let other = brep.loops
+                    [brep.half_edges[hd.require_mate().map_err(|e| e.to_string())?].loop_]
+                    .face;
                 let mid = brep.edges[hd.edge].curve.as_ref().map(|c| {
                     let eval: &dyn CurveEval = &c.geometry;
                     eval.point_at(0.5 * (c.t_start + c.t_end))
@@ -205,7 +207,7 @@ pub(super) fn worst_ring_on_surface_deviation(
             .half_edges
             .get(he)
             .ok_or_else(|| format!("ring edge {eh:?} has no half-edge"))?;
-        for h in [he, he_data.twin] {
+        for h in [he, he_data.require_mate().map_err(|e| e.to_string())?] {
             let Some(hd) = brep.half_edges.get(h) else {
                 continue;
             };

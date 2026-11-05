@@ -31,8 +31,9 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::boundary::BlendBoundary;
 use super::pns_adapter::{PnsAdapterError, blend_boundary_to_pns_ring_with_surfaces};
+use super::pns_cap_authoring::author_pns_cap_edge_geometry;
 pub(crate) use super::pns_cap_authoring::reauthor_pns_cap_edge_geometry;
-use super::pns_cap_authoring::{author_pns_cap_edge_geometry, measure_sub_face_patch_assignment};
+use super::pns_patch_assignment::measure_sub_face_patch_assignment;
 use super::pns_rim_materialize::{
     align_boundary_to_loop, materialize_pns_rim_from_boundary, normalize_low_valence_face_for_poke,
 };

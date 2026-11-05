@@ -323,7 +323,7 @@ pub fn build_polyhedron_brep(
                 "polyhedron is not closed: edge ({a},{b}) has no opposite face use"
             ))
         })?;
-        brep.half_edges[he].twin = twin;
+        brep.half_edges[he].set_mate(twin);
     }
     components::split_components(&mut brep, solid_h, shell_h);
 
@@ -332,7 +332,10 @@ pub fn build_polyhedron_brep(
     for eh in edge_handles {
         let he = brep.edges[eh].half_edge;
         let a = brep.vertices[brep.half_edges[he].origin].position;
-        let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        let end = brep
+            .fin_end(he)
+            .ok_or_else(|| PartError::NotApplicable("polyhedron edge has no end vertex".into()))?;
+        let b = brep.vertices[end].position;
         let dir = b - a;
         let len = dir.length();
         if len < 1e-12 {

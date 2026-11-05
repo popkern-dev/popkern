@@ -133,7 +133,7 @@ fn resolve_parting_line(brep: &BRep, parting: &PartingLine) -> Result<(Point3, V
                 .get(edges[0])
                 .ok_or_else(|| DraftError::InvalidPartingLine("edge not found in BRep".into()))?;
             let he = &brep.half_edges[first_edge.half_edge];
-            let twin = &brep.half_edges[he.twin];
+            let twin = &brep.half_edges[he.require_mate()?];
             let p0 = brep.vertices[he.origin].position;
             let p1 = brep.vertices[twin.origin].position;
             let origin = Point3::new(
@@ -147,7 +147,7 @@ fn resolve_parting_line(brep: &BRep, parting: &PartingLine) -> Result<(Point3, V
             for edge_h in edges.iter().skip(1) {
                 if let Some(e) = brep.edges.get(*edge_h) {
                     let eh = &brep.half_edges[e.half_edge];
-                    let et = &brep.half_edges[eh.twin];
+                    let et = &brep.half_edges[eh.require_mate()?];
                     let ep0 = brep.vertices[eh.origin].position;
                     let ep1 = brep.vertices[et.origin].position;
                     tangent_sum = tangent_sum + (ep1 - ep0);

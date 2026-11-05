@@ -223,7 +223,7 @@ fn validate_bridge_path_patch_postconditions(
             ),
         }
     })?;
-    if cylinder_data.twin != support_half_edge {
+    if cylinder_data.mate() != Some(support_half_edge) {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition FilletEnd[{fillet_index}] bridge-path patch for \
@@ -321,7 +321,7 @@ pub(super) fn trace_side_support_bridge_claim_miss(
                     let data = brep.half_edges.get(half_edge)?;
                     let span_end = support_split_half_edge_end_vertex(brep, half_edge)?;
                     let boundary = brep.boundary_edges.contains(&data.edge);
-                    let twin_live = brep.half_edges.contains_key(data.twin);
+                    let twin_live = data.mate().is_some_and(|m| brep.half_edges.contains_key(m));
                     Some(format!(
                         "{half_edge:?}:{:?}->{span_end:?} boundary={boundary} \
                          twin_live={twin_live}",
@@ -383,7 +383,7 @@ fn bridge_boundary_path_for_cylinder_side(
                 .filter_map(|half_edge| {
                     let data = brep.half_edges.get(half_edge)?;
                     if !brep.boundary_edges.contains(&data.edge)
-                        || brep.half_edges.contains_key(data.twin)
+                        || data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
                     {
                         return None;
                     }

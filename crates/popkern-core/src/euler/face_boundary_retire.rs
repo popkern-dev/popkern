@@ -57,24 +57,26 @@ impl BRep {
             let doomed_half_edges = self.loop_half_edges_for_retirement(retiring_loop)?;
             let mut lost = Vec::new();
             for half_edge in &doomed_half_edges {
-                let twin = self.half_edges[*half_edge].twin;
+                let twin = self.half_edges[*half_edge].mate();
                 let edge = self.half_edges[*half_edge].edge;
                 touched_vertices.push(self.half_edges[*half_edge].origin);
-                if twin == HalfEdgeHandle::default() && exposed_here.contains(&edge) {
+                if twin.is_none() && exposed_here.contains(&edge) {
                     lost.push(edge);
                     continue;
                 }
-                let twin_data = self.half_edges.get(twin).ok_or_else(|| {
-                    CoreError::PreconditionFailed(
+                let Some((twin, twin_data)) =
+                    twin.and_then(|t| self.half_edges.get(t).map(|data| (t, data)))
+                else {
+                    return Err(CoreError::PreconditionFailed(
                         "retiring face would expose an edge without a surviving twin".into(),
-                    )
-                })?;
-                if twin_data.twin != *half_edge {
+                    ));
+                };
+                if twin_data.mate() != Some(*half_edge) {
                     return Err(CoreError::PreconditionFailed(
                         "retiring face found inconsistent twin pairing".into(),
                     ));
                 }
-                self.half_edges[twin].twin = HalfEdgeHandle::default();
+                self.half_edges[twin].clear_mate();
                 // The surviving twin becomes canonical; it traverses the
                 // curve backward, so the curve turns to run its way (the
                 // canonical-forward convention, PK-274, as face-region
@@ -151,7 +153,7 @@ impl BRep {
                     "retired boundary face exposed half-edge no longer exists".into(),
                 )
             })?;
-            if exposed.twin != HalfEdgeHandle::default() {
+            if exposed.mate().is_some() {
                 return Err(CoreError::PreconditionFailed(
                     "retired boundary face exposed half-edge kept a live twin".into(),
                 ));
@@ -352,7 +354,7 @@ mod tests {
         let first = brep.faces.keys().next().expect("a face");
         let face_of = |b: &BRep, h| b.loops[b.half_edges[h].loop_].face;
         let he = brep.loops[brep.faces[first].outer_loop].half_edge;
-        let second = face_of(&brep, brep.half_edges[he].twin);
+        let second = face_of(&brep, brep.half_edges[he].mate().unwrap_or_default());
         let doomed: Vec<_> = brep
             .faces
             .keys()

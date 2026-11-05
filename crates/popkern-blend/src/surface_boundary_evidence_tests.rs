@@ -72,8 +72,8 @@ fn gregory_plane_boundary_fixture() -> BRep {
     });
     brep.half_edges[he_a].edge = edge;
     brep.half_edges[he_b].edge = edge;
-    brep.half_edges[he_a].twin = he_b;
-    brep.half_edges[he_b].twin = he_a;
+    brep.half_edges[he_a].set_mate(he_b);
+    brep.half_edges[he_b].set_mate(he_a);
 
     let he_a_return = brep.half_edges.insert(half_edge(vb, loop_a));
     let he_b_return = brep.half_edges.insert(half_edge(va, loop_b));
@@ -87,8 +87,8 @@ fn gregory_plane_boundary_fixture() -> BRep {
     });
     brep.half_edges[he_a_return].edge = return_edge;
     brep.half_edges[he_b_return].edge = return_edge;
-    brep.half_edges[he_a_return].twin = he_b_return;
-    brep.half_edges[he_b_return].twin = he_a_return;
+    brep.half_edges[he_a_return].set_mate(he_b_return);
+    brep.half_edges[he_b_return].set_mate(he_a_return);
 
     brep.half_edges[he_a].next = he_a_return;
     brep.half_edges[he_a].prev = he_a_return;

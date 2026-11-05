@@ -19,7 +19,7 @@ fn pns_setback_candidate_on_pentagon_g1() {
         .filter_map(|(eh, _)| {
             let he = pyramid.edges[eh].half_edge;
             let o = pyramid.half_edges[he].origin;
-            let t = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            let t = pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
             (o == apex.0 || t == apex.0).then_some(eh)
         })
         .collect();
@@ -213,7 +213,7 @@ fn pns_setback_candidate_emits_provenance() {
         .filter_map(|(eh, _)| {
             let he = pyramid.edges[eh].half_edge;
             let o = pyramid.half_edges[he].origin;
-            let t = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            let t = pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
             (o == apex.0 || t == apex.0).then_some(eh)
         })
         .collect();

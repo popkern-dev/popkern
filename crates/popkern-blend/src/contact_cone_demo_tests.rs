@@ -157,7 +157,7 @@ fn fillet_edge_on_cone_base_does_not_crash_pipeline() {
     for &eh in &edges {
         let edge = &brep.edges[eh];
         let he = edge.half_edge;
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he].mate().unwrap_or_default();
         let face_a = brep.loops[brep.half_edges[he].loop_].face;
         let face_b = brep.loops[brep.half_edges[twin].loop_].face;
         if face_a != face_b {
@@ -223,7 +223,7 @@ fn fillet_edge_on_cone_base_at_feasible_radius_is_fast() {
     for &eh in &edges {
         let edge = &brep.edges[eh];
         let he = edge.half_edge;
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he].mate().unwrap_or_default();
         let face_a = brep.loops[brep.half_edges[he].loop_].face;
         let face_b = brep.loops[brep.half_edges[twin].loop_].face;
         if face_a != face_b {
@@ -308,7 +308,7 @@ fn compute_fillet_geometry_on_cone_base_produces_analytic_torus() {
     for &eh in &edges {
         let edge = &brep.edges[eh];
         let he = edge.half_edge;
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he].mate().unwrap_or_default();
         let face_a = brep.loops[brep.half_edges[he].loop_].face;
         let face_b = brep.loops[brep.half_edges[twin].loop_].face;
         if face_a != face_b {
@@ -411,7 +411,7 @@ fn fillet_edge_on_cone_with_g2_cross_section_routes_through_g2_sweep() {
     for &eh in &edges {
         let edge = &brep.edges[eh];
         let he = edge.half_edge;
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he].mate().unwrap_or_default();
         let face_a = brep.loops[brep.half_edges[he].loop_].face;
         let face_b = brep.loops[brep.half_edges[twin].loop_].face;
         if face_a != face_b {

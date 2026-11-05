@@ -44,7 +44,11 @@ pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
         if brep
             .half_edges
             .get(support_half_edge)
-            .is_some_and(|half_edge| brep.half_edges.contains_key(half_edge.twin))
+            .is_some_and(|half_edge| {
+                half_edge
+                    .mate()
+                    .is_some_and(|m| brep.half_edges.contains_key(m))
+            })
         {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
@@ -65,7 +69,7 @@ pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
             loop_: LoopHandle::default(),
             pcurve: None,
         });
-        brep.half_edges[support_half_edge].twin = half_edge;
+        brep.half_edges[support_half_edge].set_mate(half_edge);
         brep.boundary_edges.remove(&edge);
         if support_split_half_edge_end_vertex(brep, half_edge) != Some(end) {
             return Err(ApexBuildError::PlanMismatch {
@@ -130,7 +134,7 @@ fn trace_support_boundary_claim_miss(
                         return None;
                     }
                     let boundary = brep.boundary_edges.contains(&data.edge);
-                    let twin_live = brep.half_edges.contains_key(data.twin);
+                    let twin_live = data.mate().is_some_and(|m| brep.half_edges.contains_key(m));
                     Some(format!(
                         "{half_edge:?}:{:?}->{span_end:?} boundary={boundary} twin_live={twin_live}",
                         data.origin
@@ -166,7 +170,7 @@ fn support_boundary_half_edge_for_cylinder_side(
             data.origin == cylinder_end
                 && support_split_half_edge_end_vertex(brep, *half_edge) == Some(cylinder_start)
                 && brep.boundary_edges.contains(&data.edge)
-                && !brep.half_edges.contains_key(data.twin)
+                && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
         })
 }
 
@@ -206,8 +210,8 @@ fn validate_claimed_support_boundary_owner(
             ),
         });
     };
-    if cylinder_data.twin != support_half_edge
-        || brep.half_edges[support_half_edge].twin != cylinder_half_edge
+    if cylinder_data.mate() != Some(support_half_edge)
+        || brep.half_edges[support_half_edge].mate() != Some(cylinder_half_edge)
     {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(

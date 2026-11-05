@@ -290,10 +290,10 @@ fn analyze_shell_components(
         let Some(a) = face_for_half_edge(brep, edge.half_edge) else {
             continue;
         };
-        let Some(half_edge) = brep.half_edges.get(edge.half_edge) else {
-            continue;
-        };
-        let Some(b) = face_for_half_edge(brep, half_edge.twin) else {
+        let Some(b) = brep
+            .mate(edge.half_edge)
+            .and_then(|mate| face_for_half_edge(brep, mate))
+        else {
             continue;
         };
         if brep.faces[a].shell == brep.faces[b].shell {

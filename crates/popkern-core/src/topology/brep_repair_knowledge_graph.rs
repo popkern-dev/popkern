@@ -251,8 +251,8 @@ fn scoped_faces(brep: &BRep, scope: &BrepRepairKnowledgeScope) -> Vec<FaceHandle
             BrepRepairScopeSeed::Edge(edge) => {
                 if let Some(edge_data) = brep.edges.get(edge) {
                     add_half_edge_face(brep, edge_data.half_edge, &mut faces);
-                    if let Some(half_edge) = brep.half_edges.get(edge_data.half_edge) {
-                        add_half_edge_face(brep, half_edge.twin, &mut faces);
+                    if let Some(mate) = brep.mate(edge_data.half_edge) {
+                        add_half_edge_face(brep, mate, &mut faces);
                     }
                 }
             }

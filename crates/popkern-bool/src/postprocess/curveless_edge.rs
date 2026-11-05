@@ -43,7 +43,7 @@ pub(crate) fn repair_or_decline_curveless_edges(
     let mut repaired = 0;
     for eh in bare {
         let he = result.edges[eh].half_edge;
-        let twin = result.half_edges[he].twin;
+        let twin = result.half_edges[he].require_mate()?;
         let line = (planar(result, he) && planar(result, twin))
             .then(|| {
                 let a = result.vertices[result.half_edges[he].origin].position;

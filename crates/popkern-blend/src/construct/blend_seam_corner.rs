@@ -223,7 +223,7 @@ fn recognize_pair_corners(
         let Some(he_a) = brep.half_edges.get(e.half_edge) else {
             continue;
         };
-        let Some(he_b) = brep.half_edges.get(he_a.twin) else {
+        let Some(he_b) = he_a.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let (Some(la), Some(lb)) = (brep.loops.get(he_a.loop_), brep.loops.get(he_b.loop_)) else {
@@ -250,9 +250,12 @@ fn recognize_pair_corners(
         let (Some(va_off), Some(vb_off)) = (off_all(va), off_all(vb)) else {
             continue;
         };
+        let Some(mate_a) = he_a.mate() else {
+            continue;
+        };
         let (he_n, he_p, corner, anchor_near) = match (va_off, vb_off) {
-            (false, true) => (e.half_edge, he_a.twin, vb, va),
-            (true, false) => (he_a.twin, e.half_edge, va, vb),
+            (false, true) => (e.half_edge, mate_a, vb, va),
+            (true, false) => (mate_a, e.half_edge, va, vb),
             _ => continue,
         };
         let Some(candidate) = walk_corner_tangle(
@@ -298,7 +301,7 @@ fn walk_corner_tangle(
     let mut he = brep.half_edges.get(he_n)?.next;
     for _ in 0..MAX_CHAIN {
         let h = brep.half_edges.get(he)?;
-        let dest = brep.half_edges.get(h.twin)?.origin;
+        let dest = h.mate().and_then(|m| brep.half_edges.get(m))?.origin;
         chain_n.push(he);
         if on_both(dest)? {
             far_n = Some(dest);

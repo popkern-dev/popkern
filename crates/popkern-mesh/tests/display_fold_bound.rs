@@ -116,7 +116,7 @@ fn boss_plate() -> BRep {
     for (eh, edge) in body.edges.iter() {
         let he = &body.half_edges[edge.half_edge];
         let a = body.vertices[he.origin].position;
-        let b = body.vertices[body.half_edges[he.twin].origin].position;
+        let b = body.vertices[body.half_edges[he.mate().unwrap_or_default()].origin].position;
         let mid = edge.curve.as_ref().map(|c| {
             let curve: &dyn CurveEval = &c.geometry;
             curve.point_at(0.5 * (c.t_start + c.t_end))

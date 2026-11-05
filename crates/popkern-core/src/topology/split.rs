@@ -51,7 +51,6 @@ impl BRep {
             .get(he_ab)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge on edge is invalid".into()))?;
 
-        let he_ba = he_ab_data.twin;
         let vertex_a = he_ab_data.origin;
         let he_ab_next = he_ab_data.next;
         let he_ab_loop = he_ab_data.loop_;
@@ -73,6 +72,7 @@ impl BRep {
             );
         }
 
+        let he_ba = self.require_mate(he_ab)?;
         let he_ba_data = self
             .half_edges
             .get(he_ba)
@@ -176,7 +176,7 @@ impl BRep {
         });
 
         // Patch twin of he_vb.
-        self.half_edges[he_vb].twin = he_bv;
+        self.half_edges[he_vb].set_mate(he_bv);
 
         if he_ab_next == he_ba {
             // SEAM TURNAROUND at B (he_ab and its twin are adjacent in

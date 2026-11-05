@@ -51,7 +51,10 @@ pub(super) fn flap_region(
     let mut chain_edges: Vec<EdgeHandle> = Vec::new();
     for &he in chains {
         let h = brep.half_edges.get(he)?;
-        let face = brep.loops.get(brep.half_edges.get(h.twin)?.loop_)?.face;
+        let face = brep
+            .loops
+            .get(h.mate().and_then(|m| brep.half_edges.get(m))?.loop_)?
+            .face;
         if face == strips.0 || face == strips.1 {
             return None;
         }

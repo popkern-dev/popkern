@@ -36,7 +36,7 @@ pub(crate) fn full_boundary_trims(
     let mut out = Vec::new();
     for (slot_a, slot) in slots.iter().enumerate() {
         for &half_edge in &face_outer_half_edges(brep, slot.face)? {
-            let twin = brep.half_edges[half_edge].twin;
+            let twin = brep.half_edges[half_edge].require_mate()?;
             let Some(face_b) = brep
                 .loops
                 .get(brep.half_edges[twin].loop_)
@@ -99,7 +99,7 @@ pub(crate) fn count_skipped_boundary_trims(
     let mut skipped = SkippedBoundaryTrims::default();
     for (slot_a, slot) in slots.iter().enumerate() {
         for &half_edge in &face_outer_half_edges(brep, slot.face)? {
-            let twin = brep.half_edges[half_edge].twin;
+            let twin = brep.half_edges[half_edge].require_mate()?;
             let Some(face_b) = brep
                 .loops
                 .get(brep.half_edges[twin].loop_)

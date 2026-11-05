@@ -245,7 +245,7 @@ fn replay_extrude_validates_and_fillet_routes_in_place() {
                         return false;
                     }
                     let hed = &state.half_edges[ed.half_edge];
-                    let twin = &state.half_edges[hed.twin];
+                    let twin = &state.half_edges[hed.mate().unwrap_or_default()];
                     let nf = |lh| {
                         let f = state.loops.get(lh).map(|l| l.face)?;
                         match &state.faces.get(f)?.surface.as_ref()?.geometry {

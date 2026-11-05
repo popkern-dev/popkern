@@ -149,7 +149,8 @@ impl BRep {
         }
         for &half_edge in path {
             let data = &self.half_edges[half_edge];
-            if !self.boundary_edges.contains(&data.edge) || self.half_edges.contains_key(data.twin)
+            if !self.boundary_edges.contains(&data.edge)
+                || data.mate().is_some_and(|m| self.half_edges.contains_key(m))
             {
                 return Err(CoreError::PreconditionFailed(format!(
                     "same-loop bridge {label} path half-edge {half_edge:?} is not an unowned boundary side"
@@ -183,7 +184,9 @@ impl BRep {
             let data = &self.half_edges[half_edge];
             let edge = data.edge;
             let origin = self.half_edges[data.next].origin;
-            if !self.boundary_edges.contains(&edge) || self.half_edges.contains_key(data.twin) {
+            if !self.boundary_edges.contains(&edge)
+                || data.mate().is_some_and(|m| self.half_edges.contains_key(m))
+            {
                 return Err(CoreError::PreconditionFailed(format!(
                     "same-loop bridge path half-edge {half_edge:?} is not an unowned boundary side"
                 )));
@@ -197,7 +200,7 @@ impl BRep {
                 loop_: Default::default(),
                 pcurve: None,
             });
-            self.half_edges[half_edge].twin = twin;
+            self.half_edges[half_edge].set_mate(twin);
             self.boundary_edges.remove(&edge);
             twins.push(twin);
         }
@@ -317,9 +320,8 @@ impl BRep {
             .ok_or_else(|| {
                 CoreError::InvalidHandle("same-loop bridge path half-edge is invalid".into())
             })?
-            .twin;
-        self.half_edges
-            .get(twin)
+            .mate();
+        twin.and_then(|t| self.half_edges.get(t))
             .map(|half_edge| half_edge.origin)
             .ok_or_else(|| {
                 CoreError::PreconditionFailed(

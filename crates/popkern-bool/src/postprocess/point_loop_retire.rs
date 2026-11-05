@@ -64,10 +64,10 @@ fn retire_one_point_loop_pair(
         .filter_map(|(eh, d)| {
             let heh = d.half_edge;
             let he = brep.half_edges.get(heh)?;
-            if he.twin == heh {
+            if he.mate() == Some(heh) {
                 return None; // self-twin: the stub pass owns it
             }
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             if he.origin != twin.origin || !region.admits_edge(brep, eh) {
                 return None;
             }
@@ -146,11 +146,11 @@ fn retire_one_point_loop_pair(
             continue;
         }
         let snapshot = brep.clone();
-        let twin_h = brep.half_edges[heh].twin;
+        let twin_h = brep.half_edges[heh].mate();
         let edge_h = brep.half_edges[heh].edge;
         let vertex = brep.half_edges[heh].origin;
         let mut ok = true;
-        for h in [heh, twin_h] {
+        for h in [Some(heh), twin_h].into_iter().flatten() {
             if !brep.half_edges.contains_key(h) {
                 continue;
             }

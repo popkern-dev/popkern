@@ -47,7 +47,10 @@ fn walk_chain_corners(brep: &BRep, edges: &[EdgeHandle]) -> Result<Vec<VertexHan
     for &eh in edges {
         let he = brep.edges[eh].half_edge;
         let v_from = brep.half_edges[he].origin;
-        let v_to = brep.half_edges[brep.half_edges[he].twin].origin;
+        let v_to = brep.half_edges[brep.half_edges[he]
+            .require_mate()
+            .map_err(|e| e.to_string())?]
+        .origin;
         vertex_edges.entry(v_from).or_default().push(eh);
         vertex_edges.entry(v_to).or_default().push(eh);
     }
@@ -102,7 +105,10 @@ fn walk_chain_corners(brep: &BRep, edges: &[EdgeHandle]) -> Result<Vec<VertexHan
         visited_edges.insert(current_edge);
         let he = brep.edges[current_edge].half_edge;
         let v_from = brep.half_edges[he].origin;
-        let v_to = brep.half_edges[brep.half_edges[he].twin].origin;
+        let v_to = brep.half_edges[brep.half_edges[he]
+            .require_mate()
+            .map_err(|e| e.to_string())?]
+        .origin;
         let next_vertex = if v_from == current_vertex {
             v_to
         } else {
@@ -147,7 +153,9 @@ fn corner_vertices_for_edge_set(brep: &BRep, edges: &[EdgeHandle]) -> Vec<Vertex
     for &edge_h in edges {
         let he = brep.edges[edge_h].half_edge;
         let v_from = brep.half_edges[he].origin;
-        let v_to = brep.half_edges[brep.half_edges[he].twin].origin;
+        let Some(v_to) = brep.fin_end(he) else {
+            continue;
+        };
         *counts.entry(v_from).or_insert(0) += 1;
         *counts.entry(v_to).or_insert(0) += 1;
     }

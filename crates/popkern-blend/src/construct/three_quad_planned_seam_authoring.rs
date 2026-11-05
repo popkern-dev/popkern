@@ -84,7 +84,10 @@ fn find_cap_half_edge_for_segment(
     let mut cursor = start;
     for _ in 0..(brep.half_edges.len() + 1) {
         let he = brep.half_edges.get(cursor)?;
-        let twin_face = brep.loops.get(brep.half_edges.get(he.twin)?.loop_)?.face;
+        let twin_face = brep
+            .loops
+            .get(he.mate().and_then(|m| brep.half_edges.get(m))?.loop_)?
+            .face;
         let matches = match segment {
             BoundarySegment::FaceEdge { face, curve } => {
                 twin_face == *face
@@ -120,7 +123,7 @@ fn author_one_planned_seam(
     let twin = brep
         .half_edges
         .get(cap_he)
-        .map(|he| he.twin)
+        .map(|he| he.mate().unwrap_or_default())
         .ok_or_else(|| format!("cap half-edge {cap_he:?} missing"))?;
     let edge = brep
         .half_edges
@@ -400,7 +403,7 @@ fn validate_committed_edge(
     cap_surface: &SurfaceGeometry,
     other_surface: &SurfaceGeometry,
 ) -> Result<(), String> {
-    let twin = brep.half_edges[cap_he].twin;
+    let twin = brep.half_edges[cap_he].mate().unwrap_or_default();
     let edge = brep.half_edges[cap_he].edge;
     let curve = brep.edges[edge]
         .curve

@@ -11,7 +11,7 @@
 
 use crate::error::CoreError;
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, HalfEdgeHandle};
+use crate::topology::BRep;
 use popkern_math::PortableMath;
 
 impl BRep {
@@ -133,7 +133,7 @@ impl BRep {
         // becomes a boundary half-edge (twin = null). Mark the
         // parent edge as boundary.
         for &heh in &doomed_hes {
-            let twin_h = brep.half_edges[heh].twin;
+            let twin_h = brep.require_mate(heh)?;
             let edge_h = brep.half_edges[heh].edge;
             // Point the edge's canonical half-edge at the surviving
             // twin (it may currently point at the doomed one) — and
@@ -153,7 +153,7 @@ impl BRep {
             }
             brep.edges[edge_h].half_edge = twin_h;
             // Null out the twin pointer on the surviving half-edge.
-            brep.half_edges[twin_h].twin = HalfEdgeHandle::default();
+            brep.half_edges[twin_h].clear_mate();
             brep.boundary_edges.insert(edge_h);
         }
 
@@ -225,11 +225,9 @@ mod tests {
         let ob = BRep::open_box(Tolerance::default()).unwrap();
         for &edge_h in &ob.boundary_edges {
             let he = ob.edges[edge_h].half_edge;
-            let twin = ob.half_edges[he].twin;
-            assert_eq!(
-                twin,
-                HalfEdgeHandle::default(),
-                "boundary edge's surviving half-edge should have null twin"
+            assert!(
+                ob.half_edges[he].mate().is_none(),
+                "boundary edge's surviving half-edge should have no mate"
             );
         }
     }
@@ -264,7 +262,7 @@ mod tests {
                 continue;
             }
             let he = &ob.half_edges[edge.half_edge];
-            let twin = &ob.half_edges[he.twin];
+            let twin = &ob.half_edges[he.mate().unwrap_or_default()];
             assert_eq!(
                 twin.edge, edge_h,
                 "interior edge twin should reference back"

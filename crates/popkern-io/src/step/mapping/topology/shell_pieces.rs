@@ -184,11 +184,12 @@ pub(super) fn record_contacts(
         let location = match edge.curve.as_ref() {
             Some(c) => c.geometry.point_at(0.5 * (c.t_start + c.t_end)),
             None => {
-                let Some((a, b)) = brep
-                    .half_edges
-                    .get(edge.half_edge)
-                    .and_then(|h| Some((h.origin, brep.half_edges.get(h.twin)?.origin)))
-                else {
+                let Some((a, b)) = brep.half_edges.get(edge.half_edge).and_then(|h| {
+                    Some((
+                        h.origin,
+                        h.mate().and_then(|m| brep.half_edges.get(m))?.origin,
+                    ))
+                }) else {
                     continue;
                 };
                 let (a, b) = (brep.vertices[a].position, brep.vertices[b].position);

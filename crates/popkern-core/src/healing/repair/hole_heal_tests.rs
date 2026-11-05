@@ -122,7 +122,10 @@ fn worst_served_cap_seam_g1(brep: &BRep) -> (f64, f64) {
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let (Some(face_a), Some(face_b)) = (face_of(edge.half_edge), face_of(he.twin)) else {
+        let (Some(face_a), Some(face_b)) = (
+            face_of(edge.half_edge),
+            face_of(he.mate().unwrap_or_default()),
+        ) else {
             continue;
         };
         if face_a == face_b || (!is_wedge(face_a) && !is_wedge(face_b)) {

@@ -59,7 +59,9 @@ pub(super) fn absorb_bevel_end_triangle(
     // triangle in its plane; the other corner edge is the spur.
     let mut stub: Option<(HalfEdgeHandle, FaceHandle, EdgeHandle)> = None;
     for (he, other) in [(h_out, h_in), (h_in, h_out)] {
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he]
+            .require_mate()
+            .map_err(|e| e.to_string())?;
         let face = brep.loops[brep.half_edges[twin].loop_].face;
         if face_holds(brep, face, &disc_points, gate) {
             stub = Some((twin, face, brep.half_edges[other].edge));
@@ -163,17 +165,23 @@ fn join_through_corner(
     let Some(&keep) = outgoing.iter().find(|&&h| h != spur) else {
         return Ok(());
     };
-    let dest = |brep: &BRep, h: HalfEdgeHandle| brep.half_edges[brep.half_edges[h].twin].origin;
+    let dest = |brep: &BRep, h: HalfEdgeHandle| brep.fin_end(h);
     let faces_of = |brep: &BRep, h: HalfEdgeHandle| {
         let f1 = brep.loops[brep.half_edges[h].loop_].face;
-        let f2 = brep.loops[brep.half_edges[brep.half_edges[h].twin].loop_].face;
-        (f1.min(f2), f1.max(f2))
+        let f2 = brep
+            .mate(h)
+            .map(|m| brep.loops[brep.half_edges[m].loop_].face)?;
+        Some((f1.min(f2), f1.max(f2)))
     };
-    let pair = faces_of(brep, spur);
-    if pair != faces_of(brep, keep) || (pair.0 != end_face && pair.1 != end_face) {
+    let Some(pair) = faces_of(brep, spur) else {
+        return Ok(());
+    };
+    if Some(pair) != faces_of(brep, keep) || (pair.0 != end_face && pair.1 != end_face) {
         return Ok(());
     }
-    let (tip, far) = (dest(brep, spur), dest(brep, keep));
+    let (Some(tip), Some(far)) = (dest(brep, spur), dest(brep, keep)) else {
+        return Ok(());
+    };
     let p_c = brep.vertices[corner].position;
     let (d_tip, d_far) = (
         brep.vertices[tip].position - p_c,
@@ -200,7 +208,9 @@ fn join_through_corner(
         return Ok(());
     }
     // kve on the half-edge tip → corner merges the corner into the tip.
-    let tip_to_corner = brep.half_edges[spur].twin;
+    let tip_to_corner = brep.half_edges[spur]
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     brep.kve(tip_to_corner)
         .map_err(|e| format!("bevel end absorb: kve failed: {e}"))?;
     let (p_far, p_tip) = (brep.vertices[far].position, brep.vertices[tip].position);

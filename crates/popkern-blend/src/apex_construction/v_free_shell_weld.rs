@@ -28,7 +28,7 @@ pub(in crate::apex_construction) fn weld_dead_coincident_sides(
     let dead: Vec<HalfEdgeHandle> = brep
         .half_edges
         .iter()
-        .filter(|(_, data)| !brep.half_edges.contains_key(data.twin))
+        .filter(|(_, data)| !data.mate().is_some_and(|m| brep.half_edges.contains_key(m)))
         .map(|(handle, _)| handle)
         .collect();
     let mut welded = 0usize;
@@ -122,8 +122,8 @@ pub(in crate::apex_construction) fn weld_dead_coincident_sides(
                     }
                 }
             }
-            brep.half_edges[side_a].twin = side_b;
-            brep.half_edges[side_b].twin = side_a;
+            brep.half_edges[side_a].set_mate(side_b);
+            brep.half_edges[side_b].set_mate(side_a);
             brep.half_edges[drop_side].edge = keep;
             brep.half_edges[drop_side].pcurve = None;
             if let Some(drop_edge) = drop {

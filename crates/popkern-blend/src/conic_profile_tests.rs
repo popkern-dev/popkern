@@ -22,7 +22,7 @@ fn cube_top_edge(brep: &BRep) -> EdgeHandle {
         .find(|(_, e)| {
             let he = &brep.half_edges[e.half_edge];
             let a = brep.vertices[he.origin].position;
-            let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+            let b = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
             (a.z - 1.0).abs() < 1e-9 && (b.z - 1.0).abs() < 1e-9
         })
         .map(|(eh, _)| eh)
@@ -261,7 +261,7 @@ fn conic_composes_with_variable_radius_and_corner_caps() {
         .iter()
         .filter(|(_, e)| {
             let he = &brep.half_edges[e.half_edge];
-            let end = brep.half_edges[he.twin].origin;
+            let end = brep.half_edges[he.mate().unwrap_or_default()].origin;
             he.origin == corner || end == corner
         })
         .map(|(eh, _)| eh)

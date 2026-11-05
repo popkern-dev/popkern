@@ -148,7 +148,7 @@ fn detect_naked_edges(brep: &BRep) -> Vec<NakedEdge> {
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(loop_a) = brep.loops.get(he.loop_) else {
@@ -273,7 +273,7 @@ fn detect_t_junctions(brep: &BRep) -> Vec<TJunction> {
             brep.half_edges.get(edge.half_edge),
             brep.half_edges
                 .get(edge.half_edge)
-                .and_then(|h| brep.half_edges.get(h.twin)),
+                .and_then(|h| h.mate().and_then(|m| brep.half_edges.get(m))),
         ) {
             (Some(h), Some(t)) => (h.origin, t.origin),
             _ => continue,

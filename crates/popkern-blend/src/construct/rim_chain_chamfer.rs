@@ -238,7 +238,7 @@ fn vertex_edges(brep: &BRep, vertex: VertexHandle) -> Option<Vec<EdgeHandle>> {
         if !out.contains(&he.edge) {
             out.push(he.edge);
         }
-        cursor = brep.half_edges.get(he.twin)?.next;
+        cursor = he.mate().and_then(|m| brep.half_edges.get(m))?.next;
         if cursor == start {
             return Some(out);
         }

@@ -430,7 +430,10 @@ fn copy_component_brep(
     for (old, half_edge) in &src.half_edges {
         let new = half_edges[&old];
         out.half_edges[new].origin = vertices[&half_edge.origin];
-        out.half_edges[new].twin = remap_half_edge(half_edge.twin, &half_edges);
+        match half_edge.mate() {
+            Some(mate) => out.half_edges[new].set_mate(remap_half_edge(mate, &half_edges)),
+            None => out.half_edges[new].clear_mate(),
+        }
         out.half_edges[new].next = half_edges[&half_edge.next];
         out.half_edges[new].prev = half_edges[&half_edge.prev];
         out.half_edges[new].edge = edges[&half_edge.edge];

@@ -194,7 +194,9 @@ fn raw_sweep_edges_carry_matching_curves() {
     for (eh, e) in brep.edges.iter() {
         let he = e.half_edge;
         let v0 = brep.vertices[brep.half_edges[he].origin].position;
-        let v1 = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        let v1 = brep.vertices
+            [brep.half_edges[brep.half_edges[he].mate().unwrap_or_default()].origin]
+            .position;
         let c = e
             .curve
             .as_ref()

@@ -11,7 +11,7 @@ fn vertex_star_accepts_noncanonical_trim_endpoint_candidates() {
     let mut brep = gregory_plane_boundary_fixture();
     let edge = brep.edges.keys().next().expect("fixture has one edge");
     let he_a = brep.edges[edge].half_edge;
-    let he_b = brep.half_edges[he_a].twin;
+    let he_b = brep.half_edges[he_a].mate().unwrap_or_default();
     let va = brep.half_edges[he_a].origin;
     let vb = brep.half_edges[he_b].origin;
     let start = Point3::new(0.25, 0.0, 0.0);
@@ -56,7 +56,7 @@ fn migration_matrix_edge_surface_candidate_contract() {
     let mut brep = gregory_plane_boundary_fixture();
     let edge = brep.edges.keys().next().expect("fixture has one edge");
     let he_a = brep.edges[edge].half_edge;
-    let he_b = brep.half_edges[he_a].twin;
+    let he_b = brep.half_edges[he_a].mate().unwrap_or_default();
     let va = brep.half_edges[he_a].origin;
     let vb = brep.half_edges[he_b].origin;
     let start = Point3::new(0.25, 0.0, 0.0);
@@ -216,7 +216,7 @@ fn authority_records_generated_and_untrusted_trim_source_forms() {
     let mut brep = gregory_plane_boundary_fixture();
     let edge = brep.edges.keys().next().expect("fixture has one edge");
     let he_a = brep.edges[edge].half_edge;
-    let he_b = brep.half_edges[he_a].twin;
+    let he_b = brep.half_edges[he_a].mate().unwrap_or_default();
     let nurbs_pcurve = brep.half_edges[he_b]
         .pcurve
         .as_ref()

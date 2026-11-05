@@ -142,7 +142,10 @@ fn paves(
             let Some(h) = brep.half_edges.get(e.half_edge) else {
                 continue;
             };
-            let twin = brep.half_edges.get(h.twin).map(|t| t.origin);
+            let twin = h
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
+                .map(|t| t.origin);
             let resolved = |v: VertexHandle| vertex_group.contains_key(&(o, v.data().as_ffi()));
             if resolved(h.origin) && twin.is_some_and(resolved) {
                 out.entry(BlockOwner::Edge(o, eh.data().as_ffi()))
@@ -166,7 +169,10 @@ fn paves(
         ) else {
             continue;
         };
-        let twin = operands[o].half_edges.get(h.twin).map(|t| t.origin);
+        let twin = h
+            .mate()
+            .and_then(|m| operands[o].half_edges.get(m))
+            .map(|t| t.origin);
         let ends = [c.t_start, c.t_end].map(|t| c.geometry.point_at(t));
         for v in std::iter::once(h.origin).chain(twin) {
             let Some(&g) = vertex_group.get(&(o, v.data().as_ffi())) else {

@@ -46,7 +46,7 @@ fn edge_point(body: &BRep, e: EdgeHandle, s: f64) -> Option<Point3> {
     let a = body.vertices.get(he.origin)?.position;
     let b = body
         .vertices
-        .get(body.half_edges.get(he.twin)?.origin)?
+        .get(he.mate().and_then(|m| body.half_edges.get(m))?.origin)?
         .position;
     Some(a + (b - a) * s)
 }

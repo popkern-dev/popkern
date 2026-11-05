@@ -161,9 +161,9 @@ pub(super) fn incident_edge_count(brep: &BRep, vertex: VertexHandle) -> usize {
         .filter(|(_, e)| {
             brep.half_edges.get(e.half_edge).is_some_and(|he| {
                 he.origin == vertex
-                    || brep
-                        .half_edges
-                        .get(he.twin)
+                    || he
+                        .mate()
+                        .and_then(|m| brep.half_edges.get(m))
                         .is_some_and(|tw| tw.origin == vertex)
             })
         })
@@ -234,7 +234,7 @@ fn repair_corner(
     };
     // Both twins must bound one shared planar cap face.
     let twin_face = |he: HalfEdgeHandle| -> Option<FaceHandle> {
-        let tw = brep.half_edges.get(brep.half_edges.get(he)?.twin)?;
+        let tw = brep.half_edges.get(brep.half_edges.get(he)?.mate()?)?;
         let l = brep.loops.get(tw.loop_)?;
         Some(l.face)
     };
@@ -404,10 +404,12 @@ fn repair_corner(
             he.pcurve = Some(stub.strip_pcurve.clone());
         }
         brep.set_face_use_pcurve(c.strip_face, stub.strip_half_edge, stub.strip_pcurve);
-        if let Some(tw) = brep.half_edges.get_mut(stub.cap_half_edge) {
-            tw.pcurve = Some(stub.cap_pcurve.clone());
+        if let Some(cap_he) = stub.cap_half_edge {
+            if let Some(tw) = brep.half_edges.get_mut(cap_he) {
+                tw.pcurve = Some(stub.cap_pcurve.clone());
+            }
+            brep.set_face_use_pcurve(cap_face, cap_he, stub.cap_pcurve);
         }
-        brep.set_face_use_pcurve(cap_face, stub.cap_half_edge, stub.cap_pcurve);
     }
     Ok(())
 }

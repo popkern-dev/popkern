@@ -171,8 +171,8 @@ fn rest_path_after(
 
 fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
     let data = brep.half_edges.get(half_edge)?;
-    brep.half_edges
-        .get(data.twin)
+    data.mate()
+        .and_then(|m| brep.half_edges.get(m))
         .map(|twin| twin.origin)
         .or_else(|| brep.half_edges.get(data.next).map(|next| next.origin))
 }
@@ -222,7 +222,7 @@ fn insert_generated_edge_pair(
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[half_edge].twin = twin;
+    brep.half_edges[half_edge].set_mate(twin);
     brep.edges[edge].half_edge = half_edge;
     if brep.vertices[start].outgoing == HalfEdgeHandle::default() {
         brep.vertices[start].outgoing = half_edge;

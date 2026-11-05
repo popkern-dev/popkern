@@ -63,7 +63,7 @@ pub(super) fn meridian_section_cylinder(
         return Err(TerminalArcTrimDeclineReason::NonCylinderStrip);
     };
     let twin_face = |he: HalfEdgeHandle| -> Option<FaceHandle> {
-        let tw = brep.half_edges.get(brep.half_edges.get(he)?.twin)?;
+        let tw = brep.half_edges.get(brep.half_edges.get(he)?.mate()?)?;
         Some(brep.loops.get(tw.loop_)?.face)
     };
     let cap = twin_face(c.he_in)

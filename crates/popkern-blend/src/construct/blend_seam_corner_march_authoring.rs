@@ -167,10 +167,16 @@ pub(super) fn author_stub_pcurves(
         .half_edges
         .get(e.half_edge)
         .ok_or(Reason::StubUnresolved)?;
-    let tw = brep.half_edges.get(he.twin).ok_or(Reason::StubUnresolved)?;
+    let tw = he
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
+        .ok_or(Reason::StubUnresolved)?;
     let curve = arc;
     let mut staged = Vec::with_capacity(2);
-    for (heh, hh) in [(e.half_edge, he), (he.twin, tw)] {
+    for (heh, hh) in [
+        (e.half_edge, he),
+        (he.mate().ok_or(Reason::StubUnresolved)?, tw),
+    ] {
         let face = brep
             .loops
             .get(hh.loop_)
@@ -250,7 +256,10 @@ pub(super) fn author_rail(
     let e = brep.edges.get(rail.edge).ok_or(Reason::StubUnresolved)?;
     let primary = e.half_edge;
     let he = brep.half_edges.get(primary).ok_or(Reason::StubUnresolved)?;
-    let tw = brep.half_edges.get(he.twin).ok_or(Reason::StubUnresolved)?;
+    let tw = he
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
+        .ok_or(Reason::StubUnresolved)?;
     let primary_from_anchor = he.origin == anchor;
     let (p_start, p_end) = if primary_from_anchor {
         (w, far_pos)
@@ -260,7 +269,10 @@ pub(super) fn author_rail(
     let line = CurveOnEdge::line_segment(p_start, p_end, tolerance.linear())
         .ok_or(Reason::StubUnresolved)?;
     let mut staged: Vec<(FaceHandle, HalfEdgeHandle, Pcurve)> = Vec::with_capacity(2);
-    for (heh, hh) in [(primary, he), (he.twin, tw)] {
+    for (heh, hh) in [
+        (primary, he),
+        (he.mate().ok_or(Reason::StubUnresolved)?, tw),
+    ] {
         let face = brep
             .loops
             .get(hh.loop_)

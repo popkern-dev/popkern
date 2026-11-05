@@ -42,8 +42,12 @@ fn cap_loop_is_cycle_ordered_and_twinned() {
             "cap loop must be committed in cycle order"
         );
         assert_eq!(data.loop_, result.loop_);
-        let surviving = &brep.half_edges[data.twin];
-        assert_eq!(surviving.twin, hole_side, "twin pairing must be mutual");
+        let surviving = &brep.half_edges[data.mate().unwrap_or_default()];
+        assert_eq!(
+            surviving.mate().unwrap_or_default(),
+            hole_side,
+            "twin pairing must be mutual"
+        );
         assert_eq!(
             data.origin, brep.half_edges[surviving.next].origin,
             "hole side must start at the surviving side's end vertex"

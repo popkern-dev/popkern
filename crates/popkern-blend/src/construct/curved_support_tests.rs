@@ -118,7 +118,9 @@ fn item6_curved_support_second_fillet_does_not_crash() {
             let he = first_filleted.brep.half_edges.get(edge.half_edge);
             let Some(he) = he else { return false };
             let start_v = he.origin;
-            let twin = first_filleted.brep.half_edges.get(he.twin);
+            let twin = he
+                .mate()
+                .and_then(|m| first_filleted.brep.half_edges.get(m));
             let Some(twin) = twin else { return false };
             let end_v = twin.origin;
             let (Some(start), Some(end)) = (

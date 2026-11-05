@@ -39,7 +39,7 @@ fn worst_trim_deviation(body: &BRep) -> f64 {
             continue;
         };
         let h = &body.half_edges[edge.half_edge];
-        let surfaces: Vec<_> = [h.loop_, body.half_edges[h.twin].loop_]
+        let surfaces: Vec<_> = [h.loop_, body.half_edges[h.mate().unwrap_or_default()].loop_]
             .iter()
             .filter_map(|&l| body.faces[body.loops[l].face].surface.as_ref())
             .map(|s| &s.geometry)

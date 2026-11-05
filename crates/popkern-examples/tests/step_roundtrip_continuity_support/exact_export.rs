@@ -48,7 +48,7 @@ pub(crate) fn carries_net(imported: &[BRep], exact: &NurbsSurface, tol: f64) -> 
 /// samples) of `edge`'s two faces: `(g1 normal sine, g2 residual)`.
 pub(crate) fn sampled_seam(brep: &BRep, edge: EdgeHandle) -> Option<(f64, f64)> {
     let he = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let faces = [
         brep.loops.get(he.loop_)?.face,
         brep.loops.get(twin.loop_)?.face,

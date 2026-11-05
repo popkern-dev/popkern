@@ -115,7 +115,7 @@ impl BRep {
 
         // Patch he to point to its twin.
         let he_data = &mut self.half_edges[he];
-        he_data.twin = he_twin;
+        he_data.set_mate(he_twin);
         he_data.next = he_twin;
         he_data.prev = he_twin;
 
@@ -222,7 +222,7 @@ impl BRep {
 
         // Patch he_out.
         let he_out_data = &mut self.half_edges[he_out];
-        he_out_data.twin = he_in;
+        he_out_data.set_mate(he_in);
         he_out_data.next = he_in;
 
         // Splice into loop: old_prev.next = he_out
@@ -269,7 +269,7 @@ impl BRep {
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
 
-        let he_twin_handle = he_data.twin;
+        let he_twin_handle = self.require_mate(half_edge)?;
         let edge_handle = he_data.edge;
         let he_prev = he_data.prev;
         let the_loop = he_data.loop_;
@@ -374,8 +374,8 @@ impl BRep {
         let twin = self.half_edges.get(result.half_edge_twin).ok_or_else(|| {
             CoreError::PreconditionFailed("mev twin half-edge is not live".into())
         })?;
-        if half_edge.twin != result.half_edge_twin
-            || twin.twin != result.half_edge
+        if half_edge.mate() != Some(result.half_edge_twin)
+            || twin.mate() != Some(result.half_edge)
             || half_edge.edge != result.edge
             || twin.edge != result.edge
             || half_edge.loop_ != expected_loop
@@ -440,7 +440,8 @@ impl BRep {
         for half_edge in self.half_edges.values() {
             let stale_reference = if half_edge.edge == result.edge {
                 Some("edge")
-            } else if half_edge.twin == result.half_edge || half_edge.twin == result.half_edge_twin
+            } else if half_edge.mate() == Some(result.half_edge)
+                || half_edge.mate() == Some(result.half_edge_twin)
             {
                 Some("twin")
             } else if half_edge.next == result.half_edge || half_edge.next == result.half_edge_twin

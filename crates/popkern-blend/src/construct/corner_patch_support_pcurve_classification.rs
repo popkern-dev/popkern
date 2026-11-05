@@ -62,7 +62,7 @@ fn is_external_cap_support_half_edge(
     let Some(twin_face) = brep
         .half_edges
         .get(half_edge)
-        .and_then(|half_edge| brep.half_edges.get(half_edge.twin))
+        .and_then(|half_edge| half_edge.mate().and_then(|m| brep.half_edges.get(m)))
         .and_then(|twin| brep.loops.get(twin.loop_))
         .map(|loop_| loop_.face)
     else {

@@ -53,7 +53,9 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
         ];
         for he in face_loop_half_edges(brep, fh)? {
             let data = &brep.half_edges[he];
-            let twin_face = brep.loops[brep.half_edges[data.twin].loop_].face;
+            let twin_face = brep.loops
+                [brep.half_edges[data.require_mate().map_err(|e| e.to_string())?].loop_]
+                .face;
             let twin_is_cap = cap_faces.contains(&twin_face);
             if twin_is_cap && fh > twin_face {
                 // Interior cap↔cap edges are refit once (from the
@@ -168,7 +170,9 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
         for (eh, edge) in brep.edges.iter() {
             let he = edge.half_edge;
             let va = brep.half_edges[he].origin;
-            let vb = brep.half_edges[brep.half_edges[he].twin].origin;
+            let Some(vb) = brep.fin_end(he) else {
+                continue;
+            };
             if va != v && vb != v {
                 continue;
             }
@@ -334,7 +338,9 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
         // cube's worst rim seam — the whole-body G0 constant of
         // PK-392). The trim contract's authority is the served curve:
         // reproject it onto the strip surface.
-        let twin = brep.half_edges[job.cap_he].twin;
+        let twin = brep.half_edges[job.cap_he]
+            .require_mate()
+            .map_err(|e| e.to_string())?;
         let strip_face = brep.loops[brep.half_edges[twin].loop_].face;
         if !cap_faces.contains(&strip_face)
             && let Some(surface) = brep
@@ -364,7 +370,10 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
         }
         let he = brep.edges[eh].half_edge;
         let va = brep.half_edges[he].origin;
-        let vb = brep.half_edges[brep.half_edges[he].twin].origin;
+        let vb = brep.half_edges[brep.half_edges[he]
+            .require_mate()
+            .map_err(|e| e.to_string())?]
+        .origin;
         for v in [va, vb] {
             let Some(&(old, new)) = moves.get(&v) else {
                 continue;

@@ -220,7 +220,7 @@ fn corner_fan(skin: &BRep, v: VertexHandle) -> Option<Vec<CornerFanEntry>> {
     let bound = skin.half_edges.len();
     loop {
         let he = skin.half_edges.get(cursor)?;
-        let twin = skin.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| skin.half_edges.get(m))?;
         let my_face = skin.loops.get(he.loop_).map(|l| l.face);
         let wedge = skin.loops.get(twin.loop_).map(|l| l.face);
         entries.push(CornerFanEntry {

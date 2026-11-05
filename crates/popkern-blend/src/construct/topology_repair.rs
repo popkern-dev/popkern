@@ -185,15 +185,15 @@ fn try_repair_chord_pair(brep: &mut BRep, cyl_face: FaceHandle, cand: ChordPairC
         }
         return false;
     };
-    let twin_in = he_in.twin;
-    let twin_out = he_out.twin;
-    let Some(twin_in_data) = brep.half_edges.get(twin_in) else {
+    let twin_in = he_in.mate();
+    let twin_out = he_out.mate();
+    let Some(twin_in_data) = twin_in.and_then(|t| brep.half_edges.get(t)) else {
         if trace {
             eprintln!("[topo_repair]   reject: incoming chord twin is no longer live");
         }
         return false;
     };
-    let Some(twin_out_data) = brep.half_edges.get(twin_out) else {
+    let Some(twin_out_data) = twin_out.and_then(|t| brep.half_edges.get(t)) else {
         if trace {
             eprintln!("[topo_repair]   reject: outgoing chord twin is no longer live");
         }

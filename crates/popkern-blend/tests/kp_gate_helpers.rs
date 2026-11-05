@@ -404,7 +404,7 @@ pub fn assert_cap_seams_certify_g1(brep: &BRep, caps: &[FaceHandle], fixture: &s
         let he = &brep.half_edges[data.half_edge];
         let (fa, fb) = (
             brep.loops[he.loop_].face,
-            brep.loops[brep.half_edges[he.twin].loop_].face,
+            brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face,
         );
         if fa == fb || !(caps.contains(&fa) && caps.contains(&fb)) {
             continue;

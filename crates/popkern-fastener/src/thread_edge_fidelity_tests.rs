@@ -42,7 +42,7 @@ fn stud_thread_edges_lie_on_both_faces() {
         let Some(first) = rod.half_edges.get(edge.half_edge) else {
             continue;
         };
-        for side in [edge.half_edge, first.twin] {
+        for side in [edge.half_edge, first.mate().unwrap_or_default()] {
             let face = rod
                 .half_edges
                 .get(side)

@@ -62,7 +62,7 @@ pub fn check_lost_periodic_topology(brep: &BRep, report: &mut HealingReport) {
             };
 
             // A seam edge is one where both half-edges belong to the same face.
-            if let Some(twin) = brep.half_edges.get(he.twin) {
+            if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) {
                 let twin_face = brep.loops.get(twin.loop_).map(|l| l.face);
                 if twin_face == Some(face_handle) {
                     found_seam = true;
@@ -222,7 +222,7 @@ fn has_zero_length_edge_in_loop(brep: &BRep, loop_handle: crate::topology::LoopH
         let Some(he) = brep.half_edges.get(cursor) else {
             break;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             break;
         };
 

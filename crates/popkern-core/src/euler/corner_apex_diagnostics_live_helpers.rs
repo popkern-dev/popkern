@@ -7,11 +7,7 @@ use crate::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 pub(super) fn incident_edges_at_vertex(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> {
     let mut edges = std::collections::BTreeSet::new();
     for (half_edge, he) in &brep.half_edges {
-        let touches_vertex = he.origin == vertex
-            || brep
-                .half_edges
-                .get(he.twin)
-                .is_some_and(|twin| twin.origin == vertex);
+        let touches_vertex = he.origin == vertex || brep.fin_end(half_edge) == Some(vertex);
         if touches_vertex && brep.edges.contains_key(he.edge) {
             edges.insert(he.edge);
         }
@@ -52,10 +48,11 @@ pub(super) fn edge_faces(brep: &BRep, edge: EdgeHandle) -> Vec<FaceHandle> {
     let Some(edge_data) = brep.edges.get(edge) else {
         return Vec::new();
     };
-    for half_edge in [edge_data.half_edge]
-        .into_iter()
-        .chain(brep.half_edges.get(edge_data.half_edge).map(|he| he.twin))
-    {
+    for half_edge in [edge_data.half_edge].into_iter().chain(
+        brep.half_edges
+            .get(edge_data.half_edge)
+            .and_then(|he| he.mate()),
+    ) {
         let Some(he) = brep.half_edges.get(half_edge) else {
             continue;
         };
@@ -91,8 +88,9 @@ pub(super) fn edge_contains_vertex(brep: &BRep, edge: EdgeHandle, vertex: Vertex
     if first.origin == vertex {
         return true;
     }
-    brep.half_edges
-        .get(first.twin)
+    first
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
         .is_some_and(|second| second.origin == vertex)
 }
 
@@ -111,7 +109,7 @@ pub(super) fn edge_extent_nm(brep: &BRep, edge: EdgeHandle, vertex: VertexHandle
         return finite_nm(extent);
     }
     let first = brep.half_edges.get(edge_data.half_edge)?;
-    let second = brep.half_edges.get(first.twin)?;
+    let second = first.mate().and_then(|m| brep.half_edges.get(m))?;
     let other = if first.origin == vertex {
         second.origin
     } else {

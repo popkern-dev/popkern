@@ -215,7 +215,9 @@ pub(crate) fn repair_base_edges(brep: &mut BRep, cap_faces: &[FaceHandle]) -> us
             };
             // Identify face roles.
             let primary = edge.half_edge;
-            let twin = brep.half_edges[primary].twin;
+            let Some(twin) = brep.half_edges[primary].mate() else {
+                continue;
+            };
             let face_a = brep.loops[brep.half_edges[primary].loop_].face;
             let face_b = brep.loops[brep.half_edges[twin].loop_].face;
             if cap_set.contains(&face_a) || cap_set.contains(&face_b) {
@@ -315,7 +317,9 @@ pub(crate) fn realign_cap_loop_curve_directions(
             continue;
         };
         let primary = edge.half_edge;
-        let twin = brep.half_edges[primary].twin;
+        let Some(twin) = brep.half_edges[primary].mate() else {
+            continue;
+        };
         let face_a = brep.loops[brep.half_edges[primary].loop_].face;
         let face_b = brep.loops[brep.half_edges[twin].loop_].face;
         let a_is_cap = cap_set.contains(&face_a);

@@ -164,7 +164,7 @@ pub(super) fn prepare_face_end(
     tolerance: &Tolerance,
 ) -> Result<Cap, BlendFailure> {
     let h = link.h;
-    let tw = brep.half_edges[h].twin;
+    let tw = brep.half_edges[h].require_mate()?;
     let v = if at_start {
         brep.half_edges[h].origin
     } else {
@@ -178,7 +178,10 @@ pub(super) fn prepare_face_end(
     };
     let (a, b) = (brep.half_edges[np].edge, brep.half_edges[nq].edge);
     let valence = brep.half_edges.values().filter(|he| he.origin == v).count();
-    let (tp, tq) = (brep.half_edges[np].twin, brep.half_edges[nq].twin);
+    let (tp, tq) = (
+        brep.half_edges[np].require_mate()?,
+        brep.half_edges[nq].require_mate()?,
+    );
     let face_of = |he: HalfEdgeHandle| brep.loops[brep.half_edges[he].loop_].face;
     let f = face_of(tp);
     let adjacent = if at_start {
@@ -311,8 +314,8 @@ pub(super) fn prepare_face_end(
             .map_err(|e| decline(format!("end-face edge {edge:?} split: {e}"), at))?;
         brep.vertices[res.vertex].position = at;
         let has_v = |brep: &BRep, e: EdgeHandle| {
-            let he = &brep.half_edges[brep.edges[e].half_edge];
-            he.origin == v || brep.half_edges[he.twin].origin == v
+            let fin = brep.edges[e].half_edge;
+            brep.half_edges[fin].origin == v || brep.fin_end(fin) == Some(v)
         };
         let corner = if has_v(brep, res.edge_a) {
             res.edge_a
@@ -355,8 +358,8 @@ pub(super) fn prepare_face_end(
     let x = insert_edge(brep, curve);
     let x_pq = brep.half_edges.insert(blank(vp, x));
     let x_qp = brep.half_edges.insert(blank(vq, x));
-    brep.half_edges[x_pq].twin = x_qp;
-    brep.half_edges[x_qp].twin = x_pq;
+    brep.half_edges[x_pq].set_mate(x_qp);
+    brep.half_edges[x_qp].set_mate(x_pq);
     brep.edges[x].half_edge = if starts_at_p { x_pq } else { x_qp };
     // A ball centre for the strip's orientation: the section ball at V.
     let support = |he: HalfEdgeHandle| {
@@ -427,7 +430,8 @@ pub(super) fn close_end_face(
     removed: [HalfEdgeHandle; 2],
 ) -> Result<(), BlendFailure> {
     let at = brep.vertices[cap.v].position;
-    let [t0, t1] = removed.map(|he| brep.half_edges[he].twin);
+    let t0 = brep.half_edges[removed[0]].require_mate()?;
+    let t1 = brep.half_edges[removed[1]].require_mate()?;
     let (first, second) = if brep.half_edges[t0].next == t1 {
         (t0, t1)
     } else if brep.half_edges[t1].next == t0 {

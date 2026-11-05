@@ -21,7 +21,7 @@ pub(crate) fn merge_sides(
             .and_then(|x| brep.loops.get(x.loop_))
             .map(|l| l.face)
     };
-    let twin = brep.half_edges.get(he).map(|x| x.twin);
+    let twin = brep.half_edges.get(he).and_then(|x| x.mate());
     [Some(he), twin]
         .into_iter()
         .flatten()

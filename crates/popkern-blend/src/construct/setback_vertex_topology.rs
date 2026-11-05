@@ -1072,7 +1072,9 @@ pub(super) fn author_setback_pcurves(
             // hexagon6_variable fan while both sides trace the seam
             // within 2e-4).
             let cap_internal = !is_sweep && {
-                let twin = brep.half_edges[he].twin;
+                let twin = brep.half_edges[he]
+                    .require_mate()
+                    .map_err(|e| e.to_string())?;
                 let twin_face = brep
                     .half_edges
                     .get(twin)
@@ -1116,7 +1118,8 @@ pub(super) fn author_setback_pcurves(
                 };
                 let he_data = &brep.half_edges[he];
                 let origin_v = he_data.origin;
-                let dest_v = brep.half_edges[he_data.twin].origin;
+                let dest_v =
+                    brep.half_edges[he_data.require_mate().map_err(|e| e.to_string())?].origin;
                 let (Some(origin_p), Some(dest_p)) = (
                     brep.vertices.get(origin_v).map(|v| v.position),
                     brep.vertices.get(dest_v).map(|v| v.position),
@@ -1224,7 +1227,7 @@ fn absorb_same_surface_bands(
         let mut target: Option<popkern_core::topology::HalfEdgeHandle> = None;
         'scan: for (he, data) in brep.half_edges.iter() {
             let f1 = brep.loops[data.loop_].face;
-            let twin = data.twin;
+            let twin = data.require_mate().map_err(|e| e.to_string())?;
             let f2 = brep.loops[brep.half_edges[twin].loop_].face;
             if f1 == f2 || f1 == blend_face || f2 == blend_face {
                 continue;
@@ -1496,7 +1499,9 @@ fn merge_faces(
                 if ring_edges.contains(&he_data.edge) {
                     continue;
                 }
-                let twin_face = brep.loops[brep.half_edges[he_data.twin].loop_].face;
+                let twin_face = brep.loops
+                    [brep.half_edges[he_data.require_mate().map_err(|e| e.to_string())?].loop_]
+                    .face;
                 if region.insert(twin_face) {
                     grew = true;
                 }
@@ -1516,7 +1521,11 @@ fn merge_faces(
         };
         let he = edge.half_edge;
         let f1 = brep.loops[brep.half_edges[he].loop_].face;
-        let f2 = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
+        let f2 = brep.loops[brep.half_edges[brep.half_edges[he]
+            .require_mate()
+            .map_err(|e| e.to_string())?]
+        .loop_]
+            .face;
         if region.contains(&f1) && region.contains(&f2) {
             if popkern_core::trace::trace_enabled("setback") {
                 eprintln!(
@@ -1540,7 +1549,7 @@ fn merge_faces(
             let Some(he_data) = brep.half_edges.get(he) else {
                 continue;
             };
-            let twin = he_data.twin;
+            let twin = he_data.require_mate().map_err(|e| e.to_string())?;
             let f1 = brep.loops[he_data.loop_].face;
             let f2 = brep.loops[brep.half_edges[twin].loop_].face;
             if f1 != f2 && region.contains(&f1) && region.contains(&f2) {
@@ -1579,9 +1588,9 @@ fn merge_faces(
                 brep.loops
                     .get(data.loop_)
                     .is_some_and(|l| region.contains(&l.face))
-                    && brep
-                        .half_edges
-                        .get(data.twin)
+                    && data
+                        .mate()
+                        .and_then(|m| brep.half_edges.get(m))
                         .map(|t| t.loop_ == data.loop_)
                         .unwrap_or(false)
             })

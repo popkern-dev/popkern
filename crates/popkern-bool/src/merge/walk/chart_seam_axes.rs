@@ -85,9 +85,9 @@ pub(crate) fn face_seam_axes(brep: &BRep, face: FaceHandle, periods: (f64, f64))
             let Some(hd) = brep.half_edges.get(he) else {
                 break;
             };
-            let twin_on_face = brep
-                .half_edges
-                .get(hd.twin)
+            let twin_on_face = hd
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|t| brep.loops.get(t.loop_))
                 .is_some_and(|tl| tl.face == face);
             if twin_on_face && let Some(pc) = hd.pcurve.as_ref() {

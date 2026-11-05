@@ -24,9 +24,9 @@ fn rim_filleted_cylinder(tol: Tolerance) -> BRep {
     for (e, d) in brep.edges.iter() {
         let he = &brep.half_edges[d.half_edge];
         let a = brep.vertices[he.origin].position;
-        let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+        let b = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
         let f1 = brep.loops[he.loop_].face;
-        let f2 = brep.loops[brep.half_edges[he.twin].loop_].face;
+        let f2 = brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face;
         if f1 != f2 && (a.z - 2.0).abs() < 1e-9 && (b.z - 2.0).abs() < 1e-9 {
             rim.push(e);
         }
@@ -64,7 +64,7 @@ fn subtraction_has_no_self_twinned_half_edges() {
         .filter(|(_, ed)| {
             let he = &part.half_edges[ed.half_edge];
             let f1 = part.loops[he.loop_].face;
-            let f2 = part.loops[part.half_edges[he.twin].loop_].face;
+            let f2 = part.loops[part.half_edges[he.mate().unwrap_or_default()].loop_].face;
             let on_torus = part
                 .faces
                 .get(f1)
@@ -94,7 +94,7 @@ fn subtraction_has_no_self_twinned_half_edges() {
     let self_twins = result
         .half_edges
         .iter()
-        .filter(|(heh, he)| he.twin == *heh)
+        .filter(|(heh, he)| he.mate().unwrap_or_default() == *heh)
         .count();
     assert_eq!(
         self_twins, 0,

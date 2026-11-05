@@ -75,7 +75,7 @@ pub(crate) fn plan_apex_targets_pre_anchor(
         let Some(he) = brep.half_edges.get(primary) else {
             continue;
         };
-        let Some(twin_he) = brep.half_edges.get(he.twin) else {
+        let Some(twin_he) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let v_a = he.origin;

@@ -206,7 +206,7 @@ fn imported_shell_gap_evidence(
     let twin = body
         .half_edges
         .get(half_edge)
-        .map(|half_edge| half_edge.twin)
+        .and_then(|half_edge| half_edge.mate())
         .unwrap_or_default();
     let half_edge_origin = body
         .half_edges

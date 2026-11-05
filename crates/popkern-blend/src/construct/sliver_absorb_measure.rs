@@ -32,7 +32,7 @@ pub(super) fn outer_loop_has_closed_edge(brep: &BRep, face: FaceHandle) -> bool 
     let limit = brep.half_edges.len() + 1;
     for _ in 0..limit {
         let hd = &brep.half_edges[he];
-        if let Some(twin) = brep.half_edges.get(hd.twin)
+        if let Some(twin) = hd.mate().and_then(|m| brep.half_edges.get(m))
             && twin.origin == hd.origin
         {
             return true;

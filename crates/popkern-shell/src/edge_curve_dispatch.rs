@@ -24,7 +24,7 @@ pub(crate) fn compute_edge_curve(
     // Get edge endpoint positions for trimming.
     let edge = &inner.edges[edge_handle];
     let he = &inner.half_edges[edge.half_edge];
-    let twin = &inner.half_edges[he.twin];
+    let twin = &inner.half_edges[he.require_mate()?];
     let start_pos = inner.vertices[he.origin].position;
     let end_pos = inner.vertices[twin.origin].position;
 

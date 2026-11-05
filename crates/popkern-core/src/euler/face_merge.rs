@@ -53,9 +53,9 @@ impl BRep {
             .half_edges
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("merge half-edge is invalid".into()))?;
-        let twin = self
-            .half_edges
-            .get(data.twin)
+        let twin = data
+            .mate()
+            .and_then(|m| self.half_edges.get(m))
             .ok_or_else(|| CoreError::InvalidHandle("merge twin half-edge is invalid".into()))?;
         let retained_loop = data.loop_;
         let removed_loop = twin.loop_;
@@ -200,7 +200,7 @@ mod tests {
         let mut brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let face = brep.faces.keys().next().expect("cube has a face");
         let half_edge = brep.loops[brep.faces[face].outer_loop].half_edge;
-        let shared = brep.half_edges[half_edge].twin;
+        let shared = brep.half_edges[half_edge].mate().unwrap_or_default();
         for face in brep.faces.values_mut() {
             face.surface = None;
         }
@@ -277,7 +277,7 @@ mod tests {
         let first_loop = brep.faces[first].outer_loop;
         let mut cursor = brep.loops[first_loop].half_edge;
         loop {
-            let twin = brep.half_edges[cursor].twin;
+            let twin = brep.half_edges[cursor].mate().unwrap_or_default();
             if brep
                 .half_edges
                 .get(twin)

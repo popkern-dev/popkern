@@ -101,7 +101,12 @@ pub(super) fn splice_fresh_seam_side(
     let missing = || format!("closed-fillet: seam {seam:?} or rim {old_rim:?} not found");
     let rim = brep.half_edges.get(old_rim).cloned().ok_or_else(missing)?;
     let he = brep.edges.get(seam).ok_or_else(missing)?.half_edge;
-    let twin = brep.half_edges.get(he).ok_or_else(missing)?.twin;
+    let twin = brep
+        .half_edges
+        .get(he)
+        .ok_or_else(missing)?
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     let uses = [he, twin];
     if uses
         .iter()
@@ -149,7 +154,7 @@ pub(super) fn rebuild_seam_curve(brep: &mut BRep, edge: EdgeHandle) {
     let Some(he_data) = brep.half_edges.get(he).cloned() else {
         return;
     };
-    let Some(twin_data) = brep.half_edges.get(he_data.twin).cloned() else {
+    let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m)).cloned() else {
         return;
     };
 

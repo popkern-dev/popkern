@@ -35,11 +35,13 @@ fn rims(b: &BRep) -> Vec<(EdgeHandle, HalfEdgeHandle)> {
         .iter()
         .filter_map(|(eh, e)| {
             let he = &b.half_edges[e.half_edge];
-            if he.origin != b.half_edges[he.twin].origin {
+            if he.origin != b.half_edges[he.mate().unwrap_or_default()].origin {
                 return None;
             }
             let on_wall = |h: HalfEdgeHandle| b.loops[b.half_edges[h].loop_].face == wall;
-            let wall_he = [e.half_edge, he.twin].into_iter().find(|&h| on_wall(h))?;
+            let wall_he = [e.half_edge, he.mate().unwrap_or_default()]
+                .into_iter()
+                .find(|&h| on_wall(h))?;
             Some((eh, wall_he))
         })
         .collect()

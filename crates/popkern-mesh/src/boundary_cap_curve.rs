@@ -151,7 +151,7 @@ fn face_uses(brep: &BRep, edge: popkern_core::topology::EdgeHandle) -> usize {
     let Some(first) = brep.edges.get(edge).map(|e| e.half_edge) else {
         return 0;
     };
-    let twin = brep.half_edges.get(first).map(|h| h.twin);
+    let twin = brep.half_edges.get(first).and_then(|h| h.mate());
     [Some(first), twin]
         .into_iter()
         .flatten()

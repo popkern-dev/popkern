@@ -121,8 +121,8 @@ pub(super) fn support_line(brep: &mut BRep, v: VertexHandle, c: Point3) -> (Vert
     );
     let out = brep.half_edges.insert(blank(v, edge));
     let back = brep.half_edges.insert(blank(vc, edge));
-    brep.half_edges[out].twin = back;
-    brep.half_edges[back].twin = out;
+    brep.half_edges[out].set_mate(back);
+    brep.half_edges[back].set_mate(out);
     brep.edges[edge].half_edge = out;
     (vc, CapSide::Line(out, back))
 }
@@ -153,7 +153,7 @@ pub(super) fn prepare_cap(
     tolerance: &Tolerance,
 ) -> Result<Cap, BlendFailure> {
     let h = link.h;
-    let tw = brep.half_edges[h].twin;
+    let tw = brep.half_edges[h].require_mate()?;
     let v = if at_start {
         brep.half_edges[h].origin
     } else {
@@ -228,11 +228,9 @@ pub(super) fn prepare_cap(
             let split = brep
                 .split_edge_at_point(t, c, tolerance)
                 .map_err(|err| decline(format!("crease {t:?} split at its contact: {err}"), c))?;
-            let ends = |brep: &BRep, edge: EdgeHandle| {
-                let he = &brep.half_edges[brep.edges[edge].half_edge];
-                [he.origin, brep.half_edges[he.twin].origin]
-            };
-            let upper = if ends(brep, split.edge_a).contains(&v) {
+            let ends =
+                |brep: &BRep, edge: EdgeHandle| brep.edge_vertices(edge).map(|(a, b)| [a, b]);
+            let upper = if ends(brep, split.edge_a).is_some_and(|e| e.contains(&v)) {
                 split.edge_a
             } else {
                 split.edge_b
@@ -271,8 +269,8 @@ pub(super) fn prepare_cap(
     let x = insert_edge(brep, arc);
     let x_pq = brep.half_edges.insert(blank(vp, x));
     let x_qp = brep.half_edges.insert(blank(vq, x));
-    brep.half_edges[x_pq].twin = x_qp;
-    brep.half_edges[x_qp].twin = x_pq;
+    brep.half_edges[x_pq].set_mate(x_qp);
+    brep.half_edges[x_qp].set_mate(x_pq);
     brep.edges[x].half_edge = x_pq;
     let n = tangent
         .normalized()
@@ -383,20 +381,20 @@ pub(super) fn wire_cap(
         return super::tangent_chain_face_end::close_end_face(brep, cap, cap_x, [ring[1], ring[2]]);
     }
     // Order the three half-edges head to tail.
-    let dest = |brep: &BRep, he: HalfEdgeHandle| brep.half_edges[brep.half_edges[he].twin].origin;
+    let dest = |brep: &BRep, he: HalfEdgeHandle| brep.fin_end(he);
     let first = ring[0];
     let mut ordered = vec![first];
     while ordered.len() < ring.len() {
         let tail = dest(brep, ordered[ordered.len() - 1]);
         let Some(&next) = ring
             .iter()
-            .find(|&&he| !ordered.contains(&he) && brep.half_edges[he].origin == tail)
+            .find(|&&he| !ordered.contains(&he) && Some(brep.half_edges[he].origin) == tail)
         else {
             return Err(decline("cap loop does not close".into(), at));
         };
         ordered.push(next);
     }
-    if dest(brep, ordered[ordered.len() - 1]) != brep.half_edges[first].origin {
+    if dest(brep, ordered[ordered.len() - 1]) != Some(brep.half_edges[first].origin) {
         return Err(decline("cap loop does not close".into(), at));
     }
     let lp = brep.loops.insert(Loop {

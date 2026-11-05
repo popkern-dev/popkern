@@ -56,7 +56,7 @@ pub(crate) fn is_closed_fillet_edge(brep: &BRep, edge: EdgeHandle) -> bool {
     let Some(he) = brep.half_edges.get(edata.half_edge) else {
         return false;
     };
-    let Some(twin) = brep.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
         return false;
     };
     he.origin == twin.origin
@@ -94,7 +94,7 @@ pub(crate) fn apply_closed_fillet(
                 reason: format!("closed-fillet: half-edge {he_a_h:?} not found"),
                 location: edge_loc,
             })?;
-    let he_b_h = he_a.twin;
+    let he_b_h = he_a.require_mate()?;
     let he_b =
         brep.half_edges
             .get(he_b_h)
@@ -409,7 +409,7 @@ pub(crate) fn apply_closed_fillet(
         loop_: loop_fillet_outer,
         pcurve: None,
     });
-    brep.half_edges[he_seam_support].twin = he_seam_fillet;
+    brep.half_edges[he_seam_support].set_mate(he_seam_fillet);
     // The fillet-side half-edge is the sole element of its loop:
     // next/prev point back at itself.
     brep.half_edges[he_seam_fillet].next = he_seam_fillet;
@@ -436,7 +436,7 @@ pub(crate) fn apply_closed_fillet(
         loop_: loop_fillet_inner,
         pcurve: None,
     });
-    brep.half_edges[he_fresh_support].twin = he_fresh_fillet;
+    brep.half_edges[he_fresh_support].set_mate(he_fresh_fillet);
     // Both supports seamed (a revolved groove's torus beside its wall
     // cylinder, PK-433): the fresh vertex takes over the second seam.
     if let Some(seam) = seam_a.and(seam_b) {

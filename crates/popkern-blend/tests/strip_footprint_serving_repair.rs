@@ -87,7 +87,7 @@ fn cube_result_with(radii: [f64; 3], options: &FilletOptions) -> BlendResult {
     for (e, d) in brep.edges.iter() {
         let he = &brep.half_edges[d.half_edge];
         let a = he.origin;
-        let b = brep.half_edges[he.twin].origin;
+        let b = brep.half_edges[he.mate().unwrap_or_default()].origin;
         if a == corner || b == corner {
             edges.push(e);
         }

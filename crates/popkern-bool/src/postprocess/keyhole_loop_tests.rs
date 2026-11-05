@@ -35,7 +35,7 @@ fn lateral_keyhole(
         // successor (a seam half) shares its origin vertex.
         for &h in &members {
             let hd = &brep.half_edges[h];
-            let twin_face = brep.loops[brep.half_edges[hd.twin].loop_].face;
+            let twin_face = brep.loops[brep.half_edges[hd.mate().unwrap_or_default()].loop_].face;
             let nd = &brep.half_edges[hd.next];
             if twin_face != fh && nd.origin == hd.origin {
                 let seam_up = hd.next;

@@ -87,7 +87,10 @@ pub fn single_face_sheet(body: &BRep) -> Option<BRep> {
         let mut moved = Vec::new();
         for _ in 0..=out.half_edges.len() {
             let he = out.half_edges.get(cursor)?;
-            let twin_face = out.loops.get(out.half_edges.get(he.twin)?.loop_)?.face;
+            let twin_face = out
+                .loops
+                .get(he.mate().and_then(|m| out.half_edges.get(m))?.loop_)?
+                .face;
             if twin_face != front {
                 return None;
             }
@@ -104,7 +107,7 @@ pub fn single_face_sheet(body: &BRep) -> Option<BRep> {
         // Each moved half-edge runs along its twin reversed: its pcurve
         // on the front is the twin's, reversed.
         for h in moved {
-            let twin = out.half_edges[h].twin;
+            let twin = out.half_edges[h].mate()?;
             let reversed = out.half_edges[twin].pcurve.as_ref().map(|p| p.reversed());
             out.half_edges[h].pcurve = reversed;
         }
@@ -121,7 +124,7 @@ fn twin_open_boundary(view: &mut BRep) {
     let open: Vec<_> = view
         .half_edges
         .iter()
-        .filter(|(_, h)| !view.half_edges.contains_key(h.twin))
+        .filter(|(_, h)| !h.mate().is_some_and(|m| view.half_edges.contains_key(m)))
         .map(|(k, _)| k)
         .collect();
     for h in open {
@@ -148,7 +151,7 @@ fn twin_open_boundary(view: &mut BRep) {
         view.half_edges[twin].next = twin;
         view.half_edges[twin].prev = twin;
         view.loops[ring].half_edge = twin;
-        view.half_edges[h].twin = twin;
+        view.half_edges[h].set_mate(twin);
         // Recorded as the boundary it is: on a periodic face a twin
         // the face holds would otherwise read as the seam.
         view.boundary_edges.insert(edge);

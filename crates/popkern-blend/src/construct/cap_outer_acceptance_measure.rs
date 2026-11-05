@@ -36,7 +36,7 @@ pub(super) fn measure_cap_support_continuity(
         let Some(ha) = brep.half_edges.get(he_a) else {
             continue;
         };
-        let Some(hb) = brep.half_edges.get(ha.twin) else {
+        let Some(hb) = ha.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(face_a) = brep.loops.get(ha.loop_).map(|loop_data| loop_data.face) else {
@@ -84,7 +84,7 @@ fn sample_cap_support_edge(
 ) -> Option<CapSupportContinuityEvidence> {
     let edge = brep.edges.get(edge_handle)?;
     let ha = brep.half_edges.get(edge.half_edge)?;
-    let hb = brep.half_edges.get(ha.twin)?;
+    let hb = ha.mate().and_then(|m| brep.half_edges.get(m))?;
     let (Some(pa), Some(pb)) = (ha.pcurve.as_ref(), hb.pcurve.as_ref()) else {
         return None;
     };

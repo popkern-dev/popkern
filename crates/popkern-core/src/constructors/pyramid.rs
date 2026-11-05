@@ -190,8 +190,8 @@ impl BRep {
             (hk_v3_a, hl_a_v3), // e_3a (back ↔ left)
         ];
         for &(a, b) in &pairs {
-            brep.half_edges[a].twin = b;
-            brep.half_edges[b].twin = a;
+            brep.half_edges[a].set_mate(b);
+            brep.half_edges[b].set_mate(a);
         }
 
         // ── Loop next/prev wiring ──────────────────────────────
@@ -421,7 +421,7 @@ mod tests {
         loop {
             let he = &p.half_edges[cursor];
             edges.insert(he.edge);
-            cursor = p.half_edges[he.twin].next;
+            cursor = p.half_edges[he.mate().unwrap_or_default()].next;
             if cursor == start {
                 break;
             }

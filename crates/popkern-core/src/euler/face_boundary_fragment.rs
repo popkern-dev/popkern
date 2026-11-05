@@ -196,7 +196,7 @@ impl BRep {
         }
         for edge in &result.exposed_edges {
             let exposed_half_edge = self.edges[*edge].half_edge;
-            if self.half_edges[exposed_half_edge].twin != HalfEdgeHandle::default() {
+            if self.half_edges[exposed_half_edge].mate().is_some() {
                 return Err(CoreError::PreconditionFailed(
                     "boundary fragment exposed edge kept a live twin".into(),
                 ));

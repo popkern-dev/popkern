@@ -16,7 +16,7 @@ pub(super) fn face_has_live_twin(brep: &BRep, face: FaceHandle) -> bool {
     samples.iter().any(|sample| {
         brep.half_edges
             .get(sample.he)
-            .and_then(|d| brep.half_edges.get(d.twin))
+            .and_then(|d| d.mate().and_then(|m| brep.half_edges.get(m)))
             .and_then(|t| brep.loops.get(t.loop_))
             .and_then(|l| brep.faces.get(l.face))
             .is_some()
@@ -190,9 +190,9 @@ pub(super) fn collect_carriers(brep: &BRep, bridge_faces: &[FaceHandle]) -> Vec<
                 let Some(data) = brep.half_edges.get(he) else {
                     break;
                 };
-                if let Some(twin_face) = brep
-                    .half_edges
-                    .get(data.twin)
+                if let Some(twin_face) = data
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|t| brep.loops.get(t.loop_))
                     .map(|l| l.face)
                     && seen.insert(twin_face)
@@ -266,7 +266,7 @@ pub(super) fn trace_edge_liveness_census(brep: &BRep) {
     let mut broken = 0usize;
     for (edge_handle, edge) in brep.edges.iter() {
         let a = edge.half_edge;
-        let b = brep.half_edges.get(a).map(|d| d.twin);
+        let b = brep.half_edges.get(a).and_then(|d| d.mate());
         let a_live = cycle_live(a);
         let b_live = b.is_some_and(cycle_live);
         if a_live && b_live {

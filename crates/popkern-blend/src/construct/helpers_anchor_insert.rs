@@ -403,7 +403,7 @@ pub(crate) fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(Edge
         // The second vertex is the twin's origin on manifold
         // edges, or the next half-edge's origin for boundary
         // edges (whose twin is the null sentinel).
-        let v1_pos = if let Some(twin) = brep.half_edges.get(he.twin) {
+        let v1_pos = if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) {
             brep.vertices[twin.origin].position
         } else if let Some(next_he) = brep.half_edges.get(he.next) {
             brep.vertices[next_he.origin].position

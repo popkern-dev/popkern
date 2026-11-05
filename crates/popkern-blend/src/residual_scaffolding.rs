@@ -81,7 +81,7 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
             .copied()
             .collect();
         let glued = sides.iter().any(|side| {
-            let twin = brep.half_edges.get(*side).map(|data| data.twin);
+            let twin = brep.half_edges.get(*side).and_then(|data| data.mate());
             twin.and_then(|twin| brep.half_edges.get(twin))
                 .and_then(|twin_data| brep.loops.get(twin_data.loop_))
                 .and_then(|loop_data| brep.faces.get(loop_data.face))
@@ -103,7 +103,7 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
             let Some(side_data) = brep.remove_half_edge_reanchored(*side) else {
                 continue;
             };
-            match brep.half_edges.get(side_data.twin) {
+            match side_data.mate().and_then(|m| brep.half_edges.get(m)) {
                 Some(_) => {
                     // The twin survives (a retained membrane side or a
                     // side of a residual face retired later in this
@@ -113,8 +113,9 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
                     brep.boundary_edges.insert(side_data.edge);
                     if let Some(edge_data) = brep.edges.get_mut(side_data.edge)
                         && edge_data.half_edge == *side
+                        && let Some(survivor) = side_data.mate()
                     {
-                        edge_data.half_edge = side_data.twin;
+                        edge_data.half_edge = survivor;
                     }
                 }
                 None => {

@@ -55,7 +55,7 @@ impl BRep {
                 Some(he) => he,
                 None => continue,
             };
-            let twin_he = match self.half_edges.get(he.twin) {
+            let twin_he = match he.mate().and_then(|m| self.half_edges.get(m)) {
                 Some(t) => t,
                 None => continue,
             };
@@ -136,7 +136,7 @@ impl BRep {
                 Some(he) => he,
                 None => continue,
             };
-            let twin_he = match self.half_edges.get(he.twin) {
+            let twin_he = match he.mate().and_then(|m| self.half_edges.get(m)) {
                 Some(t) => t,
                 None => continue,
             };

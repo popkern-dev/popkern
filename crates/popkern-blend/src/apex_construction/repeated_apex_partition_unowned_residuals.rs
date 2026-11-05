@@ -49,7 +49,10 @@ pub(super) fn materialize_unowned_half_edge_residual_faces(
                     .edges
                     .get(data.edge)
                     .is_some_and(|edge| edge.role == TopologyRole::ConstructionResidual);
-                let twin_loop = brep.half_edges.get(data.twin).map(|twin| twin.loop_)?;
+                let twin_loop = data
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
+                    .map(|twin| twin.loop_)?;
                 (edge_retired && brep.loops.contains_key(twin_loop)).then_some(twin_loop)
             });
             if let Some(twin_loop) = retired_twin_loop {

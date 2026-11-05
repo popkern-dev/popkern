@@ -28,9 +28,10 @@ pub(super) fn split_components(brep: &mut BRep, solid: SolidHandle, shell: Shell
                 let first = brep.loops[lh].half_edge;
                 let mut he = first;
                 loop {
-                    let twin = brep.half_edges[he].twin;
-                    let other = brep.loops[brep.half_edges[twin].loop_].face;
-                    if let Some(&j) = index.get(&other)
+                    let other = brep
+                        .mate(he)
+                        .map(|twin| brep.loops[brep.half_edges[twin].loop_].face);
+                    if let Some(&j) = other.and_then(|other| index.get(&other))
                         && component[j] == usize::MAX
                     {
                         component[j] = count;

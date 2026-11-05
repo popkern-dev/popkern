@@ -28,7 +28,7 @@ pub(super) fn adjacent_faces(brep: &BRep, face: FaceHandle) -> Vec<FaceHandle> {
     let max_walk = 1000;
     for _ in 0..max_walk {
         if let Some(he) = brep.half_edges.get(current) {
-            if let Some(twin) = brep.half_edges.get(he.twin)
+            if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m))
                 && let Some(twin_loop) = brep.loops.get(twin.loop_)
             {
                 let neighbor_face = twin_loop.face;

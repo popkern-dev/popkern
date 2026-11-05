@@ -118,10 +118,11 @@ pub(super) fn closure_crossing(
     }
     let mut best: Option<(f64, UvCrossing)> = None;
     for (he, pc) in boundary {
-        let twin = brep.half_edges[*he].twin;
-        if brep.half_edges.contains_key(twin)
-            && brep.half_edges[twin].loop_ == brep.half_edges[*he].loop_
-        {
+        let seam_use = brep.half_edges[*he].mate().is_some_and(|twin| {
+            brep.half_edges.contains_key(twin)
+                && brep.half_edges[twin].loop_ == brep.half_edges[*he].loop_
+        });
+        if seam_use {
             continue; // a seam use
         }
         for (lift, lift_v) in LIFTS {
@@ -268,7 +269,7 @@ pub(super) fn lifted_loop_crossings(
             if (range.1 - range.0).abs() < tolerance.numerical_floor() {
                 continue;
             }
-            let twin = brep.half_edges[*he].twin;
+            let twin = brep.half_edges[*he].mate().unwrap_or_default();
             if brep.half_edges.contains_key(twin)
                 && brep.half_edges[twin].loop_ == brep.half_edges[*he].loop_
             {

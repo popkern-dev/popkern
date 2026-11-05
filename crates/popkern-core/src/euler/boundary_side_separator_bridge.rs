@@ -109,7 +109,9 @@ impl BRep {
             ));
         }
         if !self.boundary_edges.contains(&separator_source_edge)
-            || self.half_edges.contains_key(half_edge.twin)
+            || half_edge
+                .mate()
+                .is_some_and(|m| self.half_edges.contains_key(m))
         {
             return Err(CoreError::PreconditionFailed(
                 "boundary-side separator source edge is not an unowned boundary side".into(),

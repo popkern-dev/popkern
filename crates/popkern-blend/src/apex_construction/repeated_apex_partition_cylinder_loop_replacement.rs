@@ -235,7 +235,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             .filter(|trim_side| {
                 brep.half_edges
                     .get(trim_side.half_edge)
-                    .and_then(|data| brep.half_edges.get(data.twin))
+                    .and_then(|data| data.mate().and_then(|m| brep.half_edges.get(m)))
                     .is_some_and(|twin| brep.loops.get(twin.loop_).is_none())
             })
             .map(|trim_side| trim_side.support_face)
@@ -299,7 +299,7 @@ fn push_if_unwired_residual_twin(
     let Some(twin) = brep
         .half_edges
         .get(half_edge)
-        .map(|half_edge| half_edge.twin)
+        .and_then(|half_edge| half_edge.mate())
     else {
         return;
     };

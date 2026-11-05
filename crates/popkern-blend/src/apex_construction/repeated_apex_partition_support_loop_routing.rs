@@ -123,7 +123,7 @@ pub(super) fn winding_honest_bridge_side(
         });
         feeds_start && continues_end
     };
-    let twin = brep.half_edges.get(recorded).map(|data| data.twin);
+    let twin = brep.half_edges.get(recorded).and_then(|data| data.mate());
     match twin {
         Some(twin) if !chains(recorded) && chains(twin) => {
             if crate::direct_apex_trace::enabled() {
@@ -214,9 +214,9 @@ pub(super) fn face_edge_endpoints_fit_face_plane(
     let Some(data) = brep.half_edges.get(side) else {
         return false;
     };
-    let Some(end) = brep
-        .half_edges
-        .get(data.twin)
+    let Some(end) = data
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
         .map(|twin| twin.origin)
         .or_else(|| brep.half_edges.get(data.next).map(|next| next.origin))
     else {

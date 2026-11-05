@@ -58,9 +58,9 @@ fn rim_filleted_cylinder(tol: Tolerance) -> BRep {
     for (e, d) in brep.edges.iter() {
         let he = &brep.half_edges[d.half_edge];
         let a = brep.vertices[he.origin].position;
-        let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+        let b = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
         let f1 = brep.loops[he.loop_].face;
-        let f2 = brep.loops[brep.half_edges[he.twin].loop_].face;
+        let f2 = brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face;
         if f1 != f2 && (a.z - 2.0).abs() < 1e-9 && (b.z - 2.0).abs() < 1e-9 {
             rim.push(e);
         }
@@ -299,9 +299,9 @@ fn validate_all_on_double_rim_filleted_tube_is_not_slower_under_analytic_arms() 
         .filter(|(_, d)| {
             let he = &tube.half_edges[d.half_edge];
             let a = tube.vertices[he.origin].position;
-            let b = tube.vertices[tube.half_edges[he.twin].origin].position;
+            let b = tube.vertices[tube.half_edges[he.mate().unwrap_or_default()].origin].position;
             let f1 = tube.loops[he.loop_].face;
-            let f2 = tube.loops[tube.half_edges[he.twin].loop_].face;
+            let f2 = tube.loops[tube.half_edges[he.mate().unwrap_or_default()].loop_].face;
             f1 != f2 && (a.z - 2.0).abs() < 1e-9 && (b.z - 2.0).abs() < 1e-9
         })
         .map(|(edge, _)| FilletSpec {

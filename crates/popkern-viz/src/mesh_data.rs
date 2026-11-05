@@ -99,7 +99,9 @@ pub fn extract_edge_pairs(brep: &BRep) -> Vec<([f32; 3], [f32; 3])> {
         let Some(he_a) = brep.half_edges.get(he_a_handle) else {
             continue;
         };
-        let he_b_handle = he_a.twin;
+        let Some(he_b_handle) = he_a.mate() else {
+            continue;
+        };
         let Some(he_b) = brep.half_edges.get(he_b_handle) else {
             continue;
         };

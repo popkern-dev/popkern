@@ -149,7 +149,7 @@ fn components(skin: &BRep, dead: &BTreeSet<FaceHandle>) -> Vec<Vec<FaceHandle>> 
         let Some(he) = skin.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = skin.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| skin.half_edges.get(m)) else {
             continue;
         };
         let (Some(l1), Some(l2)) = (skin.loops.get(he.loop_), skin.loops.get(twin.loop_)) else {
@@ -201,9 +201,9 @@ fn dissolve_component(skin: &mut BRep, component: &[FaceHandle]) -> Result<(), S
     let bound = skin.edges.len() * 2 + 8;
     for _ in 0..bound {
         if let Some(he) = find_dead_dead_edge(skin, &dead) {
-            let killed = skin
-                .half_edges
-                .get(skin.half_edges[he].twin)
+            let killed = skin.half_edges[he]
+                .mate()
+                .and_then(|m| skin.half_edges.get(m))
                 .and_then(|t| skin.loops.get(t.loop_))
                 .map(|l| l.face)
                 .ok_or("dead-dead edge lost its twin face")?;
@@ -268,7 +268,7 @@ fn find_dead_dead_edge(
     for eh in edges {
         let he = skin.edges[eh].half_edge;
         let he_data = skin.half_edges.get(he)?;
-        let twin = skin.half_edges.get(he_data.twin)?;
+        let twin = he_data.mate().and_then(|m| skin.half_edges.get(m))?;
         let f1 = skin.loops.get(he_data.loop_)?.face;
         let f2 = skin.loops.get(twin.loop_)?.face;
         if f1 != f2 && dead.contains(&f1) && dead.contains(&f2) {
@@ -289,7 +289,7 @@ fn find_seam_spur(
     for eh in edges {
         let he = skin.edges[eh].half_edge;
         let he_data = skin.half_edges.get(he)?;
-        let twin_h = he_data.twin;
+        let twin_h = he_data.mate()?;
         let twin = skin.half_edges.get(twin_h)?;
         let f1 = skin.loops.get(he_data.loop_)?.face;
         let f2 = skin.loops.get(twin.loop_)?.face;
@@ -322,8 +322,8 @@ fn find_loop_spur(
     let mut cursor = start;
     for _ in 0..skin.half_edges.len() {
         let he = skin.half_edges.get(cursor)?;
-        if he.next == he.twin {
-            let tip = skin.half_edges[he.twin].origin;
+        if he.mate() == Some(he.next) {
+            let tip = skin.half_edges[he.mate()?].origin;
             let valence = skin.half_edges.values().filter(|h| h.origin == tip).count();
             if valence == 1 {
                 return Some(cursor);
@@ -361,7 +361,10 @@ fn plug_ring(
     let mut cursor = start;
     for _ in 0..skin.half_edges.len() {
         let he = skin.half_edges.get(cursor).ok_or("plug loop broken")?;
-        let twin = skin.half_edges.get(he.twin).ok_or("plug twin missing")?;
+        let twin = he
+            .mate()
+            .and_then(|m| skin.half_edges.get(m))
+            .ok_or("plug twin missing")?;
         let twin_loop = twin.loop_;
         let nb = skin
             .loops
@@ -370,7 +373,7 @@ fn plug_ring(
             .ok_or("plug neighbor loop missing")?;
         if nb != plug {
             match alive {
-                None => alive = Some((he.twin, nb, twin_loop)),
+                None => alive = Some((he.mate().ok_or("plug twin missing")?, nb, twin_loop)),
                 Some((_, f, _)) if f == nb => {}
                 Some(_) => {
                     return Err("plug ring spans multiple alive faces (blister across \

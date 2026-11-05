@@ -40,7 +40,7 @@ pub(crate) fn insert_transition_face(
         .half_edges
         .get(he_h)
         .ok_or_else(|| DraftError::Topology("half-edge not found".into()))?;
-    let twin_h = he.twin;
+    let twin_h = he.require_mate()?;
     let twin = brep
         .half_edges
         .get(twin_h)
@@ -187,8 +187,8 @@ fn build_quad_face(
             pcurve: None,
         });
 
-        brep.half_edges[he].twin = tw;
-        brep.half_edges[tw].twin = he;
+        brep.half_edges[he].set_mate(tw);
+        brep.half_edges[tw].set_mate(he);
 
         let start_pos = brep.vertices[origin].position;
         let end_pos = brep.vertices[dest].position;

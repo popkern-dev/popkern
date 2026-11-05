@@ -204,7 +204,7 @@ fn circular_rim_wall(
     let on_face = if outer.loops.contains_key(he.loop_) {
         Some(rim_he)
     } else {
-        Some(he.twin).filter(|t| {
+        he.mate().filter(|t| {
             outer
                 .half_edges
                 .get(*t)
@@ -333,10 +333,12 @@ pub(super) fn build_corner_sectors(
             continue; // consumed by an earlier sector this pass
         }
         let x = builder.brep().half_edges[he].origin;
-        let twin = builder.brep().half_edges[he].twin;
-        if !builder.brep().half_edges.contains_key(twin) {
+        let Some(twin) = builder.brep().half_edges[he]
+            .mate()
+            .filter(|t| builder.brep().half_edges.contains_key(*t))
+        else {
             continue;
-        }
+        };
         let y = builder.brep().half_edges[twin].origin;
         // INNER-side arc (classic shell): endpoints are the inner ends
         // of two verticals under one outer vertex. Loop:

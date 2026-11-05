@@ -41,7 +41,7 @@ fn main() {
         .filter_map(|(eh, _)| {
             let he = pyramid.edges[eh].half_edge;
             let origin = pyramid.half_edges[he].origin;
-            let twin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            let twin = pyramid.fin_end(he)?;
             (origin == apex || twin == apex).then_some(eh)
         })
         .collect();

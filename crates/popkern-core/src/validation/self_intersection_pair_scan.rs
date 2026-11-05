@@ -96,8 +96,7 @@ impl BRep {
                         Some(h) => h,
                         None => break,
                     };
-                    let twin_handle = he.twin;
-                    if let Some(twin) = self.half_edges.get(twin_handle) {
+                    if let Some(twin) = he.mate().and_then(|m| self.half_edges.get(m)) {
                         let twin_loop_handle = twin.loop_;
                         if let Some(twin_loop) = self.loops.get(twin_loop_handle) {
                             let twin_face = twin_loop.face;

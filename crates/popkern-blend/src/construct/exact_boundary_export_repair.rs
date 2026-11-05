@@ -143,7 +143,7 @@ fn resolve_sector_outer_sides(
 ) -> (HalfEdgeHandle, HalfEdgeHandle) {
     let derived = result.edges.get(edge).and_then(|edge_data| {
         let a = edge_data.half_edge;
-        let b = result.half_edges.get(a)?.twin;
+        let b = result.half_edges.get(a)?.mate()?;
         result.half_edges.get(b)?;
         let face_of = |handle: HalfEdgeHandle| -> Option<FaceHandle> {
             result
