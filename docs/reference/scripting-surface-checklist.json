@@ -991,7 +991,7 @@
       "name": "cone",
       "section": "5",
       "mark": "stable",
-      "signature": "m.cone(r1, r2, h, at?, axis?, ref?)",
+      "signature": "m.cone(r1, r2, h, angle?, at?, axis?, ref?)",
       "parameters": [
         {
           "name": "r1",
@@ -1004,6 +1004,10 @@
         {
           "name": "h",
           "optional": false
+        },
+        {
+          "name": "angle",
+          "optional": true
         },
         {
           "name": "at",
@@ -1059,7 +1063,7 @@
       "name": "cylinder",
       "section": "5",
       "mark": "stable",
-      "signature": "m.cylinder(r, h, at?, axis?, ref?)",
+      "signature": "m.cylinder(r, h, angle?, at?, axis?, ref?)",
       "parameters": [
         {
           "name": "r",
@@ -1068,6 +1072,10 @@
         {
           "name": "h",
           "optional": false
+        },
+        {
+          "name": "angle",
+          "optional": true
         },
         {
           "name": "at",
@@ -1663,6 +1671,82 @@
       ]
     },
     {
+      "name": "prism",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.prism(sides, r, h, flats?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "sides",
+          "optional": false
+        },
+        {
+          "name": "r",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        },
+        {
+          "name": "flats",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "pyramid",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.pyramid(sides, r1, r2, h, flats?, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "sides",
+          "optional": false
+        },
+        {
+          "name": "r1",
+          "optional": false
+        },
+        {
+          "name": "r2",
+          "optional": false
+        },
+        {
+          "name": "h",
+          "optional": false
+        },
+        {
+          "name": "flats",
+          "optional": true
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
+          "optional": true
+        }
+      ]
+    },
+    {
       "name": "raw_body",
       "section": "5",
       "mark": "preview",
@@ -1790,7 +1874,7 @@
       "name": "sphere",
       "section": "5",
       "mark": "stable",
-      "signature": "m.sphere(r, lat?, at?, axis?, ref?)",
+      "signature": "m.sphere(r, lat?, angle?, at?, axis?, ref?)",
       "parameters": [
         {
           "name": "r",
@@ -1798,6 +1882,10 @@
         },
         {
           "name": "lat",
+          "optional": true
+        },
+        {
+          "name": "angle",
           "optional": true
         },
         {
@@ -2037,6 +2125,42 @@
         },
         {
           "name": "non_manifold",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "name": "wedge",
+      "section": "5",
+      "mark": "stable",
+      "signature": "m.wedge(x, y, z, top_x, at?, axis?, ref?)",
+      "parameters": [
+        {
+          "name": "x",
+          "optional": false
+        },
+        {
+          "name": "y",
+          "optional": false
+        },
+        {
+          "name": "z",
+          "optional": false
+        },
+        {
+          "name": "top_x",
+          "optional": false
+        },
+        {
+          "name": "at",
+          "optional": true
+        },
+        {
+          "name": "axis",
+          "optional": true
+        },
+        {
+          "name": "ref",
           "optional": true
         }
       ]

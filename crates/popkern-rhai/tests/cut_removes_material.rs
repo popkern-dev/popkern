@@ -67,3 +67,38 @@ fn a_boss_sheared_off_flush_is_a_cut() {
     let v = served_volume(&source).expect("the shear serves");
     assert!((v - 480.0).abs() < 1e-6 * 480.0, "{v}");
 }
+
+/// A cut sketched on a free plane names no host: it cuts the body it
+/// reaches. It used to be kept as a body of its own, a solid cylinder
+/// beside the box (480 + 2 pi) instead of the hole.
+#[test]
+fn a_cut_on_a_free_plane_cuts_the_body_it_reaches() {
+    let v = served_volume(&format!(
+        "{BOX}let h = m.profile(xy_at(6.0)).circle(1.0).sketch(\"hole\").extrude(blind(-2.0), #{{ mode: \"cut\" }});\nm\n"
+    ))
+    .expect("the cut serves");
+    let exact = 480.0 - 2.0 * std::f64::consts::PI;
+    assert!((v - exact).abs() < 1e-6 * exact, "{v} vs {exact}");
+}
+
+#[test]
+fn a_cut_on_a_free_plane_beside_the_body_removes_nothing() {
+    assert_declined(
+        served_volume(&format!(
+            "{BOX}let h = m.profile(xy_at(6.0)).circle(1.0).at(40.0, 0.0).sketch(\"hole\").extrude(blind(-2.0), #{{ mode: \"cut\" }});\nm\n"
+        )),
+        "free plane, beside the body",
+    );
+}
+
+/// Two bodies in reach: the cut does not choose between them.
+#[test]
+fn a_cut_reaching_two_bodies_names_the_ambiguity() {
+    let source = format!(
+        "{BOX}let c = m.profile(xy()).rect(10.0, 8.0).at(12.0, 0.0).sketch(\"other\").extrude(blind(6.0));\nlet h = m.profile(xy_at(6.0)).rect(20.0, 1.0).at(6.0, 0.0).sketch(\"slot\").extrude(blind(-2.0), #{{ mode: \"cut\" }});\nm\n"
+    );
+    match served_volume(&source) {
+        Ok(v) => panic!("served {v}"),
+        Err(e) => assert!(e.contains("reaches 2 bodies"), "{e}"),
+    }
+}

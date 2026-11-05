@@ -6,11 +6,14 @@
 //!
 //! Local frame: axis +z, reference +x. A box stands on a corner at the
 //! origin (or is centred on it); a cylinder and cone stand on the
-//! origin; a sphere and torus are centred on it.
+//! origin; a sphere and torus are centred on it. A sector (`angle`
+//! below 360) of a cylinder, cone, sphere or torus turns its section
+//! from the reference direction, its two cut faces meeting on the axis
+//! (or, for a torus, apart).
 //!
 //! Names (under the feature's operation): the bottom face `Cap 0`, the
-//! top `Cap 1` (a sphere's latitude caps too), a torus sector's start
-//! and end faces `Cap 2` and `Cap 3`, every other face `Lateral i` in
+//! top `Cap 1` (a sphere's latitude caps too), a sector's start and
+//! end faces `Cap 2` and `Cap 3`, every other face `Lateral i` in
 //! order of angle about the axis, then height. An edge is an
 //! `Intersection` and a vertex a `Junction` of the faces they bound
 //! (by name), indexed in order along the axis and round it.
@@ -30,6 +33,9 @@ use crate::feature_primitive::{PrimitiveDesc, PrimitiveFrame, PrimitiveShape};
 use crate::parameter::{ParameterId, ParameterTable};
 use crate::replay_side_effects::ExecuteSideEffects;
 use crate::resolve::resolve_param;
+
+#[path = "replay_primitive_polyhedra.rs"]
+mod replay_primitive_polyhedra;
 
 fn invalid(shape: &str, parameter: &str, value: f64, reason: &str) -> ReplayError {
     ReplayError::FeatureFailed {
@@ -67,6 +73,22 @@ pub(super) fn execute(
             Err(invalid(shape, role, v, "must be positive"))
         }
     };
+    // A sector's angle; a whole turn (360) is no sector.
+    let sweep = match desc.shape.angle() {
+        Some(id) => {
+            let a = value(id)?;
+            if !(a > 0.0 && a <= std::f64::consts::TAU + 1e-12) {
+                return Err(invalid(
+                    shape,
+                    "angle",
+                    a.to_degrees(),
+                    "needs 0 < angle <= 360",
+                ));
+            }
+            (a < std::f64::consts::TAU - 1e-12).then_some(a)
+        }
+        None => None,
+    };
     let mut local = match &desc.shape {
         PrimitiveShape::Box { x, y, z, centred } => {
             let (x, y, z) = (positive("x", *x)?, positive("y", *y)?, positive("z", *z)?);
@@ -80,13 +102,22 @@ pub(super) fn execute(
             });
             extruded(shape, &profile, z0, z, *tolerance)?
         }
-        PrimitiveShape::Cylinder { radius, height } => {
+        PrimitiveShape::Cylinder { radius, height, .. } => {
             let r = positive("radius", *radius)?;
             let h = positive("height", *height)?;
-            let profile = AnalyticProfile::new(ProfileShape::Circle { radius: r });
-            extruded(shape, &profile, 0.0, h, *tolerance)?
+            if sweep.is_some() {
+                let segments = vec![
+                    PathSegment::Line { to: [r, 0.0] },
+                    PathSegment::Line { to: [r, h] },
+                    PathSegment::Line { to: [0.0, h] },
+                ];
+                revolved(shape, &section(segments, [0.0, 0.0]), sweep, *tolerance)?
+            } else {
+                let profile = AnalyticProfile::new(ProfileShape::Circle { radius: r });
+                extruded(shape, &profile, 0.0, h, *tolerance)?
+            }
         }
-        PrimitiveShape::Cone { r1, r2, height } => {
+        PrimitiveShape::Cone { r1, r2, height, .. } => {
             let (a, b) = (value(*r1)?, value(*r2)?);
             let h = positive("height", *height)?;
             for (role, r) in [("r1", a), ("r2", b)] {
@@ -105,9 +136,11 @@ pub(super) fn execute(
             if b > 0.0 {
                 segments.push(PathSegment::Line { to: [0.0, h] });
             }
-            revolved(shape, &section(segments, [0.0, 0.0]), None, *tolerance)?
+            revolved(shape, &section(segments, [0.0, 0.0]), sweep, *tolerance)?
         }
-        PrimitiveShape::Sphere { radius, latitudes } => {
+        PrimitiveShape::Sphere {
+            radius, latitudes, ..
+        } => {
             let r = positive("radius", *radius)?;
             let half_pi = std::f64::consts::FRAC_PI_2;
             let (lo, hi) = match latitudes {
@@ -138,13 +171,43 @@ pub(super) fn execute(
                     to: [0.0, r * hi.psin()],
                 });
             }
-            revolved(shape, &section(segments, start), None, *tolerance)?
+            revolved(shape, &section(segments, start), sweep, *tolerance)?
         }
-        PrimitiveShape::Torus {
-            major,
-            minor,
-            angle,
+        PrimitiveShape::Prism {
+            sides,
+            radius,
+            height,
+            flats,
         } => {
+            let r = positive("radius", *radius)?;
+            let h = positive("height", *height)?;
+            replay_primitive_polyhedra::prism(shape, *sides, r, h, *flats, *tolerance)?
+        }
+        PrimitiveShape::Pyramid {
+            sides,
+            r1,
+            r2,
+            height,
+            flats,
+        } => {
+            let (a, b) = (value(*r1)?, value(*r2)?);
+            for (role, r) in [("r1", a), ("r2", b)] {
+                if !(r.is_finite() && r >= 0.0) {
+                    return Err(invalid(shape, role, r, "must not be negative"));
+                }
+            }
+            let h = positive("height", *height)?;
+            replay_primitive_polyhedra::pyramid(shape, *sides, (a, b), h, *flats, *tolerance)?
+        }
+        PrimitiveShape::Wedge { x, y, z, top_x } => {
+            let size = [positive("x", *x)?, positive("y", *y)?, positive("z", *z)?];
+            let t = value(*top_x)?;
+            if !(t.is_finite() && t >= 0.0) {
+                return Err(invalid(shape, "top_x", t, "must not be negative"));
+            }
+            replay_primitive_polyhedra::wedge(shape, size, t, *tolerance)?
+        }
+        PrimitiveShape::Torus { major, minor, .. } => {
             let big = positive("major", *major)?;
             let small = positive("minor", *minor)?;
             if small >= big {
@@ -155,21 +218,6 @@ pub(super) fn execute(
                     "must be less than major (a spindle or horn torus is not this primitive)",
                 ));
             }
-            let sweep = match angle {
-                Some(id) => {
-                    let a = value(*id)?;
-                    if !(a > 0.0 && a <= std::f64::consts::TAU + 1e-12) {
-                        return Err(invalid(
-                            shape,
-                            "angle",
-                            a.to_degrees(),
-                            "needs 0 < angle <= 360",
-                        ));
-                    }
-                    Some(a.min(std::f64::consts::TAU))
-                }
-                None => None,
-            };
             let profile = AnalyticProfile {
                 shape: ProfileShape::Circle { radius: small },
                 center: [big, 0.0],
@@ -177,8 +225,7 @@ pub(super) fn execute(
             revolved(shape, &profile, sweep, *tolerance)?
         }
     };
-    let sector = matches!(desc.shape, PrimitiveShape::Torus { angle: Some(_), .. });
-    super::replay_primitive_names::name_by_role(&mut local, tracking, sector);
+    super::replay_primitive_names::name_by_role(&mut local, tracking, sweep.is_some());
     *brep = placed(shape, &local, &desc.frame)?;
     Ok(ExecuteSideEffects::empty())
 }
