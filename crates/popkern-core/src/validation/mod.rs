@@ -16,6 +16,7 @@ mod face_trim_query;
 mod face_uv_window;
 pub use face_trim_query::{FacePointContainment, FaceUvContainment};
 mod region;
+mod region_sense;
 mod self_intersection;
 mod self_intersection_pair_gate;
 mod self_intersection_trim;
@@ -309,10 +310,17 @@ impl BRep {
         // Geometric check 12: self-intersection (most expensive — run last,
         // and only when there are no structural errors to avoid false reports
         // from broken topology).
-        if errors.is_empty()
-            && let Err(e) = self.validate_self_intersection()
-        {
-            errors.push(e);
+        let crossing = if errors.is_empty() {
+            self.validate_self_intersection().err()
+        } else {
+            None
+        };
+        // A solid region's faces point out of its material (§5.9). A
+        // body crossing itself has no inside to judge them by: its
+        // crossing is the finding.
+        match crossing {
+            Some(e) => errors.push(e),
+            None => errors.extend(self.validate_region_sense_all()),
         }
         // §5.3 item #10 — within-face Gregory self-intersection check.
         // Fast (O(face count) with bounded per-face work); run

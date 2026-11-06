@@ -85,15 +85,52 @@ impl BRep {
             }
         }
 
-        const GRID: usize = 6;
-        // The trim classifier's parametric boundary band
-        // (`face_trim_classify_uv`).
-        let band = self
-            .tolerance
+        let wedge = self.folded_wedge_volume(&component)?;
+        Some(if wedge > 0.0 {
+            MaterialSense::FoldedOutward
+        } else {
+            MaterialSense::FoldedInward
+        })
+    }
+
+    /// The folded-normal wedge integral (the enclosed volume, signed)
+    /// of the closed face set `faces`: positive when their folded
+    /// normals face out of the volume they bound, negative when in.
+    /// Sampled as [`BRep::component_material_sense`] describes (a 6 × 6
+    /// grid per face, samples within the trim classifier's boundary
+    /// band left out), so the magnitude is approximate and the sign is
+    /// the contract. `None` when the integral is too small to call (an
+    /// open or degenerate set, unsampleable geometry).
+    pub fn folded_wedge_volume(&self, faces: &[FaceHandle]) -> Option<f64> {
+        let band = self.sense_parametric_band();
+        self.wedge_integral(faces, 6, band)
+    }
+
+    /// [`BRep::folded_wedge_volume`] sampled finely enough to judge a
+    /// body by: a 12 × 12 grid per face, each sample counted by strict
+    /// trim containment. Leaving out the samples within the boundary
+    /// band drops a margin of every face from the integral, a tenth of
+    /// a unit cube's at a 1e-2 tolerance (measured: a cube less a
+    /// sphere read −1.08 where it encloses +0.2).
+    pub fn enclosed_folded_volume(&self, faces: &[FaceHandle]) -> Option<f64> {
+        self.wedge_integral(faces, 12, 1.0e-12)
+    }
+
+    /// The trim classifier's parametric boundary band
+    /// (`face_trim_classify_uv`).
+    fn sense_parametric_band(&self) -> f64 {
+        self.tolerance
             .parametric_base()
             .max(self.tolerance.linear())
             .max(1.0e-9)
-            * 10.0;
+            * 10.0
+    }
+
+    /// The wedge integral over `faces` on a `grid` × `grid` sample grid
+    /// per face, a sample counted when the trim classifier with
+    /// parametric band `classify_band` reads it interior.
+    fn wedge_integral(&self, faces: &[FaceHandle], grid: usize, classify_band: f64) -> Option<f64> {
+        let band = self.sense_parametric_band();
         // The wedge integral of a closed surface is the same about any
         // centre, but the coarse grid leaves a residual ∫n dA ≠ 0 that
         // the centre multiplies: about the world origin, a thin body
@@ -105,7 +142,7 @@ impl BRep {
         let centre = {
             let mut sum = crate::geometry::Vec3::new(0.0, 0.0, 0.0);
             let mut count = 0usize;
-            for &face in &component {
+            for &face in faces {
                 for p in self.face_boundary_sample_points(face, 2) {
                     sum = sum + crate::geometry::Vec3::new(p.x, p.y, p.z);
                     count += 1;
@@ -119,7 +156,7 @@ impl BRep {
         let mut wedge = 0.0;
         let mut magnitude = 0.0;
         let mut sampled = 0usize;
-        for &face in &component {
+        for &face in faces {
             let Some(sof) = self.faces.get(face).and_then(|f| f.surface.as_ref()) else {
                 continue;
             };
@@ -157,20 +194,21 @@ impl BRep {
             {
                 v1 = v0 + p;
             }
-            let du = (u1 - u0) / GRID as f64;
-            let dv = (v1 - v0) / GRID as f64;
+            let du = (u1 - u0) / grid as f64;
+            let dv = (v1 - v0) / grid as f64;
             if du.abs() < f64::EPSILON || dv.abs() < f64::EPSILON {
                 continue;
             }
-            for i in 0..GRID {
-                for j in 0..GRID {
+            for i in 0..grid {
+                for j in 0..grid {
                     let u = u0 + du * (i as f64 + 0.5);
                     let v = v0 + dv * (j as f64 + 0.5);
                     let inside = matches!(
-                        self.face_trim_classify_uv(
+                        self.face_trim_classify_uv_band(
                             face,
                             &sof.geometry,
                             super::self_intersection_trim::UvPointForSense { u, v },
+                            classify_band,
                         ),
                         Some(super::self_intersection_trim::TrimContainmentForSense::Interior)
                     );
@@ -203,11 +241,7 @@ impl BRep {
         if wedge.abs() < 1e-6 * magnitude || wedge.abs() < linear * linear * linear {
             return None;
         }
-        Some(if wedge > 0.0 {
-            MaterialSense::FoldedOutward
-        } else {
-            MaterialSense::FoldedInward
-        })
+        Some(wedge)
     }
 }
 

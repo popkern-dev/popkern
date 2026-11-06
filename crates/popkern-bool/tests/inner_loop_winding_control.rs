@@ -64,8 +64,7 @@ fn a_hole_wound_with_its_outer_loop_is_rejected() {
         Point3::new(2.0, 2.0, 0.0),
         Point3::new(-2.0, 2.0, 0.0),
     ];
-    let mut plate = BRep::prism(&square, Vec3::new(0.0, 0.0, 1.0), 1.0, tol).expect("plate");
-    plate.reverse_body_orientation();
+    let plate = BRep::prism(&square, Vec3::new(0.0, 0.0, 1.0), 1.0, tol).expect("plate");
     let drill = BRep::cylinder(0.5, 3.0, tol)
         .expect("drill")
         .transform(&popkern_core::geometry::Transform3::translation(

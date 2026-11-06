@@ -15,18 +15,23 @@ fn dishonest_count(brep: &BRep) -> usize {
 fn reversal_preserves_winding_honesty() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     assert_eq!(dishonest_count(&brep), 0, "cube starts honest");
+    let flags: Vec<bool> = brep
+        .faces
+        .values()
+        .map(|f| f.surface.as_ref().is_some_and(|s| s.orientation))
+        .collect();
     brep.reverse_body_orientation();
     assert_eq!(
         dishonest_count(&brep),
         0,
         "reversed body must stay winding-honest (winding and flag negate together)"
     );
-    assert!(
-        brep.faces
-            .values()
-            .all(|f| f.surface.as_ref().is_some_and(|s| !s.orientation)),
-        "all cube flags flip false"
-    );
+    let flipped: Vec<bool> = brep
+        .faces
+        .values()
+        .map(|f| f.surface.as_ref().is_some_and(|s| !s.orientation))
+        .collect();
+    assert_eq!(flipped, flags, "every cube flag flips");
 }
 
 #[test]

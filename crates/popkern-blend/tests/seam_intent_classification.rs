@@ -98,11 +98,20 @@ fn filleted_cube_edge(continuity: ContinuityLevel) -> (BRep, BTreeSet<FaceHandle
         ..Default::default()
     };
     let result = fillet_edges(&cube, &specs, &options, tol, None).expect("fillet");
+    // The fillet makes the strip and a support plane anew; the strip is
+    // the new face that is not a plane.
     let strip = result
         .brep
         .faces
-        .keys()
-        .find(|f| !pre.contains(f))
+        .iter()
+        .find(|(f, face)| {
+            !pre.contains(f)
+                && !face
+                    .surface
+                    .as_ref()
+                    .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }))
+        })
+        .map(|(f, _)| f)
         .expect("strip");
     (result.brep, pre, strip)
 }

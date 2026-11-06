@@ -1,7 +1,7 @@
 //! Error types for popkern-core.
 
 use crate::topology::{
-    EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, RegionHandle, VertexHandle,
+    EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, RegionHandle, ShellHandle, VertexHandle,
 };
 use thiserror::Error;
 
@@ -143,6 +143,27 @@ pub enum ValidationError {
         edge: EdgeHandle,
         /// Maximum deviation distance.
         max_deviation: f64,
+    },
+
+    /// A solid region's shell faces the wrong way: its faces' folded
+    /// normals must point out of the material, so the outer shell
+    /// encloses positive volume and every inner (cavity) shell
+    /// negative.
+    #[error(
+        "solid region {region:?}: shell {shell:?} ({}) encloses signed volume {volume}, \
+         its normals point into the material",
+        if *outer { "outer" } else { "cavity" }
+    )]
+    RegionSense {
+        /// The solid region.
+        region: RegionHandle,
+        /// The shell facing the wrong way.
+        shell: ShellHandle,
+        /// Whether `shell` is the region's outer shell.
+        outer: bool,
+        /// The shell's folded-normal volume (approximate; its sign is
+        /// the finding).
+        volume: f64,
     },
 
     /// Gap between adjacent faces at a shared edge.

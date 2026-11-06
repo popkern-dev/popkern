@@ -10,6 +10,8 @@ use popkern_core::topology::BRep;
 
 use crate::error::BoolOperation;
 
+/// A prism boss turned inside out (a body written before solids faced
+/// outward).
 fn boss(z0: f64, tol: Tolerance) -> BRep {
     let pts = [
         Point3::new(-2.0, -2.0, z0),
@@ -17,7 +19,9 @@ fn boss(z0: f64, tol: Tolerance) -> BRep {
         Point3::new(2.0, 2.0, z0),
         Point3::new(-2.0, 2.0, z0),
     ];
-    BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss")
+    let mut boss = BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss");
+    boss.reverse_body_orientation();
+    boss
 }
 
 fn merge(
@@ -79,7 +83,9 @@ fn wide_boss(z0: f64, tol: Tolerance) -> BRep {
             Point3::new(10.0 * t.cos(), 10.0 * t.sin(), z0)
         })
         .collect();
-    BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss")
+    let mut boss = BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss");
+    boss.reverse_body_orientation();
+    boss
 }
 
 /// Volume of an all-planar body: the divergence theorem over each
@@ -121,8 +127,7 @@ fn a_mixed_sense_scoped_union_reverses_the_carried_far_faces() {
         Point3::new(1.0, 1.0, 0.0),
         Point3::new(-1.0, 1.0, 0.0),
     ];
-    let mut block = BRep::prism(&square, Vec3::new(0.0, 0.0, 1.0), 1.5, tol).expect("block");
-    block.reverse_body_orientation();
+    let block = BRep::prism(&square, Vec3::new(0.0, 0.0, 1.0), 1.5, tol).expect("block");
     let op = BoolOperation::Union;
     for z0 in [1.4, 0.5] {
         let boss = wide_boss(z0, tol);

@@ -334,6 +334,27 @@ fn collect_loop_half_edges(
     Ok(result)
 }
 
+/// Turn an outward shell's assembly out of its material. The outward
+/// pipeline assembles the source body as the outer skin and the moved
+/// skin (beyond it) as the mirrored inner one, so every face points
+/// into the wall: reverse the body, winding and flags together. With
+/// no opening the two skins are separate shells and the source's was
+/// laid down as the outer one; the moved skin is, so the two trade.
+pub(crate) fn outward_shell_out_of_material(result: &mut BRep, maps: &ShellAssemblyMaps) {
+    result.reverse_body_orientation();
+    let Some(&moved_face) = maps.inner_faces.values().next() else {
+        return;
+    };
+    let Some(moved_shell) = result.face_back_shell(moved_face) else {
+        return;
+    };
+    for region in result.solid_regions() {
+        if result.region_outer_shell(region) != Some(moved_shell) {
+            result.exchange_outer_shell(region, moved_shell);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

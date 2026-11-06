@@ -195,6 +195,11 @@ impl BRep {
         brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, PI, TAU, 0.0).into());
         brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, 0.0, 0.0, PI).into());
 
+        // The chart's u × v (v colatitude from the north pole) points
+        // into the ball: reverse the face, winding and flag together,
+        // so its normal points out of the material.
+        brep.reverse_body_orientation();
+
         // =====================================================================
         // Validate
         // =====================================================================

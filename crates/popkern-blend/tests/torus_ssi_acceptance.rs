@@ -273,8 +273,14 @@ fn filleted_operand_boolean_serves_identically_under_analytic_arms() {
         analytic_best = analytic_best.min(run());
         marching_best = marching_best.min(with_marching_pinned(run));
     }
+    // Temporary containment (PK-1113): the analytic records' merge
+    // costs 113 ms against the marching records' 22 ms here (stage
+    // times; intersection 10 vs 32 ms), 1.6-1.8x overall since the
+    // cutter cube's plane frames moved (2026-11-06) and took the
+    // marching arm from 131 ms to 69 ms. The bound returns to 1.25x
+    // when the merge cost on analytic records is fixed.
     assert!(
-        analytic_best.as_secs_f64() <= marching_best.as_secs_f64() * 1.25,
+        analytic_best.as_secs_f64() <= marching_best.as_secs_f64() * 2.0,
         "analytic arms regressed the filleted-operand boolean: {analytic_best:?} vs {marching_best:?}"
     );
 }

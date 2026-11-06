@@ -193,6 +193,7 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         | ValidationError::NonManifoldEdge { .. }
         | ValidationError::LowValence { .. }
         | ValidationError::InconsistentOrientation { .. }
+        | ValidationError::RegionSense { .. }
         | ValidationError::WindingDishonest { .. }
         | ValidationError::InnerLoopWinding { .. }
         | ValidationError::CanonicalBackward { .. }
@@ -212,6 +213,7 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::NonManifoldEdge { .. } => "NonManifoldEdge",
         ValidationError::LowValence { .. } => "LowValence",
         ValidationError::InconsistentOrientation { .. } => "InconsistentOrientation",
+        ValidationError::RegionSense { .. } => "RegionSense",
         ValidationError::OpenLoop { .. } => "OpenLoop",
         ValidationError::CurveSurfaceDeviation { .. } => "CurveSurfaceDeviation",
         ValidationError::ShellGap { .. } => "ShellGap",

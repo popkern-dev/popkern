@@ -379,14 +379,13 @@ mod tests {
         let result = classify_faces(&brep, 0.1, &[], ShellDirection::Inward, &[]).unwrap();
         assert_eq!(result.offset_faces.len(), 6);
         assert_eq!(result.removed_faces.len(), 0);
-        // The unit cube stores plane normals pointing INTO the material
-        // (component folds inward, orientation=true → c_out = −1), so
-        // material-Inward maps to the along-+n geometric flag:
-        // inward=false. The old flag-only pin (inward=true) encoded the
-        // inverted semantics that served void-outside hollow bodies.
+        // The unit cube's plane normals point out of the material
+        // (component folds outward, orientation=true → c_out = +1), so
+        // material-Inward maps to the along-−n geometric flag:
+        // inward=true.
         for &(_, dist, inward) in &result.offset_faces {
             assert!((dist - 0.1).abs() < 1e-12);
-            assert!(!inward, "material-Inward on the cube offsets along +n");
+            assert!(inward, "material-Inward on the cube offsets along −n");
         }
     }
 
@@ -407,9 +406,9 @@ mod tests {
         let result = classify_faces(&brep, 0.2, &[], ShellDirection::Midplane, &[]).unwrap();
         for &(_, dist, inward) in &result.offset_faces {
             assert!((dist - 0.1).abs() < 1e-12);
-            // Material-Inward on the cube = geometric along-+n (see
+            // Material-Inward on the cube = geometric along-−n (see
             // cube_all_faces_offset).
-            assert!(!inward);
+            assert!(inward);
         }
     }
 
@@ -418,8 +417,8 @@ mod tests {
         let brep = BRep::unit_cube(tol()).unwrap();
         let result = classify_faces(&brep, 0.1, &[], ShellDirection::Outward, &[]).unwrap();
         for &(_, _, inward) in &result.offset_faces {
-            // Material-Outward on the inward-folded cube = along −n.
-            assert!(inward);
+            // Material-Outward on the outward-folded cube = along +n.
+            assert!(!inward);
         }
     }
 
