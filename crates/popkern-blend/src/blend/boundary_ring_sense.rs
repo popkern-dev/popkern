@@ -15,30 +15,32 @@
 //! (cap-contains-curve 1.6e-1, G1 normal deficit 0.999) that the
 //! acceptance gates then declined.
 //!
-//! The cap builders on the ring (N-quad Gregory, PnS) construct each
-//! sector's patch from the ring's circulation, so the ring must turn
-//! COUNTER-clockwise about the solid's outward direction — the
-//! right-hand sense of the cap's outward normal. That is the reverse
-//! of the carved blend face's own loop traversal (kernel loops turn
-//! clockwise about the outward normal); measured on every serving
-//! convex ring (conic and extreme cube corners, the forced-decline
-//! pentagon): carved loop == reversed ring. The sense is read locally
-//! and exactly at every bridge rather than from an averaged outward
-//! direction (a saddle's support normals sum to the concave side and
-//! mislead any average): bridge `k` runs across support face `F` from
-//! arc `k`'s end to arc `k+1`'s start, and the carve hands the vertex
-//! side of that cut to the cap. With `n_F` the face-sensed outward
-//! normal of `F`, `t` the bridge direction and `c` the in-surface
-//! direction from the bridge toward the vertex, `(n_F × t) · c < 0`
-//! for every bridge of an outward-sense ring and `> 0` for every
-//! bridge of a mirrored one. The bridges vote; a unanimous vote
-//! decides. A split or empty vote (no support face found, degenerate
-//! bridge) keeps the walk sense and is reported as undetermined — the
-//! caller never guesses.
+//! The cap builders on the ring construct each sector's patch from the
+//! ring's circulation, so the ring must turn the way its builder needs
+//! about the MATERIAL: an exact local reading at every bridge rather
+//! than an averaged direction (a saddle's support normals sum to the
+//! concave side and mislead any average). Bridge `k` runs across
+//! support face `F` from arc `k`'s end to arc `k+1`'s start, and the
+//! carve hands the vertex side of that cut to the cap. With `m_F` the
+//! direction into the material at `F` (its flag-folded normal turned
+//! by the body's material sense), `t` the bridge direction and `c` the
+//! in-surface direction from the bridge toward the vertex,
+//! `(m_F × t) · c < 0` for every bridge of a ring turning
+//! counter-clockwise about the into-material direction and `> 0` for
+//! every bridge of one turning clockwise. The bridges vote; a unanimous
+//! vote decides. A split or empty vote (no support face found,
+//! degenerate bridge, a material sense that cannot be measured) keeps
+//! the walk sense and is reported as undetermined: the caller never
+//! guesses.
 //!
-//! Saddle rings are not normalized (see `BlendBoundaryOptions::
-//! ring_sense_from_solid`): the notched-cube saddle serves in the
-//! walk sense by margin, not by rule (PK-523).
+//! The convex cap builders (N-quad Gregory, PnS) need the ring
+//! counter-clockwise about the into-material direction, the saddle
+//! N-quad cap clockwise (PK-523: both measured on bodies whose
+//! flag-folded normals pointed into the material, where the vote read
+//! the folded normal; the saddle's cap near-folds in the other sense,
+//! in-patch normal cos -0.993 against the -0.98 reversal gate). Read
+//! against the material, the same corner of a body facing either way
+//! gets the same ring.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
@@ -51,27 +53,41 @@ use super::boundary_hex::reverse_arc;
 /// `(order, flip, oriented_arcs)`.
 pub(crate) type OrientedRing = (Vec<usize>, Vec<bool>, Vec<NurbsCurve>);
 
+/// The sense a ring's cap builder needs, about the direction into the
+/// material (module docs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RingSenseRule {
+    /// Counter-clockwise about the into-material direction: the convex
+    /// ring rung's cap builders.
+    Convex,
+    /// Clockwise about it: the saddle N-quad cap.
+    Saddle,
+}
+
 /// Outcome of the ring-sense normalization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RingSense {
-    /// The walk already circulated in the outward sense.
-    AlreadyOutwardSense,
+    /// The walk already circulated in the rule's sense.
+    AlreadyInSense,
     /// The walk circulated against it; the cycle was reversed.
     Reversed,
     /// No unanimous bridge vote; walk sense kept.
     Undetermined,
 }
 
-/// Per-bridge sense votes: `(outward_sense, mirrored)` counts.
+/// Per-bridge sense votes: `(counter_clockwise, clockwise)` counts
+/// about the into-material direction, `material_out` the body's
+/// out-of-material multiplier for flag-folded normals.
 fn bridge_votes(
     brep: &BRep,
     faces: &[FaceHandle],
     vertex_position: Point3,
     oriented_arcs: &[NurbsCurve],
     on_surface_tol: f64,
+    material_out: f64,
 ) -> (usize, usize) {
     let n = oriented_arcs.len();
-    let (mut outward_sense, mut mirrored) = (0usize, 0usize);
+    let (mut counter_clockwise, mut clockwise) = (0usize, 0usize);
     for k in 0..n {
         let (_, t1) = oriented_arcs[k].parameter_range();
         let (s0, _) = oriented_arcs[(k + 1) % n].parameter_range();
@@ -95,60 +111,71 @@ fn bridge_votes(
             }
             let (u, v) = sof.geometry.closest_point(&mid)?;
             let normal = sof.geometry.normal_at(u, v).normalized()?;
-            let outward = if sof.orientation {
+            let folded = if sof.orientation {
                 normal
             } else {
                 normal * -1.0
             };
+            let into = folded * -material_out;
             let to_vertex = vertex_position - mid;
-            let toward_vertex = to_vertex - outward * to_vertex.dot(&outward);
-            let side = outward.cross(&bridge).dot(&toward_vertex);
+            let toward_vertex = to_vertex - into * to_vertex.dot(&into);
+            let side = into.cross(&bridge).dot(&toward_vertex);
             (side.abs() > f64::EPSILON).then_some(side < 0.0)
         }) else {
             continue;
         };
         if vote {
-            outward_sense += 1;
+            counter_clockwise += 1;
         } else {
-            mirrored += 1;
+            clockwise += 1;
         }
     }
-    (outward_sense, mirrored)
+    (counter_clockwise, clockwise)
 }
 
-/// Put a pushed (boundary-ring) cycle into the outward sense the
-/// cap builders need. `faces` are the
-/// support faces incident to the vertex; `on_surface_tol` is the
-/// bridge builder's on-support tolerance. Trace topic `boundary-hex`
-/// records the vote.
+/// Put a boundary-ring cycle into the sense `rule` asks of it about
+/// the material. `faces` are the support faces incident to the vertex;
+/// `on_surface_tol` is the bridge builder's on-support tolerance. Trace
+/// topic `boundary-hex` records the vote.
 pub(crate) fn orient_pushed_ring(
     brep: &BRep,
     faces: &[FaceHandle],
     vertex_position: Point3,
     ring: Option<OrientedRing>,
     on_surface_tol: f64,
+    rule: RingSenseRule,
 ) -> Option<OrientedRing> {
     let ring = ring?;
-    let (outward_sense, mirrored) =
-        bridge_votes(brep, faces, vertex_position, &ring.2, on_surface_tol);
-    let (ring, sense) = orient_ring_by_votes(ring, outward_sense, mirrored);
+    let material_out = faces
+        .first()
+        .and_then(|&f| brep.component_material_sense(f))
+        .map(|s| s.outward_multiplier());
+    let (ccw, cw) = match material_out {
+        Some(m) => bridge_votes(brep, faces, vertex_position, &ring.2, on_surface_tol, m),
+        None => (0, 0),
+    };
+    let (in_sense, against) = match rule {
+        RingSenseRule::Convex => (ccw, cw),
+        RingSenseRule::Saddle => (cw, ccw),
+    };
+    let (ring, sense) = orient_ring_by_votes(ring, in_sense, against);
     if popkern_core::trace::trace_enabled("boundary-hex") {
         eprintln!(
-            "[boundary-hex] pushed ring sense: {sense:?} (votes outward={outward_sense} mirrored={mirrored})"
+            "[boundary-hex] ring sense {rule:?}: {sense:?} (votes counter-clockwise={ccw} clockwise={cw}, material {material_out:?})"
         );
     }
     Some(ring)
 }
 
 /// Reverse the cycle (order reversed, every arc flipped) exactly when
-/// the bridge vote is unanimously mirrored.
+/// the bridge vote is unanimously against the wanted sense.
 fn orient_ring_by_votes(
     ring: OrientedRing,
-    outward_sense: usize,
-    mirrored: usize,
+    in_sense: usize,
+    against: usize,
 ) -> (OrientedRing, RingSense) {
-    match (outward_sense, mirrored) {
-        (l, 0) if l > 0 => (ring, RingSense::AlreadyOutwardSense),
+    match (in_sense, against) {
+        (l, 0) if l > 0 => (ring, RingSense::AlreadyInSense),
         (0, m) if m > 0 => {
             let (order, flip, arcs) = ring;
             let order: Vec<usize> = order.into_iter().rev().collect();

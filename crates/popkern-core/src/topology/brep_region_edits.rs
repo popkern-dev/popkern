@@ -189,6 +189,46 @@ impl BRep {
         }
     }
 
+    /// Make `cavity`, an inner shell of solid `region`, its outer shell,
+    /// and the outer shell that cavity's: the two shells' void partners
+    /// trade regions with them (the outer shell's partner now bounds
+    /// the cavity region, the cavity's partner lies in the void the
+    /// region sits in). For a body whose geometry was turned inside out
+    /// after its regions were laid down (an outward offset skin
+    /// assembled as the inner one). `false`, changing nothing, when
+    /// `cavity` is not an inner shell of `region` or either shell has
+    /// no face to read its partner off.
+    pub fn exchange_outer_shell(&mut self, region: RegionHandle, cavity: ShellHandle) -> bool {
+        let Some(outer) = self.region_outer_shell(region) else {
+            return false;
+        };
+        if outer == cavity || self.shell_region(cavity) != Some(region) {
+            return false;
+        }
+        let partner = |b: &Self, shell| {
+            b.faces
+                .values()
+                .find(|f| f.back == shell && f.front != shell)
+                .map(|f| f.front)
+        };
+        let (Some(outer_partner), Some(cavity_partner)) =
+            (partner(self, outer), partner(self, cavity))
+        else {
+            return false;
+        };
+        let (Some(around), Some(hollow)) = (
+            self.shell_region(outer_partner),
+            self.shell_region(cavity_partner),
+        ) else {
+            return false;
+        };
+        self.shells[cavity_partner].region = around;
+        self.shells[outer_partner].region = hollow;
+        self.regions[hollow].shell = outer_partner;
+        self.regions[region].shell = cavity;
+        true
+    }
+
     /// Keep only the solid regions in `keep`. Every other solid region
     /// goes with its shells and the faces whose back lies in them; the
     /// void shells those faces fronted onto go when no face is left in

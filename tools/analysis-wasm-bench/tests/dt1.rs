@@ -92,10 +92,14 @@ const DT1_CELLS: usize = 4000;
 /// corrected, docs/architecture/analysis-integration.md fixture log);
 /// block_dimple re-pinned 2026-11-04 when its regenerated fixture's rim
 /// circle came out with an exact axis (3,333 cells, 12,132 dofs, 8
-/// iterations; wasm reproduced it).
+/// iterations; wasm reproduced it); block_two_bores and block_dimple
+/// re-pinned 2026-11-06 when solids came to face out of their material
+/// and their regenerated fixtures wrote their faces the other way (the
+/// same cells, dofs and iterations: 3,165 / 11,808 / 11 and 3,333 /
+/// 12,132 / 8; wasm reproduced both).
 const PINNED: [(&str, u64); 3] = [
-    ("block_two_bores", 0xe74b_1c78_84ae_bba3),
-    ("block_dimple", 0x64c5_a60c_1838_4f86),
+    ("block_two_bores", 0x2e4d_9956_b624_1f85),
+    ("block_dimple", 0x36f1_62e9_69bf_519b),
     ("l_bracket", 0xb952_afcf_f3d8_f6a5),
 ];
 

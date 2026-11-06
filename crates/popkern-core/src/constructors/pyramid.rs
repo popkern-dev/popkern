@@ -228,6 +228,9 @@ impl BRep {
         // ── Geometry: straight-line curves + plane surfaces ────
         brep.attach_geometry()?;
         brep.attach_planar_pcurves()?;
+        // The Euler build winds the faces into the material; turn the
+        // body out of it (exact planar volume sign).
+        brep.orient_planar_outward()?;
 
         brep.validate().map_err(CoreError::Validation)?;
 
@@ -382,6 +385,9 @@ impl BRep {
 
         brep.attach_geometry()?;
         brep.attach_planar_pcurves()?;
+        // The Euler build winds the faces into the material; turn the
+        // body out of it (exact planar volume sign).
+        brep.orient_planar_outward()?;
         brep.validate().map_err(CoreError::Validation)?;
 
         Ok(brep)

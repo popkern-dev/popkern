@@ -92,6 +92,8 @@ pub(super) fn open_sheet(mut body: BRep) -> Result<BRep, BoolError> {
     for &(h, _) in &open {
         run_curve_along(&mut body, h);
     }
+    // A sheet bounds no volume: its faces lie in the void, both sides.
+    body.settle_open_shells();
     let findings = body.validate_all();
     if !findings.is_empty() {
         return Err(BoolError::ValidationFailed(format!(

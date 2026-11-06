@@ -56,5 +56,6 @@ pub use boundary::{
     BlendBoundary, BlendBoundaryOptions, BoundarySegment, compute_blend_boundary,
     compute_blend_boundary_with_options,
 };
+pub use boundary_ring_sense::RingSenseRule;
 pub use runout::{RunoutEnd, runout_radius_fn};
 pub use surface::{BlendSurfaceResult, build_blend_surface};

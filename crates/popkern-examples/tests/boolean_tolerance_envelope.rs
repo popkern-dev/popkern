@@ -206,9 +206,10 @@ fn boolean_tolerance_envelope_serves_clean_or_declines_structured() {
             .unwrap();
         match popkern_bool::subtraction(cube, sphere, t, None) {
             Ok(b) => {
+                let errors = b.validate_all();
                 assert!(
-                    b.validate_all().is_empty(),
-                    "sphere-cube at {lin:e} must be validator-clean"
+                    errors.is_empty(),
+                    "sphere-cube at {lin:e} must be validator-clean: {errors:?}"
                 );
                 let mesh = tessellate(&b, &TessellationOptions::default()).unwrap();
                 assert_eq!(open_edges(&mesh), 0, "sphere-cube at {lin:e}: watertight");

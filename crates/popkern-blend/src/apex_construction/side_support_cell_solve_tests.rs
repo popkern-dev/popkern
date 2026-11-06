@@ -60,15 +60,39 @@ fn cube_with_slit_spur() -> (BRep, FaceHandle) {
         brep.half_edges[a].next
     };
     brep.mef(corner_he, opposite_he).expect("diagonal mef");
-    // The half under solve is the one whose loop kept `corner_he`.
-    let stripped = brep
-        .loops
-        .get(brep.half_edges[corner_he].loop_)
-        .map(|l| l.face)
-        .expect("corner half-edge stays in a live loop");
+    // The half under solve is the one bordering the x=0 face (its loop
+    // passes (0,1,1)), which carries the spur; the spur is spliced at
+    // that half's fin leaving the corner.
+    let corner = brep.half_edges[corner_he].origin;
+    let in_half = |b: &BRep, l| {
+        let start = b.loops[l].half_edge;
+        let mut fins = vec![start];
+        let mut h = b.half_edges[start].next;
+        while h != start {
+            fins.push(h);
+            h = b.half_edges[h].next;
+        }
+        fins
+    };
+    let (stripped, spur_he) = brep
+        .half_edges
+        .iter()
+        .filter(|(_, fin)| fin.origin == corner)
+        .find_map(|(leaving, fin)| {
+            let fins = in_half(&brep, fin.loop_);
+            let at = |h: popkern_core::topology::HalfEdgeHandle| {
+                brep.vertices[brep.half_edges[h].origin].position
+            };
+            let on_top = fins.iter().all(|&h| (at(h).z - 1.0).abs() < 1e-9);
+            let borders_x0 = fins
+                .iter()
+                .any(|&h| at(h).distance_to(&Point3::new(0.0, 1.0, 1.0)) < 1e-9);
+            (on_top && borders_x0).then(|| (brep.loops[fin.loop_].face, leaving))
+        })
+        .expect("a top half borders the x=0 face");
     // Spur into the x=0 plane: corner -> S1 -> S2 (out-and-back).
     let s1 = brep
-        .mev(corner_he, Point3::new(0.0, 0.4, 0.7))
+        .mev(spur_he, Point3::new(0.0, 0.4, 0.7))
         .expect("first spur mev");
     let _s2 = brep
         .mev(s1.half_edge_twin, Point3::new(0.0, 0.7, 0.4))

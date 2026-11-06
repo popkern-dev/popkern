@@ -212,7 +212,11 @@ fn is_boundary_edge(brep: &BRep, edge: EdgeHandle) -> bool {
 }
 
 /// Is the dihedral angle at `edge` within `tolerance.angular()` of
-/// π (tangent faces)? Uses the surface normals at the edge midpoint.
+/// π (tangent faces)? Compares the two faces' normals at the edge
+/// midpoint, each folded by its orientation flag: across a smooth edge
+/// the faces' outward normals agree, whichever way each surface is
+/// parametrised (raw normals opposed only where one face's flag is
+/// false, as on a body whose planes faced into it).
 /// Returns `false` for edges without a curve or for seam edges.
 fn is_edge_tangent(brep: &BRep, edge: EdgeHandle, tolerance: &Tolerance) -> bool {
     use popkern_core::geometry::curve::CurveEval;
@@ -253,16 +257,16 @@ fn is_edge_tangent(brep: &BRep, edge: EdgeHandle, tolerance: &Tolerance) -> bool
     let Some((u_b, v_b)) = sb.geometry.closest_point(&p) else {
         return false;
     };
-    let n_a = sa.geometry.normal_at(u_a, v_a).normalized();
-    let n_b = sb.geometry.normal_at(u_b, v_b).normalized();
+    let fold = |n: popkern_core::geometry::Vec3, flag: bool| if flag { n } else { n * -1.0 };
+    let n_a = fold(sa.geometry.normal_at(u_a, v_a), sa.orientation).normalized();
+    let n_b = fold(sb.geometry.normal_at(u_b, v_b), sb.orientation).normalized();
     let (Some(n_a), Some(n_b)) = (n_a, n_b) else {
         return false;
     };
-    // Dihedral at π means n_a · n_b ≈ -1 (normals opposite because
-    // faces fold back to near-coplanar). The angular tolerance in
-    // cosine terms: cos(π - tol) = -cos(tol) ≈ -(1 - tol²/2).
+    // Tangent faces' outward normals agree: n_a · n_b ≈ 1 within the
+    // angular tolerance, cos(tol).
     let cos_tol = tolerance.angular().pcos();
-    n_a.dot(&n_b) < -cos_tol
+    n_a.dot(&n_b) > cos_tol
 }
 
 #[cfg(test)]

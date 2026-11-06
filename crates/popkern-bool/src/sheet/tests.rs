@@ -47,49 +47,43 @@ fn dangling_edge_brep_is_a_sheet() {
 
 #[test]
 fn side_of_sheet_outside_cube_is_front_of_closest_face() {
-    // For a multi-face body, side_of_sheet picks the closest
-    // face and reports relative to its outward normal. A point
-    // outside the cube is on the front side of its closest face
-    // (because every face's outward normal points away from
-    // the cube interior). This test pins that behavior — for
-    // a true sheet body the function returns Front/Back relative
-    // to the single oriented surface.
+    // For a multi-face body, side_of_sheet picks the face nearest the
+    // point within its trims and reports relative to its outward
+    // normal: a point outside the cube is on the front of its nearest
+    // face, whose outward normal points away from the interior. A side
+    // wall's unbounded plane is nearer a point above the cube than the
+    // top face is, but its foot lies past the wall's edges.
     let cube = BRep::unit_cube(tol()).unwrap();
     use popkern_core::geometry::Point3;
-    let above = Point3::new(0.5, 0.5, 5.0);
-    let below = Point3::new(0.5, 0.5, -5.0);
-    let side_above = side_of_sheet(&cube, &above, &tol());
-    let side_below = side_of_sheet(&cube, &below, &tol());
-    assert!(matches!(side_above, SideOfSheet::Front));
-    assert!(matches!(side_below, SideOfSheet::Front));
+    for p in [
+        Point3::new(0.5, 0.5, 5.0),
+        Point3::new(0.5, 0.5, -5.0),
+        Point3::new(5.0, 0.5, 0.5),
+        // Beyond an edge: no face's foot lies inside its trims.
+        Point3::new(5.0, 5.0, 0.5),
+    ] {
+        assert_eq!(
+            side_of_sheet(&cube, &p, &tol()),
+            SideOfSheet::Front,
+            "{p:?}"
+        );
+    }
 }
 
 #[test]
 fn side_of_sheet_classifies_consistently() {
-    // For a closed solid, side_of_sheet picks the closest face
-    // and reports relative to its outward normal. The exact
-    // Front/Back assignment depends on construction-time loop
-    // orientation, but the function MUST be deterministic for
-    // identical inputs and MUST report `On` when the point lies
-    // on the surface within tolerance.
+    // Inside the cube is behind its nearest face, a point on a face is
+    // on it, and the answer is deterministic.
     let cube = BRep::unit_cube(tol()).unwrap();
     use popkern_core::geometry::Point3;
-    let inside = Point3::new(0.5, 0.5, 0.5);
-    let outside = Point3::new(0.5, 0.5, 5.0);
-
-    let side_inside_1 = side_of_sheet(&cube, &inside, &tol());
-    let side_inside_2 = side_of_sheet(&cube, &inside, &tol());
-    assert_eq!(side_inside_1, side_inside_2);
-
-    for side in [
+    let inside = Point3::new(0.5, 0.5, 0.4);
+    assert_eq!(side_of_sheet(&cube, &inside, &tol()), SideOfSheet::Back);
+    assert_eq!(
         side_of_sheet(&cube, &inside, &tol()),
-        side_of_sheet(&cube, &outside, &tol()),
-    ] {
-        assert!(matches!(
-            side,
-            SideOfSheet::Front | SideOfSheet::Back | SideOfSheet::On
-        ));
-    }
+        side_of_sheet(&cube, &inside, &tol())
+    );
+    let on = Point3::new(0.5, 0.5, 1.0);
+    assert_eq!(side_of_sheet(&cube, &on, &tol()), SideOfSheet::On);
 }
 
 #[test]

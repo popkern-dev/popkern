@@ -159,17 +159,15 @@ pub(crate) fn insert_vertex_blend(
     // 3-vertex cap-tangent-arc loop directly. For non-uniform
     // corners, substitution and rebuild stay active.
     let auto_disable_substitution = radii_uniform_pre;
+    let saddle = matches!(classification, VertexBlendClassification::OppositeSide);
     let boundary_options = crate::blend::BlendBoundaryOptions {
-        disable_sphere_fit_substitution: if auto_disable_substitution {
-            Some(true)
-        } else {
-            None
-        },
+        disable_sphere_fit_substitution: auto_disable_substitution.then_some(true),
         // PK-234: saddle bridges run through consumed support bands
         // without the rail-crossing station pushback (convex ring
         // corners get their pushed boundary inside the ring rung).
-        ring_station_pushback: matches!(classification, VertexBlendClassification::OppositeSide),
-        ring_sense_from_solid: false,
+        ring_station_pushback: saddle,
+        // The saddle N-quad cap builds in the saddle sense (PK-523).
+        ring_sense: saddle.then_some(crate::blend::RingSenseRule::Saddle),
     };
     let rational_gregory_compatible = matches!(
         classification,

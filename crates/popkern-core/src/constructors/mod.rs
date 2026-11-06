@@ -28,33 +28,42 @@ use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::topology::BRep;
 
-/// Compute a plane surface from 3 non-collinear points.
+/// A plane through a face's loop corners `points` (in loop order),
+/// facing the way the loop winds: the normal is the loop's Newell
+/// normal (its area-weighted normal, right whatever corner the loop
+/// starts at: three corners read the wrong way at a reflex corner and
+/// not at all across collinear ones), the u-axis the first edge of
+/// non-zero length, the origin the first corner.
 ///
-/// Produces orthonormal `u_axis` and `v_axis` via Gram-Schmidt
-/// orthogonalization. The u-axis is aligned with `p1 - p0` (normalized),
-/// and the v-axis is the component of `p2 - p0` perpendicular to u-axis.
-pub(crate) fn plane_from_points(
-    p0: Point3,
-    p1: Point3,
-    p2: Point3,
-) -> Result<SurfaceGeometry, CoreError> {
-    let raw_u = p1 - p0;
-    let raw_v = p2 - p0;
-    let normal = raw_u.cross(&raw_v);
-    let normal = normal
-        .normalized()
-        .ok_or_else(|| CoreError::DegenerateSurface("collinear points for plane".into()))?;
-    let u_axis = raw_u
-        .normalized()
-        .ok_or_else(|| CoreError::DegenerateSurface("zero-length u_axis".into()))?;
-    // Use cross product (not Gram-Schmidt) for v_axis to match the STEP
-    // convention: v = cross(normal, u_axis). OpenCASCADE derives v_axis
-    // this way from AXIS2_PLACEMENT_3D, so our pcurve UV coordinates
-    // must use the same frame.
-    let v_axis = normal
-        .cross(&u_axis)
-        .normalized()
-        .ok_or_else(|| CoreError::DegenerateSurface("collinear points for plane".into()))?;
+/// # Errors
+///
+/// [`CoreError::DegenerateSurface`] when the loop encloses no area.
+pub(crate) fn plane_from_loop(points: &[Point3]) -> Result<SurfaceGeometry, CoreError> {
+    let degenerate = || CoreError::DegenerateSurface("loop encloses no area for a plane".into());
+    let p0 = *points.first().ok_or_else(degenerate)?;
+    let mut newell = crate::geometry::Vec3::new(0.0, 0.0, 0.0);
+    for (i, p) in points.iter().enumerate() {
+        let q = points[(i + 1) % points.len()];
+        newell = newell
+            + crate::geometry::Vec3::new(
+                (p.y - q.y) * (p.z + q.z),
+                (p.z - q.z) * (p.x + q.x),
+                (p.x - q.x) * (p.y + q.y),
+            );
+    }
+    let normal = newell.normalized().ok_or_else(degenerate)?;
+    let u_axis = points[1..]
+        .iter()
+        .find_map(|p| {
+            let d = *p - p0;
+            let along = d - normal * d.dot(&normal);
+            along.normalized()
+        })
+        .ok_or_else(degenerate)?;
+    // v = normal × u, the STEP convention: OpenCASCADE derives v_axis
+    // this way from AXIS2_PLACEMENT_3D, so pcurve UV coordinates must
+    // use the same frame.
+    let v_axis = normal.cross(&u_axis).normalized().ok_or_else(degenerate)?;
     Ok(SurfaceGeometry::Plane {
         origin: p0,
         normal,
@@ -111,17 +120,7 @@ impl BRep {
                 continue;
             }
 
-            // Collect 3 distinct vertex positions from the loop.
-            let he0 = &self.half_edges[start_he];
-            let p0 = self.vertices[he0.origin].position;
-
-            let he1 = &self.half_edges[he0.next];
-            let p1 = self.vertices[he1.origin].position;
-
-            let he2 = &self.half_edges[he1.next];
-            let p2 = self.vertices[he2.origin].position;
-
-            let surface = plane_from_points(p0, p1, p2)?;
+            let surface = plane_from_loop(&self.face_outer_loop_positions(fh))?;
             self.faces[fh].surface = Some(SurfaceOnFace {
                 geometry: surface,
                 orientation: true,

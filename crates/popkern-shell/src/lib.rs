@@ -321,6 +321,9 @@ pub(crate) fn shell_impl(
     let t0 = popkern_core::time::Stopwatch::start();
     let (mut result, assembly_maps) =
         assemble::assemble_shell_with_maps(brep, &inner, &all_removed, &skin_map, tolerance)?;
+    if matches!(direction, ShellDirection::Outward) {
+        assemble::outward_shell_out_of_material(&mut result, &assembly_maps);
+    }
     tracker.finish_stage("shell.assemble", t0, result.faces.len());
 
     // Exact face provenance for stable naming (PK-328): handles are

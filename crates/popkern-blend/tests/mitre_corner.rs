@@ -243,12 +243,15 @@ fn skewed_square_pyramid(dx: f64, dy: f64) -> BRep {
         let normal = (p1 - p0).cross(&(p2 - p0)).normalized().expect("plane");
         let u_axis = (p1 - p0).normalized().expect("plane");
         let v_axis = normal.cross(&u_axis);
-        b.faces[f].surface.as_mut().expect("surface").geometry = SurfaceGeometry::Plane {
+        // The normal is read off the winding, so the flag is true.
+        let surface = b.faces[f].surface.as_mut().expect("surface");
+        surface.geometry = SurfaceGeometry::Plane {
             origin: p0,
             normal,
             u_axis,
             v_axis,
         };
+        surface.orientation = true;
     }
     b.attach_planar_pcurves().expect("pcurves");
     b.validate().expect("skewed pyramid validates");
