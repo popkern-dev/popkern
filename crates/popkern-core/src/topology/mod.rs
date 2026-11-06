@@ -52,8 +52,13 @@ pub use surface_boundary_audit::{
     SurfaceBoundarySharedTrimValidation,
 };
 
+/// Appending one body to another.
+mod brep_append;
 /// Non-manifold radial-cycle helpers for [`BRep`].
 mod brep_radial;
+/// Regions, shells and face sides for [`BRep`].
+mod brep_regions;
+pub use brep_append::AppendMap;
 
 /// Non-manifold repair policy and user-facing explanations.
 pub mod brep_nonmanifold_policy;

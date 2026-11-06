@@ -9,7 +9,7 @@ use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 /// Build a degree-2 NURBS full-circle in the XY plane at height `z`.
 fn xy_circle_nurbs(radius: f64, z: f64) -> NurbsCurve {
@@ -131,14 +131,7 @@ impl BRep {
         });
 
         // -- Solid / Shell --
-        let solid_h = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell_h = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid: solid_h,
-        });
-        brep.solids[solid_h].shell = shell_h;
+        let (_solid_h, shell_h) = brep.add_solid_region(Default::default());
 
         // -- Faces & loops --
         let loop_lateral = brep.loops.insert(Loop {
@@ -171,7 +164,7 @@ impl BRep {
 
         brep.loops[loop_lateral].face = f_lateral;
         brep.loops[loop_cap].face = f_cap;
-        brep.shells[shell_h].face = f_lateral;
+        brep.set_shell_anchor(shell_h, f_lateral);
 
         // -- Edges --
         let e_base_circle = brep.insert_edge_tracked(Edge {

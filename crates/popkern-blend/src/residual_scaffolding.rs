@@ -154,19 +154,7 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
     }
 
     // Repoint shells whose representative face was retired.
-    let shells: Vec<_> = brep.shells.keys().collect();
-    for shell in shells {
-        if brep.faces.contains_key(brep.shells[shell].face) {
-            continue;
-        }
-        if let Some(replacement) = brep
-            .faces
-            .iter()
-            .find_map(|(face, data)| (data.shell == shell).then_some(face))
-        {
-            brep.shells[shell].face = replacement;
-        }
-    }
+    brep.repair_shell_anchors();
 
     if brep.validate().is_err() {
         *brep = rollback;

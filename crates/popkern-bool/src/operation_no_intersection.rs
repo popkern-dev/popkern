@@ -188,23 +188,23 @@ fn handle_reverse_containment(
 /// void read as a second, positive body (PK-879).
 fn build_hollow_solid(a: BRep, b: BRep, _tolerance: &Tolerance) -> Result<BRep, BoolError> {
     let host = enclosing_solid(&a, &b);
-    let a_solids: Vec<_> = a.solids.keys().collect();
+    let a_solids = a.solid_regions();
     let mut result = copy_brep_into(a, b, true)?;
     let Some(host) = host else {
         return Ok(result);
     };
     let void_solids: Vec<_> = result
-        .solids
-        .keys()
+        .solid_regions()
+        .into_iter()
         .filter(|s| !a_solids.contains(s))
         .collect();
-    for shell in result.shells.values_mut() {
-        if void_solids.contains(&shell.solid) {
-            shell.solid = host;
+    for &void in &void_solids {
+        for shell in result.region_shells(void) {
+            result.move_shell_to_region(shell, host);
         }
     }
     for s in void_solids {
-        result.solids.remove(s);
+        result.remove_empty_region(s);
     }
     Ok(result)
 }
@@ -237,10 +237,9 @@ fn enclosing_solid(a: &BRep, b: &BRep) -> Option<popkern_core::topology::SolidHa
             .map(|(_, x)| x),
     )?;
     let mut best: Option<(f64, popkern_core::topology::SolidHandle)> = None;
-    for (sh, _) in &a.solids {
+    for sh in a.solid_regions() {
         let Some(u) = union(&mut a_boxes.iter().filter_map(|(f, x)| {
-            let face = a.faces.get(*f)?;
-            (a.shells.get(face.shell)?.solid == sh).then_some(x.clone())
+            (a.shell_region(a.face_back_shell(*f)?)? == sh).then_some(x.clone())
         })) else {
             continue;
         };
@@ -255,5 +254,6 @@ fn enclosing_solid(a: &BRep, b: &BRep) -> Option<popkern_core::topology::SolidHa
             best = Some((size, sh));
         }
     }
-    best.map(|(_, s)| s).or_else(|| a.solids.keys().next())
+    best.map(|(_, s)| s)
+        .or_else(|| a.solid_regions().first().copied())
 }

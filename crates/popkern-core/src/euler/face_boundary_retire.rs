@@ -273,25 +273,14 @@ impl BRep {
     }
 
     fn repair_shell_face_after_retirement(&mut self, face: FaceHandle) -> Result<(), CoreError> {
-        let shell = self
-            .faces
+        self.faces
             .get(face)
-            .ok_or_else(|| CoreError::InvalidHandle("retire face handle is invalid".into()))?
-            .shell;
-        if self.shells[shell].face != face {
-            return Ok(());
+            .ok_or_else(|| CoreError::InvalidHandle("retire face handle is invalid".into()))?;
+        if !self.move_shell_anchor_off(face) {
+            return Err(CoreError::PreconditionFailed(
+                "retire_faces_to_boundary cannot retire the last face in a shell".into(),
+            ));
         }
-        let replacement = self
-            .faces
-            .iter()
-            .find(|(candidate, data)| *candidate != face && data.shell == shell)
-            .map(|(candidate, _)| candidate)
-            .ok_or_else(|| {
-                CoreError::PreconditionFailed(
-                    "retire_faces_to_boundary cannot retire the last face in a shell".into(),
-                )
-            })?;
-        self.shells[shell].face = replacement;
         Ok(())
     }
 }

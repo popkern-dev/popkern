@@ -460,20 +460,9 @@ fn retire_consumed_support_source_loops(
                 ),
             });
         }
-        let shell = face_data.shell;
+        brep.move_shell_anchor_off(loop_data.face);
         brep.loops.remove(loop_handle);
         brep.faces.remove(loop_data.face);
-        if brep
-            .shells
-            .get(shell)
-            .is_some_and(|shell_data| shell_data.face == loop_data.face)
-            && let Some(replacement_face) = brep
-                .faces
-                .iter()
-                .find_map(|(face, data)| (data.shell == shell).then_some(face))
-        {
-            brep.shells[shell].face = replacement_face;
-        }
     }
     Ok(())
 }

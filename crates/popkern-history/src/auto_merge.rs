@@ -316,7 +316,9 @@ impl CutWitness {
     /// named faces is never judged, nor is a body whose volume cannot
     /// be measured.
     fn removed_nothing(&self, result: &BRep, tolerance: &Tolerance) -> bool {
-        if self.tool_faces.is_empty() || result.solids.len() < self.host.solids.len() {
+        if self.tool_faces.is_empty()
+            || result.solid_regions().len() < self.host.solid_regions().len()
+        {
             return false;
         }
         let descends =

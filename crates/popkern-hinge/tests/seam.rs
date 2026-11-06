@@ -91,7 +91,7 @@ fn knuckles_join_the_box_and_the_lid() {
     )
     .expect("lid knuckles");
     for (name, before, after) in [("box", &box_, &a), ("lid", &lid, &b)] {
-        assert_eq!(after.shells.len(), 1, "{name}: one shell");
+        assert_eq!(after.back_shell_count(), 1, "{name}: one shell");
         assert!(watertight(after), "{name} watertight");
         let grown = volume(after) - volume(before);
         assert!(grown > 0.0, "{name} gained the knuckles: {grown}");

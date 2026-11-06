@@ -3,7 +3,7 @@
 
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
-use crate::topology::{BRep, Face, FaceHandle, LoopHandle, Shell, ShellHandle, Solid};
+use crate::topology::{BRep, Face, FaceHandle, LoopHandle, ShellHandle};
 
 #[derive(Debug, Clone)]
 struct KfmrhApplied {
@@ -185,15 +185,8 @@ impl BRep {
 
         self.loops[inner_loop].face = new_face;
 
-        let new_shell = self.shells.insert(Shell {
-            face: new_face,
-            solid: Default::default(), // patched below
-        });
-
-        let new_solid = self.solids.insert(Solid { shell: new_shell });
-
+        let (_, new_shell) = self.add_solid_region(new_face);
         self.faces[new_face].shell = new_shell;
-        self.shells[new_shell].solid = new_solid;
 
         Ok(MfkrhResult {
             face: new_face,

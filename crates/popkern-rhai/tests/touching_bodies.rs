@@ -107,10 +107,10 @@ fn touching_bodies_unite_into_one_solid() {
         let brep = run(a, b, "union").unwrap_or_else(|e| panic!("{a} + {b}: {e}"));
         assert!(brep.validate().is_ok());
         assert_eq!(
-            brep.solids.len(),
+            brep.solid_regions().len(),
             1,
             "{a} + {b}: {} solids",
-            brep.solids.len()
+            brep.solid_regions().len()
         );
         let v = volume(&brep);
         assert!(

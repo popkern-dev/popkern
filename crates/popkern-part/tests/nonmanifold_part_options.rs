@@ -45,7 +45,7 @@ fn symmetric_difference_of_overlapping_parts_serves_split() {
         .symmetric_difference(&other, &SPLIT)
         .expect("serves split");
     assert!(xor.brep().validate_all().is_empty());
-    assert_eq!(xor.brep().shells.len(), 2);
+    assert_eq!(xor.brep().back_shell_count(), 2);
     assert!(
         cube()
             .symmetric_difference(&other, &BoolOptions::default())

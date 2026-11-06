@@ -145,14 +145,7 @@ impl BRep {
         }
 
         // Repoint shell anchors that referenced removed faces.
-        let shells: Vec<_> = candidate.shells.keys().collect();
-        for sh in shells {
-            if !candidate.faces.contains_key(candidate.shells[sh].face)
-                && let Some((replacement, _)) = candidate.faces.iter().next()
-            {
-                candidate.shells[sh].face = replacement;
-            }
-        }
+        candidate.repair_shell_anchors();
 
         candidate.validate().map_err(CoreError::Validation)?;
         *self = candidate;

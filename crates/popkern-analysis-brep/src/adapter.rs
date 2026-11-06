@@ -143,15 +143,11 @@ fn surface_kind(geometry: &SurfaceGeometry) -> Surface {
 fn face_solids(brep: &BRep, index: usize) -> Result<Vec<(FaceHandle, SolidHandle)>, AdapterError> {
     brep.faces
         .iter()
-        .map(|(handle, face)| {
-            let shell = brep
-                .shells
-                .get(face.shell)
-                .ok_or(AdapterError::OrphanFace { brep: index })?;
-            if !brep.solids.contains_key(shell.solid) {
-                return Err(AdapterError::OrphanFace { brep: index });
-            }
-            Ok((handle, shell.solid))
+        .map(|(handle, _)| {
+            brep.face_back_shell(handle)
+                .and_then(|shell| brep.shell_region(shell))
+                .map(|region| (handle, region))
+                .ok_or(AdapterError::OrphanFace { brep: index })
         })
         .collect()
 }
@@ -206,7 +202,7 @@ pub fn model_from_breps_named(
         let mesh = popkern_mesh::tessellate(brep, options).map_err(|e| AdapterError::Mesh {
             detail: e.to_string(),
         })?;
-        for (solid_handle, _) in &brep.solids {
+        for solid_handle in brep.solid_regions() {
             let solid_id = SolidId(id(solids.len())?);
             let first_face = faces.len();
             let mut face_ids: BTreeMap<FaceHandle, FaceId> = BTreeMap::new();
@@ -292,7 +288,7 @@ pub fn model_from_breps_named(
                 &freeform,
             );
             concave_edges.extend(found.concave_edges);
-            let exact_volume = Some(solid_volume(brep, solid_handle, &owners)?);
+            let exact_volume = Some(solid_volume(brep, solid_handle)?);
             solids.push(SolidMesh {
                 id: solid_id,
                 name: None,
@@ -322,26 +318,17 @@ pub fn model_from_breps_named(
 /// Exact volume of one solid of `brep`: `body_volume` of a copy that
 /// keeps only that solid's faces (popkern has no per-solid extraction
 /// at the pinned commit). A single-solid BRep is measured directly.
-fn solid_volume(
-    brep: &BRep,
-    solid: SolidHandle,
-    owners: &[(FaceHandle, SolidHandle)],
-) -> Result<f64, AdapterError> {
+fn solid_volume(brep: &BRep, solid: SolidHandle) -> Result<f64, AdapterError> {
     let measure = |b: &BRep| {
         popkern_measure::body_volume(b, &b.tolerance).map_err(|e| AdapterError::Measure {
             detail: e.to_string(),
         })
     };
-    if brep.solids.len() == 1 {
+    if brep.solid_regions().len() == 1 {
         return measure(brep);
     }
     let mut view = brep.clone();
-    for &(face, owner) in owners {
-        if owner != solid {
-            view.faces.remove(face);
-        }
-    }
-    view.solids.retain(|handle, _| handle == solid);
+    view.retain_solid_regions(&[solid]);
     measure(&view)
 }
 

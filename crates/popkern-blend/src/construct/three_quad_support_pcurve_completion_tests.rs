@@ -9,8 +9,8 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFac
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, Vertex, VertexHandle,
+    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle, Vertex,
+    VertexHandle,
 };
 
 #[test]
@@ -60,14 +60,7 @@ fn rejected_cap_boundary_hint_falls_back_to_sample_repair() {
 
 fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
 
     let start = Point3::new(0.0, 0.0, 0.0);
     let end = Point3::new(0.0, 1.0, 0.0);
@@ -113,7 +106,7 @@ fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
     brep.faces[support_face].outer_loop = support_loop;
     brep.vertices[va].outgoing = cap_half_edge;
     brep.vertices[vb].outgoing = support_half_edge;
-    brep.shells[shell].face = cap_face;
+    brep.set_shell_anchor(shell, cap_face);
     (brep, cap_face, cap_half_edge)
 }
 

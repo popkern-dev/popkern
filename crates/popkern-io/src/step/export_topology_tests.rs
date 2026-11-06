@@ -503,19 +503,11 @@ fn collapsed_trim_sheet() -> BRep {
     use popkern_core::geometry::pcurve::Pcurve;
     use popkern_core::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
     use popkern_core::topology::{
-        Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
-        ShellHandle, Solid, Vertex,
+        Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex,
     };
 
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let vertex = brep.vertices.insert(Vertex {
         position: Point3::new(0.0, 0.0, 0.0),
         outgoing: HalfEdgeHandle::default(),
@@ -566,6 +558,6 @@ fn collapsed_trim_sheet() -> BRep {
     brep.vertices[vertex].outgoing = half_edge;
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
-    brep.shells[shell].face = face;
+    brep.set_shell_anchor(shell, face);
     brep
 }

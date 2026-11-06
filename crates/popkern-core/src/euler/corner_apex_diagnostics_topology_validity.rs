@@ -27,11 +27,10 @@ fn body_shell_membership(brep: &BRep, faces: &[FaceHandle]) -> CornerBodyShellMe
     }
     let mut shells = std::collections::BTreeSet::new();
     for face in faces {
-        let shell = brep.faces[*face].shell;
-        let Some(shell_record) = brep.shells.get(shell) else {
+        let Some(shell) = brep.face_back_shell(*face) else {
             return CornerBodyShellMembership::MissingShell;
         };
-        if !brep.solids.contains_key(shell_record.solid) {
+        if brep.shell_region(shell).is_none() {
             return CornerBodyShellMembership::MissingSolid;
         }
         shells.insert(shell);

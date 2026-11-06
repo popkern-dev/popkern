@@ -4,8 +4,7 @@ use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::{
-    Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle, Solid,
-    Vertex,
+    Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle, Vertex,
 };
 
 fn options() -> BrepEdgeCurveCompletionOptions {
@@ -145,16 +144,9 @@ fn classifies_coherent_trim_endpoints_against_stale_topology_vertices() {
 
 fn square_sheet(with_surface: bool, with_pcurves: bool) -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let face = add_square(&mut brep, shell, with_surface, with_pcurves);
-    brep.shells[shell].face = face;
+    brep.set_shell_anchor(shell, face);
     brep
 }
 

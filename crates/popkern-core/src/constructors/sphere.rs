@@ -9,7 +9,7 @@ use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 impl BRep {
     /// Build a sphere as a proper 1-face BRep.
@@ -64,14 +64,7 @@ impl BRep {
         });
 
         // -- Solid / Shell --
-        let solid_h = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell_h = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid: solid_h,
-        });
-        brep.solids[solid_h].shell = shell_h;
+        let (_solid_h, shell_h) = brep.add_solid_region(Default::default());
 
         // -- Face & loop --
         let loop_face = brep.loops.insert(Loop {
@@ -90,7 +83,7 @@ impl BRep {
         });
 
         brep.loops[loop_face].face = f_sphere;
-        brep.shells[shell_h].face = f_sphere;
+        brep.set_shell_anchor(shell_h, f_sphere);
 
         // -- Edge --
         let e_seam = brep.insert_edge_tracked(Edge {

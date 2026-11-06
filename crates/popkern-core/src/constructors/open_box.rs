@@ -187,7 +187,7 @@ impl BRep {
         brep.faces.remove(face_to_remove);
         if let Some((replacement_face, _)) = brep.faces.iter().next() {
             let shell = brep.faces[replacement_face].shell;
-            brep.shells[shell].face = replacement_face;
+            brep.set_shell_anchor(shell, replacement_face);
         }
 
         brep.validate().map_err(CoreError::Validation)?;

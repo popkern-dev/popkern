@@ -10,8 +10,8 @@ use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::brep_edge_surface_compatibility_helpers::adjacent_surfaced_pair;
 use crate::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, SurfaceBoundaryHintDeclineReason, Vertex,
+    BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
+    SurfaceBoundaryHintDeclineReason, Vertex,
 };
 
 fn options() -> BrepEdgeSurfaceCompatibilityOptions {
@@ -266,14 +266,7 @@ fn no_validation_options() -> BrepEdgeSurfaceCompatibilityOptions {
 
 fn nurbs_nurbs_boundary_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let start = Point3::new(0.0, 0.0, 0.0);
     let end = Point3::new(0.0, 1.0, 0.0);
     let va = brep.vertices.insert(vertex(start));
@@ -331,7 +324,7 @@ fn nurbs_nurbs_boundary_fixture() -> BRep {
     brep.faces[face_b].outer_loop = loop_b;
     brep.vertices[va].outgoing = he_a;
     brep.vertices[vb].outgoing = he_b;
-    brep.shells[shell].face = face_a;
+    brep.set_shell_anchor(shell, face_a);
     brep
 }
 
@@ -355,14 +348,7 @@ fn nurbs_patch(x_extent: f64) -> SurfaceGeometry {
 
 fn gregory_plane_boundary_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let start = Point3::new(0.0, 0.0, 0.0);
     let end = Point3::new(0.0, 1.0, 0.0);
     let va = brep.vertices.insert(vertex(start));
@@ -407,7 +393,7 @@ fn gregory_plane_boundary_fixture() -> BRep {
     brep.faces[face_b].outer_loop = loop_b;
     brep.vertices[va].outgoing = he_a;
     brep.vertices[vb].outgoing = he_b;
-    brep.shells[shell].face = face_a;
+    brep.set_shell_anchor(shell, face_a);
     brep
 }
 

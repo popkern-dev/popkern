@@ -2,7 +2,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, Loop, Shell, ShellHandle, Solid, Vertex, VertexHandle,
+    BRep, Edge, Face, FaceHandle, HalfEdge, Loop, ShellHandle, Vertex, VertexHandle,
 };
 
 use super::super::repeated_apex_region_candidates::{CandidateStatus, RegionOperationKind};
@@ -403,14 +403,7 @@ fn outer_loop_vertices(brep: &BRep, face: FaceHandle) -> Vec<VertexHandle> {
 
 fn two_boundary_quads() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
 
     let first_face = add_boundary_quad(
         &mut brep,
@@ -432,7 +425,7 @@ fn two_boundary_quads() -> BRep {
             Point3::new(0.0, 1.0, 1.0),
         ],
     );
-    brep.shells[shell].face = first_face;
+    brep.set_shell_anchor(shell, first_face);
     brep
 }
 

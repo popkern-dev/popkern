@@ -10,8 +10,8 @@ fn mvfs_creates_vertex_face_shell_solid() {
     assert_eq!(brep.vertices.len(), 1);
     assert_eq!(brep.faces.len(), 1);
     assert_eq!(brep.loops.len(), 1);
-    assert_eq!(brep.shells.len(), 1);
-    assert_eq!(brep.solids.len(), 1);
+    assert_eq!(brep.back_shell_count(), 1);
+    assert_eq!(brep.solid_regions().len(), 1);
     assert_eq!(brep.edges.len(), 0);
     assert_eq!(brep.half_edges.len(), 0);
 
@@ -33,8 +33,8 @@ fn kvfs_removes_everything() {
     assert_eq!(brep.vertices.len(), 0);
     assert_eq!(brep.faces.len(), 0);
     assert_eq!(brep.loops.len(), 0);
-    assert_eq!(brep.shells.len(), 0);
-    assert_eq!(brep.solids.len(), 0);
+    assert_eq!(brep.back_shell_count(), 0);
+    assert_eq!(brep.solid_regions().len(), 0);
 }
 
 #[test]
@@ -50,7 +50,7 @@ fn two_mvfs_creates_two_solids() {
     let r2 = brep.mvfs(Point3::new(1.0, 0.0, 0.0)).unwrap();
 
     assert_eq!(brep.vertices.len(), 2);
-    assert_eq!(brep.solids.len(), 2);
+    assert_eq!(brep.solid_regions().len(), 2);
     assert_ne!(r1.solid, r2.solid);
 }
 
@@ -72,7 +72,7 @@ fn kvfs_seed_removes_one_of_two_seed_solids() {
 
     brep.kvfs_seed(r1.into()).unwrap();
 
-    assert_eq!(brep.solids.len(), 1);
+    assert_eq!(brep.solid_regions().len(), 1);
     assert_eq!(brep.vertices.len(), 1);
 }
 
@@ -85,7 +85,7 @@ fn kvfs_vertex_wrapper_rejects_ambiguous_seed_solids() {
     let err = brep.kvfs(r1.vertex).expect_err("ambiguous seed rejected");
 
     assert!(err.to_string().contains("exactly one mvfs seed"));
-    assert_eq!(brep.solids.len(), 2);
+    assert_eq!(brep.solid_regions().len(), 2);
     assert_eq!(brep.vertices.len(), 2);
 }
 
@@ -98,8 +98,8 @@ fn kvfs_roundtrip() {
     assert_eq!(brep.vertices.len(), 0);
     assert_eq!(brep.faces.len(), 0);
     assert_eq!(brep.loops.len(), 0);
-    assert_eq!(brep.shells.len(), 0);
-    assert_eq!(brep.solids.len(), 0);
+    assert_eq!(brep.back_shell_count(), 0);
+    assert_eq!(brep.solid_regions().len(), 0);
 }
 
 #[test]
@@ -127,5 +127,5 @@ fn kvfs_seed_with_face_with_inner_loops_rejects() {
         .expect_err("inner loop corruption rejected");
 
     assert!(err.to_string().contains("isolated mvfs face"));
-    assert_eq!(brep.solids.len(), 1);
+    assert_eq!(brep.solid_regions().len(), 1);
 }

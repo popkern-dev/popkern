@@ -85,14 +85,7 @@ impl BRep {
         });
 
         // ── Solid / shell ─────────────────────────────────────
-        let solid_h = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell_h = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid: solid_h,
-        });
-        brep.solids[solid_h].shell = shell_h;
+        let (_solid_h, shell_h) = brep.add_solid_region(Default::default());
 
         // ── Faces & loops ─────────────────────────────────────
         // 1 base + 4 slant = 5 faces.
@@ -116,7 +109,7 @@ impl BRep {
         for (i, lh) in loops.iter().enumerate() {
             brep.faces[faces[i]].outer_loop = *lh;
         }
-        brep.shells[shell_h].face = faces[0];
+        brep.set_shell_anchor(shell_h, faces[0]);
         let [_f_base, _f_front, _f_right, _f_back, _f_left] = faces;
         let [l_base, l_front, l_right, l_back, l_left] = loops;
 

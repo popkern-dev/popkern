@@ -36,7 +36,7 @@ pub(crate) fn execute(
                 .get(source)
                 .ok_or_else(|| failed(label, format!("source body {source:?} not found").into()))?;
             let (moved, rest) = partition(from, label, rule, tolerance)?;
-            if rest.solids.is_empty() {
+            if rest.solid_regions().is_empty() {
                 return Err(failed(
                     label,
                     FeatureFailure::InvalidParameter {

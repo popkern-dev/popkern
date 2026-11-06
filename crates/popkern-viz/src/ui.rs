@@ -127,8 +127,8 @@ fn model_info_section(ui: &mut Ui, scene: &VizServer) {
     ui.label(format!("Vertices: {}", brep.vertices.len()));
     ui.label(format!("Edges: {}", brep.edges.len()));
     ui.label(format!("Faces: {}", brep.faces.len()));
-    ui.label(format!("Shells: {}", brep.shells.len()));
-    ui.label(format!("Solids: {}", brep.solids.len()));
+    ui.label(format!("Shells: {}", brep.back_shell_count()));
+    ui.label(format!("Solids: {}", brep.solid_regions().len()));
 
     // Surface type breakdown
     ui.add_space(4.0);

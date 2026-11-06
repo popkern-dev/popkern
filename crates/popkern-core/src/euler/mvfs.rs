@@ -5,8 +5,7 @@ use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
 use crate::geometry::Point3;
 use crate::topology::{
-    BRep, Face, FaceHandle, Loop, LoopHandle, Shell, ShellHandle, Solid, SolidHandle, Vertex,
-    VertexHandle,
+    BRep, Face, FaceHandle, Loop, LoopHandle, ShellHandle, SolidHandle, Vertex, VertexHandle,
 };
 
 /// Result of the mvfs (Make Vertex, Face, Shell) operator.
@@ -105,20 +104,12 @@ impl BRep {
             face,
         });
 
-        let shell = self.shells.insert(Shell {
-            face,
-            solid: Default::default(),
-        });
-
-        let solid = self.solids.insert(Solid { shell });
+        let (solid, shell) = self.add_solid_region(face);
 
         // Patch the face with the real loop and shell handles.
         let face_data = &mut self.faces[face];
         face_data.outer_loop = loop_;
         face_data.shell = shell;
-
-        // Patch the shell with the real solid handle.
-        self.shells[shell].solid = solid;
 
         MvfsResult {
             vertex,

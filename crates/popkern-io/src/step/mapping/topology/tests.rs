@@ -403,8 +403,8 @@ fn build_triangle_solid() {
     assert_eq!(brep.vertices.len(), 3);
     assert_eq!(brep.edges.len(), 3);
     assert_eq!(brep.faces.len(), 1);
-    assert_eq!(brep.solids.len(), 1);
-    assert_eq!(brep.shells.len(), 1);
+    assert_eq!(brep.solid_regions().len(), 1);
+    assert_eq!(brep.back_shell_count(), 1);
     assert_eq!(
         brep.free_edges().len(),
         3,

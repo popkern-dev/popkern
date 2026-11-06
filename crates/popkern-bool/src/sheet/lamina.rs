@@ -51,15 +51,10 @@ fn opposite_planes(
 pub fn single_face_sheet(body: &BRep) -> Option<BRep> {
     let mut out = body.clone();
     let pairs: Vec<(FaceHandle, FaceHandle)> = out
-        .shells
-        .keys()
+        .back_shells()
+        .into_iter()
         .map(|shell| {
-            let faces: Vec<FaceHandle> = out
-                .faces
-                .iter()
-                .filter(|(_, f)| f.shell == shell)
-                .map(|(h, _)| h)
-                .collect();
+            let faces = out.shell_faces(shell);
             let [a, b] = faces[..] else {
                 return None;
             };

@@ -98,7 +98,7 @@ fn counts(b: &BRep) -> String {
         b.vertices.len(),
         b.edges.len(),
         b.faces.len(),
-        b.shells.len()
+        b.back_shell_count()
     )
 }
 

@@ -126,8 +126,12 @@ fn moat_cut_serves_floating_core_as_own_solid() {
     let tube = tube_outer.subtract(&tube_inner).expect("tube");
     let result = block.subtract(&tube).expect("moat cut");
     assert_eq!(result.open_edge_count().expect("opens"), 0);
-    assert_eq!(result.brep().shells.len(), 2, "ring + core shells");
-    assert_eq!(result.brep().solids.len(), 2, "core is a separate solid");
+    assert_eq!(result.brep().back_shell_count(), 2, "ring + core shells");
+    assert_eq!(
+        result.brep().solid_regions().len(),
+        2,
+        "core is a separate solid"
+    );
     assert!(
         result.brep().validate().is_ok(),
         "{:?}",
@@ -176,8 +180,12 @@ fn cavity_union_serves_void_as_inner_shell_of_one_solid() {
         .expect("upper U");
     let result = lower.union(&upper).expect("cavity union");
     assert_eq!(result.open_edge_count().expect("opens"), 0);
-    assert_eq!(result.brep().shells.len(), 2, "outer + cavity shells");
-    assert_eq!(result.brep().solids.len(), 1, "one solid with a void");
+    assert_eq!(result.brep().back_shell_count(), 2, "outer + cavity shells");
+    assert_eq!(
+        result.brep().solid_regions().len(),
+        1,
+        "one solid with a void"
+    );
     assert!(
         result.brep().validate().is_ok(),
         "{:?}",
@@ -217,12 +225,12 @@ fn disconnecting_flush_slot_serves_two_closed_shells() {
         "two disjoint boxes: 6 + 6 faces"
     );
     assert_eq!(
-        result.brep().shells.len(),
+        result.brep().back_shell_count(),
         2,
         "one shell per disconnected component"
     );
     assert_eq!(
-        result.brep().solids.len(),
+        result.brep().solid_regions().len(),
         2,
         "mutually exterior components are separate solids"
     );

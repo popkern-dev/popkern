@@ -48,14 +48,7 @@ pub(super) fn split_components(brep: &mut BRep, solid: SolidHandle, shell: Shell
     }
     let mut shells = vec![(solid, shell)];
     for _ in 1..count {
-        let s = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let sh = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid: s,
-        });
-        brep.solids[s].shell = sh;
+        let (s, sh) = brep.add_solid_region(Default::default());
         shells.push((s, sh));
     }
     let mut represented = vec![false; count];
@@ -65,7 +58,7 @@ pub(super) fn split_components(brep: &mut BRep, solid: SolidHandle, shell: Shell
         brep.faces[f].shell = sh;
         if !represented[c] {
             represented[c] = true;
-            brep.shells[sh].face = f;
+            brep.set_shell_anchor(sh, f);
         }
     }
 }

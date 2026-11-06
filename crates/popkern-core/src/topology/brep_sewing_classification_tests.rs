@@ -4,7 +4,7 @@ use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, BrepSewingProvenance, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
-    Shell, ShellHandle, Solid, Vertex,
+    ShellHandle, Vertex,
 };
 
 fn classification_options() -> BrepSewingClassificationOptions {
@@ -34,14 +34,7 @@ fn edge_pair(first: EdgeHandle, second: EdgeHandle) -> BrepSewingEdgePair {
 
 fn two_square_sheet(offset: f64, reversed_right: bool) -> (BRep, EdgeHandle, EdgeHandle) {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let left = add_square(
         &mut brep,
@@ -69,8 +62,8 @@ fn two_square_sheet(offset: f64, reversed_right: bool) -> (BRep, EdgeHandle, Edg
         ]
     };
     let right = add_square(&mut brep, shell, right_points);
-    if brep.shells[shell].face == FaceHandle::default() {
-        brep.shells[shell].face = left.face;
+    if brep.shell_anchor(shell).is_none() {
+        brep.set_shell_anchor(shell, left.face);
     }
     let right_edge = if reversed_right {
         right.edges[2]

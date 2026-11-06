@@ -22,7 +22,11 @@ fn each_piece_keeps_its_own_topology_and_names() {
     for piece in &pieces {
         assert!(piece.validate().is_ok(), "{:?}", piece.validate());
         assert_eq!(
-            (piece.solids.len(), piece.faces.len(), piece.edges.len()),
+            (
+                piece.solid_regions().len(),
+                piece.faces.len(),
+                piece.edges.len()
+            ),
             (1, 6, 12)
         );
         assert_eq!(piece.vertices.len(), 8);
@@ -47,7 +51,11 @@ fn keeping_every_piece_or_none() {
     let both = two_apart();
     let all = retain_pieces(&both, &piece_handles(&both)).expect("all");
     assert_eq!(
-        (all.solids.len(), all.faces.len(), all.vertices.len()),
+        (
+            all.solid_regions().len(),
+            all.faces.len(),
+            all.vertices.len()
+        ),
         (2, 12, 16)
     );
     let none = retain_pieces(&both, &[]).expect("none");
@@ -71,7 +79,7 @@ fn a_contact_survives_only_with_every_piece_it_names() {
         &options,
     )
     .expect("edge contact serves as pieces");
-    assert_eq!(touching.solids.len(), 2);
+    assert_eq!(touching.solid_regions().len(), 2);
     assert!(!touching.topology_contacts.is_empty());
     let handles = piece_handles(&touching);
     let kept = retain_pieces(&touching, &handles).expect("both");

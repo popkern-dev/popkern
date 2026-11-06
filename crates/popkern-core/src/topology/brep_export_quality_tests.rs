@@ -4,8 +4,8 @@ use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
-    ShellHandle, Solid, TopologyRole, Vertex,
+    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
+    ShellHandle, TopologyRole, Vertex,
 };
 
 fn options(topology_output: BrepTopologyOutputPolicy) -> BrepExportQualityOptions {
@@ -218,14 +218,7 @@ fn export_quality_blocks_edge_curve_off_adjacent_surface() {
 
 fn single_square_sheet() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let square = add_square(
         &mut brep,
         shell,
@@ -236,20 +229,13 @@ fn single_square_sheet() -> BRep {
             Point3::new(0.0, 1.0, 0.0),
         ],
     );
-    brep.shells[shell].face = square.face;
+    brep.set_shell_anchor(shell, square.face);
     brep
 }
 
 fn collapsed_trim_sheet() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let vertex = brep.vertices.insert(Vertex {
         position: Point3::new(0.0, 0.0, 0.0),
         outgoing: HalfEdgeHandle::default(),
@@ -300,7 +286,7 @@ fn collapsed_trim_sheet() -> BRep {
     brep.vertices[vertex].outgoing = half_edge;
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
-    brep.shells[shell].face = face;
+    brep.set_shell_anchor(shell, face);
     brep
 }
 

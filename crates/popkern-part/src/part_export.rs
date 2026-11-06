@@ -196,7 +196,10 @@ pub fn assert_step_roundtrip_of(
             "STEP round-trip returned {faces_back} faces, exported {faces_out}"
         )));
     }
-    let shells_out: usize = parts.iter().map(|p| p.brep().shells.len().max(1)).sum();
+    let shells_out: usize = parts
+        .iter()
+        .map(|p| p.brep().back_shell_count().max(1))
+        .sum();
     if solids_back.len() < parts.len() || solids_back.len() > shells_out {
         return Err(PartError::NotApplicable(format!(
             "STEP round-trip returned {} solids for {} part(s) with {shells_out} shell(s)",

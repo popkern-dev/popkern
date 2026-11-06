@@ -43,14 +43,10 @@ impl BRepBuilder {
         })
     }
 
-    /// Insert a shell belonging to the given solid.
+    /// Insert a shell bounding the given solid. The solid's first shell
+    /// is its outer shell; later ones are further shells (cavities).
     pub fn add_shell(&mut self, solid: SolidHandle) -> ShellHandle {
-        let sh = self.brep.shells.insert(Shell {
-            face: FaceHandle::default(),
-            solid,
-        });
-        self.brep.solids[solid].shell = sh;
-        sh
+        self.brep.add_region_shell(solid, FaceHandle::default())
     }
 
     /// Insert an edge between two vertices, creating a twin half-edge pair.
@@ -119,8 +115,8 @@ impl BRepBuilder {
             tolerance: None,
             role: Default::default(),
         });
-        if self.brep.shells[shell].face == FaceHandle::default() {
-            self.brep.shells[shell].face = fh;
+        if self.brep.shell_anchor(shell).is_none() {
+            self.brep.set_shell_anchor(shell, fh);
         }
         fh
     }

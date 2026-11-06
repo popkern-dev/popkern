@@ -39,7 +39,11 @@ fn assert_corner_notch(place: Transform3, scale: f64) {
     let b = block((scale, 0.0, 0.0), scale, &place);
     let r = boolean(BoolOperation::Subtraction, a, b, tol, None).expect("notch serves");
     r.validate().expect("valid");
-    assert_eq!(r.shells.len(), 1, "a flush notch is open, not a cavity");
+    assert_eq!(
+        r.back_shell_count(),
+        1,
+        "a flush notch is open, not a cavity"
+    );
     assert_eq!(
         (r.vertices.len(), r.edges.len(), r.faces.len()),
         (14, 21, 9),
@@ -82,9 +86,15 @@ fn containment_still_decides_union_intersection_and_swallowed_subtraction() {
     let a = || block((0.0, 0.0, 0.0), 2.0, &id);
     let b = || block((1.0, 0.0, 0.0), 1.0, &id);
     let u = boolean(BoolOperation::Union, a(), b(), tol, None).expect("union");
-    assert_eq!((u.vertices.len(), u.faces.len(), u.shells.len()), (8, 6, 1));
+    assert_eq!(
+        (u.vertices.len(), u.faces.len(), u.back_shell_count()),
+        (8, 6, 1)
+    );
     let i = boolean(BoolOperation::Intersection, a(), b(), tol, None).expect("intersection");
-    assert_eq!((i.vertices.len(), i.faces.len(), i.shells.len()), (8, 6, 1));
+    assert_eq!(
+        (i.vertices.len(), i.faces.len(), i.back_shell_count()),
+        (8, 6, 1)
+    );
     let s = boolean(BoolOperation::Subtraction, b(), a(), tol, None).expect("swallowed");
     assert_eq!(s.faces.len(), 0, "B − A is empty when B ⊂ A");
 }

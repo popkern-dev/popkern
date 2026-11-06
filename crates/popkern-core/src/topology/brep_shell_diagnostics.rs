@@ -117,7 +117,7 @@ pub fn analyze_brep_loop_shell_validity(brep: &BRep) -> BrepLoopShellDiagnosticR
 
     let report = BrepLoopShellDiagnosticReport {
         loops: brep.loops.len(),
-        shells: brep.shells.len(),
+        shells: brep.back_shell_count(),
         faces: brep.faces.len(),
         boundary_edges: brep.free_edges().len(),
         boundary_cycles: boundary.cycles,
@@ -308,7 +308,7 @@ fn analyze_shell_components(
     }
 
     let mut total_components = 0usize;
-    for shell in brep.shells.keys() {
+    for shell in brep.back_shells() {
         let faces: Vec<_> = brep
             .faces
             .iter()
