@@ -136,17 +136,18 @@ fn build_quad_face(
         tolerance: None,
     });
 
-    let shell_h = brep
+    let sides = brep
         .faces
         .values()
         .next()
-        .map(|f| f.shell)
+        .map(|f| f.sides())
         .ok_or_else(|| DraftError::Topology("no faces in BRep".into()))?;
 
     let face_h = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: Vec::new(),
-        shell: shell_h,
+        back: sides.back,
+        front: sides.front,
         surface: Some(SurfaceOnFace {
             geometry: surface,
             orientation: true,

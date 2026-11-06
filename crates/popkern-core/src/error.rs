@@ -1,7 +1,7 @@
 //! Error types for popkern-core.
 
 use crate::topology::{
-    EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, SolidHandle, VertexHandle,
+    EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, RegionHandle, VertexHandle,
 };
 use thiserror::Error;
 
@@ -19,7 +19,7 @@ pub enum ValidationError {
     #[error("Euler-Poincaré violation on solid {solid:?}: expected {expected}, got {actual}")]
     EulerPoincare {
         /// The solid that failed.
-        solid: SolidHandle,
+        solid: RegionHandle,
         /// Expected value.
         expected: i64,
         /// Actual computed value.

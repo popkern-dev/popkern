@@ -3,8 +3,8 @@ use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, BrepSewingClassificationOptions, BrepSewingProvenance, Edge, Face, FaceHandle, HalfEdge,
-    HalfEdgeHandle, Loop, LoopHandle, ShellHandle, Vertex, classify_boundary_edge_pairs,
+    BRep, BrepSewingClassificationOptions, BrepSewingProvenance, Edge, Face, FaceHandle, FaceSides,
+    HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex, classify_boundary_edge_pairs,
 };
 
 fn classification_options() -> BrepSewingClassificationOptions {
@@ -75,8 +75,8 @@ fn two_square_sheet(offset: f64, reversed_right: bool) -> (BRep, EdgeHandle, Edg
         ]
     };
     let right = add_square(&mut brep, shell, right_points);
-    if brep.shell_anchor(shell).is_none() {
-        brep.set_shell_anchor(shell, left.face);
+    if brep.shell_anchor(shell.back).is_none() {
+        brep.set_sides_anchor(shell, left.face);
     }
     let right_edge = if reversed_right {
         right.edges[2]
@@ -91,7 +91,7 @@ struct SquareHandles {
     edges: [EdgeHandle; 4],
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -103,7 +103,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,

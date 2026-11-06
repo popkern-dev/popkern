@@ -237,7 +237,8 @@ fn is_planar_sheet_accepts_multi_face_coplanar() {
     brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: Vec::new(),
-        shell: Default::default(),
+        back: Default::default(),
+        front: Default::default(),
         surface: Some(plane_a),
         name: None,
         tolerance: None,
@@ -246,7 +247,8 @@ fn is_planar_sheet_accepts_multi_face_coplanar() {
     brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: Vec::new(),
-        shell: Default::default(),
+        back: Default::default(),
+        front: Default::default(),
         surface: Some(plane_b),
         name: None,
         tolerance: None,
@@ -346,7 +348,8 @@ fn is_planar_sheet_rejects_offset_coplanar_faces() {
         brep.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: Vec::new(),
-            shell: Default::default(),
+            back: Default::default(),
+            front: Default::default(),
             surface: Some(SurfaceOnFace {
                 geometry: SurfaceGeometry::Plane {
                     origin: Point3::new(0.0, 0.0, z),

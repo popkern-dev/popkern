@@ -171,6 +171,10 @@ pub fn heal_holes(brep: &mut BRep, tolerance: f64) -> HoleHealReport {
         }
         attempts.push(attempt);
     }
+    // Healing means a solid: a sheet whose holes all closed bounds one.
+    if committed > 0 {
+        brep.fill_closed_shells();
+    }
 
     HoleHealReport {
         holes_detected: holes.len(),

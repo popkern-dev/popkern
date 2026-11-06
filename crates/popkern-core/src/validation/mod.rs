@@ -204,7 +204,11 @@ impl BRep {
         // solid wrapping a face-less shell (a line-contact
         // intersection served exactly that, χ-clean and `validate()`
         // clean).
-        let bounded: std::collections::HashSet<_> = self.faces.values().map(|f| f.shell).collect();
+        let bounded: std::collections::HashSet<_> = self
+            .faces
+            .values()
+            .flat_map(|f| [f.back, f.front])
+            .collect();
         if let Some(shell) = self.shells.keys().find(|s| !bounded.contains(s)) {
             return Err(ValidationError::DanglingReference {
                 what: format!("shell {shell:?} contains no face"),

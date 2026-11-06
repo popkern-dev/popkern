@@ -81,14 +81,12 @@ impl BRep {
             .get(he2)
             .ok_or_else(|| CoreError::InvalidHandle("he2 handle is invalid".into()))?;
 
-        // Precondition: he1 and he2 must be distinct.
         if he1 == he2 {
             return Err(CoreError::PreconditionFailed(
                 "he1 and he2 must be distinct".into(),
             ));
         }
 
-        // Precondition: he1 and he2 must be in the same loop.
         if he1_data.loop_ != he2_data.loop_ {
             return Err(CoreError::PreconditionFailed(
                 "he1 and he2 must be in the same loop".into(),
@@ -97,7 +95,8 @@ impl BRep {
 
         let old_loop = he1_data.loop_;
         let old_face = self.loops[old_loop].face;
-        let shell = self.faces[old_face].shell;
+        // The new face lies beside the old one: same sides.
+        let shell = self.faces[old_face].sides();
 
         let v1 = he1_data.origin;
         let v2 = he2_data.origin;
@@ -118,7 +117,8 @@ impl BRep {
         let new_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: self.faces[old_face].surface.clone(),
             name: None,
             tolerance: None,

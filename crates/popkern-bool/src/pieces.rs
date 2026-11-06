@@ -12,13 +12,13 @@
 
 use std::collections::HashSet;
 
-use popkern_core::topology::{BRep, ContactEntity, SolidHandle};
+use popkern_core::topology::{BRep, ContactEntity, RegionHandle};
 
 use crate::error::BoolError;
 
 /// The body's pieces, its solids, in slot order (the order a split
 /// served them in).
-pub fn piece_handles(body: &BRep) -> Vec<SolidHandle> {
+pub fn piece_handles(body: &BRep) -> Vec<RegionHandle> {
     body.solid_regions()
 }
 
@@ -47,7 +47,7 @@ pub fn piece_handles(body: &BRep) -> Vec<SolidHandle> {
 ///
 /// [`BoolError::DegenerateInput`] when a kept and a dropped solid share
 /// a half-edge, edge or vertex (the body is not separable pieces).
-pub fn retain_pieces(body: &BRep, keep: &[SolidHandle]) -> Result<BRep, BoolError> {
+pub fn retain_pieces(body: &BRep, keep: &[RegionHandle]) -> Result<BRep, BoolError> {
     let solids: HashSet<_> = keep
         .iter()
         .copied()

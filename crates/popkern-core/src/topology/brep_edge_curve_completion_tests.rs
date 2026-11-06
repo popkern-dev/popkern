@@ -4,7 +4,7 @@ use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::{
-    Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle, Vertex,
+    Edge, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex,
 };
 
 fn options() -> BrepEdgeCurveCompletionOptions {
@@ -146,13 +146,13 @@ fn square_sheet(with_surface: bool, with_pcurves: bool) -> BRep {
     let mut brep = BRep::new(Tolerance::default());
     let (_solid, shell) = brep.add_solid_region(Default::default());
     let face = add_square(&mut brep, shell, with_surface, with_pcurves);
-    brep.set_shell_anchor(shell, face);
+    brep.set_sides_anchor(shell, face);
     brep
 }
 
 fn add_square(
     brep: &mut BRep,
-    shell: ShellHandle,
+    shell: FaceSides,
     with_surface: bool,
     with_pcurves: bool,
 ) -> FaceHandle {
@@ -173,7 +173,8 @@ fn add_square(
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: with_surface.then_some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.0, 0.0, 0.0),

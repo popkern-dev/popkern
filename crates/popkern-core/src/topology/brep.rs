@@ -17,6 +17,7 @@ use slotmap::SlotMap;
 /// Owns all topological entities in typed arenas (SlotMaps).
 /// All topology modifications go through Euler operators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "super::brep_stored::StoredBRep")]
 pub struct BRep {
     /// All vertices.
     pub vertices: SlotMap<VertexHandle, Vertex>,
@@ -30,8 +31,10 @@ pub struct BRep {
     pub faces: SlotMap<FaceHandle, Face>,
     /// All shells.
     pub shells: SlotMap<ShellHandle, Shell>,
-    /// All solids.
-    pub solids: SlotMap<SolidHandle, Solid>,
+    /// All regions, solid and void, the outside among them.
+    pub regions: SlotMap<RegionHandle, Region>,
+    /// The one unbounded void region, outside everything.
+    pub outside: RegionHandle,
     /// Geometric tolerance for this model.
     pub tolerance: Tolerance,
     /// Pool of stable topological names for entities in this model.
@@ -87,13 +90,18 @@ pub struct BRep {
 }
 
 impl BRep {
-    fn default_max_imprecision() -> f64 {
+    pub(super) fn default_max_imprecision() -> f64 {
         Tolerance::default().linear() * 100.0
     }
 
     /// Create a new empty BRep with the given tolerance.
     pub fn new(tolerance: Tolerance) -> Self {
         let max_imprecision = tolerance.linear() * 100.0;
+        let mut regions = SlotMap::with_key();
+        let outside = regions.insert(Region {
+            kind: RegionKind::Void,
+            shell: ShellHandle::default(),
+        });
         Self {
             vertices: SlotMap::with_key(),
             half_edges: SlotMap::with_key(),
@@ -101,7 +109,8 @@ impl BRep {
             loops: SlotMap::with_key(),
             faces: SlotMap::with_key(),
             shells: SlotMap::with_key(),
-            solids: SlotMap::with_key(),
+            regions,
+            outside,
             tolerance,
             name_pool: NamePool::new(),
             operation_labels: OperationLabels::default(),

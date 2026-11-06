@@ -5,8 +5,7 @@ use popkern_core::geometry::{Point3, SurfaceOnFace, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
-    Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
-    SurfaceBoundaryAuditOutcome, Vertex,
+    Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, SurfaceBoundaryAuditOutcome, Vertex,
 };
 
 #[test]
@@ -98,7 +97,7 @@ fn gregory_plane_boundary_fixture() -> BRep {
     brep.faces[face_b].outer_loop = loop_b;
     brep.vertices[va].outgoing = he_a;
     brep.vertices[vb].outgoing = he_b;
-    brep.set_shell_anchor(shell, face_a);
+    brep.set_sides_anchor(shell, face_a);
     brep
 }
 
@@ -123,11 +122,12 @@ fn half_edge(origin: popkern_core::topology::VertexHandle, loop_: LoopHandle) ->
     }
 }
 
-fn face(shell: ShellHandle, surface: SurfaceOnFace) -> Face {
+fn face(shell: popkern_core::topology::FaceSides, surface: SurfaceOnFace) -> Face {
     Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(surface),
         name: None,
         tolerance: None,

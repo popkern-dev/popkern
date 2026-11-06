@@ -184,11 +184,10 @@ impl BRep {
 
         // Remove the loop and face.
         brep.loops.remove(loop_h);
+        brep.move_shell_anchor_off(face_to_remove);
         brep.faces.remove(face_to_remove);
-        if let Some((replacement_face, _)) = brep.faces.iter().next() {
-            let shell = brep.faces[replacement_face].shell;
-            brep.set_shell_anchor(shell, replacement_face);
-        }
+        // The box is open now: a sheet, its shell in the outside.
+        brep.settle_open_shells();
 
         brep.validate().map_err(CoreError::Validation)?;
         Ok(())
@@ -205,6 +204,22 @@ mod tests {
         assert_eq!(ob.vertices.len(), 8);
         assert_eq!(ob.edges.len(), 12);
         assert_eq!(ob.faces.len(), 5);
+    }
+
+    /// An open box bounds no volume: no solid region, its one shell in
+    /// the outside holding both sides of every face.
+    #[test]
+    fn open_box_is_a_sheet_in_the_outside() {
+        let ob = BRep::open_box(Tolerance::default()).unwrap();
+        assert!(ob.solid_regions().is_empty());
+        let shells: Vec<_> = ob.shells.keys().collect();
+        assert_eq!(shells.len(), 1);
+        assert_eq!(ob.shell_region(shells[0]), Some(ob.outside));
+        assert!(
+            ob.faces
+                .values()
+                .all(|f| f.back == shells[0] && f.front == shells[0])
+        );
     }
 
     #[test]

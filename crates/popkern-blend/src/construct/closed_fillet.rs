@@ -339,14 +339,14 @@ pub(crate) fn apply_closed_fillet(
         role: Default::default(),
     });
 
-    // 8. Create the fillet face shell — we need this BEFORE the
-    //    half-edges so each half-edge can reference its loop.
-    //    Build with placeholder loop handles, then patch.
-    let shell = brep.faces[face_a].shell;
+    // 8. Create the fillet face (sides of face_a) before the half-edges
+    //    so each can reference its loop; loop handles patched after.
+    let shell = brep.faces[face_a].sides();
     let fillet_face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(popkern_core::geometry::surface::SurfaceOnFace {
             geometry: eg.surface.clone(),
             orientation: true,

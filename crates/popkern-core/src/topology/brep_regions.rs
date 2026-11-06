@@ -1,12 +1,26 @@
-//! Regions and the shells that bound them, read and made through one
-//! place (PK-1102).
+//! Regions and the shells that bound them, read through one place
+//! (PK-1102); the edits are in `brep_region_edits`.
 //!
-//! A region is a connected 3-cell of space: a body's solid material or
-//! a void (the unbounded outside, a cavity). A shell is a connected set
-//! of face sides bounding one region, and a face has two sides, its
-//! back (the side its effective normal points away from) and its front.
-//! A closed solid's faces have their backs in the solid region's
-//! shells; a sheet's faces lie in one shell with both their sides.
+//! A region is a connected 3-cell of space, [`RegionKind::Solid`]
+//! material or [`RegionKind::Void`] space. Every body has one unbounded
+//! void region, [`BRep::outside`]; a cavity is a bounded void region. A
+//! shell is a connected set of face sides bounding one region, and a
+//! face has two sides, its back (the side a correctly oriented face's
+//! normal points away from) and its front, each in a shell
+//! ([`Face::back`](super::Face::back), [`Face::front`](super::Face::front)).
+//!
+//! A closed solid's face has its back in a solid region's shell and its
+//! front in the void's shell across it, so the solid's outer boundary is
+//! two shells: the solid's and its partner in the outside. A sheet's
+//! face has both sides in one shell of the void it lies in. A cavity is
+//! a solid region's inner shell, partnered by the peripheral shell of the
+//! cavity's void region.
+//!
+//! The sides record which region lies where; they are topology, not a
+//! reading of the normals. Turning a body's faces
+//! ([`BRep::reverse_body_orientation`]) turns its geometry only, so a
+//! reversed solid is inside out until its faces move into a cavity
+//! shell (or turn back).
 //!
 //! The shells holding some face's back side, [`BRep::back_shells`], are
 //! the connected face sets: a cube's one, a hollow ball's two (its
@@ -14,70 +28,136 @@
 //! over face sets (Euler–Poincaré, operator count contracts, lumps) read
 //! them, never the whole shell arena, which also holds the void sides.
 
-use slotmap::Key;
+use std::collections::BTreeSet;
 
-use super::{BRep, FaceHandle, Shell, ShellHandle, Solid, SolidHandle};
+use super::{BRep, FaceHandle, RegionHandle, RegionKind, ShellHandle};
+
+/// The two shells a face's sides lie in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct FaceSides {
+    /// The shell holding the face's back side.
+    pub back: ShellHandle,
+    /// The shell holding the face's front side.
+    pub front: ShellHandle,
+}
+
+impl FaceSides {
+    /// Both sides in one shell: a sheet's face.
+    pub fn both(shell: ShellHandle) -> Self {
+        Self {
+            back: shell,
+            front: shell,
+        }
+    }
+}
 
 impl BRep {
-    /// The shells holding some face's back side: the body's connected
-    /// face sets (see the module docs), in arena order.
+    /// The shells holding the back sides of faces: the body's connected
+    /// face sets (see the module docs), in arena order. A solid region's
+    /// shell is one even while it has no face (a body being built, or
+    /// one a corruption emptied); a void's shell is one when some face
+    /// has its back in it (a sheet's).
     pub fn back_shells(&self) -> Vec<ShellHandle> {
-        self.shells.keys().collect()
+        let backs: BTreeSet<ShellHandle> = self.faces.values().map(|f| f.back).collect();
+        self.shells
+            .iter()
+            .filter(|(h, s)| {
+                backs.contains(h) || self.region_kind(s.region) == Some(RegionKind::Solid)
+            })
+            .map(|(h, _)| h)
+            .collect()
     }
 
     /// How many shells hold some face's back side.
     pub fn back_shell_count(&self) -> usize {
-        self.shells.len()
+        self.back_shells().len()
     }
 
     /// The shell holding `face`'s back side.
     pub fn face_back_shell(&self, face: FaceHandle) -> Option<ShellHandle> {
         self.faces
             .get(face)
-            .map(|f| f.shell)
+            .map(|f| f.back)
             .filter(|s| self.shells.contains_key(*s))
     }
 
-    /// The faces whose back side lies in `shell`, in arena order.
+    /// The shell holding `face`'s front side.
+    pub fn face_front_shell(&self, face: FaceHandle) -> Option<ShellHandle> {
+        self.faces
+            .get(face)
+            .map(|f| f.front)
+            .filter(|s| self.shells.contains_key(*s))
+    }
+
+    /// The shells `face`'s two sides lie in.
+    pub fn face_sides(&self, face: FaceHandle) -> Option<FaceSides> {
+        self.faces.get(face).map(|f| FaceSides {
+            back: f.back,
+            front: f.front,
+        })
+    }
+
+    /// The faces with a side in `shell`, in arena order: for a solid's
+    /// shell the faces with their back in it, for the void's shell
+    /// across it the same faces by their fronts, for a sheet's shell its
+    /// faces.
     pub fn shell_faces(&self, shell: ShellHandle) -> Vec<FaceHandle> {
         self.faces
             .iter()
-            .filter(|(_, f)| f.shell == shell)
+            .filter(|(_, f)| f.back == shell || f.front == shell)
             .map(|(h, _)| h)
             .collect()
     }
 
     /// The region `shell` bounds.
-    pub fn shell_region(&self, shell: ShellHandle) -> Option<SolidHandle> {
+    pub fn shell_region(&self, shell: ShellHandle) -> Option<RegionHandle> {
         self.shells
             .get(shell)
-            .map(|s| s.solid)
-            .filter(|r| self.solids.contains_key(*r))
+            .map(|s| s.region)
+            .filter(|r| self.regions.contains_key(*r))
+    }
+
+    /// What fills `region`.
+    pub fn region_kind(&self, region: RegionHandle) -> Option<RegionKind> {
+        self.regions.get(region).map(|r| r.kind)
     }
 
     /// The solid regions, in arena order.
-    pub fn solid_regions(&self) -> Vec<SolidHandle> {
-        self.solids.keys().collect()
+    pub fn solid_regions(&self) -> Vec<RegionHandle> {
+        self.regions
+            .iter()
+            .filter(|(_, r)| r.kind == RegionKind::Solid)
+            .map(|(h, _)| h)
+            .collect()
     }
 
-    /// A region's outer (peripheral) shell.
-    pub fn region_outer_shell(&self, region: SolidHandle) -> Option<ShellHandle> {
-        self.solids
+    /// The bounded void regions (cavities), in arena order.
+    pub fn cavity_regions(&self) -> Vec<RegionHandle> {
+        self.regions
+            .iter()
+            .filter(|(h, r)| r.kind == RegionKind::Void && *h != self.outside)
+            .map(|(h, _)| h)
+            .collect()
+    }
+
+    /// A region's outer (peripheral) shell; none for the outside.
+    pub fn region_outer_shell(&self, region: RegionHandle) -> Option<ShellHandle> {
+        self.regions
             .get(region)
             .map(|r| r.shell)
             .filter(|s| self.shells.contains_key(*s))
     }
 
     /// Every shell bounding `region`: its outer shell first, then the
-    /// rest (cavities) in arena order.
-    pub fn region_shells(&self, region: SolidHandle) -> Vec<ShellHandle> {
+    /// rest (a solid's cavities, the outside's shells) in arena order.
+    pub fn region_shells(&self, region: RegionHandle) -> Vec<ShellHandle> {
         let outer = self.region_outer_shell(region);
         outer
             .into_iter()
             .chain(
                 self.shells
                     .iter()
-                    .filter(|(h, s)| s.solid == region && Some(*h) != outer)
+                    .filter(|(h, s)| s.region == region && Some(*h) != outer)
                     .map(|(h, _)| h),
             )
             .collect()
@@ -90,138 +170,6 @@ impl BRep {
             .get(shell)
             .map(|s| s.face)
             .filter(|f| self.faces.contains_key(*f))
-    }
-
-    /// Anchor `shell` at `face`.
-    pub fn set_shell_anchor(&mut self, shell: ShellHandle, face: FaceHandle) {
-        if let Some(s) = self.shells.get_mut(shell) {
-            s.face = face;
-        }
-    }
-
-    /// Before `face` goes, move its back shell's anchor off it onto
-    /// another face of that shell. `false` when the shell has no other
-    /// face (the caller decides: the shell goes too, or the removal is
-    /// refused); `true` when the anchor was elsewhere or has moved.
-    pub fn move_shell_anchor_off(&mut self, face: FaceHandle) -> bool {
-        let Some(shell) = self.face_back_shell(face) else {
-            return true;
-        };
-        if self.shells[shell].face != face {
-            return true;
-        }
-        match self
-            .faces
-            .iter()
-            .find(|(candidate, data)| *candidate != face && data.shell == shell)
-        {
-            Some((replacement, _)) => {
-                self.shells[shell].face = replacement;
-                true
-            }
-            None => false,
-        }
-    }
-
-    /// Re-anchor every shell whose anchor face is gone onto a live face
-    /// of the shell. Returns the shells left with no face at all (the
-    /// caller removes them or declines).
-    pub fn repair_shell_anchors(&mut self) -> Vec<ShellHandle> {
-        let mut empty = Vec::new();
-        for shell in self.shells.keys().collect::<Vec<_>>() {
-            if self.shell_anchor(shell).is_some() {
-                continue;
-            }
-            match self.shell_faces(shell).first() {
-                Some(&face) => self.shells[shell].face = face,
-                None => empty.push(shell),
-            }
-        }
-        empty
-    }
-
-    /// Move `shell` to bound `region` instead (a body's shell becoming
-    /// a cavity of the region enclosing it). The region it leaves keeps
-    /// its other shells; its outer shell moves to one of them, or none.
-    pub fn move_shell_to_region(&mut self, shell: ShellHandle, region: SolidHandle) {
-        let Some(from) = self.shell_region(shell) else {
-            return;
-        };
-        if from == region || !self.solids.contains_key(region) {
-            return;
-        }
-        self.shells[shell].solid = region;
-        if self.solids[from].shell == shell {
-            let next = self
-                .shells
-                .iter()
-                .find(|(_, s)| s.solid == from)
-                .map_or(ShellHandle::null(), |(h, _)| h);
-            self.solids[from].shell = next;
-        }
-        if !self.shells.contains_key(self.solids[region].shell) {
-            self.solids[region].shell = shell;
-        }
-    }
-
-    /// Remove `region` when no shell bounds it any longer. Returns
-    /// whether it went.
-    pub fn remove_empty_region(&mut self, region: SolidHandle) -> bool {
-        if self.shells.values().any(|s| s.solid == region) {
-            return false;
-        }
-        self.solids.remove(region).is_some()
-    }
-
-    /// Keep only the solid regions in `keep`: every other solid region
-    /// goes with the shells bounding it and the faces whose back side
-    /// lies in them. Loops, fins, edges and vertices are the caller's
-    /// (a measurement view needs only faces; piece extraction removes
-    /// the rest by what the kept faces use).
-    pub fn retain_solid_regions(&mut self, keep: &[SolidHandle]) {
-        let dropped: Vec<SolidHandle> = self
-            .solid_regions()
-            .into_iter()
-            .filter(|r| !keep.contains(r))
-            .collect();
-        let shells: Vec<ShellHandle> = dropped
-            .iter()
-            .flat_map(|&r| self.region_shells(r))
-            .collect();
-        self.faces.retain(|_, f| !shells.contains(&f.shell));
-        self.shells.retain(|h, _| !shells.contains(&h));
-        self.solids.retain(|h, _| !dropped.contains(&h));
-    }
-
-    /// Make a solid region bounded by one new shell anchored at `face`
-    /// (null while the shell has no face yet). Returns the region and
-    /// its shell.
-    pub fn add_solid_region(&mut self, face: FaceHandle) -> (SolidHandle, ShellHandle) {
-        let region = self.solids.insert(Solid {
-            shell: ShellHandle::null(),
-        });
-        let shell = self.shells.insert(Shell {
-            face,
-            solid: region,
-        });
-        self.solids[region].shell = shell;
-        (region, shell)
-    }
-
-    /// Add a further shell to `region` (a cavity's boundary), anchored
-    /// at `face`. The region's outer shell is unchanged unless it had
-    /// none.
-    pub fn add_region_shell(&mut self, region: SolidHandle, face: FaceHandle) -> ShellHandle {
-        let shell = self.shells.insert(Shell {
-            face,
-            solid: region,
-        });
-        if let Some(r) = self.solids.get_mut(region)
-            && !self.shells.contains_key(r.shell)
-        {
-            r.shell = shell;
-        }
-        shell
     }
 }
 

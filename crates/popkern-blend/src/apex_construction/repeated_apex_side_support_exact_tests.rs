@@ -139,11 +139,12 @@ fn assign_exact_merge_surfaces(
 }
 
 fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle) -> FaceHandle {
-    let shell = brep.faces[support_face].shell;
+    let shell = brep.faces[support_face].sides();
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,

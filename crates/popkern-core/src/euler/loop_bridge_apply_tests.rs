@@ -159,19 +159,20 @@ fn two_boundary_quads() -> BRep {
             Point3::new(0.0, 1.0, 1.0),
         ],
     );
-    brep.set_shell_anchor(shell, second_face);
+    brep.set_sides_anchor(shell, second_face);
     brep
 }
 
 fn add_boundary_quad(
     brep: &mut BRep,
-    shell: crate::topology::ShellHandle,
+    shell: crate::topology::FaceSides,
     positions: [Point3; 4],
 ) -> crate::topology::FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,

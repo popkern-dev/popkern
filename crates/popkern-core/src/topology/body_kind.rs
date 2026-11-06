@@ -71,20 +71,9 @@ impl BRep {
                 BodyKind::Wire
             };
         }
-        let mut open: BTreeSet<ShellHandle> = BTreeSet::new();
-        let mut wire = false;
-        for (eh, _) in &self.edges {
-            match self.edge_use(eh) {
-                EdgeUse::Bounded => {}
-                EdgeUse::Wire => wire = true,
-                EdgeUse::Free => {
-                    if let Some(shell) = self.edge_shell(eh) {
-                        open.insert(shell);
-                    }
-                }
-            }
-        }
-        let shells: BTreeSet<ShellHandle> = self.faces.values().map(|f| f.shell).collect();
+        let wire = self.edges.keys().any(|e| self.edge_use(e) == EdgeUse::Wire);
+        let open = self.open_shells();
+        let shells: BTreeSet<ShellHandle> = self.faces.values().map(|f| f.back).collect();
         let sheet = !open.is_empty();
         let solid = shells.iter().any(|s| !open.contains(s));
         match (solid, sheet, wire) {
@@ -92,6 +81,16 @@ impl BRep {
             (false, true, false) => BodyKind::Sheet,
             _ => BodyKind::Mixed,
         }
+    }
+
+    /// The shells with a free edge on one of their faces: a sheet's
+    /// shells, open where a solid's would close.
+    pub(crate) fn open_shells(&self) -> BTreeSet<ShellHandle> {
+        self.edges
+            .keys()
+            .filter(|&e| self.edge_use(e) == EdgeUse::Free)
+            .filter_map(|e| self.edge_shell(e))
+            .collect()
     }
 
     /// Whether `edge` is a free (open boundary) edge: its fin is alone
@@ -147,7 +146,7 @@ impl BRep {
         let e = self.edges.get(edge)?;
         let h = self.half_edges.get(e.half_edge)?;
         let l = self.loops.get(h.loop_)?;
-        self.faces.get(l.face).map(|f| f.shell)
+        self.faces.get(l.face).map(|f| f.back)
     }
 
     /// Whether `face`'s surface closes on itself, so an edge holding the

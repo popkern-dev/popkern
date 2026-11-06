@@ -218,7 +218,7 @@ fn build(
     }
 
     // Edges and half-edges.
-    let shell = brep.faces[brep.loops[brep.half_edges[links[0].h].loop_].face].shell;
+    let shell = brep.faces[brep.loops[brep.half_edges[links[0].h].loop_].face].sides();
     // Tangent caps at the open ends.
     let cap_at = |brep: &mut BRep, kind: Option<ChainEnd>, at_start: bool| {
         let link = if at_start { &links[0] } else { &links[k - 1] };
@@ -329,7 +329,8 @@ fn build(
         let face = brep.faces.insert(Face {
             outer_loop: LoopHandle::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: Some(SurfaceOnFace {
                 geometry: link.eg.surface.clone(),
                 orientation: true,

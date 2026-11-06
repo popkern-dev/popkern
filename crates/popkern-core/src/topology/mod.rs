@@ -11,12 +11,12 @@ pub mod half_edge;
 pub mod handles;
 /// Loop topology entity.
 pub mod loop_;
+/// Region topology entity: a solid or void 3-cell of space.
+pub mod region;
 /// Semantic ownership role for topology entities.
 pub mod role;
 /// Shell topology entity.
 pub mod shell;
-/// Solid topology entity.
-pub mod solid;
 /// Vertex topology entity.
 pub mod vertex;
 
@@ -25,9 +25,9 @@ pub use face::Face;
 pub use half_edge::{HalfEdge, RadialLinks};
 pub use handles::*;
 pub use loop_::Loop;
+pub use region::{Region, RegionKind};
 pub use role::TopologyRole;
 pub use shell::Shell;
-pub use solid::Solid;
 pub use vertex::Vertex;
 
 pub mod body_kind;
@@ -58,6 +58,10 @@ mod brep_append;
 mod brep_radial;
 /// Regions, shells and face sides for [`BRep`].
 mod brep_regions;
+pub use brep_regions::FaceSides;
+mod brep_region_derive;
+mod brep_region_edits;
+mod brep_stored;
 pub use brep_append::AppendMap;
 
 /// Non-manifold repair policy and user-facing explanations.

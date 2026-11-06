@@ -103,7 +103,7 @@ pub fn in_contact(bodies: Vec<PlacedBody>) -> Result<Bonded, BondError> {
 fn touching(bodies: Vec<PlacedBody>, contacts: bool) -> Result<Bonded, BondError> {
     let mut solids: Vec<PlacedBody> = Vec::new();
     for body in bodies {
-        if body.brep.solids.len() <= 1 {
+        if body.brep.solid_regions().len() <= 1 {
             solids.push(body);
             continue;
         }

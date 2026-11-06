@@ -225,7 +225,7 @@ pub fn build_polyhedron_brep(
         })
         .collect();
 
-    let (solid_h, shell_h) = brep.add_solid_region(Default::default());
+    let (_, shell_h) = brep.add_solid_region(Default::default());
 
     let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::new();
     let ensure_edges =
@@ -258,7 +258,8 @@ pub fn build_polyhedron_brep(
         let fh = brep.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -309,7 +310,7 @@ pub fn build_polyhedron_brep(
             brep.faces[fh].inner_loops.push(lh);
         }
     }
-    brep.set_shell_anchor(shell_h, brep.faces.keys().next().unwrap_or_default());
+    brep.set_sides_anchor(shell_h, brep.faces.keys().next().unwrap_or_default());
 
     for (&(a, b), &he) in &he_of {
         let twin = *he_of.get(&(b, a)).ok_or_else(|| {
@@ -319,7 +320,7 @@ pub fn build_polyhedron_brep(
         })?;
         brep.half_edges[he].set_mate(twin);
     }
-    components::split_components(&mut brep, solid_h, shell_h);
+    components::split_components(&mut brep, shell_h);
 
     // Analytic line curves.
     let edge_handles: Vec<EdgeHandle> = brep.edges.keys().collect();

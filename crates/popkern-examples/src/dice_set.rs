@@ -773,7 +773,8 @@ fn build_polyhedron(
         let fh = brep.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -824,7 +825,7 @@ fn build_polyhedron(
             brep.faces[fh].inner_loops.push(lh);
         }
     }
-    brep.set_shell_anchor(shell_h, brep.faces.keys().next().unwrap_or_default());
+    brep.set_sides_anchor(shell_h, brep.faces.keys().next().unwrap_or_default());
 
     // Twin wiring: (a,b) pairs with (b,a); a miss means the input
     // was not a closed manifold.

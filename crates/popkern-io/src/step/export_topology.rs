@@ -175,7 +175,7 @@ impl ExportContext {
             self.reverse_face_uses = super::export_voids::is_cavity(brep, sh);
             let mut ids = Vec::new();
             for (fh, face) in &brep.faces {
-                if face.shell != sh {
+                if face.back != sh {
                     continue;
                 }
                 let surface_id = surface_map.get(&fh).map(|surface| surface.id);

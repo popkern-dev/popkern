@@ -16,15 +16,18 @@
 //! (measured: the void imported with no faces, the volume of the outer
 //! alone).
 
-use popkern_core::topology::{BRep, ShellHandle};
+use popkern_core::topology::{BRep, RegionKind, ShellHandle};
 
 use crate::step::export::{ExportContext, bool_, list, ref_, str_param};
 use crate::step::parser::types::{EntityId, Parameter};
 
-/// Whether `shell` is a cavity: a shell of a solid other than its outer.
+/// Whether `shell` is a cavity: a shell of a solid region other than its
+/// outer one (a sheet's shell, in a void, is none).
 pub(super) fn is_cavity(brep: &BRep, shell: ShellHandle) -> bool {
-    brep.shell_region(shell)
-        .is_some_and(|region| brep.region_outer_shell(region) != Some(shell))
+    brep.shell_region(shell).is_some_and(|region| {
+        brep.region_kind(region) == Some(RegionKind::Solid)
+            && brep.region_outer_shell(region) != Some(shell)
+    })
 }
 
 /// Emit one solid item per popkern solid (cavity shells as voids of

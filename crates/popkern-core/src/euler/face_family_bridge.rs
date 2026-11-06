@@ -94,7 +94,7 @@ impl BRep {
             }
             let first_face = self.loops[cycle.first_loop].face;
             let second_face = self.loops[cycle.second_loop].face;
-            if self.faces[first_face].shell != self.faces[second_face].shell {
+            if self.faces[first_face].back != self.faces[second_face].back {
                 return Err(CoreError::PreconditionFailed(format!(
                     "face-family bridge cycle {index} source faces are in different shells"
                 )));
@@ -232,7 +232,8 @@ impl BRep {
         let bridge_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell: source.shell,
+            back: source.back,
+            front: source.front,
             surface: None,
             name: None,
             tolerance: source.tolerance,

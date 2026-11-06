@@ -233,7 +233,8 @@ fn insert_face(brep: &mut BRep, shell: ShellHandle) -> FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell,
+        front: shell,
         surface: None,
         name: None,
         tolerance: None,

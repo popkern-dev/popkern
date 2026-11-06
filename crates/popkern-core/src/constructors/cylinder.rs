@@ -154,7 +154,8 @@ impl BRep {
         let f_lateral = brep.faces.insert(Face {
             outer_loop: loop_lateral,
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -163,7 +164,8 @@ impl BRep {
         let f_bot = brep.faces.insert(Face {
             outer_loop: loop_bot,
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -172,7 +174,8 @@ impl BRep {
         let f_top = brep.faces.insert(Face {
             outer_loop: loop_top,
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -182,7 +185,7 @@ impl BRep {
         brep.loops[loop_lateral].face = f_lateral;
         brep.loops[loop_bot].face = f_bot;
         brep.loops[loop_top].face = f_top;
-        brep.set_shell_anchor(shell_h, f_lateral);
+        brep.set_sides_anchor(shell_h, f_lateral);
 
         // -- Edges --
         let e_bot_circle = brep.insert_edge_tracked(Edge {

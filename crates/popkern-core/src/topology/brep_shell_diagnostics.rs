@@ -264,18 +264,18 @@ fn analyze_shell_ownership(brep: &BRep, findings: &mut Vec<BrepTopologyDiagnosti
         }
     }
     for (face_handle, face) in &brep.faces {
-        if !brep.shells.contains_key(face.shell) {
+        if !brep.shells.contains_key(face.back) {
             push_finding(
                 findings,
                 BrepTopologyDiagnosticSeverity::Error,
                 BrepTopologyDiagnosticKind::MissingFaceShell,
                 format!(
                     "face {face_handle:?} references missing shell {:?}",
-                    face.shell
+                    face.back
                 ),
             )
             .face(face_handle)
-            .shell(face.shell);
+            .shell(face.back);
         }
     }
 }
@@ -301,7 +301,7 @@ fn analyze_shell_components(
         else {
             continue;
         };
-        if brep.faces[a].shell == brep.faces[b].shell {
+        if brep.faces[a].back == brep.faces[b].back {
             adjacency.entry(a).or_default().push(b);
             adjacency.entry(b).or_default().push(a);
         }
@@ -312,7 +312,7 @@ fn analyze_shell_components(
         let faces: Vec<_> = brep
             .faces
             .iter()
-            .filter_map(|(face, data)| (data.shell == shell).then_some(face))
+            .filter_map(|(face, data)| (data.back == shell).then_some(face))
             .collect();
         let components = count_components(&faces, &adjacency);
         total_components += components;

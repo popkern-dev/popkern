@@ -17,7 +17,7 @@ use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
-    BRep, EdgeHandle, Face, FaceHandle, HalfEdgeHandle, Loop, LoopHandle, ShellHandle, Vertex,
+    BRep, EdgeHandle, Face, FaceHandle, FaceSides, HalfEdgeHandle, Loop, LoopHandle, Vertex,
     VertexHandle,
 };
 
@@ -148,7 +148,7 @@ pub(super) fn prepare_cap(
     brep: &mut BRep,
     link: &Link<'_>,
     at_start: bool,
-    shell: ShellHandle,
+    shell: FaceSides,
     band: f64,
     tolerance: &Tolerance,
 ) -> Result<Cap, BlendFailure> {
@@ -279,7 +279,8 @@ pub(super) fn prepare_cap(
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: vpos,

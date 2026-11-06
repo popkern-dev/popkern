@@ -310,7 +310,8 @@ mod tests {
         let face_handle = brep.faces.insert(popkern_core::topology::Face {
             outer_loop: loop_handle,
             inner_loops: vec![],
-            shell: shell_handle,
+            back: shell_handle.back,
+            front: shell_handle.front,
             surface: Some(SurfaceOnFace {
                 geometry: SurfaceGeometry::Plane {
                     origin: Point3::new(0.0, 0.0, z),
@@ -325,7 +326,7 @@ mod tests {
             role: Default::default(),
         });
         brep.loops[loop_handle].face = face_handle;
-        brep.set_shell_anchor(shell_handle, face_handle);
+        brep.set_sides_anchor(shell_handle, face_handle);
         (brep, face_handle)
     }
 

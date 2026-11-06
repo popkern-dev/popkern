@@ -6,7 +6,7 @@ use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::{
     BRep, BrepEdgePairPolicyContext, BrepEdgePairPolicyDeclineReason, BrepEdgePairPolicyOutcome,
-    BrepTopologyRepairPolicy, Edge, Face, FaceHandle, HalfEdge, Loop, LoopHandle, ShellHandle,
+    BrepTopologyRepairPolicy, Edge, Face, FaceHandle, FaceSides, HalfEdge, Loop, LoopHandle,
     Vertex, assess_edge_pair_topology_policy,
 };
 
@@ -57,8 +57,8 @@ fn two_square_sheet() -> (BRep, EdgeHandle, EdgeHandle) {
             Point3::new(1.0, 0.0, 0.0),
         ],
     );
-    if brep.shell_anchor(shell).is_none() {
-        brep.set_shell_anchor(shell, left.face);
+    if brep.shell_anchor(shell.back).is_none() {
+        brep.set_sides_anchor(shell, left.face);
     }
     (brep, left.edges[1], right.edges[2])
 }
@@ -72,7 +72,7 @@ struct SquareHandles {
     edges: [EdgeHandle; 4],
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -84,7 +84,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,

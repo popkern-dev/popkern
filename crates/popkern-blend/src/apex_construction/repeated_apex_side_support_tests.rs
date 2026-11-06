@@ -1,9 +1,7 @@
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::RadialLinks;
-use popkern_core::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, Loop, ShellHandle, Vertex, VertexHandle,
-};
+use popkern_core::topology::{BRep, Edge, Face, FaceHandle, HalfEdge, Loop, Vertex, VertexHandle};
 
 use super::super::repeated_apex_region_candidates::{CandidateStatus, RegionOperationKind};
 use super::super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitiveDerivation;
@@ -425,15 +423,20 @@ fn two_boundary_quads() -> BRep {
             Point3::new(0.0, 1.0, 1.0),
         ],
     );
-    brep.set_shell_anchor(shell, first_face);
+    brep.set_sides_anchor(shell, first_face);
     brep
 }
 
-fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]) -> FaceHandle {
+fn add_boundary_quad(
+    brep: &mut BRep,
+    shell: popkern_core::topology::FaceSides,
+    positions: [Point3; 4],
+) -> FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,

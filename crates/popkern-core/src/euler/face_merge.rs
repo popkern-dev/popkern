@@ -71,7 +71,7 @@ impl BRep {
                 "merge edge must separate two faces".into(),
             ));
         }
-        if self.faces[retained_face].shell != self.faces[removed_face].shell {
+        if self.faces[retained_face].back != self.faces[removed_face].back {
             return Err(CoreError::PreconditionFailed(
                 "merge faces must belong to the same shell".into(),
             ));

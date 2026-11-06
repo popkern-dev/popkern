@@ -75,7 +75,8 @@ impl BRep {
         let f_sphere = brep.faces.insert(Face {
             outer_loop: loop_face,
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -83,7 +84,7 @@ impl BRep {
         });
 
         brep.loops[loop_face].face = f_sphere;
-        brep.set_shell_anchor(shell_h, f_sphere);
+        brep.set_sides_anchor(shell_h, f_sphere);
 
         // -- Edge --
         let e_seam = brep.insert_edge_tracked(Edge {

@@ -84,7 +84,7 @@ impl BRep {
                 "two-loop bridge endpoints are not on their planned loops".into(),
             ));
         }
-        if self.faces[plan.first_face].shell != self.faces[plan.second_face].shell {
+        if self.faces[plan.first_face].back != self.faces[plan.second_face].back {
             return Err(CoreError::PreconditionFailed(
                 "two-loop bridge requires operand faces in the same shell".into(),
             ));
@@ -204,12 +204,13 @@ impl BRep {
             .faces
             .get(source_face)
             .ok_or_else(|| CoreError::InvalidHandle("source face is invalid".into()))?;
-        let shell = source.shell;
+        let shell = source.sides();
         let tolerance = source.tolerance;
         let bridge_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: None,
             name: None,
             tolerance,

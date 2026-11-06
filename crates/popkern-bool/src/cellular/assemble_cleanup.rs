@@ -357,9 +357,12 @@ pub(super) fn partition_shells(
     let Some(existing_solid) = brep.shell_region(existing_shell) else {
         return false;
     };
-    let mut shells: Vec<Option<popkern_core::topology::ShellHandle>> = vec![None; roots.len()];
-    let mut solids: Vec<Option<popkern_core::topology::SolidHandle>> = vec![None; roots.len()];
-    shells[first_own] = Some(existing_shell);
+    let Some(existing_sides) = brep.face_sides(faces[0]) else {
+        return false;
+    };
+    let mut shells: Vec<Option<popkern_core::topology::FaceSides>> = vec![None; roots.len()];
+    let mut solids: Vec<Option<popkern_core::topology::RegionHandle>> = vec![None; roots.len()];
+    shells[first_own] = Some(existing_sides);
     solids[first_own] = Some(existing_solid);
     for c in 0..roots.len() {
         if c == first_own || encloser[c].is_some() {
@@ -367,7 +370,8 @@ pub(super) fn partition_shells(
         }
         let solid = builder.add_solid();
         solids[c] = Some(solid);
-        shells[c] = Some(builder.add_shell(solid));
+        let shell = builder.add_shell(solid);
+        shells[c] = Some(builder.shell_sides(shell));
     }
     let mut cavity_count = 0usize;
     for c in 0..roots.len() {
@@ -375,7 +379,8 @@ pub(super) fn partition_shells(
             let Some(owner_solid) = solids[e] else {
                 return false;
             };
-            shells[c] = Some(builder.add_shell(owner_solid));
+            let shell = builder.add_shell(owner_solid);
+            shells[c] = Some(builder.shell_sides(shell));
             cavity_count += 1;
         }
     }
@@ -386,10 +391,10 @@ pub(super) fn partition_shells(
     // have pointed at a face now moved to another shell).
     let mut anchored = vec![false; roots.len()];
     for (f, c) in face_component {
-        let Some(sh) = shells[c] else { return false };
-        brep.faces[f].shell = sh;
+        let Some(sides) = shells[c] else { return false };
+        brep.set_face_sides(f, sides);
         if !anchored[c] {
-            brep.set_shell_anchor(sh, f);
+            brep.set_sides_anchor(sides, f);
             anchored[c] = true;
         }
     }
