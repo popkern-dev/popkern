@@ -10,7 +10,7 @@ use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::brep_edge_surface_compatibility_helpers::adjacent_surfaced_pair;
 use crate::topology::{
-    BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
+    BRep, Edge, Face, FaceSides, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
     SurfaceBoundaryHintDeclineReason, Vertex,
 };
 
@@ -324,7 +324,7 @@ fn nurbs_nurbs_boundary_fixture() -> BRep {
     brep.faces[face_b].outer_loop = loop_b;
     brep.vertices[va].outgoing = he_a;
     brep.vertices[vb].outgoing = he_b;
-    brep.set_shell_anchor(shell, face_a);
+    brep.set_sides_anchor(shell, face_a);
     brep
 }
 
@@ -393,7 +393,7 @@ fn gregory_plane_boundary_fixture() -> BRep {
     brep.faces[face_b].outer_loop = loop_b;
     brep.vertices[va].outgoing = he_a;
     brep.vertices[vb].outgoing = he_b;
-    brep.set_shell_anchor(shell, face_a);
+    brep.set_sides_anchor(shell, face_a);
     brep
 }
 
@@ -418,11 +418,12 @@ fn half_edge(origin: crate::topology::VertexHandle, loop_: LoopHandle) -> HalfEd
     }
 }
 
-fn face(shell: ShellHandle, surface: SurfaceOnFace) -> Face {
+fn face(shell: FaceSides, surface: SurfaceOnFace) -> Face {
     Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(surface),
         name: None,
         tolerance: None,

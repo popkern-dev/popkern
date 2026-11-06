@@ -76,7 +76,8 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: with_surface.then_some(surface(collapsed_surface)),
         name: None,
         tolerance: None,
@@ -109,7 +110,7 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     brep.vertices[vertex].outgoing = half_edge;
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
-    brep.set_shell_anchor(shell, face);
+    brep.set_sides_anchor(shell, face);
     brep
 }
 

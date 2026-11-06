@@ -1,7 +1,7 @@
 use popkern_core::error::ValidationError;
 use popkern_core::geometry::CurveEval;
 use popkern_core::topology::{
-    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, SolidHandle,
+    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, RegionHandle, ShellHandle,
 };
 
 use crate::step_validation::StepRoundTripBodyReport;
@@ -30,7 +30,7 @@ pub enum StepImportedValidationFailureKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StepImportedEulerPoincareEvidence {
-    pub solid: SolidHandle,
+    pub solid: RegionHandle,
     pub shell: Option<ShellHandle>,
     pub expected: i64,
     pub actual: i64,
@@ -116,7 +116,7 @@ pub(super) fn imported_validation_failure(
 
 fn imported_euler_poincare_evidence(
     body: &BRep,
-    solid: SolidHandle,
+    solid: RegionHandle,
     expected: i64,
     actual: i64,
 ) -> StepImportedEulerPoincareEvidence {
@@ -125,7 +125,7 @@ fn imported_euler_poincare_evidence(
         .map(|shell| {
             body.faces
                 .values()
-                .filter(|face| face.shell == shell)
+                .filter(|face| face.back == shell)
                 .count()
         })
         .unwrap_or_default();
@@ -136,7 +136,7 @@ fn imported_euler_poincare_evidence(
                 .filter(|loop_| {
                     body.faces
                         .get(loop_.face)
-                        .is_some_and(|face| face.shell == shell)
+                        .is_some_and(|face| face.back == shell)
                 })
                 .count()
         })
@@ -150,7 +150,7 @@ fn imported_euler_poincare_evidence(
                         .get(edge.half_edge)
                         .and_then(|half_edge| body.loops.get(half_edge.loop_))
                         .and_then(|loop_| body.faces.get(loop_.face))
-                        .is_some_and(|face| face.shell == shell)
+                        .is_some_and(|face| face.back == shell)
                 })
                 .count()
         })

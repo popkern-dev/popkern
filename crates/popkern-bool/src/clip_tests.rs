@@ -40,7 +40,8 @@ fn face_vertex_positions_loop_not_in_brep_returns_empty() {
     let face_h = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(), // not in brep.loops → None branch
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: None,
         name: None,
         tolerance: None,

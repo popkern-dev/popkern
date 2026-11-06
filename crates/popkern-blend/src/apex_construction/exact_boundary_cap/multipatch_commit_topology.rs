@@ -239,7 +239,8 @@ fn insert_inner_face_like(brep: &mut BRep, template_face: FaceHandle) -> Option<
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: Vec::new(),
-        shell: template.shell,
+        back: template.back,
+        front: template.front,
         surface: None,
         name: None,
         tolerance: template.tolerance,

@@ -403,7 +403,9 @@ fn build_triangle_solid() {
     assert_eq!(brep.vertices.len(), 3);
     assert_eq!(brep.edges.len(), 3);
     assert_eq!(brep.faces.len(), 1);
-    assert_eq!(brep.solid_regions().len(), 1);
+    // One triangle bounds no volume: its shell is open, so the builder
+    // settles it in the outside as a sheet, not a solid region.
+    assert!(brep.solid_regions().is_empty());
     assert_eq!(brep.back_shell_count(), 1);
     assert_eq!(
         brep.free_edges().len(),

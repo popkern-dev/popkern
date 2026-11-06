@@ -216,7 +216,8 @@ fn validate_all_hits_vertex_valence_error() {
     let new_face = brep.faces.insert(crate::topology::Face {
         outer_loop: new_loop,
         inner_loops: Vec::new(),
-        shell: brep.faces[mvfs.face].shell,
+        back: brep.faces[mvfs.face].back,
+        front: brep.faces[mvfs.face].front,
         surface: None,
         name: None,
         tolerance: None,

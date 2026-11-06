@@ -11,7 +11,7 @@ use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use crate::tolerance::Tolerance;
 use crate::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
+    BRep, Edge, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
     TopologyRole, Vertex, VertexHandle,
 };
 use slotmap::Key;
@@ -72,9 +72,7 @@ pub fn build_polyhedral_spline_brep(
 
     for (patch_index, patch) in spline.patches.iter().enumerate() {
         let face = insert_patch_face(&mut brep, shell, options.operation, patch_index);
-        if brep.shell_anchor(shell).is_none() {
-            brep.set_shell_anchor(shell, face);
-        }
+        brep.anchor_unset_sides(face);
         brep.faces[face].surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Nurbs(patch.to_bezier_nurbs()),
             orientation: true,
@@ -116,6 +114,7 @@ pub fn build_polyhedral_spline_brep(
         faces.push(PolyhedralBrepFaceProvenance { patch_index, face });
     }
 
+    brep.settle_open_shells();
     brep.validate()
         .map_err(|err| export_error(spline, format!("post-build validation failed: {err}")))?;
     Ok(PolyhedralBrepExport {
@@ -169,7 +168,7 @@ fn patch_boundary() -> [BoundaryEdge; 4] {
 
 fn insert_patch_face(
     brep: &mut BRep,
-    shell: ShellHandle,
+    sides: FaceSides,
     operation: OperationId,
     patch_index: usize,
 ) -> FaceHandle {
@@ -187,7 +186,8 @@ fn insert_patch_face(
     brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: sides.back,
+        front: sides.front,
         surface: None,
         name: Some(name),
         tolerance: None,

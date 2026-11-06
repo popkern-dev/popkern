@@ -220,7 +220,8 @@ impl BRep {
         let bridge_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell: source.shell,
+            back: source.back,
+            front: source.front,
             surface: None,
             name: None,
             tolerance: source.tolerance,

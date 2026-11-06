@@ -428,14 +428,12 @@ mod tests {
         assert!(brep.is_free_edge(brep.half_edges[repaired_cycle[0]].edge));
     }
 
-    fn insert_empty_face(
-        brep: &mut BRep,
-        shell: popkern_core::topology::ShellHandle,
-    ) -> FaceHandle {
+    fn insert_empty_face(brep: &mut BRep, shell: popkern_core::topology::FaceSides) -> FaceHandle {
         let face = brep.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: None,
             name: None,
             tolerance: None,

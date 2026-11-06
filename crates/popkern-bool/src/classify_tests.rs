@@ -137,7 +137,8 @@ fn face_parameter_range_face_with_no_surface_returns_default() {
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
         inner_loops: Vec::new(),
-        shell: popkern_core::topology::ShellHandle::default(),
+        back: popkern_core::topology::ShellHandle::default(),
+        front: popkern_core::topology::ShellHandle::default(),
         surface: None,
         name: None,
         tolerance: None,

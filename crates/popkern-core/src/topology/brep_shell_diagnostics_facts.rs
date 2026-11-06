@@ -56,7 +56,7 @@ fn finding_fact_ids(
     let mut ids = BTreeSet::new();
     if let Some(shell) = finding.shell {
         for (face, data) in &brep.faces {
-            if data.shell == shell {
+            if data.back == shell {
                 insert_fact_ids(graph, BrepRepairTopologyHandle::Face(face), &mut ids);
             }
         }

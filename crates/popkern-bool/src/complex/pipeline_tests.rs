@@ -382,7 +382,7 @@ fn each_solid_of_a_two_solid_operand_keeps_its_face_orientation() {
     let disc = BRep::cylinder(3.0, 1.5, tol).expect("disc");
     let far = block((100.0, 0.0, 0.0), (104.0, 4.0, 4.0), tol);
     let two = crate::boolean(BoolOperation::Union, disc, far, tol, None).expect("two solids");
-    assert_eq!(two.solids.len(), 2);
+    assert_eq!(two.solid_regions().len(), 2);
     let senses: std::collections::BTreeSet<_> = two
         .faces
         .keys()

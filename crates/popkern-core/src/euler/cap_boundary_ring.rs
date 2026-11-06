@@ -16,7 +16,7 @@ use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts, verify_loop_contains_half_edges};
 use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
+    BRep, EdgeHandle, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
     VertexHandle,
 };
 
@@ -43,11 +43,12 @@ pub(crate) struct BoundaryRingStep {
     pub(crate) hole_origin: VertexHandle,
 }
 
-/// Validated capping plan: cycle-ordered steps plus the owning shell.
+/// Validated capping plan: cycle-ordered steps plus the sides of the
+/// owning shell's faces, which the cap takes.
 #[derive(Debug, Clone)]
 pub(crate) struct BoundaryRingPlan {
     pub(crate) steps: Vec<BoundaryRingStep>,
-    pub(crate) shell: ShellHandle,
+    pub(crate) sides: FaceSides,
 }
 
 impl BRep {
@@ -106,7 +107,7 @@ impl BRep {
 
         // Resolve each edge to its surviving half-edge and directed span.
         let mut spans = Vec::with_capacity(ring.len());
-        let mut shell: Option<ShellHandle> = None;
+        let mut shell: Option<FaceSides> = None;
         for &edge in ring {
             if !self.is_free_edge(edge) {
                 return Err(CoreError::PreconditionFailed(format!(
@@ -143,7 +144,7 @@ impl BRep {
                 .loops
                 .get(surviving_data.loop_)
                 .and_then(|loop_data| self.faces.get(loop_data.face))
-                .map(|face| face.shell)
+                .map(|face| face.sides())
                 .ok_or_else(|| {
                     CoreError::InvalidHandle(format!(
                         "boundary ring cap edge {edge:?} surviving half-edge has no owning face"
@@ -218,14 +219,18 @@ impl BRep {
                 "boundary ring does not close into a single cycle over all listed edges".into(),
             ));
         }
-        Ok(BoundaryRingPlan { steps, shell })
+        Ok(BoundaryRingPlan {
+            steps,
+            sides: shell,
+        })
     }
 
     fn apply_boundary_ring_cap(&mut self, plan: &BoundaryRingPlan) -> BoundaryRingCapResult {
         let face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell: plan.shell,
+            back: plan.sides.back,
+            front: plan.sides.front,
             surface: None,
             name: None,
             tolerance: None,

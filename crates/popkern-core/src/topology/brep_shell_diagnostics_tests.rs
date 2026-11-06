@@ -3,8 +3,8 @@ use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
-    ShellHandle, Vertex,
+    BRep, Edge, EdgeHandle, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop,
+    LoopHandle, Vertex,
 };
 
 #[test]
@@ -124,7 +124,7 @@ fn two_square_fragmented_shell() -> BRep {
             Point3::new(2.0, 1.0, 0.0),
         ],
     );
-    brep.set_shell_anchor(shell, first.face);
+    brep.set_sides_anchor(shell, first.face);
     brep
 }
 
@@ -132,7 +132,7 @@ struct SquareHandles {
     face: FaceHandle,
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -144,7 +144,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,

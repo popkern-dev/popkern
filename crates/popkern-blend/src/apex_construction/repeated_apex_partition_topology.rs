@@ -136,15 +136,14 @@ pub(super) fn insert_face_with_outer_loop(
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: Vec::new(),
-        shell: template.shell,
+        back: template.back,
+        front: template.front,
         surface: template.surface,
         name: None,
         tolerance: template.tolerance,
         role: Default::default(),
     });
-    if brep.shells.contains_key(template.shell) && brep.shell_anchor(template.shell).is_none() {
-        brep.set_shell_anchor(template.shell, face);
-    }
+    brep.anchor_unset_sides(face);
     let loop_handle = brep.loops.insert(Loop {
         half_edge: half_edges[0],
         face,

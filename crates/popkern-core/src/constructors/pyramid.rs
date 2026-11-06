@@ -93,7 +93,8 @@ impl BRep {
             brep.faces.insert(Face {
                 outer_loop: Default::default(),
                 inner_loops: Vec::new(),
-                shell: shell_h,
+                back: shell_h.back,
+                front: shell_h.front,
                 surface: None,
                 name: None,
                 tolerance: None,
@@ -109,7 +110,7 @@ impl BRep {
         for (i, lh) in loops.iter().enumerate() {
             brep.faces[faces[i]].outer_loop = *lh;
         }
-        brep.set_shell_anchor(shell_h, faces[0]);
+        brep.set_sides_anchor(shell_h, faces[0]);
         let [_f_base, _f_front, _f_right, _f_back, _f_left] = faces;
         let [l_base, l_front, l_right, l_back, l_left] = loops;
 

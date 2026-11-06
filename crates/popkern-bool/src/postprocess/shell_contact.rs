@@ -226,7 +226,7 @@ pub(crate) fn shell_findings(brep: &BRep, tolerance: &Tolerance) -> Vec<ShellFin
     let linear = tolerance.linear();
     let mut faces: Vec<(FaceHandle, Aabb)> = crate::intersect::compute_face_aabbs(brep);
     faces.sort_by_key(|(f, _)| *f);
-    let shell = |f: FaceHandle| brep.faces.get(f).map(|face| face.shell);
+    let shell = |f: FaceHandle| brep.faces.get(f).map(|face| face.back);
     let mut out: Vec<ShellFinding> = Vec::new();
     for (i, (f, box_f)) in faces.iter().enumerate() {
         for (g, box_g) in &faces[i + 1..] {

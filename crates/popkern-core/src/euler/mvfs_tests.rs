@@ -19,8 +19,8 @@ fn mvfs_creates_vertex_face_shell_solid() {
     assert_eq!(face.outer_loop, result.loop_);
     assert!(face.inner_loops.is_empty());
     assert_eq!(brep.loops[result.loop_].face, result.face);
-    assert_eq!(brep.shells[result.shell].solid, result.solid);
-    assert_eq!(brep.solids[result.solid].shell, result.shell);
+    assert_eq!(brep.shells[result.shell].region, result.solid);
+    assert_eq!(brep.regions[result.solid].shell, result.shell);
     assert_eq!(brep.vertices[result.vertex].position.x, 0.0);
 }
 

@@ -17,7 +17,7 @@ use crate::topology::{
     BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions, BrepFaceUseTrimAuthorityOptions,
     BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingEdgePair,
     BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions, BrepTopologyOutputPolicy,
-    BrepTrimRepairOptions, EdgeHandle, HalfEdgeHandle, ShellHandle,
+    BrepTrimRepairOptions, EdgeHandle, FaceSides, HalfEdgeHandle,
     analyze_brep_export_quality_with_local_diagnostics,
     analyze_scoped_brep_edge_surface_compatibility, analyze_scoped_brep_export_quality,
     analyze_scoped_brep_trims, build_brep_repair_action_artifact, edge_segment,
@@ -379,7 +379,7 @@ fn assemble_components(
 
 fn copy_component_brep(
     out: &mut BRep,
-    shell: ShellHandle,
+    sides: FaceSides,
     component_index: usize,
     src: &BRep,
     edge_component: &mut HashMap<EdgeHandle, usize>,
@@ -407,11 +407,10 @@ fn copy_component_brep(
     }
     for (old, face) in &src.faces {
         let mut new_face = face.clone();
-        new_face.shell = shell;
+        new_face.back = sides.back;
+        new_face.front = sides.front;
         let new = out.faces.insert(new_face);
-        if out.shell_anchor(shell).is_none() {
-            out.set_shell_anchor(shell, new);
-        }
+        out.anchor_unset_sides(new);
         faces.insert(old, new);
     }
 

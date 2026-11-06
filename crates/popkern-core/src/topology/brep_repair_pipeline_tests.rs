@@ -5,8 +5,8 @@ use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, BrepRepairActionOutcome, BrepRepairTopologyHandle, BrepSewingOptions,
-    BrepSewingProvenance, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop,
-    LoopHandle, ShellHandle, Vertex, build_brep_repair_action_artifact,
+    BrepSewingProvenance, Edge, EdgeHandle, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle,
+    Loop, LoopHandle, Vertex, build_brep_repair_action_artifact,
 };
 fn pipeline_options(diagnose_loop_shell: bool) -> BrepRepairPipelineOptions {
     let clean_sewing = BrepSewingOptions {
@@ -389,7 +389,7 @@ fn two_square_sheet() -> (BRep, EdgeHandle, EdgeHandle) {
             Point3::new(1.0, 0.0, 0.0),
         ],
     );
-    brep.set_shell_anchor(shell, left.face);
+    brep.set_sides_anchor(shell, left.face);
     (brep, left.edges[1], right.edges[2])
 }
 
@@ -398,7 +398,7 @@ struct SquareHandles {
     edges: [EdgeHandle; 4],
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -410,7 +410,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,

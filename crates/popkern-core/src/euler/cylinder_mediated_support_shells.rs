@@ -12,13 +12,13 @@ impl BRep {
         outside_face: FaceHandle,
         cylinder_face: FaceHandle,
     ) -> Result<(), CoreError> {
-        let shell = self.faces[support_face].shell;
-        if self.faces[outside_face].shell != shell || self.faces[cylinder_face].shell != shell {
+        let shell = self.faces[support_face].back;
+        if self.faces[outside_face].back != shell || self.faces[cylinder_face].back != shell {
             return Err(CoreError::PreconditionFailed(format!(
                 "cylinder-mediated support continuation requires one shell: support={:?} outside={:?} cylinder={:?}",
-                self.faces[support_face].shell,
-                self.faces[outside_face].shell,
-                self.faces[cylinder_face].shell
+                self.faces[support_face].back,
+                self.faces[outside_face].back,
+                self.faces[cylinder_face].back
             )));
         }
         Ok(())
@@ -31,16 +31,16 @@ impl BRep {
         cylinder_face: FaceHandle,
         context_owner_faces: &[FaceHandle],
     ) -> Result<(), CoreError> {
-        let shell = self.faces[support_face].shell;
+        let shell = self.faces[support_face].back;
         for &face in context_owner_faces {
             self.require_face(face, "context owner face")?;
             if face == support_face || face == outside_face || face == cylinder_face {
                 continue;
             }
-            if self.faces[face].shell != shell {
+            if self.faces[face].back != shell {
                 return Err(CoreError::PreconditionFailed(format!(
                     "context owner face {face:?} belongs to shell {:?}, expected {shell:?}",
-                    self.faces[face].shell
+                    self.faces[face].back
                 )));
             }
         }

@@ -225,7 +225,7 @@ fn bridge_path_patch_repairs_stale_shell_anchor_on_inserted_face() {
     });
     let stale_anchor =
         add_boundary_loop_face(&mut brep, shell, &[vertices[0], vertices[1], vertices[2]]);
-    brep.set_shell_anchor(shell, stale_anchor);
+    brep.set_sides_anchor(shell, stale_anchor);
     let stale_loop = brep.faces[stale_anchor].outer_loop;
     brep.loops.remove(stale_loop);
     brep.faces.remove(stale_anchor);
@@ -254,12 +254,12 @@ fn bridge_path_patch_repairs_stale_shell_anchor_on_inserted_face() {
     .expect("patch authoring succeeds")
     .expect("single span path patch applies");
 
-    assert_eq!(brep.shells[shell].face, patch.support_patch_face);
+    assert_eq!(brep.shells[shell.back].face, patch.support_patch_face);
 }
 
 fn add_boundary_loop(
     brep: &mut BRep,
-    shell: popkern_core::topology::ShellHandle,
+    shell: popkern_core::topology::FaceSides,
     vertices: &[VertexHandle],
 ) -> LoopHandle {
     let face = add_boundary_loop_face(brep, shell, vertices);
@@ -268,13 +268,14 @@ fn add_boundary_loop(
 
 fn add_boundary_loop_face(
     brep: &mut BRep,
-    shell: popkern_core::topology::ShellHandle,
+    shell: popkern_core::topology::FaceSides,
     vertices: &[VertexHandle],
 ) -> FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,

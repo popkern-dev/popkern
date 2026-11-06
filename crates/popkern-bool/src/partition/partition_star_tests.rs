@@ -291,5 +291,5 @@ fn sphere_and_crossing_rod_exactly_one_splits_to_manifold_pieces() {
         .and_then(|p| p.select(&super::SetExpr::ExactlyOne, &options))
         .expect("exactly one");
     assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
-    assert_eq!(body.shells.len(), 3);
+    assert_eq!(body.back_shell_count(), 3);
 }

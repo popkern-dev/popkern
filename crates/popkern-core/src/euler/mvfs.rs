@@ -5,7 +5,7 @@ use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
 use crate::geometry::Point3;
 use crate::topology::{
-    BRep, Face, FaceHandle, Loop, LoopHandle, ShellHandle, SolidHandle, Vertex, VertexHandle,
+    BRep, Face, FaceHandle, Loop, LoopHandle, RegionHandle, ShellHandle, Vertex, VertexHandle,
 };
 
 /// Result of the mvfs (Make Vertex, Face, Shell) operator.
@@ -20,7 +20,7 @@ pub struct MvfsResult {
     /// The newly created shell.
     pub shell: ShellHandle,
     /// The newly created solid.
-    pub solid: SolidHandle,
+    pub solid: RegionHandle,
 }
 
 /// Explicit inverse request for a seed created by [`BRep::mvfs`].
@@ -35,7 +35,7 @@ pub struct KvfsRequest {
     /// Single-face shell to remove.
     pub shell: ShellHandle,
     /// Solid owned by the shell.
-    pub solid: SolidHandle,
+    pub solid: RegionHandle,
 }
 
 /// Result of the kvfs (Kill Vertex, Face, Shell) operator.
@@ -50,7 +50,7 @@ pub struct KvfsResult {
     /// Removed shell.
     pub shell: ShellHandle,
     /// Removed solid.
-    pub solid: SolidHandle,
+    pub solid: RegionHandle,
 }
 
 impl From<MvfsResult> for KvfsRequest {
@@ -92,7 +92,8 @@ impl BRep {
         let face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell: Default::default(),
+            back: Default::default(),
+            front: Default::default(),
             surface: None,
             name: None,
             tolerance: None,
@@ -104,18 +105,17 @@ impl BRep {
             face,
         });
 
-        let (solid, shell) = self.add_solid_region(face);
+        let (solid, sides) = self.add_solid_region(face);
 
-        // Patch the face with the real loop and shell handles.
-        let face_data = &mut self.faces[face];
-        face_data.outer_loop = loop_;
-        face_data.shell = shell;
+        // Patch the face with the real loop and its sides.
+        self.faces[face].outer_loop = loop_;
+        self.set_face_sides(face, sides);
 
         MvfsResult {
             vertex,
             face,
             loop_,
-            shell,
+            shell: sides.back,
             solid,
         }
     }
@@ -160,7 +160,14 @@ impl BRep {
     }
 
     fn apply_kvfs_seed(&mut self, request: KvfsRequest) -> KvfsResult {
-        self.solids.remove(request.solid);
+        // The void shell across the seed face goes with it.
+        if let Some(front) = self.face_front_shell(request.face)
+            && front != request.shell
+            && self.shell_faces(front) == [request.face]
+        {
+            self.shells.remove(front);
+        }
+        self.regions.remove(request.solid);
         self.shells.remove(request.shell);
         self.faces.remove(request.face);
         self.loops.remove(request.loop_);
@@ -198,7 +205,7 @@ impl BRep {
             .faces
             .get(result.face)
             .ok_or_else(|| CoreError::PreconditionFailed("mvfs created face is not live".into()))?;
-        if face.outer_loop != result.loop_ || face.shell != result.shell {
+        if face.outer_loop != result.loop_ || face.back != result.shell {
             return Err(CoreError::PreconditionFailed(
                 "mvfs face does not own the created loop and shell".into(),
             ));
@@ -220,14 +227,14 @@ impl BRep {
         if self
             .shells
             .get(result.shell)
-            .is_none_or(|shell| shell.face != result.face || shell.solid != result.solid)
+            .is_none_or(|shell| shell.face != result.face || shell.region != result.solid)
         {
             return Err(CoreError::PreconditionFailed(
                 "mvfs shell does not point to the created face and solid".into(),
             ));
         }
         if self
-            .solids
+            .regions
             .get(result.solid)
             .is_none_or(|solid| solid.shell != result.shell)
         {
@@ -254,7 +261,7 @@ impl BRep {
             .get(request.face)
             .ok_or_else(|| CoreError::InvalidHandle("kvfs face handle is invalid".into()))?;
         if face.outer_loop != request.loop_
-            || face.shell != request.shell
+            || face.back != request.shell
             || !face.inner_loops.is_empty()
         {
             return Err(CoreError::PreconditionFailed(
@@ -274,13 +281,13 @@ impl BRep {
             .shells
             .get(request.shell)
             .ok_or_else(|| CoreError::InvalidHandle("kvfs shell handle is invalid".into()))?;
-        if shell.face != request.face || shell.solid != request.solid {
+        if shell.face != request.face || shell.region != request.solid {
             return Err(CoreError::PreconditionFailed(
                 "kvfs shell does not own the requested face and solid".into(),
             ));
         }
         if self
-            .solids
+            .regions
             .get(request.solid)
             .is_none_or(|solid| solid.shell != request.shell)
         {
@@ -291,7 +298,7 @@ impl BRep {
         let shell_face_count = self
             .faces
             .values()
-            .filter(|candidate| candidate.shell == request.shell)
+            .filter(|candidate| candidate.back == request.shell)
             .count();
         if shell_face_count != 1 {
             return Err(CoreError::PreconditionFailed(
@@ -316,7 +323,7 @@ impl BRep {
             || self.faces.contains_key(result.face)
             || self.loops.contains_key(result.loop_)
             || self.shells.contains_key(result.shell)
-            || self.solids.contains_key(result.solid)
+            || self.regions.contains_key(result.solid)
         {
             return Err(CoreError::PreconditionFailed(
                 "kvfs left removed seed topology live".into(),
@@ -325,7 +332,7 @@ impl BRep {
         for face in self.faces.values() {
             if face.outer_loop == result.loop_
                 || face.inner_loops.contains(&result.loop_)
-                || face.shell == result.shell
+                || face.back == result.shell
             {
                 return Err(CoreError::PreconditionFailed(
                     "kvfs left a live face referencing removed topology".into(),
@@ -340,13 +347,13 @@ impl BRep {
             }
         }
         for shell in self.shells.values() {
-            if shell.face == result.face || shell.solid == result.solid {
+            if shell.face == result.face || shell.region == result.solid {
                 return Err(CoreError::PreconditionFailed(
                     "kvfs left a live shell referencing removed topology".into(),
                 ));
             }
         }
-        for solid in self.solids.values() {
+        for solid in self.regions.values() {
             if solid.shell == result.shell {
                 return Err(CoreError::PreconditionFailed(
                     "kvfs left a live solid referencing the removed shell".into(),
@@ -370,25 +377,25 @@ impl BRep {
                 {
                     return None;
                 }
-                let shell = self.shells.get(face.shell)?;
+                let shell = self.shells.get(face.back)?;
                 if shell.face != face_handle {
                     return None;
                 }
-                let solid = self.solids.get(shell.solid)?;
-                if solid.shell != face.shell {
+                let solid = self.regions.get(shell.region)?;
+                if solid.shell != face.back {
                     return None;
                 }
                 let shell_face_count = self
                     .faces
                     .values()
-                    .filter(|candidate| candidate.shell == face.shell)
+                    .filter(|candidate| candidate.back == face.back)
                     .count();
                 (shell_face_count == 1).then_some(KvfsRequest {
                     vertex: Default::default(),
                     face: face_handle,
                     loop_: face.outer_loop,
-                    shell: face.shell,
-                    solid: shell.solid,
+                    shell: face.back,
+                    solid: shell.region,
                 })
             })
             .collect()

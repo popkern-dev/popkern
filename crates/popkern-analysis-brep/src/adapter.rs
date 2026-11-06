@@ -14,7 +14,7 @@ use popkern_analysis::{
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
-use popkern_core::topology::{BRep, FaceHandle, SolidHandle};
+use popkern_core::topology::{BRep, FaceHandle, RegionHandle};
 use popkern_mesh::TessellationOptions;
 
 use crate::features::{FeatureTolerances, detect_features};
@@ -140,7 +140,7 @@ fn surface_kind(geometry: &SurfaceGeometry) -> Surface {
 }
 
 /// The solid each face of `brep` bounds, in face slot order.
-fn face_solids(brep: &BRep, index: usize) -> Result<Vec<(FaceHandle, SolidHandle)>, AdapterError> {
+fn face_solids(brep: &BRep, index: usize) -> Result<Vec<(FaceHandle, RegionHandle)>, AdapterError> {
     brep.faces
         .iter()
         .map(|(handle, _)| {
@@ -318,7 +318,7 @@ pub fn model_from_breps_named(
 /// Exact volume of one solid of `brep`: `body_volume` of a copy that
 /// keeps only that solid's faces (popkern has no per-solid extraction
 /// at the pinned commit). A single-solid BRep is measured directly.
-fn solid_volume(brep: &BRep, solid: SolidHandle) -> Result<f64, AdapterError> {
+fn solid_volume(brep: &BRep, solid: RegionHandle) -> Result<f64, AdapterError> {
     let measure = |b: &BRep| {
         popkern_measure::body_volume(b, &b.tolerance).map_err(|e| AdapterError::Measure {
             detail: e.to_string(),

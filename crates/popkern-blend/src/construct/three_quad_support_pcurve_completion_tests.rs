@@ -9,8 +9,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFac
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle, Vertex,
-    VertexHandle,
+    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex, VertexHandle,
 };
 
 #[test]
@@ -106,7 +105,7 @@ fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
     brep.faces[support_face].outer_loop = support_loop;
     brep.vertices[va].outgoing = cap_half_edge;
     brep.vertices[vb].outgoing = support_half_edge;
-    brep.set_shell_anchor(shell, cap_face);
+    brep.set_sides_anchor(shell, cap_face);
     (brep, cap_face, cap_half_edge)
 }
 
@@ -131,11 +130,12 @@ fn half_edge(origin: VertexHandle, loop_: LoopHandle) -> HalfEdge {
     }
 }
 
-fn face(shell: ShellHandle, surface: SurfaceOnFace) -> Face {
+fn face(shell: popkern_core::topology::FaceSides, surface: SurfaceOnFace) -> Face {
     Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(surface),
         name: None,
         tolerance: None,

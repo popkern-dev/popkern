@@ -380,11 +380,12 @@ pub(super) fn prepare_face_end(
     // plane (oriented with its loop when wired).
     let face = if reflex {
         let (u_axis, v_axis) = popkern_core::geometry::analytic_curves::circle_basis(n);
-        let shell = brep.faces[f].shell;
+        let shell = brep.faces[f].sides();
         brep.faces.insert(Face {
             outer_loop: LoopHandle::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: Some(SurfaceOnFace {
                 geometry: SurfaceGeometry::Plane {
                     origin,

@@ -342,7 +342,7 @@ fn two_boundary_loop_fixture() -> BRep {
             Point3::new(2.0, 1.0, 0.0),
         ],
     );
-    brep.set_shell_anchor(shell, first);
+    brep.set_sides_anchor(shell, first);
     brep
 }
 
@@ -362,7 +362,7 @@ fn same_loop_boundary_fixture() -> BRep {
             Point3::new(0.0, 1.0, 0.0),
         ],
     );
-    brep.set_shell_anchor(shell, face);
+    brep.set_sides_anchor(shell, face);
     brep
 }
 
@@ -382,19 +382,20 @@ fn short_edge_same_loop_boundary_fixture() -> BRep {
             Point3::new(0.0, 1.0, 0.0),
         ],
     );
-    brep.set_shell_anchor(shell, face);
+    brep.set_sides_anchor(shell, face);
     brep
 }
 
 fn add_boundary_polygon(
     brep: &mut BRep,
-    shell: crate::topology::ShellHandle,
+    shell: crate::topology::FaceSides,
     points: &[Point3],
 ) -> crate::topology::FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
