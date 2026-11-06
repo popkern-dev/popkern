@@ -51,10 +51,13 @@ impl BRep {
         let mut on_cycle: slotmap::SecondaryMap<crate::topology::HalfEdgeHandle, ()> =
             slotmap::SecondaryMap::with_capacity(bound);
         let mut members = Vec::new();
+        // A held wire edge's fins lie in no loop cycle.
+        let held = self.held_wire_edges();
 
         for (he_handle, he_data) in &self.half_edges {
             if self.half_edge_is_construction_residual_for_cycle_validation(he_data)
                 || on_cycle.contains_key(he_handle)
+                || (held.contains(&he_data.edge) && !self.loops.contains_key(he_data.loop_))
             {
                 continue;
             }

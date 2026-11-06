@@ -112,6 +112,10 @@ impl BRep {
             let s = &mut self.shells[new];
             s.face = remap(&m.faces, s.face);
             s.region = remap(&m.regions, s.region);
+            for e in &mut s.wire_edges {
+                *e = remap(&m.edges, *e);
+            }
+            s.acorn = s.acorn.map(|v| remap(&m.vertices, v));
         }
         for (&old, &new) in &m.regions {
             if old != other.outside {

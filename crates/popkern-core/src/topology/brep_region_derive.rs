@@ -117,10 +117,7 @@ impl BRep {
                 shell,
             });
             self.shells[shell].region = region;
-            let partner = self.shells.insert(Shell {
-                face: anchor,
-                region: around,
-            });
+            let partner = self.shells.insert(Shell::new(anchor, around));
             for face in self.faces.values_mut() {
                 if face.back == shell {
                     face.front = partner;
@@ -175,19 +172,13 @@ impl BRep {
                 _ => true,
             };
             let front = if outer {
-                self.shells.insert(Shell {
-                    face: anchor,
-                    region: self.outside,
-                })
+                self.shells.insert(Shell::new(anchor, self.outside))
             } else {
                 let cavity = self.regions.insert(Region {
                     kind: RegionKind::Void,
                     shell: ShellHandle::null(),
                 });
-                let front = self.shells.insert(Shell {
-                    face: anchor,
-                    region: cavity,
-                });
+                let front = self.shells.insert(Shell::new(anchor, cavity));
                 self.regions[cavity].shell = front;
                 front
             };
@@ -198,5 +189,6 @@ impl BRep {
             }
         }
         self.settle_open_shells();
+        self.settle_wire_edges();
     }
 }
