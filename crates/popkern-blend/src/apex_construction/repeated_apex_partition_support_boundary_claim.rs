@@ -34,7 +34,7 @@ pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
                      stale support boundary side {support_half_edge:?} for {label}"
                 ),
             })?;
-        if !brep.boundary_edges.contains(&edge) {
+        if !brep.is_free_edge(edge) {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition FilletEnd[{fillet_index}] cannot claim \
@@ -71,7 +71,6 @@ pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
             pcurve: None,
         });
         brep.half_edges[support_half_edge].set_mate(half_edge);
-        brep.boundary_edges.remove(&edge);
         if support_split_half_edge_end_vertex(brep, half_edge) != Some(end) {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
@@ -134,7 +133,7 @@ fn trace_support_boundary_claim_miss(
                     if !touches_request {
                         return None;
                     }
-                    let boundary = brep.boundary_edges.contains(&data.edge);
+                    let boundary = brep.is_free_edge(data.edge);
                     let twin_live = data.mate().is_some_and(|m| brep.half_edges.contains_key(m));
                     Some(format!(
                         "{half_edge:?}:{:?}->{span_end:?} boundary={boundary} twin_live={twin_live}",
@@ -170,7 +169,7 @@ fn support_boundary_half_edge_for_cylinder_side(
             };
             data.origin == cylinder_end
                 && support_split_half_edge_end_vertex(brep, *half_edge) == Some(cylinder_start)
-                && brep.boundary_edges.contains(&data.edge)
+                && brep.is_free_edge(data.edge)
                 && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
         })
 }
@@ -222,7 +221,7 @@ fn validate_claimed_support_boundary_owner(
             ),
         });
     }
-    if brep.boundary_edges.contains(&cylinder_data.edge) {
+    if brep.is_free_edge(cylinder_data.edge) {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition FilletEnd[{fillet_index}] claimed {label} but \

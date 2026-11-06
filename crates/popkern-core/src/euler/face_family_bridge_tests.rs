@@ -219,7 +219,6 @@ fn add_boundary_polygon(
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edges.push(half_edge);
     }
     for index in 0..half_edges.len() {

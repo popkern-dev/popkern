@@ -176,10 +176,7 @@ fn topology_state(
     {
         return CornerTopologyState::NonManifold;
     }
-    if incident_edges
-        .iter()
-        .any(|edge| brep.boundary_edges.contains(edge))
-    {
+    if incident_edges.iter().any(|edge| brep.is_free_edge(*edge)) {
         return CornerTopologyState::Boundary;
     }
     if brep.vertices[vertex].outgoing == HalfEdgeHandle::default() {

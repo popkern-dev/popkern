@@ -84,9 +84,8 @@ pub(super) fn open_sheet(mut body: BRep) -> Result<BRep, BoolError> {
         })
         .map(|(h, he)| (h, he.edge))
         .collect();
-    for &(h, edge) in &open {
+    for &(h, _) in &open {
         body.half_edges[h].clear_mate();
-        body.boundary_edges.insert(edge);
     }
     body.recompute_pcurves_where_missing()
         .map_err(|e| BoolError::ValidationFailed(format!("sheet pcurves: {e}")))?;

@@ -90,7 +90,6 @@ impl BRep {
                     std::mem::swap(&mut curve.t_start, &mut curve.t_end);
                 }
                 self.edges[edge].half_edge = twin;
-                self.boundary_edges.insert(edge);
                 exposed_edges.push(edge);
                 exposed_here.insert(edge);
             }
@@ -100,7 +99,6 @@ impl BRep {
             }
             for edge in lost {
                 self.edges.remove(edge);
-                self.boundary_edges.remove(&edge);
                 exposed_here.remove(&edge);
                 exposed_edges.retain(|&e| e != edge);
             }
@@ -134,7 +132,7 @@ impl BRep {
             }
         }
         for edge in &result.exposed_edges {
-            if !self.boundary_edges.contains(edge) {
+            if !self.is_free_edge(*edge) {
                 return Err(CoreError::PreconditionFailed(
                     "retired boundary face exposed edge is not boundary".into(),
                 ));
@@ -316,7 +314,7 @@ mod tests {
         assert_eq!(brep.faces.len(), 5);
         assert_eq!(brep.loops.len(), 5);
         assert_eq!(brep.edges.len(), 12);
-        assert_eq!(brep.boundary_edges.len(), 4);
+        assert_eq!(brep.free_edges().len(), 4);
         brep.validate().unwrap();
     }
 
@@ -366,7 +364,7 @@ mod tests {
             (
                 brep.faces.len(),
                 brep.edges.len(),
-                brep.boundary_edges.len(),
+                brep.free_edges().len(),
                 brep.vertices.len()
             ),
             (2, 7, 6, 6)

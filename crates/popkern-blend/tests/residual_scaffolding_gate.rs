@@ -104,10 +104,10 @@ fn mixed_radius_cube_ships_no_unglued_scaffolding() {
              (use_rational_gregory={use_rational_gregory})"
         );
         assert!(
-            result.brep.boundary_edges.is_empty(),
+            !result.brep.has_free_edges(),
             "served body must have no dead boundary sides, got {} \
              (use_rational_gregory={use_rational_gregory})",
-            result.brep.boundary_edges.len()
+            result.brep.free_edges().len()
         );
     }
 }

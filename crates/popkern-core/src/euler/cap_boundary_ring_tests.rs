@@ -2,7 +2,7 @@ use crate::tolerance::Tolerance;
 use crate::topology::{BRep, EdgeHandle};
 
 fn open_box_ring(brep: &BRep) -> Vec<EdgeHandle> {
-    brep.boundary_edges.iter().copied().collect()
+    brep.free_edges().into_iter().collect()
 }
 
 fn snapshot(brep: &BRep) -> String {
@@ -20,7 +20,7 @@ fn open_box_cap_closes_and_validates_strictly() {
     assert_eq!(brep.half_edges.len(), 24);
     assert_eq!(brep.faces.len(), 6);
     assert_eq!(brep.loops.len(), 6);
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     assert_eq!(result.half_edges.len(), 4);
 
     // The strict genus-0 formula re-arms once boundary_edges empties.
@@ -63,7 +63,7 @@ fn cap_accepts_any_input_order() {
     let mut ring = open_box_ring(&brep);
     ring.reverse();
     brep.cap_boundary_ring(&ring).expect("cap commits");
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     brep.validate_euler_poincare().expect("strict Euler holds");
 }
 
@@ -97,7 +97,7 @@ fn cap_declines_non_boundary_edge_untouched() {
     let interior = brep
         .edges
         .keys()
-        .find(|edge| !brep.boundary_edges.contains(edge))
+        .find(|edge| !brep.is_free_edge(*edge))
         .expect("open box has interior edges");
     ring[0] = interior;
     let before = snapshot(&brep);

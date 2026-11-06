@@ -201,7 +201,7 @@ impl BRep {
             let data = &self.half_edges[half_edge];
             let edge = data.edge;
             let origin = self.half_edges[data.next].origin;
-            if !self.boundary_edges.contains(&edge)
+            if !self.is_free_edge(edge)
                 || data.mate().is_some_and(|m| self.half_edges.contains_key(m))
             {
                 return Err(CoreError::PreconditionFailed(format!(
@@ -218,7 +218,6 @@ impl BRep {
                 pcurve: None,
             });
             self.half_edges[half_edge].set_mate(twin);
-            self.boundary_edges.remove(&edge);
             twins.push(twin);
         }
         twins.reverse();
@@ -310,7 +309,6 @@ impl BRep {
             pcurve: None,
         });
         self.edges[edge].half_edge = half_edge;
-        self.boundary_edges.insert(edge);
         half_edge
     }
 
@@ -329,14 +327,12 @@ impl BRep {
                 self.half_edges[separator.forward].clear_mate();
                 self.edges[separator.edge].half_edge = separator.forward;
                 self.remove_half_edge_reanchored(separator.reverse);
-                self.boundary_edges.insert(separator.edge);
                 Ok(())
             }
             (false, true) => {
                 self.half_edges[separator.reverse].clear_mate();
                 self.edges[separator.edge].half_edge = separator.reverse;
                 self.remove_half_edge_reanchored(separator.forward);
-                self.boundary_edges.insert(separator.edge);
                 Ok(())
             }
             (false, false) => Err(CoreError::PreconditionFailed(
@@ -352,7 +348,7 @@ impl BRep {
         let data = self.half_edges.get(half_edge).ok_or_else(|| {
             CoreError::InvalidHandle("separator bridge path half-edge is stale".into())
         })?;
-        if self.boundary_edges.contains(&data.edge) {
+        if self.is_free_edge(data.edge) {
             return self
                 .half_edges
                 .get(data.next)
@@ -422,7 +418,7 @@ impl BRep {
                 "boundary-side separator edge references a missing half-edge".into(),
             )
         })?;
-        if self.boundary_edges.contains(&edge) {
+        if self.is_free_edge(edge) {
             if data.mate().is_none() {
                 return Ok(());
             }

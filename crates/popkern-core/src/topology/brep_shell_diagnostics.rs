@@ -119,7 +119,7 @@ pub fn analyze_brep_loop_shell_validity(brep: &BRep) -> BrepLoopShellDiagnosticR
         loops: brep.loops.len(),
         shells: brep.shells.len(),
         faces: brep.faces.len(),
-        boundary_edges: brep.boundary_edges.len(),
+        boundary_edges: brep.free_edges().len(),
         boundary_cycles: boundary.cycles,
         boundary_chains: boundary.chains,
         face_components,
@@ -289,7 +289,7 @@ fn analyze_shell_components(
         adjacency.entry(face).or_default();
     }
     for (edge_handle, edge) in &brep.edges {
-        if brep.boundary_edges.contains(&edge_handle) {
+        if brep.is_free_edge(edge_handle) {
             continue;
         }
         let Some(a) = face_for_half_edge(brep, edge.half_edge) else {
@@ -340,7 +340,7 @@ fn analyze_boundary_graph(
     findings: &mut Vec<BrepTopologyDiagnosticFinding>,
 ) -> BoundarySummary {
     let mut graph: HashMap<VertexHandle, Vec<VertexHandle>> = HashMap::new();
-    for &edge in &brep.boundary_edges {
+    for edge in brep.free_edges() {
         let Some((start, end)) = edge_vertices(brep, edge) else {
             push_finding(
                 findings,

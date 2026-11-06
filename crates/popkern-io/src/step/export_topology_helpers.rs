@@ -350,7 +350,7 @@ pub(super) fn edge_end_vertex(
     edge: EdgeHandle,
     he: &HalfEdge,
 ) -> Result<VertexHandle, IoError> {
-    if brep.boundary_edges.contains(&edge) {
+    if brep.is_free_edge(edge) {
         return brep
             .half_edges
             .get(he.next)

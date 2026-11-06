@@ -52,6 +52,7 @@ impl BRep {
         half_edge: HalfEdgeHandle,
     ) -> Option<crate::topology::HalfEdge> {
         self.reanchor_vertex_outgoing(&[half_edge]);
+        self.unlink_fin(half_edge);
         self.half_edges.remove(half_edge)
     }
 

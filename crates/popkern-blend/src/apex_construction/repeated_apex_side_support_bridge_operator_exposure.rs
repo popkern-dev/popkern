@@ -68,7 +68,7 @@ pub(in crate::apex_construction) fn expose_bridge_boundaries(
             for partial_face in region.boundary_exposure().partial_faces() {
                 for pair in partial_face.self_owned_protected_pairs() {
                     let edge = candidate.half_edges[pair.half_edge()].edge;
-                    if !candidate.boundary_edges.contains(&edge)
+                    if !candidate.is_free_edge(edge)
                         && let Err(err) =
                             candidate.expose_same_loop_edge_as_boundary(pair.half_edge())
                     {
@@ -140,9 +140,7 @@ fn expose_self_owned_pairs_once(
                     continue;
                 };
                 let edge = data.edge;
-                if candidate.boundary_edges.contains(&edge)
-                    || !exposed_self_owned_edges.insert(edge)
-                {
+                if candidate.is_free_edge(edge) || !exposed_self_owned_edges.insert(edge) {
                     continue;
                 }
                 if let Err(err) = candidate.expose_same_loop_edge_as_boundary(pair.half_edge()) {
@@ -176,7 +174,7 @@ fn expose_planned_partial_fragments(
             let Some(first) = candidate.half_edges.get(fragment.first_half_edge()) else {
                 continue;
             };
-            if candidate.boundary_edges.contains(&first.edge) {
+            if candidate.is_free_edge(first.edge) {
                 continue;
             }
             if let Err(err) = candidate.retire_face_boundary_fragment(
@@ -207,7 +205,7 @@ fn complete_remaining_owned_bridge_sides(
             let Some(source) = candidate.half_edges.get(blocker.source_half_edge()) else {
                 continue;
             };
-            if candidate.boundary_edges.contains(&source.edge) {
+            if candidate.is_free_edge(source.edge) {
                 continue;
             }
             let Some(blocking) = candidate.half_edges.get(blocker.blocking_half_edge()) else {
@@ -346,7 +344,7 @@ fn expose_live_blocker_interval(
             candidate
                 .half_edges
                 .get(**half_edge)
-                .is_some_and(|data| !candidate.boundary_edges.contains(&data.edge))
+                .is_some_and(|data| !candidate.is_free_edge(data.edge))
         })
         .copied()
         .collect::<BTreeSet<_>>();

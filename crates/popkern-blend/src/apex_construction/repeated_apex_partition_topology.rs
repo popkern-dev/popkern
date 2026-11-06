@@ -108,7 +108,6 @@ pub(super) fn insert_boundary_half_edge(
         pcurve: None,
     });
     brep.edges[edge].half_edge = half_edge;
-    brep.boundary_edges.insert(edge);
     if brep.vertices[start].outgoing == HalfEdgeHandle::default() {
         brep.vertices[start].outgoing = half_edge;
     }

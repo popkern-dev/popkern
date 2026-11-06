@@ -130,7 +130,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
         edge
     });
 
@@ -154,7 +153,7 @@ fn classification_identifies_exact_clean_pair_without_mutation() {
         classification_options(),
     );
 
-    assert_eq!(brep.boundary_edges.len(), 8);
+    assert_eq!(brep.free_edges().len(), 8);
     assert_eq!(brep.vertices.len(), 8);
     assert_eq!(report.exact_clean_pairs, 1);
     assert_eq!(report.near_clean_pairs, 0);
@@ -183,7 +182,7 @@ fn classification_identifies_near_pair_inside_snap_tolerance() {
         classification_options(),
     );
 
-    assert_eq!(brep.boundary_edges.len(), 8);
+    assert_eq!(brep.free_edges().len(), 8);
     assert_eq!(report.exact_clean_pairs, 0);
     assert_eq!(report.near_clean_pairs, 1);
     assert_eq!(report.rejected_pairs, 0);

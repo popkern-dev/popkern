@@ -320,7 +320,7 @@ pub(super) fn trace_side_support_bridge_claim_miss(
                 .filter_map(|half_edge| {
                     let data = brep.half_edges.get(half_edge)?;
                     let span_end = support_split_half_edge_end_vertex(brep, half_edge)?;
-                    let boundary = brep.boundary_edges.contains(&data.edge);
+                    let boundary = brep.is_free_edge(data.edge);
                     let twin_live = data.mate().is_some_and(|m| brep.half_edges.contains_key(m));
                     Some(format!(
                         "{half_edge:?}:{:?}->{span_end:?} boundary={boundary} \
@@ -382,7 +382,7 @@ fn bridge_boundary_path_for_cylinder_side(
                 .into_iter()
                 .filter_map(|half_edge| {
                     let data = brep.half_edges.get(half_edge)?;
-                    if !brep.boundary_edges.contains(&data.edge)
+                    if !brep.is_free_edge(data.edge)
                         || data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
                     {
                         return None;

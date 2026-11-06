@@ -96,28 +96,50 @@ impl BRep {
             .edges
             .get(edge)
             .map(|e| e.half_edge)
-            .filter(|h| self.half_edges.get(*h).is_some_and(|f| f.has_loop()))
+            .filter(|h| self.half_edges.contains_key(*h))
         else {
             return Vec::new();
         };
-        let mut fins = vec![first];
+        let mut ring = vec![first];
         let mut cursor = first;
         // A ring never holds more fins than the body has.
         for _ in 0..self.half_edges.len() {
             match self.radial_next(cursor) {
                 Some(next) if next != first => {
-                    fins.push(next);
+                    ring.push(next);
                     cursor = next;
                 }
                 _ => break,
             }
         }
-        fins
+        // Face uses only: a fin in no loop (a wire edge's half-edge, an
+        // unwired placeholder) is not one.
+        ring.retain(|h| self.half_edges.get(*h).is_some_and(|f| f.has_loop()));
+        ring
     }
 
     /// How many fins `edge`'s ring holds (0 for a wire edge).
     pub fn edge_fin_count(&self, edge: EdgeHandle) -> usize {
         self.radial_fins(edge).len()
+    }
+
+    /// Whether `edge` is a wire edge: an edge on no face. Its fins (a
+    /// wire edge keeps two, mated, one per direction, as a radial edge
+    /// model's wire uses) lie in no loop, so its ring holds no face use.
+    /// False for an unknown edge or one whose fin is missing.
+    pub fn is_wire_edge(&self, edge: EdgeHandle) -> bool {
+        self.edges
+            .get(edge)
+            .is_some_and(|e| self.half_edges.contains_key(e.half_edge))
+            && self.radial_fins(edge).is_empty()
+    }
+
+    /// Every wire edge ([`BRep::is_wire_edge`]), in edge-arena order.
+    pub fn wire_edges(&self) -> Vec<EdgeHandle> {
+        self.edges
+            .keys()
+            .filter(|&e| self.is_wire_edge(e))
+            .collect()
     }
 }
 
@@ -165,5 +187,71 @@ impl BRep {
         }
         self.link_ring(&ring);
         last
+    }
+}
+
+impl BRep {
+    /// Every free edge ([`BRep::is_free_edge`]: a fin alone on its
+    /// edge, a sheet's open boundary). In edge-arena order.
+    pub fn free_edges(&self) -> Vec<EdgeHandle> {
+        self.edges
+            .keys()
+            .filter(|&e| self.is_free_edge(e))
+            .collect()
+    }
+
+    /// Whether `edge` is a sheet's open boundary in the doubled form a
+    /// boolean view gives it: two fins of one face lying in different
+    /// loops of it (the face's own and a mirror of it). A seam is two
+    /// fins of one face in ONE loop (the loop crosses the seam twice),
+    /// so it never reads as mirrored.
+    pub fn is_mirrored_boundary_edge(&self, edge: EdgeHandle) -> bool {
+        let fins = self.radial_fins(edge);
+        let [a, b] = fins.as_slice() else {
+            return false;
+        };
+        let (Some(la), Some(lb)) = (
+            self.half_edges.get(*a).map(|f| f.loop_),
+            self.half_edges.get(*b).map(|f| f.loop_),
+        ) else {
+            return false;
+        };
+        la != lb && self.loops.get(la).map(|l| l.face) == self.loops.get(lb).map(|l| l.face)
+    }
+}
+
+impl BRep {
+    /// Take `fin` out of its edge's radial ring before it is removed:
+    /// its neighbours link past it (a mate is left alone, a free edge;
+    /// a longer ring closes up). Only neighbours still linking to `fin`
+    /// are touched, so a fin the caller has already re-paired keeps its
+    /// new links. `fin` itself keeps its links (it is about to go).
+    pub fn unlink_fin(&mut self, fin: HalfEdgeHandle) {
+        use slotmap::Key;
+        let Some(ring) = self.half_edges.get(fin).map(|f| f.ring) else {
+            return;
+        };
+        if ring.next.is_null() {
+            return;
+        }
+        if ring.next == ring.prev {
+            if let Some(mate) = self.half_edges.get_mut(ring.next)
+                && mate.ring.next == fin
+                && mate.ring.prev == fin
+            {
+                mate.clear_mate();
+            }
+            return;
+        }
+        if let Some(next) = self.half_edges.get_mut(ring.next)
+            && next.ring.prev == fin
+        {
+            next.ring.prev = ring.prev;
+        }
+        if let Some(prev) = self.half_edges.get_mut(ring.prev)
+            && prev.ring.next == fin
+        {
+            prev.ring.next = ring.next;
+        }
     }
 }

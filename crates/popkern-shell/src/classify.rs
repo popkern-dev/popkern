@@ -343,7 +343,7 @@ fn component_is_open(brep: &BRep, component: &[FaceHandle]) -> bool {
                         .mate()
                         .and_then(|m| brep.half_edges.get(m))
                         .and_then(|t| brep.loops.get(t.loop_));
-                    if across.is_none() || brep.boundary_edges.contains(&h.edge) {
+                    if across.is_none() || brep.is_free_edge(h.edge) {
                         return true;
                     }
                     he = h.next;

@@ -214,7 +214,7 @@ fn split_resource_run_readiness(
                 "split cylinder resource run references stale half-edge {half_edge:?}"
             ))
         })?;
-        if !brep.boundary_edges.contains(&data.edge) {
+        if !brep.is_free_edge(data.edge) {
             not_boundary_half_edges += 1;
         }
         if let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) {
@@ -224,7 +224,7 @@ fn split_resource_run_readiness(
             }
             continue;
         }
-        if brep.boundary_edges.contains(&data.edge) {
+        if brep.is_free_edge(data.edge) {
             boundary_ready_half_edges += 1;
         }
     }

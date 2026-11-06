@@ -46,7 +46,7 @@ fn two_loop_bridge_commits_between_two_boundary_face_loops() {
         brep.loops[result.second_bridge_loop].face,
         result.second_bridge_face
     );
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     brep.validate_half_edge_pairing().unwrap();
     brep.validate_half_edge_cycles().unwrap();
     brep.validate_manifold_edges().unwrap();
@@ -218,7 +218,6 @@ fn add_boundary_quad(
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edge
     });
     for i in 0..4 {

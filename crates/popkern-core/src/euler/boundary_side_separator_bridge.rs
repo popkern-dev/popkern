@@ -108,7 +108,7 @@ impl BRep {
                 "boundary-side separator duplicate half-edge does not own separator edge".into(),
             ));
         }
-        if !self.boundary_edges.contains(&separator_source_edge)
+        if !self.is_free_edge(separator_source_edge)
             || half_edge
                 .mate()
                 .is_some_and(|m| self.half_edges.contains_key(m))

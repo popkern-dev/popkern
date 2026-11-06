@@ -252,9 +252,9 @@ fn live_missing_support_surface_names_geometry_dependency() {
 #[test]
 fn live_open_box_boundary_vertex_reports_cliff_termination() {
     let open_box = BRep::open_box(Tolerance::default()).expect("open box");
-    let boundary_edge = *open_box
-        .boundary_edges
-        .iter()
+    let boundary_edge = open_box
+        .free_edges()
+        .into_iter()
         .next()
         .expect("boundary edge");
     let vertex = open_box.half_edges[open_box.edges[boundary_edge].half_edge].origin;

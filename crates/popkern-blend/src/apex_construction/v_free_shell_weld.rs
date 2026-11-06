@@ -128,9 +128,7 @@ pub(in crate::apex_construction) fn weld_dead_coincident_sides(
             brep.half_edges[drop_side].pcurve = None;
             if let Some(drop_edge) = drop {
                 brep.edges.remove(drop_edge);
-                brep.boundary_edges.remove(&drop_edge);
             }
-            brep.boundary_edges.remove(&keep);
             if let Some(edge_data) = brep.edges.get_mut(keep) {
                 edge_data.half_edge = side_a;
             }

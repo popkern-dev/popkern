@@ -262,14 +262,12 @@ pub(crate) fn restore_corner_group(
             continue;
         };
         if data.mate().is_some_and(|m| out.half_edges.contains_key(m)) {
-            out.boundary_edges.insert(data.edge);
             if let Some(ed) = out.edges.get_mut(data.edge)
                 && ed.half_edge == h
             {
                 ed.half_edge = data.require_mate()?;
             }
         } else if out.edges.remove(data.edge).is_some() {
-            out.boundary_edges.remove(&data.edge);
         }
     }
     let mut merges = 0usize;

@@ -278,7 +278,7 @@ pub(crate) fn face_covers_full_chart(brep: &BRep, face: FaceHandle) -> bool {
         && boundary.iter().all(|(he, _)| {
             brep.half_edges
                 .get(*he)
-                .is_some_and(|h| !brep.is_free_edge(h.edge))
+                .is_some_and(|h| !brep.is_mirrored_boundary_edge(h.edge))
                 && brep
                     .half_edges
                     .get(*he)

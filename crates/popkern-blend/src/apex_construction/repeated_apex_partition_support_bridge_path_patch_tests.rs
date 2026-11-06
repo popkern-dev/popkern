@@ -129,7 +129,7 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
         patch
             .boundary_spans
             .iter()
-            .all(|span| brep.boundary_edges.contains(&brep.half_edges[*span].edge))
+            .all(|span| brep.is_free_edge(brep.half_edges[*span].edge))
     );
     validate_replacement_loop_support_side_ownership(
         &brep,
@@ -216,7 +216,7 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
         patch
             .boundary_spans
             .iter()
-            .all(|span| brep.boundary_edges.contains(&brep.half_edges[*span].edge))
+            .all(|span| brep.is_free_edge(brep.half_edges[*span].edge))
     );
     validate_replacement_loop_support_side_ownership(
         &brep,
@@ -335,7 +335,6 @@ fn add_boundary_loop_face(
                 pcurve: None,
             });
             brep.edges[edge].half_edge = half_edge;
-            brep.boundary_edges.insert(edge);
             if brep.vertices[vertex].outgoing == HalfEdgeHandle::default() {
                 brep.vertices[vertex].outgoing = half_edge;
             }

@@ -218,7 +218,7 @@ fn read_only_snapshot_ready_for_boundary_bridge_plan() {
     assert_eq!(applied.edges.len(), brep.edges.len() + 2);
     assert_eq!(applied.faces.len(), brep.faces.len() + 2);
     assert_eq!(applied.loops.len(), brep.loops.len() + 2);
-    assert!(applied.boundary_edges.is_empty());
+    assert!(!applied.has_free_edges());
 }
 
 #[test]
@@ -479,7 +479,6 @@ fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edge
     });
     for i in 0..4 {

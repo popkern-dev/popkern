@@ -59,7 +59,7 @@ impl BRep {
 
         // Boundary edges have a null twin — handle them with a
         // simplified split that only touches the surviving side.
-        let is_boundary = self.boundary_edges.contains(&edge);
+        let is_boundary = self.is_free_edge(edge);
         if is_boundary {
             return self.split_boundary_edge(
                 edge,

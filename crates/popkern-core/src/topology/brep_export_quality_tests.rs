@@ -136,7 +136,7 @@ fn export_quality_artifact_lists_boundary_edges_deterministically() {
 
     assert_eq!(artifact.summary.readiness, "ready_open_sheet");
     assert_eq!(artifact.summary.topology_output, "open_sheet");
-    assert_eq!(artifact.boundary_edges.len(), brep.boundary_edges.len());
+    assert_eq!(artifact.boundary_edges.len(), brep.free_edges().len());
     assert!(
         artifact
             .boundary_edges
@@ -301,7 +301,6 @@ fn collapsed_trim_sheet() -> BRep {
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
     brep.shells[shell].face = face;
-    brep.boundary_edges.insert(edge);
     brep
 }
 
@@ -354,7 +353,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
     }
 
     for index in 0..4 {

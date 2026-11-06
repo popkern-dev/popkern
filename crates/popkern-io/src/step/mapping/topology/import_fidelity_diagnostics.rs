@@ -46,7 +46,7 @@ pub(super) fn report_step_import_boundary_incidence_diagnostics(
     provenance: &StepTopologyImportProvenance,
     log: &mut DiagnosticLog,
 ) {
-    for &edge in &brep.boundary_edges {
+    for edge in brep.free_edges() {
         let edge_curve_id = provenance.edge_curves.get(&edge).copied();
         log.warn(
             Phase::MapTopology,

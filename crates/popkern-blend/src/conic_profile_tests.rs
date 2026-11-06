@@ -126,7 +126,7 @@ fn conic_flat_shoulder_serves_watertight_and_moves_the_shoulder() {
         "conic fillet body must validate: {:?}",
         result.brep.validate_all()
     );
-    assert!(result.brep.boundary_edges.is_empty());
+    assert!(!result.brep.has_free_edges());
 
     // The flat shoulder sits CLOSER to the contact chord than the
     // circular arc: contacts stay exactly on the rolling ball
@@ -252,7 +252,7 @@ fn conic_composes_with_variable_radius_and_corner_caps() {
         "variable conic: {:?}",
         variable.brep.validate_all()
     );
-    assert!(variable.brep.boundary_edges.is_empty());
+    assert!(!variable.brep.has_free_edges());
 
     // Apex fixture: the three edges at one cube corner.
     let corner = brep.vertices.keys().next().unwrap();
@@ -283,7 +283,7 @@ fn conic_composes_with_variable_radius_and_corner_caps() {
     })
     .expect("conic corner fillets must build");
     assert!(
-        corner_result.brep.boundary_edges.is_empty(),
+        !corner_result.brep.has_free_edges(),
         "conic corner must serve without dead sides"
     );
     // Corner quality (PK-239): a declined setback rung makes the

@@ -111,9 +111,9 @@ fn validate_all_collects_multiple_errors() {
     let mev = brep
         .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
         .unwrap();
-    // Corrupt twin AND next to trigger multiple validation errors
-    brep.half_edges[mev.half_edge].clear_mate();
-    brep.half_edges[mev.half_edge_twin].clear_mate();
+    // Corrupt the ring (a one-way link to a fin that does not link
+    // back) to trigger multiple validation errors.
+    brep.half_edges[mev.half_edge].ring.next = mev.half_edge;
     let errors = brep.validate_all();
     // Should have multiple errors (broken twin, broken cycle, manifold, etc.)
     assert!(

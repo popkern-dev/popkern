@@ -203,7 +203,7 @@ fn edge_is_incident_to(brep: &BRep, edge: EdgeHandle, vertex: VertexHandle) -> b
 
 /// Is `edge` a boundary edge (null twin)?
 fn is_boundary_edge(brep: &BRep, edge: EdgeHandle) -> bool {
-    brep.boundary_edges.contains(&edge)
+    brep.is_free_edge(edge)
         || brep
             .edges
             .get(edge)

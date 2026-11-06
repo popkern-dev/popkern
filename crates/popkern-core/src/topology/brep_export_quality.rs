@@ -358,9 +358,9 @@ pub fn build_brep_export_quality_artifact(
     report: &BrepExportQualityReport,
 ) -> BrepExportQualityArtifact {
     let mut boundary_edges: Vec<_> = brep
-        .boundary_edges
-        .iter()
-        .filter_map(|&edge| {
+        .free_edges()
+        .into_iter()
+        .filter_map(|edge| {
             let (start, end) = edge_segment(brep, edge)?;
             let edge_data = brep.edges.get(edge)?;
             let half_edge = brep.half_edges.get(edge_data.half_edge)?;

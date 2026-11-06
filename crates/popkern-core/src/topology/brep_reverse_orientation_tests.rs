@@ -113,7 +113,7 @@ fn reversal_turns_a_sheet_with_its_free_edges() {
     for (vh, vertex) in &brep.vertices {
         assert_eq!(brep.half_edges[vertex.outgoing].origin, vh);
     }
-    for &edge in &brep.boundary_edges {
+    for edge in brep.free_edges() {
         let fin = brep.edges[edge].half_edge;
         assert!(brep.half_edges.contains_key(fin), "free edge keeps its fin");
         let curve = brep.edges[edge].curve.as_ref().expect("edge curve");

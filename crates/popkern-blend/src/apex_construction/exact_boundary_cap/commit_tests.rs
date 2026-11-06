@@ -186,11 +186,7 @@ fn commit_materializes_support_subdivision_for_unsurfaced_exact_seam() {
             .unwrap_or_default(),
         seams.support_half_edges[0]
     );
-    assert!(
-        !brep
-            .boundary_edges
-            .contains(&brep.half_edges[seams.support_half_edges[0]].edge)
-    );
+    assert!(!brep.is_free_edge(brep.half_edges[seams.support_half_edges[0]].edge));
 }
 
 #[test]

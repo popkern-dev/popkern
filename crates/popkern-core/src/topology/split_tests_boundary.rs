@@ -13,7 +13,7 @@ use crate::topology::BRep;
 fn split_boundary_edge_with_descending_curve_range_keeps_both_curves() {
     use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
     let mut brep = BRep::open_box(Tolerance::default()).unwrap();
-    let edge = *brep.boundary_edges.iter().next().unwrap();
+    let edge = brep.free_edges().into_iter().next().unwrap();
     let he = brep.edges[edge].half_edge;
     let a = brep.vertices[brep.half_edges[he].origin].position;
     let b = brep.vertices[brep.half_edges[brep.half_edges[he].next].origin].position;

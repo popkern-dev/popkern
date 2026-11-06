@@ -193,7 +193,7 @@ pub(crate) fn assert_welded_native_postconditions(name: &str, result: &BlendResu
         "{name} must not serve glued surfaceless residuals (the PK-216 membrane class)"
     );
     assert!(
-        result.brep.boundary_edges.is_empty(),
+        !result.brep.has_free_edges(),
         "{name} must serve without dead boundary sides"
     );
     let errors = result.brep.validate_all();

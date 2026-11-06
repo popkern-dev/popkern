@@ -36,10 +36,7 @@ fn open_shell_sheet_body_round_trips_through_step() {
 
     assert_eq!(round_tripped.faces.len(), brep.faces.len());
     assert_eq!(round_tripped.edges.len(), brep.edges.len());
-    assert_eq!(
-        round_tripped.boundary_edges.len(),
-        brep.boundary_edges.len()
-    );
+    assert_eq!(round_tripped.free_edges().len(), brep.free_edges().len());
     round_tripped.validate().unwrap();
 }
 
@@ -60,7 +57,7 @@ fn collapsed_trim_degenerate_edge_curve_reimports_from_step() {
     );
     let round_tripped = first_body(&imported).expect("expected one imported sheet body");
     assert_eq!(round_tripped.edges.len(), 1);
-    assert_eq!(round_tripped.boundary_edges.len(), 1);
+    assert_eq!(round_tripped.free_edges().len(), 1);
 
     let edge = round_tripped.edges.values().next().unwrap();
     assert!(
@@ -190,7 +187,6 @@ fn collapsed_trim_sheet() -> BRep {
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
     brep.shells[shell].face = face;
-    brep.boundary_edges.insert(edge);
     brep
 }
 

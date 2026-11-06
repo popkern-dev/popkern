@@ -155,7 +155,7 @@ impl BRep {
                     "interval rewrite: replacement side {r:?} already has a live twin"
                 )));
             }
-            if !self.boundary_edges.contains(&data.edge) {
+            if !self.is_free_edge(data.edge) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "interval rewrite: replacement side {r:?} is not a boundary side"
                 )));
@@ -231,13 +231,9 @@ impl BRep {
                 if let Some(e) = self.edges.get_mut(edge) {
                     e.half_edge = r;
                 }
-                self.boundary_edges.remove(&dup);
-                self.boundary_edges.remove(&edge);
                 if dup != edge && self.edges.remove(dup).is_some() {
                     paired_retired.push(dup);
                 }
-            } else {
-                self.boundary_edges.remove(&r_data.edge);
             }
             created.push(new_h);
         }
@@ -267,7 +263,6 @@ impl BRep {
                 continue;
             }
             if let Some(survivor) = data.mate().filter(|m| self.half_edges.contains_key(*m)) {
-                self.boundary_edges.insert(data.edge);
                 if let Some(edge) = self.edges.get_mut(data.edge)
                     && edge.half_edge == h
                 {
@@ -275,7 +270,6 @@ impl BRep {
                 }
                 exposed_edges.push(data.edge);
             } else if self.edges.remove(data.edge).is_some() {
-                self.boundary_edges.remove(&data.edge);
                 retired_edges.push(data.edge);
             }
         }

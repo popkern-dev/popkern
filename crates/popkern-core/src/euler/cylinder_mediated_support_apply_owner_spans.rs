@@ -160,7 +160,7 @@ pub(super) fn expose_owner_repair_spans(
             match brep.half_edges.get(outside_half_edge) {
                 None => true,
                 Some(data) => {
-                    brep.boundary_edges.contains(&data.edge)
+                    brep.is_free_edge(data.edge)
                         && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
                 }
             }
@@ -210,7 +210,7 @@ pub(super) fn expose_owner_repair_spans(
                     "owner repair exposure removed outside half-edge {outside_half_edge:?}"
                 ))
             })?;
-            if !brep.boundary_edges.contains(&data.edge)
+            if !brep.is_free_edge(data.edge)
                 || data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
             {
                 return Err(CoreError::PreconditionFailed(format!(

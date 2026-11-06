@@ -122,7 +122,7 @@ pub(super) fn try_in_place_support_rewrites(
             plans.len(),
             welded,
             merged.len(),
-            candidate.boundary_edges.len()
+            candidate.free_edges().len()
         );
     }
     Some(

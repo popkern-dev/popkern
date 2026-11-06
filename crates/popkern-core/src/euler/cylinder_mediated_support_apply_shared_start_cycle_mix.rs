@@ -260,7 +260,7 @@ fn one_edge_interior_overlap_decomposition(
         });
     }
     let shared_edge = overlap_edges[0];
-    let shared_edge_already_boundary = brep.boundary_edges.contains(&shared_edge);
+    let shared_edge_already_boundary = brep.is_free_edge(shared_edge);
     let shared = first_path
         .iter()
         .flat_map(|first| {

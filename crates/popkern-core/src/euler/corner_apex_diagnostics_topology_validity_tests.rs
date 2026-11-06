@@ -6,9 +6,9 @@ use crate::topology::{BRep, EdgeHandle, TopologyRole, VertexHandle};
 #[test]
 fn live_boundary_vertex_has_boundary_validity_fact() {
     let open_box = BRep::open_box(Tolerance::default()).expect("open box");
-    let boundary_edge = *open_box
-        .boundary_edges
-        .iter()
+    let boundary_edge = open_box
+        .free_edges()
+        .into_iter()
         .next()
         .expect("boundary edge");
     let vertex = open_box.half_edges[open_box.edges[boundary_edge].half_edge].origin;

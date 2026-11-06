@@ -246,8 +246,7 @@ fn require_boundary_ready_half_edge(
     let data = brep.half_edges.get(half_edge).ok_or_else(|| {
         CoreError::InvalidHandle(format!("segment bridge half-edge {half_edge:?} is stale"))
     })?;
-    if !brep.boundary_edges.contains(&data.edge)
-        || data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+    if !brep.is_free_edge(data.edge) || data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
     {
         return Err(CoreError::PreconditionFailed(format!(
             "segment bridge half-edge {half_edge:?} is not boundary-ready after owner exposure"

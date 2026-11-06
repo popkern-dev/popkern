@@ -103,7 +103,7 @@ fn pipeline_repairs_clean_non_pns_pair_transactionally() {
     )
     .unwrap();
 
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(brep.free_edges().len(), 8, "input BRep is untouched");
     assert_eq!(result.report.candidate_pairs, 1);
     assert_eq!(result.report.policy_preflight.len(), 1);
     assert!(result.report.policy_preflight[0].is_accepted());
@@ -122,7 +122,7 @@ fn pipeline_repairs_clean_non_pns_pair_transactionally() {
         "pipeline action should preserve snap/sewing shared facts"
     );
     assert_eq!(result.report.final_boundary_edges, Some(6));
-    assert_eq!(result.brep.boundary_edges.len(), 6);
+    assert_eq!(result.brep.free_edges().len(), 6);
 }
 
 #[test]
@@ -148,7 +148,8 @@ fn pipeline_declines_nonmanifold_candidate_before_mutation() {
             .explanation
             .contains("radial non-manifold")
     );
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    // The three-fin edge is no longer free; the rest are untouched.
+    assert_eq!(brep.free_edges().len(), 7, "input is untouched");
     assert_eq!(failure.report.actions.authored_actions, 0);
     assert_eq!(failure.report.actions.declined_actions, 0);
 }
@@ -208,9 +209,8 @@ fn pipeline_repairs_missing_trims_after_sewing_stage() {
 fn pipeline_reports_geometric_rejection_without_partial_output() {
     let (brep, left_edge, _) = two_square_sheet();
     let far_edge = brep
-        .boundary_edges
-        .iter()
-        .copied()
+        .free_edges()
+        .into_iter()
         .find(|edge| *edge != left_edge && edge_segment_gap(&brep, left_edge, *edge) > 0.5)
         .unwrap();
 
@@ -226,7 +226,7 @@ fn pipeline_reports_geometric_rejection_without_partial_output() {
         failure.reason,
         BrepRepairPipelineFailureReason::ClassificationRejected
     );
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(brep.free_edges().len(), 8, "input BRep is untouched");
 }
 
 #[test]
@@ -243,7 +243,7 @@ fn pipeline_allows_open_sheet_boundary_diagnostics_under_open_sheet_policy() {
     assert!(diagnostics.boundary_edges > 0);
     assert!(diagnostics.has_no_errors());
     assert_eq!(result.report.final_boundary_edges, Some(6));
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(brep.free_edges().len(), 8, "input BRep is untouched");
 }
 
 #[test]
@@ -262,7 +262,7 @@ fn pipeline_rejects_same_open_sheet_when_closed_shell_required() {
         BrepRepairPipelineFailureReason::LoopShellErrors
     );
     assert!(failure.report.loop_shell.unwrap().boundary_edges > 0);
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(brep.free_edges().len(), 8, "input BRep is untouched");
 }
 
 #[test]
@@ -450,7 +450,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
         edge
     });
 

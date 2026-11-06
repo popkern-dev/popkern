@@ -168,7 +168,7 @@ fn imported_euler_poincare_evidence(
         faces: body.faces.len(),
         shells: body.shells.len(),
         solids: body.solids.len(),
-        boundary_edges: body.boundary_edges.len(),
+        boundary_edges: body.free_edges().len(),
         solid_shell_faces,
         solid_shell_loops,
         solid_shell_edges,

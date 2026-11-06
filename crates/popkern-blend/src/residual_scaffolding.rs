@@ -110,7 +110,6 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
                     // sweep); if it survives the sweep its edge is a
                     // boundary edge. The edge's canonical half-edge
                     // must not dangle on the removed side.
-                    brep.boundary_edges.insert(side_data.edge);
                     if let Some(edge_data) = brep.edges.get_mut(side_data.edge)
                         && edge_data.half_edge == *side
                         && let Some(survivor) = side_data.mate()
@@ -120,7 +119,6 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
                 }
                 None => {
                     if brep.edges.remove(side_data.edge).is_some() {
-                        brep.boundary_edges.remove(&side_data.edge);
                         report.retired_edges += 1;
                     }
                 }
@@ -132,11 +130,6 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
         brep.faces.remove(*face);
         report.retired_faces += 1;
     }
-
-    // Drop boundary markers for edges that were fully removed after
-    // their marker was set (twin removed later in the sweep).
-    brep.boundary_edges
-        .retain(|edge| brep.edges.contains_key(*edge));
 
     // Repair vertex outgoing pointers and drop unreferenced vertices.
     let mut outgoing_by_vertex = std::collections::BTreeMap::new();

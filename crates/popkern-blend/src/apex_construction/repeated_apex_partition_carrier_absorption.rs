@@ -258,7 +258,6 @@ fn weld_across_bigon(brep: &mut BRep, production_side: HalfEdgeHandle) -> Result
     repair_vertex_outgoing_pointers(brep, production_side, operands.far_twin);
     if far_edge != production_edge {
         brep.edges.remove(far_edge);
-        brep.boundary_edges.remove(&far_edge);
     }
     // Displaced scaffold members may still claim the fragment loop
     // (loop_ pointers and anchor cycles disagree on retired records):

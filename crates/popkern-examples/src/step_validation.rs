@@ -333,7 +333,7 @@ fn step_body_report(
         vertices: body.vertices.len(),
         edges: body.edges.len(),
         faces: body.faces.len(),
-        boundary_edges: body.boundary_edges.len(),
+        boundary_edges: body.free_edges().len(),
         boundary_edge_evidence: artifact
             .boundary_edges
             .into_iter()

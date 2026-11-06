@@ -49,6 +49,5 @@ pub(super) fn normalize_open_shell_boundaries(builder: &mut BRepBuilder) {
         builder
             .brep_mut()
             .remove_half_edge_reanchored(removed_half_edge);
-        builder.brep_mut().boundary_edges.insert(edge);
     }
 }

@@ -367,7 +367,7 @@ fn face_has_construction_boundary_edge(brep: &BRep, face: &Face) -> bool {
         .is_some_and(|cycle| {
             cycle.iter().any(|half_edge| {
                 brep.half_edges.get(*half_edge).is_some_and(|data| {
-                    brep.boundary_edges.contains(&data.edge)
+                    brep.is_free_edge(data.edge)
                         || data
                             .mate()
                             .and_then(|m| brep.half_edges.get(m))

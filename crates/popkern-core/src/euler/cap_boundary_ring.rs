@@ -108,7 +108,7 @@ impl BRep {
         let mut spans = Vec::with_capacity(ring.len());
         let mut shell: Option<ShellHandle> = None;
         for &edge in ring {
-            if !self.boundary_edges.contains(&edge) {
+            if !self.is_free_edge(edge) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "boundary ring cap edge {edge:?} is not a registered boundary edge"
                 )));
@@ -247,7 +247,6 @@ impl BRep {
                 pcurve: None,
             });
             self.half_edges[step.surviving].set_mate(hole_side);
-            self.boundary_edges.remove(&step.edge);
             hole_sides.push(hole_side);
         }
         let count = hole_sides.len();
@@ -288,7 +287,7 @@ impl BRep {
         )?;
         verify_loop_contains_half_edges(self, result.loop_, &result.half_edges)?;
         for (step, &hole_side) in plan.steps.iter().zip(&result.half_edges) {
-            if self.boundary_edges.contains(&step.edge) {
+            if self.is_free_edge(step.edge) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "cap_boundary_ring left edge {:?} in boundary_edges",
                     step.edge

@@ -161,7 +161,7 @@ pub fn sew_clean_boundary_edge_pairs(
         accepted_pairs: 0,
         declined_pairs: Vec::new(),
         accepted_pair_edges: Vec::new(),
-        remaining_boundary_edges: candidate.boundary_edges.len(),
+        remaining_boundary_edges: candidate.free_edges().len(),
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,
         shared_fact_ids: Vec::new(),
@@ -200,7 +200,7 @@ pub fn sew_clean_boundary_edge_pairs(
     }
 
     repair_vertex_outgoing(&mut candidate);
-    report.remaining_boundary_edges = candidate.boundary_edges.len();
+    report.remaining_boundary_edges = candidate.free_edges().len();
     report.shared_fact_ids.sort();
     report.shared_fact_ids.dedup();
     if options.validate_output
@@ -223,7 +223,7 @@ fn empty_report(brep: &BRep, pairs: &[BrepSewingEdgePair]) -> BrepSewingReport {
         accepted_pairs: 0,
         declined_pairs: Vec::new(),
         accepted_pair_edges: Vec::new(),
-        remaining_boundary_edges: brep.boundary_edges.len(),
+        remaining_boundary_edges: brep.free_edges().len(),
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,
         shared_fact_ids: Vec::new(),
@@ -386,8 +386,6 @@ fn weld_boundary_pair(brep: &mut BRep, edge_a: EdgeHandle, edge_b: EdgeHandle) {
     brep.half_edges[he_a].set_mate(he_b);
     brep.half_edges[he_b].set_mate(he_a);
     brep.half_edges[he_b].edge = edge_a;
-    brep.boundary_edges.remove(&edge_a);
-    brep.boundary_edges.remove(&edge_b);
     brep.edges.remove(edge_b);
 }
 

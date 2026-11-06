@@ -147,18 +147,18 @@ pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, Bo
     }
     // Sheets enter as laminae: their free-boundary mirror loops are no
     // holes (PK-978).
-    let views: Vec<BRep> = bodies
+    let (views, lamina_edges): (Vec<BRep>, Vec<_>) = bodies
         .iter()
         .map(|b| {
             if b.body_kind() == BodyKind::Sheet {
                 crate::sheet::lamina::pipeline_view(b)
             } else {
-                (*b).clone()
+                ((*b).clone(), Default::default())
             }
         })
-        .collect();
+        .unzip();
     let view_refs: Vec<&BRep> = views.iter().collect();
-    let built = build::build(&view_refs, &tolerance)?;
+    let built = build::build(&view_refs, &lamina_edges, &tolerance)?;
     let mut partition = Partition {
         body_count: bodies.len(),
         // The bodies as the pipeline read them (a sheet's view): the

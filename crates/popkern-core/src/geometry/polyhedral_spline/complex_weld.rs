@@ -199,7 +199,7 @@ pub fn weld_clean_surface_complex_boundaries(
                     .as_ref()
                     .map_or(0, |clean| clean.declined_pairs.len())
         }),
-        remaining_boundary_edges: result.brep.boundary_edges.len(),
+        remaining_boundary_edges: result.brep.free_edges().len(),
         max_weld_gap: clean_report.map_or(0.0, |report| {
             report.max_endpoint_gap.max(report.max_surface_gap)
         }),
@@ -404,9 +404,7 @@ fn copy_component_brep(
         let new = out.insert_edge_tracked(edge.clone());
         edges.insert(old, new);
         edge_component.insert(new, component_index);
-        if src.boundary_edges.contains(&old) {
-            out.boundary_edges.insert(new);
-        }
+        if src.is_free_edge(old) {}
     }
     for (old, half_edge) in &src.half_edges {
         half_edges.insert(old, out.half_edges.insert(half_edge.clone()));
@@ -463,9 +461,9 @@ fn brep_boundary_segments(
     brep: &BRep,
     edge_component: &HashMap<EdgeHandle, usize>,
 ) -> Vec<BoundarySegment> {
-    brep.boundary_edges
-        .iter()
-        .filter_map(|&edge| {
+    brep.free_edges()
+        .into_iter()
+        .filter_map(|edge| {
             edge_segment(brep, edge).map(|(start, end)| BoundarySegment {
                 component: edge_component.get(&edge).copied().unwrap_or_default(),
                 edge,

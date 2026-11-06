@@ -154,7 +154,6 @@ impl BRep {
             brep.edges[edge_h].half_edge = twin_h;
             // Null out the twin pointer on the surviving half-edge.
             brep.half_edges[twin_h].clear_mate();
-            brep.boundary_edges.insert(edge_h);
         }
 
         // Fix vertex outgoing pointers that reference doomed
@@ -211,7 +210,7 @@ mod tests {
     #[test]
     fn open_box_has_four_boundary_edges() {
         let ob = BRep::open_box(Tolerance::default()).unwrap();
-        assert_eq!(ob.boundary_edges.len(), 4);
+        assert_eq!(ob.free_edges().len(), 4);
     }
 
     #[test]
@@ -223,7 +222,7 @@ mod tests {
     #[test]
     fn open_box_boundary_edges_have_null_twin() {
         let ob = BRep::open_box(Tolerance::default()).unwrap();
-        for &edge_h in &ob.boundary_edges {
+        for edge_h in ob.free_edges() {
             let he = ob.edges[edge_h].half_edge;
             assert!(
                 ob.half_edges[he].mate().is_none(),
@@ -258,7 +257,7 @@ mod tests {
     fn open_box_interior_edges_are_manifold() {
         let ob = BRep::open_box(Tolerance::default()).unwrap();
         for (edge_h, edge) in &ob.edges {
-            if ob.boundary_edges.contains(&edge_h) {
+            if ob.is_free_edge(edge_h) {
                 continue;
             }
             let he = &ob.half_edges[edge.half_edge];
@@ -279,7 +278,7 @@ mod open_prism_tests {
     fn open_prism_has_n_boundary_edges_and_validates() {
         for n in [5usize, 6] {
             let prism = BRep::open_prism(n, 1.0, 1.0, Tolerance::default()).unwrap();
-            assert_eq!(prism.boundary_edges.len(), n, "n={n}");
+            assert_eq!(prism.free_edges().len(), n, "n={n}");
             assert_eq!(prism.faces.len(), n + 1, "n={n}: walls + one cap");
             prism.validate().unwrap();
         }

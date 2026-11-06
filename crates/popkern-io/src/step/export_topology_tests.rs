@@ -567,6 +567,5 @@ fn collapsed_trim_sheet() -> BRep {
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
     brep.shells[shell].face = face;
-    brep.boundary_edges.insert(edge);
     brep
 }

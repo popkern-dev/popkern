@@ -10,7 +10,7 @@ impl BRep {
         for (edge_handle, edge_data) in &self.edges {
             // Boundary edges have a null twin — skip the twin
             // check for those.
-            if self.boundary_edges.contains(&edge_handle) {
+            if self.is_free_edge(edge_handle) {
                 continue;
             }
             let he = self

@@ -34,7 +34,7 @@ pub(super) fn claim_side_support_bridge_boundary_for_cylinder_trim(
                 };
                 data.origin == end
                     && support_split_half_edge_end_vertex(brep, *half_edge) == Some(start)
-                    && brep.boundary_edges.contains(&data.edge)
+                    && brep.is_free_edge(data.edge)
                     && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
             })
             .map(|half_edge| (loop_data.face, half_edge))
@@ -81,7 +81,6 @@ pub(super) fn claim_side_support_bridge_boundary_for_cylinder_trim(
             pcurve: None,
         });
         brep.half_edges[support_half_edge].set_mate(half_edge);
-        brep.boundary_edges.remove(&edge);
         validate_side_support_bridge_claim(
             brep,
             bridge_face,
@@ -167,7 +166,7 @@ fn validate_side_support_bridge_claim(
     };
     if cylinder_data.mate() != Some(support_half_edge)
         || brep.half_edges[support_half_edge].mate() != Some(cylinder_half_edge)
-        || brep.boundary_edges.contains(&cylinder_data.edge)
+        || brep.is_free_edge(cylinder_data.edge)
     {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(

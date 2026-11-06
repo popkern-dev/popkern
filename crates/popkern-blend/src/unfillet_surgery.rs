@@ -298,7 +298,6 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
         }
         brep.remove_half_edge_reanchored(he_handle);
         brep.edges.remove(eh);
-        brep.boundary_edges.remove(&eh);
     }
 }
 
@@ -386,7 +385,6 @@ pub(crate) fn remove_slit_loop_edges_where(
         brep.remove_half_edge_reanchored(first);
         brep.remove_half_edge_reanchored(second);
         brep.edges.remove(eh);
-        brep.boundary_edges.remove(&eh);
     }
 }
 

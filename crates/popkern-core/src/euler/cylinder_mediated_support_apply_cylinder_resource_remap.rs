@@ -208,7 +208,7 @@ fn remapped_boundary_half_edge(
             "cylinder resource remap edge {edge:?} has stale half-edge"
         ))
     })?;
-    let not_boundary = !brep.boundary_edges.contains(&edge);
+    let not_boundary = !brep.is_free_edge(edge);
     let live_twin = half_edge_data.mate().is_some();
     let unavailable = CylinderBridgeUnavailableEdge {
         not_boundary,

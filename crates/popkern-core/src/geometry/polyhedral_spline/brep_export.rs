@@ -126,8 +126,8 @@ pub fn build_polyhedral_spline_brep(
     brep.validate()
         .map_err(|err| export_error(spline, format!("post-build validation failed: {err}")))?;
     Ok(PolyhedralBrepExport {
-        boundary_edge_count: brep.boundary_edges.len(),
-        seam_edge_count: edges.len().saturating_sub(brep.boundary_edges.len()),
+        boundary_edge_count: brep.free_edges().len(),
+        seam_edge_count: edges.len().saturating_sub(brep.free_edges().len()),
         collapsed_singularity_count,
         brep,
         faces,
@@ -275,12 +275,6 @@ fn intern_half_edge(
     brep.edges[edge].half_edge = half_edge;
     if brep.vertices[build.start_vertex].outgoing == HalfEdgeHandle::default() {
         brep.vertices[build.start_vertex].outgoing = half_edge;
-    }
-    if matches!(
-        build.role,
-        PatchEdgeRole::Boundary | PatchEdgeRole::CollapsedSingularity { .. }
-    ) {
-        brep.boundary_edges.insert(edge);
     }
     if !collapsed {
         edges.insert(key, half_edge);

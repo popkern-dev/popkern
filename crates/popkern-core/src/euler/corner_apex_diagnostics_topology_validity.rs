@@ -47,7 +47,7 @@ fn boundary_membership(brep: &BRep, edges: &[EdgeHandle]) -> CornerBoundaryMembe
     if edges.is_empty() {
         return CornerBoundaryMembership::WireOrSheet;
     }
-    if edges.iter().any(|edge| brep.boundary_edges.contains(edge)) {
+    if edges.iter().any(|edge| brep.is_free_edge(*edge)) {
         CornerBoundaryMembership::Boundary
     } else {
         CornerBoundaryMembership::Interior

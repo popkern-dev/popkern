@@ -120,7 +120,6 @@ pub fn retain_pieces(body: &BRep, keep: &[SolidHandle]) -> Result<BRep, BoolErro
     out.half_edges.retain(|h, _| half_edges.contains(&h));
     out.edges.retain(|h, _| edges.contains(&h));
     out.vertices.retain(|h, _| vertices.contains(&h));
-    out.boundary_edges.retain(|e| edges.contains(e));
     out.surface_boundary_hints
         .retain(|h, _| half_edges.contains(h));
     out.surface_boundary_declines
