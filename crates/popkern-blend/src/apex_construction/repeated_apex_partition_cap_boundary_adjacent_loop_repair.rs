@@ -333,21 +333,14 @@ fn validate_boundary_preserving_adjacent_loop_repair(
 mod tests {
     use popkern_core::geometry::Point3;
     use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::{Face, Loop, Shell, Solid, Vertex};
+    use popkern_core::topology::{Face, Loop, Vertex};
 
     use super::*;
 
     #[test]
     fn boundary_bearing_adjacent_loop_repairs_with_same_direction_boundary_span() {
         let mut brep = BRep::new(Tolerance::default());
-        let solid = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid,
-        });
-        brep.solids[solid].shell = shell;
+        let (_, shell) = brep.add_solid_region(Default::default());
         let vertices = [
             Point3::new(0.0, 0.0, 0.0),
             Point3::new(1.0, 0.0, 0.0),

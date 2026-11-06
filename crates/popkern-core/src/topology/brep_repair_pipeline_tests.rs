@@ -6,7 +6,7 @@ use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, BrepRepairActionOutcome, BrepRepairTopologyHandle, BrepSewingOptions,
     BrepSewingProvenance, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop,
-    LoopHandle, Shell, ShellHandle, Solid, Vertex, build_brep_repair_action_artifact,
+    LoopHandle, ShellHandle, Vertex, build_brep_repair_action_artifact,
 };
 fn pipeline_options(diagnose_loop_shell: bool) -> BrepRepairPipelineOptions {
     let clean_sewing = BrepSewingOptions {
@@ -367,14 +367,7 @@ fn pipeline_repairs_edge_surface_compatibility_from_surface_boundary_authority()
 
 fn two_square_sheet() -> (BRep, EdgeHandle, EdgeHandle) {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let left = add_square(
         &mut brep,
@@ -396,7 +389,7 @@ fn two_square_sheet() -> (BRep, EdgeHandle, EdgeHandle) {
             Point3::new(1.0, 0.0, 0.0),
         ],
     );
-    brep.shells[shell].face = left.face;
+    brep.set_shell_anchor(shell, left.face);
     (brep, left.edges[1], right.edges[2])
 }
 

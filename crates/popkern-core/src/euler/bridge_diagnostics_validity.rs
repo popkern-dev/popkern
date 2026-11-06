@@ -106,7 +106,7 @@ fn structural_repair_fact(
                 "bridge-source-face-boundary-missing",
             ));
         }
-        if !brep.shells.contains_key(face_data.shell) {
+        if brep.face_back_shell(face).is_none() {
             return Some(requires_topology_repair("bridge-source-shell-missing"));
         }
         if !loop_walk_closes(brep, loop_) {

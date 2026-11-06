@@ -3,8 +3,8 @@ use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
-    ShellHandle, Solid, Vertex,
+    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
+    ShellHandle, Vertex,
 };
 
 #[test]
@@ -102,14 +102,7 @@ fn diagnostics_reports_corrupted_loop_and_radial_entry() {
 
 fn two_square_fragmented_shell() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let first = add_square(
         &mut brep,
@@ -131,7 +124,7 @@ fn two_square_fragmented_shell() -> BRep {
             Point3::new(2.0, 1.0, 0.0),
         ],
     );
-    brep.shells[shell].face = first.face;
+    brep.set_shell_anchor(shell, first.face);
     brep
 }
 

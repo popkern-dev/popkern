@@ -75,7 +75,7 @@ impl BRep {
         let solid = shell_data.solid;
         if let Some((survivor, _)) = self.faces.iter().find(|(_, f)| f.shell == shell) {
             if self.shells[shell].face == face {
-                self.shells[shell].face = survivor;
+                self.set_shell_anchor(shell, survivor);
             }
             return false;
         }

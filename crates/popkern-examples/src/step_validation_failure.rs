@@ -120,7 +120,7 @@ fn imported_euler_poincare_evidence(
     expected: i64,
     actual: i64,
 ) -> StepImportedEulerPoincareEvidence {
-    let shell = body.solids.get(solid).map(|solid_data| solid_data.shell);
+    let shell = body.region_outer_shell(solid);
     let solid_shell_faces = shell
         .map(|shell| {
             body.faces
@@ -166,8 +166,8 @@ fn imported_euler_poincare_evidence(
         half_edges: body.half_edges.len(),
         loops: body.loops.len(),
         faces: body.faces.len(),
-        shells: body.shells.len(),
-        solids: body.solids.len(),
+        shells: body.back_shell_count(),
+        solids: body.solid_regions().len(),
         boundary_edges: body.free_edges().len(),
         solid_shell_faces,
         solid_shell_loops,

@@ -19,7 +19,7 @@ use crate::error::BoolError;
 /// The body's pieces, its solids, in slot order (the order a split
 /// served them in).
 pub fn piece_handles(body: &BRep) -> Vec<SolidHandle> {
-    body.solids.keys().collect()
+    body.solid_regions()
 }
 
 /// `body` with only the solids in `keep`: every entity bounding a
@@ -40,7 +40,7 @@ pub fn piece_handles(body: &BRep) -> Vec<SolidHandle> {
 /// let both = concatenate_solids(a, b).unwrap();
 /// let first = pieces::piece_handles(&both)[0];
 /// let one = pieces::retain_pieces(&both, &[first]).unwrap();
-/// assert_eq!((one.solids.len(), one.faces.len()), (1, 6));
+/// assert_eq!((one.solid_regions().len(), one.faces.len()), (1, 6));
 /// ```
 ///
 /// # Errors
@@ -51,20 +51,10 @@ pub fn retain_pieces(body: &BRep, keep: &[SolidHandle]) -> Result<BRep, BoolErro
     let solids: HashSet<_> = keep
         .iter()
         .copied()
-        .filter(|s| body.solids.contains_key(*s))
+        .filter(|s| body.solid_regions().contains(s))
         .collect();
-    let shells: HashSet<_> = body
-        .shells
-        .iter()
-        .filter(|(_, s)| solids.contains(&s.solid))
-        .map(|(h, _)| h)
-        .collect();
-    let faces: HashSet<_> = body
-        .faces
-        .iter()
-        .filter(|(_, f)| shells.contains(&f.shell))
-        .map(|(h, _)| h)
-        .collect();
+    let shells: HashSet<_> = solids.iter().flat_map(|&s| body.region_shells(s)).collect();
+    let faces: HashSet<_> = shells.iter().flat_map(|&s| body.shell_faces(s)).collect();
     let loops: HashSet<_> = body
         .loops
         .iter()
@@ -113,9 +103,7 @@ pub fn retain_pieces(body: &BRep, keep: &[SolidHandle]) -> Result<BRep, BoolErro
     }
 
     let mut out = body.clone();
-    out.solids.retain(|h, _| solids.contains(&h));
-    out.shells.retain(|h, _| shells.contains(&h));
-    out.faces.retain(|h, _| faces.contains(&h));
+    out.retain_solid_regions(&solids.iter().copied().collect::<Vec<_>>());
     out.loops.retain(|h, _| loops.contains(&h));
     out.half_edges.retain(|h, _| half_edges.contains(&h));
     out.edges.retain(|h, _| edges.contains(&h));

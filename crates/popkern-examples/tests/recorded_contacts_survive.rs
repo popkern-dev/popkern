@@ -126,7 +126,7 @@ fn a_contact_no_operand_recorded_still_declines() {
     let body = boolean_with_options(BoolOperation::Union, touching(), third(), tol, None, &SPLIT)
         .expect("split serves");
     served("three pieces", &body, 3.0);
-    assert_eq!(body.solids.len(), 3);
+    assert_eq!(body.solid_regions().len(), 3);
 }
 
 #[test]
@@ -172,7 +172,7 @@ fn the_mesh_keeps_both_sides_of_a_contact() {
         .expect("mesh");
     assert_eq!(popkern_mesh::welded_open_edges(&mesh), 0);
     // No mesh vertex is shared between faces of different pieces.
-    let solid_of = |f| body.shells[body.faces[f].shell].solid;
+    let solid_of = |f| body.face_back_shell(f).and_then(|s| body.shell_region(s));
     let mut owner = std::collections::HashMap::new();
     for (t, tri) in mesh.triangles.iter().enumerate() {
         let solid = solid_of(mesh.face_map[t]);

@@ -5,7 +5,7 @@ use crate::euler::{
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
-use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 #[test]
 fn boundary_side_separator_preflight_accepts_one_already_boundary_overlap() {
@@ -255,14 +255,7 @@ fn boundary_side_separator_rejects_non_boundary_overlap() {
 
 fn same_loop_boundary_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let face = add_boundary_polygon(
         &mut brep,
         shell,
@@ -273,20 +266,13 @@ fn same_loop_boundary_fixture() -> BRep {
             Point3::new(3.0, 0.0, 0.0),
         ],
     );
-    brep.shells[shell].face = face;
+    brep.set_shell_anchor(shell, face);
     brep
 }
 
 fn separator_bridge_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     add_boundary_polygon(
         &mut brep,
         shell,
@@ -319,7 +305,7 @@ fn separator_bridge_fixture() -> BRep {
             Point3::new(5.0, 0.0, 0.0),
         ],
     );
-    brep.shells[shell].face = outside;
+    brep.set_shell_anchor(shell, outside);
     brep
 }
 

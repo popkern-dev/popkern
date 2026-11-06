@@ -5,7 +5,7 @@ use popkern_core::geometry::{Point3, SurfaceOnFace, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
-    Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle, Solid,
+    Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
     SurfaceBoundaryAuditOutcome, Vertex,
 };
 
@@ -35,14 +35,7 @@ fn audit_authors_exact_triple_for_canonical_gregory_boundary() {
 
 fn gregory_plane_boundary_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let start = Point3::new(0.0, 0.0, 0.0);
     let end = Point3::new(0.0, 1.0, 0.0);
     let va = brep.vertices.insert(vertex(start));
@@ -105,7 +98,7 @@ fn gregory_plane_boundary_fixture() -> BRep {
     brep.faces[face_b].outer_loop = loop_b;
     brep.vertices[va].outgoing = he_a;
     brep.vertices[vb].outgoing = he_b;
-    brep.shells[shell].face = face_a;
+    brep.set_shell_anchor(shell, face_a);
     brep
 }
 

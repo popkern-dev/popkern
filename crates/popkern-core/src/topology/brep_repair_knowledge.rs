@@ -75,7 +75,7 @@ impl BrepKnowledgeFingerprint {
             half_edges: brep.half_edges.len(),
             loops: brep.loops.len(),
             faces: brep.faces.len(),
-            shells: brep.shells.len(),
+            shells: brep.back_shell_count(),
         }
     }
 

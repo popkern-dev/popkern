@@ -30,8 +30,8 @@ fn kfmrh_merges_shells() {
         .unwrap();
     let _mef2 = brep.mef(mev6.half_edge_twin, mev4.half_edge).unwrap();
 
-    assert_eq!(brep.shells.len(), 2);
-    assert_eq!(brep.solids.len(), 2);
+    assert_eq!(brep.back_shell_count(), 2);
+    assert_eq!(brep.solid_regions().len(), 2);
 
     brep.kfmrh(mvfs2.face, mvfs1.face).unwrap();
 

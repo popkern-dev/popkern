@@ -6,8 +6,8 @@ use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::{
     BRep, BrepEdgePairPolicyContext, BrepEdgePairPolicyDeclineReason, BrepEdgePairPolicyOutcome,
-    BrepTopologyRepairPolicy, Edge, Face, FaceHandle, HalfEdge, Loop, LoopHandle, Shell,
-    ShellHandle, Solid, Vertex, assess_edge_pair_topology_policy,
+    BrepTopologyRepairPolicy, Edge, Face, FaceHandle, HalfEdge, Loop, LoopHandle, ShellHandle,
+    Vertex, assess_edge_pair_topology_policy,
 };
 
 fn options() -> BrepSewingOptions {
@@ -35,14 +35,7 @@ fn policy() -> BrepTopologyRepairPolicy {
 
 fn two_square_sheet() -> (BRep, EdgeHandle, EdgeHandle) {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let left = add_square(
         &mut brep,
@@ -64,8 +57,8 @@ fn two_square_sheet() -> (BRep, EdgeHandle, EdgeHandle) {
             Point3::new(1.0, 0.0, 0.0),
         ],
     );
-    if brep.shells[shell].face == FaceHandle::default() {
-        brep.shells[shell].face = left.face;
+    if brep.shell_anchor(shell).is_none() {
+        brep.set_shell_anchor(shell, left.face);
     }
     (brep, left.edges[1], right.edges[2])
 }

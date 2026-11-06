@@ -3,10 +3,7 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
-use crate::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, Vertex,
-};
+use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex};
 
 fn options() -> BrepDegenerateEdgeOptions {
     BrepDegenerateEdgeOptions {
@@ -69,14 +66,7 @@ fn classifies_ambiguous_trim_when_surface_span_is_not_collapsed() {
 
 fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: bool) -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let vertex = brep.vertices.insert(Vertex {
         position: Point3::new(0.0, 0.0, 0.0),
         outgoing: HalfEdgeHandle::default(),
@@ -119,7 +109,7 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     brep.vertices[vertex].outgoing = half_edge;
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
-    brep.shells[shell].face = face;
+    brep.set_shell_anchor(shell, face);
     brep
 }
 

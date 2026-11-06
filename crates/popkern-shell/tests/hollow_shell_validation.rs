@@ -33,7 +33,7 @@ fn hollow_cube_shell_records_two_shells_and_validates() {
     )
     .expect("hollow shell serves");
     assert_eq!(
-        result.brep.shells.len(),
+        result.brep.back_shell_count(),
         2,
         "hollow body = outer skin + void skin, one shell each"
     );
@@ -64,7 +64,7 @@ fn open_shell_is_one_connected_manifold_shell() {
     )
     .expect("open shell serves");
     assert_eq!(
-        result.brep.shells.len(),
+        result.brep.back_shell_count(),
         1,
         "side walls connect outer and inner skins into one shell"
     );
@@ -97,7 +97,7 @@ fn open_shell_is_one_connected_manifold_shell() {
 fn thickened_cube_records_two_shells_and_validates() {
     let cube = BRep::unit_cube(tol()).expect("cube builds");
     let result = thicken(&cube, 0.1, &ShellOptions::default(), tol()).expect("thicken serves");
-    assert_eq!(result.brep.shells.len(), 2);
+    assert_eq!(result.brep.back_shell_count(), 2);
     assert!(
         result.brep.validate().is_ok(),
         "thickened cube must validate: {:?}",

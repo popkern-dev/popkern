@@ -39,7 +39,10 @@ fn measured(m: &mut Model) -> (usize, f64) {
         brep.faces.values().all(|f| f.name.is_some()),
         "every face is named"
     );
-    (brep.solids.len(), body_volume(brep, &tol).expect("volume"))
+    (
+        brep.solid_regions().len(),
+        body_volume(brep, &tol).expect("volume"),
+    )
 }
 
 fn split_with(keep: PieceRule) -> Result<(usize, f64), ScriptError> {

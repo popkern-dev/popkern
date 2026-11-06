@@ -283,9 +283,6 @@ fn build_brep_from_faces(
                 std::iter::repeat_n(sh, n)
             })
             .collect();
-        if let Some(&outer) = shell_of.first() {
-            builder.brep_mut().solids[solid].shell = outer;
-        }
         shell_of
     };
 

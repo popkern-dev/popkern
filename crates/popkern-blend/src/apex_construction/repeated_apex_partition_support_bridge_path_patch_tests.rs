@@ -1,21 +1,14 @@
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::RadialLinks;
-use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Vertex};
 
 use super::*;
 
 #[test]
 fn bridge_boundary_path_detects_multi_loop_regrouping_need() {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let vertices = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(1.0, 0.0, 0.0),
@@ -51,14 +44,7 @@ fn bridge_boundary_path_detects_multi_loop_regrouping_need() {
 #[test]
 fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let vertices = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(1.0, 0.0, 0.0),
@@ -143,14 +129,7 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
 #[test]
 fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop() {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let vertices = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(1.0, 0.0, 0.0),
@@ -230,14 +209,7 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
 #[test]
 fn bridge_path_patch_repairs_stale_shell_anchor_on_inserted_face() {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let vertices = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(1.0, 0.0, 0.0),
@@ -253,7 +225,7 @@ fn bridge_path_patch_repairs_stale_shell_anchor_on_inserted_face() {
     });
     let stale_anchor =
         add_boundary_loop_face(&mut brep, shell, &[vertices[0], vertices[1], vertices[2]]);
-    brep.shells[shell].face = stale_anchor;
+    brep.set_shell_anchor(shell, stale_anchor);
     let stale_loop = brep.faces[stale_anchor].outer_loop;
     brep.loops.remove(stale_loop);
     brep.faces.remove(stale_anchor);

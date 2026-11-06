@@ -2,7 +2,7 @@ use crate::euler::FaceFamilyBridgeCycleRequest;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
-use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex};
+use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, Vertex};
 
 #[test]
 fn face_family_bridge_commits_disjoint_boundary_cycles_transactionally() {
@@ -129,14 +129,7 @@ fn direct_face_family_bridge_api_remains_candidate_gate_independent() {
 
 fn boundary_bridge_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     add_boundary_polygon(
         &mut brep,
         shell,
@@ -169,7 +162,7 @@ fn boundary_bridge_fixture() -> BRep {
             Point3::new(5.0, 0.0, 2.0),
         ],
     );
-    brep.shells[shell].face = outside;
+    brep.set_shell_anchor(shell, outside);
     brep
 }
 

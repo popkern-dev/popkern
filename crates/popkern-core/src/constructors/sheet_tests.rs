@@ -16,8 +16,8 @@ fn sheet_quad_has_expected_topology_counts() {
     assert_eq!(sheet.faces.len(), 2);
     assert_eq!(sheet.edges.len(), 4);
     assert_eq!(sheet.vertices.len(), 4);
-    assert_eq!(sheet.shells.len(), 1);
-    assert_eq!(sheet.solids.len(), 1);
+    assert_eq!(sheet.back_shell_count(), 1);
+    assert_eq!(sheet.solid_regions().len(), 1);
     // 8 half-edges total (4 edges × 2 halves).
     assert_eq!(sheet.half_edges.len(), 8);
 }

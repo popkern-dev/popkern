@@ -6,9 +6,7 @@ use crate::euler::{
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
-use crate::topology::{
-    BRep, Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex,
-};
+use crate::topology::{BRep, Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, Vertex};
 
 #[test]
 fn shared_start_bridge_preflight_requires_complete_candidate_gate() {
@@ -44,14 +42,7 @@ struct SharedStartCrossLoopFixture {
 
 fn shared_start_cross_loop_fixture() -> SharedStartCrossLoopFixture {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let first = add_boundary_polygon(
         &mut brep,
         shell,
@@ -72,7 +63,7 @@ fn shared_start_cross_loop_fixture() -> SharedStartCrossLoopFixture {
             Point3::new(2.0, 1.0, 0.0),
         ],
     );
-    brep.shells[shell].face = first;
+    brep.set_shell_anchor(shell, first);
     let outside = first_two_half_edges(&brep, brep.faces[first].outer_loop);
     let cylinder = first_two_half_edges(&brep, brep.faces[second].outer_loop);
     let authoring = vec![authoring_segment(

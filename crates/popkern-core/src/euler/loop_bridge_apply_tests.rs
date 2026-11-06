@@ -2,7 +2,7 @@ use crate::euler::TwoLoopBridgeRequest;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
-use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 #[test]
 fn two_loop_bridge_commits_between_two_boundary_face_loops() {
@@ -137,14 +137,7 @@ fn topology_counts(brep: &BRep) -> (usize, usize, usize, usize, usize) {
 
 fn two_boundary_quads() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     add_boundary_quad(
         &mut brep,
@@ -166,7 +159,7 @@ fn two_boundary_quads() -> BRep {
             Point3::new(0.0, 1.0, 1.0),
         ],
     );
-    brep.shells[shell].face = second_face;
+    brep.set_shell_anchor(shell, second_face);
     brep
 }
 

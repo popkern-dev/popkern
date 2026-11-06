@@ -309,7 +309,7 @@ m
         let brep = parts[0].brep();
         assert_eq!(brep.faces.len(), 6, "{label}: dome skin + void skin");
         assert_eq!(
-            (brep.solids.len(), brep.shells.len()),
+            (brep.solid_regions().len(), brep.back_shell_count()),
             (1, 2),
             "{label}: one solid, outer and cavity shells"
         );

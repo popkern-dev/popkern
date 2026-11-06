@@ -738,14 +738,7 @@ fn build_polyhedron(
         })
         .collect();
 
-    let solid_h = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell_h = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid: solid_h,
-    });
-    brep.solids[solid_h].shell = shell_h;
+    let (_, shell_h) = brep.add_solid_region(Default::default());
 
     // Edges: one per unordered vertex pair present in any cycle.
     let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::new();
@@ -831,7 +824,7 @@ fn build_polyhedron(
             brep.faces[fh].inner_loops.push(lh);
         }
     }
-    brep.shells[shell_h].face = brep.faces.keys().next().unwrap_or_default();
+    brep.set_shell_anchor(shell_h, brep.faces.keys().next().unwrap_or_default());
 
     // Twin wiring: (a,b) pairs with (b,a); a miss means the input
     // was not a closed manifold.

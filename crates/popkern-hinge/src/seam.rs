@@ -177,9 +177,9 @@ pub fn seam_hinge_component(
             )?;
             knuckle = subtract(&knuckle, &bore, "seam knuckle bore", tolerance)?;
         }
-        let shells = result.shells.len();
+        let shells = result.back_shell_count();
         result = union(&result, &knuckle, "seam knuckle", tolerance)?;
-        if result.shells.len() != shells {
+        if result.back_shell_count() != shells {
             return Err(construction(
                 "seam knuckle",
                 "the knuckle did not join the body (its web misses the wall)".into(),

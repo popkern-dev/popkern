@@ -33,14 +33,19 @@ fn judge(outcome: &Result<BRep, BoolError>, expect: Expect, scale3: f64) -> Resu
         {
             Ok(())
         }
-        (Ok(body), Expect::Empty) if body.faces.is_empty() && body.shells.is_empty() => Ok(()),
+        (Ok(body), Expect::Empty) if body.faces.is_empty() && body.back_shell_count() == 0 => {
+            Ok(())
+        }
         (Ok(body), Expect::Valid { shells, volume }) => {
             let issues = body.validate_all();
             if !issues.is_empty() {
                 return Err(format!("validate_all: {}", issues[0]));
             }
-            if body.shells.len() != shells {
-                return Err(format!("{} shells, expected {shells}", body.shells.len()));
+            if body.back_shell_count() != shells {
+                return Err(format!(
+                    "{} shells, expected {shells}",
+                    body.back_shell_count()
+                ));
             }
             let v = popkern_measure::body_volume(body, &Tolerance::default())
                 .map_err(|e| format!("volume: {e}"))?;
@@ -55,7 +60,7 @@ fn judge(outcome: &Result<BRep, BoolError>, expect: Expect, scale3: f64) -> Resu
             body.vertices.len(),
             body.edges.len(),
             body.faces.len(),
-            body.shells.len(),
+            body.back_shell_count(),
             body.validate_all().len()
         )),
         (Err(err), e) => Err(format!("declined: {err}; expected {e:?}")),

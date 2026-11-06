@@ -260,7 +260,7 @@ fn topology_count_diagnostic(brep: &BRep) -> String {
     let e = brep.edges.len() as i64;
     let f = brep.faces.len() as i64;
     let l = brep.loops.len() as i64;
-    let s = brep.shells.len() as i64;
+    let s = brep.back_shell_count() as i64;
     let genus_zero_lhs = v - e + f - (l - f);
     let genus_zero_rhs = 2 * s;
     let any_genus_lhs = v - e + 2 * f - l;

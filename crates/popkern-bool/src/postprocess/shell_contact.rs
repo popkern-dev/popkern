@@ -220,7 +220,7 @@ pub(crate) fn shell_contacts(brep: &BRep, tolerance: &Tolerance) -> Vec<NonManif
 /// the pair touches (one finding per pair: a contact record must name
 /// every pair it excuses).
 pub(crate) fn shell_findings(brep: &BRep, tolerance: &Tolerance) -> Vec<ShellFinding> {
-    if brep.shells.len() < 2 {
+    if brep.back_shell_count() < 2 {
         return Vec::new();
     }
     let linear = tolerance.linear();

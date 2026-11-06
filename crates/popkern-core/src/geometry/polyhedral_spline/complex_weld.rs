@@ -17,7 +17,7 @@ use crate::topology::{
     BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions, BrepFaceUseTrimAuthorityOptions,
     BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingEdgePair,
     BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions, BrepTopologyOutputPolicy,
-    BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle, Shell, ShellHandle, Solid,
+    BrepTrimRepairOptions, EdgeHandle, HalfEdgeHandle, ShellHandle,
     analyze_brep_export_quality_with_local_diagnostics,
     analyze_scoped_brep_edge_surface_compatibility, analyze_scoped_brep_export_quality,
     analyze_scoped_brep_trims, build_brep_repair_action_artifact, edge_segment,
@@ -361,14 +361,7 @@ fn assemble_components(
 ) -> Result<AssembledSurfaceComplex, String> {
     let mut out = BRep::new(crate::tolerance::Tolerance::default());
     let mut edge_component = HashMap::new();
-    let solid = out.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = out.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    out.solids[solid].shell = shell;
+    let (_solid, shell) = out.add_solid_region(Default::default());
     for (component_index, component) in complex.components.iter().enumerate() {
         copy_component_brep(
             &mut out,
@@ -416,8 +409,8 @@ fn copy_component_brep(
         let mut new_face = face.clone();
         new_face.shell = shell;
         let new = out.faces.insert(new_face);
-        if out.shells[shell].face == FaceHandle::default() {
-            out.shells[shell].face = new;
+        if out.shell_anchor(shell).is_none() {
+            out.set_shell_anchor(shell, new);
         }
         faces.insert(old, new);
     }

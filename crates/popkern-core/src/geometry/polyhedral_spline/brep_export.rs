@@ -11,8 +11,8 @@ use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use crate::tolerance::Tolerance;
 use crate::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, TopologyRole, Vertex, VertexHandle,
+    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
+    TopologyRole, Vertex, VertexHandle,
 };
 use slotmap::Key;
 
@@ -63,14 +63,7 @@ pub fn build_polyhedral_spline_brep(
 ) -> Result<PolyhedralBrepExport, PolyhedralSplineError> {
     let readiness = validate_brep_readiness(spline, options.samples, options.c0_tolerance)?;
     let mut brep = BRep::new(options.tolerance);
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let mut vertices = HashMap::new();
     let mut edges = HashMap::new();
@@ -79,8 +72,8 @@ pub fn build_polyhedral_spline_brep(
 
     for (patch_index, patch) in spline.patches.iter().enumerate() {
         let face = insert_patch_face(&mut brep, shell, options.operation, patch_index);
-        if brep.shells[shell].face == FaceHandle::default() {
-            brep.shells[shell].face = face;
+        if brep.shell_anchor(shell).is_none() {
+            brep.set_shell_anchor(shell, face);
         }
         brep.faces[face].surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Nurbs(patch.to_bezier_nurbs()),

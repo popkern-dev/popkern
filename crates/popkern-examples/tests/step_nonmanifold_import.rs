@@ -141,7 +141,7 @@ fn a_boolean_bridges_an_imported_contact() {
     ];
     let bridge = BRep::prism(&square, Vec3::new(0.0, 0.0, 1.0), 0.6, tol).expect("bridge");
     let union = boolean(BoolOperation::Union, body, bridge, tol, None).expect("union");
-    assert_eq!(union.solids.len(), 1);
+    assert_eq!(union.solid_regions().len(), 1);
     let volume = popkern_measure::body_volume(&union, &tol).expect("volume");
     assert!((volume - 2.3).abs() < 1e-9, "{volume}");
     assert!(union.validate_all().is_empty());

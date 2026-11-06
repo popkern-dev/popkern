@@ -416,7 +416,7 @@ fn cube_minus_contained_sphere_serves_hollow_solid() {
         7,
         "6 cube faces + 1 inverted sphere void face"
     );
-    assert_eq!(result.shells.len(), 2, "outer shell + void shell");
+    assert_eq!(result.back_shell_count(), 2, "outer shell + void shell");
 }
 
 #[test]

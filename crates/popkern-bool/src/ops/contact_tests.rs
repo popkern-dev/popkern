@@ -103,6 +103,6 @@ fn symmetric_difference_declines_by_default_and_disjoint_is_both() {
         &BoolOptions::default(),
     )
     .expect("disjoint serves");
-    assert_eq!(apart.shells.len(), 2);
+    assert_eq!(apart.back_shell_count(), 2);
     assert!((volume(&apart) - 2.0).abs() < 1e-9);
 }

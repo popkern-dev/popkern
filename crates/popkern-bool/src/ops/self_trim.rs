@@ -293,7 +293,7 @@ pub fn trim_self_intersections(
             split_body.faces.len(),
             split_body.loops.len(),
             split_body.half_edges.len(),
-            split_body.shells.len(),
+            split_body.back_shell_count(),
             split_body.free_edges().len(),
         ))
     })?;

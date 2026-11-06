@@ -225,14 +225,7 @@ pub fn build_polyhedron_brep(
         })
         .collect();
 
-    let solid_h = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell_h = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid: solid_h,
-    });
-    brep.solids[solid_h].shell = shell_h;
+    let (solid_h, shell_h) = brep.add_solid_region(Default::default());
 
     let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::new();
     let ensure_edges =
@@ -316,7 +309,7 @@ pub fn build_polyhedron_brep(
             brep.faces[fh].inner_loops.push(lh);
         }
     }
-    brep.shells[shell_h].face = brep.faces.keys().next().unwrap_or_default();
+    brep.set_shell_anchor(shell_h, brep.faces.keys().next().unwrap_or_default());
 
     for (&(a, b), &he) in &he_of {
         let twin = *he_of.get(&(b, a)).ok_or_else(|| {

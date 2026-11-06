@@ -169,7 +169,7 @@ impl ExportContext {
         // IDs), grouped by their owning brep SHELL.
         let mut face_ids_by_shell: Vec<Vec<EntityId>> = Vec::new();
         let mut exported_shells = Vec::new();
-        let mut shell_handles: Vec<_> = brep.shells.keys().collect();
+        let mut shell_handles = brep.back_shells();
         shell_handles.sort();
         for &sh in &shell_handles {
             self.reverse_face_uses = super::export_voids::is_cavity(brep, sh);
@@ -196,7 +196,7 @@ impl ExportContext {
         {
             let mut orphans = Vec::new();
             for (fh, face) in &brep.faces {
-                if brep.shells.contains_key(face.shell) {
+                if brep.face_back_shell(fh).is_some() {
                     continue;
                 }
                 let surface_id = surface_map.get(&fh).map(|surface| surface.id);

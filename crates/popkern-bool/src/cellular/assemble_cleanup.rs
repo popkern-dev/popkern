@@ -351,8 +351,12 @@ pub(super) fn partition_shells(
     let Some(first_own) = first_own else {
         return false; // every component claims to be a cavity — lie
     };
-    let existing_shell = brep.faces[faces[0]].shell;
-    let existing_solid = brep.shells[existing_shell].solid;
+    let Some(existing_shell) = brep.face_back_shell(faces[0]) else {
+        return false;
+    };
+    let Some(existing_solid) = brep.shell_region(existing_shell) else {
+        return false;
+    };
     let mut shells: Vec<Option<popkern_core::topology::ShellHandle>> = vec![None; roots.len()];
     let mut solids: Vec<Option<popkern_core::topology::SolidHandle>> = vec![None; roots.len()];
     shells[first_own] = Some(existing_shell);
@@ -375,16 +379,9 @@ pub(super) fn partition_shells(
             cavity_count += 1;
         }
     }
-    // `add_shell` re-points its solid's primary shell at the newest
-    // one; cavity shells must not usurp the outer shell's slot.
+    // A region's first shell stays its outer shell: cavity shells
+    // added after it do not usurp the slot.
     let brep = builder.brep_mut();
-    for c in 0..roots.len() {
-        if encloser[c].is_none()
-            && let (Some(sh), Some(so)) = (shells[c], solids[c])
-        {
-            brep.solids[so].shell = sh;
-        }
-    }
     // Re-anchor every shell's representative face (component 0's may
     // have pointed at a face now moved to another shell).
     let mut anchored = vec![false; roots.len()];
@@ -392,7 +389,7 @@ pub(super) fn partition_shells(
         let Some(sh) = shells[c] else { return false };
         brep.faces[f].shell = sh;
         if !anchored[c] {
-            brep.shells[sh].face = f;
+            brep.set_shell_anchor(sh, f);
             anchored[c] = true;
         }
     }

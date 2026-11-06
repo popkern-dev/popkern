@@ -5,7 +5,7 @@ use crate::euler::{
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 use crate::topology::RadialLinks;
-use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 #[test]
 fn complete_candidate_passes_mutation_gate_contract() {
@@ -123,14 +123,7 @@ fn cross_loop_report() -> crate::euler::BridgeDiagnosticReport {
 
 fn two_boundary_loop_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let first = add_boundary_polygon(
         &mut brep,
         shell,
@@ -151,7 +144,7 @@ fn two_boundary_loop_fixture() -> BRep {
             Point3::new(2.0, 1.0, 0.0),
         ],
     );
-    brep.shells[shell].face = first;
+    brep.set_shell_anchor(shell, first);
     brep
 }
 

@@ -25,7 +25,7 @@ impl BRep {
         let e = self.edges.len() as i64;
         let f = self.faces.len() as i64;
         let l = self.loops.len() as i64;
-        let s = self.shells.len() as i64;
+        let s = self.back_shell_count() as i64;
 
         let lhs = v - e + f - (l - f);
         let rhs = 2 * s;
@@ -50,7 +50,7 @@ impl BRep {
                     "  [euler] V={v} E={e} F={f} L={l} S={s} lhs={lhs} rhs={rhs} orphan_v={orphan_v} orphan_e={orphan_e}"
                 );
             }
-            let solid = self.solids.keys().next().unwrap_or_default();
+            let solid = self.solid_regions().first().copied().unwrap_or_default();
             return Err(ValidationError::EulerPoincare {
                 solid,
                 expected: rhs,
@@ -70,7 +70,7 @@ impl BRep {
         let e = self.edges.len() as i64;
         let f = self.faces.len() as i64;
         let l = self.loops.len() as i64;
-        let s = self.shells.len() as i64;
+        let s = self.back_shell_count() as i64;
 
         let lhs = v - e + 2 * f - l;
         let two_g = 2 * s - lhs;
@@ -96,7 +96,7 @@ impl BRep {
                     "  [euler-g] V={v} E={e} F={f} L={l} S={s} lhs={lhs} 2G={two_g} orphan_v={orphan_v} orphan_loops={orphan_loops}"
                 );
             }
-            let solid = self.solids.keys().next().unwrap_or_default();
+            let solid = self.solid_regions().first().copied().unwrap_or_default();
             return Err(ValidationError::EulerPoincare {
                 solid,
                 expected: 2 * s,
