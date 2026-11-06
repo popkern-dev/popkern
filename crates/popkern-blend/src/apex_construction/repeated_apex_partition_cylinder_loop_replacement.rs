@@ -286,7 +286,7 @@ fn push_if_boundary_span(
     else {
         return;
     };
-    if brep.boundary_edges.contains(&edge) {
+    if brep.is_free_edge(edge) {
         boundary_spans.push(half_edge);
     }
 }

@@ -149,7 +149,7 @@ fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Optio
     if let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) {
         return Some(twin.origin);
     }
-    if !brep.boundary_edges.contains(&data.edge) {
+    if !brep.is_free_edge(data.edge) {
         return brep
             .half_edges
             .get(data.next)

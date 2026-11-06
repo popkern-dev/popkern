@@ -25,7 +25,7 @@ fn heal_holes_closes_the_open_box_with_the_single_patch_g1_cap() {
     assert!(attempt.coons_decline.is_none());
     assert!(attempt.ruled_decline.is_none());
 
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     brep.validate_euler_poincare().expect("strict Euler holds");
     brep.validate().expect("full fast validation holds");
 }
@@ -63,7 +63,7 @@ fn assert_open_prism_serves_polar_fan_g1(n_sides: usize) {
         attempt.single_patch_decline.is_some(),
         "the 4-sided-only rung must record its side-count decline"
     );
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     brep.validate().expect("healed prism validates");
 
     let (worst_spoke, worst_wall) = worst_served_cap_seam_g1(&brep);

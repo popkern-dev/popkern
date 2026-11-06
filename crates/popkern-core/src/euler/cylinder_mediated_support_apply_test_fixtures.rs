@@ -28,7 +28,7 @@ impl TopologySnapshot {
             faces: brep.faces.len(),
             shells: brep.shells.len(),
             solids: brep.solids.len(),
-            boundary_edges: brep.boundary_edges.len(),
+            boundary_edges: brep.free_edges().len(),
         }
     }
 
@@ -219,7 +219,6 @@ fn boundary_normalized_test_brep(mut brep: BRep) -> BRep {
         };
         brep.half_edges[boundary_half_edge].clear_mate();
         brep.edges[edge].half_edge = boundary_half_edge;
-        brep.boundary_edges.insert(edge);
         brep.remove_half_edge_reanchored(residual_half_edge);
         removed_half_edges.push(residual_half_edge);
     }

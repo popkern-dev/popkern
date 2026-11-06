@@ -100,7 +100,6 @@ impl BRep {
                 }
                 self.half_edges[twin].clear_mate();
                 self.edges[edge].half_edge = twin;
-                self.boundary_edges.insert(edge);
                 exposed_edges.insert(edge);
             } else {
                 removed_edges.insert(edge);
@@ -113,7 +112,6 @@ impl BRep {
             removed_half_edges.push(*half_edge);
         }
         for edge in &removed_edges {
-            self.boundary_edges.remove(edge);
             self.edges.remove(*edge);
         }
         for &face in faces {
@@ -268,7 +266,7 @@ impl BRep {
             }
         }
         for edge in &result.removed_edges {
-            if self.edges.contains_key(*edge) || self.boundary_edges.contains(edge) {
+            if self.edges.contains_key(*edge) || self.is_free_edge(*edge) {
                 return Err(CoreError::PreconditionFailed(
                     "residual retire left a retired edge live".into(),
                 ));
@@ -285,7 +283,7 @@ impl BRep {
             let half_edge_data = self.half_edges.get(half_edge).ok_or_else(|| {
                 CoreError::PreconditionFailed("residual retire exposed stale half-edge".into())
             })?;
-            if half_edge_data.mate().is_some() || !self.boundary_edges.contains(edge) {
+            if half_edge_data.mate().is_some() || !self.is_free_edge(*edge) {
                 return Err(CoreError::PreconditionFailed(
                     "residual retire exposed edge is not a boundary side".into(),
                 ));
@@ -385,7 +383,6 @@ impl BRep {
             {
                 removed_half_edges.insert(half_edge);
             }
-            self.boundary_edges.remove(&edge);
             self.edges.remove(edge);
             removed_edges.push(edge);
         }
@@ -419,7 +416,7 @@ impl BRep {
         result: &UnwiredConstructionResidualRetireResult,
     ) -> Result<(), CoreError> {
         for edge in &result.removed_edges {
-            if self.edges.contains_key(*edge) || self.boundary_edges.contains(edge) {
+            if self.edges.contains_key(*edge) || self.is_free_edge(*edge) {
                 return Err(CoreError::PreconditionFailed(
                     "unwired residual retire left a removed edge live".into(),
                 ));

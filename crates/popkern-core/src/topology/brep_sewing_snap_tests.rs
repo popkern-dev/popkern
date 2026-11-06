@@ -144,7 +144,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
         edge
     });
 
@@ -163,7 +162,7 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
 fn snap_sewing_near_pair_moves_clone_then_welds() {
     let (brep, left_edge, right_edge) = two_square_sheet(5e-5, true);
     let before_vertices = brep.vertices.len();
-    let before_boundary_edges = brep.boundary_edges.len();
+    let before_boundary_edges = brep.free_edges().len();
     let classification = classify_boundary_edge_pairs(
         &brep,
         &[edge_pair(left_edge, right_edge)],
@@ -176,7 +175,7 @@ fn snap_sewing_near_pair_moves_clone_then_welds() {
 
     assert_eq!(brep.vertices.len(), before_vertices, "input is untouched");
     assert_eq!(
-        brep.boundary_edges.len(),
+        brep.free_edges().len(),
         before_boundary_edges,
         "input boundary set is untouched"
     );
@@ -190,7 +189,7 @@ fn snap_sewing_near_pair_moves_clone_then_welds() {
     assert!(result.report.max_vertex_motion > 0.0);
     assert!(result.report.max_vertex_motion <= 2.5e-5 + 1e-12);
     assert_eq!(result.brep.vertices.len(), 6);
-    assert_eq!(result.brep.boundary_edges.len(), 6);
+    assert_eq!(result.brep.free_edges().len(), 6);
     assert!(
         result
             .brep
@@ -222,7 +221,7 @@ fn snap_sewing_declines_rejected_classification() {
         result.report.declined_pairs[0].reason,
         BrepSnapSewingDeclineReason::RejectedClassification(_)
     ));
-    assert_eq!(result.brep.boundary_edges.len(), brep.boundary_edges.len());
+    assert_eq!(result.brep.free_edges().len(), brep.free_edges().len());
 }
 
 #[test]
@@ -244,7 +243,7 @@ fn snap_sewing_declines_motion_over_policy_limit() {
         BrepSnapSewingDeclineReason::VertexMotionExceeded { .. }
     ));
     assert_eq!(result.brep.vertices.len(), brep.vertices.len());
-    assert_eq!(result.brep.boundary_edges.len(), brep.boundary_edges.len());
+    assert_eq!(result.brep.free_edges().len(), brep.free_edges().len());
 }
 
 #[test]
@@ -262,5 +261,5 @@ fn snap_sewing_rejected_orientation_does_not_mutate_input() {
     assert_eq!(result.report.snapped_pairs, 0);
     assert_eq!(result.report.declined_pairs.len(), 1);
     assert_eq!(brep.vertices.len(), 8);
-    assert_eq!(brep.boundary_edges.len(), 8);
+    assert_eq!(brep.free_edges().len(), 8);
 }

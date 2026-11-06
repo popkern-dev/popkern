@@ -308,7 +308,7 @@ fn validate_boundary_preserving_adjacent_loop_repair(
             ),
         });
     }
-    if !brep.boundary_edges.contains(&replacement_data.edge) {
+    if !brep.is_free_edge(replacement_data.edge) {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition boundary-bearing adjacent loop repair replacement \
@@ -432,10 +432,7 @@ mod tests {
             support_split_half_edge_end_vertex(&brep, repaired_cycle[0]),
             Some(vertices[1])
         );
-        assert!(
-            brep.boundary_edges
-                .contains(&brep.half_edges[repaired_cycle[0]].edge)
-        );
+        assert!(brep.is_free_edge(brep.half_edges[repaired_cycle[0]].edge));
     }
 
     fn insert_empty_face(

@@ -4,23 +4,29 @@ use crate::error::ValidationError;
 use crate::topology::{BRep, TopologyRole};
 
 impl BRep {
-    /// Check 2: Every half-edge's twin must exist and the twin's twin must point back.
+    /// Check 2: every fin's radial ring is well formed. A fin alone on
+    /// its edge (a free edge) has null links; otherwise both links reach
+    /// live fins of the same edge that link back (`next.prev` and
+    /// `prev.next` are this fin), so walking the ring visits each fin
+    /// once whatever its length.
     pub fn validate_half_edge_pairing(&self) -> Result<(), ValidationError> {
+        use slotmap::Key;
         for (he_handle, he_data) in &self.half_edges {
-            // Boundary half-edges have twin = default (null) — skip.
-            if self.boundary_edges.contains(&he_data.edge) {
+            let ring = he_data.ring;
+            if ring.next.is_null() && ring.prev.is_null() {
                 continue;
             }
-            let twin = he_data.mate().and_then(|m| self.half_edges.get(m)).ok_or(
-                ValidationError::BrokenTwin {
-                    half_edge: he_handle,
-                },
-            )?;
-
-            if twin.mate() != Some(he_handle) {
-                return Err(ValidationError::BrokenTwin {
-                    half_edge: he_handle,
-                });
+            let broken = || ValidationError::BrokenTwin {
+                half_edge: he_handle,
+            };
+            let next = self.half_edges.get(ring.next).ok_or_else(broken)?;
+            let prev = self.half_edges.get(ring.prev).ok_or_else(broken)?;
+            if next.ring.prev != he_handle
+                || prev.ring.next != he_handle
+                || next.edge != he_data.edge
+                || prev.edge != he_data.edge
+            {
+                return Err(broken());
             }
         }
         Ok(())
@@ -95,7 +101,7 @@ impl BRep {
     /// check.
     pub fn validate_loop_junctions(&self) -> Result<(), ValidationError> {
         for (he_handle, he) in &self.half_edges {
-            if self.boundary_edges.contains(&he.edge)
+            if self.is_free_edge(he.edge)
                 || self.half_edge_is_construction_residual_for_cycle_validation(he)
             {
                 continue;

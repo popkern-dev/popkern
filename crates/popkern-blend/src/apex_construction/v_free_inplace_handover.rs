@@ -122,14 +122,12 @@ fn retire_mirror_ghost_complex_inner(brep: &mut BRep, grow: bool) -> usize {
             continue;
         };
         if let Some(survivor) = data.mate().filter(|m| brep.half_edges.contains_key(*m)) {
-            brep.boundary_edges.insert(data.edge);
             if let Some(edge) = brep.edges.get_mut(data.edge)
                 && edge.half_edge == side
             {
                 edge.half_edge = survivor;
             }
         } else if brep.edges.remove(data.edge).is_some() {
-            brep.boundary_edges.remove(&data.edge);
         }
     }
     removed

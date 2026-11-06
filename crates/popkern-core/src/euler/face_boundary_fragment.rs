@@ -85,7 +85,7 @@ impl BRep {
 
         let mut exposed_edges = Vec::new();
         for edge in interval_edges {
-            if self.boundary_edges.contains(&edge) {
+            if self.is_free_edge(edge) {
                 exposed_edges.push(edge);
             }
         }
@@ -148,7 +148,7 @@ impl BRep {
                     "boundary fragment interval left the requested face loop".into(),
                 ));
             }
-            if self.boundary_edges.contains(&half_edge.edge) {
+            if self.is_free_edge(half_edge.edge) {
                 return Err(CoreError::PreconditionFailed(
                     "boundary fragment interval already contains a boundary edge".into(),
                 ));
@@ -186,10 +186,7 @@ impl BRep {
                 "boundary fragment retired face still exists after commit".into(),
             ));
         }
-        if !self
-            .boundary_edges
-            .contains(&result.replacement_boundary_edge)
-        {
+        if !self.is_free_edge(result.replacement_boundary_edge) {
             return Err(CoreError::PreconditionFailed(
                 "boundary fragment replacement edge is not boundary".into(),
             ));
@@ -332,12 +329,9 @@ mod tests {
         );
         assert_eq!(result.retained_face, face);
         assert!(!brep.faces.contains_key(result.retired_face));
-        assert!(brep.boundary_edges.contains(&first_edge));
-        assert!(brep.boundary_edges.contains(&second_edge));
-        assert!(
-            brep.boundary_edges
-                .contains(&result.replacement_boundary_edge)
-        );
+        assert!(brep.is_free_edge(first_edge));
+        assert!(brep.is_free_edge(second_edge));
+        assert!(brep.is_free_edge(result.replacement_boundary_edge));
         brep.validate().unwrap();
     }
 

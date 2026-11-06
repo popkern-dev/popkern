@@ -43,10 +43,6 @@ pub struct BRep {
     /// Maximum imprecision allowed before the model is considered invalid.
     #[serde(default = "BRep::default_max_imprecision")]
     pub max_imprecision: f64,
-    /// Edges with a null-sentinel twin (one face only). When
-    /// non-empty, manifold / Euler validation is relaxed.
-    #[serde(default)]
-    pub boundary_edges: std::collections::BTreeSet<EdgeHandle>,
     /// Caller-authored evidence that a half-edge is a canonical boundary of
     /// its owning face surface. This is semantic construction data, not an
     /// inferred repair result: downstream repair/export stages can consume it
@@ -110,7 +106,6 @@ impl BRep {
             name_pool: NamePool::new(),
             operation_labels: OperationLabels::default(),
             max_imprecision,
-            boundary_edges: std::collections::BTreeSet::new(),
             surface_boundary_hints: std::collections::HashMap::new(),
             surface_boundary_declines: std::collections::HashMap::new(),
             surface_boundary_audit_events: Vec::new(),
@@ -238,9 +233,11 @@ impl BRep {
         true
     }
 
-    /// True when boundary edges exist (open shell / partial solid).
+    /// True when boundary edges exist (open shell / partial solid): a
+    /// free edge, or a sheet's open boundary in mirrored form
+    /// ([`BRep::is_mirrored_boundary_edge`]).
     pub fn has_boundary_edges(&self) -> bool {
-        !self.boundary_edges.is_empty()
+        self.has_free_edges() || self.edges.keys().any(|e| self.is_mirrored_boundary_edge(e))
     }
 
     /// Collect vertex positions from the outer loop of a face by walking half-edges.

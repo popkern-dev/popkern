@@ -150,7 +150,7 @@ impl BRep {
         }
         for &half_edge in path {
             let data = &self.half_edges[half_edge];
-            if !self.boundary_edges.contains(&data.edge)
+            if !self.is_free_edge(data.edge)
                 || data.mate().is_some_and(|m| self.half_edges.contains_key(m))
             {
                 return Err(CoreError::PreconditionFailed(format!(
@@ -185,7 +185,7 @@ impl BRep {
             let data = &self.half_edges[half_edge];
             let edge = data.edge;
             let origin = self.half_edges[data.next].origin;
-            if !self.boundary_edges.contains(&edge)
+            if !self.is_free_edge(edge)
                 || data.mate().is_some_and(|m| self.half_edges.contains_key(m))
             {
                 return Err(CoreError::PreconditionFailed(format!(
@@ -202,7 +202,6 @@ impl BRep {
                 pcurve: None,
             });
             self.half_edges[half_edge].set_mate(twin);
-            self.boundary_edges.remove(&edge);
             twins.push(twin);
         }
         twins.reverse();
@@ -307,7 +306,6 @@ impl BRep {
             pcurve: None,
         });
         self.edges[edge].half_edge = half_edge;
-        self.boundary_edges.insert(edge);
         (edge, half_edge)
     }
 
@@ -361,8 +359,8 @@ impl BRep {
         self.validate_half_edge_cycles().map_err(CoreError::from)?;
         self.validate_manifold_edges().map_err(CoreError::from)?;
         verify_same_loop_bridge_loop_cycle(self, result.bridge_loop)?;
-        if !self.boundary_edges.contains(&result.first_connector_edge)
-            || !self.boundary_edges.contains(&result.second_connector_edge)
+        if !self.is_free_edge(result.first_connector_edge)
+            || !self.is_free_edge(result.second_connector_edge)
         {
             return Err(CoreError::PreconditionFailed(
                 "same-loop bridge connector edge lost boundary ownership".into(),

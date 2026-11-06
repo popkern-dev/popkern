@@ -295,7 +295,7 @@ fn containing_edge_diagnostic(brep: &BRep, edge: Option<EdgeHandle>) -> String {
         .unwrap_or_else(|| "no-curve".to_string());
     format!(
         "{edge:?}(boundary={} side={} twin={} curve={curve})",
-        brep.boundary_edges.contains(&edge),
+        brep.is_free_edge(edge),
         side(half_edge),
         side(twin),
     )

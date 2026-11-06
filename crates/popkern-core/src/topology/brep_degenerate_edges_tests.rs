@@ -120,7 +120,6 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
     brep.shells[shell].face = face;
-    brep.boundary_edges.insert(edge);
     brep
 }
 

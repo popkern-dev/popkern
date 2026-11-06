@@ -62,8 +62,7 @@ fn classify_segment_half_edge(
             "cylinder-mediated segment references stale half-edge {half_edge:?}"
         ))
     })?;
-    if brep.boundary_edges.contains(&data.edge)
-        && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+    if brep.is_free_edge(data.edge) && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
     {
         segment_plan.boundary_bridge_half_edges.push(half_edge);
         return Ok(());

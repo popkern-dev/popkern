@@ -23,7 +23,6 @@ impl BRep {
         for edge_handle in edge_handles {
             let Some(representative) = representative_by_edge.get(&edge_handle).copied() else {
                 self.edges.remove(edge_handle);
-                self.boundary_edges.remove(&edge_handle);
                 continue;
             };
             let primary_is_valid = self

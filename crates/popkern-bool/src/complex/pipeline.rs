@@ -82,6 +82,11 @@ pub(crate) struct ComplexInput<'a> {
     /// Graph edge keys on a scoped operand's frontier (between an
     /// active face and a carried far face); empty for unscoped runs.
     pub frontier: &'a std::collections::BTreeSet<usize>,
+    /// Per operand, whether it enters as a lamina (a sheet: its faces
+    /// bound no volume). Stated by the caller, not read off the
+    /// operand: a sheet's pipeline view mirrors its free boundary, and
+    /// on a periodic face those mirrored edges read as seams.
+    pub laminae: &'a [bool],
 }
 
 fn checked(c: &CellComplex) -> Result<(), ComplexDecline> {
@@ -217,6 +222,7 @@ pub(crate) fn complex_regions(
         input.operands,
         input.boxes,
         input.overlaps,
+        input.laminae,
         input.tolerance,
     )
     .map_err(ComplexDecline::Lift)?;

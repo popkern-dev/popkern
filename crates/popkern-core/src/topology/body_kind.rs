@@ -5,9 +5,10 @@
 //! with a structured error instead of classifying volume it does not
 //! bound. The kind is decided from topology alone, per lump (shell):
 //!
-//! - an edge is **free** when one face holds both its half-edges and
-//!   that face's surface is not closed across the edge (a sheet's open
-//!   boundary is stored that way; a cylinder's seam is not free);
+//! - an edge is **free** when its radial ring holds one face use (a
+//!   sheet's open boundary; legacy producers that store it as two uses
+//!   of one face not closed across the edge also read free; a
+//!   cylinder's seam is not free);
 //! - an edge on no face is a **wire** edge;
 //! - a shell with a free edge is a sheet, one without is closed.
 //!
@@ -93,39 +94,52 @@ impl BRep {
         }
     }
 
-    /// Whether `edge` is a free (open boundary) edge: recorded in
-    /// `boundary_edges`, or one face holds both its half-edges and that
-    /// face's surface is not closed across it. An edge with a missing
-    /// half-edge, twin or loop counts as free when it has a face, so a
-    /// broken body never reads as closed.
+    /// Whether `edge` is a free (open boundary) edge: its fin is alone
+    /// on it, a ring of one (null ring links). An edge whose fin has a
+    /// mate is not free even while the mate is in no loop yet (a fin
+    /// being wired, a wire edge's half-edge pair); a seam (two uses of
+    /// one periodic face) is not free.
     pub fn is_free_edge(&self, edge: EdgeHandle) -> bool {
-        self.edge_use(edge) == EdgeUse::Free
+        use slotmap::Key;
+        self.edges
+            .get(edge)
+            .and_then(|e| self.half_edges.get(e.half_edge))
+            .is_some_and(|fin| fin.ring.next.is_null() && fin.ring.prev.is_null())
+    }
+
+    /// Whether the body has any free edge (an open sheet boundary).
+    pub fn has_free_edges(&self) -> bool {
+        self.edges.keys().any(|e| self.is_free_edge(e))
     }
 
     fn edge_use(&self, edge: EdgeHandle) -> EdgeUse {
-        let Some(e) = self.edges.get(edge) else {
-            return EdgeUse::Free;
-        };
-        // A recorded boundary edge is free whatever pairs its
-        // half-edges: on a periodic face, an open edge whose twin the
-        // face also holds would otherwise read as the seam.
-        if self.boundary_edges.contains(&edge) {
-            return EdgeUse::Free;
+        if self.is_wire_edge(edge) {
+            return EdgeUse::Wire;
         }
-        let face_of = |he| {
-            self.half_edges
-                .get(he)
-                .and_then(|h| self.loops.get(h.loop_))
-                .map(|l| l.face)
-        };
-        let Some(he) = self.half_edges.get(e.half_edge) else {
-            return EdgeUse::Free;
-        };
-        match (face_of(e.half_edge), he.mate().and_then(face_of)) {
-            (None, None) => EdgeUse::Wire,
-            (Some(a), Some(b)) if a != b => EdgeUse::Bounded,
-            (Some(a), Some(_)) if self.face_closed_across_seam(a) => EdgeUse::Bounded,
-            _ => EdgeUse::Free,
+        let fins = self.radial_fins(edge);
+        match fins.as_slice() {
+            // No face uses and not a wire edge: a broken edge (a missing
+            // half-edge reads as free so a broken body never reads as
+            // closed).
+            [] | [_] => EdgeUse::Free,
+            // Two uses of one face that does not close across the edge:
+            // the legacy two-half-edge sheet boundary (PK-1101 S2d
+            // converts its producers to a ring of one).
+            [a, b] => {
+                let face_of = |he| {
+                    self.half_edges
+                        .get(he)
+                        .and_then(|h| self.loops.get(h.loop_))
+                        .map(|l| l.face)
+                };
+                match (face_of(*a), face_of(*b)) {
+                    (Some(fa), Some(fb)) if fa == fb && !self.face_closed_across_seam(fa) => {
+                        EdgeUse::Free
+                    }
+                    _ => EdgeUse::Bounded,
+                }
+            }
+            _ => EdgeUse::Bounded,
         }
     }
 

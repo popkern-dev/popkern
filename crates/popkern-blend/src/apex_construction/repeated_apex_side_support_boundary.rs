@@ -254,7 +254,7 @@ fn bridge_interval_half_edge_is_boundary_ready(brep: &BRep, half_edge: HalfEdgeH
     let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
         return false;
     };
-    brep.boundary_edges.contains(&half_edge_data.edge)
+    brep.is_free_edge(half_edge_data.edge)
         && !half_edge_data
             .mate()
             .is_some_and(|m| brep.half_edges.contains_key(m))

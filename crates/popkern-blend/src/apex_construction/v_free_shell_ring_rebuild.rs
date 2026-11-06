@@ -282,7 +282,6 @@ fn execute_face_ring(
                     pcurve: None,
                 });
                 brep.half_edges[*dead].set_mate(new_side);
-                brep.boundary_edges.remove(&dead_edge);
                 if dead_end != open_end {
                     seam_vertices.push(dead_end);
                     seam_vertices.push(open_end);

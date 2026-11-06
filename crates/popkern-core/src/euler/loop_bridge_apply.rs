@@ -247,7 +247,7 @@ impl BRep {
         let edge = data.edge;
         let next = data.next;
         let existing_twin = data.mate();
-        if !self.boundary_edges.contains(&edge)
+        if !self.is_free_edge(edge)
             || existing_twin.is_some_and(|t| self.half_edges.contains_key(t))
         {
             return Err(CoreError::PreconditionFailed(format!(
@@ -265,7 +265,6 @@ impl BRep {
             pcurve: None,
         });
         self.half_edges[half_edge].set_mate(twin);
-        self.boundary_edges.remove(&edge);
         Ok(twin)
     }
 

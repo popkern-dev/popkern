@@ -68,7 +68,7 @@ fn materialize_support_boundary_residual_cycles_candidate(
                         ),
                     }
                 })?;
-                if !brep.boundary_edges.contains(&half_edge_data.edge)
+                if !brep.is_free_edge(half_edge_data.edge)
                     || half_edge_data
                         .mate()
                         .is_some_and(|m| brep.half_edges.contains_key(m))
@@ -97,7 +97,6 @@ fn materialize_support_boundary_residual_cycles_candidate(
                     pcurve: None,
                 });
                 brep.half_edges[half_edge].set_mate(residual);
-                brep.boundary_edges.remove(&half_edge_data.edge);
                 residual_sides.push(residual);
             }
             if residual_sides.is_empty() {

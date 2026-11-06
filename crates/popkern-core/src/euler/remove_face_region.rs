@@ -109,7 +109,6 @@ impl BRep {
                 }
                 candidate.edges[edge_h].half_edge = twin_h;
                 candidate.half_edges[twin_h].clear_mate();
-                candidate.boundary_edges.insert(edge_h);
                 result.rim_edges.push(edge_h);
             } else {
                 dying_edges.insert(edge_h);
@@ -123,7 +122,6 @@ impl BRep {
         }
         for &eh in &dying_edges {
             candidate.edges.remove(eh);
-            candidate.boundary_edges.remove(&eh);
         }
         result.removed_edges = dying_edges.len();
         for lh in doomed_loops {

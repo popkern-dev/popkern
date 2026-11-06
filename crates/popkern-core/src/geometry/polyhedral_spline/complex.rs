@@ -217,7 +217,7 @@ fn build_component(
 fn boundary_segments(complex: &PolyhedralSplineSurfaceComplex) -> Vec<BoundarySegment> {
     let mut segments = Vec::new();
     for (component_index, component) in complex.components.iter().enumerate() {
-        for &edge in &component.brep.boundary_edges {
+        for edge in component.brep.free_edges() {
             if let Some((start, end)) = edge_segment(&component.brep, edge) {
                 segments.push(BoundarySegment {
                     component: component_index,

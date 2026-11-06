@@ -174,7 +174,7 @@ fn boundary_side_separator_bridge_commits_live_shared_start_shape() {
 
     assert_eq!(result.bridge_faces.len(), 3);
     assert_eq!(result.bridge_loops.len(), 3);
-    assert!(!brep.boundary_edges.contains(&result.separator_edge));
+    assert!(!brep.is_free_edge(result.separator_edge));
     assert_eq!(
         topology_delta(&brep, before),
         (
@@ -230,8 +230,11 @@ fn boundary_side_separator_rejects_non_boundary_overlap() {
     let loop_ = brep.faces[face].outer_loop;
     let first = brep.loops[loop_].half_edge;
     let after_first = brep.half_edges[first].next;
-    let edge = brep.half_edges[first].edge;
-    brep.boundary_edges.remove(&edge);
+    // The edge under `first` is not a boundary: give its free fin a
+    // mate (a copy of its loop use), as an interior edge has.
+    let copy = brep.half_edges[first].clone();
+    let mate = brep.half_edges.insert(copy);
+    brep.set_mates(first, mate);
 
     let err = brep
         .preflight_boundary_side_separator_bridge(BoundarySideSeparatorBridgeRequest {
@@ -366,7 +369,6 @@ fn add_boundary_polygon(
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edges.push(half_edge);
     }
     for index in 0..half_edges.len() {

@@ -74,7 +74,7 @@ pub(super) fn served_shape_defect(brep: &BRep) -> Option<ServedShapeDefect> {
                 && face.surface.is_none()
         })
         .count();
-    let dead_sides = brep.boundary_edges.len();
+    let dead_sides = brep.free_edges().len();
     if surfaceless_residuals == 0 && dead_sides == 0 {
         return None;
     }
@@ -181,11 +181,11 @@ pub(super) fn apply_serving_shape_gate(
                      (seeds_only={seeds_only}, defect {:?}); next rung",
                     served_shape_defect(&completed)
                 );
-                for edge in &completed.boundary_edges {
+                for edge in completed.free_edges() {
                     let owner = completed
                         .half_edges
                         .iter()
-                        .find(|(_, he)| he.edge == *edge)
+                        .find(|(_, he)| he.edge == edge)
                         .map(|(h, he)| {
                             let face = completed.loops.get(he.loop_).map(|l| l.face);
                             let a = completed

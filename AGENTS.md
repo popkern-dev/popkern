@@ -244,12 +244,14 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `partition/lamina_part.rs`), falling back to the planar split or
   imprint-and-trim path with a `PartitionFallback sheet` shadow line;
   `boolean()` still declines sheets. A sheet's free edge is canonical:
-  a null twin with its edge in `boundary_edges`, the survivor the
-  edge's canonical half-edge with the curve run its way (a recorded
-  boundary edge reads as free even on a periodic face, where a twin on
-  the same face would read as the seam). The constructors' two-face
-  sheets are converted at entry. OCC oracle:
-  `tools/occ-oracle/occ_sheet.py`.
+  a lone fin (its radial ring links null, `BRep::is_free_edge`), the
+  survivor the edge's canonical half-edge with the curve run its way.
+  The lamina view the complex reads mirrors each free edge with a
+  twin on the same face, which on a periodic face reads as a seam: the
+  view's open edges and lamina operands are passed explicitly
+  (`pipeline_view`, `ComplexInput::laminae`), never re-read off it.
+  The constructors' two-face sheets are converted at entry. OCC
+  oracle: `tools/occ-oracle/occ_sheet.py`.
 - **Wire booleans and contacts** — `boolean_with_wire` cuts a wire
   body where its curves cross the solid's faces and keeps pieces by
   midpoint (∩ keeps inside and on-face pieces, − the outside, solid −

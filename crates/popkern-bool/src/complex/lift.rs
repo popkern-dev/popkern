@@ -271,6 +271,7 @@ fn same_outward(
 /// Lift `fragments` of `graph` into a complex. `overlaps` are the
 /// coincident face pairs (operand A face, operand B face); only
 /// fragments of such pairs are candidates for same-domain merging.
+/// `laminae[k]` says operand `k` is a sheet entering as a lamina.
 pub(crate) fn lift_fragments(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
@@ -280,19 +281,20 @@ pub(crate) fn lift_fragments(
         popkern_core::geometry::intersection::surface_subdivision::Aabb,
     )]],
     overlaps: &[crate::merge::graph::FacePair],
+    laminae: &[bool],
     tol: &popkern_core::tolerance::Tolerance,
 ) -> Result<Lift, LiftDecline> {
     let tolerance = tol.linear();
     let reps = unify_spans(graph, fragments, tolerance);
     // A sheet has no material: its faces' sense is a convention the
     // complex never reads as material (lamina faces join no volume).
-    let is_sheet = |brep: &BRep| brep.body_kind() == popkern_core::topology::BodyKind::Sheet;
+    let is_sheet = |k: usize| laminae.get(k).copied().unwrap_or(false);
     let senses = operands
         .iter()
         .zip(boxes)
         .enumerate()
         .map(|(k, (brep, boxes))| {
-            if is_sheet(brep) {
+            if is_sheet(k) {
                 Ok(brep.faces.keys().map(|f| (f, true)).collect())
             } else {
                 material_senses(brep, k, boxes, tol)
@@ -318,8 +320,8 @@ pub(crate) fn lift_fragments(
     groups.retain(|g| !g.is_empty());
 
     let mut complex = CellComplex::new(operands.len());
-    for (k, brep) in operands.iter().enumerate() {
-        if is_sheet(brep) {
+    for k in 0..operands.len() {
+        if is_sheet(k) {
             complex.lamina_operands.insert(k);
         }
     }

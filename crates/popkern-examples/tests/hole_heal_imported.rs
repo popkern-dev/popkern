@@ -70,7 +70,7 @@ fn imported_damaged_model_heals_watertight_and_occ_clean() {
         .expect("one imported body")
         .clone();
     assert_eq!(
-        body.boundary_edges.len(),
+        body.free_edges().len(),
         4,
         "the hole must arrive through the import"
     );
@@ -78,7 +78,7 @@ fn imported_damaged_model_heals_watertight_and_occ_clean() {
     let report = heal_holes(&mut body, tolerance.linear());
     assert_eq!(report.holes_detected, 1);
     assert_eq!(report.holes_committed, 1);
-    assert!(body.boundary_edges.is_empty());
+    assert!(!body.has_free_edges());
     body.validate_euler_poincare()
         .expect("strict genus-0 Euler");
 

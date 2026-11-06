@@ -37,8 +37,8 @@ fn same_loop_face_bridge_commits_disjoint_boundary_intervals() {
     );
     assert!(brep.faces.contains_key(result.bridge_face));
     assert!(brep.loops.contains_key(result.bridge_loop));
-    assert!(brep.boundary_edges.contains(&result.first_connector_edge));
-    assert!(brep.boundary_edges.contains(&result.second_connector_edge));
+    assert!(brep.is_free_edge(result.first_connector_edge));
+    assert!(brep.is_free_edge(result.second_connector_edge));
     brep.validate_half_edge_pairing()
         .expect("pairing validates");
     brep.validate_half_edge_cycles().expect("cycles validate");
@@ -157,7 +157,6 @@ fn add_boundary_polygon(
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edges.push(half_edge);
     }
     for index in 0..half_edges.len() {

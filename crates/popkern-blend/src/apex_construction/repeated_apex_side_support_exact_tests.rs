@@ -188,7 +188,6 @@ fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle)
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edge
     });
     for i in 0..4 {

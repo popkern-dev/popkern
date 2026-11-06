@@ -60,10 +60,7 @@ fn overlap_kind(
     second: &BridgePathEdges,
     overlap_edges: &[EdgeHandle],
 ) -> ResourceConflictKind {
-    if overlap_edges
-        .iter()
-        .any(|edge| brep.boundary_edges.contains(edge))
-    {
+    if overlap_edges.iter().any(|edge| brep.is_free_edge(*edge)) {
         return ResourceConflictKind::AlreadyBoundaryOverlap;
     }
     if overlap_edges
@@ -206,8 +203,11 @@ mod tests {
         let loop_ = brep.loops.keys().next().expect("cube has a loop");
         let first = brep.loops[loop_].half_edge;
         let second = brep.half_edges[first].next;
-        let edge = brep.half_edges[first].edge;
-        brep.boundary_edges.insert(edge);
+        // The edge under `first` is already a boundary: its fins unpaired.
+        if let Some(mate) = brep.mate(first) {
+            brep.half_edges[mate].clear_mate();
+        }
+        brep.half_edges[first].clear_mate();
 
         let report = brep
             .bridge_diagnostic_report(BridgeDiagnosticRequest {

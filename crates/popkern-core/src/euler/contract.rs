@@ -39,7 +39,7 @@ impl EulerTopologyCounts {
             faces: brep.faces.len(),
             shells: brep.shells.len(),
             solids: brep.solids.len(),
-            boundary_edges: brep.boundary_edges.len(),
+            boundary_edges: brep.free_edges().len(),
         }
     }
 

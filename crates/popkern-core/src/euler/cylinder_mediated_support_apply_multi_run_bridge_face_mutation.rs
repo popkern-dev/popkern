@@ -150,7 +150,7 @@ fn create_multi_run_bridge_boundary_twins(
             separator_edges += 1;
             continue;
         }
-        if !brep.boundary_edges.contains(&edge) {
+        if !brep.is_free_edge(edge) {
             return Err(CoreError::PreconditionFailed(format!(
                 "multi-run bridge path half-edge {half_edge:?} is not an unowned boundary side"
             )));
@@ -165,7 +165,6 @@ fn create_multi_run_bridge_boundary_twins(
             pcurve: None,
         });
         brep.half_edges[half_edge].set_mate(twin);
-        brep.boundary_edges.remove(&edge);
         twins.push(twin);
     }
     twins.reverse();
@@ -217,7 +216,6 @@ fn insert_multi_run_bridge_separator(
         pcurve: source_pcurve,
     });
     brep.edges[edge].half_edge = half_edge;
-    brep.boundary_edges.insert(edge);
     Ok(half_edge)
 }
 
@@ -321,7 +319,6 @@ fn insert_multi_run_bridge_connector(
         pcurve: None,
     });
     brep.edges[edge].half_edge = half_edge;
-    brep.boundary_edges.insert(edge);
     half_edge
 }
 

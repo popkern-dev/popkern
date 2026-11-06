@@ -49,7 +49,7 @@ fn destination(brep: &BRep, h: HalfEdgeHandle) -> VertexHandle {
 /// around the opening; replacement = the other three boundary
 /// sides, chained by vertex identity per the operator contract.
 fn opening_rewrite_plan(brep: &BRep) -> SupportLoopIntervalRewritePlan {
-    let boundary: Vec<_> = brep.boundary_edges.iter().copied().collect();
+    let boundary: Vec<_> = brep.free_edges().into_iter().collect();
     assert_eq!(boundary.len(), 4, "retired side leaves 4 boundary edges");
     // Choose the removed side: any boundary side; its loop hosts the
     // rewrite. The other three sides fill the gap.
@@ -107,10 +107,7 @@ fn rewrite_closes_the_opening_with_dv_df_zero() {
     assert_eq!(brep.faces.len(), f0, "dF = 0");
     assert_eq!(brep.loops.len(), l0, "dL = 0");
     assert_eq!(brep.edges.len(), e0 - 1, "dE = -1 (retired edge)");
-    assert!(
-        brep.boundary_edges.is_empty(),
-        "every edge is two-sided again"
-    );
+    assert!(!brep.has_free_edges(), "every edge is two-sided again");
     // The host loop closes through the created chain with winding
     // preserved (walk sees each created side exactly once).
     let start = brep.loops[host_loop].half_edge;

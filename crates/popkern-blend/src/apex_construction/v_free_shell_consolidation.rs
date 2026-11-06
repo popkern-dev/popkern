@@ -126,7 +126,7 @@ fn consolidate_vestigial_support_shell_impl(
 ) -> VestigialShellConsolidationReport {
     let mut report = VestigialShellConsolidationReport::default();
     let flaps = detect_flaps(brep);
-    let has_dead_sides = !brep.boundary_edges.is_empty();
+    let has_dead_sides = !!brep.has_free_edges();
     let has_glued_surfaceless_residual = brep
         .faces
         .iter()
@@ -349,14 +349,12 @@ pub(crate) fn remove_face(brep: &mut BRep, face: FaceHandle) {
             .mate()
             .filter(|m| brep.half_edges.contains_key(*m))
         {
-            brep.boundary_edges.insert(side_data.edge);
             if let Some(edge_data) = brep.edges.get_mut(side_data.edge)
                 && edge_data.half_edge == side
             {
                 edge_data.half_edge = survivor;
             }
         } else if brep.edges.remove(side_data.edge).is_some() {
-            brep.boundary_edges.remove(&side_data.edge);
         }
     }
     for loop_handle in loops {

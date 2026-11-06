@@ -57,7 +57,7 @@ impl BRep {
             .ok_or_else(|| CoreError::InvalidHandle("same-loop half-edge is invalid".into()))?;
         let twin = data.mate();
         let edge = data.edge;
-        if self.boundary_edges.contains(&edge) {
+        if self.is_free_edge(edge) {
             return Err(CoreError::PreconditionFailed(
                 "same-loop edge is already boundary".into(),
             ));
@@ -102,8 +102,6 @@ impl BRep {
         self.half_edges[half_edge].clear_mate();
         self.half_edges[twin].clear_mate();
         self.half_edges[twin].edge = second_edge;
-        self.boundary_edges.insert(edge);
-        self.boundary_edges.insert(second_edge);
         self.loops[loop_].half_edge = half_edge;
         Ok(SameLoopBoundaryExposureResult {
             first_boundary_edge: edge,
@@ -132,7 +130,7 @@ impl BRep {
             )));
         }
         for edge in [result.first_boundary_edge, result.second_boundary_edge] {
-            if !self.boundary_edges.contains(&edge) {
+            if !self.is_free_edge(edge) {
                 return Err(CoreError::PreconditionFailed(
                     "same-loop exposed edge is not boundary".into(),
                 ));
@@ -294,8 +292,8 @@ mod tests {
         assert_eq!(result.second_half_edge, spur.half_edge_twin);
         assert_eq!(brep.half_edges[spur.half_edge].loop_, loop_);
         assert_eq!(brep.half_edges[spur.half_edge_twin].loop_, loop_);
-        assert!(brep.boundary_edges.contains(&result.first_boundary_edge));
-        assert!(brep.boundary_edges.contains(&result.second_boundary_edge));
+        assert!(brep.is_free_edge(result.first_boundary_edge));
+        assert!(brep.is_free_edge(result.second_boundary_edge));
         assert_eq!(
             brep.half_edges[spur.half_edge].mate().unwrap_or_default(),
             Default::default()
@@ -316,13 +314,13 @@ mod tests {
         let mut brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
         let edge = brep.edges.keys().next().expect("cube has edges");
         let half_edge = brep.edges[edge].half_edge;
-        let before = (brep.edges.len(), brep.boundary_edges.len());
+        let before = (brep.edges.len(), brep.free_edges().len());
 
         let err = brep
             .expose_same_loop_edge_as_boundary(half_edge)
             .expect_err("cross-face edge is not a same-loop operand");
 
         assert!(err.to_string().contains("one loop"));
-        assert_eq!(before, (brep.edges.len(), brep.boundary_edges.len()));
+        assert_eq!(before, (brep.edges.len(), brep.free_edges().len()));
     }
 }

@@ -206,8 +206,11 @@ fn candidates_report_boundary_side_separator_family() {
     let loop_ = brep.faces[face].outer_loop;
     let first = brep.loops[loop_].half_edge;
     let first_after = brep.half_edges[first].next;
-    let edge = brep.half_edges[first].edge;
-    brep.boundary_edges.insert(edge);
+    // The edge under `first` is already a boundary: its fins unpaired.
+    if let Some(mate) = brep.mate(first) {
+        brep.half_edges[mate].clear_mate();
+    }
+    brep.half_edges[first].clear_mate();
 
     let report = brep
         .bridge_diagnostic_report(BridgeDiagnosticRequest {
@@ -450,7 +453,6 @@ fn add_boundary_polygon(
         });
         brep.vertices[vertex].outgoing = half_edge;
         brep.edges[edge].half_edge = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edges.push(half_edge);
     }
     for index in 0..half_edges.len() {

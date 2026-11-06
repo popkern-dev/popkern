@@ -13,12 +13,7 @@ pub(super) fn loop_shell_knowledge(brep: &BRep) -> BrepRepairKnowledgeGraph {
         .faces
         .keys()
         .map(BrepRepairScopeSeed::Face)
-        .chain(
-            brep.boundary_edges
-                .iter()
-                .copied()
-                .map(BrepRepairScopeSeed::Edge),
-        )
+        .chain(brep.free_edges().into_iter().map(BrepRepairScopeSeed::Edge))
         .collect::<Vec<_>>();
     seeds.sort();
     seeds.dedup();

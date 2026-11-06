@@ -207,16 +207,13 @@ fn wire_part(
     // Output vertices standing for the wire's own vertices.
     let mut at_vertex: std::collections::HashMap<VertexHandle, VertexHandle> =
         std::collections::HashMap::new();
-    for (_, edge) in &wire.edges {
+    for (eh, edge) in &wire.edges {
         let Some(curve) = edge.curve.as_ref() else {
             return Err(declined("a wire edge has no curve".to_string()));
         };
-        let he = &wire.half_edges[edge.half_edge];
-        let start_vertex = he.origin;
-        let end_vertex = he
-            .mate()
-            .and_then(|m| wire.half_edges.get(m))
-            .map_or(start_vertex, |t| t.origin);
+        let Some((start_vertex, end_vertex)) = wire.edge_vertices(eh) else {
+            return Err(declined(format!("wire edge {eh:?} has no vertices")));
+        };
         let (lo, hi) = (
             curve.t_start.min(curve.t_end),
             curve.t_start.max(curve.t_end),

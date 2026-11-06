@@ -36,7 +36,7 @@ pub(super) fn bridge_half_edge_is_boundary_ready(
     let Some(data) = candidate.half_edges.get(half_edge) else {
         return false;
     };
-    candidate.boundary_edges.contains(&data.edge)
+    candidate.is_free_edge(data.edge)
         && !data
             .mate()
             .is_some_and(|m| candidate.half_edges.contains_key(m))

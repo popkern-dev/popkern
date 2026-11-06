@@ -426,7 +426,7 @@ impl BRep {
                 "kev left removed topology live".into(),
             ));
         }
-        if self.boundary_edges.contains(&result.edge) {
+        if self.is_free_edge(result.edge) {
             return Err(CoreError::PreconditionFailed(
                 "kev left removed edge in boundary set".into(),
             ));

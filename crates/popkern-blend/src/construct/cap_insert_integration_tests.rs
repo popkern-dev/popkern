@@ -22,7 +22,7 @@ fn boundary_adjacent_interior_edges(ob: &BRep) -> Vec<popkern_core::topology::Ed
         .edges
         .iter()
         .filter(|(eh, _)| {
-            if ob.boundary_edges.contains(eh) {
+            if ob.is_free_edge(*eh) {
                 return false;
             }
             let he = ob.edges[*eh].half_edge;
@@ -35,7 +35,7 @@ fn boundary_adjacent_interior_edges(ob: &BRep) -> Vec<popkern_core::topology::Ed
             let touches_boundary = |v: popkern_core::topology::VertexHandle| -> bool {
                 ob.half_edges
                     .values()
-                    .any(|h| h.origin == v && ob.boundary_edges.contains(&h.edge))
+                    .any(|h| h.origin == v && ob.is_free_edge(h.edge))
             };
             touches_boundary(v_start) || touches_boundary(v_end)
         })

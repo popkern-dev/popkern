@@ -82,9 +82,6 @@ impl BRep {
 
         self.edges[edge_b].half_edge = he_vb;
         self.vertices[vertex_v].outgoing = he_vb;
-
-        self.boundary_edges.insert(edge_b);
-
         if let Some(curve) = curve_on_edge {
             use crate::geometry::curve::{CurveEval, CurveGeometry};
             let p_start = curve.geometry.point_at(curve.t_start);
