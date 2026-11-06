@@ -218,8 +218,10 @@ impl BRepBuilder {
 impl BRepBuilder {
     /// Consume the builder, validate the topology, and return the BRep.
     ///
-    /// Open shells are settled as sheets ([`BRep::settle_open_shells`]),
-    /// then the full validation suite runs. Returns
+    /// Open shells are settled as sheets ([`BRep::settle_open_shells`])
+    /// and wire edges into shells of the outside
+    /// ([`BRep::settle_wire_edges`]), then the full validation suite
+    /// runs. Returns
     /// `CoreError::Validation` if any check fails.
     pub fn build(self) -> Result<BRep, CoreError> {
         let brep = self.build_unchecked();
@@ -231,9 +233,10 @@ impl BRepBuilder {
     ///
     /// Use when you want to run validation yourself (e.g., with `validate_all()`
     /// to collect all errors instead of failing on the first).
-    /// Open shells are still settled as sheets.
+    /// Open shells and wire edges are still settled.
     pub fn build_unchecked(mut self) -> BRep {
         self.brep.settle_open_shells();
+        self.brep.settle_wire_edges();
         self.brep
     }
 

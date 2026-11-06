@@ -113,11 +113,8 @@ impl BRep {
             kind: RegionKind::Solid,
             shell: ShellHandle::null(),
         });
-        let back = self.shells.insert(Shell { face, region });
-        let front = self.shells.insert(Shell {
-            face,
-            region: self.outside,
-        });
+        let back = self.shells.insert(Shell::new(face, region));
+        let front = self.shells.insert(Shell::new(face, self.outside));
         self.regions[region].shell = back;
         (region, FaceSides { back, front })
     }
@@ -128,25 +125,19 @@ impl BRep {
     /// by the peripheral shell of a new void region. A void region's
     /// shell holds a sheet, both sides of its faces.
     pub fn add_region_shell(&mut self, region: RegionHandle, face: FaceHandle) -> FaceSides {
-        let back = self.shells.insert(Shell { face, region });
+        let back = self.shells.insert(Shell::new(face, region));
         if self.region_kind(region) != Some(RegionKind::Solid) {
             return FaceSides::both(back);
         }
         let front = if self.region_outer_shell(region).is_none() {
             self.regions[region].shell = back;
-            self.shells.insert(Shell {
-                face,
-                region: self.outside,
-            })
+            self.shells.insert(Shell::new(face, self.outside))
         } else {
             let cavity = self.regions.insert(Region {
                 kind: RegionKind::Void,
                 shell: ShellHandle::null(),
             });
-            let front = self.shells.insert(Shell {
-                face,
-                region: cavity,
-            });
+            let front = self.shells.insert(Shell::new(face, cavity));
             self.regions[cavity].shell = front;
             front
         };

@@ -90,6 +90,12 @@ impl BRep {
             }
             return false;
         }
+        // A shell still holding wire edges or an acorn outlives its last
+        // face side.
+        if !self.shells[shell].wire_edges.is_empty() || self.shells[shell].acorn.is_some() {
+            self.shells[shell].face = FaceHandle::default();
+            return false;
+        }
         self.shells.remove(shell);
         if region != self.outside && self.regions.get(region).is_some_and(|r| r.shell == shell) {
             match self.shells.iter().find(|(_, s)| s.region == region) {

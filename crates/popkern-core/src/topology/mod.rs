@@ -60,6 +60,8 @@ mod brep_radial;
 mod brep_regions;
 pub use brep_regions::FaceSides;
 mod brep_region_derive;
+mod brep_wires;
+pub use brep_wires::VertexUse;
 mod brep_region_edits;
 mod brep_stored;
 pub use brep_append::AppendMap;
