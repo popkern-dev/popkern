@@ -201,7 +201,21 @@ pub(crate) fn quadrature_volume(
     mesh: &TriMesh,
     gate: f64,
 ) -> f64 {
-    let mut volume = 0.0;
+    quadrature_face_volumes(brep, mesh, gate)
+        .into_iter()
+        .map(|(_, v)| v)
+        .sum()
+}
+
+/// Each face's divergence term `⅓ ∬ r · n dA`, `n` its folded normal
+/// (the mesh's outward sense): the volume behind the face less the
+/// volume in front, summed over a region's boundary.
+pub(crate) fn quadrature_face_volumes(
+    brep: &popkern_core::topology::BRep,
+    mesh: &TriMesh,
+    gate: f64,
+) -> Vec<(popkern_core::topology::FaceHandle, f64)> {
+    let mut out = Vec::with_capacity(mesh.face_meshes.len());
     for fm in &mesh.face_meshes {
         let surface = brep
             .faces
@@ -221,16 +235,20 @@ pub(crate) fn quadrature_volume(
                 })
                 .sum();
             let exact = crate::planar_area::planar_face_divergence(brep, fm.face);
-            volume += if (exact - facets).abs() <= (exact + facets).abs() {
+            let term = if (exact - facets).abs() <= (exact + facets).abs() {
                 exact
             } else {
                 -exact
             };
+            out.push((fm.face, term));
             continue;
         }
-        volume += face_quadrature(brep, fm, surface, gate, Integrand::Volume);
+        out.push((
+            fm.face,
+            face_quadrature(brep, fm, surface, gate, Integrand::Volume),
+        ));
     }
-    volume
+    out
 }
 
 /// `kind` over one face's mesh triangles, each on the exact `surface`

@@ -31,6 +31,7 @@ pub(super) fn open_shell_incidence_policy() -> ShellIncidencePolicy {
 pub(super) fn closed_shell_incidence_policy(
     face_data: &FaceData,
     allow_pieces: bool,
+    general: bool,
     log: &mut DiagnosticLog,
 ) -> Option<ShellIncidencePolicy> {
     let mut use_counts: BTreeMap<EntityId, usize> = BTreeMap::new();
@@ -46,6 +47,25 @@ pub(super) fn closed_shell_incidence_policy(
     let pieces = match closed && allow_pieces {
         true => match touching_pieces(face_data, &use_counts) {
             Ok(pieces) => pieces,
+            Err(unpaired) if general => {
+                // No manifold split fits (an edge one piece uses more
+                // than twice, an internal face's odd uses): import face
+                // by face, glued into one general body afterwards.
+                log.warn(
+                    Phase::MapTopology,
+                    Some(unpaired.edge),
+                    format!(
+                        "STEP CLOSED_SHELL has no split into closed pieces ({} uses of this edge in \
+                         one piece): imported face by face to glue into a general body",
+                        unpaired.uses_in_piece
+                    ),
+                );
+                return Some(ShellIncidencePolicy {
+                    treat_as_open: true,
+                    downgraded_closed_shell: false,
+                    pieces: Some(ShellPieces::per_face(face_data)),
+                });
+            }
             Err(unpaired) => {
                 log.error(
                     Phase::MapTopology,

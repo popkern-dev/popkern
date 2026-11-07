@@ -1,5 +1,5 @@
-//! Volume, centroid and inertia refuse a body that bounds no single
-//! well-defined volume by its kind (PK-1101 S5); area measures any.
+//! Centroid and inertia refuse a general body by its kind (PK-1101 S5);
+//! volume measures it as the sum of its solid regions (S8), area any.
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::transform::Transform3;
@@ -27,8 +27,10 @@ fn general_body() -> BRep {
 #[test]
 fn body_measures_refuse_a_general_body() {
     let body = general_body();
+    // The sheet bounds no volume: the cube's region is the body's.
+    let volume = popkern_measure::body_volume(&body, &tol()).expect("volume");
+    assert!((volume - 1.0).abs() < 1e-9, "{volume}");
     for result in [
-        popkern_measure::body_volume(&body, &tol()).map(|_| ()),
         popkern_measure::body_centroid(&body, &tol()).map(|_| ()),
         popkern_measure::body_moment_of_inertia(&body, popkern_measure::Axis::Z, &tol())
             .map(|_| ()),

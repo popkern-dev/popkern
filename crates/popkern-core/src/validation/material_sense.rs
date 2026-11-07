@@ -103,7 +103,7 @@ impl BRep {
     /// open or degenerate set, unsampleable geometry).
     pub fn folded_wedge_volume(&self, faces: &[FaceHandle]) -> Option<f64> {
         let band = self.sense_parametric_band();
-        self.wedge_integral(faces, 6, band)
+        self.wedge_integral(&unsigned(faces), 6, band)
     }
 
     /// [`BRep::folded_wedge_volume`] sampled finely enough to judge a
@@ -113,7 +113,15 @@ impl BRep {
     /// a unit cube's at a 1e-2 tolerance (measured: a cube less a
     /// sphere read −1.08 where it encloses +0.2).
     pub fn enclosed_folded_volume(&self, faces: &[FaceHandle]) -> Option<f64> {
-        self.wedge_integral(faces, 12, 1.0e-12)
+        self.wedge_integral(&unsigned(faces), 12, 1.0e-12)
+    }
+
+    /// [`BRep::enclosed_folded_volume`] of face sides: each face counted
+    /// with its sign, +1 where the region lies behind it, −1 where it
+    /// lies in front (a closed set of sides bounding one region, read
+    /// whichever way each face points).
+    pub fn enclosed_signed_volume(&self, sides: &[(FaceHandle, f64)]) -> Option<f64> {
+        self.wedge_integral(sides, 12, 1.0e-12)
     }
 
     /// The trim classifier's parametric boundary band
@@ -129,7 +137,12 @@ impl BRep {
     /// The wedge integral over `faces` on a `grid` × `grid` sample grid
     /// per face, a sample counted when the trim classifier with
     /// parametric band `classify_band` reads it interior.
-    fn wedge_integral(&self, faces: &[FaceHandle], grid: usize, classify_band: f64) -> Option<f64> {
+    fn wedge_integral(
+        &self,
+        faces: &[(FaceHandle, f64)],
+        grid: usize,
+        classify_band: f64,
+    ) -> Option<f64> {
         let band = self.sense_parametric_band();
         // The wedge integral of a closed surface is the same about any
         // centre, but the coarse grid leaves a residual ∫n dA ≠ 0 that
@@ -142,7 +155,7 @@ impl BRep {
         let centre = {
             let mut sum = crate::geometry::Vec3::new(0.0, 0.0, 0.0);
             let mut count = 0usize;
-            for &face in faces {
+            for &(face, _) in faces {
                 for p in self.face_boundary_sample_points(face, 2) {
                     sum = sum + crate::geometry::Vec3::new(p.x, p.y, p.z);
                     count += 1;
@@ -156,7 +169,7 @@ impl BRep {
         let mut wedge = 0.0;
         let mut magnitude = 0.0;
         let mut sampled = 0usize;
-        for &face in faces {
+        for &(face, sign) in faces {
             let Some(sof) = self.faces.get(face).and_then(|f| f.surface.as_ref()) else {
                 continue;
             };
@@ -223,7 +236,8 @@ impl BRep {
                     // p · n dA with n dA = folded * du * dv (the volume
                     // is a third of its integral).
                     let (x, y, z) = (p.x - centre.x, p.y - centre.y, p.z - centre.z);
-                    let contribution = (x * folded.x + y * folded.y + z * folded.z) * du * dv;
+                    let contribution =
+                        sign * (x * folded.x + y * folded.y + z * folded.z) * du * dv;
                     wedge += contribution;
                     magnitude += contribution.abs();
                     sampled += 1;
@@ -248,6 +262,11 @@ impl BRep {
         }
         Some(volume)
     }
+}
+
+/// `faces`, each counted once forward.
+fn unsigned(faces: &[FaceHandle]) -> Vec<(FaceHandle, f64)> {
+    faces.iter().map(|&f| (f, 1.0)).collect()
 }
 
 #[cfg(test)]

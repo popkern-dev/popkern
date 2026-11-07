@@ -35,6 +35,16 @@ def cylinder(x, y, z, r, h, axis=(0, 0, 1)):
     return BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(x, y, z), gp_Dir(*axis)), r, h).Shape()
 
 
+def fuse_all(*shapes):
+    """One solid: the shapes fused (a solid that may touch itself)."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Fuse
+
+    out = shapes[0]
+    for s in shapes[1:]:
+        out = BRepAlgoAPI_Fuse(out, s).Shape()
+    return out
+
+
 FIXTURES = {
     # Two cubes sharing one edge (x = y = 1, along z).
     "nm_cubes_on_an_edge": lambda: [box(0, 0, 0, 1, 1, 1), box(1, 1, 0, 2, 2, 1)],
@@ -51,6 +61,19 @@ FIXTURES = {
         box(-3, -3, 0, 3, 3, 2),
         cylinder(-3, 0, 3, 1, 6, axis=(1, 0, 0)),
     ],
+    # One solid touching itself along an edge (PK-1070): two cubes on an
+    # edge joined by a slab over both, fused, so the cubes' contact edge
+    # has four face uses within one closed piece.
+    "nm_one_piece_touching_itself": lambda: [
+        fuse_all(
+            box(0, 0, 0, 1, 1, 1),
+            box(1, 1, 0, 2, 2, 1),
+            box(0, 0, 1, 2, 2, 1.5),
+        )
+    ],
+    # Two boxes sharing a face, the face listed once (PK-1071): an
+    # internal face whose edges have three face uses.
+    "nm_boxes_sharing_a_face": lambda: [box(0, 0, 0, 1, 1, 1), box(0, 0, 1, 1, 1, 2)],
 }
 
 
@@ -84,10 +107,15 @@ def one_shell_solid(pieces):
     builder = BRep_Builder()
     shell = TopoDS_Shell()
     builder.MakeShell(shell)
+    added = []
     for piece in pieces:
         faces = TopExp_Explorer(piece, TopAbs_FACE)
         while faces.More():
-            builder.Add(shell, TopoDS.Face_s(faces.Current()))
+            face = TopoDS.Face_s(faces.Current())
+            # A face two pieces share (an internal face) is listed once.
+            if not any(face.IsSame(f) for f in added):
+                builder.Add(shell, face)
+                added.append(face)
             faces.Next()
     shell.Closed(True)
     solid = TopoDS_Solid()
@@ -138,7 +166,9 @@ def main(out_dir):
     os.makedirs(out_dir, exist_ok=True)
     report = {}
     for name, make in FIXTURES.items():
-        pieces = fused_pieces(make())
+        solids = make()
+        # One solid (already fused) needs no general fuse.
+        pieces = fused_pieces(solids) if len(solids) > 1 else solids
         path = os.path.join(out_dir, f"{name}.step")
         write(one_shell_solid(pieces), path)
         report[name] = {

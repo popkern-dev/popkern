@@ -48,6 +48,32 @@ impl ShellPieces {
         }
     }
 
+    /// One piece per face: each face its own STEP vertices and edges,
+    /// for gluing into a general body when no manifold split fits.
+    pub fn per_face(face_data: &FaceData) -> Self {
+        let mut vertices = Vec::with_capacity(face_data.faces.len());
+        let mut edges = Vec::with_capacity(face_data.faces.len());
+        for face in &face_data.faces {
+            let used: BTreeSet<EntityId> = face
+                .bounds
+                .iter()
+                .flat_map(|b| b.oriented_edges.iter().map(|e| e.edge_curve_id))
+                .collect();
+            let ends: BTreeSet<EntityId> = used
+                .iter()
+                .filter_map(|e| face_data.edge_ends.get(e))
+                .flat_map(|&(a, b)| [a, b])
+                .collect();
+            edges.push(used);
+            vertices.push(ends);
+        }
+        Self {
+            of_face: (0..face_data.faces.len()).collect(),
+            vertices,
+            edges,
+        }
+    }
+
     /// The number of pieces.
     pub fn count(&self) -> usize {
         self.edges.len()

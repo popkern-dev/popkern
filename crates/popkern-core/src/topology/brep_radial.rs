@@ -147,11 +147,22 @@ impl BRep {
     /// The vertex a fin runs to: its mate's origin, or for a fin with
     /// no mate (a free edge, a non-manifold ring) its loop successor's
     /// origin. The mate is read first so the answer holds while loops
-    /// are being wired (construction links mates before `next`).
+    /// are being wired (construction links mates before `next`). A mate
+    /// leaving the same vertex runs the same way (two sheets of opposite
+    /// orientation sewn on one edge of a general body; or a closed
+    /// edge, whose ends are one vertex): the loop successor says where
+    /// the fin ends, when it is wired.
     pub fn fin_end(&self, he: HalfEdgeHandle) -> Option<crate::topology::VertexHandle> {
         let fin = self.half_edges.get(he)?;
         if let Some(mate) = self.mate(he).and_then(|m| self.half_edges.get(m)) {
-            return Some(mate.origin);
+            let successor = fin
+                .has_loop()
+                .then(|| self.half_edges.get(fin.next).map(|f| f.origin))
+                .flatten();
+            if mate.origin != fin.origin {
+                return Some(mate.origin);
+            }
+            return Some(successor.unwrap_or(mate.origin));
         }
         if !fin.has_loop() {
             return None;
