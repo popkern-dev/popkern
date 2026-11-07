@@ -1,4 +1,4 @@
-//! The tie ladder of radial ordering (plan §4.5 step 3).
+//! The tie ladder of radial ordering.
 //!
 //! Fins whose faces leave an edge in the same first-order direction
 //! (within the angular tolerance) are tied: tangent faces, a cylinder
@@ -17,24 +17,21 @@
 //!    second order) are followed a short way into their faces and the
 //!    probe points compared in the normal plane: the higher-order
 //!    separation.
-//! 3. **Otherwise** the fins are coincident faces the join did not
-//!    merge, and ordering declines with the keys it measured. It never
-//!    guesses.
+//! 3. **Otherwise** the fins are coincident faces nothing merged, and
+//!    ordering declines with the keys it measured. It never guesses.
 //!
 //! Each rung can be switched off (`TieLadder`) so that negative
 //! controls can show the rung is what orders a fixture.
 
-use popkern_core::geometry::Vec3;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::healing::curvature::fundamental_forms::{
+use crate::geometry::Vec3;
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::healing::curvature::fundamental_forms::{
     first_fundamental_form, second_fundamental_form,
 };
 
-use super::ids::FinId;
-
 /// The rungs of the tie ladder in use. Both are on in production.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TieLadder {
+pub struct TieLadder {
     /// Separate first-order ties by cross-section curvature.
     pub curvature: bool,
     /// Separate remaining ties by the offset probe.
@@ -52,9 +49,9 @@ impl Default for TieLadder {
 
 /// What the ladder measured for one tied fin.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct TieEvidence {
-    /// The fin.
-    pub fin: FinId,
+pub struct TieEvidence {
+    /// The fin, as an index into the source's fins.
+    pub fin: usize,
     /// Its first-order angle about the tangent from the station's
     /// reference fin, in [0, 2π) (or just below zero for a tie
     /// wrapping past 2π).
@@ -69,7 +66,7 @@ pub(crate) struct TieEvidence {
 /// Signed curvature of the face's cross-section by the plane normal to
 /// `t` at `(u, v)`, positive when it bends toward `t × d`. `None` where
 /// the chart is singular or `d` is not tangent to the face.
-pub(crate) fn cross_section_curvature(
+pub fn cross_section_curvature(
     surface: &SurfaceGeometry,
     (u, v): (f64, f64),
     d: Vec3,
@@ -99,7 +96,7 @@ pub(crate) fn cross_section_curvature(
 
 /// Split `members` (sorted by `key`) into runs whose consecutive keys
 /// differ by at most `tie`.
-pub(crate) fn runs<T>(members: Vec<T>, key: impl Fn(&T) -> f64, tie: f64) -> Vec<Vec<T>> {
+pub fn runs<T>(members: Vec<T>, key: impl Fn(&T) -> f64, tie: f64) -> Vec<Vec<T>> {
     let mut out: Vec<Vec<T>> = Vec::new();
     for m in members {
         match out.last_mut() {
@@ -111,5 +108,5 @@ pub(crate) fn runs<T>(members: Vec<T>, key: impl Fn(&T) -> f64, tie: f64) -> Vec
 }
 
 #[cfg(test)]
-#[path = "radial_ladder_tests.rs"]
+#[path = "ladder_tests.rs"]
 mod tests;

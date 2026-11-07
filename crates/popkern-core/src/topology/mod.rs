@@ -31,6 +31,7 @@ pub use shell::Shell;
 pub use vertex::Vertex;
 
 pub mod body_kind;
+pub(crate) mod body_kind_reads;
 pub mod brep;
 pub use body_kind::BodyKind;
 pub use brep::BRep;
@@ -56,6 +57,8 @@ pub use surface_boundary_audit::{
 mod brep_append;
 /// Non-manifold radial-cycle helpers for [`BRep`].
 mod brep_radial;
+pub mod radial_order;
+pub use radial_order::RadialOrderError;
 /// Regions, shells and face sides for [`BRep`].
 mod brep_regions;
 pub use brep_regions::FaceSides;

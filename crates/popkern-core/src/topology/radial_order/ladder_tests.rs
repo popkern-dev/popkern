@@ -1,5 +1,5 @@
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::{Point3, Vec3};
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::geometry::{Point3, Vec3};
 
 use super::{cross_section_curvature, runs};
 

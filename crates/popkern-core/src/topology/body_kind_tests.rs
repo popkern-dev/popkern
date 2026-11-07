@@ -46,14 +46,8 @@ fn cube_at(offset: f64) -> BRep {
         .expect("cube")
 }
 
-/// Two lumps: two disjoint cubes are a solid; two sharing a corner are
-/// general (two fans there); a cube beside a sheet is general.
-#[test]
-fn lumps_are_one_kind_or_general() {
-    let mut pair = cube_at(0.0);
-    pair.append_body(&cube_at(3.0));
-    assert_eq!(pair.body_kind(), BodyKind::Solid);
-
+/// Two cubes whose corners at (1, 1, 1) are one vertex (two fans).
+fn cubes_sharing_a_corner() -> BRep {
     let mut touching = cube_at(0.0);
     touching.append_body(&cube_at(1.0));
     let corner: Vec<_> = touching
@@ -73,7 +67,44 @@ fn lumps_are_one_kind_or_general() {
         }
     }
     touching.vertices.remove(gone);
-    assert_eq!(touching.body_kind(), BodyKind::General);
+    touching
+}
+
+/// The kind's one walk about each vertex reads the fans the derived
+/// vertex uses do, on bodies with one fan at every vertex and on one
+/// with two at a corner (the walk must not stop short of a fan).
+#[test]
+fn the_fan_walk_agrees_with_the_derived_vertex_uses() {
+    let tol = Tolerance::default();
+    let mut retired = cube_at(0.0);
+    let face = retired.faces.keys().next().expect("a face");
+    retired.retire_faces_to_boundary(&[face]).expect("retires");
+    let bodies = [
+        ("cube", cube_at(0.0)),
+        ("sphere", BRep::sphere(1.0, tol).expect("sphere")),
+        ("cylinder", BRep::cylinder(0.5, 2.0, tol).expect("cylinder")),
+        ("cone", BRep::cone(0.5, 2.0, tol).expect("cone")),
+        ("torus", BRep::torus(2.0, 0.5, tol).expect("torus")),
+        ("open box", BRep::open_box(tol).expect("open box")),
+        ("retired cube", retired),
+        ("cubes sharing a corner", cubes_sharing_a_corner()),
+    ];
+    for (name, body) in bodies {
+        let derived = body.vertex_uses_all().values().all(|u| u.len() <= 1);
+        assert_eq!(body.one_fan_per_vertex(), derived, "{name}");
+        assert_eq!(derived, name != "cubes sharing a corner", "{name}");
+    }
+}
+
+/// Two lumps: two disjoint cubes are a solid; two sharing a corner are
+/// general (two fans there); a cube beside a sheet is general.
+#[test]
+fn lumps_are_one_kind_or_general() {
+    let mut pair = cube_at(0.0);
+    pair.append_body(&cube_at(3.0));
+    assert_eq!(pair.body_kind(), BodyKind::Solid);
+
+    assert_eq!(cubes_sharing_a_corner().body_kind(), BodyKind::General);
 
     let mut beside = cube_at(0.0);
     let mut sheet = cube_at(3.0);

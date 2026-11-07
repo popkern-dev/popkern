@@ -35,7 +35,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::{BRep, EdgeHandle, RegionKind, ShellHandle};
+use super::{BRep, EdgeHandle, HalfEdgeHandle, RegionKind, ShellHandle};
 use crate::error::CoreError;
 
 /// The kind of body a `BRep` is (see the module docs).
@@ -117,16 +117,15 @@ impl BRep {
         }
         let mut rings_of_two = true;
         for edge in self.edges.keys() {
-            match self.edge_use(edge) {
+            let ring = self.ring_summary(edge);
+            match self.ring_use(&ring) {
                 EdgeUse::Wire => return BodyKind::General,
                 EdgeUse::Free => rings_of_two = false,
-                EdgeUse::Bounded if self.edge_fin_count(edge) > 2 => return BodyKind::General,
+                EdgeUse::Bounded if ring.count > 2 => return BodyKind::General,
                 EdgeUse::Bounded => {}
             }
         }
-        let has_acorn = self.shells.values().any(|s| s.acorn.is_some());
-        let one_fan_each = self.vertex_uses_all().values().all(|uses| uses.len() <= 1);
-        if has_acorn || !one_fan_each {
+        if self.shells.values().any(|s| s.acorn.is_some()) || !self.one_fan_per_vertex() {
             return BodyKind::General;
         }
         match (solid_void, void_void, rings_of_two) {
@@ -213,15 +212,18 @@ impl BRep {
     }
 
     fn edge_use(&self, edge: EdgeHandle) -> EdgeUse {
-        if self.is_wire_edge(edge) {
+        self.ring_use(&self.ring_summary(edge))
+    }
+
+    /// How `edge` sits in its body, from its ring summary.
+    fn ring_use(&self, ring: &super::body_kind_reads::RingSummary) -> EdgeUse {
+        if ring.present && ring.count == 0 {
             return EdgeUse::Wire;
         }
-        let fins = self.radial_fins(edge);
-        match fins.as_slice() {
-            // No face uses and not a wire edge: a broken edge (a missing
-            // half-edge reads as free so a broken body never reads as
-            // closed).
-            [] | [_] => EdgeUse::Free,
+        match ring.count {
+            // A missing half-edge reads as free so a broken body never
+            // reads as closed.
+            0 | 1 => EdgeUse::Free,
             // Two uses of one face in two of its loops, the face not
             // closing across the edge: the older mirrored sheet
             // boundary (a face's own loop and a mirror of it). Two uses
@@ -230,16 +232,19 @@ impl BRep {
             // a seam) or a spur the loop runs out and back along (a
             // slit a sheet leaves dangling in a solid's face, mvfs +
             // mev's edge), neither of which opens the shell.
-            [a, _] if self.is_mirrored_boundary_edge(edge) => {
-                let face = self
-                    .half_edges
-                    .get(*a)
-                    .and_then(|h| self.loops.get(h.loop_))
-                    .map(|l| l.face);
-                if face.is_some_and(|f| !self.face_closed_across_seam(f)) {
-                    EdgeUse::Free
-                } else {
-                    EdgeUse::Bounded
+            2 => {
+                // `is_mirrored_boundary_edge`, read off the two fins.
+                let place = |h: HalfEdgeHandle| {
+                    let loop_ = self.half_edges.get(h)?.loop_;
+                    Some((loop_, self.loops.get(loop_)?.face))
+                };
+                match (place(ring.fins[0]), place(ring.fins[1])) {
+                    (Some((la, fa)), Some((lb, fb)))
+                        if la != lb && fa == fb && !self.face_closed_across_seam(fa) =>
+                    {
+                        EdgeUse::Free
+                    }
+                    _ => EdgeUse::Bounded,
                 }
             }
             _ => EdgeUse::Bounded,

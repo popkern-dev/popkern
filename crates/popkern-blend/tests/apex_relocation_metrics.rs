@@ -108,6 +108,8 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
             ValidationError::InconsistentOrientation { .. }
             | ValidationError::RegionSense { .. }
             | ValidationError::RingMembership { .. }
+            | ValidationError::RingOrder { .. }
+            | ValidationError::RingOrderUndecided { .. }
             | ValidationError::WedgeShellMismatch { .. }
             | ValidationError::ShellDisconnected { .. }
             | ValidationError::ShellEuler { .. }

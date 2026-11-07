@@ -357,7 +357,9 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         ValidationError::RingMembership { edge, half_edge } => {
             vec![EntityRef::Edge(*edge), EntityRef::HalfEdge(*half_edge)]
         }
-        ValidationError::WedgeShellMismatch { edge, .. } => vec![EntityRef::Edge(*edge)],
+        ValidationError::WedgeShellMismatch { edge, .. }
+        | ValidationError::RingOrder { edge, .. }
+        | ValidationError::RingOrderUndecided { edge, .. } => vec![EntityRef::Edge(*edge)],
         ValidationError::ShellDisconnected { shell, .. }
         | ValidationError::ShellEuler { shell, .. } => vec![EntityRef::Shell(*shell)],
         ValidationError::BrokenTwin { half_edge } => {

@@ -81,7 +81,8 @@ impl BRep {
 
     /// The wedges about `edge` in ring order from its first fin, or
     /// `None` when the edge has no face use (a wire edge, an unknown
-    /// edge) or a fin's sense is undecidable ([`BRep::fin_is_forward`]).
+    /// edge) or a fin's sense is undecidable ([`BRep::fin_sense`]: by
+    /// topology, else on a closed edge by its pcurve).
     pub fn edge_wedges(&self, edge: EdgeHandle) -> Option<Vec<Wedge>> {
         let ring = self.radial_fins(edge);
         if ring.is_empty() {
@@ -89,7 +90,7 @@ impl BRep {
         }
         let senses: Vec<bool> = ring
             .iter()
-            .map(|&f| self.fin_is_forward(f))
+            .map(|&f| self.fin_sense(f))
             .collect::<Option<_>>()?;
         let after = |forward: bool| {
             if forward {

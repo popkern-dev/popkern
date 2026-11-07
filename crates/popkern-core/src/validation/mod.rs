@@ -18,6 +18,7 @@ mod face_uv_window;
 pub use face_trim_query::{FacePointContainment, FaceUvContainment};
 mod region;
 mod region_sense;
+mod ring_order;
 mod self_intersection;
 mod self_intersection_pair_gate;
 mod self_intersection_trim;
@@ -264,9 +265,10 @@ impl BRep {
             errors.push(e);
         }
         // The cell structure (PK-1103): rings hold every fin of their
-        // edge, wedges lie in one shell, shells are connected closed
+        // edge in radial order, wedges lie in one shell, shells are connected closed
         // surfaces, regions are well formed.
         errors.extend(self.validate_ring_membership_all());
+        errors.extend(self.validate_ring_order_all());
         errors.extend(self.validate_wedges_all());
         errors.extend(self.validate_shell_cells_all());
         errors.extend(self.validate_regions_all());

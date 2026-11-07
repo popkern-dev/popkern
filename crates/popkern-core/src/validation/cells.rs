@@ -6,9 +6,11 @@
 //! The wedge check reads ring order and fin sense only (see
 //! `topology::brep_wedges`): for a ring of two it is exact, for a
 //! longer ring it trusts the stored order, whose agreement with the
-//! geometry about the edge is checked apart. An edge with a fin of
-//! undecidable sense (a closed edge of more than two fins) is not
-//! judged, and neither are the shells reaching it.
+//! geometry about the edge is checked apart. A fin's sense on a closed
+//! edge of more than two fins is read off its pcurve
+//! (`BRep::fin_sense`); an edge where that too is undecidable (no
+//! curve, pcurve or surface) is not judged, and neither are the shells
+//! reaching it.
 
 use std::collections::{BTreeSet, HashMap};
 

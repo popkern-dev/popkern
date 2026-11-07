@@ -90,12 +90,7 @@ impl BRep {
     /// `vertex`'s uses (see the module docs). Scans the body; ask
     /// [`BRep::vertex_uses_all`] for every vertex at once.
     pub fn vertex_uses(&self, vertex: VertexHandle) -> Vec<VertexUse> {
-        let fins: Vec<HalfEdgeHandle> = self
-            .half_edges
-            .iter()
-            .filter(|(_, f)| f.origin == vertex && self.loops.contains_key(f.loop_))
-            .map(|(h, _)| h)
-            .collect();
+        let fins = self.face_uses_leaving(vertex);
         let mut uses: Vec<VertexUse> = self
             .fans_about(vertex, &fins)
             .into_iter()
@@ -127,10 +122,32 @@ impl BRep {
     }
 
     /// The fans the face uses `fins` leaving `vertex` fall into, each
-    /// named by its least fin. Two fins are in one fan when one follows
-    /// the other's loop predecessor across an edge ring, or they share
-    /// an edge's ring.
+    /// named by its least fin.
     fn fans_about(&self, vertex: VertexHandle, fins: &[HalfEdgeHandle]) -> Vec<HalfEdgeHandle> {
+        self.fan_groups(vertex, fins)
+            .into_iter()
+            .filter_map(|g| g.first().copied())
+            .collect()
+    }
+
+    /// The face uses (fins in a loop) leaving `vertex`, in arena order.
+    pub(crate) fn face_uses_leaving(&self, vertex: VertexHandle) -> Vec<HalfEdgeHandle> {
+        self.half_edges
+            .iter()
+            .filter(|(_, f)| f.origin == vertex && self.loops.contains_key(f.loop_))
+            .map(|(h, _)| h)
+            .collect()
+    }
+
+    /// The face uses `fins` leaving `vertex`, grouped into fans: two
+    /// fins are in one fan when one follows the other's loop predecessor
+    /// across an edge ring, or they share an edge's ring. Each group is
+    /// sorted, the groups by their least fin.
+    pub(crate) fn fan_groups(
+        &self,
+        vertex: VertexHandle,
+        fins: &[HalfEdgeHandle],
+    ) -> Vec<Vec<HalfEdgeHandle>> {
         let index: HashMap<HalfEdgeHandle, usize> =
             fins.iter().enumerate().map(|(i, &h)| (h, i)).collect();
         let mut parent: Vec<usize> = (0..fins.len()).collect();
@@ -165,15 +182,18 @@ impl BRep {
                 }
             }
         }
-        let mut fans: BTreeMap<usize, HalfEdgeHandle> = BTreeMap::new();
+        let mut fans: BTreeMap<usize, Vec<HalfEdgeHandle>> = BTreeMap::new();
         for (i, &h) in fins.iter().enumerate() {
             let r = root(&mut parent, i);
-            let least = fans.entry(r).or_insert(h);
-            if h < *least {
-                *least = h;
-            }
+            fans.entry(r).or_default().push(h);
         }
-        let mut out: Vec<HalfEdgeHandle> = fans.into_values().collect();
+        let mut out: Vec<Vec<HalfEdgeHandle>> = fans
+            .into_values()
+            .map(|mut g| {
+                g.sort_unstable();
+                g
+            })
+            .collect();
         out.sort_unstable();
         out
     }
@@ -218,7 +238,7 @@ impl BRep {
 
     /// `edges` split into sets connected through shared vertices, each
     /// in edge order.
-    fn wire_components(&self, edges: &[EdgeHandle]) -> Vec<Vec<EdgeHandle>> {
+    pub(crate) fn wire_components(&self, edges: &[EdgeHandle]) -> Vec<Vec<EdgeHandle>> {
         let mut parent: Vec<usize> = (0..edges.len()).collect();
         fn root(parent: &mut [usize], mut i: usize) -> usize {
             while parent[i] != i {

@@ -250,9 +250,27 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   take solids; edge fillets (open caps at a sheet's boundary), corner
   blends, face blends, sheet booleans, partition and imprint solids or
   sheets; shell, offset and plane splits solids (or empty, answered
-  with `NoFaces` or no pieces), thicken solids or sheets (or empty);
+  with `NoFaces` or no pieces), thicken and the maximum safe offset
+  solids or sheets (or empty);
   volume, centroid and inertia solids (or empty); tessellation and
   area any kind.
+- **Non-manifold Euler operators** — `euler/nonmanifold/`: acorns
+  (`make_acorn`/`kill_acorn`), wire edges (`make_wire_edge`, joining
+  the shells its ends lie in; `kill_wire_edge` splits a shell it
+  disconnects and leaves a lone end an acorn), a lamina spanning a wire
+  cycle (`make_face_from_wire_cycle`, geometry the caller's), a region
+  behind a closed surface (`make_face_region(shell, side, kind)`), and
+  the glues that make one general body of touching pieces
+  (`glue_vertices`, `glue_edges` with the ring in radial order and
+  shells of one region joined across new wedges, `glue_faces` merging a
+  facing pair, its edges and the gap between in one step), each with
+  its inverse. Each checks every precondition before it changes the
+  body (`EulerError`, carried by `CoreError::Euler`); counts move by the
+  documented delta over `NonManifoldCounts`. Radial order is core's
+  (`topology/radial_order/`, generic over `RadialFins`;
+  `BRep::radial_order`, `order_ring`); the cell complex adapts its edges
+  to it, and `validate_all` checks a ring of more than two fins is in
+  radial order (`RingOrder`, `RingOrderUndecided`).
 - **Sheet booleans** — `boolean_with_sheets` decides sheet ∩ solid,
   sheet − solid, solid − sheet (pieces) and the union's appendage on
   the cell complex (`sheet/complex_route.rs`, sheets as laminae:
