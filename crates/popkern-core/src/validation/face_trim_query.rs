@@ -100,6 +100,34 @@ impl BRep {
 }
 
 impl BRep {
+    /// [`Self::face_point_trim_containment`] with an explicit parametric
+    /// boundary band `band` in place of the classifier's own (ten
+    /// tolerances): a near-zero band gives the even-odd answer, every
+    /// point but those on a loop's polygon `Interior` or `Outside`, for
+    /// callers that measure nearness to the boundary themselves.
+    pub fn face_point_trim_containment_within(
+        &self,
+        face: FaceHandle,
+        point: &crate::geometry::Point3,
+        band: f64,
+    ) -> Option<FacePointContainment> {
+        use crate::geometry::surface::SurfaceEval;
+        let surface = &self.faces.get(face)?.surface.as_ref()?.geometry;
+        let (u, v) =
+            crate::geometry::uv_projection::project_point_to_uv_multisheet(surface, point)?;
+        let containment =
+            self.face_trim_classify_uv_band(face, surface, UvPointForSense { u, v }, band)?;
+        Some(FacePointContainment {
+            uv: (u, v),
+            distance: surface.point_at(u, v).distance_to(point),
+            containment: match containment {
+                TrimContainmentForSense::Outside => FaceUvContainment::Outside,
+                TrimContainmentForSense::Boundary => FaceUvContainment::Boundary,
+                TrimContainmentForSense::Interior => FaceUvContainment::Interior,
+            },
+        })
+    }
+
     /// The face's trim window in its chart: the bounding box of its
     /// loops' pcurve samples, `((u_min, u_max), (v_min, v_max))`
     /// (vertex-projected when no loop carries a pcurve). Sampled, so a

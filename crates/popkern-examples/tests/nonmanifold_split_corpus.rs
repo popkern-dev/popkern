@@ -159,27 +159,16 @@ fn an_unrecorded_split_fails_validate_all() {
     assert!(!body.validate_all().is_empty());
 }
 
-/// Rows whose general body still records contacts: a contact line
-/// across a face's interior has no topology until it is imprinted
-/// (PK-1117), and vertex contacts of some placements the vertex glue
-/// misses there too. Each still serves a valid general body.
-const STILL_RECORDED: &[(&str, &str)] = &[
-    ("identity", "edge_on_face_union"),
-    ("rotated", "edge_touch_union"),
-    ("rotated", "line_contact_union"),
-    ("rotated", "edge_on_face_union"),
-    ("mm", "edge_on_face_union"),
-    ("far", "line_contact_union"),
-    ("far", "edge_on_face_union"),
-];
-
-/// The corpus under `NonManifoldPolicy::General` (PK-1115, PK-1116):
+/// The corpus under `NonManifoldPolicy::General` (PK-1115 to PK-1117):
 /// every row that touches itself serves one general body that validates
 /// with the volume of the touching bodies and nothing recorded, its
 /// contacts all held by topology (rings, shared vertices, vertex loops
-/// on faces, edges split where a vertex touches them), except the rows
-/// [`STILL_RECORDED`] names; a listed row that records nothing fails, so
-/// the list shrinks as PK-1117 lands.
+/// on faces, edges split where a vertex touches them, contact curves
+/// imprinted across faces). The split pieces glue from their geometry
+/// alone (`BRep::glue_touching`, their records cleared) into a valid
+/// body, so the serve is that path, not the recorded contacts; and the
+/// general body splits back into valid manifold pieces of the same
+/// volume (`BRep::split_to_manifold`, the imprinted edges kept).
 #[test]
 fn nonmanifold_rows_serve_general_bodies_with_nothing_recorded() {
     const GENERAL: BoolOptions = BoolOptions {
@@ -196,25 +185,42 @@ fn nonmanifold_rows_serve_general_bodies_with_nothing_recorded() {
             let a = build(case.a, &place, tol);
             let b = build(case.b, &place, tol);
             let want = volume(&a) + volume(&b);
-            let listed = STILL_RECORDED.contains(&(pname, case.name));
-            let verdict = match boolean_with_options(case.op, a, b, tol, None, &GENERAL) {
-                Ok(body) => {
-                    let issues = body.validate_all();
-                    let recorded = body.topology_contacts.len();
-                    if !issues.is_empty() {
-                        Err(format!("invalid: {}", issues[0]))
-                    } else if (volume(&body) - want).abs() > 1e-5 * want {
-                        Err(format!("volume {} vs {want}", volume(&body)))
-                    } else if listed && recorded == 0 {
-                        Err("records nothing now: drop it from STILL_RECORDED".into())
-                    } else if !listed && recorded > 0 {
-                        Err(format!("{recorded} recorded"))
-                    } else {
-                        Ok(())
+            let touch = boolean_with_options(case.op, a.clone(), b.clone(), tol, None, &SPLIT)
+                .map_err(|e| format!("split declined: {e}"))
+                .and_then(|mut pieces| {
+                    pieces.topology_contacts.clear();
+                    let done = pieces
+                        .glue_touching()
+                        .map_err(|e| format!("touch glue: {e}"))?;
+                    match pieces.validate_all().first() {
+                        Some(issue) => Err(format!("touch-glued invalid: {issue}")),
+                        None => Ok(done),
+                    }
+                });
+            let verdict = touch.and_then(|_| {
+                let body = boolean_with_options(case.op, a, b, tol, None, &GENERAL)
+                    .map_err(|e| format!("declined: {e}"))?;
+                let issues = body.validate_all();
+                if !issues.is_empty() {
+                    Err(format!("invalid: {}", issues[0]))
+                } else if (volume(&body) - want).abs() > 1e-5 * want {
+                    Err(format!("volume {} vs {want}", volume(&body)))
+                } else if !body.topology_contacts.is_empty() {
+                    Err(format!("{} recorded", body.topology_contacts.len()))
+                } else {
+                    // And back into manifold pieces (imprints kept).
+                    let mut back = body.clone();
+                    back.split_to_manifold()
+                        .map_err(|e| format!("split back: {e}"))?;
+                    match back.validate_all().first() {
+                        Some(issue) => Err(format!("split back invalid: {issue}")),
+                        None if (volume(&back) - want).abs() > 1e-5 * want => {
+                            Err(format!("split back volume {}", volume(&back)))
+                        }
+                        None => Ok(()),
                     }
                 }
-                Err(e) => Err(format!("declined: {e}")),
-            };
+            });
             if verdict.is_err() {
                 failures += 1;
             }

@@ -194,13 +194,16 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `NonManifoldPolicy::SplitToManifold` serves manifold pieces instead,
   each contact recorded in `BRep::topology_contacts`; `validate_all`
   excuses recorded contacts only. `NonManifoldPolicy::General` serves
-  one general body: the split pieces glued at their contacts
-  (`BRep::glue_contacts`: vertex copies one vertex, coincident edges
-  one ring in radial order; a vertex on a face's interior one vertex
-  with a vertex loop of the face, one on an edge's interior splitting
-  it, contact lines across a face still recorded until PK-1117; a glue
-  that declines serves the pieces with a
-  `GeneralFallback` shadow line), and general operands enter as their
+  one general body: the split pieces glued where they touch, found
+  from their geometry alone (`BRep::glue_touching`, PK-1117: every
+  piece given a vertex at each contact point, its own, its edge split
+  there or a vertex loop of its face; each contact curve, an edge or
+  tangent ruling lying across a face, imprinted there by
+  `BRep::imprint_edge`; then `glue_coincident`: one vertex, one ring in
+  radial order). Where it declines the recorded contacts are glued
+  (`BRep::glue_contacts`, a `TouchGlueFallback` shadow line) until the
+  stored list retires (PK-1115); a glue that declines serves the pieces
+  with a `GeneralFallback` shadow line), and general operands enter as their
   manifold pieces (`BRep::split_to_manifold`, its inverse), in two-body
   and N-ary booleans alike (Rhai `non_manifold: "general"`). A later boolean or N-ary boolean
   carries the contacts its operands recorded (re-recorded on the
@@ -273,7 +276,10 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   held as a vertex loop (`make_vertex_loop`/`kill_vertex_loop`: a loop
   of no fins naming its vertex, none of the face's boundary loops,
   `BRep::face_vertex_loops`, a `VertexUse::Loop`; STEP `VERTEX_LOOP`
-  bounds; PK-1116), and
+  bounds; PK-1116), an edge imprinted across a face between two of its
+  vertices (`imprint_edge`/`kill_imprinted_edge`: the face split in two
+  between points of its outer loop, a hole joined to it, a spur into a
+  vertex loop, a slit between two; PK-1117), and
   the glues that make one general body of touching pieces
   (`glue_vertices`, `glue_edges` with the ring in radial order and
   shells of one region joined across new wedges, `glue_faces` merging a
