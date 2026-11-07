@@ -89,8 +89,10 @@ impl BRep {
     /// material is behind the faces, so the closed sheet must face out
     /// (validation checks it). The counterpart of
     /// [`BRep::settle_open_shells`], called where an operation's intent
-    /// is a solid (hole healing); a closed sheet is otherwise a valid
-    /// sheet. Returns the regions made.
+    /// is a solid (hole healing, the boundary-ring caps): a closed
+    /// surface separates space, so one shell holding the void on both
+    /// sides of it is not a valid cell structure (validation reports it
+    /// as a shell of two pieces). Returns the regions made.
     pub fn fill_closed_shells(&mut self) -> Vec<RegionHandle> {
         let open = self.open_shells();
         let candidates: Vec<ShellHandle> = self

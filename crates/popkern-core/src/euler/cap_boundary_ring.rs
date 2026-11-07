@@ -62,6 +62,11 @@ impl BRep {
     /// The new face is surfaceless with no pcurves; attaching geometry
     /// and re-establishing coherence is the caller's next step.
     ///
+    /// A cap closing a sheet's last opening closes a surface that now
+    /// separates space, so the shell bounds a new solid region behind
+    /// its faces ([`BRep::fill_closed_shells`]); a ring of a solid's
+    /// shell (mid-construction) just closes it.
+    ///
     /// # Errors
     ///
     /// - [`CoreError::InvalidHandle`] if a ring edge or its surviving
@@ -73,6 +78,20 @@ impl BRep {
     ///   single cycle by vertex identity, shares a vertex between two
     ///   ring positions (figure-eight), or spans more than one shell.
     pub fn cap_boundary_ring(
+        &mut self,
+        ring: &[EdgeHandle],
+    ) -> Result<BoundaryRingCapResult, CoreError> {
+        let mut candidate = self.clone();
+        let result = candidate.cap_boundary_ring_unfilled(ring)?;
+        candidate.fill_closed_shells();
+        *self = candidate;
+        Ok(result)
+    }
+
+    /// [`BRep::cap_boundary_ring`] leaving a shell it closes in the
+    /// void, for operators that cap as one step of their own count
+    /// contract and fill when they commit.
+    pub(crate) fn cap_boundary_ring_unfilled(
         &mut self,
         ring: &[EdgeHandle],
     ) -> Result<BoundaryRingCapResult, CoreError> {

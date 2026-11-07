@@ -70,6 +70,7 @@ pub(super) fn profile_sheet(
     }
     brep.retire_faces_to_boundary(&back)
         .map_err(|e| failed(shape, "sheet", e))?;
+    brep.settle_open_shells();
     Ok(brep)
 }
 

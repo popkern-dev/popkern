@@ -1,6 +1,7 @@
 //! Geometric and topological validation for BRep models.
 
 pub mod bvh;
+mod cells;
 mod closure;
 
 pub use closure::NonManifoldEdgeReport;
@@ -262,6 +263,13 @@ impl BRep {
         if let Err(e) = self.validate_vertex_valence() {
             errors.push(e);
         }
+        // The cell structure (PK-1103): rings hold every fin of their
+        // edge, wedges lie in one shell, shells are connected closed
+        // surfaces, regions are well formed.
+        errors.extend(self.validate_ring_membership_all());
+        errors.extend(self.validate_wedges_all());
+        errors.extend(self.validate_shell_cells_all());
+        errors.extend(self.validate_regions_all());
         // Geometric checks (7-10)
         if let Err(e) = self.validate_face_orientation() {
             errors.push(e);
