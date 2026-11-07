@@ -74,3 +74,40 @@ fn two_cells_share_an_internal_face() {
     let errors = body.validate_all();
     assert!(errors.is_empty(), "{errors:?}");
 }
+
+/// A hollow cube with its regions dissolved: the outer faces' material
+/// side encloses positive volume (a solid), the cavity's material side
+/// negative (an inner shell of that solid, found by winding), the
+/// cavity's own side positive with no back side (a bounded void).
+#[test]
+fn a_cavity_nests_inside_its_solid() {
+    let mut host = cube_at(0.0, 0.0, 0.0);
+    let mut tool = BRep::unit_cube(tol())
+        .and_then(|c| c.transform(&Transform3::scale_uniform(0.5)))
+        .and_then(|c| c.transform(&Transform3::translation(0.25, 0.25, 0.25)))
+        .expect("tool");
+    tool.reverse_body_orientation();
+    let solid = host.solid_regions()[0];
+    let map = host.append_body(&tool);
+    host.invert_regions_into(&[map.regions[&tool.solid_regions()[0]]], solid);
+    let outside = host.outside;
+    let regions: Vec<_> = host.regions.keys().filter(|&r| r != outside).collect();
+    for region in regions {
+        for shell in host.region_shells(region) {
+            host.shells[shell].region = outside;
+        }
+        host.regions.remove(region);
+    }
+    let made = host.fill_enclosed_cells();
+    assert_eq!(made.len(), 2, "a solid and the cavity's void");
+    let solids = host.solid_regions();
+    assert_eq!(solids.len(), 1);
+    assert_eq!(
+        host.region_shells(solids[0]).len(),
+        2,
+        "outer and inner shells"
+    );
+    assert_eq!(host.cavity_regions().len(), 1);
+    let errors = host.validate_all();
+    assert!(errors.is_empty(), "{errors:?}");
+}

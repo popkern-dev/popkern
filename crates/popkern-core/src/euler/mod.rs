@@ -45,8 +45,9 @@ mod mev;
 mod mvfs;
 mod nonmanifold;
 pub use nonmanifold::{
-    AcornResult, ContactGlue, ContactGlueError, EulerError, GlueEdgeResult, GlueFaceResult,
-    GlueVertexResult, NonManifoldCounts, WireEdgeKill, WireEdgeResult, WireFaceResult,
+    AcornResult, CoincidentGlue, ContactGlue, ContactGlueError, EulerError, GlueEdgeResult,
+    GlueFaceResult, GlueVertexResult, NonManifoldCounts, WireEdgeKill, WireEdgeResult,
+    WireFaceResult,
 };
 mod same_loop_boundary_exposure;
 mod same_loop_bridge_dissolve;

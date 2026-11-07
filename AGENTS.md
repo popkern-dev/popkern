@@ -331,8 +331,13 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   using an edge four times and odd uses (an internal face) decline
   under the default option, and under `StepNonManifold::General` import
   face by face, glued into one general body whose enclosed cells
-  become its solids (`BRep::fill_enclosed_cells`, PK-1070, PK-1071);
-  touching void shells still decline (PK-1072). Fixtures
+  become its solids (`BRep::fill_enclosed_cells`: a closed piece of
+  positive signed volume a solid when it holds a back side, else a
+  bounded void; a negative piece an inner shell of the smallest cell
+  containing it by winding number, `BRep::winding_about`; PK-1070,
+  PK-1071). Pieces touching without sharing entities (cavities touching
+  along an edge, PK-1072) glue where they coincide
+  (`BRep::glue_coincident`) under the same option. Fixtures
   are OCC-written (`tools/occ-oracle/occ_write_nonmanifold.py`).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 

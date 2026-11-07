@@ -77,6 +77,25 @@ FIXTURES = {
 }
 
 
+def cut_all(shape, *tools):
+    """`shape` with every tool cut away."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+
+    for t in tools:
+        shape = BRepAlgoAPI_Cut(shape, t).Shape()
+    return shape
+
+
+# Solids written as OpenCASCADE builds them (no one-shell assembly).
+DIRECT_FIXTURES = {
+    # A block with two cavities touching along an edge (PK-1072): a
+    # BREP_WITH_VOIDS whose void shells share that edge.
+    "nm_touching_cavities": lambda: cut_all(
+        box(0, 0, 0, 4, 4, 4), box(1, 1, 1, 2, 2, 2), box(2, 2, 1, 3, 3, 2)
+    ),
+}
+
+
 def fused_pieces(solids):
     """The input solids sharing their contacts: a general fuse result."""
     from OCP.BOPAlgo import BOPAlgo_Builder
@@ -175,6 +194,11 @@ def main(out_dir):
             "pieces": sorted(volume(p) for p in pieces),
             "occ_solids": read_back(path),
         }
+    for name, make in DIRECT_FIXTURES.items():
+        shape = make()
+        path = os.path.join(out_dir, f"{name}.step")
+        write(shape, path)
+        report[name] = {"pieces": [volume(shape)], "occ_solids": read_back(path)}
     print(json.dumps(report, indent=1))
 
 

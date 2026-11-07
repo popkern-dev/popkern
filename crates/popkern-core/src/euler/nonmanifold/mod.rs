@@ -17,6 +17,7 @@
 
 mod acorn;
 mod cells;
+mod coincident;
 mod contacts;
 mod error;
 mod face_region;
@@ -28,6 +29,7 @@ mod wire_edge;
 mod wire_face;
 
 pub use acorn::AcornResult;
+pub use coincident::CoincidentGlue;
 pub use contacts::{ContactGlue, ContactGlueError};
 pub use error::EulerError;
 pub use glue_edge::GlueEdgeResult;
