@@ -16,11 +16,37 @@ pub(super) struct ShellIncidencePolicy {
     pub pieces: Option<ShellPieces>,
 }
 
-pub(super) fn open_shell_incidence_policy() -> ShellIncidencePolicy {
+/// The policy for an `OPEN_SHELL`'s faces (or a surface model's shell).
+/// Faces meeting more than two at an edge (sheets on a hinge) have no
+/// two-fin edge to build: they import face by face, glued into one
+/// general body under the general option (`import_general`).
+pub(super) fn open_shell_incidence_policy(
+    face_data: &FaceData,
+    log: &mut DiagnosticLog,
+) -> ShellIncidencePolicy {
+    let mut use_counts: BTreeMap<EntityId, usize> = BTreeMap::new();
+    for face in &face_data.faces {
+        for bound in &face.bounds {
+            for oriented_edge in &bound.oriented_edges {
+                *use_counts.entry(oriented_edge.edge_curve_id).or_default() += 1;
+            }
+        }
+    }
+    let hinge = use_counts.iter().find(|&(_, &u)| u > 2);
+    if let Some((&edge, &uses)) = hinge {
+        log.warn(
+            Phase::MapTopology,
+            Some(edge),
+            format!(
+                "STEP open shell uses this edge {uses} times: imported face by face (glued into \
+                 a general body under the general option)"
+            ),
+        );
+    }
     ShellIncidencePolicy {
         treat_as_open: true,
         downgraded_closed_shell: false,
-        pieces: None,
+        pieces: hinge.map(|_| ShellPieces::per_face(face_data)),
     }
 }
 

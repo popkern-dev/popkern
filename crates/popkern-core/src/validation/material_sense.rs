@@ -295,6 +295,50 @@ impl BRep {
         });
         flux / (4.0 * std::f64::consts::PI)
     }
+
+    /// The winding number of `q` about `region`'s boundary, every shell
+    /// of it read with its sides signed (+1 where the region lies behind
+    /// a face, −1 in front): about 1 inside the region, 0 outside it or
+    /// in a cavity of it. `q` must lie off the faces.
+    pub fn region_winding(
+        &self,
+        region: crate::topology::RegionHandle,
+        q: crate::geometry::Point3,
+    ) -> f64 {
+        let shells: std::collections::BTreeSet<_> =
+            self.region_shells(region).into_iter().collect();
+        let sides: Vec<(FaceHandle, f64)> = self
+            .faces
+            .iter()
+            .filter_map(
+                |(h, f)| match (shells.contains(&f.back), shells.contains(&f.front)) {
+                    (true, false) => Some((h, 1.0)),
+                    (false, true) => Some((h, -1.0)),
+                    _ => None,
+                },
+            )
+            .collect();
+        self.winding_about(&sides, q)
+    }
+}
+
+impl BRep {
+    /// A point of `face`'s interior: of its interior samples on a 6 × 6
+    /// grid, the one nearest their mean.
+    pub(crate) fn face_interior_sample(&self, face: FaceHandle) -> Option<crate::geometry::Point3> {
+        let mut points = Vec::new();
+        self.sample_sides(&[(face, 1.0)], 6, 1.0e-12, &mut |_, p, _| points.push(p));
+        let n = points.len() as f64;
+        let mean = points
+            .iter()
+            .fold(crate::geometry::Vec3::new(0.0, 0.0, 0.0), |a, p| {
+                a + crate::geometry::Vec3::new(p.x, p.y, p.z) * (1.0 / n)
+            });
+        let mean = crate::geometry::Point3::new(mean.x, mean.y, mean.z);
+        points
+            .into_iter()
+            .min_by(|a, b| a.distance_to(&mean).total_cmp(&b.distance_to(&mean)))
+    }
 }
 
 /// `faces`, each counted once forward.

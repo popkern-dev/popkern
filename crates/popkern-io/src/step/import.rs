@@ -227,6 +227,15 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
     }
     let brep_refs: Vec<_> = brep_solids.iter().map(|(id, b)| (*id, b.clone())).collect();
     let (mut products, mut roots) = map_products(&graph, &brep_refs, &mut geo_cache, &mut log);
+    if options.non_manifold == crate::step::import_general::StepNonManifold::General {
+        for shape in products.iter_mut().flat_map(|p| p.shapes.iter_mut()) {
+            if let Some(merged) =
+                crate::step::import_general::merge_touching_items(&shape.solids, &mut log)
+            {
+                std::sync::Arc::make_mut(shape).solids = merged;
+            }
+        }
+    }
     // A file with solids but no product structure (some writers emit
     // bare geometry): one product holding every solid, so the
     // geometry is never silently dropped (PK-635).

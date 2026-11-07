@@ -14,6 +14,8 @@ corpus gates were calibrated on it.
 Output: one JSON object on stdout:
     solids  one row per solid (placed occurrences repeat): faces, volume
             (mm^3; the reader converts to millimetres as popkern does)
+    counts  distinct faces, edges and vertices over every shape read
+            (sheets, free edges and free vertices included)
 Exit code 0 when the file loaded.
 """
 
@@ -50,7 +52,17 @@ def main(path, adaptive=False):
                 explorer.Next()
             rows.append({"faces": faces, "volume": abs(props.Mass())})
             solids.Next()
-    print(json.dumps({"solids": rows}))
+    from OCP.TopAbs import TopAbs_EDGE, TopAbs_VERTEX
+    from OCP.TopExp import TopExp
+    from OCP.TopTools import TopTools_IndexedMapOfShape
+
+    counts = {}
+    for name, kind in (("faces", TopAbs_FACE), ("edges", TopAbs_EDGE), ("vertices", TopAbs_VERTEX)):
+        distinct = TopTools_IndexedMapOfShape()
+        for i in range(1, reader.NbShapes() + 1):
+            TopExp.MapShapes_s(reader.Shape(i), kind, distinct)
+        counts[name] = distinct.Extent()
+    print(json.dumps({"solids": rows, "counts": counts}))
     return 0
 
 

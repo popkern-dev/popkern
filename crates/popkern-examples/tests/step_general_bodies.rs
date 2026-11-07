@@ -164,7 +164,7 @@ fn shells_without_a_manifold_split_import_as_general_bodies() {
         ("nm_boxes_sharing_a_face", &[1.0, 1.0][..], 1, 0, true),
         // Two cavities touching along an edge (PK-1072): one solid, its
         // inner shell both cavities' material side, each cavity a void.
-        ("nm_touching_cavities", &[62.0][..], 0, 2, false),
+        ("nm_touching_cavities", &[62.0][..], 0, 2, true),
     ] {
         let data = fixture(name);
         let (doc, body) = import(&data, StepNonManifold::General, name);

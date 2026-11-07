@@ -279,11 +279,18 @@ impl ExportContext {
     }
 }
 
+/// Whether an item is one `ADVANCED_BREP_SHAPE_REPRESENTATION` does not
+/// admit (a surface model, a curve set): the representation is then a
+/// plain `SHAPE_REPRESENTATION`.
 fn items_include_surface_model(ctx: &ExportContext, item_ids: &[EntityId]) -> bool {
     item_ids.iter().any(|item_id| {
-        ctx.entities
-            .iter()
-            .any(|entity| entity.id == *item_id && entity.type_name == "SHELL_BASED_SURFACE_MODEL")
+        ctx.entities.iter().any(|entity| {
+            entity.id == *item_id
+                && matches!(
+                    entity.type_name.as_str(),
+                    "SHELL_BASED_SURFACE_MODEL" | "GEOMETRIC_CURVE_SET"
+                )
+        })
     })
 }
 

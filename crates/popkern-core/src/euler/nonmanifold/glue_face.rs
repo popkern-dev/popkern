@@ -123,12 +123,16 @@ impl BRep {
             }
         };
         let mut joins = Vec::new();
+        let mut adopt = Vec::new();
         for &e in &edges {
             let order = work
                 .radial_order_with_sense(e, work.radial_fins(e), &self.tolerance)
                 .map_err(|err| EulerError::RadialOrder(Box::new(err)))?;
-            joins.extend(work.wedge_joins(e, &order)?);
+            let wedge = work.wedge_joins(e, &order)?;
+            joins.extend(wedge.joins);
+            adopt.extend(wedge.adopt);
         }
+        work.adopt_shells(&adopt);
         let mut removed_shells = work.join_shells(joins);
         for shell in old {
             if !work.shells.contains_key(shell) {
