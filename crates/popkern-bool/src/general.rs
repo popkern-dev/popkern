@@ -3,7 +3,7 @@
 //!
 //! The split policy's pieces meet at contacts recorded with the
 //! coincident entities of every piece; gluing them with the core's
-//! non-manifold operators (`BRep::glue_contacts`) makes the general body
+//! non-manifold operators (`BRep::glue_touching`, from their geometry) makes the general body
 //! those pieces are, so the result is built from a path the split policy
 //! already serves and validates. A general operand enters the same way
 //! in reverse: split into manifold pieces meeting at recorded contacts
@@ -31,13 +31,31 @@ pub(crate) fn operand_pieces(mut body: BRep, operand: usize) -> Result<BRep, Boo
     Ok(body)
 }
 
-/// The split pieces `pieces` glued at their contacts into one general
-/// body, kept when it validates; otherwise the pieces, with a
-/// `GeneralFallback` shadow line naming why.
+/// The split pieces `pieces` glued where they touch into one general
+/// body, kept when it validates with nothing recorded; otherwise the
+/// pieces, with a `GeneralFallback` shadow line naming why.
+///
+/// The glue reads the pieces' geometry alone (`BRep::glue_touching`,
+/// PK-1117). Where it declines, the recorded contacts are glued as
+/// before (`BRep::glue_contacts`, a `TouchGlueFallback` shadow line),
+/// until the stored list retires (PK-1115).
 pub(crate) fn glue_result(pieces: BRep) -> BRep {
     if pieces.topology_contacts.is_empty() {
         return pieces;
     }
+    let mut body = pieces.clone();
+    body.topology_contacts.clear();
+    let touch = match body.glue_touching() {
+        Ok(_) => {
+            let issues = body.validate_all();
+            if issues.is_empty() {
+                return body;
+            }
+            format!("touch-glued body invalid: {}", issues[0])
+        }
+        Err(e) => e.to_string(),
+    };
+    crate::complex_shadow::append_log_line(&format!("TouchGlueFallback: {touch}"));
     let mut body = pieces.clone();
     let why = match body.glue_contacts() {
         Ok(_) => {

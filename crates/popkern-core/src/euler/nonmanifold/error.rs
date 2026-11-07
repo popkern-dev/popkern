@@ -197,4 +197,23 @@ pub enum EulerError {
         /// The face.
         face: FaceHandle,
     },
+    /// No edge can be imprinted across the face between the two
+    /// vertices (PK-1117): a vertex not on the face, visited twice by
+    /// its loop, both on one hole, or the Euler step's own decline.
+    #[error("no edge imprinted on face {face:?}: {reason}")]
+    NotImprintable {
+        /// The face.
+        face: FaceHandle,
+        /// Why.
+        reason: String,
+    },
+    /// The edge is not one an imprint made: it has more than two fins,
+    /// or its fins do not bound one face or two faces of one surface.
+    #[error("edge {edge:?} is not an imprinted edge: {reason}")]
+    NotAnImprintedEdge {
+        /// The edge.
+        edge: EdgeHandle,
+        /// Why.
+        reason: String,
+    },
 }
