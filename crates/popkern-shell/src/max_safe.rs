@@ -188,10 +188,12 @@ pub fn max_safe_offset(
     direction: ShellDirection,
     tolerance: Tolerance,
 ) -> Result<SafeOffsetReport, ShellError> {
+    // Sheets too: thicken's preflight reads the same bound.
     brep.require_kind(
         "maximum safe offset",
         &[
             popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
             popkern_core::topology::BodyKind::Empty,
         ],
     )?;

@@ -159,6 +159,24 @@ impl BRep {
         self.half_edges.get(fin.next).map(|f| f.origin)
     }
 
+    /// The faces of the other fins on `fin`'s ring: its mate's, or each
+    /// face use's on a general body's longer ring.
+    pub fn ring_neighbour_faces(&self, fin: HalfEdgeHandle) -> Vec<crate::topology::FaceHandle> {
+        let Some(he) = self.half_edges.get(fin) else {
+            return Vec::new();
+        };
+        let ring = match he.mate() {
+            Some(m) => vec![m],
+            None => self.radial_fins(he.edge),
+        };
+        ring.into_iter()
+            .filter(|&g| g != fin)
+            .filter_map(|g| self.half_edges.get(g))
+            .filter_map(|g| self.loops.get(g.loop_))
+            .map(|l| l.face)
+            .collect()
+    }
+
     /// An edge's two vertices, in the direction of its first fin.
     pub fn edge_vertices(
         &self,

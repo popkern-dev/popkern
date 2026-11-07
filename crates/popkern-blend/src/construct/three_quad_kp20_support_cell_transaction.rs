@@ -195,6 +195,8 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         | ValidationError::InconsistentOrientation { .. }
         | ValidationError::RegionSense { .. }
         | ValidationError::RingMembership { .. }
+        | ValidationError::RingOrder { .. }
+        | ValidationError::RingOrderUndecided { .. }
         | ValidationError::WedgeShellMismatch { .. }
         | ValidationError::ShellDisconnected { .. }
         | ValidationError::ShellEuler { .. }
@@ -220,6 +222,8 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::InconsistentOrientation { .. } => "InconsistentOrientation",
         ValidationError::RegionSense { .. } => "RegionSense",
         ValidationError::RingMembership { .. } => "RingMembership",
+        ValidationError::RingOrder { .. } => "RingOrder",
+        ValidationError::RingOrderUndecided { .. } => "RingOrderUndecided",
         ValidationError::WedgeShellMismatch { .. } => "WedgeShellMismatch",
         ValidationError::ShellDisconnected { .. } => "ShellDisconnected",
         ValidationError::ShellEuler { .. } => "ShellEuler",
