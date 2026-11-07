@@ -213,3 +213,28 @@ fn imprint_classes_answer_by_spelled_name() {
     );
     run(&mut host, &script, "imprint_classes");
 }
+
+/// Under `non_manifold: "general"` two boxes meeting along an edge
+/// union into one general body with no contact left recorded; the
+/// policy spells back as written and the emitted script replays to the
+/// same body.
+#[test]
+fn a_general_union_spells_back_and_replays() {
+    let mut host = ScriptHost::new();
+    let source = SCRIPTS[5].1.replace("split_to_manifold", "general");
+    let mut m = run(&mut host, &source, "union_general");
+    let emitted = to_rhai(&mut m).expect("emit");
+    assert!(emitted.contains(r#"non_manifold: "general""#), "{emitted}");
+    let counts = |m: &mut Model| {
+        let part = m.to_part().expect("part");
+        let brep = part.brep();
+        assert_eq!(brep.body_kind(), popkern_core::topology::BodyKind::General);
+        assert!(brep.topology_contacts.is_empty());
+        let errors = brep.validate_all();
+        assert!(errors.is_empty(), "{errors:?}");
+        (brep.vertices.len(), brep.edges.len(), brep.faces.len())
+    };
+    let first = counts(&mut m);
+    let mut replayed = run(&mut host, &emitted, "union_general_replayed");
+    assert_eq!(counts(&mut replayed), first);
+}

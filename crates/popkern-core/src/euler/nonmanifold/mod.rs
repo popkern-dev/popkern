@@ -16,6 +16,7 @@
 //! assert alongside each inverse's round trip.
 
 mod acorn;
+mod contacts;
 mod error;
 mod face_region;
 mod glue_edge;
@@ -26,6 +27,7 @@ mod wire_edge;
 mod wire_face;
 
 pub use acorn::AcornResult;
+pub use contacts::{ContactGlue, ContactGlueError};
 pub use error::EulerError;
 pub use glue_edge::GlueEdgeResult;
 pub use glue_face::GlueFaceResult;
@@ -114,3 +116,7 @@ mod glue_face_tests;
 #[cfg(test)]
 #[path = "face_region_tests.rs"]
 mod face_region_tests;
+
+#[cfg(test)]
+#[path = "contacts_tests.rs"]
+mod contacts_tests;

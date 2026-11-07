@@ -21,6 +21,18 @@ pub(crate) fn boolean_under(
     // "no faces" finding). A sheet is refused with its own error, whose
     // remediation names the sheet booleans (§2.3); any other kind (a
     // general body, a wire) with the kind gate's.
+    // The general policy reads general operands as their manifold
+    // pieces and runs split, gluing the result's contacts at the end.
+    let general = policy == options::NonManifoldPolicy::General;
+    let (a, b, policy) = if general {
+        (
+            crate::general::operand_pieces(a, 0)?,
+            crate::general::operand_pieces(b, 1)?,
+            options::NonManifoldPolicy::SplitToManifold,
+        )
+    } else {
+        (a, b, policy)
+    };
     let kinds = [a.body_kind(), b.body_kind()];
     let a_is_sheet = kinds[0] == BodyKind::Sheet;
     let b_is_sheet = kinds[1] == BodyKind::Sheet;
@@ -57,6 +69,9 @@ pub(crate) fn boolean_under(
     }
     if let Some(ctx) = tracking {
         entity_naming_result::name_result(&mut result, &a, &[&b], ctx, &tol);
+    }
+    if general {
+        result = crate::general::glue_result(result);
     }
     Ok(result)
 }

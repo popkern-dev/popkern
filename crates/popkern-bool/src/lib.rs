@@ -61,6 +61,7 @@ mod error_remediation;
 mod face_box;
 mod face_box_analytic;
 mod face_region_probe;
+mod general;
 pub mod history;
 pub mod imprint;
 pub mod instancing;

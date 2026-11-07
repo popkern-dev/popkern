@@ -4,8 +4,8 @@
 //! dropped.
 
 use popkern_history::feature::{
-    AxisDesc, BoolOpKind, Feature, JoinStyleKind, NonManifoldPolicy, OperationMode,
-    RevolveEnd as TreeRevolveEnd, ShellDirectionKind, TrimPolicyKind,
+    AxisDesc, BoolOpKind, Feature, JoinStyleKind, OperationMode, RevolveEnd as TreeRevolveEnd,
+    ShellDirectionKind, TrimPolicyKind,
 };
 use popkern_history::feature_blend::ChamferKindDesc;
 use popkern_history::feature_sketch::SketchPayload;
@@ -440,8 +440,8 @@ pub fn statement(
                 BoolOpKind::Intersection => "intersect",
             };
             let mut pairs = vec![label_option(label)];
-            if *non_manifold == NonManifoldPolicy::SplitToManifold {
-                pairs.push(("non_manifold", quoted("split_to_manifold")));
+            if let Some(spelling) = crate::partition_api::non_manifold_spelling(*non_manifold) {
+                pairs.push(("non_manifold", quoted(spelling)));
             }
             format!(".{verb}({}{})", tool_var(*tool_body), options(pairs))
         }

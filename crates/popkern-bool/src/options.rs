@@ -22,6 +22,15 @@ pub enum NonManifoldPolicy {
     /// any other. A union whose operands share area at the touch is
     /// not split (they merge there); it declines if the merge fails.
     SplitToManifold,
+    /// Serve one general body: the touching pieces share the contact
+    /// vertex, the contact edge's ring holds every piece's faces in
+    /// radial order (`BRep::glue_contacts` over the split policy's
+    /// pieces). Operands may be general bodies (split into their
+    /// manifold pieces first, `BRep::split_to_manifold`). A contact
+    /// that does not glue (a vertex on a face's interior) stays
+    /// recorded; where the glue declines the split pieces serve, with
+    /// a `GeneralFallback` shadow line.
+    General,
 }
 
 impl NonManifoldPolicy {
@@ -29,6 +38,12 @@ impl NonManifoldPolicy {
     /// recorded policy is left out of a saved document when it is).
     pub fn is_decline(&self) -> bool {
         *self == NonManifoldPolicy::Decline
+    }
+
+    /// Whether a non-manifold result serves (as pieces, or as the
+    /// general body glued from them) rather than declining.
+    pub fn serves(&self) -> bool {
+        *self != NonManifoldPolicy::Decline
     }
 }
 
