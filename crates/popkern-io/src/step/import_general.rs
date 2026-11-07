@@ -22,38 +22,61 @@ pub enum StepNonManifold {
     General,
 }
 
-/// Glue `brep`'s recorded contacts when it has any, logging the outcome
-/// against STEP entity `id`.
+/// Glue `brep` into one general body where its pieces touch: its
+/// recorded contacts (a shell split into pieces), then whatever
+/// coincides without being shared (`BRep::glue_coincident`: a writer's
+/// cavities touching along an edge each with their own copy of it), then
+/// the cells a face-by-face shell encloses (`BRep::fill_enclosed_cells`).
+/// Kept when it validates; logged against STEP entity `id` either way.
 pub(crate) fn glue_pieces(brep: &mut BRep, id: u64, log: &mut DiagnosticLog) {
-    if brep.topology_contacts.is_empty() {
-        return;
-    }
     let mut glued = brep.clone();
-    let outcome = match glued.glue_contacts() {
-        Ok(report) => {
-            // A shell imported face by face glues into sheets: the cells
-            // they enclose become its solids.
-            glued.fill_enclosed_cells();
-            let issues = glued.validate_all();
-            if issues.is_empty() {
-                let kept = report.kept.len();
-                *brep = glued;
-                Ok(format!(
-                    "self-touching shell imported as one general body: {} contact(s) glued, {kept} kept recorded",
-                    report.glued
-                ))
-            } else {
-                Err(format!("glued body invalid: {}", issues[0]))
-            }
+    let mut steps = Vec::new();
+    let outcome = (|| -> Result<(), String> {
+        if !glued.topology_contacts.is_empty() {
+            let report = glued.glue_contacts().map_err(|e| e.to_string())?;
+            steps.push(format!(
+                "{} contact(s) glued, {} kept recorded",
+                report.glued,
+                report.kept.len()
+            ));
         }
-        Err(e) => Err(e.to_string()),
-    };
+        let coincident = glued.glue_coincident().map_err(|e| e.to_string())?;
+        if coincident.vertices + coincident.edges > 0 {
+            steps.push(format!(
+                "{} coincident vertex(es) and {} edge(s) glued",
+                coincident.vertices, coincident.edges
+            ));
+        }
+        if steps.is_empty() {
+            return Ok(());
+        }
+        // A shell imported face by face glues into sheets: the cells
+        // they enclose become its solids.
+        glued.fill_enclosed_cells();
+        let issues = glued.validate_all();
+        if issues.is_empty() {
+            Ok(())
+        } else {
+            Err(format!("glued body invalid: {}", issues[0]))
+        }
+    })();
     match outcome {
-        Ok(message) => log.warn(Phase::MapTopology, Some(id), message),
+        Ok(()) if steps.is_empty() => {}
+        Ok(()) => {
+            *brep = glued;
+            log.warn(
+                Phase::MapTopology,
+                Some(id),
+                format!(
+                    "touching pieces imported as one general body: {}",
+                    steps.join("; ")
+                ),
+            );
+        }
         Err(why) => log.warn(
             Phase::MapTopology,
             Some(id),
-            format!("self-touching shell kept as pieces with recorded contacts: {why}"),
+            format!("touching pieces kept as they are: {why}"),
         ),
     }
 }

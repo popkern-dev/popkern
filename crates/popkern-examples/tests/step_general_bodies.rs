@@ -146,14 +146,25 @@ fn self_touching_shells_import_as_general_bodies_and_export_again() {
 /// face by face and glue into one general body whose enclosed cells are
 /// its solids: a solid touching itself along an edge (one region, its
 /// contact edge a ring of four), and two boxes sharing a face listed once
-/// (two regions, the face between them). Both export (the internal face
-/// listed once) and re-read; OpenCASCADE reads the same solids from
-/// every file.
+/// (two regions, the face between them), and a block whose two cavities
+/// touch along an edge (PK-1072: one solid with an inner shell, two
+/// cavity regions). The first two export (an internal face listed once)
+/// and re-read; OpenCASCADE reads the same solids from every file.
 #[test]
 fn shells_without_a_manifold_split_import_as_general_bodies() {
-    for &(name, want, internal_faces) in &[
-        ("nm_one_piece_touching_itself", &[4.0][..], 0usize),
-        ("nm_boxes_sharing_a_face", &[1.0, 1.0][..], 1),
+    // (name, solid volumes, internal faces, cavities, exports)
+    for &(name, want, internal_faces, cavities, exports) in &[
+        (
+            "nm_one_piece_touching_itself",
+            &[4.0][..],
+            0usize,
+            0usize,
+            true,
+        ),
+        ("nm_boxes_sharing_a_face", &[1.0, 1.0][..], 1, 0, true),
+        // Two cavities touching along an edge (PK-1072): one solid, its
+        // inner shell both cavities' material side, each cavity a void.
+        ("nm_touching_cavities", &[62.0][..], 0, 2, false),
     ] {
         let data = fixture(name);
         let (doc, body) = import(&data, StepNonManifold::General, name);
@@ -171,10 +182,11 @@ fn shells_without_a_manifold_split_import_as_general_bodies() {
             .filter(|f| solid(f.back) && solid(f.front))
             .count();
         assert_eq!(between, internal_faces, "{name}: internal faces");
+        assert_eq!(body.cavity_regions().len(), cavities, "{name}: cavities");
         if let Some(occ) = occ_volumes(&data, name) {
             assert_volumes(name, &occ, want);
         }
-        {
+        if exports {
             let written = export_step(&doc, &StepExportOptions::default()).expect("export");
             let (_, again) = import(&written, StepNonManifold::General, name);
             assert_eq!(again.body_kind(), BodyKind::General, "{name}: re-read");

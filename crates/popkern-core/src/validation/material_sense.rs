@@ -143,7 +143,6 @@ impl BRep {
         grid: usize,
         classify_band: f64,
     ) -> Option<f64> {
-        let band = self.sense_parametric_band();
         // The wedge integral of a closed surface is the same about any
         // centre, but the coarse grid leaves a residual ∫n dA ≠ 0 that
         // the centre multiplies: about the world origin, a thin body
@@ -168,6 +167,45 @@ impl BRep {
         };
         let mut wedge = 0.0;
         let mut magnitude = 0.0;
+        let sampled = self.sample_sides(faces, grid, classify_band, &mut |sign, p, n_da| {
+            // p · n dA about the centre (the volume is a third of it).
+            let r = p - crate::geometry::Point3::new(centre.x, centre.y, centre.z);
+            let contribution = sign * r.dot(&n_da);
+            wedge += contribution;
+            magnitude += contribution.abs();
+        });
+        if sampled == 0 {
+            return None;
+        }
+        // Indeterminate when the integral cancels to a sliver of its
+        // own terms (an open sheet, a degenerate body), or encloses
+        // less than a tolerance cube. The floor is relative: an
+        // absolute (100 · linear)³ read a 0.34-volume cone as
+        // indeterminate at a 1e-2 tolerance.
+        // The volume is a third of the wedge integral (the divergence
+        // of p is 3): read whole, every magnitude was three times the
+        // volume (a unit cube 3.0), which the sign checks never saw.
+        let volume = wedge / 3.0;
+        let linear = self.tolerance.linear();
+        if wedge.abs() < 1e-6 * magnitude || volume.abs() < linear * linear * linear {
+            return None;
+        }
+        Some(volume)
+    }
+
+    /// Visit every interior sample of `faces` on a `grid` × `grid` grid
+    /// per face (a sample counted when the trim classifier with
+    /// parametric band `classify_band` reads it interior) with the
+    /// face's sign, the point, and `n dA` (the folded normal times the
+    /// sample's parameter area). Returns the samples visited.
+    fn sample_sides(
+        &self,
+        faces: &[(FaceHandle, f64)],
+        grid: usize,
+        classify_band: f64,
+        integrand: &mut dyn FnMut(f64, crate::geometry::Point3, crate::geometry::Vec3),
+    ) -> usize {
+        let band = self.sense_parametric_band();
         let mut sampled = 0usize;
         for &(face, sign) in faces {
             let Some(sof) = self.faces.get(face).and_then(|f| f.surface.as_ref()) else {
@@ -233,34 +271,29 @@ impl BRep {
                     let sv = sof.geometry.partial_v(u, v);
                     let n = su.cross(&sv);
                     let folded = if sof.orientation { n } else { n * -1.0 };
-                    // p · n dA with n dA = folded * du * dv (the volume
-                    // is a third of its integral).
-                    let (x, y, z) = (p.x - centre.x, p.y - centre.y, p.z - centre.z);
-                    let contribution =
-                        sign * (x * folded.x + y * folded.y + z * folded.z) * du * dv;
-                    wedge += contribution;
-                    magnitude += contribution.abs();
+                    // n dA = folded * du * dv.
+                    integrand(sign, p, folded * (du * dv));
                     sampled += 1;
                 }
             }
         }
-        if sampled == 0 {
-            return None;
-        }
-        // Indeterminate when the integral cancels to a sliver of its
-        // own terms (an open sheet, a degenerate body), or encloses
-        // less than a tolerance cube. The floor is relative: an
-        // absolute (100 · linear)³ read a 0.34-volume cone as
-        // indeterminate at a 1e-2 tolerance.
-        // The volume is a third of the wedge integral (the divergence
-        // of p is 3): read whole, every magnitude was three times the
-        // volume (a unit cube 3.0), which the sign checks never saw.
-        let volume = wedge / 3.0;
-        let linear = self.tolerance.linear();
-        if wedge.abs() < 1e-6 * magnitude || volume.abs() < linear * linear * linear {
-            return None;
-        }
-        Some(volume)
+        sampled
+    }
+
+    /// The winding number of `q` about the closed signed face set
+    /// `sides` (Gauss: the flux of (p − q) / |p − q|³ over it, over 4π):
+    /// about 1 inside the region the sides bound, 0 outside. Sampled as
+    /// [`BRep::enclosed_signed_volume`] is; `q` must lie off the faces.
+    pub fn winding_about(&self, sides: &[(FaceHandle, f64)], q: crate::geometry::Point3) -> f64 {
+        let mut flux = 0.0;
+        self.sample_sides(sides, 12, 1.0e-12, &mut |sign, p, n_da| {
+            let r = p - q;
+            let d = r.dot(&r).sqrt();
+            if d > 1e-12 {
+                flux += sign * r.dot(&n_da) / (d * d * d);
+            }
+        });
+        flux / (4.0 * std::f64::consts::PI)
     }
 }
 

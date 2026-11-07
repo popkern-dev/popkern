@@ -100,6 +100,23 @@ pub(super) fn closed_shell_incidence_policy(
         });
     }
 
+    // A shell of a solid with voids (pieces are not tried there) whose
+    // edges some faces use more than twice (cavities touching each other
+    // or the outer shell): under the general option, face by face.
+    if general && use_counts.values().any(|&u| u > 2) {
+        log.warn(
+            Phase::MapTopology,
+            None,
+            "STEP shell edges with more than two face uses: imported face by face to glue into a \
+             general body",
+        );
+        return Some(ShellIncidencePolicy {
+            treat_as_open: true,
+            downgraded_closed_shell: false,
+            pieces: Some(ShellPieces::per_face(face_data)),
+        });
+    }
+
     let mut downgraded_closed_shell = false;
     let mut declined = false;
     for (edge_curve_id, uses) in use_counts {
