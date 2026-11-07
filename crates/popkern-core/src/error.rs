@@ -5,6 +5,25 @@ use crate::topology::{
 };
 use thiserror::Error;
 
+/// How a region breaks the region structure
+/// ([`ValidationError::RegionStructure`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum RegionDefect {
+    /// The body's outside is not a live void region.
+    #[error("the outside is missing or not a void region")]
+    OutsideNotVoid,
+    /// The outside has a peripheral shell: nothing encloses it.
+    #[error("the outside has an outer shell")]
+    OutsideBounded,
+    /// A region other than the outside has no live outer shell of its
+    /// own.
+    #[error("no live outer shell of its own")]
+    NoOuterShell,
+    /// A shell names this region but the region is not live.
+    #[error("a shell names it but it is not live")]
+    MissingRegion,
+}
+
 /// Errors from geometric/topological validation checks.
 #[derive(Debug, Error)]
 pub enum ValidationError {
@@ -164,6 +183,66 @@ pub enum ValidationError {
         /// The shell's folded-normal volume (approximate; its sign is
         /// the finding).
         volume: f64,
+    },
+
+    /// A fin of an edge is missing from the ring walked from the
+    /// edge's first fin, or the first fin is not one of the edge's.
+    #[error("fin {half_edge:?} of edge {edge:?} is not on the edge's ring")]
+    RingMembership {
+        /// The edge.
+        edge: EdgeHandle,
+        /// The fin off the ring (or the edge's stray first fin).
+        half_edge: HalfEdgeHandle,
+    },
+
+    /// The two face sides bounding a wedge about an edge lie in
+    /// different shells: the space between two radially adjacent faces
+    /// would belong to two regions at once.
+    #[error(
+        "wedge at edge {edge:?} from fin {from:?} (shell {from_shell:?}) to fin {to:?} \
+         (shell {to_shell:?}) spans two shells"
+    )]
+    WedgeShellMismatch {
+        /// The edge.
+        edge: EdgeHandle,
+        /// The fin the wedge starts after.
+        from: HalfEdgeHandle,
+        /// The fin the wedge ends at.
+        to: HalfEdgeHandle,
+        /// The shell of `from`'s side facing the wedge.
+        from_shell: ShellHandle,
+        /// The shell of `to`'s side facing the wedge.
+        to_shell: ShellHandle,
+    },
+
+    /// A shell's face sides, wire edges and acorn fall into more than
+    /// one connected piece (through wedges and shared vertices).
+    #[error("shell {shell:?} falls into {pieces} disconnected pieces")]
+    ShellDisconnected {
+        /// The shell.
+        shell: ShellHandle,
+        /// How many pieces.
+        pieces: usize,
+    },
+
+    /// A shell's face sides do not form a closed surface: counting an
+    /// edge once per wedge of the shell and a vertex once per fan of
+    /// the shell, V - E + 2F - L must be 2 - 2g for a genus g >= 0.
+    #[error("shell {shell:?}: V - E + 2F - L = {euler}, not 2 - 2g for any genus g >= 0")]
+    ShellEuler {
+        /// The shell.
+        shell: ShellHandle,
+        /// The computed V - E + 2F - L.
+        euler: i64,
+    },
+
+    /// A region breaks the region structure.
+    #[error("region {region:?}: {defect}")]
+    RegionStructure {
+        /// The region.
+        region: RegionHandle,
+        /// What is wrong with it.
+        defect: RegionDefect,
     },
 
     /// Gap between adjacent faces at a shared edge.
@@ -395,70 +474,5 @@ pub enum CoreError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validation_error_display() {
-        let err = ValidationError::LowValence {
-            vertex: Default::default(),
-            valence: 1,
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("valence"));
-    }
-
-    #[test]
-    fn core_error_from_validation() {
-        let val_err = ValidationError::LowValence {
-            vertex: Default::default(),
-            valence: 1,
-        };
-        let core_err: CoreError = val_err.into();
-        assert!(matches!(core_err, CoreError::Validation(_)));
-    }
-
-    #[test]
-    fn core_error_invalid_handle() {
-        let err = CoreError::InvalidHandle("vertex 42 not found".into());
-        assert!(err.to_string().contains("vertex 42"));
-    }
-
-    #[test]
-    fn core_error_precondition_failed() {
-        let err = CoreError::PreconditionFailed("vertices must be in same loop".into());
-        assert!(err.to_string().contains("same loop"));
-    }
-
-    #[test]
-    fn core_error_tolerance_violation() {
-        let err = CoreError::ToleranceViolation("points too far apart".into());
-        assert!(err.to_string().contains("too far apart"));
-    }
-
-    #[test]
-    fn core_error_invalid_nurbs() {
-        let err = CoreError::InvalidNurbs("knot vector not non-decreasing".into());
-        assert!(err.to_string().contains("knot vector"));
-    }
-
-    #[test]
-    fn validation_error_euler_poincare() {
-        let err = ValidationError::EulerPoincare {
-            solid: Default::default(),
-            expected: 0,
-            actual: 2,
-        };
-        assert!(err.to_string().contains("expected 0"));
-        assert!(err.to_string().contains("got 2"));
-    }
-
-    #[test]
-    fn self_intersection_error_display() {
-        let err = ValidationError::SelfIntersection {
-            face_a: Default::default(),
-            face_b: Default::default(),
-        };
-        assert!(err.to_string().contains("Self-intersection"));
-    }
-}
+#[path = "error_tests.rs"]
+mod tests;

@@ -7,8 +7,9 @@
 //!
 //! - an edge is **free** when its radial ring holds one face use (a
 //!   sheet's open boundary; legacy producers that store it as two uses
-//!   of one face not closed across the edge also read free; a
-//!   cylinder's seam is not free);
+//!   of one face in two of its loops, the face not closed across the
+//!   edge, also read free; two uses in one loop are not free, the face
+//!   lying on both sides: a cylinder's seam, a keyhole bridge, a slit);
 //! - an edge on no face is a **wire** edge;
 //! - a shell with a free edge is a sheet, one without is closed.
 //!
@@ -121,21 +122,24 @@ impl BRep {
             // half-edge reads as free so a broken body never reads as
             // closed).
             [] | [_] => EdgeUse::Free,
-            // Two uses of one face that does not close across the edge:
-            // the legacy two-half-edge sheet boundary (PK-1101 S2d
-            // converts its producers to a ring of one).
-            [a, b] => {
-                let face_of = |he| {
-                    self.half_edges
-                        .get(he)
-                        .and_then(|h| self.loops.get(h.loop_))
-                        .map(|l| l.face)
-                };
-                match (face_of(*a), face_of(*b)) {
-                    (Some(fa), Some(fb)) if fa == fb && !self.face_closed_across_seam(fa) => {
-                        EdgeUse::Free
-                    }
-                    _ => EdgeUse::Bounded,
+            // Two uses of one face in two of its loops, the face not
+            // closing across the edge: the legacy mirrored sheet
+            // boundary (a face's own loop and a mirror of it). Two uses
+            // in ONE loop have the face on both sides: a bridge the
+            // loop crosses twice (a keyhole joining an annulus's rims,
+            // a seam) or a spur the loop runs out and back along (a
+            // slit a sheet leaves dangling in a solid's face, mvfs +
+            // mev's edge), neither of which opens the shell.
+            [a, _] if self.is_mirrored_boundary_edge(edge) => {
+                let face = self
+                    .half_edges
+                    .get(*a)
+                    .and_then(|h| self.loops.get(h.loop_))
+                    .map(|l| l.face);
+                if face.is_some_and(|f| !self.face_closed_across_seam(f)) {
+                    EdgeUse::Free
+                } else {
+                    EdgeUse::Bounded
                 }
             }
             _ => EdgeUse::Bounded,

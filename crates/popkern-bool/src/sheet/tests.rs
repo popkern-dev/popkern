@@ -28,11 +28,12 @@ fn empty_brep_is_not_a_sheet() {
 }
 
 #[test]
-fn dangling_edge_brep_is_a_sheet() {
-    // mvfs + mev creates a single face holding a dangling edge.
-    // The edge's two half-edges both belong to the same face;
-    // the face has no surface attached, so the periodic-skip
-    // branch does not fire and the detector reports a sheet.
+fn dangling_edge_brep_is_not_a_sheet() {
+    // mvfs + mev makes one face holding a dangling edge: both its
+    // half-edges run in the face's one loop, out and back, so the face
+    // lies on both sides of it (a slit, as a sheet ending inside a
+    // solid leaves in the solid's face). Nothing is open: V - E + F =
+    // 2 - 1 + 1 = 2, a closed (degenerate) surface, not a sheet.
     use popkern_core::geometry::Point3;
     let mut brep = BRep::new(tol());
     let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
@@ -40,8 +41,8 @@ fn dangling_edge_brep_is_a_sheet() {
         .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
         .unwrap();
     assert!(
-        is_sheet_body(&brep),
-        "dangling-edge BRep should be a sheet body"
+        !is_sheet_body(&brep),
+        "a dangling edge in a face does not open it"
     );
 }
 
