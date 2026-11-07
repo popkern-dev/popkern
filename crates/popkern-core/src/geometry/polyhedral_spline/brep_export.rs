@@ -340,6 +340,7 @@ fn wire_loop(
     let loop_handle = brep.loops.insert(Loop {
         half_edge: half_edges[0],
         face,
+        vertex: None,
     });
     let len = half_edges.len();
     for (index, &half_edge) in half_edges.iter().enumerate() {

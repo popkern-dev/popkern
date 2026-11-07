@@ -197,6 +197,7 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         | ValidationError::RingMembership { .. }
         | ValidationError::RingOrder { .. }
         | ValidationError::RingOrderUndecided { .. }
+        | ValidationError::VertexLoop { .. }
         | ValidationError::WedgeShellMismatch { .. }
         | ValidationError::ShellDisconnected { .. }
         | ValidationError::ShellEuler { .. }
@@ -224,6 +225,7 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::RingMembership { .. } => "RingMembership",
         ValidationError::RingOrder { .. } => "RingOrder",
         ValidationError::RingOrderUndecided { .. } => "RingOrderUndecided",
+        ValidationError::VertexLoop { .. } => "VertexLoop",
         ValidationError::WedgeShellMismatch { .. } => "WedgeShellMismatch",
         ValidationError::ShellDisconnected { .. } => "ShellDisconnected",
         ValidationError::ShellEuler { .. } => "ShellEuler",

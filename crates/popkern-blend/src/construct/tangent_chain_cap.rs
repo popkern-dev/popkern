@@ -401,6 +401,7 @@ pub(super) fn wire_cap(
     let lp = brep.loops.insert(Loop {
         half_edge: first,
         face: cap.face,
+        vertex: None,
     });
     brep.faces[cap.face].outer_loop = lp;
     for (j, &he) in ordered.iter().enumerate() {

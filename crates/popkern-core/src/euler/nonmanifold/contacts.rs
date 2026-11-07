@@ -6,8 +6,9 @@
 //! PK-964) record each contact with the coincident entities from every
 //! piece: copies of a vertex, pairs of coincident edges. Gluing them
 //! (vertices first, then edges, in radial order) makes the general body
-//! those pieces are; a contact of a vertex on a face's or an edge's
-//! interior has no loop form here and stays recorded. Splitting is the
+//! those pieces are; a vertex on another piece's face interior becomes
+//! a vertex loop of that face glued to it, one on another piece's edge
+//! interior the vertex splitting it (PK-1116). Splitting is the
 //! inverse: every ring of more than two fins comes apart into the
 //! manifold pairs bounding its solid wedges, every vertex with more than
 //! one use into one copy per use, each contact recorded as the split
@@ -28,8 +29,8 @@ use crate::topology::{
 pub struct ContactGlue {
     /// Contacts glued (their records gone).
     pub glued: usize,
-    /// Contacts kept recorded: a vertex on a face's or an edge's
-    /// interior.
+    /// Contacts kept recorded: those no glue resolves (a vertex on an
+    /// edge's interior).
     pub kept: Vec<TopologyContact>,
 }
 
@@ -45,9 +46,10 @@ pub struct ContactGlueError {
 
 impl BRep {
     /// Glue every recorded vertex and edge contact: copies of a vertex
-    /// become one vertex, coincident edges one ring in radial order. A
-    /// contact naming a face (a vertex on a face's interior) stays
-    /// recorded. All or nothing: on an error the body is unchanged.
+    /// become one vertex, coincident edges one ring in radial order, a
+    /// vertex on another piece's face interior one vertex with a vertex
+    /// loop of that face. A contact no glue resolves stays recorded. All
+    /// or nothing: on an error the body is unchanged.
     ///
     /// # Errors
     ///
@@ -144,6 +146,10 @@ impl BRep {
             }
             work.glue_face_boundaries(&faces, &mut vertex_alias)
                 .map_err(|e| fail(&contact, e))?;
+            if !work.faces_share_vertex_at(&faces, contact.location) {
+                work.glue_vertex_into_face(&faces, contact.location)
+                    .map_err(|e| fail(&contact, e))?;
+            }
             if work.faces_share_vertex_at(&faces, contact.location) {
                 glued += 1;
             } else {
@@ -153,101 +159,6 @@ impl BRep {
         work.topology_contacts = still.clone();
         *self = work;
         Ok(ContactGlue { glued, kept: still })
-    }
-
-    /// Glue the coincident boundary vertices of `faces` (within the
-    /// linear tolerance), then every two of their edges sharing both
-    /// ends.
-    fn glue_face_boundaries(
-        &mut self,
-        faces: &[FaceHandle],
-        alias: &mut BTreeMap<VertexHandle, VertexHandle>,
-    ) -> Result<(), EulerError> {
-        let tolerance = self.tolerance.linear();
-        let vertices = |b: &BRep| -> Vec<VertexHandle> {
-            let mut out: Vec<VertexHandle> = faces
-                .iter()
-                .flat_map(|&f| b.face_fins(f))
-                .map(|h| b.half_edges[h].origin)
-                .collect();
-            out.sort_unstable();
-            out.dedup();
-            out
-        };
-        let vs = vertices(self);
-        for (i, &a) in vs.iter().enumerate() {
-            for &b in &vs[i + 1..] {
-                let (a, b) = (resolve(alias, a), resolve(alias, b));
-                if a == b || !self.vertices.contains_key(a) || !self.vertices.contains_key(b) {
-                    continue;
-                }
-                if self.vertices[a]
-                    .position
-                    .distance_to(&self.vertices[b].position)
-                    <= tolerance
-                {
-                    self.glue_vertices(a, b)?;
-                    alias.insert(b, a);
-                }
-            }
-        }
-        loop {
-            let edges: Vec<EdgeHandle> = {
-                let mut e: Vec<EdgeHandle> = faces
-                    .iter()
-                    .flat_map(|&f| self.face_fins(f))
-                    .map(|h| self.half_edges[h].edge)
-                    .collect();
-                e.sort_unstable();
-                e.dedup();
-                e
-            };
-            let ends = |e: EdgeHandle| {
-                self.edge_vertices(e)
-                    .map(|(a, b)| if a < b { (a, b) } else { (b, a) })
-            };
-            let pair = edges.iter().enumerate().find_map(|(i, &a)| {
-                edges[i + 1..]
-                    .iter()
-                    .copied()
-                    .find(|&b| ends(a).is_some() && ends(a) == ends(b))
-                    .map(|b| (a, b))
-            });
-            let Some((a, b)) = pair else {
-                return Ok(());
-            };
-            self.glue_edges(a, b)?;
-        }
-    }
-
-    /// Whether every one of `faces` has a vertex at `p` that all of them
-    /// share.
-    fn faces_share_vertex_at(&self, faces: &[FaceHandle], p: Point3) -> bool {
-        let tolerance = self.tolerance.linear();
-        let at = |f: FaceHandle| -> std::collections::BTreeSet<VertexHandle> {
-            self.face_fins(f)
-                .into_iter()
-                .map(|h| self.half_edges[h].origin)
-                .filter(|&v| self.vertices[v].position.distance_to(&p) <= tolerance)
-                .collect()
-        };
-        let mut sets = faces.iter().map(|&f| at(f));
-        let Some(first) = sets.next() else {
-            return false;
-        };
-        let common = sets.fold(first, |acc, s| acc.intersection(&s).copied().collect());
-        !common.is_empty()
-    }
-
-    /// Every fin of `face`'s loops.
-    fn face_fins(&self, face: FaceHandle) -> Vec<crate::topology::HalfEdgeHandle> {
-        let Some(f) = self.faces.get(face) else {
-            return Vec::new();
-        };
-        std::iter::once(f.outer_loop)
-            .chain(f.inner_loops.iter().copied())
-            .flat_map(|l| self.loop_cycle(l))
-            .collect()
     }
 
     /// Glue `gone`'s end vertices onto `keep`'s, each to the nearer.
@@ -359,12 +270,50 @@ impl BRep {
             .filter(|&v| work.vertex_uses(v).len() > 1)
             .collect();
         for v in shared {
+            let location = work.vertices[v].position;
             let mut copies = vec![v];
             copies.extend(work.unglue_vertex(v)?);
+            // A copy standing in a face's vertex loop: the piece's face is
+            // plain, the contact named by that face and a face at the
+            // other copy, as the split policy names a vertex on a face.
+            let mut corners = Vec::new();
+            for c in copies {
+                let lone = work
+                    .vertex_loops()
+                    .into_iter()
+                    .find(|&(_, w)| w == c)
+                    .map(|(l, _)| l);
+                match lone {
+                    Some(l) => {
+                        let face = work.loops[l].face;
+                        work.kill_vertex_loop(l)?;
+                        corners.push(ContactEntity::Face(face));
+                    }
+                    None => corners.push(ContactEntity::Vertex(c)),
+                }
+            }
+            let faces = corners
+                .iter()
+                .filter(|e| matches!(e, ContactEntity::Face(_)))
+                .count();
+            if faces > 0 {
+                // Name every corner by a face it bounds.
+                corners = corners
+                    .into_iter()
+                    .filter_map(|e| match e {
+                        ContactEntity::Vertex(c) => work
+                            .half_edges
+                            .values()
+                            .find(|h| h.origin == c && work.loops.contains_key(h.loop_))
+                            .map(|h| ContactEntity::Face(work.loops[h.loop_].face)),
+                        other => Some(other),
+                    })
+                    .collect();
+            }
             contacts.push(TopologyContact {
                 kind: TopologyContactKind::Vertex,
-                location: work.vertices[v].position,
-                entities: copies.into_iter().map(ContactEntity::Vertex).collect(),
+                location,
+                entities: corners,
             });
         }
         work.topology_contacts.extend(contacts.iter().cloned());
@@ -386,7 +335,7 @@ impl BRep {
 }
 
 /// Follow `alias` from `h` to the handle it was glued onto.
-fn resolve<H: Copy + Ord>(alias: &BTreeMap<H, H>, mut h: H) -> H {
+pub(super) fn resolve<H: Copy + Ord>(alias: &BTreeMap<H, H>, mut h: H) -> H {
     while let Some(&next) = alias.get(&h) {
         h = next;
     }

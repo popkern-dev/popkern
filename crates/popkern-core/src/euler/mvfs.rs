@@ -103,6 +103,7 @@ impl BRep {
         let loop_ = self.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: Some(vertex),
         });
 
         let (solid, sides) = self.add_solid_region(face);

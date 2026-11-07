@@ -23,6 +23,7 @@ mod self_intersection;
 mod self_intersection_pair_gate;
 mod self_intersection_trim;
 mod self_intersection_twist;
+mod vertex_loops;
 mod wire_shells;
 pub use self_intersection_trim::InteriorOverlapSample;
 mod canonical_forward;
@@ -272,6 +273,7 @@ impl BRep {
         errors.extend(self.validate_wedges_all());
         errors.extend(self.validate_shell_cells_all());
         errors.extend(self.validate_regions_all());
+        errors.extend(self.validate_vertex_loops_all());
         // Geometric checks (7-10)
         if let Err(e) = self.validate_face_orientation() {
             errors.push(e);

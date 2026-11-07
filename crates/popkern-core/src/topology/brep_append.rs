@@ -98,6 +98,7 @@ impl BRep {
             let l = &mut self.loops[new];
             l.half_edge = remap(&m.half_edges, l.half_edge);
             l.face = remap(&m.faces, l.face);
+            l.vertex = l.vertex.map(|v| remap(&m.vertices, v));
         }
         for &new in m.faces.values() {
             let f = &mut self.faces[new];

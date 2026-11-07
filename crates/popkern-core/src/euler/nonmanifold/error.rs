@@ -165,6 +165,30 @@ pub enum EulerError {
         /// What the cycle breaks.
         reason: &'static str,
     },
+    /// A vertex loop cannot stand there: the point is off the face's
+    /// surface, not strictly inside its trim, or on another vertex of
+    /// it (PK-1116).
+    #[error("no vertex loop on face {face:?}: {reason}")]
+    NotOnFaceInterior {
+        /// The face.
+        face: FaceHandle,
+        /// Why, with the measurement.
+        reason: String,
+    },
+    /// The edge could not be split where a vertex touches its interior.
+    #[error("edge {edge:?} could not be split at the touching vertex: {reason}")]
+    EdgeSplit {
+        /// The edge.
+        edge: EdgeHandle,
+        /// The split's decline.
+        reason: String,
+    },
+    /// The loop is not a vertex loop whose vertex has no other use.
+    #[error("loop {loop_:?} is not a lone vertex loop")]
+    NotALoneVertexLoop {
+        /// The loop.
+        loop_: crate::topology::LoopHandle,
+    },
     /// The face is not a lamina spanning a wire cycle: it has holes, its
     /// sides lie in different shells, or an edge of its loop has another
     /// use.

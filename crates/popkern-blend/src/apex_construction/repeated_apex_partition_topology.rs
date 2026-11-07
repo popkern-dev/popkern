@@ -147,6 +147,7 @@ pub(super) fn insert_face_with_outer_loop(
     let loop_handle = brep.loops.insert(Loop {
         half_edge: half_edges[0],
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_handle;
     wire_existing_loop(brep, loop_handle, face, half_edges)?;

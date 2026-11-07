@@ -230,6 +230,7 @@ impl BRep {
         let bridge_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
             face: bridge_face,
+            vertex: None,
         });
         self.faces[bridge_face].outer_loop = bridge_loop;
         Ok(bridge_loop)

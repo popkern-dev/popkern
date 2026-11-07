@@ -196,8 +196,10 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   excuses recorded contacts only. `NonManifoldPolicy::General` serves
   one general body: the split pieces glued at their contacts
   (`BRep::glue_contacts`: vertex copies one vertex, coincident edges
-  one ring in radial order; a vertex on a face's interior stays
-  recorded; a glue that declines serves the pieces with a
+  one ring in radial order; a vertex on a face's interior one vertex
+  with a vertex loop of the face, one on an edge's interior splitting
+  it, contact lines across a face still recorded until PK-1117; a glue
+  that declines serves the pieces with a
   `GeneralFallback` shadow line), and general operands enter as their
   manifold pieces (`BRep::split_to_manifold`, its inverse), in two-body
   and N-ary booleans alike (Rhai `non_manifold: "general"`). A later boolean or N-ary boolean
@@ -267,7 +269,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   the shells its ends lie in; `kill_wire_edge` splits a shell it
   disconnects and leaves a lone end an acorn), a lamina spanning a wire
   cycle (`make_face_from_wire_cycle`, geometry the caller's), a region
-  behind a closed surface (`make_face_region(shell, side, kind)`), and
+  behind a closed surface (`make_face_region(shell, side, kind)`), a vertex on a face's interior
+  held as a vertex loop (`make_vertex_loop`/`kill_vertex_loop`: a loop
+  of no fins naming its vertex, none of the face's boundary loops,
+  `BRep::face_vertex_loops`, a `VertexUse::Loop`; STEP `VERTEX_LOOP`
+  bounds; PK-1116), and
   the glues that make one general body of touching pieces
   (`glue_vertices`, `glue_edges` with the ring in radial order and
   shells of one region joined across new wedges, `glue_faces` merging a

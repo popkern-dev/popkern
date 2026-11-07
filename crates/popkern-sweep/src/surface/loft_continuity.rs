@@ -306,6 +306,7 @@ mod tests {
         let loop_handle = brep.loops.insert(popkern_core::topology::Loop {
             half_edge: popkern_core::topology::HalfEdgeHandle::default(),
             face: popkern_core::topology::FaceHandle::default(),
+            vertex: None,
         });
         let face_handle = brep.faces.insert(popkern_core::topology::Face {
             outer_loop: loop_handle,

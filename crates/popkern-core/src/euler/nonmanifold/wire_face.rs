@@ -58,6 +58,7 @@ impl BRep {
         let loop_ = self.loops.insert(Loop {
             half_edge: cycle[0],
             face,
+            vertex: None,
         });
         self.faces[face].outer_loop = loop_;
         let n = cycle.len();

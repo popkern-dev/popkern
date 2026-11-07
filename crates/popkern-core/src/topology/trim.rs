@@ -91,6 +91,7 @@ impl BRep {
         let inner_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: None,
         });
 
         // Create edges and half-edges.
@@ -263,6 +264,7 @@ impl BRep {
         let inner_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: None,
         });
 
         let mut edges = Vec::with_capacity(n);

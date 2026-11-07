@@ -227,6 +227,7 @@ impl BRep {
             let new_loop = work.loops.insert(Loop {
                 half_edge: HalfEdgeHandle::default(),
                 face: twin,
+                vertex: None,
             });
             if i == 0 {
                 work.faces[twin].outer_loop = new_loop;

@@ -397,6 +397,9 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         ValidationError::OpenLoop { loop_, .. } => {
             vec![EntityRef::Loop(*loop_)]
         }
+        ValidationError::VertexLoop { loop_, face, .. } => {
+            vec![EntityRef::Loop(*loop_), EntityRef::Face(*face)]
+        }
         ValidationError::CurveSurfaceDeviation { edge, .. } => {
             vec![EntityRef::Edge(*edge)]
         }

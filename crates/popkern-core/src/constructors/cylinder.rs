@@ -141,14 +141,17 @@ impl BRep {
         let loop_lateral = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face: Default::default(),
+            vertex: None,
         });
         let loop_bot = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face: Default::default(),
+            vertex: None,
         });
         let loop_top = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face: Default::default(),
+            vertex: None,
         });
 
         let f_lateral = brep.faces.insert(Face {

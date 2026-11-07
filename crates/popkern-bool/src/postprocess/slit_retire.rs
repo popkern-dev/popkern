@@ -152,6 +152,7 @@ pub(crate) fn excise_same_face_slit_pairs_in(brep: &mut BRep, region: &ServeRegi
                 let new_loop = brep.loops.insert(popkern_core::topology::Loop {
                     half_edge: side[0],
                     face: fh,
+                    vertex: None,
                 });
                 for w in 0..side.len() {
                     let a = side[w];
