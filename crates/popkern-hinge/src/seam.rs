@@ -86,6 +86,18 @@ pub fn seam_hinge_component(
     tolerance: Tolerance,
 ) -> Result<BRep, HingeError> {
     seam.check()?;
+    if let Some(body) = body {
+        popkern_bool::require_operand_kind(
+            body,
+            "seam hinge",
+            0,
+            &[popkern_core::topology::BodyKind::Solid],
+        )
+        .map_err(|source| HingeError::Boolean {
+            stage: "seam hinge".into(),
+            source: Box::new(source),
+        })?;
+    }
     // The leaf width only matters to plate hinges; give the layout one
     // wide enough not to refuse.
     let mut layout_params = params.clone();

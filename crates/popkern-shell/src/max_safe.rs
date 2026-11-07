@@ -188,6 +188,13 @@ pub fn max_safe_offset(
     direction: ShellDirection,
     tolerance: Tolerance,
 ) -> Result<SafeOffsetReport, ShellError> {
+    brep.require_kind(
+        "maximum safe offset",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     if matches!(direction, ShellDirection::Midplane) {
         let inward = max_safe_offset(brep, ShellDirection::Inward, tolerance)?;
         let outward = max_safe_offset(brep, ShellDirection::Outward, tolerance)?;

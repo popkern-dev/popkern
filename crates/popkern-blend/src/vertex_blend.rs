@@ -64,6 +64,7 @@ pub fn vertex_blend_3d(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<BlendResult, BlendError> {
+    brep.require_kind("vertex blend", &[popkern_core::topology::BodyKind::Solid])?;
     if !radius.is_finite() || radius <= 0.0 {
         return Err(BlendError::InvalidParameter {
             parameter: "radius".into(),
@@ -133,6 +134,7 @@ pub fn vertex_blend_3d_variable(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<BlendResult, BlendError> {
+    brep.require_kind("vertex blend", &[popkern_core::topology::BodyKind::Solid])?;
     if brep.vertices.get(vertex).is_none() {
         return Err(BlendError::InvalidParameter {
             parameter: "vertex".into(),

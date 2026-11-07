@@ -39,6 +39,7 @@ pub fn draft_parting_line(
     options: &DraftOptions,
     tolerance: Tolerance,
 ) -> Result<DraftResult, DraftError> {
+    brep.require_kind("draft", &[popkern_core::topology::BodyKind::Solid])?;
     let (parting_origin, parting_normal) = resolve_parting_line(brep, parting)?;
 
     let mut specs = Vec::new();

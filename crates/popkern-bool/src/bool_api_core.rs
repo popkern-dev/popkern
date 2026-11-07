@@ -3,10 +3,10 @@
 //! naming and lineage of the result.
 
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, BodyKind};
 
 use crate::error::BoolError;
-use crate::{BoolOperation, TrackingContext, entity_naming_result, operation, options, sheet};
+use crate::{BoolOperation, TrackingContext, entity_naming_result, operation, options};
 
 /// [`crate::boolean`] under `policy`.
 pub(crate) fn boolean_under(
@@ -17,17 +17,28 @@ pub(crate) fn boolean_under(
     tracking: Option<&mut TrackingContext>,
     policy: options::NonManifoldPolicy,
 ) -> Result<BRep, BoolError> {
-    // §2.3: reject sheet body inputs with a structured error rather
-    // than letting volume-based classification produce undefined
-    // results. Future work will add boundary-relative semantics; for
-    // now this is the only safe response.
-    let a_is_sheet = sheet::is_sheet_body(&a);
-    let b_is_sheet = sheet::is_sheet_body(&b);
+    // A boolean of solids (empty operands go on to the pre-check's
+    // "no faces" finding). A sheet is refused with its own error, whose
+    // remediation names the sheet booleans (§2.3); any other kind (a
+    // general body, a wire) with the kind gate's.
+    let kinds = [a.body_kind(), b.body_kind()];
+    let a_is_sheet = kinds[0] == BodyKind::Sheet;
+    let b_is_sheet = kinds[1] == BodyKind::Sheet;
     if a_is_sheet || b_is_sheet {
         return Err(BoolError::OpenShellNotSupported {
             a: a_is_sheet,
             b: b_is_sheet,
         });
+    }
+    for (operand, kind) in kinds.into_iter().enumerate() {
+        if !matches!(kind, BodyKind::Solid | BodyKind::Empty) {
+            return Err(BoolError::UnsupportedBodyKind {
+                operation: "boolean",
+                operand,
+                kind,
+                accepted: &[BodyKind::Solid],
+            });
+        }
     }
 
     // No perturbation retry: plan Stage 7d retired it after it fired on

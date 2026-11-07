@@ -101,7 +101,7 @@ fn a_segment_through_a_box_keeps_its_inside_and_outside_parts() {
     assert_eq!(solid.faces.len(), cube().faces.len());
     // The union holds the solid and the outside pieces.
     let union = run(BoolOperation::Union, &cube(), &wire);
-    assert_eq!(union.body_kind(), BodyKind::Mixed);
+    assert_eq!(union.body_kind(), BodyKind::General);
     assert_eq!(union.faces.len(), cube().faces.len());
     assert_eq!(union.edges.len(), cube().edges.len() + 2);
 }

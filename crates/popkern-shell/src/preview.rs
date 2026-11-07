@@ -63,6 +63,13 @@ pub fn shell_preview(
     direction: ShellDirection,
     tolerance: Tolerance,
 ) -> Result<PreviewMesh, ShellError> {
+    brep.require_kind(
+        "shell",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     if matches!(direction, ShellDirection::Midplane) {
         let mut mesh = shell_preview(brep, thickness / 2.0, ShellDirection::Inward, tolerance)?;
         let outward = shell_preview(brep, thickness / 2.0, ShellDirection::Outward, tolerance)?;

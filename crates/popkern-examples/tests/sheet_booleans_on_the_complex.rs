@@ -29,6 +29,7 @@ fn tube() -> BRep {
         .collect();
     assert_eq!(caps.len(), 2);
     c.retire_faces_to_boundary(&caps).expect("open tube");
+    c.settle_open_shells();
     assert_eq!(c.body_kind(), BodyKind::Sheet);
     c
 }

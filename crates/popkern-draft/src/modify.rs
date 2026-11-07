@@ -44,6 +44,7 @@ pub fn modify_draft_angle(
     neutral: NeutralReference,
     tolerance: Tolerance,
 ) -> Result<DraftResult, DraftError> {
+    brep.require_kind("modify draft", &[popkern_core::topology::BodyKind::Solid])?;
     let is_planar = brep.faces.get(face).is_some_and(|fd| {
         fd.surface.as_ref().is_some_and(|sof| {
             matches!(

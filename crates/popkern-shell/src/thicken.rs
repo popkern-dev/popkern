@@ -85,6 +85,14 @@ pub(crate) fn thicken_impl(
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<ShellResult, ShellError> {
+    brep.require_kind(
+        "thicken",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     // Normalize the open-boundary representation: constructors register
     // sheet rims as null-sentinel twins (`boundary_edges`), while the
     // skin pipeline works in the loopless-twin form (both half-edges

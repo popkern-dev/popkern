@@ -10,7 +10,7 @@
 //! - solid − wire is the solid itself: a wire bounds no volume, so
 //!   regularized subtraction removes nothing;
 //! - solid ∪ wire is the solid with the wire's outside pieces beside
-//!   it, one mixed body (`BodyKind::Mixed`).
+//!   it, one general body (`BodyKind::General`).
 //!
 //! The cut parameters are the curve's crossings with every face of the
 //! solid's face surfaces (`intersect_surface_curve_dense`, the solver

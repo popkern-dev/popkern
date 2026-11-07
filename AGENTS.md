@@ -238,6 +238,21 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   rest by the operand entities they are pieces of). The shortcut oracle
   `POPKERN_SHORTCUT_ORACLE=1` runs the general path on every touching /
   containment shortcut and logs agreement (`ShortcutOracle`).
+- **Body kinds are a contract** — `BRep::body_kind` reads the kind off
+  regions, rings and vertex fans (`Empty`, `Acorn`, `Wire`, `Sheet`,
+  `Solid`, `General`; a solid opened mid-edit is `General` until
+  `settle_open_shells`). Operations gate at entry with
+  `BRep::require_kind(operation, accepted)` (`CoreError::UnsupportedBodyKind`,
+  carried by each crate's `Core`/`Topology` error) or, in booleans and
+  the operations built on them, `popkern_bool::require_operand_kind`
+  (`BoolError::UnsupportedBodyKind` with the operand index): chamfers,
+  fillet edits, drafts, sweeps into a body, holes, hinges and booleans
+  take solids; edge fillets (open caps at a sheet's boundary), corner
+  blends, face blends, sheet booleans, partition and imprint solids or
+  sheets; shell, offset and plane splits solids (or empty, answered
+  with `NoFaces` or no pieces), thicken solids or sheets (or empty);
+  volume, centroid and inertia solids (or empty); tessellation and
+  area any kind.
 - **Sheet booleans** — `boolean_with_sheets` decides sheet ∩ solid,
   sheet − solid, solid − sheet (pieces) and the union's appendage on
   the cell complex (`sheet/complex_route.rs`, sheets as laminae:

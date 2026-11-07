@@ -130,6 +130,13 @@ fn to_vec3(p: Point3) -> Vec3 {
 /// magnitude tighter than the chord-height tessellation error).
 /// Non-Gregory non-planar faces still go through tessellation.
 pub fn body_volume(brep: &BRep, _tol: &Tolerance) -> Result<f64, MeasureError> {
+    brep.require_kind(
+        "volume",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     // Fast path: all-planar bodies (boxes, prisms, polyhedra) are exact.
     let all_planar = brep.faces.iter().all(|(_, face)| {
         face.surface
@@ -308,6 +315,13 @@ pub fn body_surface_area(brep: &BRep, tol: &Tolerance) -> Result<f64, MeasureErr
 /// Uses the divergence theorem to compute the first moments of volume, then
 /// divides by total volume to obtain the centroid coordinates.
 pub fn body_centroid(brep: &BRep, _tol: &Tolerance) -> Result<Point3, MeasureError> {
+    brep.require_kind(
+        "centroid",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     let mesh = tessellate_fine(brep)?;
 
     let mut vol = 0.0_f64;
@@ -406,6 +420,13 @@ pub fn body_moment_of_inertia(
     axis: Axis,
     tol: &Tolerance,
 ) -> Result<f64, MeasureError> {
+    brep.require_kind(
+        "moment of inertia",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     let mesh = tessellate_fine(brep)?;
     let centroid = body_centroid(brep, tol)?;
 

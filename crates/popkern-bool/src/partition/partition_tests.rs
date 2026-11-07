@@ -80,6 +80,7 @@ fn a_sheet_partitions_as_a_lamina() {
     let mut open = cube_at(0.0, 0.0, 0.0);
     let face = open.faces.keys().next().expect("face");
     open.retire_faces_to_boundary(&[face]).expect("retire");
+    open.settle_open_shells();
     assert_eq!(open.body_kind(), popkern_core::topology::BodyKind::Sheet);
     let solid = cube_at(0.5, 0.5, 0.5);
     let p = partition(&[&solid, &open], Tolerance::default()).expect("partition");
@@ -104,8 +105,9 @@ fn a_mixed_body_is_refused_by_kind() {
     let mut open = cube_at(3.0, 0.0, 0.0);
     let face = open.faces.keys().next().expect("face");
     open.retire_faces_to_boundary(&[face]).expect("retire");
+    open.settle_open_shells();
     let mixed = crate::concatenate_solids(cube_at(0.0, 0.0, 0.0), open).expect("mixed");
-    assert_eq!(mixed.body_kind(), popkern_core::topology::BodyKind::Mixed);
+    assert_eq!(mixed.body_kind(), popkern_core::topology::BodyKind::General);
     let solid = cube_at(0.5, 0.5, 0.5);
     match partition(&[&solid, &mixed], Tolerance::default()) {
         Err(crate::BoolError::UnsupportedBodyKind { operand: 1, .. }) => {}

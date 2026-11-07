@@ -66,6 +66,7 @@ pub fn modify_fillet_radius(
     new_radius: impl Into<FilletRadius>,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
+    brep.require_kind("modify fillet", &[popkern_core::topology::BodyKind::Solid])?;
     let radius = new_radius.into();
     if is_closed_annulus(brep, fillet_face) {
         return modify_closed_fillet_radius(brep, fillet_face, radius, tolerance);

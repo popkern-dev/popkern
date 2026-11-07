@@ -55,6 +55,7 @@ pub fn modify_chamfer_distance(
     new_kind: ChamferKind,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
+    brep.require_kind("modify chamfer", &[popkern_core::topology::BodyKind::Solid])?;
     // Kind gate FIRST: support derivation reads the strip's plane and
     // would report a confusing surface error on e.g. a cylinder
     // fillet strip.
