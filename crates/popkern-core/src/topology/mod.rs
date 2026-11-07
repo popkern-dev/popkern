@@ -36,6 +36,7 @@ pub mod brep;
 pub use body_kind::BodyKind;
 pub use brep::BRep;
 pub mod contact;
+mod contact_query;
 pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
 pub use contact::{ContactEntity, TopologyContact, TopologyContactKind};
 pub mod coherence;
@@ -57,6 +58,7 @@ pub use surface_boundary_audit::{
 mod brep_append;
 /// Non-manifold radial-cycle helpers for [`BRep`].
 mod brep_radial;
+mod brep_sewing_glue;
 pub mod radial_order;
 pub use radial_order::RadialOrderError;
 /// Regions, shells and face sides for [`BRep`].

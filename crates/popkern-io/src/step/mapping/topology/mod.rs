@@ -175,7 +175,12 @@ fn build_brep_from_faces(
     let incidence_policy = if is_open_shell {
         open_shell_incidence_policy()
     } else {
-        closed_shell_incidence_policy(&face_data, layout.sizes.len() == 1, log)?
+        closed_shell_incidence_policy(
+            &face_data,
+            layout.sizes.len() == 1,
+            geo.general_shells(),
+            log,
+        )?
     };
     // Each piece of a shell that touches itself has its own copies of
     // the STEP vertices and edges it uses (`shell_pieces`); a shell of

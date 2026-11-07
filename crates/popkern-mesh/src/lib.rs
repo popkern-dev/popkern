@@ -18,6 +18,7 @@ mod error;
 mod export;
 mod face_pass;
 mod facet_angle;
+mod general;
 mod mesh;
 pub mod offset_oracle;
 mod point_box_index;
@@ -42,6 +43,7 @@ pub use chordal_certificate::{
 };
 pub use encroachment::tessellate_faces;
 pub use error::MeshError;
+pub use general::{FaceRegions, GeneralMesh, WirePolyline, tessellate_general};
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 pub use tessellate::tessellate_face;
 pub use vertex_normal::limit_normal as surface_limit_normal;

@@ -29,6 +29,9 @@ pub struct StepImportOptions {
     pub product_filter: Option<Vec<String>>,
     /// How aggressively to heal the imported model.
     pub healing: HealingLevel,
+    /// How a shell that touches itself imports: manifold pieces with
+    /// recorded contacts (the default) or one general body.
+    pub non_manifold: crate::step::import_general::StepNonManifold,
 }
 
 impl Default for StepImportOptions {
@@ -38,6 +41,7 @@ impl Default for StepImportOptions {
             preferred_rep: ShapeRepKind::AdvancedBrep,
             product_filter: None,
             healing: HealingLevel::Basic,
+            non_manifold: crate::step::import_general::StepNonManifold::Pieces,
         }
     }
 }
@@ -124,6 +128,9 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
     let mut geo_cache = GeometryCache::new(&graph);
     geo_cache.set_radians_per_angle(units.radians_per_angle);
     geo_cache.set_trim_allowance(allowance);
+    geo_cache.set_general_shells(
+        options.non_manifold == crate::step::import_general::StepNonManifold::General,
+    );
     let mut brep_solids = map_brep_solids(&graph, &mut geo_cache, &mut log, tolerance);
 
     // Healing
@@ -213,6 +220,11 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
     }
 
     // Map product structure
+    if options.non_manifold == crate::step::import_general::StepNonManifold::General {
+        for (id, brep) in brep_solids.iter_mut() {
+            crate::step::import_general::glue_pieces(brep, *id, &mut log);
+        }
+    }
     let brep_refs: Vec<_> = brep_solids.iter().map(|(id, b)| (*id, b.clone())).collect();
     let (mut products, mut roots) = map_products(&graph, &brep_refs, &mut geo_cache, &mut log);
     // A file with solids but no product structure (some writers emit

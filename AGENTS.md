@@ -259,8 +259,9 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   sheets; shell, offset and plane splits solids (or empty, answered
   with `NoFaces` or no pieces), thicken and the maximum safe offset
   solids or sheets (or empty);
-  volume, centroid and inertia solids (or empty); tessellation and
-  area any kind.
+  centroid and inertia solids (or empty); volume solids, general
+  bodies (the sum of their solid regions, `region_volumes`) or empty;
+  tessellation and area any kind.
 - **Non-manifold Euler operators** — `euler/nonmanifold/`: acorns
   (`make_acorn`/`kill_acorn`), wire edges (`make_wire_edge`, joining
   the shells its ends lie in; `kill_wire_edge` splits a shell it
@@ -278,6 +279,24 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `BRep::radial_order`, `order_ring`); the cell complex adapts its edges
   to it, and `validate_all` checks a ring of more than two fins is in
   radial order (`RingOrder`, `RingOrderUndecided`).
+- **General bodies downstream** — `popkern_mesh::tessellate_general`
+  meshes any kind: faces tagged with the regions behind and in front
+  (`FaceRegions`: `two_sided` for sheets and laminae, `internal` between
+  two solids), wire edges as polylines, acorns as points,
+  `region_triangles` a solid region's boundary faced out of it;
+  `popkern_measure::region_volumes` (and `body_volume` of a general
+  body, their sum) sums each face's divergence term into the region
+  behind and out of the region in front. STEP: `StepImportOptions::
+  non_manifold = StepNonManifold::General` imports a self-touching
+  `CLOSED_SHELL` as one general body (its pieces glued), and a general
+  body of touching solids exports as OCC writes one (one `CLOSED_SHELL`,
+  shared edges reused, a face between two solids listed once; laminae,
+  cavities, wires decline with `IoError::Export`). Sewing with `allow_nonmanifold_edges` glues
+  each pair into a ring in radial order (a third sheet onto a sewn edge,
+  `GlueDeclined` when it cannot). `BRep::contacts()` lists where a body
+  touches itself in either form: recorded contacts (split pieces, old
+  documents) and those its topology holds (rings of more than two fins,
+  vertices of several uses, a contact edge's ends).
 - **Sheet booleans** — `boolean_with_sheets` decides sheet ∩ solid,
   sheet − solid, solid − sheet (pieces) and the union's appendage on
   the cell complex (`sheet/complex_route.rs`, sheets as laminae:
@@ -309,8 +328,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   each piece its own solid with its own copies of the contact edges and
   vertices (`popkern-io/src/step/mapping/topology/shell_pieces.rs`).
   The pieces are the face sets joined through two-use edges; a piece
-  using an edge four times declines (PK-1070), as do odd uses (an
-  internal face, PK-1071) and touching void shells (PK-1072). Fixtures
+  using an edge four times and odd uses (an internal face) decline
+  under the default option, and under `StepNonManifold::General` import
+  face by face, glued into one general body whose enclosed cells
+  become its solids (`BRep::fill_enclosed_cells`, PK-1070, PK-1071);
+  touching void shells still decline (PK-1072). Fixtures
   are OCC-written (`tools/occ-oracle/occ_write_nonmanifold.py`).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 

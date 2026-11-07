@@ -232,6 +232,9 @@ impl ExportContext {
                 vec![str_param(""), list(shell_refs)],
             )]);
         }
+        if brep.body_kind() == popkern_core::topology::BodyKind::General {
+            return super::export_general::emit_general(self, brep, face_ids_by_shell);
+        }
         Ok(super::export_voids::emit_solids(
             self,
             brep,
@@ -338,13 +341,14 @@ impl ExportContext {
                 .or_else(|| maps.edge.get(&he.edge))
                 .ok_or_else(|| IoError::Export("Edge not in export map".into()))?;
 
-            // Determine orientation: forward if this half-edge is the one
-            // referenced by the parent edge (i.e., the "forward" half-edge)
+            // Forward when the fin runs its edge's curve way (any fin of a longer ring).
             let edge = brep
                 .edges
                 .get(he.edge)
                 .ok_or_else(|| IoError::Export("Edge not found".into()))?;
-            let forward = local_edge_curve_id.is_some() || edge.half_edge == current_he;
+            let first = edge.half_edge == current_he;
+            let forward =
+                local_edge_curve_id.is_some() || brep.fin_sense(current_he).unwrap_or(first);
 
             let oe_id = self.emit(
                 "ORIENTED_EDGE",

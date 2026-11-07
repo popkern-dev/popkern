@@ -359,10 +359,32 @@ pub(super) fn edge_end_vertex(
                 IoError::Export("Boundary edge references missing next half-edge".into())
             });
     }
-    brep.half_edges
-        .get(he.mate().unwrap_or_default())
+    // The mate's origin, or on a ring of more than two fins (a general
+    // body's non-manifold edge) the loop successor's.
+    brep.mate(edge_first_fin(brep, edge, he))
+        .and_then(|m| brep.half_edges.get(m))
         .map(|twin| twin.origin)
-        .ok_or_else(|| IoError::Export("Half-edge references missing twin".into()))
+        .or_else(|| brep.edge_vertices(edge).map(|(_, end)| end))
+        .ok_or_else(|| IoError::Export("Edge has no end vertex".into()))
+}
+
+/// The handle of `he`, `edge`'s first fin.
+fn edge_first_fin(
+    brep: &BRep,
+    edge: EdgeHandle,
+    he: &HalfEdge,
+) -> popkern_core::topology::HalfEdgeHandle {
+    let first = brep
+        .edges
+        .get(edge)
+        .map(|e| e.half_edge)
+        .unwrap_or_default();
+    debug_assert!(
+        brep.half_edges
+            .get(first)
+            .is_some_and(|f| f.origin == he.origin)
+    );
+    first
 }
 
 /// Synthesize a plane surface from the first three vertices of a loop.

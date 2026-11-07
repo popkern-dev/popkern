@@ -16,6 +16,7 @@
 //! assert alongside each inverse's round trip.
 
 mod acorn;
+mod cells;
 mod contacts;
 mod error;
 mod face_region;
@@ -120,3 +121,7 @@ mod face_region_tests;
 #[cfg(test)]
 #[path = "contacts_tests.rs"]
 mod contacts_tests;
+
+#[cfg(test)]
+#[path = "cells_tests.rs"]
+mod cells_tests;
