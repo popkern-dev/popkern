@@ -193,7 +193,14 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   vertices, or separate shells that touch. `boolean_with_options` with
   `NonManifoldPolicy::SplitToManifold` serves manifold pieces instead,
   each contact recorded in `BRep::topology_contacts`; `validate_all`
-  excuses recorded contacts only. A later boolean or N-ary boolean
+  excuses recorded contacts only. `NonManifoldPolicy::General` serves
+  one general body: the split pieces glued at their contacts
+  (`BRep::glue_contacts`: vertex copies one vertex, coincident edges
+  one ring in radial order; a vertex on a face's interior stays
+  recorded; a glue that declines serves the pieces with a
+  `GeneralFallback` shadow line), and general operands enter as their
+  manifold pieces (`BRep::split_to_manifold`, its inverse), in two-body
+  and N-ary booleans alike (Rhai `non_manifold: "general"`). A later boolean or N-ary boolean
   carries the contacts its operands recorded (re-recorded on the
   result, `postprocess/contact_inherit.rs`) and still declines a new
   one; fillets and motions keep the records. The cell complex

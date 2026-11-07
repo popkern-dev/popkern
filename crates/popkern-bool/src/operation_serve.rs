@@ -183,7 +183,8 @@ pub(super) fn select_and_serve(
                     nonmanifold = Some(error);
                     // Under the split policy the complex splits its own
                     // verdict into manifold pieces (PK-987).
-                    (policy == crate::options::NonManifoldPolicy::SplitToManifold)
+                    policy
+                        .serves()
                         .then(|| {
                             crate::complex::serve::rescue_split(
                                 original_a,
@@ -241,7 +242,8 @@ pub(super) fn select_and_serve(
             }
             return match policy {
                 crate::options::NonManifoldPolicy::Decline => Err(nm),
-                crate::options::NonManifoldPolicy::SplitToManifold => {
+                crate::options::NonManifoldPolicy::SplitToManifold
+                | crate::options::NonManifoldPolicy::General => {
                     crate::postprocess::contact_record::accept_split(body, tolerance).map_err(|e| {
                         crate::complex_shadow::record_complex_rescue(
                             op,

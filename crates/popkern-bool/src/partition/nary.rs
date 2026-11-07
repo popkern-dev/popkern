@@ -36,6 +36,10 @@ pub fn nary_boolean(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
+    if let Some((pieces, split)) = general_operands(bodies, options)? {
+        let refs: Vec<&BRep> = pieces.iter().collect();
+        return nary_boolean(&refs, expr, tolerance, &split).map(crate::general::glue_result);
+    }
     // Bodies served as pieces with recorded contacts (PK-986): run split,
     // keep the contacts they recorded, decline any new one.
     use crate::postprocess::contact_inherit::{inherited_or_declined, run_policy};
@@ -47,6 +51,27 @@ pub fn nary_boolean(
     }
     let served = partition(bodies, tolerance).and_then(|p| p.select(expr, options));
     or_fold(served, bodies, expr, tolerance, options)
+}
+
+/// Under the general policy, the bodies as manifold pieces (a general
+/// body split, contacts recorded) and the split options to run them
+/// under; the caller glues the result's contacts. `None` otherwise.
+fn general_operands(
+    bodies: &[&BRep],
+    options: &BoolOptions,
+) -> Result<Option<(Vec<BRep>, BoolOptions)>, BoolError> {
+    if options.non_manifold != crate::options::NonManifoldPolicy::General {
+        return Ok(None);
+    }
+    let pieces = bodies
+        .iter()
+        .enumerate()
+        .map(|(i, b)| crate::general::operand_pieces((*b).clone(), i))
+        .collect::<Result<Vec<_>, _>>()?;
+    let split = BoolOptions {
+        non_manifold: crate::options::NonManifoldPolicy::SplitToManifold,
+    };
+    Ok(Some((pieces, split)))
 }
 
 /// The partition's answer, or on a decline the fold of `expr` by
@@ -88,6 +113,10 @@ pub fn nary_boolean_where(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
+    if let Some((pieces, split)) = general_operands(bodies, options)? {
+        let refs: Vec<&BRep> = pieces.iter().collect();
+        return nary_boolean_where(&refs, keep, tolerance, &split).map(crate::general::glue_result);
+    }
     use crate::postprocess::contact_inherit::{inherited_or_declined, run_policy};
     if let Some(non_manifold) = run_policy(options.non_manifold, bodies) {
         let split = BoolOptions { non_manifold };

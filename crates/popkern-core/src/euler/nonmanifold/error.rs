@@ -152,6 +152,12 @@ pub enum EulerError {
         /// The region.
         region: RegionHandle,
     },
+    /// The general body has no manifold pieces to split into.
+    #[error("not splittable into manifold pieces: {reason}")]
+    NotSplittable {
+        /// What stands in the way.
+        reason: &'static str,
+    },
     /// The fins given are not a closed cycle of distinct wire edges
     /// held by one shell.
     #[error("not a wire cycle: {reason}")]

@@ -71,7 +71,7 @@ impl Partition {
         let c = &regions.lift.complex;
         let mut plan = None;
         if !selection.nonmanifold_edges.is_empty() || !selection.nonmanifold_vertices.is_empty() {
-            let split = (policy == NonManifoldPolicy::SplitToManifold).then(|| {
+            let split = policy.serves().then(|| {
                 crate::complex::split_plan::split_plan(
                     c,
                     &regions.sides,

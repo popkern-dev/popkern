@@ -220,7 +220,8 @@ impl BRep {
                     let sv = sof.geometry.partial_v(u, v);
                     let n = su.cross(&sv);
                     let folded = if sof.orientation { n } else { n * -1.0 };
-                    // p · n dA with n dA = folded * du * dv.
+                    // p · n dA with n dA = folded * du * dv (the volume
+                    // is a third of its integral).
                     let (x, y, z) = (p.x - centre.x, p.y - centre.y, p.z - centre.z);
                     let contribution = (x * folded.x + y * folded.y + z * folded.z) * du * dv;
                     wedge += contribution;
@@ -237,11 +238,15 @@ impl BRep {
         // less than a tolerance cube. The floor is relative: an
         // absolute (100 · linear)³ read a 0.34-volume cone as
         // indeterminate at a 1e-2 tolerance.
+        // The volume is a third of the wedge integral (the divergence
+        // of p is 3): read whole, every magnitude was three times the
+        // volume (a unit cube 3.0), which the sign checks never saw.
+        let volume = wedge / 3.0;
         let linear = self.tolerance.linear();
-        if wedge.abs() < 1e-6 * magnitude || wedge.abs() < linear * linear * linear {
+        if wedge.abs() < 1e-6 * magnitude || volume.abs() < linear * linear * linear {
             return None;
         }
-        Some(wedge)
+        Some(volume)
     }
 }
 
