@@ -30,6 +30,15 @@ pub struct GlueEdgeResult {
     pub merged_shells: Vec<ShellHandle>,
 }
 
+/// The shells a ring's new wedges join, and the free shells they move
+/// into a region ([`BRep::wedge_joins`]).
+pub(super) struct WedgeJoins {
+    /// Shell pairs of one region meeting in a wedge.
+    pub joins: Vec<(ShellHandle, ShellHandle)>,
+    /// Free shells of the outside and the region each now lies in.
+    pub adopt: Vec<(ShellHandle, crate::topology::RegionHandle)>,
+}
+
 /// Samples taken along a curve to measure coincidence.
 const SAMPLES: usize = 9;
 
@@ -100,7 +109,8 @@ impl BRep {
             let t = self.edges[keep].tolerance.unwrap_or(0.0).max(distance);
             self.edges[keep].tolerance = Some(t);
         }
-        let merged_shells = self.join_shells(joins);
+        self.adopt_shells(&joins.adopt);
+        let merged_shells = self.join_shells(joins.joins);
         Ok(GlueEdgeResult {
             distance,
             ring,
@@ -191,14 +201,20 @@ impl BRep {
     }
 
     /// The shell pairs the wedges of `order` about `edge` join, or the
-    /// wedge whose sides lie in two regions.
+    /// wedge whose sides lie in two regions. A free shell of the
+    /// outside (a sheet or wire held by no region, every face side in
+    /// it) whose fins land in a wedge of another region lies in that
+    /// region: the radial order decides it (a sheet glued onto a solid's
+    /// edge on the material side is a lamina of the solid), and it is
+    /// returned to be adopted there. A shell adopted by two regions is
+    /// a conflict.
     pub(super) fn wedge_joins(
         &self,
         edge: EdgeHandle,
         order: &[(HalfEdgeHandle, bool)],
-    ) -> Result<Vec<(ShellHandle, ShellHandle)>, EulerError> {
+    ) -> Result<WedgeJoins, EulerError> {
         let n = order.len();
-        let mut joins = Vec::new();
+        let mut wedges = Vec::with_capacity(n);
         for i in 0..n {
             let ((f, ff), (g, fg)) = (order[i], order[(i + 1) % n]);
             let from_side = if ff { FaceSide::Front } else { FaceSide::Back };
@@ -210,7 +226,25 @@ impl BRep {
             let (Some(a), Some(b)) = (side_shell(f, from_side), side_shell(g, to_side)) else {
                 return Err(EulerError::NotAFaceEdge { edge });
             };
+            wedges.push((f, g, a, b));
+        }
+        // Adoptions first, then every wedge checked with them applied.
+        let mut adopt: BTreeMap<ShellHandle, crate::topology::RegionHandle> = BTreeMap::new();
+        for &(_, _, a, b) in &wedges {
             let (ra, rb) = (self.shells[a].region, self.shells[b].region);
+            if ra == rb {
+                continue;
+            }
+            if self.is_free_shell(a) && adopt.get(&a).is_none_or(|&r| r == rb) {
+                adopt.insert(a, rb);
+            } else if self.is_free_shell(b) && adopt.get(&b).is_none_or(|&r| r == ra) {
+                adopt.insert(b, ra);
+            }
+        }
+        let mut joins = Vec::new();
+        for (f, g, a, b) in wedges {
+            let region = |s: ShellHandle| adopt.get(&s).copied().unwrap_or(self.shells[s].region);
+            let (ra, rb) = (region(a), region(b));
             if ra != rb {
                 return Err(EulerError::RegionConflict {
                     edge,
@@ -222,7 +256,33 @@ impl BRep {
                 joins.push((a, b));
             }
         }
-        Ok(joins)
+        Ok(WedgeJoins {
+            joins,
+            adopt: adopt.into_iter().collect(),
+        })
+    }
+
+    /// Whether `shell` is a free shell of the outside: no region's outer
+    /// shell, and every face with a side in it has both sides there (a
+    /// sheet in the void, wires, an acorn).
+    pub(crate) fn is_free_shell(&self, shell: ShellHandle) -> bool {
+        let Some(s) = self.shells.get(shell) else {
+            return false;
+        };
+        s.region == self.outside
+            && !self.regions.values().any(|r| r.shell == shell)
+            && self
+                .faces
+                .values()
+                .all(|f| (f.back == shell) == (f.front == shell))
+    }
+
+    /// Move each adopted shell into its region (see
+    /// [`BRep::wedge_joins`]).
+    pub(super) fn adopt_shells(&mut self, adopt: &[(ShellHandle, crate::topology::RegionHandle)]) {
+        for &(shell, region) in adopt {
+            self.shells[shell].region = region;
+        }
     }
 
     /// Join each pair's shells (of one region), keeping a region's

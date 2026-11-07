@@ -12,14 +12,23 @@
 //! faces' material lies behind them), else a bounded void (the inside of
 //! a cavity, of a closed sheet). A piece enclosing negative volume is a
 //! cell's inner boundary, seen from the cell around it: it bounds the
-//! smallest positive cell that contains it (a cavity's material side is
-//! an inner shell of the solid; a piece of front sides inside a void
-//! cell is that void's), or the outside when none does. A face between
-//! two cells has its back in one piece and its front in the other, so
-//! it bounds both.
+//! smallest bounded region containing it by winding number other than
+//! the cell across its own faces (a cavity's material side is an inner
+//! shell of the solid, not of the void inside the cavity; a solid's
+//! outside in a closed sheet's void is that void's), or the outside when
+//! none does. A face between two cells has its back in one piece and its
+//! front in the other, so it bounds both. Free shells of the outside (a
+//! sheet, wires, an acorn) lying in a bounded region join it.
 
 use crate::geometry::Point3;
 use crate::topology::{BRep, FaceHandle, Region, RegionHandle, RegionKind, ShellHandle};
+
+/// A bounded region read by its outer boundary.
+struct HostCell {
+    region: RegionHandle,
+    sides: Vec<(FaceHandle, f64)>,
+    volume: f64,
+}
 
 /// One closed piece, its sides signed.
 struct Piece {
@@ -34,7 +43,8 @@ impl BRep {
     /// bounds (see the module docs): a new solid or bounded void for a
     /// positive piece, the enclosing cell for a negative one. The
     /// outside's shells are first separated into their pieces (sides
-    /// connected through wedges). Returns the regions made.
+    /// connected through wedges); free shells then join the smallest
+    /// region holding them. Returns the regions made.
     pub fn fill_enclosed_cells(&mut self) -> Vec<RegionHandle> {
         let outside = self.outside;
         let shells: Vec<ShellHandle> = self
@@ -73,7 +83,6 @@ impl BRep {
             .collect();
         // Positive pieces: each the outer boundary of a new cell.
         let mut made = Vec::new();
-        let mut cells: Vec<(RegionHandle, &Piece)> = Vec::new();
         for piece in pieces.iter().filter(|p| p.volume > 0.0) {
             let kind = if piece.has_back {
                 RegionKind::Solid
@@ -86,30 +95,112 @@ impl BRep {
             });
             self.shells[piece.shell].region = region;
             made.push(region);
-            cells.push((region, piece));
         }
+        // Every bounded region is a candidate host, read by its outer
+        // boundary: the smallest containing a point is the innermost.
+        let hosts = self.host_cells();
         // Negative pieces: an inner boundary of the smallest cell holding
-        // them whose kind their sides face.
+        // them, never the cell on the far side of their own faces (a
+        // cavity's material side and the void inside it share faces).
         for piece in pieces.iter().filter(|p| p.volume < 0.0) {
             let Some(q) = self.piece_point(piece) else {
                 continue;
             };
-            let want = if piece.has_back {
-                RegionKind::Solid
-            } else {
-                RegionKind::Void
-            };
-            let host = cells
+            let own: std::collections::BTreeSet<FaceHandle> =
+                piece.sides.iter().map(|s| s.0).collect();
+            let host = hosts
                 .iter()
-                .filter(|(r, _)| self.region_kind(*r) == Some(want))
-                .filter(|(_, cell)| self.winding_about(&cell.sides, q) > 0.5)
-                .min_by(|a, b| a.1.volume.total_cmp(&b.1.volume))
-                .map(|(r, _)| *r);
+                .filter(|cell| !cell.sides.iter().any(|s| own.contains(&s.0)))
+                .filter(|cell| self.winding_about(&cell.sides, q) > 0.5)
+                .min_by(|a, b| a.volume.total_cmp(&b.volume))
+                .map(|cell| cell.region);
             if let Some(region) = host {
                 self.shells[piece.shell].region = region;
             }
         }
+        // Free shells of the outside (sheets, wires, acorns) lying in a
+        // cell are that cell's: a lamina or wire floating in a solid, an
+        // acorn in a cavity.
+        let free: Vec<ShellHandle> = self
+            .shells
+            .keys()
+            .filter(|&s| self.is_free_shell(s))
+            .collect();
+        for shell in free {
+            let Some(q) = self.free_shell_point(shell) else {
+                continue;
+            };
+            let host = hosts
+                .iter()
+                .filter(|cell| self.winding_about(&cell.sides, q) > 0.5)
+                .min_by(|a, b| a.volume.total_cmp(&b.volume))
+                .map(|cell| cell.region);
+            if let Some(region) = host {
+                self.shells[shell].region = region;
+            }
+        }
         made
+    }
+
+    /// Every bounded region with its outer shell's sides signed and the
+    /// volume they enclose.
+    fn host_cells(&self) -> Vec<HostCell> {
+        self.regions
+            .iter()
+            .filter(|&(r, _)| r != self.outside)
+            .filter_map(|(region, data)| {
+                let shell = data.shell;
+                let sides: Vec<(FaceHandle, f64)> = self
+                    .faces
+                    .iter()
+                    .filter_map(|(h, f)| match (f.back == shell, f.front == shell) {
+                        (true, false) => Some((h, 1.0)),
+                        (false, true) => Some((h, -1.0)),
+                        _ => None,
+                    })
+                    .collect();
+                let volume = self.enclosed_signed_volume(&sides)?;
+                Some(HostCell {
+                    region,
+                    sides,
+                    volume,
+                })
+            })
+            .collect()
+    }
+
+    /// A point of free shell `shell` off any other surface: an interior
+    /// sample of one of its faces, else a wire edge's midpoint, else its
+    /// acorn.
+    fn free_shell_point(&self, shell: ShellHandle) -> Option<Point3> {
+        if let Some(face) = self
+            .faces
+            .iter()
+            .find(|(_, f)| f.back == shell)
+            .map(|(h, _)| h)
+        {
+            return self.face_interior_sample(face);
+        }
+        let data = self.shells.get(shell)?;
+        if let Some(&edge) = data.wire_edges.first() {
+            let (a, b) = self.edge_vertices(edge)?;
+            if let Some(c) = self.edges.get(edge).and_then(|e| e.curve.as_ref()) {
+                use crate::geometry::curve::CurveEval;
+                return Some(c.geometry.point_at(0.5 * (c.t_start + c.t_end)));
+            }
+            let (p, q) = (
+                self.vertices.get(a)?.position,
+                self.vertices.get(b)?.position,
+            );
+            return Some(Point3::new(
+                0.5 * (p.x + q.x),
+                0.5 * (p.y + q.y),
+                0.5 * (p.z + q.z),
+            ));
+        }
+        data.acorn
+            .and_then(|v| self.vertices.get(v))
+            .map(|v| v.position)
     }
 
     /// A point inside the volume `piece` bounds: the mean of its faces'

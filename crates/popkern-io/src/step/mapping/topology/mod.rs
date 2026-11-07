@@ -5,6 +5,7 @@
 //!
 //! Face data collection is in the [`face_collector`] submodule.
 
+mod curve_sets;
 mod edge_trim;
 mod face_collector;
 mod half_edge_use;
@@ -81,6 +82,7 @@ pub fn map_brep_solids(
     results.extend(surface_models::map_surface_models(
         graph, geo, log, tolerance,
     ));
+    results.extend(curve_sets::map_curve_sets(graph, geo, log, tolerance));
     results
 }
 
@@ -173,7 +175,7 @@ fn build_brep_from_faces(
     let face_data =
         face_collector::collect_face_data_reversing(graph, faces, layout.reversed_uses, log)?;
     let incidence_policy = if is_open_shell {
-        open_shell_incidence_policy()
+        open_shell_incidence_policy(&face_data, log)
     } else {
         closed_shell_incidence_policy(
             &face_data,

@@ -289,9 +289,18 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   behind and out of the region in front. STEP: `StepImportOptions::
   non_manifold = StepNonManifold::General` imports a self-touching
   `CLOSED_SHELL` as one general body (its pieces glued), and a general
-  body of touching solids exports as OCC writes one (one `CLOSED_SHELL`,
-  shared edges reused, a face between two solids listed once; laminae,
-  cavities, wires decline with `IoError::Export`). Sewing with `allow_nonmanifold_edges` glues
+  body exports as items in one representation (`export_general`):
+  touching solids as OCC writes them (one `CLOSED_SHELL`, shared edges
+  reused, a face between two solids listed once; cavities, touching ones
+  one shell, in a `BREP_WITH_VOIDS`), sheets and laminae in a
+  `SHELL_BASED_SURFACE_MODEL` (a closed sheet around a void a
+  `CLOSED_SHELL` there), wires and acorns as a `GEOMETRIC_CURVE_SET`
+  (trimmed curves, points), which import as wire bodies; under the
+  general option the items touching or held in a solid merge back into
+  one general body (`import_general::merge_touching_items`: glued where
+  they coincide, a sheet glued on a solid's material side adopted as its
+  lamina by `glue_edges`, free sheets, wires and acorns placed in the
+  cell holding them by `fill_enclosed_cells`; PK-1114). Sewing with `allow_nonmanifold_edges` glues
   each pair into a ring in radial order (a third sheet onto a sewn edge,
   `GlueDeclined` when it cannot). `BRep::contacts()` lists where a body
   touches itself in either form: recorded contacts (split pieces, old
