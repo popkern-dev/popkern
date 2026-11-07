@@ -284,6 +284,7 @@ fn add_boundary_loop_face(
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let half_edges = vertices

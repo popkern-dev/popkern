@@ -422,6 +422,7 @@ fn wire_inner_loop(
     let lh = brep.loops.insert(Loop {
         half_edge: half_edges[0],
         face,
+        vertex: None,
     });
 
     let n = half_edges.len();

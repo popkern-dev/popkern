@@ -272,6 +272,7 @@ pub fn build_polyhedron_brep(
             let lh = brep.loops.insert(Loop {
                 half_edge: Default::default(),
                 face: fh,
+                vertex: None,
             });
             let n = cycle.len();
             let mut hes: Vec<HalfEdgeHandle> = Vec::with_capacity(n);

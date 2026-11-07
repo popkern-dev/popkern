@@ -74,6 +74,14 @@ impl BRep {
                 "loop already has half-edges".into(),
             ));
         }
+        // A loop of no fins names its lone vertex: the edge leaves it.
+        if let Some(lone) = loop_data.vertex
+            && lone != vertex
+        {
+            return Err(CoreError::PreconditionFailed(format!(
+                "the empty loop stands at {lone:?}, not {vertex:?}"
+            )));
+        }
 
         // Create the new vertex.
         let new_vertex = self.vertices.insert(Vertex {
@@ -120,8 +128,9 @@ impl BRep {
         he_data.next = he_twin;
         he_data.prev = he_twin;
 
-        // Update loop to point to the new half-edge.
+        // Update loop to point to the new half-edge; it has fins now.
         self.loops[loop_].half_edge = he;
+        self.loops[loop_].vertex = None;
 
         // Update edge to point to he.
         self.edges[edge].half_edge = he;
@@ -312,10 +321,12 @@ impl BRep {
         }
 
         if is_last_edge {
-            // The loop becomes empty again.
+            // The loop becomes empty again, standing at the surviving
+            // vertex.
             self.loops[the_loop].half_edge = Default::default();
             // Reset the surviving vertex's outgoing.
             let surviving_vertex = he_data.origin;
+            self.loops[the_loop].vertex = Some(surviving_vertex);
             self.vertices[surviving_vertex].outgoing = Default::default();
         } else {
             // Unsplice: he_prev.next = twin_next, twin_next.prev = he_prev

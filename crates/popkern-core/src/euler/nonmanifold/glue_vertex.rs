@@ -10,7 +10,8 @@
 //! shell is one connected set), into that region's face shell there
 //! when there is one, and an acorn glued onto a used vertex is absorbed.
 //! Ungluing gives each use but the first a vertex of its own at the
-//! same place, and splits the wire shells that disconnects.
+//! same place (a vertex loop on a face is a use), and splits the wire
+//! shells that disconnects.
 
 use std::collections::BTreeSet;
 
@@ -105,6 +106,11 @@ impl BRep {
                 fin.origin = keep;
             }
         }
+        for l in self.loops.values_mut() {
+            if l.vertex == Some(gone) {
+                l.vertex = Some(keep);
+            }
+        }
         self.vertices.remove(gone);
         if distance > self.tolerance.linear() {
             let t = self.vertices[keep].tolerance.unwrap_or(0.0).max(distance);
@@ -147,7 +153,14 @@ impl BRep {
                 .filter(|(_, h)| h.origin == vertex && self.is_wire_edge(h.edge))
                 .map(|(k, _)| vec![k]),
         );
-        if groups.len() < 2 {
+        // Loops of no fins standing at the vertex: a use each.
+        let lone: Vec<crate::topology::LoopHandle> = self
+            .vertex_loops()
+            .into_iter()
+            .filter(|&(_, w)| w == vertex)
+            .map(|(l, _)| l)
+            .collect();
+        if groups.len() + lone.len() < 2 {
             return Ok(Vec::new());
         }
         let wire_shells: BTreeSet<ShellHandle> = groups
@@ -156,7 +169,7 @@ impl BRep {
             .filter_map(|&h| self.wire_edge_shell(self.half_edges[h].edge))
             .collect();
         let mut made = Vec::new();
-        for group in &groups[1..] {
+        for group in groups.iter().skip(1) {
             let fresh = self.vertices.insert(Vertex {
                 outgoing: group[0],
                 ..v.clone()
@@ -166,7 +179,19 @@ impl BRep {
             }
             made.push(fresh);
         }
-        self.vertices[vertex].outgoing = groups[0][0];
+        // With no fan or wire, the first vertex loop keeps the vertex.
+        let keeps_loop = usize::from(groups.is_empty());
+        for &l in lone.iter().skip(keeps_loop) {
+            let fresh = self.vertices.insert(Vertex {
+                outgoing: Default::default(),
+                ..v.clone()
+            });
+            self.loops[l].vertex = Some(fresh);
+            made.push(fresh);
+        }
+        if let Some(first) = groups.first() {
+            self.vertices[vertex].outgoing = first[0];
+        }
         for shell in wire_shells {
             self.split_wire_shell(shell);
         }
@@ -186,6 +211,16 @@ impl BRep {
                 .get(fin.loop_)
                 .and_then(|l| self.faces.get(l.face))
             {
+                out.insert(f.back);
+                out.insert(f.front);
+            }
+        }
+        for (l, _) in self
+            .vertex_loops()
+            .into_iter()
+            .filter(|&(_, w)| w == vertex)
+        {
+            if let Some(f) = self.loops.get(l).and_then(|l| self.faces.get(l.face)) {
                 out.insert(f.back);
                 out.insert(f.front);
             }

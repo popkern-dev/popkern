@@ -47,6 +47,7 @@ fn pick_sample_point_face_with_plane_surface_uses_fallback() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
@@ -87,6 +88,7 @@ fn pick_sample_point_face_with_sphere_surface_uses_finite_range() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
@@ -192,6 +194,7 @@ fn face_parameter_range_with_missing_loop_returns_default() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
@@ -230,6 +233,7 @@ fn pick_sample_point_face_with_no_surface_returns_origin() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,

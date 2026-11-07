@@ -146,6 +146,9 @@ pub(super) fn touching_pieces(
     let mut piece_uses: BTreeMap<(EntityId, usize), usize> = BTreeMap::new();
     for (k, list) in face_edges.iter().enumerate() {
         let p = of_face[k];
+        // A vertex loop's vertex is a use of its face's piece: a corner
+        // standing on another piece's face is where they touch.
+        vertices[p].extend(face_data.faces[k].vertex_loops.iter().copied());
         for &e in list {
             edges[p].insert(e);
             *piece_uses.entry((e, p)).or_default() += 1;

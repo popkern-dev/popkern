@@ -342,6 +342,7 @@ fn build(
         let lp = brep.loops.insert(Loop {
             half_edge: HalfEdgeHandle::default(),
             face,
+            vertex: None,
         });
         brep.faces[face].outer_loop = lp;
         let fp = brep.half_edges.insert(blank(pb, e_p));

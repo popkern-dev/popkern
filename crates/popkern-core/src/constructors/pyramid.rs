@@ -105,6 +105,7 @@ impl BRep {
             brep.loops.insert(Loop {
                 half_edge: Default::default(),
                 face: faces[i],
+                vertex: None,
             })
         });
         for (i, lh) in loops.iter().enumerate() {

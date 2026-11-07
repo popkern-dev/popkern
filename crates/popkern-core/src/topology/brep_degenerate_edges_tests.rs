@@ -86,6 +86,7 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: vertex,

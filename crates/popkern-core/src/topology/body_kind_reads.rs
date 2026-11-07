@@ -62,7 +62,8 @@ impl BRep {
     /// uses leaving the vertex joined through loops (a use and its
     /// loop predecessor's edge) and edge rings, as
     /// [`BRep::vertex_uses_all`] reads them: here one walk from some use
-    /// of each vertex must reach every use leaving it.
+    /// of each vertex must reach every use leaving it, and a vertex a
+    /// loop of no fins stands at has no other use.
     pub(super) fn one_fan_per_vertex(&self) -> bool {
         let mut leaving: SecondaryMap<VertexHandle, (usize, HalfEdgeHandle)> = SecondaryMap::new();
         for (h, fin) in &self.half_edges {
@@ -74,6 +75,18 @@ impl BRep {
                 None => {
                     leaving.insert(fin.origin, (1, h));
                 }
+            }
+        }
+        // A vertex loop is a use of its own: its vertex has no other.
+        let mut lone: SecondaryMap<VertexHandle, ()> = SecondaryMap::new();
+        for (_, l) in &self.loops {
+            if self.half_edges.contains_key(l.half_edge) {
+                continue;
+            }
+            if let Some(v) = l.vertex
+                && (leaving.contains_key(v) || lone.insert(v, ()).is_some())
+            {
+                return false;
             }
         }
         let mut seen: SecondaryMap<HalfEdgeHandle, ()> = SecondaryMap::new();

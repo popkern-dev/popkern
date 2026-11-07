@@ -445,6 +445,7 @@ fn add_boundary_quad(
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let vertices = positions.map(|position| {

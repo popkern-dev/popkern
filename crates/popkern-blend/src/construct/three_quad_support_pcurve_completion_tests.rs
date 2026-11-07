@@ -70,10 +70,12 @@ fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
     let cap_loop = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: cap_face,
+        vertex: None,
     });
     let support_loop = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: support_face,
+        vertex: None,
     });
     let cap_half_edge = brep.half_edges.insert(half_edge(va, cap_loop));
     let support_half_edge = brep.half_edges.insert(half_edge(vb, support_loop));

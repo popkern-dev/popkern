@@ -258,6 +258,7 @@ impl BRep {
         let loop_ = self.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: None,
         });
         let mut hole_sides = Vec::with_capacity(plan.steps.len());
         for step in &plan.steps {

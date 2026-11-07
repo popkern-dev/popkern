@@ -19,12 +19,14 @@ mod acorn;
 mod cells;
 mod coincident;
 mod contacts;
+mod contacts_face;
 mod error;
 mod face_region;
 mod glue_edge;
 mod glue_face;
 mod glue_vertex;
 mod shells;
+mod vertex_loop;
 mod wire_edge;
 mod wire_face;
 
@@ -35,6 +37,7 @@ pub use error::EulerError;
 pub use glue_edge::GlueEdgeResult;
 pub use glue_face::GlueFaceResult;
 pub use glue_vertex::GlueVertexResult;
+pub use vertex_loop::VertexLoopResult;
 pub use wire_edge::{WireEdgeKill, WireEdgeResult};
 pub use wire_face::WireFaceResult;
 

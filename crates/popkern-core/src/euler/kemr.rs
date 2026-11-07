@@ -115,6 +115,7 @@ impl BRep {
         let inner_loop = self.loops.insert(Loop {
             half_edge: he_next,
             face,
+            vertex: None,
         });
 
         // Walk cycle B (starting from he_next) and assign to inner_loop.

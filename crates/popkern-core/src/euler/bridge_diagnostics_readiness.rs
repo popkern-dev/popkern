@@ -274,6 +274,7 @@ mod tests {
         let loop_ = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: None,
         });
         brep.faces[face].outer_loop = loop_;
         let mut half_edges = Vec::new();

@@ -159,6 +159,7 @@ fn build_quad_face(
     let loop_h = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face: face_h,
+        vertex: None,
     });
     brep.faces[face_h].outer_loop = loop_h;
 

@@ -133,6 +133,7 @@ fn face_parameter_range_face_with_no_surface_returns_default() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,

@@ -126,10 +126,7 @@ impl BRep {
         });
 
         // Create new loop for the new face.
-        let new_loop = self.loops.insert(Loop {
-            half_edge: Default::default(),
-            face: new_face,
-        });
+        let new_loop = self.loops.insert(Loop::new(Default::default(), new_face));
 
         // Create new_he: v1 -> v2 (stays with old loop)
         let new_he = self.half_edges.insert(HalfEdge {

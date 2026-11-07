@@ -33,6 +33,7 @@ pub(crate) struct ExportedFaceSurface {
 mod shell_items;
 
 struct TopologyExportMaps<'a> {
+    vertex: &'a HashMap<VertexHandle, EntityId>,
     edge: &'a HashMap<EdgeHandle, EntityId>,
     local_edge: &'a HashMap<EdgeFaceUse, EntityId>,
 }
@@ -172,7 +173,7 @@ impl ExportContext {
             &mut local_edge_map,
         )?;
 
-        self.emit_shell_items(brep, &surface_map, &edge_map, &local_edge_map)
+        self.emit_shell_items(brep, &surface_map, &vertex_map, &edge_map, &local_edge_map)
     }
 
     /// Export a single face with its loops.
@@ -203,6 +204,17 @@ impl ExportContext {
             let inner_bound_id =
                 self.export_loop_as_bound(brep, face_handle, inner_lh, false, maps)?;
             bounds.push(ref_(inner_bound_id));
+        }
+        // Vertex loops: a vertex on the face's interior (PK-1116).
+        for l in brep.face_vertex_loops(face_handle) {
+            let Some(&vp) = brep.loops[l].vertex.and_then(|v| maps.vertex.get(&v)) else {
+                continue;
+            };
+            let vertex_loop = self.emit("VERTEX_LOOP", vec![str_param(""), ref_(vp)]);
+            bounds.push(ref_(self.emit(
+                "FACE_BOUND",
+                vec![str_param(""), ref_(vertex_loop), bool_(true)],
+            )));
         }
 
         // Use the pre-exported surface, or export now if none was cached

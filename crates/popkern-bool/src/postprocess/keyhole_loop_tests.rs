@@ -62,6 +62,7 @@ fn split_into_pinch_form(brep: &mut BRep) {
     let inner = brep.loops.insert(Loop {
         half_edge: seam_up,
         face,
+        vertex: None,
     });
     let mut cursor = seam_up;
     loop {

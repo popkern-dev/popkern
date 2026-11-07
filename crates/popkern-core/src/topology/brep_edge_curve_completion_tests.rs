@@ -191,6 +191,7 @@ fn add_square(
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let half_edges = vertices.map(|origin| {

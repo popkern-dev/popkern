@@ -212,6 +212,7 @@ fn validate_all_hits_vertex_valence_error() {
     let new_loop = brep.loops.insert(crate::topology::Loop {
         half_edge: mev.half_edge_twin,
         face: Default::default(),
+        vertex: None,
     });
     let new_face = brep.faces.insert(crate::topology::Face {
         outer_loop: new_loop,

@@ -10,20 +10,17 @@
 //! counts, each shell in the region it was in, the same region volumes,
 //! and valid.
 
-use std::sync::Arc;
-
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, BodyKind, RegionKind};
-use popkern_io::step::diagnostics::Severity;
-use popkern_io::{
-    OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
-    StepExportOptions, StepImportOptions, StepNonManifold, StepProductNode, UnitContext,
-    export_step, import_step,
-};
+use popkern_io::{StepExportOptions, StepNonManifold, export_step};
+
+#[path = "step_general_forms_support/harness.rs"]
+mod harness;
+use harness::{assert_close, bodies, census, document, occ_read, solid_volumes};
 
 fn tol() -> Tolerance {
     Tolerance::default()
@@ -258,139 +255,6 @@ fn sheet_bodies_without_solids_round_trip() {
     }
 }
 
-fn document(brep: &BRep, name: &str) -> StepDocument {
-    StepDocument {
-        products: vec![StepProductNode {
-            name: name.into(),
-            id: name.into(),
-            children: Vec::new(),
-            shapes: vec![Arc::new(ShapeRep {
-                kind: ShapeRepKind::AdvancedBrep,
-                solids: vec![brep.clone()],
-                context: RepresentationContext::default(),
-                non_brep_items: Vec::new(),
-            })],
-            metadata: ProductMetadata::default(),
-        }],
-        roots: vec![0],
-        units: UnitContext::default(),
-        opaque_bag: OpaqueBag::default(),
-    }
-}
-
-/// Every body the file holds under `non_manifold`, with no error
-/// diagnostics.
-fn bodies(data: &[u8], non_manifold: StepNonManifold, name: &str) -> Vec<BRep> {
-    let imported = import_step(
-        data,
-        &StepImportOptions {
-            non_manifold,
-            ..Default::default()
-        },
-    )
-    .expect("import");
-    let errors: Vec<_> = imported
-        .diagnostics
-        .entries()
-        .iter()
-        .filter(|e| e.severity == Severity::Error)
-        .collect();
-    assert!(errors.is_empty(), "{name}: {errors:?}");
-    imported
-        .document
-        .products
-        .iter()
-        .flat_map(|p| &p.shapes)
-        .flat_map(|s| s.solids.iter().cloned())
-        .collect()
-}
-
-/// What the test compares: entity counts, then for each region kind
-/// (outside included) how many shells hold faces, wires and acorns.
-/// Vertex, edge and face counts, then one row per shell: its region
-/// kind and how many faces, wire edges and acorns it holds.
-type Census = ((usize, usize, usize), Vec<(String, usize, usize, usize)>);
-
-fn census(body: &BRep) -> Census {
-    let counts = (body.vertices.len(), body.edges.len(), body.faces.len());
-    let mut rows: Vec<(String, usize, usize, usize)> = body
-        .shells
-        .iter()
-        .map(|(h, s)| {
-            let kind = if s.region == body.outside {
-                "outside".to_string()
-            } else {
-                format!("{:?}", body.region_kind(s.region))
-            };
-            let faces = body
-                .faces
-                .values()
-                .filter(|f| f.back == h || f.front == h)
-                .count();
-            (
-                kind,
-                faces,
-                s.wire_edges.len(),
-                usize::from(s.acorn.is_some()),
-            )
-        })
-        .collect();
-    rows.sort();
-    (counts, rows)
-}
-
-fn solid_volumes(body: &BRep) -> Vec<f64> {
-    let mut v: Vec<f64> = popkern_measure::region_volumes(body, &body.tolerance)
-        .expect("volumes")
-        .into_iter()
-        .filter(|(r, _)| body.region_kind(*r) == Some(RegionKind::Solid))
-        .map(|(_, v)| v)
-        .collect();
-    v.sort_by(f64::total_cmp);
-    v
-}
-
-/// OpenCASCADE's solid volumes and distinct face, edge and vertex
-/// counts from `data`; `None` without the OCP venv.
-fn occ_read(data: &[u8], name: &str) -> Option<(Vec<f64>, [u64; 3])> {
-    let home = std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default());
-    let python = home.join("venvs/ocp/bin/python");
-    let oracle = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tools/occ-oracle/occ_solids.py");
-    if !python.exists() || !oracle.exists() {
-        return None;
-    }
-    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("step_general_forms");
-    std::fs::create_dir_all(&dir).expect("dir");
-    let path = dir.join(format!("{name}.step"));
-    std::fs::write(&path, data).expect("write");
-    let out = std::process::Command::new(&python)
-        .arg(&oracle)
-        .arg(&path)
-        .output()
-        .expect("oracle");
-    let report: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
-    let mut volumes: Vec<f64> = report["solids"]
-        .as_array()
-        .expect("solids")
-        .iter()
-        .map(|s| s["volume"].as_f64().expect("volume"))
-        .collect();
-    volumes.sort_by(f64::total_cmp);
-    let count = |k: &str| report["counts"][k].as_u64().expect("count");
-    Some((volumes, [count("faces"), count("edges"), count("vertices")]))
-}
-
-fn assert_close(name: &str, ours: &[f64], want: &[f64]) {
-    assert_eq!(ours.len(), want.len(), "{name}: {ours:?} vs {want:?}");
-    for (o, w) in ours.iter().zip(want) {
-        assert!(
-            (o - w).abs() < 1e-6 * w.abs().max(1.0),
-            "{name}: {o} vs {w}"
-        );
-    }
-}
-
 #[test]
 fn general_bodies_with_sheets_wires_and_acorns_round_trip() {
     for (name, body, items) in [
@@ -460,5 +324,59 @@ fn general_bodies_with_sheets_wires_and_acorns_round_trip() {
                 "{name}: OpenCASCADE's edges and vertices {occ_counts:?} vs {ours:?}"
             );
         }
+    }
+}
+
+/// A cube standing on its corner on another's top face: the face holds
+/// the corner as a vertex loop (PK-1116), written as a `VERTEX_LOOP`
+/// bound sharing the corner's `VERTEX_POINT`. It re-reads under the
+/// general option as the same general body (the vertex loop again,
+/// glued to the corner), and OpenCASCADE reads both solids.
+#[test]
+fn a_vertex_loop_round_trips() {
+    let mut body = cube();
+    let diagonal = Vec3::new(1.0, 1.0, 1.0);
+    let axis = diagonal.cross(&Vec3::new(0.0, 0.0, 1.0));
+    let angle = (1.0 / 3.0_f64.sqrt()).acos();
+    let turn =
+        Transform3::rotation_around_axis(Point3::new(0.0, 0.0, 0.0), axis, angle).expect("turn");
+    let standing = BRep::unit_cube(tol())
+        .and_then(|c| c.transform(&Transform3::translation(0.5, 0.5, 1.0).compose(&turn)))
+        .expect("standing cube");
+    let map = body.append_body(&standing);
+    let tip = Point3::new(0.5, 0.5, 1.0);
+    let corner = map
+        .vertices
+        .values()
+        .copied()
+        .find(|&v| body.vertices[v].position.distance_to(&tip) < 1e-9)
+        .expect("corner");
+    let top = body
+        .faces
+        .keys()
+        .find(|&f| {
+            body.face_point_trim_containment(f, &tip)
+                .is_some_and(|c| c.distance < 1e-9)
+        })
+        .expect("top face");
+    let made = body.make_vertex_loop(top, tip).expect("vertex loop");
+    body.glue_vertices(made.vertex, corner).expect("glue");
+    assert_eq!(body.body_kind(), BodyKind::General);
+    let findings = body.validate_all();
+    assert!(findings.is_empty(), "{findings:?}");
+
+    let name = "cube_on_a_corner";
+    let written =
+        export_step(&document(&body, name), &StepExportOptions::default()).expect("export");
+    assert!(String::from_utf8_lossy(&written).contains("VERTEX_LOOP("));
+    let again = bodies(&written, StepNonManifold::General, name);
+    assert_eq!(again.len(), 1, "one body");
+    assert_eq!(again[0].vertex_loops().len(), 1, "the vertex loop again");
+    assert_eq!(census(&again[0]), census(&body), "re-read census");
+    assert_close(name, &solid_volumes(&again[0]), &[1.0, 1.0]);
+    let findings = again[0].validate_all();
+    assert!(findings.is_empty(), "re-read {findings:?}");
+    if let Some((occ_volumes, _)) = occ_read(&written, name) {
+        assert_close(name, &occ_volumes, &[1.0, 1.0]);
     }
 }

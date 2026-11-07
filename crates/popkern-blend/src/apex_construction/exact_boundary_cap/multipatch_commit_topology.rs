@@ -249,6 +249,7 @@ fn insert_inner_face_like(brep: &mut BRep, template_face: FaceHandle) -> Option<
     let loop_handle = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_handle;
     Some(face)

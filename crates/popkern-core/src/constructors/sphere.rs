@@ -70,6 +70,7 @@ impl BRep {
         let loop_face = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face: Default::default(),
+            vertex: None,
         });
 
         let f_sphere = brep.faces.insert(Face {

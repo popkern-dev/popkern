@@ -44,10 +44,12 @@ fn gregory_plane_boundary_fixture() -> BRep {
     let loop_a = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: face_a,
+        vertex: None,
     });
     let loop_b = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: face_b,
+        vertex: None,
     });
     let he_a = brep.half_edges.insert(half_edge(va, loop_a));
     let he_b = brep.half_edges.insert(half_edge(vb, loop_b));

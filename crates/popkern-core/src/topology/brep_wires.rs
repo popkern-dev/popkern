@@ -13,7 +13,9 @@
 //!
 //! A vertex's uses ([`VertexUse`]) are derived, not stored: one fan per
 //! set of face uses about it connected through loops and edge rings,
-//! one use per wire edge ending there, one per acorn shell holding it.
+//! one use per wire edge ending there, one per acorn shell holding it,
+//! one per loop of no fins standing at it (a vertex on a face's
+//! interior).
 //! A vertex with more than one use is non-manifold (two cones touching
 //! at their apexes, a wire standing on a face).
 
@@ -21,7 +23,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use slotmap::Key;
 
-use super::{BRep, EdgeHandle, HalfEdgeHandle, RegionHandle, Shell, ShellHandle, VertexHandle};
+use super::{
+    BRep, EdgeHandle, HalfEdgeHandle, LoopHandle, RegionHandle, Shell, ShellHandle, VertexHandle,
+};
 
 /// One use of a vertex.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -33,6 +37,9 @@ pub enum VertexUse {
     Wire(EdgeHandle),
     /// The acorn shell holding the vertex.
     Isolated(ShellHandle),
+    /// A loop of no fins standing at the vertex: the vertex touches its
+    /// face's interior (PK-1116), or is the first Euler step's.
+    Loop(LoopHandle),
 }
 
 impl BRep {
@@ -49,6 +56,32 @@ impl BRep {
         self.shells
             .iter()
             .filter_map(|(h, s)| s.acorn.map(|v| (h, v)))
+            .collect()
+    }
+
+    /// The loops of no fins and the vertex each stands at, in arena
+    /// order.
+    pub fn vertex_loops(&self) -> Vec<(LoopHandle, VertexHandle)> {
+        self.loops
+            .iter()
+            .filter(|(_, l)| !self.half_edges.contains_key(l.half_edge))
+            .filter_map(|(h, l)| l.vertex.map(|v| (h, v)))
+            .collect()
+    }
+
+    /// `face`'s vertex loops: the loops of no fins naming it that are
+    /// none of its boundary loops (a vertex on its interior, PK-1116).
+    pub fn face_vertex_loops(&self, face: super::FaceHandle) -> Vec<LoopHandle> {
+        let outer = self.faces.get(face).map(|f| f.outer_loop);
+        self.loops
+            .iter()
+            .filter(|&(h, l)| {
+                l.face == face
+                    && Some(h) != outer
+                    && l.vertex.is_some()
+                    && !self.half_edges.contains_key(l.half_edge)
+            })
+            .map(|(h, _)| h)
             .collect()
     }
 
@@ -81,6 +114,9 @@ impl BRep {
         for (shell, v) in self.acorns() {
             out.entry(v).or_default().push(VertexUse::Isolated(shell));
         }
+        for (l, v) in self.vertex_loops() {
+            out.entry(v).or_default().push(VertexUse::Loop(l));
+        }
         for uses in out.values_mut() {
             uses.sort_unstable();
         }
@@ -110,6 +146,12 @@ impl BRep {
                 .into_iter()
                 .filter(|&(_, v)| v == vertex)
                 .map(|(s, _)| VertexUse::Isolated(s)),
+        );
+        uses.extend(
+            self.vertex_loops()
+                .into_iter()
+                .filter(|&(_, v)| v == vertex)
+                .map(|(l, _)| VertexUse::Loop(l)),
         );
         uses.sort_unstable();
         uses

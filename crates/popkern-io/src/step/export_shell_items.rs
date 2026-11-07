@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use popkern_core::topology::{BRep, BodyKind, EdgeHandle, FaceHandle};
+use popkern_core::topology::{BRep, BodyKind, EdgeHandle, FaceHandle, VertexHandle};
 
 use super::{ExportedFaceSurface, TopologyExportMaps};
 use crate::error::IoError;
@@ -21,10 +21,12 @@ impl ExportContext {
         &mut self,
         brep: &BRep,
         surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
+        vertex_map: &HashMap<VertexHandle, EntityId>,
         edge_map: &HashMap<EdgeHandle, EntityId>,
         local_edge_map: &HashMap<EdgeFaceUse, EntityId>,
     ) -> Result<Vec<EntityId>, IoError> {
         let maps = TopologyExportMaps {
+            vertex: vertex_map,
             edge: edge_map,
             local_edge: local_edge_map,
         };

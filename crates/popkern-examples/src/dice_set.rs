@@ -787,6 +787,7 @@ fn build_polyhedron(
             let lh = brep.loops.insert(Loop {
                 half_edge: Default::default(),
                 face: fh,
+                vertex: None,
             });
             let n = cycle.len();
             let hes: Vec<HalfEdgeHandle> = (0..n)

@@ -223,6 +223,19 @@ pub enum ValidationError {
         error: Box<crate::topology::RadialOrderError>,
     },
 
+    /// A loop of no fins does not stand at a vertex on its face's
+    /// interior: it names no live vertex, or the vertex lies off the
+    /// face's surface or outside or on the face's trim (PK-1116).
+    #[error("vertex loop {loop_:?} of face {face:?}: {reason}")]
+    VertexLoop {
+        /// The loop.
+        loop_: crate::topology::LoopHandle,
+        /// Its face.
+        face: crate::topology::FaceHandle,
+        /// What is wrong, with the measurement.
+        reason: String,
+    },
+
     /// The two face sides bounding a wedge about an edge lie in
     /// different shells: the space between two radially adjacent faces
     /// would belong to two regions at once.

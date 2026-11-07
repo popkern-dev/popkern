@@ -161,6 +161,7 @@ impl BRepBuilder {
         let lh = self.brep.loops.insert(Loop {
             half_edge: half_edges[0],
             face,
+            vertex: None,
         });
 
         let n = half_edges.len();
@@ -198,6 +199,7 @@ impl BRepBuilder {
         let lh = self.brep.loops.insert(Loop {
             half_edge: half_edges[0],
             face,
+            vertex: None,
         });
 
         let n = half_edges.len();

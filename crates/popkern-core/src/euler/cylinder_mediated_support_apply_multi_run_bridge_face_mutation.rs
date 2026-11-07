@@ -246,6 +246,7 @@ fn insert_multi_run_bridge_face_loop(
     let bridge_loop = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face: bridge_face,
+        vertex: None,
     });
     brep.faces[bridge_face].outer_loop = bridge_loop;
     Ok(bridge_loop)

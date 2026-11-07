@@ -141,7 +141,11 @@ fn twin_open_boundary(
             };
             (face, end, he.edge, he.pcurve.as_ref().map(|p| p.reversed()))
         };
-        let ring = view.loops.insert(Loop { half_edge: h, face });
+        let ring = view.loops.insert(Loop {
+            half_edge: h,
+            face,
+            vertex: None,
+        });
         let twin = view.half_edges.insert(HalfEdge {
             origin: end,
             ring: RadialLinks::pair(h),

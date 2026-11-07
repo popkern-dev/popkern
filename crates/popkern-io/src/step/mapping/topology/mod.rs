@@ -16,6 +16,7 @@ mod shell_incidence;
 mod shell_pieces;
 mod surface_curve_normalization;
 mod surface_models;
+mod vertex_loops;
 mod voids;
 
 use std::collections::HashMap;
@@ -294,9 +295,17 @@ fn build_brep_from_faces(
     };
 
     // 4. Create faces with loops
+    let mut pending_vertex_loops = Vec::new();
     for (k, face_info) in face_data.faces.iter().enumerate() {
         let face_h = builder.add_face(*shell_of.get(k)?);
         let piece = *pieces.of_face.get(k)?;
+        pending_vertex_loops.extend(face_info.vertex_loops.iter().map(|&vp| {
+            vertex_loops::PendingVertexLoop {
+                face: face_h,
+                vertex_point: vp,
+                vertex: vertex_map.get(&(vp, piece)).copied(),
+            }
+        }));
 
         // Attach surface geometry
         if let Some(sof) = geo.resolve_surface(face_info.surface_id, face_info.same_sense, log) {
@@ -418,6 +427,7 @@ fn build_brep_from_faces(
     }
 
     let mut brep = builder.build_unchecked();
+    vertex_loops::attach_vertex_loops(&mut brep, pending_vertex_loops, graph, geo, log);
     if pieces.count() > 1 {
         let n = pieces.count();
         let vertices =

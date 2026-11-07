@@ -153,6 +153,7 @@ fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle)
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let vertices = [

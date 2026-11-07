@@ -243,6 +243,7 @@ fn insert_face(brep: &mut BRep, shell: ShellHandle) -> FaceHandle {
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     face
@@ -261,6 +262,7 @@ fn insert_half_edge_pair(brep: &mut BRep) -> [HalfEdgeHandle; 2] {
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: FaceHandle::default(),
+        vertex: None,
     });
     let first = brep.half_edges.insert(half_edge(loop_));
     let second = brep.half_edges.insert(half_edge(loop_));

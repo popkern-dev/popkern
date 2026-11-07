@@ -356,14 +356,12 @@ pub(crate) fn apply_closed_fillet(
         role: Default::default(),
     });
 
-    let loop_fillet_outer = brep.loops.insert(Loop {
-        half_edge: HalfEdgeHandle::default(),
-        face: fillet_face,
-    });
-    let loop_fillet_inner = brep.loops.insert(Loop {
-        half_edge: HalfEdgeHandle::default(),
-        face: fillet_face,
-    });
+    let loop_fillet_outer = brep
+        .loops
+        .insert(Loop::new(HalfEdgeHandle::default(), fillet_face));
+    let loop_fillet_inner = brep
+        .loops
+        .insert(Loop::new(HalfEdgeHandle::default(), fillet_face));
 
     brep.faces[fillet_face].outer_loop = loop_fillet_outer;
     brep.faces[fillet_face].inner_loops = vec![loop_fillet_inner];

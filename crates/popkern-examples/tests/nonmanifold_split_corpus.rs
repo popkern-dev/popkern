@@ -158,3 +158,68 @@ fn an_unrecorded_split_fails_validate_all() {
     body.topology_contacts.clear();
     assert!(!body.validate_all().is_empty());
 }
+
+/// Rows whose general body still records contacts: a contact line
+/// across a face's interior has no topology until it is imprinted
+/// (PK-1117), and vertex contacts of some placements the vertex glue
+/// misses there too. Each still serves a valid general body.
+const STILL_RECORDED: &[(&str, &str)] = &[
+    ("identity", "edge_on_face_union"),
+    ("rotated", "edge_touch_union"),
+    ("rotated", "line_contact_union"),
+    ("rotated", "edge_on_face_union"),
+    ("mm", "edge_on_face_union"),
+    ("far", "line_contact_union"),
+    ("far", "edge_on_face_union"),
+];
+
+/// The corpus under `NonManifoldPolicy::General` (PK-1115, PK-1116):
+/// every row that touches itself serves one general body that validates
+/// with the volume of the touching bodies and nothing recorded, its
+/// contacts all held by topology (rings, shared vertices, vertex loops
+/// on faces, edges split where a vertex touches them), except the rows
+/// [`STILL_RECORDED`] names; a listed row that records nothing fails, so
+/// the list shrinks as PK-1117 lands.
+#[test]
+fn nonmanifold_rows_serve_general_bodies_with_nothing_recorded() {
+    const GENERAL: BoolOptions = BoolOptions {
+        non_manifold: NonManifoldPolicy::General,
+    };
+    let mut rows = Vec::new();
+    let mut failures = 0;
+    for (pname, place, _) in placements() {
+        let tol = Tolerance::default();
+        for case in cases() {
+            if !matches!(case.expect, Expect::NonManifold) {
+                continue;
+            }
+            let a = build(case.a, &place, tol);
+            let b = build(case.b, &place, tol);
+            let want = volume(&a) + volume(&b);
+            let listed = STILL_RECORDED.contains(&(pname, case.name));
+            let verdict = match boolean_with_options(case.op, a, b, tol, None, &GENERAL) {
+                Ok(body) => {
+                    let issues = body.validate_all();
+                    let recorded = body.topology_contacts.len();
+                    if !issues.is_empty() {
+                        Err(format!("invalid: {}", issues[0]))
+                    } else if (volume(&body) - want).abs() > 1e-5 * want {
+                        Err(format!("volume {} vs {want}", volume(&body)))
+                    } else if listed && recorded == 0 {
+                        Err("records nothing now: drop it from STILL_RECORDED".into())
+                    } else if !listed && recorded > 0 {
+                        Err(format!("{recorded} recorded"))
+                    } else {
+                        Ok(())
+                    }
+                }
+                Err(e) => Err(format!("declined: {e}")),
+            };
+            if verdict.is_err() {
+                failures += 1;
+            }
+            rows.push(format!("{pname:>8} {:<28} {verdict:?}", case.name));
+        }
+    }
+    assert_eq!(failures, 0, "general corpus:\n{}", rows.join("\n"));
+}
