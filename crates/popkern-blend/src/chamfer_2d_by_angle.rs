@@ -70,6 +70,13 @@ pub fn chamfer_corner_2d_by_angle(
     dist_a: f64,
     angle_rad: f64,
 ) -> Result<BRep, BlendError> {
+    brep.require_kind(
+        "corner chamfer",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+        ],
+    )?;
     if !dist_a.is_finite() || dist_a <= 0.0 {
         return Err(BlendError::InvalidParameter {
             parameter: "dist_a".into(),

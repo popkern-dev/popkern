@@ -179,6 +179,11 @@ pub fn tapped_hole(
     tolerance: Tolerance,
 ) -> Result<BRep, FastenerError> {
     let stage = "tapped hole";
+    popkern_bool::require_operand_kind(body, stage, 0, &[popkern_core::topology::BodyKind::Solid])
+        .map_err(|source| FastenerError::Boolean {
+            stage: stage.into(),
+            source,
+        })?;
     let ridge = internal_ridge(spec, options.clearance)?;
     let r_bore = internal_bore_radius(spec, options.clearance);
     let up = entry_headroom(spec);
@@ -320,6 +325,11 @@ pub fn clearance_hole(
     tolerance: Tolerance,
 ) -> Result<BRep, FastenerError> {
     let stage = "clearance hole";
+    popkern_bool::require_operand_kind(body, stage, 0, &[popkern_core::topology::BodyKind::Solid])
+        .map_err(|source| FastenerError::Boolean {
+            stage: stage.into(),
+            source,
+        })?;
     let hole_d = spec.iso_clearance_diameter(options.fit);
     let up = entry_headroom(spec);
     let bore_depth = match depth {
@@ -398,6 +408,11 @@ pub fn external_thread(
     tolerance: Tolerance,
 ) -> Result<BRep, FastenerError> {
     let stage = "external thread";
+    popkern_bool::require_operand_kind(body, stage, 0, &[popkern_core::topology::BodyKind::Solid])
+        .map_err(|source| FastenerError::Boolean {
+            stage: stage.into(),
+            source,
+        })?;
     let groove = external_groove(spec)?;
     if !(z_to.is_finite() && z_from.is_finite() && z_to > z_from) {
         return Err(FastenerError::InvalidSpec {

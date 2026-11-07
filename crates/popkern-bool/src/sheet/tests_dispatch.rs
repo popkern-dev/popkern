@@ -398,6 +398,6 @@ fn a_solid_beside_a_sheet_is_a_mixed_body() {
     let sheet = build_planar_sheet(3.0, 4.0, 3.0, 4.0, 0.5);
     let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let both = crate::operation::helpers::combine_breps(cube, sheet).expect("side by side");
-    assert_eq!(both.body_kind(), popkern_core::topology::BodyKind::Mixed);
+    assert_eq!(both.body_kind(), popkern_core::topology::BodyKind::General);
     assert!(is_sheet_body(&both));
 }

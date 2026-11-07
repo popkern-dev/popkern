@@ -192,6 +192,13 @@ pub(crate) fn shell_impl(
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
     naming_sink: Option<&mut ShellProvenance>,
 ) -> Result<ShellResult, ShellError> {
+    brep.require_kind(
+        "shell",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {

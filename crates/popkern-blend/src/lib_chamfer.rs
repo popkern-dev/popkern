@@ -75,6 +75,7 @@ fn chamfer_edges_internal(
     tracking: Option<&mut TrackingContext>,
     cancel: Option<&cancellation::CancellationToken>,
 ) -> Result<BlendResult, BlendError> {
+    brep.require_kind("chamfer", &[popkern_core::topology::BodyKind::Solid])?;
     let mixed = crate::chamfer_mixed_corner::mixed_corners(brep, specs);
     if mixed.is_empty() {
         let mut tracking = tracking;

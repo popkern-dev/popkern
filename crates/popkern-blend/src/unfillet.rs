@@ -99,6 +99,7 @@ pub use unfillet_plan_open::compute_unfillet_plan;
 ///   implemented yet. The remediation hint points to the working
 ///   alternatives.
 pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendError> {
+    brep.require_kind("remove fillet", &[popkern_core::topology::BodyKind::Solid])?;
     // Closed-fillet annulus dispatch : if the face is
     // an annulus (outer + inner loops), it was created by the
     // closed-fillet construction path and needs the inverse

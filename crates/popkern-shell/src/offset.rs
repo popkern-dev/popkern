@@ -95,6 +95,13 @@ pub(crate) fn offset_solid_impl(
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<ShellResult, ShellError> {
+    brep.require_kind(
+        "offset",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {

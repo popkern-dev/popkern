@@ -329,6 +329,14 @@ pub(crate) fn fillet_edges_internal(
     cancel: Option<&cancellation::CancellationToken>,
     reporter: Option<&mut dyn progress::ProgressReporter>,
 ) -> Result<BlendResult, BlendError> {
+    // A sheet's free boundary ends the strip in an open cap (PK-530).
+    brep.require_kind(
+        "fillet",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+        ],
+    )?;
     let filleted: Vec<_> = specs.iter().map(|s| s.edge).collect();
     options
         .corner_setback

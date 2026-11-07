@@ -130,15 +130,12 @@ pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, Bo
         });
     }
     for (operand, body) in bodies.iter().enumerate() {
-        let kind = body.body_kind();
-        if kind != BodyKind::Solid && kind != BodyKind::Sheet {
-            return Err(BoolError::UnsupportedBodyKind {
-                operation: "partition",
-                operand,
-                kind,
-                accepted: &[BodyKind::Solid, BodyKind::Sheet],
-            });
-        }
+        crate::kind_gate::require_operand(
+            body,
+            "partition",
+            operand,
+            &[BodyKind::Solid, BodyKind::Sheet],
+        )?;
         if let Some((face, _)) = body.faces.iter().find(|(_, f)| f.surface.is_none()) {
             return Err(BoolError::DegenerateInput(format!(
                 "body {operand} face {face:?} has no surface"

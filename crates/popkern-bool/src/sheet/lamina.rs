@@ -108,6 +108,10 @@ pub fn single_face_sheet(body: &BRep) -> Option<BRep> {
             out.half_edges[h].pcurve = reversed;
         }
     }
+    // The backside closed the pair round the solid region the
+    // constructor made; with it gone the shell is open and settles
+    // into the void about it, both sides of the face in one shell.
+    out.settle_open_shells();
     (out.body_kind() == popkern_core::topology::BodyKind::Sheet).then_some(out)
 }
 

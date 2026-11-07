@@ -122,6 +122,8 @@ pub const DISPLAY_MAX_FACET_ANGLE: f64 = 12.0 * std::f64::consts::PI / 180.0;
 /// Tessellate every face of `brep` into a combined [`TriMesh`].
 ///
 /// The `options` parameter controls chord-height tolerance and subdivision limits.
+/// Every body kind is accepted: faces are tessellated whatever regions
+/// they bound, and a wire's edges or an acorn add no triangles.
 pub fn tessellate(brep: &BRep, options: &TessellationOptions) -> Result<TriMesh, MeshError> {
     tessellate::tessellate_brep(
         brep,

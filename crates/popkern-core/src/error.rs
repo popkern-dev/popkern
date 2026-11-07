@@ -471,6 +471,18 @@ pub enum CoreError {
         /// The edge of the fin asked for its mate.
         edge: crate::topology::EdgeHandle,
     },
+
+    /// A body is not a kind the operation accepts (a sheet given to an
+    /// operation on solids, a general body to one on manifold bodies).
+    #[error("{operation} needs {}; the body is a {}", crate::topology::BodyKind::list_label(accepted), found.label())]
+    UnsupportedBodyKind {
+        /// The operation.
+        operation: &'static str,
+        /// The body's kind.
+        found: crate::topology::BodyKind,
+        /// The kinds the operation accepts.
+        accepted: &'static [crate::topology::BodyKind],
+    },
 }
 
 #[cfg(test)]

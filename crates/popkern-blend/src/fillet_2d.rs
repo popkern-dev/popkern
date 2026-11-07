@@ -78,6 +78,13 @@ pub fn fillet_corner_2d(
     vertex: VertexHandle,
     radius: f64,
 ) -> Result<BRep, BlendError> {
+    brep.require_kind(
+        "corner fillet",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+        ],
+    )?;
     if !radius.is_finite() || radius <= 0.0 {
         return Err(BlendError::InvalidParameter {
             parameter: "radius".into(),
