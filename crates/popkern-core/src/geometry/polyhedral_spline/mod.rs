@@ -14,6 +14,7 @@ mod complex;
 mod complex_weld;
 mod complex_weld_report;
 mod complex_weld_scope;
+mod complex_weld_t_junction;
 mod construct;
 mod coverage;
 mod diagnostics;
