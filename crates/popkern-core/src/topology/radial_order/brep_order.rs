@@ -1,7 +1,9 @@
 //! A body's edge as a radial-order source, and the ring it orders.
 //!
-//! The order is taken about the edge's own direction (its first fin
-//! runs the stored curve forward, `t_start` → `t_end`), so the ring
+//! The order is taken about the edge's own direction, the way its
+//! first fin runs (the stored curve forward, `t_start` → `t_end`, by
+//! convention; a curve stored the other way is walked backward, PK-1118),
+//! so the ring
 //! [`BRep::order_ring`] links runs counter-clockwise about it seen from
 //! the edge's end, as the wedge reading ([`BRep::edge_wedges`]) needs:
 //! the wedge after a forward fin lies on its face's front.
@@ -55,6 +57,12 @@ struct EdgeFins<'a> {
     surfaces: Vec<&'a SurfaceOnFace>,
     /// Whether each fin runs the edge's direction.
     forward: Vec<bool>,
+    /// Whether the edge's first fin runs its stored curve from `t_end`
+    /// to `t_start` (an open edge whose first fin's origin lies at the
+    /// curve's end): the stations then walk the curve backward, so the
+    /// order is taken about the first fin's direction, the one every
+    /// fin's sense and the wedges are read against.
+    against: bool,
     /// How far a projection may land from the station.
     reach: f64,
 }
@@ -93,6 +101,11 @@ impl<'a> EdgeFins<'a> {
             .map(|v| v.position)
             .ok_or(RadialOrderError::UnknownEdge(edge))?;
         let end = brep.vertices.get(end_vertex).map_or(start, |v| v.position);
+        let against = e.curve.as_ref().is_some_and(|c| {
+            start_vertex != end_vertex
+                && start.distance_to(&c.geometry.point_at(c.t_end))
+                    < start.distance_to(&c.geometry.point_at(c.t_start))
+        });
         let mut src = Self {
             brep,
             edge,
@@ -102,6 +115,7 @@ impl<'a> EdgeFins<'a> {
             fins,
             surfaces,
             forward: Vec::new(),
+            against,
             reach: e.tolerance.unwrap_or(brep.tolerance.linear()).max(1e-9) * 1e3,
         };
         src.forward = (0..src.fins.len())
@@ -210,9 +224,14 @@ impl RadialFins for EdgeFins<'_> {
     fn station(&self, s: f64) -> Option<(Point3, Vec3)> {
         match self.curve {
             Some(c) => {
-                let t = c.t_start + (c.t_end - c.t_start) * s;
+                let (a, b) = if self.against {
+                    (c.t_end, c.t_start)
+                } else {
+                    (c.t_start, c.t_end)
+                };
+                let t = a + (b - a) * s;
                 let d = c.geometry.derivative_at(t, 1);
-                let d = if c.t_end < c.t_start { d * -1.0 } else { d };
+                let d = if b < a { d * -1.0 } else { d };
                 Some((c.geometry.point_at(t), d.normalized()?))
             }
             None => {
