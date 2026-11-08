@@ -45,8 +45,17 @@ pub fn weld_clean_surface_complex_boundaries(
     let started_at = weld_clock.elapsed();
     let assembled = assemble_components(complex)?;
     let assembled_at = weld_clock.elapsed();
-    let brep = assembled.brep;
-    let boundaries = brep_boundary_segments(&brep, &assembled.edge_component);
+    let mut brep = assembled.brep;
+    let mut edge_component = assembled.edge_component;
+    // Seams where the components were refined differently: split so
+    // both sides carry the same vertices before pairing by endpoints.
+    let t_junction_splits = super::complex_weld_t_junction::split_boundary_t_junctions(
+        &mut brep,
+        &mut edge_component,
+        options.c0_tolerance,
+    )?;
+    let brep = brep;
+    let boundaries = brep_boundary_segments(&brep, &edge_component);
     let mut used = vec![false; boundaries.len()];
     let mut candidates = Vec::new();
 
@@ -81,7 +90,7 @@ pub fn weld_clean_surface_complex_boundaries(
             });
         }
     }
-    let scope = build_boundary_weld_scope(&brep, &candidates, &assembled.edge_component);
+    let scope = build_boundary_weld_scope(&brep, &candidates, &edge_component);
     let pre_repair_scoped_quality = analyze_scoped_brep_export_quality(
         &brep,
         &scope.export_quality_scope(),
@@ -200,6 +209,7 @@ pub fn weld_clean_surface_complex_boundaries(
                     .map_or(0, |clean| clean.declined_pairs.len())
         }),
         remaining_boundary_edges: result.brep.free_edges().len(),
+        t_junction_splits,
         max_weld_gap: clean_report.map_or(0.0, |report| {
             report.max_endpoint_gap.max(report.max_surface_gap)
         }),
