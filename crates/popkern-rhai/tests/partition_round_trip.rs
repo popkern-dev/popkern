@@ -139,11 +139,9 @@ fn a_two_body_boolean_records_its_non_manifold_policy() {
         emitted.contains(r#"non_manifold: "split_to_manifold""#),
         "{emitted}"
     );
+    // Split, the two touching cubes are the body's two solids.
     let part = m.to_part().expect("part");
-    assert!(
-        !part.brep().topology_contacts.is_empty(),
-        "contact recorded"
-    );
+    assert_eq!(part.brep().solid_regions().len(), 2, "two pieces");
     // The default declines the same edge contact.
     let declined = source.replace(r#", #{ non_manifold: "split_to_manifold" }"#, "");
     let error = host
@@ -229,7 +227,7 @@ fn a_general_union_spells_back_and_replays() {
         let part = m.to_part().expect("part");
         let brep = part.brep();
         assert_eq!(brep.body_kind(), popkern_core::topology::BodyKind::General);
-        assert!(brep.topology_contacts.is_empty());
+        assert!(!brep.contacts().is_empty(), "held in topology");
         let errors = brep.validate_all();
         assert!(errors.is_empty(), "{errors:?}");
         (brep.vertices.len(), brep.edges.len(), brep.faces.len())

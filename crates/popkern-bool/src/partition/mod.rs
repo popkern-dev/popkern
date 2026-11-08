@@ -18,7 +18,10 @@ mod select;
 mod set_expr;
 mod split;
 
-pub use nary::{FALLBACK_COUNTING_LIMIT, nary_boolean, nary_boolean_where};
+pub use nary::{
+    FALLBACK_COUNTING_LIMIT, nary_boolean, nary_boolean_bodies, nary_boolean_where,
+    nary_boolean_where_bodies,
+};
 pub use region_solids::{Interface, RegionSolid, RegionSolids};
 pub use set_expr::SetExpr;
 pub use split::{SplitPiece, SplitResult, split};

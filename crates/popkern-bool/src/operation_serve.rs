@@ -244,15 +244,17 @@ pub(super) fn select_and_serve(
                 crate::options::NonManifoldPolicy::Decline => Err(nm),
                 crate::options::NonManifoldPolicy::SplitToManifold
                 | crate::options::NonManifoldPolicy::General => {
-                    crate::postprocess::contact_record::accept_split(body, tolerance).map_err(|e| {
-                        crate::complex_shadow::record_complex_rescue(
-                            op,
-                            crate::complex_shadow::ComplexRescueOutcome::SplitRejected(
-                                e.to_string(),
-                            ),
-                        );
-                        nm
-                    })
+                    crate::postprocess::split_pieces::accept_split(body, tolerance, policy).map_err(
+                        |e| {
+                            crate::complex_shadow::record_complex_rescue(
+                                op,
+                                crate::complex_shadow::ComplexRescueOutcome::SplitRejected(
+                                    e.to_string(),
+                                ),
+                            );
+                            nm
+                        },
+                    )
                 }
             };
         }

@@ -15,6 +15,8 @@ use popkern_io::{
 mod step_validation_evidence;
 #[path = "step_validation_failure.rs"]
 mod step_validation_failure;
+#[path = "step_validation_lumps.rs"]
+mod step_validation_lumps;
 use step_validation_evidence::{
     edge_surface_evidence, missing_edge_curve_evidence, pcurve_evidence,
 };
@@ -26,6 +28,7 @@ use step_validation_failure::{
     failure, failure_with_export_quality, failure_with_imported_validation,
     imported_validation_failure,
 };
+use step_validation_lumps::expected_import_bodies;
 
 #[derive(Debug, Clone)]
 pub struct StepRoundTripValidationOptions {
@@ -189,7 +192,8 @@ pub fn export_and_validate_breps(
 ) -> Result<(Vec<u8>, StepRoundTripReport), StepRoundTripFailure> {
     let bytes = export_step(&step_document(label, breps.to_vec()), &options.export)
         .map_err(|err| failure(label, format!("STEP export failed: {err}")))?;
-    let report = validate_step_bytes(label, &bytes, breps.len(), options)?;
+    let expected = expected_import_bodies(breps, options);
+    let report = validate_step_bytes(label, &bytes, expected, options)?;
     Ok((bytes, report))
 }
 
@@ -202,7 +206,13 @@ pub fn export_validate_and_import_breps(
         .map_err(|err| failure(label, format!("STEP export failed: {err}")))?;
     let imported = import_step(&bytes, &options.import)
         .map_err(|err| failure(label, format!("STEP import failed: {err}")))?;
-    let report = validate_imported_document(label, bytes.len(), breps.len(), &imported, options)?;
+    let report = validate_imported_document(
+        label,
+        bytes.len(),
+        expected_import_bodies(breps, options),
+        &imported,
+        options,
+    )?;
     let bodies = imported_bodies(&imported.document)
         .into_iter()
         .cloned()

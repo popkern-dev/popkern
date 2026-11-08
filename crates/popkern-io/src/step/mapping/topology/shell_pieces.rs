@@ -4,12 +4,11 @@
 //! A writer may list the faces of several solids that touch in one
 //! `CLOSED_SHELL`: two blocks sharing an edge list it with four face
 //! uses, blocks meeting at a corner share its vertex. The kernel's
-//! half-edges pair exactly two uses per edge, so such a shell imports
-//! as manifold pieces meeting at recorded contacts, the form a boolean
-//! serves under the split policy: each piece its own solid with its own
-//! copies of the contact edges and vertices, and every contact recorded
-//! on the body (`BRep::topology_contacts`), which `validate_all`
-//! excuses and the mesher keeps apart.
+//! half-edges pair exactly two uses per edge, so such a shell maps as
+//! manifold pieces, the form a boolean serves under the split policy:
+//! each piece its own solid with its own copies of the contact edges
+//! and vertices. The import then serves them as separate bodies, or
+//! glued into one general body (`import_general`, PK-1115).
 //!
 //! The pieces are the face sets joined through edges of exactly two
 //! uses. That reads the file's topology alone, so it is decided only
@@ -20,9 +19,6 @@
 //! nothing stay one body, as before.
 
 use std::collections::{BTreeMap, BTreeSet};
-
-use popkern_core::geometry::curve::CurveEval;
-use popkern_core::topology::{BRep, ContactEntity, TopologyContact, TopologyContactKind};
 
 use super::face_collector::FaceData;
 use crate::step::parser::types::EntityId;
@@ -174,64 +170,6 @@ pub(super) fn touching_pieces(
         vertices,
         edges,
     }))
-}
-
-/// Each of `ids`' copies over `count` pieces, in piece order.
-pub(super) fn copies<H>(
-    ids: &[EntityId],
-    count: usize,
-    copy: impl Fn(&(EntityId, usize)) -> Option<H>,
-) -> BTreeMap<EntityId, Vec<H>> {
-    ids.iter()
-        .map(|&id| (id, (0..count).filter_map(|p| copy(&(id, p))).collect()))
-        .collect()
-}
-
-/// Record the contacts between a shell's pieces: every STEP vertex and
-/// edge copied into more than one piece, each copy named, as the split
-/// policy records them.
-pub(super) fn record_contacts(
-    brep: &mut BRep,
-    vertex_copies: &BTreeMap<EntityId, Vec<popkern_core::topology::VertexHandle>>,
-    edge_copies: &BTreeMap<EntityId, Vec<popkern_core::topology::EdgeHandle>>,
-) {
-    let mut records = Vec::new();
-    for copies in vertex_copies.values().filter(|c| c.len() > 1) {
-        let Some(location) = brep.vertices.get(copies[0]).map(|v| v.position) else {
-            continue;
-        };
-        records.push(TopologyContact {
-            kind: TopologyContactKind::Vertex,
-            location,
-            entities: copies.iter().map(|&v| ContactEntity::Vertex(v)).collect(),
-        });
-    }
-    for copies in edge_copies.values().filter(|c| c.len() > 1) {
-        let Some(edge) = brep.edges.get(copies[0]) else {
-            continue;
-        };
-        let location = match edge.curve.as_ref() {
-            Some(c) => c.geometry.point_at(0.5 * (c.t_start + c.t_end)),
-            None => {
-                let Some((a, b)) = brep.half_edges.get(edge.half_edge).and_then(|h| {
-                    Some((
-                        h.origin,
-                        h.mate().and_then(|m| brep.half_edges.get(m))?.origin,
-                    ))
-                }) else {
-                    continue;
-                };
-                let (a, b) = (brep.vertices[a].position, brep.vertices[b].position);
-                a + (b - a) * 0.5
-            }
-        };
-        records.push(TopologyContact {
-            kind: TopologyContactKind::Edge,
-            location,
-            entities: copies.iter().map(|&e| ContactEntity::Edge(e)).collect(),
-        });
-    }
-    brep.topology_contacts.extend(records);
 }
 
 #[cfg(test)]

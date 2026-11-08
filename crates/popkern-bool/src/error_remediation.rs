@@ -216,6 +216,19 @@ impl BoolError {
                  the contact a shared face. The contact locations are \
                  in the error.",
             ),
+            BoolError::SplitIntoBodies { .. } => Remediation::new(
+                RemediationAction::NoAction,
+                "The result is several bodies touching along an edge or \
+                 at a point, which one body cannot hold. Ask for the \
+                 bodies (the operation's bodies form), or for one \
+                 general body that keeps the contacts.",
+            ),
+            BoolError::GeneralBodyDeclined { .. } => Remediation::new(
+                RemediationAction::NoAction,
+                "The touching pieces could not be joined into one body \
+                 at their contacts. Ask for them as separate bodies, or \
+                 move one body so they overlap or separate.",
+            ),
             BoolError::UnsupportedBodyKind { .. } => Remediation::new(
                 RemediationAction::NoAction,
                 "One input is not a kind of body this operation takes \

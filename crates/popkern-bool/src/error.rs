@@ -168,6 +168,28 @@ pub enum BoolError {
         /// Where the result would touch itself, for highlighting.
         contacts: Vec<NonManifoldContact>,
     },
+    /// Under `NonManifoldPolicy::SplitToManifold` the result is several
+    /// manifold bodies touching at zero-thickness contacts, which no
+    /// single body holds (PK-1115): the operation's `_bodies` form
+    /// returns them as separate bodies, `NonManifoldPolicy::General` as
+    /// one general body.
+    #[error(
+        "result splits into {bodies} bodies touching at {} contact(s); ask for the bodies, or for one general body",
+        contacts.len()
+    )]
+    SplitIntoBodies {
+        /// How many bodies.
+        bodies: usize,
+        /// Where they touch, for highlighting.
+        contacts: Vec<NonManifoldContact>,
+    },
+    /// Under `NonManifoldPolicy::General` the result's touching pieces
+    /// could not be glued into one valid general body (PK-1115).
+    #[error("the touching pieces could not be glued into one general body: {reason}")]
+    GeneralBodyDeclined {
+        /// The glue's decline or the glued body's first validation issue.
+        reason: String,
+    },
     /// An operand is not a kind of body the operation accepts (a sheet
     /// given to an operation on solids).
     #[error("{operation} needs {}; operand {operand} is a {}", accepted_label(accepted), kind.label())]
@@ -195,6 +217,10 @@ pub enum BoolError {
 mod error_contact;
 use error_contact::accepted_label;
 pub use error_contact::{ContactKind, NonManifoldContact};
+
+#[path = "error_entry.rs"]
+mod error_entry;
+pub use error_entry::{DiagnosticEntry, EntityRef, Severity};
 
 /// Per-stage timing and counter sample (§16 telemetry).
 ///
@@ -356,55 +382,6 @@ impl BoolDiagnostics {
             phase_metrics: Vec::new(),
         }
     }
-}
-
-/// Severity level for diagnostic entries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Severity {
-    /// Succeeded, notable condition (e.g. "12 redundant edges removed").
-    Info,
-    /// Succeeded with degraded quality (e.g. "3 sliver faces in result").
-    Warning,
-    /// Failed, model unchanged.
-    Error,
-    /// System-level failure, possible resource leak.
-    Critical,
-}
-
-/// A reference to a topological entity involved in a diagnostic.
-#[derive(Debug, Clone)]
-pub enum EntityRef {
-    /// A face handle.
-    Face(FaceHandle),
-    /// A pair of faces (e.g. a coincident face pair).
-    FacePair(FaceHandle, FaceHandle),
-}
-
-/// A structured diagnostic entry with severity, entity references, and
-/// optional remediation suggestion.
-#[derive(Debug, Clone)]
-pub struct DiagnosticEntry {
-    /// How severe this diagnostic is.
-    pub severity: Severity,
-    /// Which pipeline phase produced this diagnostic.
-    pub phase: Stage,
-    /// Human-readable description.
-    pub message: String,
-    /// Topological entities involved.
-    pub entities: Vec<EntityRef>,
-    /// Measured geometric value associated with the diagnostic (§13.1).
-    /// For example a "gap of 0.003mm" diagnostic would set this to
-    /// `Some(0.003)`. The unit is the model's linear unit; angular
-    /// values are stored in radians. `None` when the diagnostic is
-    /// not associated with a single scalar measurement.
-    pub measured_value: Option<f64>,
-    /// 3D location where the problem occurs (§13.1). Populated when the
-    /// failure site has a known coordinate (e.g. an intersection endpoint,
-    /// a face centroid, a measured gap point); `None` for diagnostics
-    /// that are intrinsically topological.
-    pub location: Option<Point3>,
-    /// Machine-readable remediation suggestion.
-    pub remediation: Option<Remediation>,
 }
 
 /// A suggested fix for a boolean operation failure.

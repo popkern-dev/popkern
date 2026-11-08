@@ -111,7 +111,8 @@ pub enum Feature {
         /// The tool body to operate with.
         tool_body: BodyId,
         /// A result touching only along edges or at points: decline,
-        /// or serve manifold pieces with recorded contacts.
+        /// serve one general body, or (split) the manifold pieces as the
+        /// body's solids, taken apart by `SeparatePieces`.
         #[serde(default, skip_serializing_if = "NonManifoldPolicy::is_decline")]
         non_manifold: popkern_bool::NonManifoldPolicy,
     },
@@ -132,7 +133,8 @@ pub enum Feature {
         /// The regions kept, by membership.
         expr: popkern_bool::SetExpr,
         /// Kept regions that touch only along edges or at points:
-        /// decline, or serve manifold pieces with recorded contacts.
+        /// decline, serve one general body, or (split) the manifold
+        /// pieces as the body's solids, taken apart by `SeparatePieces`.
         #[serde(default, skip_serializing_if = "NonManifoldPolicy::is_decline")]
         non_manifold: popkern_bool::NonManifoldPolicy,
     },

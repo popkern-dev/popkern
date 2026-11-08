@@ -233,14 +233,20 @@ fn three_cubes_select_every_expression() {
         }),
     ];
     for (expr, options, want) in cases {
-        let body = p
-            .select(&expr, &options)
+        // Split, the touching pieces are separate bodies, each valid;
+        // side by side they hold the selected material.
+        let served = p
+            .select_bodies(&expr, &options)
             .unwrap_or_else(|e| panic!("{expr:?}: {e}"));
-        assert!(
-            body.validate_all().is_empty(),
-            "{expr:?}: {:?}",
-            body.validate_all()
-        );
+        let mut body = BRep::new(Tolerance::default());
+        for one in &served {
+            assert!(
+                one.validate_all().is_empty(),
+                "{expr:?}: {:?}",
+                one.validate_all()
+            );
+            body.append_body(one);
+        }
         agrees_on_lattice(&bodies, &want, &body);
     }
 }

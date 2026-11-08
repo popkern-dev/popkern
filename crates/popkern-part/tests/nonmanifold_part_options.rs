@@ -1,6 +1,6 @@
 //! Non-manifold policy on the Part surface (PK-964): parts touching
-//! along an edge decline to union by default and combine into
-//! manifold pieces with recorded contacts on request; the symmetric
+//! along an edge decline to union by default and combine on request
+//! into separate parts (split) or one general part; the symmetric
 //! difference of overlapping parts serves its two differences.
 
 use popkern_bool::{BoolError, BoolOperation, BoolOptions, NonManifoldPolicy};
@@ -31,21 +31,36 @@ fn edge_touching_parts_decline_then_split_on_request() {
         ),
         "{declined:?}"
     );
-    let split = cube()
-        .boolean_with(&other, BoolOperation::Union, &SPLIT)
+    let parts = cube()
+        .boolean_bodies_with(&other, BoolOperation::Union, &SPLIT)
         .expect("splits");
-    assert!(!split.brep().topology_contacts.is_empty());
-    assert!(split.brep().validate_all().is_empty());
+    assert_eq!(parts.len(), 2);
+    for part in &parts {
+        assert!(part.brep().validate_all().is_empty());
+    }
+    let general = cube()
+        .boolean_with(
+            &other,
+            BoolOperation::Union,
+            &BoolOptions {
+                non_manifold: NonManifoldPolicy::General,
+            },
+        )
+        .expect("one general part");
+    assert!(!general.brep().contacts().is_empty());
+    assert!(general.brep().validate_all().is_empty());
 }
 
 #[test]
 fn symmetric_difference_of_overlapping_parts_serves_split() {
     let other = cube().translate(0.5, 0.5, 0.5).expect("translate");
     let xor = cube()
-        .symmetric_difference(&other, &SPLIT)
+        .symmetric_difference_bodies(&other, &SPLIT)
         .expect("serves split");
-    assert!(xor.brep().validate_all().is_empty());
-    assert_eq!(xor.brep().back_shell_count(), 2);
+    assert_eq!(xor.len(), 2);
+    for part in &xor {
+        assert!(part.brep().validate_all().is_empty());
+    }
     assert!(
         cube()
             .symmetric_difference(&other, &BoolOptions::default())

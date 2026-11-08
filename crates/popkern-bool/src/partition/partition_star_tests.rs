@@ -175,9 +175,9 @@ fn six_rods_are_order_invariant() {
     }
 }
 
-/// Exactly one of three crossing rods, split to manifold pieces: the
-/// pieces meet at vertices split three ways, one recorded contact each
-/// naming every copy, and `validate_all` excuses exactly those.
+/// Exactly one of three crossing rods, split to manifold bodies: the
+/// pieces meet at vertices split three ways, each piece valid alone.
+/// (Glued under the general policy they decline, PK-1118.)
 #[test]
 fn three_rods_exactly_one_splits_to_manifold_pieces() {
     let tol = Tolerance::default();
@@ -194,14 +194,14 @@ fn three_rods_exactly_one_splits_to_manifold_pieces() {
     let options = crate::BoolOptions {
         non_manifold: crate::NonManifoldPolicy::SplitToManifold,
     };
-    let body = partition(&refs, tol)
-        .and_then(|p| p.select(&super::SetExpr::ExactlyOne, &options))
+    let p = partition(&refs, tol).expect("partition");
+    let bodies = p
+        .select_bodies(&super::SetExpr::ExactlyOne, &options)
         .expect("exactly one");
-    assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
-    assert!(
-        body.topology_contacts.iter().any(|c| c.entities.len() >= 3),
-        "a vertex split three ways is one contact"
-    );
+    assert!(bodies.len() > 1);
+    for body in &bodies {
+        assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
+    }
 }
 
 /// A unit sphere and a rod across it (along x through y = 0.05,
@@ -274,7 +274,7 @@ fn a_seam_straddling_cutout_trims_its_sphere_face() {
 }
 
 /// Exactly one of the sphere and the crossing rod, split to manifold
-/// pieces: the sphere with its tunnel and the two rod stubs, meeting
+/// bodies: the sphere with its tunnel and the two rod stubs, meeting
 /// along the intersection circles. The sphere face and the tunnel
 /// wall meet only at those (non-manifold) circles, yet bound one shell
 /// and share its orientation convention (a convention per manifold
@@ -287,9 +287,12 @@ fn sphere_and_crossing_rod_exactly_one_splits_to_manifold_pieces() {
     let options = crate::BoolOptions {
         non_manifold: crate::NonManifoldPolicy::SplitToManifold,
     };
-    let body = partition(&[&sphere, &rod], tol)
-        .and_then(|p| p.select(&super::SetExpr::ExactlyOne, &options))
+    let bodies = partition(&[&sphere, &rod], tol)
+        .and_then(|p| p.select_bodies(&super::SetExpr::ExactlyOne, &options))
         .expect("exactly one");
-    assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
-    assert_eq!(body.back_shell_count(), 3);
+    assert_eq!(bodies.len(), 3);
+    for body in &bodies {
+        assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
+        assert_eq!(body.back_shell_count(), 1);
+    }
 }

@@ -42,8 +42,7 @@ fn volume(body: &BRep) -> f64 {
 
 /// Two boxes meeting along an edge union into one general body: the
 /// edge's ring holds both boxes' faces, the two solids stay apart, and
-/// nothing is left recorded. Split again it is the split policy's
-/// pieces.
+/// split again it is the split policy's bodies.
 #[test]
 fn boxes_meeting_along_an_edge_union_into_one_general_body() {
     let general = under(
@@ -53,7 +52,6 @@ fn boxes_meeting_along_an_edge_union_into_one_general_body() {
         cube_at(1.0, 1.0, 0.0),
     );
     assert_eq!(general.body_kind(), BodyKind::General);
-    assert!(general.topology_contacts.is_empty());
     assert_eq!(general.solid_regions().len(), 2);
     assert!(
         general
@@ -63,22 +61,62 @@ fn boxes_meeting_along_an_edge_union_into_one_general_body() {
     );
     assert_valid(&general, "general union");
 
-    let pieces = under(
-        NonManifoldPolicy::SplitToManifold,
+    let bodies = crate::boolean_bodies(
         BoolOperation::Union,
         cube_at(0.0, 0.0, 0.0),
         cube_at(1.0, 1.0, 0.0),
-    );
-    let mut split = general.clone();
-    split.split_to_manifold().expect("split");
+        tol(),
+        None,
+        &BoolOptions {
+            non_manifold: NonManifoldPolicy::SplitToManifold,
+        },
+    )
+    .expect("split bodies");
+    let split = general.split_to_manifold().expect("split");
     let counts = |b: &BRep| (b.vertices.len(), b.edges.len(), b.faces.len());
-    // The same pieces: the split policy names its contacts by the faces
-    // that touch, the split by the coincident edges and vertex copies;
-    // both validate.
-    assert_eq!(counts(&split), counts(&pieces));
-    assert_valid(&split, "split back into pieces");
-    let v = volume(&split);
+    assert_eq!(split.len(), 2);
+    assert_eq!(
+        split.iter().map(counts).collect::<Vec<_>>(),
+        bodies.iter().map(counts).collect::<Vec<_>>()
+    );
+    let mut v = 0.0;
+    for b in &split {
+        assert_valid(b, "split back into bodies");
+        v += volume(b);
+    }
     assert!((v - 2.0).abs() < 1e-6, "{v}");
+}
+
+/// Under the split policy the single-body boolean cannot serve two
+/// touching bodies: it declines naming how many and where they touch,
+/// and serves one body where the pieces touch nowhere.
+#[test]
+fn a_split_into_touching_bodies_is_no_single_body() {
+    let split = BoolOptions {
+        non_manifold: NonManifoldPolicy::SplitToManifold,
+    };
+    let touching = boolean_with_options(
+        BoolOperation::Union,
+        cube_at(0.0, 0.0, 0.0),
+        cube_at(1.0, 1.0, 0.0),
+        tol(),
+        None,
+        &split,
+    );
+    match touching {
+        Err(crate::BoolError::SplitIntoBodies { bodies, contacts }) => {
+            assert_eq!(bodies, 2);
+            assert!(!contacts.is_empty());
+        }
+        other => panic!("{other:?}"),
+    }
+    let apart = under(
+        NonManifoldPolicy::SplitToManifold,
+        BoolOperation::Union,
+        cube_at(0.0, 0.0, 0.0),
+        cube_at(0.5, 0.5, 0.5),
+    );
+    assert_valid(&apart, "overlapping union under split");
 }
 
 /// Two boxes sharing only a corner union into one general body with one
@@ -92,7 +130,6 @@ fn boxes_meeting_at_a_corner_union_into_one_general_body() {
         cube_at(1.0, 1.0, 1.0),
     );
     assert_eq!(general.body_kind(), BodyKind::General);
-    assert!(general.topology_contacts.is_empty());
     assert_eq!(
         general
             .vertices
@@ -139,9 +176,12 @@ fn a_general_body_is_a_boolean_operand() {
             .any(|e| notched.radial_fins(e).len() == 4)
     );
     assert_valid(&notched, "notched");
-    let mut split = notched;
-    split.split_to_manifold().expect("split");
-    let v = volume(&split);
+    let v: f64 = notched
+        .split_to_manifold()
+        .expect("split")
+        .iter()
+        .map(volume)
+        .sum();
     assert!((v - (2.0 - 0.125)).abs() < 1e-6, "{v}");
 }
 
@@ -180,6 +220,5 @@ fn the_general_policy_is_opt_in_and_reaches_nary_booleans() {
     )
     .expect("n-ary");
     assert_eq!(nary.body_kind(), BodyKind::General);
-    assert!(nary.topology_contacts.is_empty());
     assert_valid(&nary, "n-ary general");
 }

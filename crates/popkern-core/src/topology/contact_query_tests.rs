@@ -6,17 +6,17 @@ fn tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Two cubes on an edge, as pieces with recorded contacts and glued
-/// into one general body: the same contacts by kind either way.
+/// Two cubes glued on an edge: one edge contact and its two end
+/// vertices; split into separate bodies, neither touches itself.
 #[test]
-fn contacts_read_the_same_from_pieces_and_from_a_general_body() {
+fn a_general_body_lists_its_contacts_and_its_pieces_none() {
     let mut pieces = BRep::unit_cube(tol()).expect("cube");
     pieces.append_body(
         &BRep::unit_cube(tol())
             .and_then(|c| c.transform(&Transform3::translation(1.0, 1.0, 0.0)))
             .expect("cube"),
     );
-    // Glue by hand, then split back: the pieces' form.
+    // Glue by hand.
     let mut general = pieces.clone();
     loop {
         let keys: Vec<_> = general.vertices.keys().collect();
@@ -48,8 +48,7 @@ fn contacts_read_the_same_from_pieces_and_from_a_general_body() {
         })
         .collect();
     general.glue_edges(shared[0], shared[1]).expect("edge");
-    let mut split = general.clone();
-    split.split_to_manifold().expect("split");
+    let split = general.split_to_manifold().expect("split");
     let kinds = |b: &BRep| {
         let c = b.contacts();
         (
@@ -62,7 +61,7 @@ fn contacts_read_the_same_from_pieces_and_from_a_general_body() {
         )
     };
     assert_eq!(kinds(&general), (1, 2));
-    assert_eq!(kinds(&split), kinds(&general));
-    assert!(general.topology_contacts.is_empty(), "nothing stored");
+    // Separate bodies touch no part of themselves.
+    assert!(split.iter().all(|b| kinds(b) == (0, 0)));
     assert!(BRep::unit_cube(tol()).expect("cube").contacts().is_empty());
 }

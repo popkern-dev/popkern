@@ -2,11 +2,14 @@
 //!
 //! A `CLOSED_SHELL` listing the faces of solids that touch (two blocks
 //! sharing an edge or a corner, as OCC writes them) maps as manifold
-//! pieces meeting at recorded contacts (`shell_pieces`). Under
-//! [`StepNonManifold::General`] the pieces are glued at those contacts
-//! (`BRep::glue_contacts`): one general body whose contact edge's ring
-//! holds every piece's faces in radial order. A glue that declines, or a
-//! glued body that does not validate, keeps the pieces and says why.
+//! pieces, each with its own copy of the vertices and edges it shares
+//! with another (`shell_pieces`). By default they import as separate
+//! bodies (no single body holds touching pieces, PK-1115). Under
+//! [`StepNonManifold::General`] they are glued where they coincide
+//! (`BRep::glue_coincident`): one general body whose contact edge's
+//! ring holds every piece's faces in radial order. A glue that
+//! declines, or a glued body that does not validate, keeps the pieces as
+//! separate bodies and says why.
 
 use popkern_core::topology::BRep;
 
@@ -15,31 +18,24 @@ use crate::step::diagnostics::{DiagnosticLog, Phase};
 /// How a STEP shell that touches itself imports.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum StepNonManifold {
-    /// Manifold pieces meeting at recorded contacts.
+    /// Separate manifold bodies, one per piece, touching where the
+    /// shell did.
     #[default]
     Pieces,
-    /// One general body: the pieces glued at their contacts.
+    /// One general body: the pieces glued where they touch.
     General,
 }
 
-/// Glue `brep` into one general body where its pieces touch: its
-/// recorded contacts (a shell split into pieces), then whatever
-/// coincides without being shared (`BRep::glue_coincident`: a writer's
-/// cavities touching along an edge each with their own copy of it), then
-/// the cells a face-by-face shell encloses (`BRep::fill_enclosed_cells`).
-/// Kept when it validates; logged against STEP entity `id` either way.
+/// Glue `brep` into one general body where its pieces touch: whatever
+/// coincides without being shared (`BRep::glue_coincident`: a shell
+/// split into pieces, a writer's cavities touching along an edge each
+/// with their own copy of it), then the cells a face-by-face shell
+/// encloses (`BRep::fill_enclosed_cells`). Kept when it validates;
+/// logged against STEP entity `id` either way.
 pub(crate) fn glue_pieces(brep: &mut BRep, id: u64, log: &mut DiagnosticLog) {
     let mut glued = brep.clone();
     let mut steps = Vec::new();
     let outcome = (|| -> Result<(), String> {
-        if !glued.topology_contacts.is_empty() {
-            let report = glued.glue_contacts().map_err(|e| e.to_string())?;
-            steps.push(format!(
-                "{} contact(s) glued, {} kept recorded",
-                report.glued,
-                report.kept.len()
-            ));
-        }
         let coincident = glued.glue_coincident().map_err(|e| e.to_string())?;
         if coincident.vertices + coincident.edges > 0 {
             steps.push(format!(
@@ -238,4 +234,83 @@ pub(crate) fn merge_touching_items(items: &[BRep], log: &mut DiagnosticLog) -> O
         }
     }
     Some(out)
+}
+
+/// `brep` as the bodies it imports as by default: its pieces, each a
+/// body of its own, when they touch (a self-touching shell mapped as
+/// pieces, each with its own copies of the shared vertices); else
+/// `brep` itself.
+pub(crate) fn separate_touching_pieces(brep: BRep, id: u64, log: &mut DiagnosticLog) -> Vec<BRep> {
+    if brep.piece_face_sets().len() < 2 || !pieces_touch(&brep) {
+        return vec![brep];
+    }
+    match brep.piece_bodies() {
+        Ok(bodies) => {
+            log.warn(
+                Phase::MapTopology,
+                Some(id),
+                format!(
+                    "touching pieces imported as {} separate bodies",
+                    bodies.len()
+                ),
+            );
+            bodies
+        }
+        Err(e) => {
+            log.warn(
+                Phase::MapTopology,
+                Some(id),
+                format!("touching pieces kept in one body: {e}"),
+            );
+            vec![brep]
+        }
+    }
+}
+
+/// Whether two pieces of `brep` have vertices within the linear
+/// tolerance of each other.
+fn pieces_touch(brep: &BRep) -> bool {
+    let mut piece = std::collections::HashMap::new();
+    for (k, set) in brep.piece_face_sets().iter().enumerate() {
+        for &f in set {
+            for (_, l) in brep.loops.iter().filter(|(_, l)| l.face == f) {
+                if let Some(v) = l.vertex {
+                    piece.insert(v, k);
+                }
+            }
+            for (_, h) in brep.half_edges.iter() {
+                if brep.loops.get(h.loop_).is_some_and(|l| l.face == f) {
+                    piece.insert(h.origin, k);
+                }
+            }
+        }
+    }
+    let tolerance = brep.tolerance.linear();
+    let cell = |p: popkern_core::geometry::Point3| {
+        let k = |x: f64| (x / tolerance.max(1e-12)).floor() as i64;
+        (k(p.x), k(p.y), k(p.z))
+    };
+    let mut grid: std::collections::HashMap<
+        (i64, i64, i64),
+        Vec<(usize, popkern_core::geometry::Point3)>,
+    > = std::collections::HashMap::new();
+    for (v, &k) in &piece {
+        let p = brep.vertices[*v].position;
+        let (x, y, z) = cell(p);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    if let Some(near) = grid.get(&(x + dx, y + dy, z + dz))
+                        && near
+                            .iter()
+                            .any(|&(j, q)| j != k && q.distance_to(&p) <= tolerance)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        grid.entry((x, y, z)).or_default().push((k, p));
+    }
+    false
 }

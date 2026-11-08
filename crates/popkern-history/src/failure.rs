@@ -163,6 +163,8 @@ impl FeatureFailure {
             BoolError::InterferenceFailed(_) => ("InterferenceFailed", None),
             BoolError::SystemError(_) => ("SystemError", None),
             BoolError::NonManifoldResult { .. } => ("NonManifoldResult", None),
+            BoolError::SplitIntoBodies { .. } => ("SplitIntoBodies", None),
+            BoolError::GeneralBodyDeclined { .. } => ("GeneralBodyDeclined", None),
             BoolError::UnsupportedBodyKind { .. } => ("UnsupportedBodyKind", None),
             BoolError::TooManyBodies { .. } => ("TooManyBodies", None),
         };

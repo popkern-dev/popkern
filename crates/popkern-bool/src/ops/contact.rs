@@ -9,9 +9,10 @@
 //! [`symmetric_difference`] is A ⊕ B = (A − B) ∪ (B − A): the material
 //! in exactly one operand. Its two pieces meet along every curve where
 //! the operands' boundaries cross, so a ⊕ of overlapping bodies is
-//! non-manifold by nature: it declines under the default policy and
-//! serves as the pieces with recorded contacts under
-//! [`NonManifoldPolicy::SplitToManifold`].
+//! non-manifold by nature: it declines under the default policy, serves
+//! one general body under `General`, and its pieces as separate bodies
+//! under [`NonManifoldPolicy::SplitToManifold`]
+//! ([`symmetric_difference_bodies`]).
 
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
@@ -108,7 +109,9 @@ pub fn contact_report(
 ///
 /// Either difference's failure; [`BoolError::NonManifoldResult`] when
 /// the pieces touch and `options` declines non-manifold results (the
-/// default), or when they cannot be served valid side by side.
+/// default), or when they cannot be served valid side by side;
+/// [`BoolError::SplitIntoBodies`] under `SplitToManifold` when they
+/// touch ([`symmetric_difference_bodies`] returns them).
 pub fn symmetric_difference(
     a: BRep,
     b: BRep,
@@ -116,6 +119,27 @@ pub fn symmetric_difference(
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
     crate::partition::nary_boolean(
+        &[&a, &b],
+        &crate::partition::SetExpr::ExactlyOne,
+        tolerance,
+        options,
+    )
+}
+
+/// [`symmetric_difference`] as a list of bodies: under
+/// `SplitToManifold` the two differences, where they touch, as separate
+/// bodies (as [`crate::boolean_bodies`]).
+///
+/// # Errors
+///
+/// As [`symmetric_difference`], never [`BoolError::SplitIntoBodies`].
+pub fn symmetric_difference_bodies(
+    a: BRep,
+    b: BRep,
+    tolerance: Tolerance,
+    options: &BoolOptions,
+) -> Result<Vec<BRep>, BoolError> {
+    crate::partition::nary_boolean_bodies(
         &[&a, &b],
         &crate::partition::SetExpr::ExactlyOne,
         tolerance,

@@ -8,7 +8,9 @@ use popkern_core::topology::{BRep, BodyKind};
 use crate::error::BoolError;
 use crate::{BoolOperation, TrackingContext, entity_naming_result, operation, options};
 
-/// [`crate::boolean`] under `policy`.
+/// [`crate::boolean`] under `policy`, a non-manifold result as the
+/// pipeline answers it: manifold pieces in one body under the split and
+/// general policies (`crate::split_serve` serves them).
 pub(crate) fn boolean_under(
     op: BoolOperation,
     a: BRep,
@@ -22,16 +24,14 @@ pub(crate) fn boolean_under(
     // remediation names the sheet booleans (§2.3); any other kind (a
     // general body, a wire) with the kind gate's.
     // The general policy reads general operands as their manifold
-    // pieces and runs split, gluing the result's contacts at the end.
-    let general = policy == options::NonManifoldPolicy::General;
-    let (a, b, policy) = if general {
+    // pieces and runs split; the entry point glues the result.
+    let (a, b) = if policy == options::NonManifoldPolicy::General {
         (
             crate::general::operand_pieces(a, 0)?,
             crate::general::operand_pieces(b, 1)?,
-            options::NonManifoldPolicy::SplitToManifold,
         )
     } else {
-        (a, b, policy)
+        (a, b)
     };
     let kinds = [a.body_kind(), b.body_kind()];
     let a_is_sheet = kinds[0] == BodyKind::Sheet;
@@ -56,22 +56,29 @@ pub(crate) fn boolean_under(
     // No perturbation retry: plan Stage 7d retired it after it fired on
     // no boolean over three whole-suite runs (`boolean_with_perturbation`
     // remains an explicit opt-in).
-    // Operands served as pieces meeting at recorded contacts touch
-    // themselves on purpose (PK-986): the result is served as pieces
-    // too, its contacts recorded again, and declined only for a contact
-    // no operand recorded.
-    use crate::postprocess::contact_inherit::{inherited_or_declined, run_policy};
-    let inherits = run_policy(policy, &[&a, &b]);
-    let run = inherits.unwrap_or(policy);
-    let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, run)?;
-    if inherits.is_some() {
-        result = inherited_or_declined(result, &[&a, &b], &tol)?;
-    }
+    let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, policy)?;
     if let Some(ctx) = tracking {
         entity_naming_result::name_result(&mut result, &a, &[&b], ctx, &tol);
     }
-    if general {
-        result = crate::general::glue_result(result);
-    }
     Ok(result)
+}
+
+/// [`crate::boolean_with_options`] as a list of bodies: one body, except under
+/// [`crate::NonManifoldPolicy::SplitToManifold`] a result whose manifold
+/// pieces touch, each piece its own valid body (in slot order, named as
+/// the one body would be).
+///
+/// # Errors
+///
+/// As [`crate::boolean_with_options`], never [`BoolError::SplitIntoBodies`].
+pub fn boolean_bodies(
+    op: BoolOperation,
+    a: BRep,
+    b: BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    options: &crate::BoolOptions,
+) -> Result<Vec<BRep>, BoolError> {
+    let pieces = boolean_under(op, a, b, tol, tracking, options.non_manifold);
+    crate::split_serve::serve_bodies(pieces, options.non_manifold, &tol)
 }

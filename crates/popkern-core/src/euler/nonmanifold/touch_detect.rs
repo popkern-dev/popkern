@@ -165,6 +165,17 @@ impl BRep {
         b.padded(self.tolerance.linear())
     }
 
+    /// Every fin of `face`'s loops.
+    pub(super) fn face_fins(&self, face: FaceHandle) -> Vec<crate::topology::HalfEdgeHandle> {
+        let Some(f) = self.faces.get(face) else {
+            return Vec::new();
+        };
+        std::iter::once(f.outer_loop)
+            .chain(f.inner_loops.iter().copied())
+            .flat_map(|l| self.loop_cycle(l))
+            .collect()
+    }
+
     /// The edges of `face`'s boundary loops.
     pub(super) fn face_edges(&self, face: FaceHandle) -> Vec<EdgeHandle> {
         let mut out: Vec<EdgeHandle> = self

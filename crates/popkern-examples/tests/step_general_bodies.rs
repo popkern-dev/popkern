@@ -3,11 +3,11 @@
 //! The OpenCASCADE-written non-manifold fixtures (one `CLOSED_SHELL`
 //! listing the faces of solids that touch along an edge or at a corner)
 //! import under `StepNonManifold::General` as one general body: its
-//! contact edge's ring holds every solid's faces, nothing is left
-//! recorded, `validate_all` is clean, and each solid region's volume is
-//! the solid OpenCASCADE reads back. Exported again it is the same
-//! form: it reimports as the same general body, as the same pieces under
-//! the default option, and OpenCASCADE reads the same solids from it.
+//! contact edge's ring holds every solid's faces, `validate_all` is
+//! clean, and each solid region's volume is the solid OpenCASCADE reads
+//! back. Exported again it is the same form: it reimports as the same
+//! general body, as the same pieces (separate bodies) under the default
+//! option, and OpenCASCADE reads the same solids from it.
 
 use popkern_core::topology::{BRep, BodyKind};
 use popkern_io::step::diagnostics::Severity;
@@ -113,11 +113,7 @@ fn self_touching_shells_import_as_general_bodies_and_export_again() {
     for &(name, want) in ROWS {
         let (doc, body) = import(&fixture(name), StepNonManifold::General, name);
         assert_eq!(body.body_kind(), BodyKind::General, "{name}");
-        assert!(
-            body.topology_contacts.is_empty(),
-            "{name}: {:?}",
-            body.topology_contacts
-        );
+        assert!(!body.contacts().is_empty(), "{name}: contacts held");
         let findings = body.validate_all();
         assert!(findings.is_empty(), "{name}: {findings:?}");
         assert_volumes(name, &region_volumes(&body), want);
@@ -129,12 +125,18 @@ fn self_touching_shells_import_as_general_bodies_and_export_again() {
         assert_eq!(counts(&again), counts(&body), "{name}: re-read counts");
         assert_volumes(name, &region_volumes(&again), want);
 
-        let (_, pieces) = import(&written, StepNonManifold::Pieces, name);
-        assert!(
-            !pieces.topology_contacts.is_empty(),
-            "{name}: pieces record contacts"
-        );
-        assert_eq!(pieces.solid_regions().len(), want.len(), "{name}: pieces");
+        let pieces = import_step(&written, &StepImportOptions::default()).expect("import");
+        let pieces: Vec<BRep> = pieces
+            .document
+            .products
+            .iter()
+            .flat_map(|p| &p.shapes)
+            .flat_map(|s| s.solids.iter().cloned())
+            .collect();
+        assert_eq!(pieces.len(), want.len(), "{name}: pieces");
+        for piece in &pieces {
+            assert!(piece.validate_all().is_empty(), "{name}: piece");
+        }
 
         if let Some(occ) = occ_volumes(&written, name) {
             assert_volumes(name, &occ, want);

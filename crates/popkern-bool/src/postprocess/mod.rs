@@ -1,8 +1,6 @@
 //! Post-processing for boolean results: redundant edge removal and face simplification.
 
 pub mod collinear_vertex;
-pub(crate) mod contact_inherit;
-pub(crate) mod contact_record;
 pub(crate) mod curveless_edge;
 pub mod exact_rims;
 pub mod face_simplify;
@@ -22,6 +20,7 @@ pub(crate) mod shell_contact;
 pub mod slit_retire;
 pub mod slit_seam;
 pub mod sliver_removal;
+pub(crate) mod split_pieces;
 pub mod spur_edge;
 pub(crate) mod zero_thickness;
 
