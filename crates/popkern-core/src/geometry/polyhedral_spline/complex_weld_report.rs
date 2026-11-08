@@ -17,6 +17,9 @@ pub struct PolyhedralBoundaryWeldReport {
     pub welded_pairs: usize,
     pub declined_pairs: usize,
     pub remaining_boundary_edges: usize,
+    /// Boundary edges split where another component's boundary vertex
+    /// lay on them, before pairing (PK-1119).
+    pub t_junction_splits: usize,
     pub max_weld_gap: f64,
     pub trim_repairs: usize,
     pub edge_curve_repairs: usize,
