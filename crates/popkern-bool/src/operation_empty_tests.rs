@@ -122,3 +122,21 @@ fn a_face_over_a_notch_is_not_certified_inside() {
         &notched
     ));
 }
+
+/// Cubes sharing a face share area; cubes meeting along an edge or at
+/// a corner, and a ball resting on a cube, do not (PK-1124).
+#[test]
+fn only_face_sharing_operands_share_area() {
+    let tol = Tolerance::default();
+    let unit = cube_at(0.0, 0.0, 0.0);
+    assert!(shares_area(&unit, &cube_at(1.0, 0.0, 0.0), &tol));
+    assert!(shares_area(&unit, &cube_at(1.0, 0.5, 0.0), &tol));
+    assert!(!shares_area(&unit, &cube_at(1.0, 1.0, 0.0), &tol));
+    assert!(!shares_area(&unit, &cube_at(1.0, 1.0, 1.0), &tol));
+    let ball = BRep::sphere(0.5, tol)
+        .expect("sphere builds")
+        .transform(&Transform3::translation(0.5, 0.5, 1.5))
+        .expect("translates");
+    assert!(!shares_area(&unit, &ball, &tol));
+    assert!(!shares_area(&ball, &unit, &tol));
+}
