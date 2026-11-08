@@ -10,7 +10,7 @@ use crate::geometry::intersection::coincident_analytic::are_surfaces_coincident_
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::{
     cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_cylinder, plane_sphere,
-    plane_torus, radial_level_curve, torus_coaxial,
+    plane_torus, radial_level_curve, sphere_sphere, torus_coaxial,
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
@@ -115,6 +115,13 @@ pub(super) fn try_analytic_pair(
     if let Some(intersections) = plane_sphere::try_plane_sphere(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
     ) {
+        return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
+    }
+
+    // Fast path: sphere-sphere pair → the exact circle in the radical
+    // plane (PK-1134: the marcher returned 196,069 curves for a circle
+    // through a pole of each sphere).
+    if let Some(intersections) = sphere_sphere::try_sphere_sphere(surface1, surface2, tolerance) {
         return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
     }
 
