@@ -198,6 +198,7 @@ pub(super) fn execute_loft(
         consumed_bodies: consumed,
         evidence,
         written_bodies: Vec::new(),
+        served_bodies: Vec::new(),
     })
 }
 

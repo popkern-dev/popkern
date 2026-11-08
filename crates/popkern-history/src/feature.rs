@@ -111,13 +111,13 @@ pub enum Feature {
         /// The tool body to operate with.
         tool_body: BodyId,
         /// A result touching only along edges or at points: decline,
-        /// serve one general body, or (split) the manifold pieces as the
-        /// body's solids, taken apart by `SeparatePieces`.
+        /// serve one general body, or (split) the manifold pieces, each
+        /// its own body (`FeatureNode::output_bodies`, PK-1120).
         #[serde(default, skip_serializing_if = "NonManifoldPolicy::is_decline")]
         non_manifold: popkern_bool::NonManifoldPolicy,
     },
-    /// The current body cut into its pieces by tool bodies (consumed):
-    /// one body of several solids, the pieces `keep` selects.
+    /// The current body cut by tool bodies (consumed): the pieces `keep`
+    /// selects, each its own body (`FeatureNode::output_bodies`).
     Split {
         /// The cutting bodies, in order (tool k is `InsideTools` body k).
         tools: Vec<BodyId>,
@@ -134,7 +134,7 @@ pub enum Feature {
         expr: popkern_bool::SetExpr,
         /// Kept regions that touch only along edges or at points:
         /// decline, serve one general body, or (split) the manifold
-        /// pieces as the body's solids, taken apart by `SeparatePieces`.
+        /// pieces, each its own body (`FeatureNode::output_bodies`).
         #[serde(default, skip_serializing_if = "NonManifoldPolicy::is_decline")]
         non_manifold: popkern_bool::NonManifoldPolicy,
     },

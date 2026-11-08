@@ -16,7 +16,7 @@ use popkern_history::parameter::ParamScope;
 use popkern_script::Model;
 
 use crate::args::unit_name;
-use crate::emit_feature::statement;
+use crate::emit_feature::{pieces_var, served_body_lines, statement};
 use crate::emit_spelling::{float, named_chain, quoted, selection};
 use popkern_core::naming::EntityName;
 use popkern_script::{parse_edges, parse_faces};
@@ -265,9 +265,19 @@ impl Emitter {
                 } else {
                     "let "
                 };
-                format!("{keyword}{target} = {}{};", var(node.body), stmt.call)
+                if matches!(node.feature, Feature::Split { .. }) {
+                    // A split returns its pieces, the body first (PK-1120).
+                    let pieces = pieces_var(node, &var(node.body));
+                    format!("let {pieces} = {}{};", var(node.body), stmt.call)
+                } else {
+                    format!("{keyword}{target} = {}{};", var(node.body), stmt.call)
+                }
             };
             self.line(&text);
+            for (body, line) in served_body_lines(node, &var) {
+                self.line(&line);
+                self.declared.insert(body.0);
+            }
             self.declared.insert(served.0);
             self.active = Some(served);
             if node.suppressed {

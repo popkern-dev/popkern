@@ -473,5 +473,6 @@ pub fn statement(
 mod emit_feature_groups;
 #[path = "emit_feature_partition.rs"]
 mod emit_feature_partition;
+pub(crate) use emit_feature_partition::{pieces_var, served_body_lines};
 #[path = "emit_feature_shaping.rs"]
 mod emit_feature_shaping;

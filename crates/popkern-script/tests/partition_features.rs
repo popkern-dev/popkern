@@ -45,13 +45,29 @@ fn measured(m: &mut Model) -> (usize, f64) {
     )
 }
 
+/// Each of `bodies`: one solid, valid with nothing touching inside it,
+/// every face named; their count and total volume.
+fn measured_bodies(m: &mut Model, bodies: &[Body]) -> (usize, f64) {
+    let tol = popkern_core::tolerance::Tolerance::default();
+    let mut volume = 0.0;
+    for &b in bodies {
+        let brep = m.brep_of(b).expect("brep");
+        assert!(brep.validate_all().is_empty(), "{:?}", brep.validate_all());
+        assert_eq!(brep.solid_regions().len(), 1, "one piece per body");
+        assert!(brep.faces.values().all(|f| f.name.is_some()));
+        volume += body_volume(&brep, &tol).expect("volume");
+    }
+    (bodies.len(), volume)
+}
+
 fn split_with(keep: PieceRule) -> Result<(usize, f64), ScriptError> {
     let mut m = Model::new();
     let p = plate(&mut m);
     let s = slab(&mut m, 0.0, 0.4);
-    p.split(&mut m, &[s], keep)?;
+    let bodies = p.split(&mut m, &[s], keep)?;
     assert!(!s.is_alive(&m), "the tool is consumed");
-    Ok(measured(&mut m))
+    assert_eq!(bodies[0], p, "the plate continues as one piece");
+    Ok(measured_bodies(&mut m, &bodies))
 }
 
 #[test]
@@ -120,10 +136,13 @@ fn the_symmetric_difference_and_nary_boolean_record_and_replay() {
     let mut m = Model::new();
     let p = plate(&mut m);
     let s = slab(&mut m, 0.0, 0.4);
-    p.symmetric_difference(&mut m, s).expect("xor");
+    let xor = p.symmetric_difference(&mut m, s).expect("xor");
+    // Its pieces touch along the crossing curves: each its own body.
+    let bodies = xor.served_bodies(&m);
+    assert!(bodies.len() > 1, "{bodies:?}");
     // The plate minus the slab's crossing, plus the slab's part outside
     // the plate (0.4 x 3 x 2 less the 0.4 x 1.6 x 0.4 inside).
-    let (_, v) = measured(&mut m);
+    let (_, v) = measured_bodies(&mut m, &bodies);
     let inside = 0.4 * 1.6 * 0.4;
     assert!(
         (v - (full - inside + 0.4 * 3.0 * 2.0 - inside)).abs() < 1e-9,
@@ -136,8 +155,99 @@ fn the_symmetric_difference_and_nary_boolean_record_and_replay() {
     m.save(&path).expect("save");
     let mut again = Model::open(&path).expect("open");
     again.replay().expect("replay");
-    let (_, w) = measured(&mut again);
+    let (_, w) = measured_bodies(&mut again, &bodies);
     assert!((w - v).abs() < 1e-12, "{w} vs {v}");
+}
+
+/// A split serves each kept piece as its own body (PK-1120): when the
+/// tool moves, each body keeps its piece (found by a face name only it
+/// carries, or in order when its faces were renamed), a reopened
+/// document serves the same pieces as the same bodies, and a feature on
+/// a piece's body acts on that piece alone.
+#[test]
+fn split_pieces_are_bodies_that_keep_their_pieces() {
+    let mut m = Model::new();
+    m.param("x", 0.0, Unit::Meters).expect("param");
+    let p = plate(&mut m);
+    let s = m
+        .tool(|m| {
+            m.profile(Plane::xy_at(-0.5))
+                .rect(0.4, 3.0)
+                .at(popkern_script::scalar::p("x"), 0.0)
+                .sketch("slab")?
+                .extrude(m, End::Blind(2.0.into()))
+        })
+        .expect("slab");
+    let bodies = p.split(&mut m, &[s], PieceRule::All).expect("split");
+    assert_eq!(bodies.len(), 3);
+    let full = 2.4 * 1.6 * 0.4;
+    let (_, v) = measured_bodies(&mut m, &bodies);
+    assert!((v - full).abs() < 1e-9, "{v}");
+    // Each body's piece by where it lies in x.
+    let spans = |m: &mut Model| -> Vec<(f64, f64)> {
+        bodies
+            .iter()
+            .map(|&b| {
+                let brep = m.brep_of(b).expect("brep");
+                let xs = brep.vertices.values().map(|v| v.position.x);
+                let lo = xs.clone().fold(f64::MAX, f64::min);
+                (lo, xs.fold(f64::MIN, f64::max))
+            })
+            .collect()
+    };
+    let before = spans(&mut m);
+    let right = (0..3).find(|&i| before[i].1 > 1.1).expect("right piece");
+    // A feature on one piece's body moves that piece alone.
+    bodies[right]
+        .translate(&mut m, 0.0, 0.0, 1.0)
+        .expect("lift the right piece");
+    let lifted = |m: &mut Model, b: Body| {
+        let brep = m.brep_of(b).expect("brep");
+        brep.vertices
+            .values()
+            .map(|v| v.position.z)
+            .fold(f64::MAX, f64::min)
+    };
+    for (i, &b) in bodies.iter().enumerate() {
+        let want = if i == right { 1.0 } else { 0.0 };
+        assert!((lifted(&mut m, b) - want).abs() < 1e-9, "body {i}");
+    }
+    m.set_param("x", 0.5).expect("move the tool");
+    m.replay().expect("replay with the tool moved");
+    let after = spans(&mut m);
+    for (i, (b, a)) in before.iter().zip(&after).enumerate() {
+        // Every piece moves at most by the tool's travel, and keeps the
+        // side it was on.
+        assert!((a.0 - b.0).abs() <= 0.5 + 1e-9, "body {i}: {b:?} -> {a:?}");
+        assert!((a.1 - b.1).abs() <= 0.5 + 1e-9, "body {i}: {b:?} -> {a:?}");
+    }
+    assert!((after[right].0 - 0.7).abs() < 1e-9, "{:?}", after[right]);
+    assert!(
+        (lifted(&mut m, bodies[right]) - 1.0).abs() < 1e-9,
+        "still lifted"
+    );
+    let (n, v) = measured_bodies(&mut m, &bodies);
+    assert_eq!(n, 3);
+    assert!((v - full).abs() < 1e-9, "{v}");
+
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("partition_features");
+    std::fs::create_dir_all(&dir).expect("dir");
+    let path = dir.join("split_bodies.pkn");
+    m.save(&path).expect("save");
+    let mut again = Model::open(&path).expect("open");
+    again.replay().expect("replay");
+    let reopened: Vec<_> = bodies
+        .iter()
+        .map(|&b| {
+            let brep = again.brep_of(b).expect("brep");
+            brep.vertices
+                .values()
+                .map(|v| v.position.x)
+                .fold(f64::MAX, f64::min)
+        })
+        .collect();
+    let now: Vec<_> = after.iter().map(|s| s.0).collect();
+    assert_eq!(reopened, now, "the same pieces as the same bodies");
 }
 
 #[test]
@@ -197,7 +307,7 @@ fn a_moved_tool_replays_the_split_and_the_fillet_after_it() {
         .expect("slab");
     let p = p
         .split(&mut m, &[s], PieceRule::InsideTools(SetExpr::Body(0)))
-        .expect("split");
+        .expect("split")[0];
     p.fillet(&mut m, edges().straight().direction(Dir::Z), 0.05)
         .expect("fillet");
     let (_, before) = measured(&mut m);

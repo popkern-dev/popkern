@@ -17,6 +17,12 @@ pub(crate) struct ExecuteSideEffects {
     /// Other bodies this feature rewrote (the source of separated
     /// pieces), stored in place of their BReps on success.
     pub written_bodies: Vec<(BodyId, BRep)>,
+    /// The bodies a feature serving several bodies served (a split's
+    /// pieces, a split-policy boolean's), in the operation's order: the
+    /// replay assigns them to the node's bodies
+    /// (`replay_outputs::assign`). Empty for a feature serving its one
+    /// body in place.
+    pub served_bodies: Vec<BRep>,
 }
 
 impl ExecuteSideEffects {
@@ -26,6 +32,7 @@ impl ExecuteSideEffects {
             consumed_bodies: Vec::new(),
             evidence: FeatureEvidence::empty(),
             written_bodies: Vec::new(),
+            served_bodies: Vec::new(),
         }
     }
 
@@ -35,6 +42,7 @@ impl ExecuteSideEffects {
             consumed_bodies: Vec::new(),
             evidence,
             written_bodies: Vec::new(),
+            served_bodies: Vec::new(),
         }
     }
 }

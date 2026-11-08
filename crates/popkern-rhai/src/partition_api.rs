@@ -1,5 +1,7 @@
 //! The partition's operations on a script body (design: operations on
-//! the cell complex, 5.4): `b.split([t1, t2], keep?)`,
+//! the cell complex, 5.4): `b.split([t1, t2], keep?)` (the kept pieces,
+//! each its own body, `b` first), `b.served_bodies()` (the bodies the
+//! latest feature on `b` served),
 //! `b.nary_boolean([t1, t2], expr, options?)`,
 //! `b.symmetric_difference(t)`, `b.imprint(t)`, `b.keep_pieces(rule)`,
 //! `b.separate_pieces(rule)` (returns the new body), with set expressions
@@ -78,14 +80,27 @@ impl ScriptBody {
         Ok(ScriptBody::new(self.model.clone(), body))
     }
 
+    /// The split's kept pieces, each its own body, this body first
+    /// (PK-1120).
     fn split_by(
         &self,
         tools: Vec<Body>,
         keep: PieceRule,
         options: &Dynamic,
-    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+    ) -> Result<rhai::Array, Box<EvalAltResult>> {
         let options = Options::parse("split", options, LABEL_ONLY)?;
-        self.partition(PartitionOp::Split { tools, keep }, &options)
+        let body = self.partition(PartitionOp::Split { tools, keep }, &options)?;
+        Ok(body.served_all())
+    }
+
+    /// The bodies the latest feature on this body served, this body
+    /// first: a split's pieces, a split-policy boolean's touching pieces.
+    fn served_all(&self) -> rhai::Array {
+        let bodies = self.body.served_bodies(&self.model.borrow_mut());
+        bodies
+            .into_iter()
+            .map(|b| Dynamic::from(ScriptBody::new(self.model.clone(), b)))
+            .collect()
     }
 
     fn nary_by(
@@ -172,7 +187,7 @@ pub fn register(engine: &mut Engine) {
         })
         .register_fn(
             "split",
-            |b: &mut ScriptBody, t: rhai::Array| -> Result<ScriptBody, Box<EvalAltResult>> {
+            |b: &mut ScriptBody, t: rhai::Array| -> Result<rhai::Array, Box<EvalAltResult>> {
                 b.split_by(tools("tools", t)?, PieceRule::All, &Dynamic::UNIT)
             },
         )
@@ -181,7 +196,7 @@ pub fn register(engine: &mut Engine) {
             |b: &mut ScriptBody,
              t: rhai::Array,
              keep: PieceRule|
-             -> Result<ScriptBody, Box<EvalAltResult>> {
+             -> Result<rhai::Array, Box<EvalAltResult>> {
                 b.split_by(tools("tools", t)?, keep, &Dynamic::UNIT)
             },
         )
@@ -191,10 +206,11 @@ pub fn register(engine: &mut Engine) {
              t: rhai::Array,
              keep: PieceRule,
              o: Dynamic|
-             -> Result<ScriptBody, Box<EvalAltResult>> {
+             -> Result<rhai::Array, Box<EvalAltResult>> {
                 b.split_by(tools("tools", t)?, keep, &o)
             },
         )
+        .register_fn("served_bodies", |b: &mut ScriptBody| b.served_all())
         .register_fn(
             "nary_boolean",
             |b: &mut ScriptBody,
