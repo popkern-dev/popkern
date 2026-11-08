@@ -8,7 +8,9 @@ use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::{entity_lineage, entity_lineage_carry, entity_naming, entity_naming_edges};
+use crate::{
+    entity_lineage, entity_lineage_carry, entity_naming, entity_naming_edges, entity_naming_topo,
+};
 
 /// Name `result`'s faces, edges and vertices after `a` and `tools`, and
 /// record each one's lineage, under `ctx`'s naming scheme.
@@ -95,6 +97,24 @@ pub(crate) fn name_result(
     let carry = (seeded && ctx.naming_scheme >= 4)
         .then(|| entity_lineage_carry::CarryIndex::new(a, tools, 10.0 * tol.linear()));
     let carry_a = carry.as_ref().map(|c| (c, a));
+    if ctx.naming_scheme >= 5 {
+        // Naming scheme 5 (PK-1121): named by what each entity is a
+        // piece of and by its neighbours, never by position.
+        let ops = entity_naming_topo::Operands {
+            a,
+            tools,
+            faces: input_a_faces
+                .iter()
+                .chain(input_tool_faces.iter())
+                .collect(),
+            edges: &input_edges,
+            vertices: &input_vertices,
+            carry: carry.as_ref(),
+        };
+        entity_naming_topo::assign_topological_names(result, &ops, ctx, tol);
+        popkern_core::naming_lineage::prune_unreadable_lineage(result);
+        return;
+    }
     entity_naming::assign_boolean_names(
         result,
         &input_a_faces,

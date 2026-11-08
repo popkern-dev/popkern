@@ -418,3 +418,69 @@ fn imprint_classes_are_queried_by_stable_name() {
     m.replay().expect("replay");
     check(0.6, &classes(&mut m));
 }
+
+/// A fillet recorded on a split piece's edges follows the piece when
+/// the tool moves either way and back (PK-1121): the faces and edges the
+/// split cut are named by what they are pieces of and by their
+/// neighbours (naming scheme 5), so every replay serves the fillet
+/// with no rebind and no body matched by order.
+#[test]
+fn a_fillet_on_a_split_piece_follows_the_moving_tool() {
+    let mut m = Model::new();
+    m.param("x", 0.0, Unit::Meters).expect("param");
+    let p = plate(&mut m);
+    let s = m
+        .tool(|m| {
+            m.profile(Plane::xy_at(-0.5))
+                .rect(0.4, 3.0)
+                .at(popkern_script::scalar::p("x"), 0.0)
+                .sketch("slab")?
+                .extrude(m, End::Blind(2.0.into()))
+        })
+        .expect("slab");
+    let bodies = p.split(&mut m, &[s], PieceRule::All).expect("split");
+    let right = bodies[2];
+    right
+        .fillet(&mut m, edges().straight().direction(Dir::Z), 0.05)
+        .expect("fillet on the right piece");
+    let tol = popkern_core::tolerance::Tolerance::default();
+    for x in [0.5, -0.3, 0.0] {
+        m.set_param("x", x).expect("move the tool");
+        let report = m.replay().expect("replay");
+        for row in &report.features {
+            assert!(
+                matches!(
+                    row.outcome,
+                    popkern_history::replay_report::ReplayOutcome::Served
+                ),
+                "x = {x}: {} {:?}",
+                row.label,
+                row.outcome
+            );
+            assert!(
+                row.fallbacks.is_empty(),
+                "x = {x}: {} {:?}",
+                row.label,
+                row.fallbacks
+            );
+        }
+        let brep = m.brep_of(right).expect("brep");
+        assert!(brep.validate_all().is_empty(), "{:?}", brep.validate_all());
+        let lo = brep
+            .vertices
+            .values()
+            .map(|v| v.position.x)
+            .fold(f64::MAX, f64::min);
+        assert!(
+            (lo - (x + 0.2)).abs() < 1e-9,
+            "x = {x}: the right piece starts at {lo}"
+        );
+        // The piece less its four filleted vertical edges.
+        let block = (1.2 - (x + 0.2)) * 1.6 * 0.4;
+        let volume = body_volume(&brep, &tol).expect("volume");
+        assert!(
+            volume < block - 1e-4 && volume > block - 0.01,
+            "x = {x}: {volume} vs {block}"
+        );
+    }
+}
