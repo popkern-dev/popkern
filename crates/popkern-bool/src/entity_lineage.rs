@@ -22,7 +22,6 @@ use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{Point3, Vec3};
-use popkern_core::naming::EntityName;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 use popkern_core::validation::FaceUvContainment;
@@ -79,14 +78,14 @@ pub(crate) fn interior_point(brep: &BRep, face: FaceHandle) -> Option<(Point3, V
     None
 }
 
-fn padded(aabb: &Aabb, pad: f64) -> Aabb {
+pub(crate) fn padded(aabb: &Aabb, pad: f64) -> Aabb {
     Aabb {
         min: Point3::new(aabb.min.x - pad, aabb.min.y - pad, aabb.min.z - pad),
         max: Point3::new(aabb.max.x + pad, aabb.max.y + pad, aabb.max.z + pad),
     }
 }
 
-fn contains(aabb: &Aabb, p: &Point3) -> bool {
+pub(crate) fn contains(aabb: &Aabb, p: &Point3) -> bool {
     (aabb.min.x..=aabb.max.x).contains(&p.x)
         && (aabb.min.y..=aabb.max.y).contains(&p.y)
         && (aabb.min.z..=aabb.max.z).contains(&p.z)
@@ -94,7 +93,7 @@ fn contains(aabb: &Aabb, p: &Point3) -> bool {
 
 /// Whether the surface point `p` (normal `n`) lies on `face` of `input`:
 /// on its surface, normals parallel, inside its trim.
-fn lies_on(input: &BRep, face: FaceHandle, p: &Point3, n: &Vec3, tol: f64) -> bool {
+pub(crate) fn lies_on(input: &BRep, face: FaceHandle, p: &Point3, n: &Vec3, tol: f64) -> bool {
     let Some(surface) = input.faces.get(face).and_then(|f| f.surface.as_ref()) else {
         return false;
     };
@@ -125,26 +124,7 @@ pub(crate) fn record_face_lineage(
     tol: &Tolerance,
     carry: Option<&crate::entity_lineage_carry::CarryIndex>,
 ) {
-    // The names' own match tolerance: the boolean's, widened for the
-    // projection round-off on curved inputs.
-    let on = 10.0 * tol.linear();
-    // `a`'s boxes come from the carry index when it has them.
-    let boxes_of = |brep: &BRep| match carry {
-        Some(c) if std::ptr::eq(brep, a) => c.a_face_boxes().to_vec(),
-        _ => crate::intersect::compute_face_aabbs(brep),
-    };
-    let inputs: Vec<(&BRep, Vec<(FaceHandle, Aabb)>)> = std::iter::once(a)
-        .chain(tools.iter().copied())
-        .map(|brep| {
-            (
-                brep,
-                boxes_of(brep)
-                    .into_iter()
-                    .map(|(f, bb)| (f, padded(&bb, on)))
-                    .collect(),
-            )
-        })
-        .collect();
+    let sources = crate::entity_sources::FaceSources::new(a, tools, tol, carry);
     let faces: Vec<FaceHandle> = result.faces.keys().collect();
     for face in faces {
         let Some(name_id) = result.faces.get(face).and_then(|f| f.name) else {
@@ -156,32 +136,14 @@ pub(crate) fn record_face_lineage(
         {
             continue;
         }
-        let Some((point, normal)) = interior_point(result, face) else {
-            continue;
-        };
-
-        let mut lineage: Vec<EntityName> = Vec::new();
-        for (input, boxes) in &inputs {
-            for (candidate, aabb) in boxes {
-                if !contains(aabb, &point) || !lies_on(input, *candidate, &point, &normal, on) {
-                    continue;
-                }
-                let Some(id) = input.faces.get(*candidate).and_then(|f| f.name) else {
-                    continue;
-                };
-                if let Some(value) = input.name_pool.get(id) {
-                    lineage.push(value.clone());
-                }
-                lineage.extend(input.name_pool.ancestry(id));
-            }
-        }
+        let lineage = crate::entity_sources::lineage_of(&sources.of(result, face));
         result.name_pool.add_lineage(name_id, lineage);
     }
 }
 
 /// Whether parameter `t` falls inside the edge range `[t0, t1]` of
 /// `curve` (period-aware for closed conics).
-fn in_range(
+pub(crate) fn in_range(
     curve: &popkern_core::geometry::curve::CurveGeometry,
     t: f64,
     t0: f64,
@@ -211,7 +173,10 @@ fn in_range(
 /// every edge (PK-803). Newton on a line lands on the same unclamped
 /// projection in one step; a circle's angle is measured in the curve's
 /// own frame (its points at 0 and pi/2), and the range test unwraps it.
-fn foot(curve: &popkern_core::geometry::curve::CurveGeometry, point: &Point3) -> Option<f64> {
+pub(crate) fn foot(
+    curve: &popkern_core::geometry::curve::CurveGeometry,
+    point: &Point3,
+) -> Option<f64> {
     use popkern_core::geometry::PortableMath;
     use popkern_core::geometry::curve::{CurveEval, CurveGeometry, closest_point_on_curve};
     match curve {
@@ -250,8 +215,7 @@ fn foot(curve: &popkern_core::geometry::curve::CurveGeometry, point: &Point3) ->
 }
 
 /// Record, beside every edge of `result`, the input edges of `a` and
-/// the `tools` it is a piece of: its curve midpoint lies on the input edge's
-/// curve, inside its range, tangents parallel.
+/// the `tools` it is a piece of (their names and ancestry, as values).
 pub(crate) fn record_edge_lineage(
     result: &mut BRep,
     a: &BRep,
@@ -259,36 +223,7 @@ pub(crate) fn record_edge_lineage(
     tol: &Tolerance,
     carry: Option<&crate::entity_lineage_carry::CarryIndex>,
 ) {
-    use popkern_core::geometry::curve::CurveEval;
-    let on = 10.0 * tol.linear();
-    let midpoint = |brep: &BRep, edge: popkern_core::topology::EdgeHandle| {
-        let curve = brep.edges.get(edge)?.curve.as_ref()?;
-        let t = 0.5 * (curve.t_start + curve.t_end);
-        let tangent = curve.geometry.tangent_at(t);
-        Some((
-            curve.geometry.point_at(t),
-            tangent.normalized().unwrap_or(tangent),
-        ))
-    };
-    // Each input edge's curve bounds over its range, padded: the cheap
-    // reject before a projection.
-    let inputs: Vec<(&BRep, Vec<(&popkern_core::topology::Edge, Aabb)>)> = std::iter::once(a)
-        .chain(tools.iter().copied())
-        .map(|brep| {
-            let boxes = brep
-                .edges
-                .values()
-                .filter_map(|e| {
-                    let c = e.curve.as_ref()?;
-                    let bb = c
-                        .geometry
-                        .curve_bounding_box((c.t_start.min(c.t_end), c.t_start.max(c.t_end)));
-                    Some((e, padded(&bb, on)))
-                })
-                .collect();
-            (brep, boxes)
-        })
-        .collect();
+    let sources = crate::entity_sources::EdgeSources::new(a, tools, tol);
     let edges: Vec<_> = result.edges.keys().collect();
     for edge in edges {
         let Some(name_id) = result.edges.get(edge).and_then(|e| e.name) else {
@@ -300,38 +235,7 @@ pub(crate) fn record_edge_lineage(
         {
             continue;
         }
-        let Some((point, tangent)) = midpoint(result, edge) else {
-            continue;
-        };
-        let mut lineage: Vec<EntityName> = Vec::new();
-        for (input, boxes) in &inputs {
-            for (data, aabb) in boxes {
-                if !contains(aabb, &point) {
-                    continue;
-                }
-                let Some(curve) = data.curve.as_ref() else {
-                    continue;
-                };
-                let Some(id) = data.name else { continue };
-                let Some(t) = foot(&curve.geometry, &point) else {
-                    continue;
-                };
-                if (curve.geometry.point_at(t) - point).length() > on
-                    || !in_range(&curve.geometry, t, curve.t_start, curve.t_end)
-                {
-                    continue;
-                }
-                let along = curve.geometry.tangent_at(t);
-                let along = along.normalized().unwrap_or(along);
-                if along.dot(&tangent).abs() < 1.0 - 1e-6 {
-                    continue;
-                }
-                if let Some(value) = input.name_pool.get(id) {
-                    lineage.push(value.clone());
-                }
-                lineage.extend(input.name_pool.ancestry(id));
-            }
-        }
+        let lineage = crate::entity_sources::lineage_of(&sources.of(result, edge));
         result.name_pool.add_lineage(name_id, lineage);
     }
 }

@@ -33,8 +33,8 @@ pub(super) fn expected_import_bodies(
 /// The lumps of `body` the import separates: face sets joined through a
 /// shared edge or vertex, those in different shells of one region (a
 /// solid and its cavity) one lump. Face sets of one shell sharing no
-/// entity (a shell a partial weld left in parts touching where their
-/// vertices coincide) are separate lumps; the outside joins nothing.
+/// entity (parts touching only where their vertices coincide) are
+/// separate lumps; the outside joins nothing.
 fn separate_lumps(body: &BRep) -> usize {
     let faces: Vec<FaceHandle> = body.faces.keys().collect();
     let index: HashMap<FaceHandle, usize> =

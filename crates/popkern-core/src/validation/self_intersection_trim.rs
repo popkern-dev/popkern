@@ -233,14 +233,14 @@ impl BRep {
         })
     }
 
-    /// True when the two faces' outer loops share at least one
-    /// topological vertex — the licence for extended served-boundary
+    /// True when the two faces share at least one topological vertex
+    /// (on any loop: a hole's rim, a vertex loop) — the licence for extended served-boundary
     /// contact between them (see `intersection_overlaps_face_trims`).
     fn faces_share_any_vertex(&self, face_a: FaceHandle, face_b: FaceHandle) -> bool {
-        let Some(vertices_a) = self.face_outer_loop_vertices(face_a) else {
+        let Some(vertices_a) = self.face_loop_vertices(face_a) else {
             return false;
         };
-        let Some(vertices_b) = self.face_outer_loop_vertices(face_b) else {
+        let Some(vertices_b) = self.face_loop_vertices(face_b) else {
             return false;
         };
         vertices_a.iter().any(|vertex| vertices_b.contains(vertex))
@@ -253,10 +253,10 @@ impl BRep {
         point: &Point3,
         linear_tol: f64,
     ) -> bool {
-        let Some(vertices_a) = self.face_outer_loop_vertices(face_a) else {
+        let Some(vertices_a) = self.face_loop_vertices(face_a) else {
             return false;
         };
-        let Some(vertices_b) = self.face_outer_loop_vertices(face_b) else {
+        let Some(vertices_b) = self.face_loop_vertices(face_b) else {
             return false;
         };
         vertices_a.iter().any(|vertex| {
@@ -265,28 +265,41 @@ impl BRep {
         })
     }
 
-    fn face_outer_loop_vertices(
-        &self,
-        face: FaceHandle,
-    ) -> Option<Vec<crate::topology::VertexHandle>> {
+    /// Every vertex on `face`'s loops: the outer loop, each hole's rim
+    /// (two faces of a general body can meet only at a vertex of an
+    /// inner loop, PK-1118) and each vertex loop's vertex.
+    fn face_loop_vertices(&self, face: FaceHandle) -> Option<Vec<crate::topology::VertexHandle>> {
         let face_data = self.faces.get(face)?;
-        let loop_data = self.loops.get(face_data.outer_loop)?;
-        let start = loop_data.half_edge;
-        if !self.half_edges.contains_key(start) {
-            return None;
-        }
-
         let mut out = Vec::new();
-        let mut cursor = start;
-        for _ in 0..=self.half_edges.len() {
-            let half_edge = self.half_edges.get(cursor)?;
-            out.push(half_edge.origin);
-            cursor = half_edge.next;
-            if cursor == start {
-                return Some(out);
+        for l in std::iter::once(face_data.outer_loop).chain(face_data.inner_loops.iter().copied())
+        {
+            let loop_data = self.loops.get(l)?;
+            let start = loop_data.half_edge;
+            if !self.half_edges.contains_key(start) {
+                out.extend(loop_data.vertex);
+                continue;
+            }
+            let mut cursor = start;
+            let mut closed = false;
+            for _ in 0..=self.half_edges.len() {
+                let half_edge = self.half_edges.get(cursor)?;
+                out.push(half_edge.origin);
+                cursor = half_edge.next;
+                if cursor == start {
+                    closed = true;
+                    break;
+                }
+            }
+            if !closed {
+                return None;
             }
         }
-        None
+        out.extend(
+            self.face_vertex_loops(face)
+                .into_iter()
+                .filter_map(|l| self.loops.get(l).and_then(|l| l.vertex)),
+        );
+        Some(out)
     }
 
     pub(in crate::validation) fn face_trim_classify_uv(

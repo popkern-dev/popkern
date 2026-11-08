@@ -56,6 +56,8 @@ mod entity_naming;
 mod entity_naming_edges;
 mod entity_naming_index;
 mod entity_naming_result;
+mod entity_naming_topo;
+mod entity_sources;
 pub mod error;
 mod error_remediation;
 mod face_box;

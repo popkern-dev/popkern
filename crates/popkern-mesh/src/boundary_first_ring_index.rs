@@ -18,9 +18,17 @@
 use super::BoundaryRing;
 use popkern_math::PortableMath;
 
-/// Target cell count of the metric grid (memory bound for thin charts
-/// whose long segments cover many cells).
+/// Upper bound on the metric grid's cell count (memory bound for thin
+/// charts whose long segments cover many cells).
 const GRID_CELLS: f64 = 262_144.0;
+
+/// Metric grid cells per indexed segment. The grid is sized by the
+/// segments it holds, never by the bound alone: building it costs a
+/// pass over every cell, so a fixed quarter-million cells made a
+/// four-segment planar face cost milliseconds (a 48-gon prism's union
+/// tessellated in 21 ms where 5 ms before the index, PK-1122), while a
+/// few cells per segment keeps a query's candidates to a handful.
+const CELLS_PER_SEGMENT: f64 = 4.0;
 
 /// Relative padding on registered extents, so a segment whose computed
 /// distance test passes by a rounding hair is still a
@@ -215,7 +223,8 @@ impl RingIndex {
         }
         let pad = PAD * (1.0 + x1.abs().max(x0.abs()).max(y1.abs()).max(y0.abs()));
         let (x0, x1, y0, y1) = (x0 - pad, x1 + pad, y0 - pad, y1 + pad);
-        let side = ((x1 - x0) * (y1 - y0) / GRID_CELLS).sqrt().max(1e-300);
+        let cells = (CELLS_PER_SEGMENT * m as f64).clamp(1.0, GRID_CELLS);
+        let side = ((x1 - x0) * (y1 - y0) / cells).sqrt().max(1e-300);
         let nx = (((x1 - x0) / side).ceil() as usize).clamp(1, 4096);
         let ny = (((y1 - y0) / side).ceil() as usize).clamp(1, 4096);
         let (gx, gy) = (Axis::new(x0, x1, nx), Axis::new(y0, y1, ny));
@@ -364,5 +373,31 @@ mod tests {
         // rim's own length (0.5 / 3).
         assert!(index.within_clearance((0.25, 0.15)));
         assert!(!index.within_clearance((0.25, 0.2)));
+    }
+
+    /// The metric grid is sized by the segments it holds (PK-1122): a
+    /// four-segment planar face gets a handful of cells, never the
+    /// quarter-million bound, and a dense ring stays within the bound.
+    #[test]
+    fn the_grid_is_sized_by_its_segments() {
+        let square = ring(vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]);
+        let index = RingIndex::new(&[square], 1.0, 1.0, (0.25, 0.25));
+        assert!(
+            index.gx.n * index.gy.n <= 64,
+            "{} cells",
+            index.gx.n * index.gy.n
+        );
+        assert!(index.inside((0.5, 0.5)) && !index.inside((1.5, 0.5)));
+        assert!(index.within_clearance((0.01, 0.5)) && !index.within_clearance((0.5, 0.5)));
+        let dense = ring(
+            (0..100_000)
+                .map(|k| {
+                    let t = -(k as f64) * std::f64::consts::TAU / 100_000.0;
+                    (t.pcos(), t.psin())
+                })
+                .collect(),
+        );
+        let index = RingIndex::new(&[dense], 1.0, 1.0, (0.01, 0.01));
+        assert!(index.gx.n * index.gy.n <= GRID_CELLS as usize + 2 * 4096);
     }
 }

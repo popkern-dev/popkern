@@ -39,7 +39,15 @@ use crate::naming_store::ChunkedVec;
 ///   faces, edges and vertices it leaves unchanged and clear of the
 ///   tool — keep the target's names and lineage instead of minting a
 ///   `Modified` name and re-flattening their ancestry each operation.
-pub const NAMING_SCHEME_VERSION: u32 = 4;
+/// - **5** (PK-1121): a boolean's other entities are named by what they
+///   are pieces of, never by position: a face by the operand faces it
+///   is a piece of, an edge by the operand edges it is a piece of and
+///   its faces' names, a vertex by the operand vertex it lies on and its
+///   edges' names, entities sharing those ranked by their neighbours.
+///   Scheme 4 matched by centroid or midpoint within a hundred
+///   tolerances and numbered the rest in slot order, so a tool moved
+///   upstream renumbered the faces and edges it cut.
+pub const NAMING_SCHEME_VERSION: u32 = 5;
 
 /// The oldest naming scheme this kernel still replays.
 pub const OLDEST_NAMING_SCHEME: u32 = 1;

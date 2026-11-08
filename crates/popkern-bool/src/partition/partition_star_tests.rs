@@ -177,7 +177,8 @@ fn six_rods_are_order_invariant() {
 
 /// Exactly one of three crossing rods, split to manifold bodies: the
 /// pieces meet at vertices split three ways, each piece valid alone.
-/// (Glued under the general policy they decline, PK-1118.)
+/// Glued under the general policy they are one valid general body, the
+/// cell inside two rods a bounded void (PK-1118).
 #[test]
 fn three_rods_exactly_one_splits_to_manifold_pieces() {
     let tol = Tolerance::default();
@@ -202,6 +203,30 @@ fn three_rods_exactly_one_splits_to_manifold_pieces() {
     for body in &bodies {
         assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
     }
+    let general = crate::BoolOptions {
+        non_manifold: crate::NonManifoldPolicy::General,
+    };
+    let glued = p
+        .select_bodies(&super::SetExpr::ExactlyOne, &general)
+        .expect("exactly one, general");
+    assert_eq!(glued.len(), 1);
+    let body = &glued[0];
+    assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
+    assert_eq!(body.body_kind(), popkern_core::topology::BodyKind::General);
+    assert_eq!(
+        body.solid_regions().len(),
+        bodies.len(),
+        "every piece a solid"
+    );
+    let voids = body
+        .regions
+        .keys()
+        .filter(|&r| {
+            r != body.outside
+                && body.region_kind(r) == Some(popkern_core::topology::RegionKind::Void)
+        })
+        .count();
+    assert!(voids >= 1, "the cell inside two rods is a bounded void");
 }
 
 /// A unit sphere and a rod across it (along x through y = 0.05,
