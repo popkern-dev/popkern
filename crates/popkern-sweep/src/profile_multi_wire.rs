@@ -31,9 +31,9 @@ pub(super) fn loop_to_wire_chain(
         let he = brep.half_edges.get(current).ok_or_else(|| {
             SweepError::InvalidProfile("half-edge handle not found in BRep".into())
         })?;
-        let twin = brep
-            .half_edges
-            .get(he.twin)
+        let twin = he
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
             .ok_or_else(|| SweepError::InvalidProfile("twin handle not found in BRep".into()))?;
         let origin = brep
             .vertices

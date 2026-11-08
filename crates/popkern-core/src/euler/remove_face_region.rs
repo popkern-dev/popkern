@@ -95,10 +95,10 @@ impl BRep {
         for &heh in &doomed_hes {
             let he = &candidate.half_edges[heh];
             let edge_h = he.edge;
-            let twin_h = he.twin;
-            let twin_survives =
-                candidate.half_edges.contains_key(twin_h) && !doomed_set.contains(&twin_h);
-            if twin_survives {
+            let surviving_twin = he
+                .mate()
+                .filter(|t| candidate.half_edges.contains_key(*t) && !doomed_set.contains(t));
+            if let Some(twin_h) = surviving_twin {
                 // Rim: repoint the edge at the surviving twin, keeping
                 // the canonical-forward convention true (the twin
                 // traverses the curve backward — PK-274).
@@ -108,8 +108,7 @@ impl BRep {
                     std::mem::swap(&mut curve.t_start, &mut curve.t_end);
                 }
                 candidate.edges[edge_h].half_edge = twin_h;
-                candidate.half_edges[twin_h].twin = HalfEdgeHandle::default();
-                candidate.boundary_edges.insert(edge_h);
+                candidate.half_edges[twin_h].clear_mate();
                 result.rim_edges.push(edge_h);
             } else {
                 dying_edges.insert(edge_h);
@@ -123,7 +122,6 @@ impl BRep {
         }
         for &eh in &dying_edges {
             candidate.edges.remove(eh);
-            candidate.boundary_edges.remove(&eh);
         }
         result.removed_edges = dying_edges.len();
         for lh in doomed_loops {
@@ -147,14 +145,7 @@ impl BRep {
         }
 
         // Repoint shell anchors that referenced removed faces.
-        let shells: Vec<_> = candidate.shells.keys().collect();
-        for sh in shells {
-            if !candidate.faces.contains_key(candidate.shells[sh].face)
-                && let Some((replacement, _)) = candidate.faces.iter().next()
-            {
-                candidate.shells[sh].face = replacement;
-            }
-        }
+        candidate.repair_shell_anchors();
 
         candidate.validate().map_err(CoreError::Validation)?;
         *self = candidate;

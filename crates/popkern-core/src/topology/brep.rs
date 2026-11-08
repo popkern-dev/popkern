@@ -17,6 +17,7 @@ use slotmap::SlotMap;
 /// Owns all topological entities in typed arenas (SlotMaps).
 /// All topology modifications go through Euler operators.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(from = "super::brep_stored::StoredBRep")]
 pub struct BRep {
     /// All vertices.
     pub vertices: SlotMap<VertexHandle, Vertex>,
@@ -30,8 +31,10 @@ pub struct BRep {
     pub faces: SlotMap<FaceHandle, Face>,
     /// All shells.
     pub shells: SlotMap<ShellHandle, Shell>,
-    /// All solids.
-    pub solids: SlotMap<SolidHandle, Solid>,
+    /// All regions, solid and void, the outside among them.
+    pub regions: SlotMap<RegionHandle, Region>,
+    /// The one unbounded void region, outside everything.
+    pub outside: RegionHandle,
     /// Geometric tolerance for this model.
     pub tolerance: Tolerance,
     /// Pool of stable topological names for entities in this model.
@@ -43,17 +46,6 @@ pub struct BRep {
     /// Maximum imprecision allowed before the model is considered invalid.
     #[serde(default = "BRep::default_max_imprecision")]
     pub max_imprecision: f64,
-    /// Edges with a null-sentinel twin (one face only). When
-    /// non-empty, manifold / Euler validation is relaxed.
-    #[serde(default)]
-    pub boundary_edges: std::collections::BTreeSet<EdgeHandle>,
-    /// Radial cycle for N>2 non-manifold edges. Empty for manifold
-    /// BReps; [`BRep::radial_next`] falls back to `he.twin`.
-    /// Serialized as key-sorted pairs: handle-keyed maps break JSON
-    /// (non-string keys) and unsorted dumps break fingerprint
-    /// determinism.
-    #[serde(default, with = "super::serde_handle_map")]
-    pub nonmanifold_radial: std::collections::HashMap<HalfEdgeHandle, HalfEdgeHandle>,
     /// Caller-authored evidence that a half-edge is a canonical boundary of
     /// its owning face surface. This is semantic construction data, not an
     /// inferred repair result: downstream repair/export stages can consume it
@@ -74,11 +66,6 @@ pub struct BRep {
     /// Face-use-local pcurve authority for loop uses.
     #[serde(default)]
     pub face_use_pcurves: std::collections::BTreeMap<FaceUseTrimKey, Pcurve>,
-    /// Recorded zero-thickness contacts (PK-964): where manifold pieces
-    /// of this body deliberately meet, as a boolean's split policy
-    /// served them. See [`crate::topology::contact`].
-    #[serde(default)]
-    pub topology_contacts: Vec<crate::topology::TopologyContact>,
     /// Tracks precision degradation across operations.
     #[serde(skip)]
     degradation_tracker: Option<DegradationTracker>,
@@ -98,13 +85,18 @@ pub struct BRep {
 }
 
 impl BRep {
-    fn default_max_imprecision() -> f64 {
+    pub(super) fn default_max_imprecision() -> f64 {
         Tolerance::default().linear() * 100.0
     }
 
     /// Create a new empty BRep with the given tolerance.
     pub fn new(tolerance: Tolerance) -> Self {
         let max_imprecision = tolerance.linear() * 100.0;
+        let mut regions = SlotMap::with_key();
+        let outside = regions.insert(Region {
+            kind: RegionKind::Void,
+            shell: ShellHandle::default(),
+        });
         Self {
             vertices: SlotMap::with_key(),
             half_edges: SlotMap::with_key(),
@@ -112,18 +104,16 @@ impl BRep {
             loops: SlotMap::with_key(),
             faces: SlotMap::with_key(),
             shells: SlotMap::with_key(),
-            solids: SlotMap::with_key(),
+            regions,
+            outside,
             tolerance,
             name_pool: NamePool::new(),
             operation_labels: OperationLabels::default(),
             max_imprecision,
-            boundary_edges: std::collections::BTreeSet::new(),
-            nonmanifold_radial: std::collections::HashMap::new(),
             surface_boundary_hints: std::collections::HashMap::new(),
             surface_boundary_declines: std::collections::HashMap::new(),
             surface_boundary_audit_events: Vec::new(),
             face_use_pcurves: std::collections::BTreeMap::new(),
-            topology_contacts: Vec::new(),
             degradation_tracker: None,
             pending_coherence: Vec::new(),
             edge_creator_locations: std::collections::HashMap::new(),
@@ -246,9 +236,11 @@ impl BRep {
         true
     }
 
-    /// True when boundary edges exist (open shell / partial solid).
+    /// True when boundary edges exist (open shell / partial solid): a
+    /// free edge, or a sheet's open boundary in mirrored form
+    /// ([`BRep::is_mirrored_boundary_edge`]).
     pub fn has_boundary_edges(&self) -> bool {
-        !self.boundary_edges.is_empty()
+        self.has_free_edges() || self.edges.keys().any(|e| self.is_mirrored_boundary_edge(e))
     }
 
     /// Collect vertex positions from the outer loop of a face by walking half-edges.

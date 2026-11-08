@@ -5,6 +5,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, VertexHandle,
 };
@@ -59,7 +60,7 @@ struct RingPlan {
 
 fn trusted_span(brep: &BRep, side: HalfEdgeHandle) -> Option<(VertexHandle, VertexHandle)> {
     let data = brep.half_edges.get(side)?;
-    let twin = brep.half_edges.get(data.twin)?;
+    let twin = data.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((data.origin, twin.origin))
 }
 
@@ -142,7 +143,8 @@ fn plan_face_ring(
                 .half_edges
                 .iter()
                 .filter(|(handle, data)| {
-                    !brep.half_edges.contains_key(data.twin) && !node.used_dead.contains(handle)
+                    !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+                        && !node.used_dead.contains(handle)
                 })
                 .filter(|(handle, _)| side_face(brep, *handle) != Some(face))
                 .filter(|(handle, _)| {
@@ -219,7 +221,8 @@ fn plan_face_ring(
                         if start.distance_to(&pos) > tol && end.distance_to(&pos) > tol {
                             continue;
                         }
-                        let twin_live = brep.half_edges.contains_key(data.twin);
+                        let twin_live =
+                            data.mate().is_some_and(|m| brep.half_edges.contains_key(m));
                         let owner = side_face(brep, handle);
                         trace(&format!(
                             "  stall side {handle:?} face={owner:?} twin_live={twin_live} \
@@ -271,15 +274,14 @@ fn execute_face_ring(
                     .map(|next| next.origin)?;
                 let new_side = brep.half_edges.insert(HalfEdge {
                     origin: dead_end,
-                    twin: *dead,
+                    ring: RadialLinks::pair(*dead),
                     next: Default::default(),
                     prev: Default::default(),
                     edge: dead_edge,
                     loop_: loop_handle,
                     pcurve: None,
                 });
-                brep.half_edges[*dead].twin = new_side;
-                brep.boundary_edges.remove(&dead_edge);
+                brep.half_edges[*dead].set_mate(new_side);
                 if dead_end != open_end {
                     seam_vertices.push(dead_end);
                     seam_vertices.push(open_end);
@@ -341,7 +343,7 @@ fn face_carrier_plane(
         if let Some(v) = brep.vertices.get(data.origin) {
             points.push(v.position);
         }
-        if let Some(twin) = brep.half_edges.get(data.twin)
+        if let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m))
             && let Some(v) = brep.vertices.get(twin.origin)
         {
             points.push(v.position);
@@ -399,7 +401,7 @@ pub(in super::super) fn rebuild_partnerless_chord_rings(
             return false;
         };
         brep.half_edges.iter().any(|(other, data)| {
-            if other == side || brep.half_edges.contains_key(data.twin) {
+            if other == side || data.mate().is_some_and(|m| brep.half_edges.contains_key(m)) {
                 return false;
             }
             let Some((c, d)) = side_span(brep, other) else {
@@ -421,10 +423,9 @@ pub(in super::super) fn rebuild_partnerless_chord_rings(
             .iter()
             .copied()
             .filter(|side| {
-                brep.half_edges
-                    .get(*side)
-                    .is_some_and(|data| !brep.half_edges.contains_key(data.twin))
-                    && !has_coincident_counterpart(brep, *side)
+                brep.half_edges.get(*side).is_some_and(|data| {
+                    !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+                }) && !has_coincident_counterpart(brep, *side)
             })
             .collect();
         if chords.is_empty() {
@@ -434,9 +435,9 @@ pub(in super::super) fn rebuild_partnerless_chord_rings(
             .iter()
             .copied()
             .filter(|side| {
-                brep.half_edges
-                    .get(*side)
-                    .is_some_and(|data| brep.half_edges.contains_key(data.twin))
+                brep.half_edges.get(*side).is_some_and(|data| {
+                    data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+                })
             })
             .collect();
         if trusted.is_empty() {

@@ -128,7 +128,7 @@ fn adopt_fillet_end_arc(
     for (eh, edge) in &brep.edges {
         let primary = edge.half_edge;
         let he = brep.half_edges.get(primary)?;
-        let twin_he = brep.half_edges.get(he.twin)?;
+        let twin_he = he.mate().and_then(|m| brep.half_edges.get(m))?;
         let endpoints = (he.origin, twin_he.origin);
         if endpoints != (v_origin, v_dest) && endpoints != (v_dest, v_origin) {
             continue;
@@ -218,8 +218,7 @@ fn find_edge_between(
         let Some(primary_he) = brep.half_edges.get(primary) else {
             continue;
         };
-        let twin = primary_he.twin;
-        let Some(twin_he) = brep.half_edges.get(twin) else {
+        let Some(twin_he) = primary_he.mate().and_then(|t| brep.half_edges.get(t)) else {
             continue;
         };
         let endpoints = (primary_he.origin, twin_he.origin);

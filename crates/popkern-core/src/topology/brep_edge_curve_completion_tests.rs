@@ -2,9 +2,9 @@ use super::*;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
-    Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle, Solid,
-    Vertex,
+    Edge, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex,
 };
 
 fn options() -> BrepEdgeCurveCompletionOptions {
@@ -144,22 +144,15 @@ fn classifies_coherent_trim_endpoints_against_stale_topology_vertices() {
 
 fn square_sheet(with_surface: bool, with_pcurves: bool) -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let face = add_square(&mut brep, shell, with_surface, with_pcurves);
-    brep.shells[shell].face = face;
+    brep.set_sides_anchor(shell, face);
     brep
 }
 
 fn add_square(
     brep: &mut BRep,
-    shell: ShellHandle,
+    shell: FaceSides,
     with_surface: bool,
     with_pcurves: bool,
 ) -> FaceHandle {
@@ -180,7 +173,8 @@ fn add_square(
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: with_surface.then_some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.0, 0.0, 0.0),
@@ -197,12 +191,13 @@ fn add_square(
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: Default::default(),
@@ -220,7 +215,6 @@ fn add_square(
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
     }
     for index in 0..4 {
         let prev = (index + 3) % 4;

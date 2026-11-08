@@ -21,7 +21,7 @@ fn valid_cube_produces_no_topological_defects() {
 fn broken_twin_produces_defect() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let he_handle = brep.half_edges.keys().next().unwrap();
-    brep.half_edges[he_handle].twin = Default::default();
+    brep.half_edges[he_handle].clear_mate();
 
     let mut report = HealingReport::new();
     check_half_edge_pairing(&brep, &mut report);

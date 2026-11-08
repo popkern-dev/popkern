@@ -21,7 +21,7 @@ fn removing_one_face_matches_open_box() {
         .remove_face_region_to_boundary(&BTreeSet::from([face]))
         .unwrap();
     assert_eq!(cube.faces.len(), 5);
-    assert_eq!(cube.boundary_edges.len(), 4);
+    assert_eq!(cube.free_edges().len(), 4);
     assert_eq!(result.rim_edges.len(), 4);
     assert_eq!(result.removed_edges, 0);
     assert_eq!(result.removed_vertices, 0);
@@ -44,7 +44,7 @@ fn removing_two_adjacent_faces_deletes_the_shared_edge() {
             let mut cursor = start;
             loop {
                 let he = &cube.half_edges[cursor];
-                let twin = &cube.half_edges[he.twin];
+                let twin = &cube.half_edges[he.mate().unwrap_or_default()];
                 if cube.loops[twin.loop_].face == fb {
                     pair = Some((fa, fb));
                     break 'outer;
@@ -63,7 +63,7 @@ fn removing_two_adjacent_faces_deletes_the_shared_edge() {
     assert_eq!(cube.faces.len(), 4);
     // Two adjacent quads: 1 shared edge dies, 6 rim edges open.
     assert_eq!(result.removed_edges, 1);
-    assert_eq!(cube.boundary_edges.len(), 6);
+    assert_eq!(cube.free_edges().len(), 6);
     assert_eq!(cube.edges.len(), 11);
     assert!(cube.validate().is_ok());
 }
@@ -116,7 +116,7 @@ fn weld_rejects_non_coincident_boundary_pairs() {
         .unwrap();
     cube.remove_face_region_to_boundary(&BTreeSet::from([top]))
         .unwrap();
-    let boundary: Vec<_> = cube.boundary_edges.iter().copied().collect();
+    let boundary: Vec<_> = cube.free_edges().into_iter().collect();
     assert_eq!(boundary.len(), 8);
     let err = cube
         .weld_boundary_edge_pair(boundary[0], boundary[7], &tol())

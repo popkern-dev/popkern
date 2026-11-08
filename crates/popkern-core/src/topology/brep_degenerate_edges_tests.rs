@@ -2,10 +2,8 @@ use super::*;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
-use crate::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, Vertex,
-};
+use crate::topology::RadialLinks;
+use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex};
 
 fn options() -> BrepDegenerateEdgeOptions {
     BrepDegenerateEdgeOptions {
@@ -68,14 +66,7 @@ fn classifies_ambiguous_trim_when_surface_span_is_not_collapsed() {
 
 fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: bool) -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let vertex = brep.vertices.insert(Vertex {
         position: Point3::new(0.0, 0.0, 0.0),
         outgoing: HalfEdgeHandle::default(),
@@ -85,7 +76,8 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: with_surface.then_some(surface(collapsed_surface)),
         name: None,
         tolerance: None,
@@ -94,10 +86,11 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: Default::default(),
@@ -118,8 +111,7 @@ fn single_edge_sheet(with_surface: bool, with_pcurve: bool, collapsed_surface: b
     brep.vertices[vertex].outgoing = half_edge;
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
-    brep.shells[shell].face = face;
-    brep.boundary_edges.insert(edge);
+    brep.set_sides_anchor(shell, face);
     brep
 }
 

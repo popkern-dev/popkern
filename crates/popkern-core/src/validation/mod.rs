@@ -1,6 +1,7 @@
 //! Geometric and topological validation for BRep models.
 
 pub mod bvh;
+mod cells;
 mod closure;
 
 pub use closure::NonManifoldEdgeReport;
@@ -16,10 +17,14 @@ mod face_trim_query;
 mod face_uv_window;
 pub use face_trim_query::{FacePointContainment, FaceUvContainment};
 mod region;
+mod region_sense;
+mod ring_order;
 mod self_intersection;
 mod self_intersection_pair_gate;
 mod self_intersection_trim;
 mod self_intersection_twist;
+mod vertex_loops;
+mod wire_shells;
 pub use self_intersection_trim::InteriorOverlapSample;
 mod canonical_forward;
 mod canonical_forward_arbitration;
@@ -156,7 +161,13 @@ impl BRep {
         // running this at checkpoints flipped the pyramid3_mixed
         // exact-boundary route from Accepted to Declined). Final
         // results must pass it; intermediate states need not.
+        // A wire edge's fins lie in no loop; a shell holds the edge
+        // (checked below).
+        let held_wires = self.held_wire_edges();
         for (heh, he) in self.half_edges.iter() {
+            if !self.loops.contains_key(he.loop_) && held_wires.contains(&he.edge) {
+                continue;
+            }
             let Some(l) = self.loops.get(he.loop_) else {
                 return Err(ValidationError::DanglingReference {
                     what: format!("half-edge {heh:?} references missing loop {:?}", he.loop_),
@@ -176,10 +187,15 @@ impl BRep {
         // V − E + 2F − L = 2(S − G) by one, which the genus-aware
         // Euler check tolerates as an odd artifact (2G = −1), so an
         // orphan vertex used to pass `validate_all`. The only
-        // legitimate isolated vertex is the vertex of an empty (MVFS)
-        // loop, one per loop without half-edges.
-        let origins: std::collections::HashSet<_> =
-            self.half_edges.values().map(|he| he.origin).collect();
+        // legitimate isolated vertices are an acorn shell's and the
+        // vertex of an empty (MVFS) loop, one per loop without
+        // half-edges.
+        let origins: std::collections::HashSet<_> = self
+            .half_edges
+            .values()
+            .map(|he| he.origin)
+            .chain(self.shells.values().filter_map(|s| s.acorn))
+            .collect();
         let isolated: Vec<_> = self
             .vertices
             .keys()
@@ -204,13 +220,20 @@ impl BRep {
         // solid wrapping a face-less shell (a line-contact
         // intersection served exactly that, χ-clean and `validate()`
         // clean).
-        let bounded: std::collections::HashSet<_> = self.faces.values().map(|f| f.shell).collect();
-        if let Some(shell) = self.shells.keys().find(|s| !bounded.contains(s)) {
+        // A shell of wire edges or an acorn holds no face side.
+        let bounded: std::collections::HashSet<_> = self
+            .faces
+            .values()
+            .flat_map(|f| [f.back, f.front])
+            .collect();
+        if let Some(shell) = self.shells.iter().find_map(|(h, s)| {
+            (!bounded.contains(&h) && s.wire_edges.is_empty() && s.acorn.is_none()).then_some(h)
+        }) {
             return Err(ValidationError::DanglingReference {
                 what: format!("shell {shell:?} contains no face"),
             });
         }
-        Ok(())
+        self.validate_wire_shells()
     }
 
     /// Run all validation checks and collect all errors.
@@ -242,6 +265,15 @@ impl BRep {
         if let Err(e) = self.validate_vertex_valence() {
             errors.push(e);
         }
+        // The cell structure (PK-1103): rings hold every fin of their
+        // edge in radial order, wedges lie in one shell, shells are connected closed
+        // surfaces, regions are well formed.
+        errors.extend(self.validate_ring_membership_all());
+        errors.extend(self.validate_ring_order_all());
+        errors.extend(self.validate_wedges_all());
+        errors.extend(self.validate_shell_cells_all());
+        errors.extend(self.validate_regions_all());
+        errors.extend(self.validate_vertex_loops_all());
         // Geometric checks (7-10)
         if let Err(e) = self.validate_face_orientation() {
             errors.push(e);
@@ -290,10 +322,17 @@ impl BRep {
         // Geometric check 12: self-intersection (most expensive — run last,
         // and only when there are no structural errors to avoid false reports
         // from broken topology).
-        if errors.is_empty()
-            && let Err(e) = self.validate_self_intersection()
-        {
-            errors.push(e);
+        let crossing = if errors.is_empty() {
+            self.validate_self_intersection().err()
+        } else {
+            None
+        };
+        // A solid region's faces point out of its material (§5.9). A
+        // body crossing itself has no inside to judge them by: its
+        // crossing is the finding.
+        match crossing {
+            Some(e) => errors.push(e),
+            None => errors.extend(self.validate_region_sense_all()),
         }
         // §5.3 item #10 — within-face Gregory self-intersection check.
         // Fast (O(face count) with bounded per-face work); run

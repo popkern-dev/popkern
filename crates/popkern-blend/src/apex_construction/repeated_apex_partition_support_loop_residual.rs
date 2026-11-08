@@ -1,4 +1,5 @@
 use super::*;
+use popkern_core::topology::RadialLinks;
 
 pub(in crate::apex_construction) fn materialize_authored_support_boundary_residual_cycles(
     brep: &mut BRep,
@@ -36,126 +37,127 @@ fn materialize_support_boundary_residual_cycles_candidate(
         return Ok(());
     }
     let rollback = brep.clone();
-    let result = (|| {
-        let mut residual_sides = existing_residual_sides
-            .iter()
-            .copied()
-            .filter(|half_edge| {
-                brep.half_edges.get(*half_edge).is_some_and(|data| {
-                    data.loop_ == LoopHandle::default() && brep.half_edges.contains_key(data.twin)
+    let result =
+        (|| {
+            let mut residual_sides = existing_residual_sides
+                .iter()
+                .copied()
+                .filter(|half_edge| {
+                    brep.half_edges.get(*half_edge).is_some_and(|data| {
+                        data.loop_ == LoopHandle::default()
+                            && data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+                    })
                 })
-            })
-            .collect::<Vec<_>>();
-        let mut template_face = None;
-        for half_edge in &residual_sides {
-            template_face = template_face.or_else(|| {
-                brep.half_edges
-                    .get(*half_edge)
-                    .and_then(|data| brep.half_edges.get(data.twin))
-                    .and_then(|twin| brep.loops.get(twin.loop_))
-                    .map(|loop_data| loop_data.face)
-            });
-        }
-        for half_edge in boundary_spans {
-            let half_edge_data = brep.half_edges.get(half_edge).cloned().ok_or_else(|| {
-                ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "planned repeated-apex partition cannot close support boundary \
-                         residual for stale half-edge {half_edge:?}"
-                    ),
-                }
-            })?;
-            if !brep.boundary_edges.contains(&half_edge_data.edge)
-                || brep.half_edges.contains_key(half_edge_data.twin)
-            {
-                continue;
+                .collect::<Vec<_>>();
+            let mut template_face = None;
+            for half_edge in &residual_sides {
+                template_face = template_face.or_else(|| {
+                    brep.half_edges
+                        .get(*half_edge)
+                        .and_then(|data| data.mate().and_then(|m| brep.half_edges.get(m)))
+                        .and_then(|twin| brep.loops.get(twin.loop_))
+                        .map(|loop_data| loop_data.face)
+                });
             }
-            template_face = template_face.or_else(|| {
-                brep.loops
-                    .get(half_edge_data.loop_)
-                    .map(|loop_data| loop_data.face)
-            });
-            let residual_origin =
-                support_split_half_edge_end_vertex(brep, half_edge).ok_or_else(|| {
+            for half_edge in boundary_spans {
+                let half_edge_data = brep.half_edges.get(half_edge).cloned().ok_or_else(|| {
                     ApexBuildError::PlanMismatch {
+                        reason: format!(
+                            "planned repeated-apex partition cannot close support boundary \
+                         residual for stale half-edge {half_edge:?}"
+                        ),
+                    }
+                })?;
+                if !brep.is_free_edge(half_edge_data.edge)
+                    || half_edge_data
+                        .mate()
+                        .is_some_and(|m| brep.half_edges.contains_key(m))
+                {
+                    continue;
+                }
+                template_face = template_face.or_else(|| {
+                    brep.loops
+                        .get(half_edge_data.loop_)
+                        .map(|loop_data| loop_data.face)
+                });
+                let residual_origin = support_split_half_edge_end_vertex(brep, half_edge)
+                    .ok_or_else(|| ApexBuildError::PlanMismatch {
                         reason: format!(
                             "planned repeated-apex partition cannot close support boundary \
                              residual for {half_edge:?}: missing endpoint"
                         ),
-                    }
-                })?;
-            let residual = brep.half_edges.insert(HalfEdge {
-                origin: residual_origin,
-                twin: half_edge,
-                next: HalfEdgeHandle::default(),
-                prev: HalfEdgeHandle::default(),
-                edge: half_edge_data.edge,
-                loop_: LoopHandle::default(),
-                pcurve: None,
-            });
-            brep.half_edges[half_edge].twin = residual;
-            brep.boundary_edges.remove(&half_edge_data.edge);
-            residual_sides.push(residual);
-        }
-        if residual_sides.is_empty() {
-            return Ok(());
-        }
-        let cycles = residual_cycles_with_connector_closure(brep, &residual_sides);
-        if cycles.is_empty() {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition cannot close support boundary residual \
+                    })?;
+                let residual = brep.half_edges.insert(HalfEdge {
+                    origin: residual_origin,
+                    ring: RadialLinks::pair(half_edge),
+                    next: HalfEdgeHandle::default(),
+                    prev: HalfEdgeHandle::default(),
+                    edge: half_edge_data.edge,
+                    loop_: LoopHandle::default(),
+                    pcurve: None,
+                });
+                brep.half_edges[half_edge].set_mate(residual);
+                residual_sides.push(residual);
+            }
+            if residual_sides.is_empty() {
+                return Ok(());
+            }
+            let cycles = residual_cycles_with_connector_closure(brep, &residual_sides);
+            if cycles.is_empty() {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition cannot close support boundary residual \
                      ownership: residual sides {:?} did not form closed cycles; {}",
-                    residual_sides,
-                    support_cycle_open_chain_diagnostic(brep, &residual_sides)
-                ),
-            });
-        }
-        let template_face = template_face.ok_or_else(|| ApexBuildError::PlanMismatch {
-            reason: "planned repeated-apex partition cannot close support boundary residual \
+                        residual_sides,
+                        support_cycle_open_chain_diagnostic(brep, &residual_sides)
+                    ),
+                });
+            }
+            let template_face = template_face.ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: "planned repeated-apex partition cannot close support boundary residual \
                      ownership without a template face"
-                .to_string(),
-        })?;
-        for cycle in cycles {
-            validate_half_edge_cycle(
-                brep,
-                &cycle,
-                "support boundary residual cycle",
-                template_face,
-            )?;
-            let residual_face = insert_face_with_outer_loop(brep, template_face, &cycle)?;
-            brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
-            brep.faces[residual_face].surface = None;
-            // Connector-closed cycles carry twins that close no loop of
-            // their own. Referential integrity has no role exemption,
-            // so home each unwired twin on the residual loop and keep
-            // its connector edge retired — wire_existing_loop stamped
-            // the cycle's edges from the face role BEFORE the residual
-            // demotion above, which would otherwise leave a Production
-            // edge with a null-loop side that breaks every downstream
-            // repair gated on validation (same contract as
-            // materialize_unowned_half_edge_residual_face).
-            let residual_loop = brep.faces[residual_face].outer_loop;
-            for half_edge in &cycle {
-                let Some(data) = brep.half_edges.get(*half_edge) else {
-                    continue;
-                };
-                let (twin, edge) = (data.twin, data.edge);
-                let twin_unwired = brep
-                    .half_edges
-                    .get(twin)
-                    .is_some_and(|twin_data| twin_data.loop_ == LoopHandle::default());
-                if !twin_unwired {
-                    continue;
-                }
-                brep.half_edges[twin].loop_ = residual_loop;
-                if let Some(edge_data) = brep.edges.get_mut(edge) {
-                    edge_data.role = TopologyRole::ConstructionResidual;
+                    .to_string(),
+            })?;
+            for cycle in cycles {
+                validate_half_edge_cycle(
+                    brep,
+                    &cycle,
+                    "support boundary residual cycle",
+                    template_face,
+                )?;
+                let residual_face = insert_face_with_outer_loop(brep, template_face, &cycle)?;
+                brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
+                brep.faces[residual_face].surface = None;
+                // Connector-closed cycles carry twins that close no loop of
+                // their own. Referential integrity has no role exemption,
+                // so home each unwired twin on the residual loop and keep
+                // its connector edge retired — wire_existing_loop stamped
+                // the cycle's edges from the face role BEFORE the residual
+                // demotion above, which would otherwise leave a Production
+                // edge with a null-loop side that breaks every downstream
+                // repair gated on validation (same contract as
+                // materialize_unowned_half_edge_residual_face).
+                let residual_loop = brep.faces[residual_face].outer_loop;
+                for half_edge in &cycle {
+                    let Some(data) = brep.half_edges.get(*half_edge) else {
+                        continue;
+                    };
+                    let edge = data.edge;
+                    let Some(twin) = data.mate().filter(|twin| {
+                        brep.half_edges
+                            .get(*twin)
+                            .is_some_and(|twin_data| twin_data.loop_ == LoopHandle::default())
+                    }) else {
+                        continue;
+                    };
+                    brep.half_edges[twin].loop_ = residual_loop;
+                    if let Some(edge_data) = brep.edges.get_mut(edge) {
+                        edge_data.role = TopologyRole::ConstructionResidual;
+                    }
                 }
             }
-        }
-        Ok(())
-    })();
+            Ok(())
+        })();
     if result.is_err() {
         *brep = rollback;
     }

@@ -74,14 +74,11 @@ pub(super) fn pyramid(
             tolerance,
         )
         .map_err(fail),
-        (true, false) => outward(
-            BRep::n_gonal_pyramid(
-                sides as usize,
-                polygon_corner(sides, r1, flats),
-                height,
-                tolerance,
-            )
-            .map_err(fail)?,
+        (true, false) => BRep::n_gonal_pyramid(
+            sides as usize,
+            polygon_corner(sides, r1, flats),
+            height,
+            tolerance,
         )
         .map_err(fail),
         (false, true) => {
@@ -94,7 +91,6 @@ pub(super) fn pyramid(
                 tolerance,
             )
             .map_err(fail)?;
-            let upright = outward(upright).map_err(fail)?;
             let over = Transform3::translation(0.0, 0.0, height)
                 .compose(&Transform3::rotation_x(std::f64::consts::PI));
             upright
@@ -103,12 +99,6 @@ pub(super) fn pyramid(
         }
         (false, false) => Err(invalid(shape, "r1", r1, "r1 and r2 cannot both be 0")),
     }
-}
-
-/// The Euler pyramid is built inward: turn it out of its material.
-fn outward(mut brep: BRep) -> Result<BRep, popkern_core::error::CoreError> {
-    brep.orient_planar_outward()?;
-    Ok(brep)
 }
 
 fn polygon_corner(sides: u32, radius: f64, flats: bool) -> f64 {

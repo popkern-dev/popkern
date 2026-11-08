@@ -211,10 +211,10 @@ impl BRep {
                         && (net - 2.0 * d).abs() < net.abs() - 0.25 * period
                 };
                 let lies = |heh: HalfEdgeHandle| {
-                    let twin = self.half_edges[heh].twin;
+                    let twin = self.half_edges[heh].mate();
                     match (
                         self.pcurve_traversal_claim(heh),
-                        self.pcurve_traversal_claim(twin),
+                        twin.and_then(|t| self.pcurve_traversal_claim(t)),
                     ) {
                         (Some(a), Some(b)) => a == b,
                         _ => false,

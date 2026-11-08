@@ -4,6 +4,7 @@
 //! extend to match, a small ruled-surface quad face is inserted to bridge
 //! the gap between old and new vertex positions.
 
+use popkern_core::topology::RadialLinks;
 use std::collections::HashMap;
 
 use crate::error::DraftError;
@@ -40,7 +41,7 @@ pub(crate) fn insert_transition_face(
         .half_edges
         .get(he_h)
         .ok_or_else(|| DraftError::Topology("half-edge not found".into()))?;
-    let twin_h = he.twin;
+    let twin_h = he.require_mate()?;
     let twin = brep
         .half_edges
         .get(twin_h)
@@ -135,17 +136,18 @@ fn build_quad_face(
         tolerance: None,
     });
 
-    let shell_h = brep
+    let sides = brep
         .faces
         .values()
         .next()
-        .map(|f| f.shell)
+        .map(|f| f.sides())
         .ok_or_else(|| DraftError::Topology("no faces in BRep".into()))?;
 
     let face_h = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: Vec::new(),
-        shell: shell_h,
+        back: sides.back,
+        front: sides.front,
         surface: Some(SurfaceOnFace {
             geometry: surface,
             orientation: true,
@@ -157,6 +159,7 @@ fn build_quad_face(
     let loop_h = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face: face_h,
+        vertex: None,
     });
     brep.faces[face_h].outer_loop = loop_h;
 
@@ -170,7 +173,7 @@ fn build_quad_face(
 
         let he = brep.half_edges.insert(HalfEdge {
             origin,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: Default::default(),
@@ -179,7 +182,7 @@ fn build_quad_face(
         });
         let tw = brep.half_edges.insert(HalfEdge {
             origin: dest,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: Default::default(),
@@ -187,8 +190,8 @@ fn build_quad_face(
             pcurve: None,
         });
 
-        brep.half_edges[he].twin = tw;
-        brep.half_edges[tw].twin = he;
+        brep.half_edges[he].set_mate(tw);
+        brep.half_edges[tw].set_mate(he);
 
         let start_pos = brep.vertices[origin].position;
         let end_pos = brep.vertices[dest].position;

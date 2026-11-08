@@ -20,6 +20,7 @@ pub fn sweep_add(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
+    brep.require_kind("sweep add", &[popkern_core::topology::BodyKind::Solid])?;
     let swept = crate::sweep(profile, path, options, tolerance, tracking)?;
     let result = popkern_bool::union(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
@@ -38,6 +39,7 @@ pub fn sweep_cut(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
+    brep.require_kind("sweep cut", &[popkern_core::topology::BodyKind::Solid])?;
     let swept = crate::sweep(profile, path, options, tolerance, tracking)?;
     let result = popkern_bool::subtraction(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
@@ -56,6 +58,10 @@ pub fn sweep_intersect(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
+    brep.require_kind(
+        "sweep intersect",
+        &[popkern_core::topology::BodyKind::Solid],
+    )?;
     let swept = crate::sweep(profile, path, options, tolerance, tracking)?;
     let result = popkern_bool::intersection(brep.clone(), swept.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
@@ -73,6 +79,7 @@ pub fn loft_add(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
+    brep.require_kind("loft add", &[popkern_core::topology::BodyKind::Solid])?;
     let lofted = crate::loft(sections, options, tolerance, tracking)?;
     let result = popkern_bool::union(brep.clone(), lofted.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
@@ -90,6 +97,7 @@ pub fn loft_cut(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
+    brep.require_kind("loft cut", &[popkern_core::topology::BodyKind::Solid])?;
     let lofted = crate::loft(sections, options, tolerance, tracking)?;
     let result = popkern_bool::subtraction(brep.clone(), lofted.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
@@ -108,6 +116,7 @@ pub fn pipe_add(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
+    brep.require_kind("pipe add", &[popkern_core::topology::BodyKind::Solid])?;
     let piped = crate::pipe(path, radius, options, tolerance, tracking)?;
     let result = popkern_bool::union(brep.clone(), piped.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;
@@ -126,6 +135,7 @@ pub fn pipe_cut(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
+    brep.require_kind("pipe cut", &[popkern_core::topology::BodyKind::Solid])?;
     let piped = crate::pipe(path, radius, options, tolerance, tracking)?;
     let result = popkern_bool::subtraction(brep.clone(), piped.brep, tolerance, None)
         .map_err(|e| SweepError::Boolean(format!("{e}")))?;

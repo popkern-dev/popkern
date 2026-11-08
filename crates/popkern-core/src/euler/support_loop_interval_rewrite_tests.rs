@@ -32,7 +32,9 @@ fn cube_with_retired_side() -> (BRep, FaceHandle) {
 fn boundary_side(brep: &BRep, edge: crate::topology::EdgeHandle) -> HalfEdgeHandle {
     let h = brep.edges[edge].half_edge;
     assert!(
-        !brep.half_edges.contains_key(brep.half_edges[h].twin),
+        !brep.half_edges[h]
+            .mate()
+            .is_some_and(|m| brep.half_edges.contains_key(m)),
         "expected a twinless boundary side"
     );
     h
@@ -47,7 +49,7 @@ fn destination(brep: &BRep, h: HalfEdgeHandle) -> VertexHandle {
 /// around the opening; replacement = the other three boundary
 /// sides, chained by vertex identity per the operator contract.
 fn opening_rewrite_plan(brep: &BRep) -> SupportLoopIntervalRewritePlan {
-    let boundary: Vec<_> = brep.boundary_edges.iter().copied().collect();
+    let boundary: Vec<_> = brep.free_edges().into_iter().collect();
     assert_eq!(boundary.len(), 4, "retired side leaves 4 boundary edges");
     // Choose the removed side: any boundary side; its loop hosts the
     // rewrite. The other three sides fill the gap.
@@ -105,10 +107,7 @@ fn rewrite_closes_the_opening_with_dv_df_zero() {
     assert_eq!(brep.faces.len(), f0, "dF = 0");
     assert_eq!(brep.loops.len(), l0, "dL = 0");
     assert_eq!(brep.edges.len(), e0 - 1, "dE = -1 (retired edge)");
-    assert!(
-        brep.boundary_edges.is_empty(),
-        "every edge is two-sided again"
-    );
+    assert!(!brep.has_free_edges(), "every edge is two-sided again");
     // The host loop closes through the created chain with winding
     // preserved (walk sees each created side exactly once).
     let start = brep.loops[host_loop].half_edge;
@@ -137,7 +136,10 @@ fn rewrite_declines_replacement_with_live_twin() {
     let twinned = brep
         .half_edges
         .iter()
-        .find(|(h, data)| brep.half_edges.contains_key(data.twin) && !plan.removed.contains(h))
+        .find(|(h, data)| {
+            data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+                && !plan.removed.contains(h)
+        })
         .map(|(h, _)| h)
         .expect("cube has twinned sides");
     plan.replacement[0] = twinned;

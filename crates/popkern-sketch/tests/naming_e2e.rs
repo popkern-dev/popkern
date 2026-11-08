@@ -277,7 +277,7 @@ fn fillet_names_trace_to_edge() {
             let Some(he1) = brep.half_edges.get(e.half_edge) else {
                 return false;
             };
-            let Some(he2) = brep.half_edges.get(he1.twin) else {
+            let Some(he2) = he1.mate().and_then(|m| brep.half_edges.get(m)) else {
                 return false;
             };
             let face1 = brep.loops.get(he1.loop_).map(|l| l.face);

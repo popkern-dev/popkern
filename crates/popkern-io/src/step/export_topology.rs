@@ -29,7 +29,11 @@ pub(crate) struct ExportedFaceSurface {
     pub surface: SurfaceOnFace,
 }
 
+#[path = "export_shell_items.rs"]
+mod shell_items;
+
 struct TopologyExportMaps<'a> {
+    vertex: &'a HashMap<VertexHandle, EntityId>,
     edge: &'a HashMap<EdgeHandle, EntityId>,
     local_edge: &'a HashMap<EdgeFaceUse, EntityId>,
 }
@@ -72,6 +76,10 @@ impl ExportContext {
 
         // 2. Export all edges → EDGE_CURVE (with SURFACE_CURVE wrappers)
         for (eh, edge) in &brep.edges {
+            // Wire edges are curves of a curve set (`export_general`).
+            if brep.is_wire_edge(eh) {
+                continue;
+            }
             let he = brep
                 .half_edges
                 .get(edge.half_edge)
@@ -165,79 +173,7 @@ impl ExportContext {
             &mut local_edge_map,
         )?;
 
-        // 3. Export faces (surfaces already exported; reuses cached
-        // IDs), grouped by their owning brep SHELL.
-        let mut face_ids_by_shell: Vec<Vec<EntityId>> = Vec::new();
-        let mut exported_shells = Vec::new();
-        let mut shell_handles: Vec<_> = brep.shells.keys().collect();
-        shell_handles.sort();
-        for &sh in &shell_handles {
-            self.reverse_face_uses = super::export_voids::is_cavity(brep, sh);
-            let mut ids = Vec::new();
-            for (fh, face) in &brep.faces {
-                if face.shell != sh {
-                    continue;
-                }
-                let surface_id = surface_map.get(&fh).map(|surface| surface.id);
-                let maps = TopologyExportMaps {
-                    edge: &edge_map,
-                    local_edge: &local_edge_map,
-                };
-                let face_id = self.export_face(brep, fh, face, &maps, surface_id)?;
-                ids.push(face_id);
-            }
-            if !ids.is_empty() {
-                face_ids_by_shell.push(ids);
-                exported_shells.push(Some(sh));
-            }
-        }
-        self.reverse_face_uses = false;
-        // Faces with no live shell (defensive) travel together.
-        {
-            let mut orphans = Vec::new();
-            for (fh, face) in &brep.faces {
-                if brep.shells.contains_key(face.shell) {
-                    continue;
-                }
-                let surface_id = surface_map.get(&fh).map(|surface| surface.id);
-                let maps = TopologyExportMaps {
-                    edge: &edge_map,
-                    local_edge: &local_edge_map,
-                };
-                orphans.push(self.export_face(brep, fh, face, &maps, surface_id)?);
-            }
-            if !orphans.is_empty() {
-                face_ids_by_shell.push(orphans);
-                exported_shells.push(None);
-            }
-        }
-
-        // 4. Emit shell items. Face-local STEP edge curves preserve
-        // geometric fidelity for incoherent face uses, but they also
-        // make STEP topology single-sided at those uses. Do not
-        // declare that representation as a manifold solid.
-        let exports_open_shell = brep.has_boundary_edges() || !local_edge_map.is_empty();
-        if exports_open_shell {
-            // Historical sheet form: one SHELL_BASED_SURFACE_MODEL
-            // over every shell.
-            let shell_refs: Vec<_> = face_ids_by_shell
-                .into_iter()
-                .map(|ids| {
-                    let refs: Vec<_> = ids.iter().map(|&id| ref_(id)).collect();
-                    ref_(self.emit("OPEN_SHELL", vec![str_param(""), list(refs)]))
-                })
-                .collect();
-            return Ok(vec![self.emit(
-                "SHELL_BASED_SURFACE_MODEL",
-                vec![str_param(""), list(shell_refs)],
-            )]);
-        }
-        Ok(super::export_voids::emit_solids(
-            self,
-            brep,
-            &exported_shells,
-            face_ids_by_shell,
-        ))
+        self.emit_shell_items(brep, &surface_map, &vertex_map, &edge_map, &local_edge_map)
     }
 
     /// Export a single face with its loops.
@@ -268,6 +204,17 @@ impl ExportContext {
             let inner_bound_id =
                 self.export_loop_as_bound(brep, face_handle, inner_lh, false, maps)?;
             bounds.push(ref_(inner_bound_id));
+        }
+        // Vertex loops: a vertex on the face's interior (PK-1116).
+        for l in brep.face_vertex_loops(face_handle) {
+            let Some(&vp) = brep.loops[l].vertex.and_then(|v| maps.vertex.get(&v)) else {
+                continue;
+            };
+            let vertex_loop = self.emit("VERTEX_LOOP", vec![str_param(""), ref_(vp)]);
+            bounds.push(ref_(self.emit(
+                "FACE_BOUND",
+                vec![str_param(""), ref_(vertex_loop), bool_(true)],
+            )));
         }
 
         // Use the pre-exported surface, or export now if none was cached
@@ -338,13 +285,14 @@ impl ExportContext {
                 .or_else(|| maps.edge.get(&he.edge))
                 .ok_or_else(|| IoError::Export("Edge not in export map".into()))?;
 
-            // Determine orientation: forward if this half-edge is the one
-            // referenced by the parent edge (i.e., the "forward" half-edge)
+            // Forward when the fin runs its edge's curve way (any fin of a longer ring).
             let edge = brep
                 .edges
                 .get(he.edge)
                 .ok_or_else(|| IoError::Export("Edge not found".into()))?;
-            let forward = local_edge_curve_id.is_some() || edge.half_edge == current_he;
+            let first = edge.half_edge == current_he;
+            let forward =
+                local_edge_curve_id.is_some() || brep.fin_sense(current_he).unwrap_or(first);
 
             let oe_id = self.emit(
                 "ORIENTED_EDGE",

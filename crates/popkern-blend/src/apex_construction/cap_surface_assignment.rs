@@ -284,11 +284,14 @@ fn face_outer_edges(brep: &BRep, face: FaceHandle) -> Vec<EdgeHandle> {
 fn face_across_edge(brep: &BRep, edge: EdgeHandle, cap_face: FaceHandle) -> Option<FaceHandle> {
     let edge_data = brep.edges.get(edge)?;
     let first = edge_data.half_edge;
-    let second = brep.half_edges.get(first)?.twin;
-    [first, second].into_iter().find_map(|half_edge| {
-        let face = brep.loops.get(brep.half_edges.get(half_edge)?.loop_)?.face;
-        (face != cap_face).then_some(face)
-    })
+    let second = brep.half_edges.get(first)?.mate();
+    [Some(first), second]
+        .into_iter()
+        .flatten()
+        .find_map(|half_edge| {
+            let face = brep.loops.get(brep.half_edges.get(half_edge)?.loop_)?.face;
+            (face != cap_face).then_some(face)
+        })
 }
 
 fn edge_curve_fits_surface(
@@ -325,7 +328,10 @@ pub(super) fn author_plane_side_face_edge_pcurves(
         let Some(primary) = brep.half_edges.get(edge_data.half_edge).cloned() else {
             continue;
         };
-        for (half_edge, forward) in [(edge_data.half_edge, true), (primary.twin, false)] {
+        for (half_edge, forward) in [(Some(edge_data.half_edge), true), (primary.mate(), false)] {
+            let Some(half_edge) = half_edge else {
+                continue;
+            };
             let Some(face) = brep
                 .half_edges
                 .get(half_edge)

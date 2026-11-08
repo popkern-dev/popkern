@@ -76,7 +76,10 @@ fn beyond_rim(
     tolerance: &Tolerance,
 ) -> Option<Point3> {
     let h = x.half_edges.get(he)?;
-    let neighbour = x.loops.get(x.half_edges.get(h.twin)?.loop_)?.face;
+    let neighbour = x
+        .loops
+        .get(h.mate().and_then(|m| x.half_edges.get(m))?.loop_)?
+        .face;
     let surface = &x.faces.get(neighbour)?.surface.as_ref()?.geometry;
     let c = x.edges.get(h.edge)?.curve.as_ref()?;
     let tm = 0.5 * (c.t_start + c.t_end);

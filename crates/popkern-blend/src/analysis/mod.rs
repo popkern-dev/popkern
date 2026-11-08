@@ -33,9 +33,10 @@ pub struct EdgeAnalysis {
     /// Face orientation for surface 2.
     pub orientation_2: bool,
     /// Whether the shell containing these faces is globally
-    /// OUTWARD-oriented (measured via signed volume). Primitives
-    /// build inward shells; boolean/sweep output builds outward
-    /// ones. True face outwardness = `orientation_i == shell_outward`.
+    /// OUTWARD-oriented (measured via signed volume). Every producer
+    /// builds outward shells (a solid region's shells are checked to),
+    /// but a body read from an old file may be inward. True face
+    /// outwardness = `orientation_i == shell_outward`.
     pub shell_outward: bool,
     /// Convexity classification at the edge.
     pub convexity: Convexity,
@@ -90,7 +91,7 @@ fn analyze_single_edge(brep: &BRep, edge_handle: EdgeHandle) -> Result<EdgeAnaly
         .get(he1_handle)
         .ok_or_else(|| format!("half-edge {he1_handle:?} not found"))?;
 
-    let he2_handle = he1.twin;
+    let he2_handle = he1.require_mate().map_err(|e| e.to_string())?;
     let he2 = brep
         .half_edges
         .get(he2_handle)
@@ -275,17 +276,17 @@ fn find_uv_for_point(
 /// +1.0 when the shell's loop windings + orientation flags describe
 /// an OUTWARD-oriented boundary, −1.0 for inward, via the divergence
 /// theorem over outer-loop polygon fans (sign-exact for sane closed
-/// shells). Primitive constructors currently build inward shells
-/// (extrude keeps the base winding); boolean/sweep output builds
-/// outward ones — consumers needing true outwardness must fold this
-/// in until constructors are normalized (PK-100).
+/// shells). Every producer builds outward shells (`validate_all`
+/// reports a solid region facing into its material), but an inward
+/// body read from an old file still blends: consumers needing true
+/// outwardness fold this sign in.
 pub(super) fn shell_outward_sign(brep: &BRep) -> f64 {
     use popkern_core::geometry::surface::SurfaceEval;
     // Divergence theorem per face using the FLAG-CORRECTED NATURAL
-    // normal — deliberately NOT the loop winding: producers disagree
-    // on winding-vs-flag consistency (the cube winds inward-wound
-    // loops, the square pyramid outward ones, both with flag=true),
-    // so the loop fan supplies only area and centroid, while the
+    // normal — deliberately NOT the loop winding: producers have
+    // disagreed on winding-vs-flag consistency (the cube once wound
+    // inward-wound loops, the square pyramid outward ones, both with
+    // flag=true), so the loop fan supplies only area and centroid, while the
     // direction comes from what the flags claim. V > 0 ⇔ the
     // flag-corrected normals describe an outward shell.
     let mut vol = 0.0;

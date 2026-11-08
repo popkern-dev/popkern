@@ -103,19 +103,21 @@ pub(crate) fn compute_closed_rim_plan(
     };
 
     let face_of = |he: popkern_core::topology::HalfEdgeHandle| -> Result<FaceHandle, BlendError> {
-        let twin = brep.half_edges.get(he).map(|d| d.twin).ok_or_else(|| {
-            BlendError::InvalidParameter {
+        let twin = brep
+            .half_edges
+            .get(he)
+            .and_then(|d| d.mate())
+            .ok_or_else(|| BlendError::InvalidParameter {
                 parameter: "blend_face.ring".to_string(),
                 value: format!("{he:?}"),
                 reason: "ring half-edge missing".to_string(),
-            }
-        })?;
+            })?;
         brep.half_edges
             .get(twin)
             .and_then(|t| brep.loops.get(t.loop_))
             .map(|l| l.face)
             .ok_or_else(|| BlendError::InvalidParameter {
-                parameter: "blend_face.ring.twin".to_string(),
+                parameter: "blend_face.ring.mate()".to_string(),
                 value: format!("{twin:?}"),
                 reason: "ring twin has no live loop".to_string(),
             })

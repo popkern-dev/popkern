@@ -59,7 +59,7 @@ fn no_clone_curve_survives_curved_recompute() {
             // in this pin's scope (plane-plane lines are covered by the
             // exact arm and endpoint validation).
             let he = &inner.half_edges[edge.half_edge];
-            let twin = &inner.half_edges[he.twin];
+            let twin = &inner.half_edges[he.mate().unwrap_or_default()];
             let non_planar_adjacent = [he.loop_, twin.loop_].iter().any(|&lp| {
                 inner
                     .loops

@@ -162,7 +162,7 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
         reimported.faces.len()
     );
     assert_eq!(
-        reimported.solids.len(),
+        reimported.solid_regions().len(),
         1,
         "re-imported BRep must have 1 solid"
     );

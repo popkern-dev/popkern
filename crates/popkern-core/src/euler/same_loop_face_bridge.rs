@@ -1,5 +1,6 @@
 //! Same-loop bridge-face construction for disjoint boundary intervals.
 
+use crate::topology::RadialLinks;
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;
@@ -149,7 +150,8 @@ impl BRep {
         }
         for &half_edge in path {
             let data = &self.half_edges[half_edge];
-            if !self.boundary_edges.contains(&data.edge) || self.half_edges.contains_key(data.twin)
+            if !self.is_free_edge(data.edge)
+                || data.mate().is_some_and(|m| self.half_edges.contains_key(m))
             {
                 return Err(CoreError::PreconditionFailed(format!(
                     "same-loop bridge {label} path half-edge {half_edge:?} is not an unowned boundary side"
@@ -183,22 +185,23 @@ impl BRep {
             let data = &self.half_edges[half_edge];
             let edge = data.edge;
             let origin = self.half_edges[data.next].origin;
-            if !self.boundary_edges.contains(&edge) || self.half_edges.contains_key(data.twin) {
+            if !self.is_free_edge(edge)
+                || data.mate().is_some_and(|m| self.half_edges.contains_key(m))
+            {
                 return Err(CoreError::PreconditionFailed(format!(
                     "same-loop bridge path half-edge {half_edge:?} is not an unowned boundary side"
                 )));
             }
             let twin = self.half_edges.insert(HalfEdge {
                 origin,
-                twin: half_edge,
+                ring: RadialLinks::pair(half_edge),
                 next: Default::default(),
                 prev: Default::default(),
                 edge,
                 loop_: Default::default(),
                 pcurve: None,
             });
-            self.half_edges[half_edge].twin = twin;
-            self.boundary_edges.remove(&edge);
+            self.half_edges[half_edge].set_mate(twin);
             twins.push(twin);
         }
         twins.reverse();
@@ -217,7 +220,8 @@ impl BRep {
         let bridge_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell: source.shell,
+            back: source.back,
+            front: source.front,
             surface: None,
             name: None,
             tolerance: source.tolerance,
@@ -226,6 +230,7 @@ impl BRep {
         let bridge_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
             face: bridge_face,
+            vertex: None,
         });
         self.faces[bridge_face].outer_loop = bridge_loop;
         Ok(bridge_loop)
@@ -295,7 +300,7 @@ impl BRep {
         });
         let half_edge = self.half_edges.insert(HalfEdge {
             origin,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -303,7 +308,6 @@ impl BRep {
             pcurve: None,
         });
         self.edges[edge].half_edge = half_edge;
-        self.boundary_edges.insert(edge);
         (edge, half_edge)
     }
 
@@ -317,9 +321,8 @@ impl BRep {
             .ok_or_else(|| {
                 CoreError::InvalidHandle("same-loop bridge path half-edge is invalid".into())
             })?
-            .twin;
-        self.half_edges
-            .get(twin)
+            .mate();
+        twin.and_then(|t| self.half_edges.get(t))
             .map(|half_edge| half_edge.origin)
             .ok_or_else(|| {
                 CoreError::PreconditionFailed(
@@ -358,8 +361,8 @@ impl BRep {
         self.validate_half_edge_cycles().map_err(CoreError::from)?;
         self.validate_manifold_edges().map_err(CoreError::from)?;
         verify_same_loop_bridge_loop_cycle(self, result.bridge_loop)?;
-        if !self.boundary_edges.contains(&result.first_connector_edge)
-            || !self.boundary_edges.contains(&result.second_connector_edge)
+        if !self.is_free_edge(result.first_connector_edge)
+            || !self.is_free_edge(result.second_connector_edge)
         {
             return Err(CoreError::PreconditionFailed(
                 "same-loop bridge connector edge lost boundary ownership".into(),

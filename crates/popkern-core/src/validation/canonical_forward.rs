@@ -82,7 +82,10 @@ impl BRep {
             let Some(he) = self.half_edges.get(edge.half_edge) else {
                 continue;
             };
-            let Some(twin) = self.half_edges.get(he.twin) else {
+            let Some((mate, twin)) = he
+                .mate()
+                .and_then(|m| self.half_edges.get(m).map(|t| (m, t)))
+            else {
                 continue;
             };
             if he.origin != twin.origin {
@@ -93,7 +96,7 @@ impl BRep {
             if f_can.is_none() || f_twin.is_none() || f_can == f_twin {
                 continue; // dangling or seam
             }
-            let state = self.closed_edge_state(edge.half_edge, he.twin, &winding);
+            let state = self.closed_edge_state(edge.half_edge, mate, &winding);
             out.push(CanonicalForwardVerdict { edge: eh, state });
         }
         // Pass 2 (stage 3): seam-adjacent rim junctions defeat the
@@ -129,7 +132,9 @@ impl BRep {
             match v.state {
                 CanonicalForwardState::Violated => {
                     let canonical = self.edges[v.edge].half_edge;
-                    let twin = self.half_edges[canonical].twin;
+                    let Some(twin) = self.mate(canonical) else {
+                        continue;
+                    };
                     self.edges[v.edge].half_edge = twin;
                     repaired += 1;
                 }
@@ -146,12 +151,11 @@ impl BRep {
                     // trusted (non-lying) side kept its claim. Make
                     // whichever side now claims FORWARD canonical.
                     let canonical = self.edges[v.edge].half_edge;
-                    let twin = self.half_edges[canonical].twin;
                     let can_claim = self.pcurve_traversal_claim(canonical);
-                    match can_claim {
-                        Some(true) => {}
-                        Some(false) => self.edges[v.edge].half_edge = twin,
-                        None => continue,
+                    match (can_claim, self.mate(canonical)) {
+                        (Some(true), _) => {}
+                        (Some(false), Some(twin)) => self.edges[v.edge].half_edge = twin,
+                        _ => continue,
                     }
                     repaired += 1;
                 }

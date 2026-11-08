@@ -10,7 +10,7 @@ use crate::topology::brep_repair_knowledge_authority::BrepRepairAuthorityFact;
 use crate::topology::{
     BRep, BrepEndpointMembershipFacts, BrepLoopAdjacencyFacts, BrepLoopFacts,
     BrepTrimEndpointAgreementFacts, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle,
-    ShellHandle, SolidHandle, VertexHandle,
+    RegionHandle, ShellHandle, VertexHandle,
 };
 
 /// Current schema version for exported BRep repair knowledge artifacts.
@@ -75,7 +75,7 @@ impl BrepKnowledgeFingerprint {
             half_edges: brep.half_edges.len(),
             loops: brep.loops.len(),
             faces: brep.faces.len(),
-            shells: brep.shells.len(),
+            shells: brep.back_shell_count(),
         }
     }
 
@@ -190,7 +190,7 @@ pub struct BrepRepairScopeHandles {
     /// Scoped shells.
     pub shells: Vec<ShellHandle>,
     /// Scoped solids.
-    pub solids: Vec<SolidHandle>,
+    pub solids: Vec<RegionHandle>,
 }
 
 /// Caller provenance label for a graph, fact, or diagnostic.
@@ -360,7 +360,7 @@ pub enum BrepRepairTopologyHandle {
     /// Shell handle.
     Shell(ShellHandle),
     /// Solid handle.
-    Solid(SolidHandle),
+    Solid(RegionHandle),
 }
 
 /// Tolerance evidence for a numeric classification.

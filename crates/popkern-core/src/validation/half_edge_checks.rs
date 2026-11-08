@@ -4,24 +4,29 @@ use crate::error::ValidationError;
 use crate::topology::{BRep, TopologyRole};
 
 impl BRep {
-    /// Check 2: Every half-edge's twin must exist and the twin's twin must point back.
+    /// Check 2: every fin's radial ring is well formed. A fin alone on
+    /// its edge (a free edge) has null links; otherwise both links reach
+    /// live fins of the same edge that link back (`next.prev` and
+    /// `prev.next` are this fin), so walking the ring visits each fin
+    /// once whatever its length.
     pub fn validate_half_edge_pairing(&self) -> Result<(), ValidationError> {
+        use slotmap::Key;
         for (he_handle, he_data) in &self.half_edges {
-            // Boundary half-edges have twin = default (null) — skip.
-            if self.boundary_edges.contains(&he_data.edge) {
+            let ring = he_data.ring;
+            if ring.next.is_null() && ring.prev.is_null() {
                 continue;
             }
-            let twin = self
-                .half_edges
-                .get(he_data.twin)
-                .ok_or(ValidationError::BrokenTwin {
-                    half_edge: he_handle,
-                })?;
-
-            if twin.twin != he_handle {
-                return Err(ValidationError::BrokenTwin {
-                    half_edge: he_handle,
-                });
+            let broken = || ValidationError::BrokenTwin {
+                half_edge: he_handle,
+            };
+            let next = self.half_edges.get(ring.next).ok_or_else(broken)?;
+            let prev = self.half_edges.get(ring.prev).ok_or_else(broken)?;
+            if next.ring.prev != he_handle
+                || prev.ring.next != he_handle
+                || next.edge != he_data.edge
+                || prev.edge != he_data.edge
+            {
+                return Err(broken());
             }
         }
         Ok(())
@@ -46,10 +51,13 @@ impl BRep {
         let mut on_cycle: slotmap::SecondaryMap<crate::topology::HalfEdgeHandle, ()> =
             slotmap::SecondaryMap::with_capacity(bound);
         let mut members = Vec::new();
+        // A held wire edge's fins lie in no loop cycle.
+        let held = self.held_wire_edges();
 
         for (he_handle, he_data) in &self.half_edges {
             if self.half_edge_is_construction_residual_for_cycle_validation(he_data)
                 || on_cycle.contains_key(he_handle)
+                || (held.contains(&he_data.edge) && !self.loops.contains_key(he_data.loop_))
             {
                 continue;
             }
@@ -96,14 +104,15 @@ impl BRep {
     /// check.
     pub fn validate_loop_junctions(&self) -> Result<(), ValidationError> {
         for (he_handle, he) in &self.half_edges {
-            if self.boundary_edges.contains(&he.edge)
+            if self.is_free_edge(he.edge)
                 || self.half_edge_is_construction_residual_for_cycle_validation(he)
             {
                 continue;
             }
-            let (Some(twin), Some(next)) =
-                (self.half_edges.get(he.twin), self.half_edges.get(he.next))
-            else {
+            let (Some(twin), Some(next)) = (
+                he.mate().and_then(|m| self.half_edges.get(m)),
+                self.half_edges.get(he.next),
+            ) else {
                 continue; // pairing and cycle checks own missing handles
             };
             if twin.origin != next.origin {
@@ -226,7 +235,7 @@ mod tests {
             .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
             .unwrap();
         // Corrupt the twin pointer.
-        brep.half_edges[mev.half_edge].twin = Default::default();
+        brep.half_edges[mev.half_edge].clear_mate();
         assert!(brep.validate_half_edge_pairing().is_err());
     }
 
@@ -308,7 +317,7 @@ mod tests {
             .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
             .unwrap();
         // Make mev1's twin's twin point to something else (mev2's half_edge)
-        brep.half_edges[mev1.half_edge_twin].twin = mev2.half_edge;
+        brep.half_edges[mev1.half_edge_twin].set_mate(mev2.half_edge);
         let result = brep.validate_half_edge_pairing();
         assert!(result.is_err());
     }

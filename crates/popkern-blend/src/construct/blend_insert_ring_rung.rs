@@ -71,7 +71,7 @@ pub(super) fn boundary_ring_rung(
                 tolerance,
                 crate::blend::BlendBoundaryOptions {
                     ring_station_pushback: true,
-                    ring_sense_from_solid: true,
+                    ring_sense: Some(crate::blend::RingSenseRule::Convex),
                     ..boundary_options
                 },
             )

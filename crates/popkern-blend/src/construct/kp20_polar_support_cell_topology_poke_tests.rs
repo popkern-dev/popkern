@@ -261,11 +261,11 @@ fn assert_shared_edge_curves_match_topology_vertices(brep: &BRep, faces: &[FaceH
         let start = brep.loops[brep.faces[face].outer_loop].half_edge;
         let mut cursor = start;
         for _ in 0..brep.half_edges.len().max(1) {
-            let twin = brep.half_edges[cursor].twin;
+            let twin = brep.half_edges[cursor].mate().unwrap_or_default();
             let other_face = brep.loops[brep.half_edges[twin].loop_].face;
             let edge = brep.half_edges[cursor].edge;
             if faces.contains(&other_face) && brep.edges[edge].half_edge == cursor {
-                let canonical_twin = brep.half_edges[cursor].twin;
+                let canonical_twin = brep.half_edges[cursor].mate().unwrap_or_default();
                 let start_vertex = brep.half_edges[cursor].origin;
                 let end_vertex = brep.half_edges[canonical_twin].origin;
                 let curve = brep.edges[edge].curve.as_ref().expect("shared edge curve");

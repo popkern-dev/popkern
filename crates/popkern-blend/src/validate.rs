@@ -267,7 +267,10 @@ pub(crate) fn validate_corner_resolution(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let twin_origin = brep.half_edges.get(he.twin).map(|t| t.origin);
+        let twin_origin = he
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
+            .map(|t| t.origin);
         for vertex in std::iter::once(he.origin).chain(twin_origin) {
             let entry = at_vertex.entry(vertex).or_insert((0, f64::INFINITY));
             entry.0 += 1;

@@ -163,9 +163,9 @@ fn no_duplicate_production_plane_coverage() {
 fn constructive_rewrite_serves_closed_shell() {
     let brep = mixed_radius_cube();
     assert!(
-        brep.boundary_edges.is_empty(),
+        !brep.has_free_edges(),
         "constructive serving must leave no boundary edges: {:?}",
-        brep.boundary_edges
+        brep.free_edges()
     );
     let errors = brep.validate_all();
     assert!(

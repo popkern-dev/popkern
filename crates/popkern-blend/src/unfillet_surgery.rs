@@ -127,7 +127,7 @@ pub(crate) fn rebuild_curves_touching(brep: &mut BRep, welded: &[VertexHandle]) 
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let touches_welded = welded.contains(&he.origin) || welded.contains(&twin.origin);
@@ -144,7 +144,7 @@ pub(crate) fn rebuild_curves_touching(brep: &mut BRep, welded: &[VertexHandle]) 
         let Some(he) = brep.half_edges.get(he_handle).cloned() else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin).cloned() else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)).cloned() else {
             continue;
         };
         let Some(start_v) = brep.vertices.get(he.origin) else {
@@ -196,7 +196,7 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
     // corner-group unfillet panicked on an already-removed prev).
     while let Some(eh) = brep.edges.iter().find_map(|(eh, edge)| {
         let he = brep.half_edges.get(edge.half_edge)?;
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         (he.origin == twin.origin).then_some(eh)
     }) {
         let Some(edge) = brep.edges.get(eh) else {
@@ -206,7 +206,9 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
         let Some(he) = brep.half_edges.get(he_handle).cloned() else {
             continue;
         };
-        let twin_handle = he.twin;
+        let Some(twin_handle) = he.mate() else {
+            continue;
+        };
         let Some(twin) = brep.half_edges.get(twin_handle).cloned() else {
             continue;
         };
@@ -278,7 +280,7 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
     // (corner-group unfillet); paired-edge paths never enter here.
     while let Some((eh, he_handle)) = brep.edges.iter().find_map(|(eh, edge)| {
         let he = brep.half_edges.get(edge.half_edge)?;
-        if brep.half_edges.contains_key(he.twin) {
+        if he.mate().is_some_and(|m| brep.half_edges.contains_key(m)) {
             return None;
         }
         let dest = brep.half_edges.get(he.next)?.origin;
@@ -296,7 +298,6 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
         }
         brep.remove_half_edge_reanchored(he_handle);
         brep.edges.remove(eh);
-        brep.boundary_edges.remove(&eh);
     }
 }
 
@@ -329,14 +330,15 @@ pub(crate) fn remove_slit_loop_edges_where(
             return None;
         }
         let he = brep.half_edges.get(edge.half_edge)?;
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         if he.loop_ != twin.loop_ || he.origin == twin.origin {
             return None;
         }
-        if he.next == he.twin {
-            Some((eh, edge.half_edge, he.twin))
+        let mate = he.mate()?;
+        if mate == he.next {
+            Some((eh, edge.half_edge, mate))
         } else if twin.next == edge.half_edge {
-            Some((eh, he.twin, edge.half_edge))
+            Some((eh, mate, edge.half_edge))
         } else {
             None
         }
@@ -383,7 +385,6 @@ pub(crate) fn remove_slit_loop_edges_where(
         brep.remove_half_edge_reanchored(first);
         brep.remove_half_edge_reanchored(second);
         brep.edges.remove(eh);
-        brep.boundary_edges.remove(&eh);
     }
 }
 

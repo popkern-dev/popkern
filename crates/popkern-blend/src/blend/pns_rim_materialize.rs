@@ -148,7 +148,7 @@ pub(crate) fn pair_loop_half_edges_to_segments(
         let across_surface = brep
             .half_edges
             .get(he)
-            .and_then(|hd| brep.half_edges.get(hd.twin))
+            .and_then(|hd| hd.mate().and_then(|m| brep.half_edges.get(m)))
             .and_then(|t| brep.loops.get(t.loop_))
             .and_then(|l| brep.faces.get(l.face))
             .and_then(|f| f.surface.as_ref())?;

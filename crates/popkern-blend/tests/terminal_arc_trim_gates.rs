@@ -156,7 +156,9 @@ fn settlement_is_idempotent_across_second_fillet() {
         .find(|(_, d)| {
             let he = &first.brep.half_edges[d.half_edge];
             let a = first.brep.vertices[he.origin].position;
-            let b = first.brep.vertices[first.brep.half_edges[he.twin].origin].position;
+            let b = first.brep.vertices
+                [first.brep.half_edges[he.mate().unwrap_or_default()].origin]
+                .position;
             // Top far edge — untouched by the first fillet.
             (a.z - 1.0).abs() < 1e-9
                 && (b.z - 1.0).abs() < 1e-9

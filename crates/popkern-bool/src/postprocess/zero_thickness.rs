@@ -33,7 +33,7 @@ use crate::error::{ContactKind, NonManifoldContact};
 fn edge_ends(brep: &BRep, e: EdgeHandle) -> Option<(VertexHandle, VertexHandle)> {
     let edge = brep.edges.get(e)?;
     let he = brep.half_edges.get(edge.half_edge)?;
-    let tw = brep.half_edges.get(he.twin)?;
+    let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((he.origin, tw.origin))
 }
 

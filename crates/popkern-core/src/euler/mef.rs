@@ -81,14 +81,12 @@ impl BRep {
             .get(he2)
             .ok_or_else(|| CoreError::InvalidHandle("he2 handle is invalid".into()))?;
 
-        // Precondition: he1 and he2 must be distinct.
         if he1 == he2 {
             return Err(CoreError::PreconditionFailed(
                 "he1 and he2 must be distinct".into(),
             ));
         }
 
-        // Precondition: he1 and he2 must be in the same loop.
         if he1_data.loop_ != he2_data.loop_ {
             return Err(CoreError::PreconditionFailed(
                 "he1 and he2 must be in the same loop".into(),
@@ -97,7 +95,8 @@ impl BRep {
 
         let old_loop = he1_data.loop_;
         let old_face = self.loops[old_loop].face;
-        let shell = self.faces[old_face].shell;
+        // The new face lies beside the old one: same sides.
+        let shell = self.faces[old_face].sides();
 
         let v1 = he1_data.origin;
         let v2 = he2_data.origin;
@@ -118,7 +117,8 @@ impl BRep {
         let new_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: self.faces[old_face].surface.clone(),
             name: None,
             tolerance: None,
@@ -126,15 +126,12 @@ impl BRep {
         });
 
         // Create new loop for the new face.
-        let new_loop = self.loops.insert(Loop {
-            half_edge: Default::default(),
-            face: new_face,
-        });
+        let new_loop = self.loops.insert(Loop::new(Default::default(), new_face));
 
         // Create new_he: v1 -> v2 (stays with old loop)
         let new_he = self.half_edges.insert(HalfEdge {
             origin: v1,
-            twin: Default::default(),
+            ring: crate::topology::RadialLinks::alone(),
             next: he2,
             prev: he1_prev,
             edge,
@@ -145,7 +142,7 @@ impl BRep {
         // Create new_he_twin: v2 -> v1 (goes to new loop)
         let new_he_twin = self.half_edges.insert(HalfEdge {
             origin: v2,
-            twin: new_he,
+            ring: crate::topology::RadialLinks::pair(new_he),
             next: he1,
             prev: he2_prev,
             edge,
@@ -154,7 +151,7 @@ impl BRep {
         });
 
         // Patch new_he's twin.
-        self.half_edges[new_he].twin = new_he_twin;
+        self.half_edges[new_he].set_mate(new_he_twin);
 
         // Wire prev/next pointers.
         self.half_edges[he1_prev].next = new_he;
@@ -218,7 +215,7 @@ impl BRep {
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
 
-        let he_twin_handle = he_data.twin;
+        let he_twin_handle = self.require_mate(half_edge)?;
         let edge_handle = he_data.edge;
         let he_prev = he_data.prev;
         let he_loop = he_data.loop_;
@@ -359,8 +356,8 @@ impl BRep {
         let twin = self.half_edges.get(result.half_edge_twin).ok_or_else(|| {
             CoreError::PreconditionFailed("mef twin half-edge is not live".into())
         })?;
-        if half_edge.twin != result.half_edge_twin
-            || twin.twin != result.half_edge
+        if half_edge.mate() != Some(result.half_edge_twin)
+            || twin.mate() != Some(result.half_edge)
             || half_edge.edge != result.edge
             || twin.edge != result.edge
             || half_edge.loop_ != old_loop

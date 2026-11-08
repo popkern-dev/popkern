@@ -62,11 +62,12 @@ fn classify_segment_half_edge(
             "cylinder-mediated segment references stale half-edge {half_edge:?}"
         ))
     })?;
-    if brep.boundary_edges.contains(&data.edge) && !brep.half_edges.contains_key(data.twin) {
+    if brep.is_free_edge(data.edge) && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+    {
         segment_plan.boundary_bridge_half_edges.push(half_edge);
         return Ok(());
     }
-    let Some(twin) = brep.half_edges.get(data.twin) else {
+    let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) else {
         segment_plan.unsupported_owned_half_edges.push(half_edge);
         return Ok(());
     };
@@ -172,7 +173,7 @@ fn owner_face_counts(
         let twin = brep
             .half_edges
             .get(half_edge)
-            .and_then(|data| brep.half_edges.get(data.twin))
+            .and_then(|data| data.mate().and_then(|m| brep.half_edges.get(m)))
             .ok_or_else(|| {
                 CoreError::PreconditionFailed(format!(
                     "owner half-edge {half_edge:?} has no live twin"

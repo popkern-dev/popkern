@@ -5,6 +5,7 @@ use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::*;
 
 /// Result of adding an inner trim loop to a face.
@@ -90,6 +91,7 @@ impl BRep {
         let inner_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: None,
         });
 
         // Create edges and half-edges.
@@ -136,9 +138,9 @@ impl BRep {
             // Inner half-edge: goes from vertex[i] to vertex[j] on this face.
             let inner_he = self.half_edges.insert(HalfEdge {
                 origin: vertices[i],
-                twin: Default::default(), // patched below
-                next: Default::default(), // patched below
-                prev: Default::default(), // patched below
+                ring: RadialLinks::alone(), // patched below
+                next: Default::default(),   // patched below
+                prev: Default::default(),   // patched below
                 edge: edge_h,
                 loop_: inner_loop,
                 pcurve: Some(pcurve.into()),
@@ -149,7 +151,7 @@ impl BRep {
             // Origin is vertex[j] (opposite direction).
             let twin_he = self.half_edges.insert(HalfEdge {
                 origin: vertices[j],
-                twin: inner_he,
+                ring: RadialLinks::pair(inner_he),
                 next: Default::default(), // self-twinned twins have no chain
                 prev: Default::default(),
                 edge: edge_h,
@@ -159,7 +161,7 @@ impl BRep {
             twin_hes.push(twin_he);
 
             // Patch inner half-edge twin.
-            self.half_edges[inner_he].twin = twin_he;
+            self.half_edges[inner_he].set_mate(twin_he);
 
             // Update edge to point to its inner half-edge.
             self.edges[edge_h].half_edge = inner_he;
@@ -262,6 +264,7 @@ impl BRep {
         let inner_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: None,
         });
 
         let mut edges = Vec::with_capacity(n);
@@ -285,7 +288,7 @@ impl BRep {
             edges.push(edge_h);
             let inner_he = self.half_edges.insert(HalfEdge {
                 origin: vertices[i],
-                twin: Default::default(),
+                ring: RadialLinks::alone(),
                 next: Default::default(),
                 prev: Default::default(),
                 edge: edge_h,
@@ -295,7 +298,7 @@ impl BRep {
             inner_hes.push(inner_he);
             let twin_he = self.half_edges.insert(HalfEdge {
                 origin: vertices[j],
-                twin: inner_he,
+                ring: RadialLinks::pair(inner_he),
                 next: Default::default(),
                 prev: Default::default(),
                 edge: edge_h,
@@ -303,7 +306,7 @@ impl BRep {
                 pcurve: None,
             });
             twin_hes.push(twin_he);
-            self.half_edges[inner_he].twin = twin_he;
+            self.half_edges[inner_he].set_mate(twin_he);
             self.edges[edge_h].half_edge = inner_he;
             self.vertices[vertices[i]].outgoing = inner_he;
         }

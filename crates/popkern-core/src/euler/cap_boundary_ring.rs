@@ -14,8 +14,9 @@
 
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts, verify_loop_contains_half_edges};
+use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle,
+    BRep, EdgeHandle, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
     VertexHandle,
 };
 
@@ -42,11 +43,12 @@ pub(crate) struct BoundaryRingStep {
     pub(crate) hole_origin: VertexHandle,
 }
 
-/// Validated capping plan: cycle-ordered steps plus the owning shell.
+/// Validated capping plan: cycle-ordered steps plus the sides of the
+/// owning shell's faces, which the cap takes.
 #[derive(Debug, Clone)]
 pub(crate) struct BoundaryRingPlan {
     pub(crate) steps: Vec<BoundaryRingStep>,
-    pub(crate) shell: ShellHandle,
+    pub(crate) sides: FaceSides,
 }
 
 impl BRep {
@@ -60,6 +62,11 @@ impl BRep {
     /// The new face is surfaceless with no pcurves; attaching geometry
     /// and re-establishing coherence is the caller's next step.
     ///
+    /// A cap closing a sheet's last opening closes a surface that now
+    /// separates space, so the shell bounds a new solid region behind
+    /// its faces ([`BRep::fill_closed_shells`]); a ring of a solid's
+    /// shell (mid-construction) just closes it.
+    ///
     /// # Errors
     ///
     /// - [`CoreError::InvalidHandle`] if a ring edge or its surviving
@@ -71,6 +78,20 @@ impl BRep {
     ///   single cycle by vertex identity, shares a vertex between two
     ///   ring positions (figure-eight), or spans more than one shell.
     pub fn cap_boundary_ring(
+        &mut self,
+        ring: &[EdgeHandle],
+    ) -> Result<BoundaryRingCapResult, CoreError> {
+        let mut candidate = self.clone();
+        let result = candidate.cap_boundary_ring_unfilled(ring)?;
+        candidate.fill_closed_shells();
+        *self = candidate;
+        Ok(result)
+    }
+
+    /// [`BRep::cap_boundary_ring`] leaving a shell it closes in the
+    /// void, for operators that cap as one step of their own count
+    /// contract and fill when they commit.
+    pub(crate) fn cap_boundary_ring_unfilled(
         &mut self,
         ring: &[EdgeHandle],
     ) -> Result<BoundaryRingCapResult, CoreError> {
@@ -105,9 +126,9 @@ impl BRep {
 
         // Resolve each edge to its surviving half-edge and directed span.
         let mut spans = Vec::with_capacity(ring.len());
-        let mut shell: Option<ShellHandle> = None;
+        let mut shell: Option<FaceSides> = None;
         for &edge in ring {
-            if !self.boundary_edges.contains(&edge) {
+            if !self.is_free_edge(edge) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "boundary ring cap edge {edge:?} is not a registered boundary edge"
                 )));
@@ -121,7 +142,10 @@ impl BRep {
                     "boundary ring cap edge {edge:?} has no live surviving half-edge"
                 ))
             })?;
-            if self.half_edges.contains_key(surviving_data.twin) {
+            if surviving_data
+                .mate()
+                .is_some_and(|m| self.half_edges.contains_key(m))
+            {
                 return Err(CoreError::PreconditionFailed(format!(
                     "boundary ring cap edge {edge:?} is registered as boundary but its twin is live"
                 )));
@@ -139,7 +163,7 @@ impl BRep {
                 .loops
                 .get(surviving_data.loop_)
                 .and_then(|loop_data| self.faces.get(loop_data.face))
-                .map(|face| face.shell)
+                .map(|face| face.sides())
                 .ok_or_else(|| {
                     CoreError::InvalidHandle(format!(
                         "boundary ring cap edge {edge:?} surviving half-edge has no owning face"
@@ -214,14 +238,18 @@ impl BRep {
                 "boundary ring does not close into a single cycle over all listed edges".into(),
             ));
         }
-        Ok(BoundaryRingPlan { steps, shell })
+        Ok(BoundaryRingPlan {
+            steps,
+            sides: shell,
+        })
     }
 
     fn apply_boundary_ring_cap(&mut self, plan: &BoundaryRingPlan) -> BoundaryRingCapResult {
         let face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell: plan.shell,
+            back: plan.sides.back,
+            front: plan.sides.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -230,20 +258,20 @@ impl BRep {
         let loop_ = self.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: None,
         });
         let mut hole_sides = Vec::with_capacity(plan.steps.len());
         for step in &plan.steps {
             let hole_side = self.half_edges.insert(HalfEdge {
                 origin: step.hole_origin,
-                twin: step.surviving,
+                ring: RadialLinks::pair(step.surviving),
                 next: Default::default(),
                 prev: Default::default(),
                 edge: step.edge,
                 loop_,
                 pcurve: None,
             });
-            self.half_edges[step.surviving].twin = hole_side;
-            self.boundary_edges.remove(&step.edge);
+            self.half_edges[step.surviving].set_mate(hole_side);
             hole_sides.push(hole_side);
         }
         let count = hole_sides.len();
@@ -284,7 +312,7 @@ impl BRep {
         )?;
         verify_loop_contains_half_edges(self, result.loop_, &result.half_edges)?;
         for (step, &hole_side) in plan.steps.iter().zip(&result.half_edges) {
-            if self.boundary_edges.contains(&step.edge) {
+            if self.is_free_edge(step.edge) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "cap_boundary_ring left edge {:?} in boundary_edges",
                     step.edge
@@ -293,8 +321,8 @@ impl BRep {
             let surviving_twin = self
                 .half_edges
                 .get(step.surviving)
-                .map(|surviving| surviving.twin);
-            let hole_twin = self.half_edges.get(hole_side).map(|hole| hole.twin);
+                .and_then(|surviving| surviving.mate());
+            let hole_twin = self.half_edges.get(hole_side).and_then(|hole| hole.mate());
             if surviving_twin != Some(hole_side) || hole_twin != Some(step.surviving) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "cap_boundary_ring twin pairing broken on edge {:?}",

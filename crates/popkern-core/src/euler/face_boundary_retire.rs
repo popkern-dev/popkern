@@ -19,6 +19,11 @@ impl BRep {
     /// Faces retired in one call may share edges: an edge both of whose
     /// faces go is removed with them, as is a vertex left on no
     /// half-edge, so the faces kept are a sheet with their own boundary.
+    /// A solid shell opened this way keeps its region, as a solid being
+    /// rebuilt does: a construction that closes it again leaves the
+    /// solid whole. A caller whose result is the sheet settles it into
+    /// the void ([`BRep::settle_open_shells`]); until then the opening
+    /// fails the cell-structure checks of `validate_all`.
     ///
     /// This is a transaction boundary for boundary-preparation work. The live
     /// BRep is only replaced after the candidate passes structural validation.
@@ -57,24 +62,26 @@ impl BRep {
             let doomed_half_edges = self.loop_half_edges_for_retirement(retiring_loop)?;
             let mut lost = Vec::new();
             for half_edge in &doomed_half_edges {
-                let twin = self.half_edges[*half_edge].twin;
+                let twin = self.half_edges[*half_edge].mate();
                 let edge = self.half_edges[*half_edge].edge;
                 touched_vertices.push(self.half_edges[*half_edge].origin);
-                if twin == HalfEdgeHandle::default() && exposed_here.contains(&edge) {
+                if twin.is_none() && exposed_here.contains(&edge) {
                     lost.push(edge);
                     continue;
                 }
-                let twin_data = self.half_edges.get(twin).ok_or_else(|| {
-                    CoreError::PreconditionFailed(
+                let Some((twin, twin_data)) =
+                    twin.and_then(|t| self.half_edges.get(t).map(|data| (t, data)))
+                else {
+                    return Err(CoreError::PreconditionFailed(
                         "retiring face would expose an edge without a surviving twin".into(),
-                    )
-                })?;
-                if twin_data.twin != *half_edge {
+                    ));
+                };
+                if twin_data.mate() != Some(*half_edge) {
                     return Err(CoreError::PreconditionFailed(
                         "retiring face found inconsistent twin pairing".into(),
                     ));
                 }
-                self.half_edges[twin].twin = HalfEdgeHandle::default();
+                self.half_edges[twin].clear_mate();
                 // The surviving twin becomes canonical; it traverses the
                 // curve backward, so the curve turns to run its way (the
                 // canonical-forward convention, PK-274, as face-region
@@ -88,7 +95,6 @@ impl BRep {
                     std::mem::swap(&mut curve.t_start, &mut curve.t_end);
                 }
                 self.edges[edge].half_edge = twin;
-                self.boundary_edges.insert(edge);
                 exposed_edges.push(edge);
                 exposed_here.insert(edge);
             }
@@ -98,7 +104,6 @@ impl BRep {
             }
             for edge in lost {
                 self.edges.remove(edge);
-                self.boundary_edges.remove(&edge);
                 exposed_here.remove(&edge);
                 exposed_edges.retain(|&e| e != edge);
             }
@@ -132,7 +137,7 @@ impl BRep {
             }
         }
         for edge in &result.exposed_edges {
-            if !self.boundary_edges.contains(edge) {
+            if !self.is_free_edge(*edge) {
                 return Err(CoreError::PreconditionFailed(
                     "retired boundary face exposed edge is not boundary".into(),
                 ));
@@ -151,7 +156,7 @@ impl BRep {
                     "retired boundary face exposed half-edge no longer exists".into(),
                 )
             })?;
-            if exposed.twin != HalfEdgeHandle::default() {
+            if exposed.mate().is_some() {
                 return Err(CoreError::PreconditionFailed(
                     "retired boundary face exposed half-edge kept a live twin".into(),
                 ));
@@ -273,25 +278,14 @@ impl BRep {
     }
 
     fn repair_shell_face_after_retirement(&mut self, face: FaceHandle) -> Result<(), CoreError> {
-        let shell = self
-            .faces
+        self.faces
             .get(face)
-            .ok_or_else(|| CoreError::InvalidHandle("retire face handle is invalid".into()))?
-            .shell;
-        if self.shells[shell].face != face {
-            return Ok(());
+            .ok_or_else(|| CoreError::InvalidHandle("retire face handle is invalid".into()))?;
+        if !self.move_shell_anchor_off(face) {
+            return Err(CoreError::PreconditionFailed(
+                "retire_faces_to_boundary cannot retire the last face in a shell".into(),
+            ));
         }
-        let replacement = self
-            .faces
-            .iter()
-            .find(|(candidate, data)| *candidate != face && data.shell == shell)
-            .map(|(candidate, _)| candidate)
-            .ok_or_else(|| {
-                CoreError::PreconditionFailed(
-                    "retire_faces_to_boundary cannot retire the last face in a shell".into(),
-                )
-            })?;
-        self.shells[shell].face = replacement;
         Ok(())
     }
 }
@@ -314,7 +308,7 @@ mod tests {
         assert_eq!(brep.faces.len(), 5);
         assert_eq!(brep.loops.len(), 5);
         assert_eq!(brep.edges.len(), 12);
-        assert_eq!(brep.boundary_edges.len(), 4);
+        assert_eq!(brep.free_edges().len(), 4);
         brep.validate().unwrap();
     }
 
@@ -323,7 +317,7 @@ mod tests {
     /// way, or the closed edge's pcurve checks against it reversed
     /// (2R off, PK-978).
     #[test]
-    fn retired_caps_leave_an_open_tube_that_validates() {
+    fn retired_caps_leave_an_open_tube_that_validates_once_settled() {
         use crate::geometry::surface::SurfaceGeometry;
         let mut tube = BRep::cylinder(0.3, 2.0, Tolerance::default()).expect("cylinder");
         let caps: Vec<_> = tube
@@ -338,8 +332,7 @@ mod tests {
             .map(|(h, _)| h)
             .collect();
         tube.retire_faces_to_boundary(&caps).expect("caps retire");
-        let findings = tube.validate_all();
-        assert!(findings.is_empty(), "{findings:?}");
+        assert_opening_reported_then_settles(&mut tube);
     }
 
     /// Four faces of a cube retired together: the edges between two
@@ -352,7 +345,7 @@ mod tests {
         let first = brep.faces.keys().next().expect("a face");
         let face_of = |b: &BRep, h| b.loops[b.half_edges[h].loop_].face;
         let he = brep.loops[brep.faces[first].outer_loop].half_edge;
-        let second = face_of(&brep, brep.half_edges[he].twin);
+        let second = face_of(&brep, brep.half_edges[he].mate().unwrap_or_default());
         let doomed: Vec<_> = brep
             .faces
             .keys()
@@ -364,11 +357,28 @@ mod tests {
             (
                 brep.faces.len(),
                 brep.edges.len(),
-                brep.boundary_edges.len(),
+                brep.free_edges().len(),
                 brep.vertices.len()
             ),
             (2, 7, 6, 6)
         );
+        assert_opening_reported_then_settles(&mut brep);
+    }
+
+    /// The opened solid keeps its region, so each free edge's wedge
+    /// spans the solid's shell and the outside's (the opening is
+    /// reported); settled into the void the sheet validates clean.
+    fn assert_opening_reported_then_settles(brep: &mut BRep) {
+        let opening = brep.validate_all();
+        assert!(
+            !opening.is_empty()
+                && opening
+                    .iter()
+                    .all(|e| matches!(e, crate::error::ValidationError::WedgeShellMismatch { .. })),
+            "{opening:?}"
+        );
+        assert_eq!(opening.len(), brep.free_edges().len());
+        assert_eq!(brep.settle_open_shells().len(), 1);
         let findings = brep.validate_all();
         assert!(findings.is_empty(), "{findings:?}");
     }

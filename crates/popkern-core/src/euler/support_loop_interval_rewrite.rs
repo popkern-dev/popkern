@@ -36,6 +36,7 @@
 //! (`dV = dF = dL = 0`, `dE = replacement.len() - retired`).
 
 use crate::error::CoreError;
+use crate::topology::RadialLinks;
 use crate::topology::{BRep, EdgeHandle, HalfEdge, HalfEdgeHandle, LoopHandle};
 
 /// Plan for one in-place support-loop interval rewrite.
@@ -149,12 +150,12 @@ impl BRep {
                     "interval rewrite: replacement side {r:?} is stale"
                 ))
             })?;
-            if self.half_edges.contains_key(data.twin) {
+            if data.mate().is_some_and(|m| self.half_edges.contains_key(m)) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "interval rewrite: replacement side {r:?} already has a live twin"
                 )));
             }
-            if !self.boundary_edges.contains(&data.edge) {
+            if !self.is_free_edge(data.edge) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "interval rewrite: replacement side {r:?} is not a boundary side"
                 )));
@@ -214,14 +215,14 @@ impl BRep {
             };
             let new_h = self.half_edges.insert(HalfEdge {
                 origin,
-                twin: r,
+                ring: RadialLinks::pair(r),
                 next: HalfEdgeHandle::default(),
                 prev: HalfEdgeHandle::default(),
                 edge,
                 loop_: plan.loop_,
                 pcurve: None,
             });
-            self.half_edges[r].twin = new_h;
+            self.half_edges[r].set_mate(new_h);
             if plan.pair_removed_edges {
                 // Re-point the replacement side onto the adopted
                 // production edge and retire its duplicate record.
@@ -230,13 +231,9 @@ impl BRep {
                 if let Some(e) = self.edges.get_mut(edge) {
                     e.half_edge = r;
                 }
-                self.boundary_edges.remove(&dup);
-                self.boundary_edges.remove(&edge);
                 if dup != edge && self.edges.remove(dup).is_some() {
                     paired_retired.push(dup);
                 }
-            } else {
-                self.boundary_edges.remove(&r_data.edge);
             }
             created.push(new_h);
         }
@@ -265,16 +262,14 @@ impl BRep {
             if plan.pair_removed_edges {
                 continue;
             }
-            if self.half_edges.contains_key(data.twin) {
-                self.boundary_edges.insert(data.edge);
+            if let Some(survivor) = data.mate().filter(|m| self.half_edges.contains_key(*m)) {
                 if let Some(edge) = self.edges.get_mut(data.edge)
                     && edge.half_edge == h
                 {
-                    edge.half_edge = data.twin;
+                    edge.half_edge = survivor;
                 }
                 exposed_edges.push(data.edge);
             } else if self.edges.remove(data.edge).is_some() {
-                self.boundary_edges.remove(&data.edge);
                 retired_edges.push(data.edge);
             }
         }
@@ -333,8 +328,12 @@ impl BRep {
         }
         // Twin symmetry for the new chain.
         for &h in &result.created {
-            let twin = self.half_edges[h].twin;
-            if self.half_edges.get(twin).map(|t| t.twin) != Some(h) {
+            let twin = self.half_edges[h].mate();
+            if twin
+                .and_then(|t| self.half_edges.get(t))
+                .and_then(|t| t.mate())
+                != Some(h)
+            {
                 return Err(CoreError::PreconditionFailed(
                     "interval rewrite postcondition: created side's twin does not point back"
                         .into(),

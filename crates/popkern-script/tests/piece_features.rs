@@ -50,7 +50,7 @@ fn measured(m: &mut Model, body: Body) -> (usize, f64, f64) {
         .map(|v| v.position.x)
         .fold(f64::MAX, f64::min);
     (
-        brep.solids.len(),
+        brep.solid_regions().len(),
         body_volume(&brep, &tol).expect("volume"),
         lo,
     )

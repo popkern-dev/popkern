@@ -250,10 +250,18 @@ pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), 
     }
 
     let he_out = outgoings[0];
-    let he_in = brep.half_edges[he_out].twin;
+    let he_in = brep.half_edges[he_out]
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     // kev kills the destination vertex of its argument; we want to
     // kill V, so pass the half-edge whose destination is V.
-    debug_assert_eq!(brep.half_edges[brep.half_edges[he_in].twin].origin, vertex);
+    debug_assert_eq!(
+        brep.half_edges[brep.half_edges[he_in]
+            .require_mate()
+            .map_err(|e| e.to_string())?]
+        .origin,
+        vertex
+    );
     let same_loop = brep.half_edges[he_in].loop_ == brep.half_edges[he_out].loop_;
     let is_only_edge = brep.half_edges[he_in].next == he_out
         && brep.half_edges[he_out].next == he_in

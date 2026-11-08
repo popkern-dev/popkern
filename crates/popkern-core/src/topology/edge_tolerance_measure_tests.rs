@@ -24,7 +24,7 @@ fn a_misfit_pcurve_raises_its_edge_to_the_measured_gap() {
     let (he, edge) = b
         .half_edges
         .iter()
-        .find(|(_, h)| h.origin == b.half_edges[h.twin].origin)
+        .find(|(_, h)| h.origin == b.half_edges[h.mate().unwrap_or_default()].origin)
         .map(|(he, h)| (he, h.edge))
         .unwrap();
     let pc = b.half_edges[he].pcurve.clone().unwrap();
@@ -44,7 +44,7 @@ fn a_misfit_past_the_ceiling_is_recorded_as_measured() {
     let (he, edge) = b
         .half_edges
         .iter()
-        .find(|(_, h)| h.origin == b.half_edges[h.twin].origin)
+        .find(|(_, h)| h.origin == b.half_edges[h.mate().unwrap_or_default()].origin)
         .map(|(he, h)| (he, h.edge))
         .unwrap();
     let pc = b.half_edges[he].pcurve.clone().unwrap();

@@ -135,13 +135,7 @@ fn boolean_with_sheets_solid_solid_delegates_to_boolean() {
 #[test]
 fn sheet_intersect_solid_routes_to_open_shell() {
     use crate::BoolOperation;
-    use popkern_core::geometry::Point3;
-    let mut sheet = BRep::new(tol());
-    let mvfs = sheet.mvfs(Point3::new(0.0, 0.0, 0.5)).unwrap();
-    let _mev = sheet
-        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(2.0, 0.0, 0.5))
-        .unwrap();
-
+    let sheet = build_planar_sheet(-0.5, 2.0, -0.5, 1.5, 0.5);
     let cube = BRep::unit_cube(tol()).unwrap();
     let result = boolean_with_sheets(BoolOperation::Intersection, &sheet, &cube, tol());
     match result {
@@ -170,13 +164,7 @@ fn boolean_with_sheets_solid_union_sheet_routes_to_mixed() {
     // upfront OpenShellNotSupported).
     use crate::BoolOperation;
     let cube = BRep::unit_cube(tol()).unwrap();
-    use popkern_core::geometry::Point3;
-    let mut sheet = BRep::new(tol());
-    let mvfs = sheet.mvfs(Point3::new(0.0, 0.0, 0.5)).unwrap();
-    let _mev = sheet
-        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(2.0, 0.0, 0.5))
-        .unwrap();
-
+    let sheet = build_planar_sheet(-0.5, 2.0, -0.5, 1.5, 0.5);
     let result = boolean_with_sheets(BoolOperation::Union, &cube, &sheet, tol());
     match result {
         Ok(SheetBooleanResult::Mixed {
@@ -208,40 +196,28 @@ fn boolean_with_sheets_solid_union_sheet_routes_to_mixed() {
 fn boolean_with_sheets_sheet_sheet_union_non_overlapping() {
     // §2.3 SheetSheetUnion: two disjoint sheet bodies should
     // combine into a single open shell via structural concatenation.
-    // Dangling-edge sheets built via mvfs+mev — one near origin,
-    // one far away — share no geometry, so `section()` returns
-    // zero intersection curves and the dispatcher delegates to
-    // combine_breps.
+    // Two quads, one near the origin and one far away, share no
+    // geometry, so `section()` returns zero intersection curves and
+    // the dispatcher delegates to combine_breps.
     use crate::BoolOperation;
-    use popkern_core::geometry::Point3;
-
-    let mut sheet_a = BRep::new(tol());
-    let mvfs_a = sheet_a.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-    let _mev_a = sheet_a
-        .mev_at_vertex(mvfs_a.vertex, mvfs_a.loop_, Point3::new(1.0, 0.0, 0.0))
-        .unwrap();
-
-    let mut sheet_b = BRep::new(tol());
-    let mvfs_b = sheet_b.mvfs(Point3::new(10.0, 0.0, 0.0)).unwrap();
-    let _mev_b = sheet_b
-        .mev_at_vertex(mvfs_b.vertex, mvfs_b.loop_, Point3::new(11.0, 0.0, 0.0))
-        .unwrap();
+    let sheet_a = build_planar_sheet(0.0, 1.0, 0.0, 1.0, 0.0);
+    let sheet_b = build_planar_sheet(10.0, 11.0, 0.0, 1.0, 0.0);
 
     let result = boolean_with_sheets(BoolOperation::Union, &sheet_a, &sheet_b, tol()).unwrap();
     match result {
         SheetBooleanResult::OpenShell(combined) => {
-            // 2 vertices from each sheet = 4 total.
+            // 4 vertices from each sheet = 8 total.
             assert_eq!(
                 combined.vertices.len(),
-                4,
-                "combined sheet should have 4 vertices, got {}",
+                8,
+                "combined sheet should have 8 vertices, got {}",
                 combined.vertices.len()
             );
-            // 1 edge from each sheet = 2 total.
+            // 4 edges from each sheet = 8 total.
             assert_eq!(
                 combined.edges.len(),
-                2,
-                "combined sheet should have 2 edges, got {}",
+                8,
+                "combined sheet should have 8 edges, got {}",
                 combined.edges.len()
             );
             // 1 face from each sheet = 2 total.
@@ -334,18 +310,18 @@ fn boolean_with_sheets_sheet_sheet_union_transversal_concatenates() {
                  (4 + 4 corners + 4 imprint - 2 welds), got {}",
                 combined.vertices.len()
             );
-            // Non-manifold radial cycle: edge welding should
-            // populate nonmanifold_radial with the 4 half-edges
-            // sharing the crossing edge, threaded into a closed
-            // cycle. Verify the cycle is populated and walks to
-            // completion via BRep::radial_next.
+            // Non-manifold radial ring: edge welding links the 4
+            // half-edges sharing the crossing edge into one ring.
+            // Verify it walks to completion via BRep::radial_next.
+            let crossing = combined
+                .edges
+                .keys()
+                .find(|&e| combined.edge_fin_count(e) >= 4);
             assert!(
-                combined.nonmanifold_radial.len() >= 4,
-                "expected non-manifold radial cycle of length >= 4 \
-                 (the 4 half-edges sharing the crossing edge), got {}",
-                combined.nonmanifold_radial.len()
+                crossing.is_some(),
+                "expected a non-manifold ring of >= 4 fins (the 4 half-edges sharing the crossing edge)"
             );
-            if let Some((&start, _)) = combined.nonmanifold_radial.iter().next() {
+            if let Some(start) = crossing.map(|e| combined.edges[e].half_edge) {
                 let mut cursor = start;
                 let mut steps = 0;
                 loop {
@@ -370,33 +346,16 @@ fn boolean_with_sheets_sheet_sheet_union_transversal_concatenates() {
 fn boolean_with_sheets_sheet_sheet_union_coincident_dedupes() {
     // When the two sheets share a face region (full coincidence),
     // the dispatcher should drop the duplicate face from b before
-    // concatenating. Build two mvfs+mev sheets with IDENTICAL
-    // geometry so `detect_coincidences` classifies them as fully
-    // coincident. The combined result should not simply double the
-    // face count — it should equal or be less than the individual
-    // counts, depending on coincidence detection success.
+    // concatenating. Build two quads with IDENTICAL geometry so
+    // `detect_coincidences` classifies them as fully coincident. The
+    // combined result should not simply double the face count — it
+    // should equal or be less than the individual counts, depending on
+    // coincidence detection success.
     use crate::BoolOperation;
-    use popkern_core::geometry::Point3;
 
-    let mut sheet_a = BRep::new(tol());
-    let mvfs_a = sheet_a.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-    let _mev_a = sheet_a
-        .mev_at_vertex(mvfs_a.vertex, mvfs_a.loop_, Point3::new(1.0, 0.0, 0.0))
-        .unwrap();
+    let sheet_a = build_planar_sheet(0.0, 1.0, 0.0, 1.0, 0.0);
+    let sheet_b = build_planar_sheet(0.0, 1.0, 0.0, 1.0, 0.0);
 
-    let mut sheet_b = BRep::new(tol());
-    let mvfs_b = sheet_b.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-    let _mev_b = sheet_b
-        .mev_at_vertex(mvfs_b.vertex, mvfs_b.loop_, Point3::new(1.0, 0.0, 0.0))
-        .unwrap();
-
-    // Dangling-edge sheets have no surface attached, so
-    // detect_coincidences won't classify them as face-coincident,
-    // and the dispatcher will actually fall through the transversal
-    // branch. This test pins that "as long as detect_coincidences
-    // reports something (even zero coincidences) the dispatcher
-    // doesn't panic" — the exact result variant depends on which
-    // branch the dispatcher ends up in.
     let result = boolean_with_sheets(BoolOperation::Union, &sheet_a, &sheet_b, tol());
     match result {
         Ok(SheetBooleanResult::OpenShell(_)) => {}
@@ -408,12 +367,10 @@ fn boolean_with_sheets_sheet_sheet_union_coincident_dedupes() {
 #[test]
 fn boolean_with_sheets_sheet_minus_solid_declines_a_surfaceless_face() {
     use crate::BoolOperation;
-    use popkern_core::geometry::Point3;
-    let mut sheet = BRep::new(tol());
-    let mvfs = sheet.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-    let _mev = sheet
-        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-        .unwrap();
+    let mut sheet = build_planar_sheet(-0.5, 1.5, -0.5, 1.5, 0.5);
+    for face in sheet.faces.values_mut() {
+        face.surface = None;
+    }
     let cube = BRep::unit_cube(tol()).unwrap();
     // A face with no surface: declined before any geometry is read.
     let result = boolean_with_sheets(BoolOperation::Subtraction, &sheet, &cube, tol());
@@ -422,13 +379,7 @@ fn boolean_with_sheets_sheet_minus_solid_declines_a_surfaceless_face() {
 
 #[test]
 fn boolean_on_sheet_body_returns_open_shell_error() {
-    use popkern_core::geometry::Point3;
-    let mut sheet = BRep::new(tol());
-    let mvfs = sheet.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
-    let _mev = sheet
-        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-        .unwrap();
-
+    let sheet = build_planar_sheet(-0.5, 1.5, -0.5, 1.5, 0.5);
     let cube = BRep::unit_cube(tol()).unwrap();
     let result = crate::union(sheet, cube, tol(), None);
     assert!(
@@ -447,6 +398,6 @@ fn a_solid_beside_a_sheet_is_a_mixed_body() {
     let sheet = build_planar_sheet(3.0, 4.0, 3.0, 4.0, 0.5);
     let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let both = crate::operation::helpers::combine_breps(cube, sheet).expect("side by side");
-    assert_eq!(both.body_kind(), popkern_core::topology::BodyKind::Mixed);
+    assert_eq!(both.body_kind(), popkern_core::topology::BodyKind::General);
     assert!(is_sheet_body(&both));
 }

@@ -137,7 +137,7 @@ pub(super) fn edge_ends(
 ) -> Option<(FaceHandle, FaceHandle, VertexHandle, VertexHandle)> {
     let he = out.edges.get(edge)?.half_edge;
     let h = out.half_edges.get(he)?;
-    let twin = out.half_edges.get(h.twin)?;
+    let twin = h.mate().and_then(|m| out.half_edges.get(m))?;
     Some((
         out.loops.get(h.loop_)?.face,
         out.loops.get(twin.loop_)?.face,
@@ -248,7 +248,7 @@ fn dissolve_mid_edge_vertices(out: &mut BRep, motion: &Motion, gate: f64) -> Res
             let off = (p - qa) - line * (p - qa).dot(&line);
             let faces = faces_at(out, v);
             (off.length() <= gate && faces.len() == 2 && faces.iter().all(|f| busy.contains(f)))
-                .then(|| out.half_edges.get(a).map(|h| h.twin))?
+                .then(|| out.half_edges.get(a).and_then(|h| h.mate()))?
         });
         let Some(toward) = found else {
             return Ok(());

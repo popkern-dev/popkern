@@ -550,7 +550,7 @@ pub(crate) fn outer_loop_is_seam_spine(brep: &BRep, face_handle: FaceHandle) -> 
         let data = &brep.half_edges[he];
         let twin_on_face = brep
             .half_edges
-            .get(data.twin)
+            .get(data.mate().unwrap_or_default())
             .and_then(|twin| brep.loops.get(twin.loop_))
             .is_some_and(|l| l.face == face_handle);
         if !twin_on_face {

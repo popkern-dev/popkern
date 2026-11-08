@@ -114,7 +114,7 @@ pub(super) fn unwrap_near(to: f64, from: f64) -> f64 {
 /// pcurve, sample-gated against the section. Pure computation.
 pub(super) struct SectionArc {
     pub(super) edge: popkern_core::topology::EdgeHandle,
-    pub(super) twin: HalfEdgeHandle,
+    pub(super) twin: Option<HalfEdgeHandle>,
     pub(super) curve: CurveOnEdge,
     pub(super) strip_pcurve: Pcurve,
 }
@@ -131,7 +131,7 @@ pub(super) fn section_arc(
         .half_edges
         .get(he_strip)
         .ok_or(Reason::ArcBranchUnresolved)?;
-    let (twin, edge) = (he.twin, he.edge);
+    let (twin, edge) = (he.mate(), he.edge);
     let primary = brep
         .edges
         .get(edge)

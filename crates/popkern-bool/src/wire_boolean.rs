@@ -10,7 +10,7 @@
 //! - solid − wire is the solid itself: a wire bounds no volume, so
 //!   regularized subtraction removes nothing;
 //! - solid ∪ wire is the solid with the wire's outside pieces beside
-//!   it, one mixed body (`BodyKind::Mixed`).
+//!   it, one general body (`BodyKind::General`).
 //!
 //! The cut parameters are the curve's crossings with every face of the
 //! solid's face surfaces (`intersect_surface_curve_dense`, the solver
@@ -207,16 +207,13 @@ fn wire_part(
     // Output vertices standing for the wire's own vertices.
     let mut at_vertex: std::collections::HashMap<VertexHandle, VertexHandle> =
         std::collections::HashMap::new();
-    for (_, edge) in &wire.edges {
+    for (eh, edge) in &wire.edges {
         let Some(curve) = edge.curve.as_ref() else {
             return Err(declined("a wire edge has no curve".to_string()));
         };
-        let he = &wire.half_edges[edge.half_edge];
-        let start_vertex = he.origin;
-        let end_vertex = wire
-            .half_edges
-            .get(he.twin)
-            .map_or(start_vertex, |t| t.origin);
+        let Some((start_vertex, end_vertex)) = wire.edge_vertices(eh) else {
+            return Err(declined(format!("wire edge {eh:?} has no vertices")));
+        };
         let (lo, hi) = (
             curve.t_start.min(curve.t_end),
             curve.t_start.max(curve.t_end),

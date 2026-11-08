@@ -15,7 +15,7 @@ fn vertical_edge_at_1_1(brep: &BRep) -> EdgeHandle {
             continue;
         };
         let a = brep.vertices[he.origin].position;
-        let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+        let b = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
         if (a.x - 1.0).abs() < 1e-9
             && (b.x - 1.0).abs() < 1e-9
             && (a.y - 1.0).abs() < 1e-9

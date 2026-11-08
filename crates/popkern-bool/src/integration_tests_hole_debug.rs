@@ -171,7 +171,7 @@ fn hole_at_default_tol() {
                         if he.origin == vh {
                             let edge = &brep.edges[he.edge];
                             let has_curve = edge.curve.is_some();
-                            let twin_origin = brep.half_edges[he.twin].origin;
+                            let twin_origin = brep.half_edges[he.mate().unwrap_or_default()].origin;
                             let is_self_loop = he.origin == twin_origin;
                             eprintln!(
                                 "  he={heh:?} twin_origin={twin_origin:?} self_loop={is_self_loop} loop={:?} curve={has_curve}",
@@ -340,7 +340,7 @@ fn overlap_cubes_sub_debug() {
                     for _ in 0..10 {
                         let he = &brep.half_edges[cur];
                         let p = brep.vertices[he.origin].position;
-                        let twin_he = &brep.half_edges[he.twin];
+                        let twin_he = &brep.half_edges[he.mate().unwrap_or_default()];
                         let pe = brep.vertices[twin_he.origin].position;
                         let has_curve = brep.edges[he.edge].curve.is_some();
                         eprintln!(

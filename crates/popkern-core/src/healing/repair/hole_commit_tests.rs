@@ -55,7 +55,7 @@ fn ruled_fan_commits_and_body_validates_strictly() {
         super::super::hole_ruled_fan::ruled_fan_cap(&brep, &hole, tolerance).expect("ruled fan");
     let commit = commit_hole_cap(&mut brep, &hole, &geometry, tolerance).expect("commit");
 
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     assert_eq!(commit.fan.sector_faces.len(), 4);
     assert!(
         commit.worst_l2_gap <= 1.0e-9,
@@ -175,7 +175,7 @@ fn coons_shaped_patch_set_commits_through_the_same_operator() {
         .expect("normalize");
     let commit = commit_hole_cap(&mut brep, &hole, &geometry, tolerance).expect("commit");
 
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     assert_eq!(commit.fan.sector_faces.len(), count);
     brep.validate_euler_poincare().expect("strict Euler holds");
     brep.validate().expect("full fast validation holds");

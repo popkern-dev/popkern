@@ -126,7 +126,7 @@ fn consolidate_vestigial_support_shell_impl(
 ) -> VestigialShellConsolidationReport {
     let mut report = VestigialShellConsolidationReport::default();
     let flaps = detect_flaps(brep);
-    let has_dead_sides = !brep.boundary_edges.is_empty();
+    let has_dead_sides = !!brep.has_free_edges();
     let has_glued_surfaceless_residual = brep
         .faces
         .iter()
@@ -305,7 +305,7 @@ fn face_sides(brep: &BRep, face: FaceHandle) -> Vec<HalfEdgeHandle> {
 }
 
 fn twin_face(brep: &BRep, side: HalfEdgeHandle) -> Option<FaceHandle> {
-    let twin = brep.half_edges.get(side)?.twin;
+    let twin = brep.half_edges.get(side)?.mate()?;
     let loop_ = brep.half_edges.get(twin)?.loop_;
     Some(brep.loops.get(loop_)?.face)
 }
@@ -345,15 +345,16 @@ pub(crate) fn remove_face(brep: &mut BRep, face: FaceHandle) {
         let Some(side_data) = brep.remove_half_edge_reanchored(side) else {
             continue;
         };
-        if brep.half_edges.contains_key(side_data.twin) {
-            brep.boundary_edges.insert(side_data.edge);
+        if let Some(survivor) = side_data
+            .mate()
+            .filter(|m| brep.half_edges.contains_key(*m))
+        {
             if let Some(edge_data) = brep.edges.get_mut(side_data.edge)
                 && edge_data.half_edge == side
             {
-                edge_data.half_edge = side_data.twin;
+                edge_data.half_edge = survivor;
             }
         } else if brep.edges.remove(side_data.edge).is_some() {
-            brep.boundary_edges.remove(&side_data.edge);
         }
     }
     for loop_handle in loops {

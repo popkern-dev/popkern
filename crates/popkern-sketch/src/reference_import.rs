@@ -64,7 +64,7 @@ impl SketchOnPlane {
         for he_handle in &half_edges {
             let he = &brep.half_edges[*he_handle];
             let start_vertex = he.origin;
-            let end_vertex = brep.half_edges[he.twin].origin;
+            let end_vertex = brep.half_edges[he.require_mate()?].origin;
 
             let edge = &brep.edges[he.edge];
 

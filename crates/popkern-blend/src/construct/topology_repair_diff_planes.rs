@@ -327,7 +327,9 @@ fn rewrite_edge_to_arc(
     // half-edge of the edge goes "p_start → p_end" (after our
     // remapping the arc runs in this direction).
     let he = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[he].twin;
+    let Some(twin) = brep.half_edges[he].mate() else {
+        return false;
+    };
     let he_face = brep.loops[brep.half_edges[he].loop_].face;
     let cyl_face_handle = match brep.faces.get(he_face).and_then(|f| f.surface.as_ref()) {
         Some(sof) if matches!(sof.geometry, SurfaceGeometry::Cylinder { .. }) => he_face,

@@ -28,7 +28,9 @@ pub(super) fn assemble_extended_facet_cycle(
     }
     let end_of = |he: HalfEdgeHandle| -> Option<VertexHandle> {
         let data = brep.half_edges.get(he)?;
-        brep.half_edges.get(data.twin).map(|twin| twin.origin)
+        data.mate()
+            .and_then(|m| brep.half_edges.get(m))
+            .map(|twin| twin.origin)
     };
     // Classify: the top side's endpoints are shared with the other two
     // sides' T-endpoints; generators' other endpoints are the anchors.
@@ -105,8 +107,8 @@ pub(super) fn assemble_extended_facet_cycle(
     // displaced twin is the facet's side of the seam).
     let span_for = |anchor: VertexHandle, want_origin_at_anchor: bool| -> Option<HalfEdgeHandle> {
         brep.half_edges.iter().find_map(|(base_side, data)| {
-            let twin = brep.half_edges.get(data.twin)?;
-            if twin.twin != base_side {
+            let twin = data.mate().and_then(|m| brep.half_edges.get(m))?;
+            if twin.mate() != Some(base_side) {
                 return None;
             }
             let base_face = brep.loops.get(data.loop_)?.face;
@@ -125,7 +127,7 @@ pub(super) fn assemble_extended_facet_cycle(
             }
             let base_start = data.origin;
             let base_end = twin.origin;
-            let candidate = data.twin;
+            let candidate = data.mate()?;
             if want_origin_at_anchor {
                 // Facet span anchor -> tangent: twin of base side running
                 // tangent -> anchor.

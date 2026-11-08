@@ -55,7 +55,7 @@ pub(super) fn certify_cap(
         .iter()
         .filter_map(|(edge, data)| {
             let he = brep.half_edges.get(data.half_edge)?;
-            let tw = brep.half_edges.get(he.twin)?;
+            let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let (fa, fb) = (brep.loops[he.loop_].face, brep.loops[tw.loop_].face);
             let (ca, cb) = (caps.contains(&fa), caps.contains(&fb));
             ((ca || cb) && fa != fb).then_some((ca && cb, edge))

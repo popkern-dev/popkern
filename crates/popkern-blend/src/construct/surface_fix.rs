@@ -324,7 +324,10 @@ fn is_adjacent_to_sphere_or_gregory(brep: &BRep, face: FaceHandle) -> bool {
         let Some(he) = brep.half_edges.get(cursor) else {
             break;
         };
-        if let Some(twin_loop) = brep.half_edges.get(he.twin).map(|t| t.loop_)
+        if let Some(twin_loop) = he
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
+            .map(|t| t.loop_)
             && let Some(twin_face) = brep.loops.get(twin_loop).map(|l| l.face)
             && twin_face != face
             && let Some(twin_sof) = brep.faces.get(twin_face).and_then(|f| f.surface.as_ref())

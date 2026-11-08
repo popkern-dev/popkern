@@ -30,7 +30,7 @@ pub(super) fn corner_strip_chord(
 ) -> Option<(EdgeHandle, VertexHandle, SurfaceGeometry, SurfaceGeometry)> {
     brep.edges.iter().find_map(|(e, ed)| {
         let he = brep.half_edges.get(ed.half_edge)?;
-        let tw = brep.half_edges.get(he.twin)?;
+        let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
         let f1 = brep.loops.get(he.loop_)?.face;
         let f2 = brep.loops.get(tw.loop_)?.face;
         let strip_geometry = |f: FaceHandle| -> Option<SurfaceGeometry> {

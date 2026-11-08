@@ -102,7 +102,7 @@ pub(super) fn process_deferred(
             let Some(he) = cand.half_edges.get(e.half_edge) else {
                 continue;
             };
-            let Some(tw) = cand.half_edges.get(he.twin) else {
+            let Some(tw) = he.mate().and_then(|m| cand.half_edges.get(m)) else {
                 continue;
             };
             let (Some(v0), Some(v1)) = (
@@ -242,7 +242,7 @@ fn consumed_region_merge(
                         && let Some(he) = brep.half_edges.get(ed.half_edge)
                     {
                         let f1 = brep.loops.get(he.loop_).map(|l| l.face);
-                        let tw = brep.half_edges.get(he.twin);
+                        let tw = he.mate().and_then(|m| brep.half_edges.get(m));
                         let f2 = tw.and_then(|t| brep.loops.get(t.loop_)).map(|l| l.face);
                         if f1 == Some(f) || f2 == Some(f) {
                             let a = brep.vertices.get(he.origin).map(|v| v.position);
@@ -293,7 +293,7 @@ fn consumed_region_merge(
                     break;
                 };
                 if !boundary.contains(&he.edge)
-                    && let Some(tw) = brep.half_edges.get(he.twin)
+                    && let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m))
                     && let Some(nl) = brep.loops.get(tw.loop_)
                     && member.contains(&nl.face)
                     && nl.face != f
@@ -353,7 +353,7 @@ fn consumed_region_merge(
                         break;
                     };
                     if !boundary.contains(&he.edge)
-                        && let Some(tw) = brep.half_edges.get(he.twin)
+                        && let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m))
                         && let Some(nl) = brep.loops.get(tw.loop_)
                         && nl.face != f
                         && region.contains(&nl.face)
@@ -426,7 +426,7 @@ fn live_subdivision(brep: &BRep, sub_faces: &[FaceHandle]) -> HashSet<FaceHandle
                 let Some(he) = brep.half_edges.get(cur) else {
                     break;
                 };
-                if let Some(tw) = brep.half_edges.get(he.twin)
+                if let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m))
                     && let Some(nl) = brep.loops.get(tw.loop_)
                 {
                     let same_surface = brep

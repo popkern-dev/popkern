@@ -132,8 +132,11 @@ impl BRep {
         let mut sides = Vec::with_capacity(2);
         if let Some(half_edge) = self.half_edges.get(edge.half_edge) {
             sides.push(edge.half_edge);
-            if self.half_edges.contains_key(half_edge.twin) {
-                sides.push(half_edge.twin);
+            if let Some(mate) = half_edge
+                .mate()
+                .filter(|m| self.half_edges.contains_key(*m))
+            {
+                sides.push(mate);
             }
         }
         let mut worst: Option<f64> = None;

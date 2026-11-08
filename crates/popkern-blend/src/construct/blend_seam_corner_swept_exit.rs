@@ -298,7 +298,7 @@ fn classify_anchor_edges(
         let Some(he) = brep.half_edges.get(e.half_edge) else {
             continue;
         };
-        let Some(tw) = brep.half_edges.get(he.twin) else {
+        let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         if he.origin != c.anchor_near && tw.origin != c.anchor_near {
@@ -444,7 +444,10 @@ fn commit_marched_side_edge(
     let e = brep.edges.get(edge).ok_or(Reason::StubUnresolved)?;
     let primary = e.half_edge;
     let he = brep.half_edges.get(primary).ok_or(Reason::StubUnresolved)?;
-    let tw = brep.half_edges.get(he.twin).ok_or(Reason::StubUnresolved)?;
+    let tw = he
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
+        .ok_or(Reason::StubUnresolved)?;
     let primary_from_anchor = he.origin == anchor;
     let params = chord_params(pts_from_w);
     let curve = if primary_from_anchor {
@@ -454,7 +457,10 @@ fn commit_marched_side_edge(
         fit_curve_on_edge(&rev, &params_reversed(&params))?
     };
     let mut staged: Vec<(FaceHandle, HalfEdgeHandle, Pcurve)> = Vec::with_capacity(2);
-    for (heh, hh) in [(primary, he), (he.twin, tw)] {
+    for (heh, hh) in [
+        (primary, he),
+        (he.mate().ok_or(Reason::StubUnresolved)?, tw),
+    ] {
         let face = brep
             .loops
             .get(hh.loop_)

@@ -134,7 +134,7 @@ fn recognize_sliver(
         let mut cur = start;
         for _ in 0..16 {
             let he = brep.half_edges.get(cur)?;
-            let tw = brep.half_edges.get(he.twin)?;
+            let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let p0 = brep.vertices.get(he.origin)?.position;
             let p1 = brep.vertices.get(tw.origin)?.position;
             let len = p0.distance_to(&p1);
@@ -142,7 +142,7 @@ fn recognize_sliver(
             if len <= tol {
                 ends.push(he.edge);
             } else if cylinder_of(brep, far).is_some() && !pre.contains(&far) {
-                long.push((he.twin, he.edge, far));
+                long.push((he.mate()?, he.edge, far));
             } else {
                 continue 'faces;
             }
@@ -165,7 +165,7 @@ fn recognize_sliver(
         let mid = |eh: EdgeHandle| -> Option<Point3> {
             let e = brep.edges.get(eh)?;
             let he = brep.half_edges.get(e.half_edge)?;
-            let tw = brep.half_edges.get(he.twin)?;
+            let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let p0 = brep.vertices.get(he.origin)?.position;
             let p1 = brep.vertices.get(tw.origin)?.position;
             Some(Point3::new(
@@ -210,7 +210,10 @@ fn weld_one(
     // 3. True seam: closed-form parallel-cylinder intersection.
     let e = brep.edges.get(c.seam_edge).ok_or("seam gone")?;
     let he = brep.half_edges.get(e.half_edge).ok_or("seam he")?;
-    let tw = brep.half_edges.get(he.twin).ok_or("seam twin")?;
+    let tw = he
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
+        .ok_or("seam twin")?;
     let (v0, v1) = (he.origin, tw.origin);
     let p0 = brep.vertices.get(v0).ok_or("v0")?.position;
     let p1 = brep.vertices.get(v1).ok_or("v1")?.position;
@@ -260,7 +263,10 @@ fn weld_one(
     let faces: Vec<FaceHandle> = {
         let e = brep.edges.get(c.seam_edge).ok_or("seam gone")?;
         let he = brep.half_edges.get(e.half_edge).ok_or("seam he")?;
-        let tw = brep.half_edges.get(he.twin).ok_or("seam twin")?;
+        let tw = he
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
+            .ok_or("seam twin")?;
         [he.loop_, tw.loop_]
             .into_iter()
             .filter_map(|l| brep.loops.get(l).map(|l| l.face))

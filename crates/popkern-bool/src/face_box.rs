@@ -344,5 +344,5 @@ pub(crate) fn outside_closed_body(
     // to bound the solid.
     outside
         && face_aabbs.len() == solid.faces.len()
-        && solid.half_edges.iter().all(|(h, he)| he.twin != h)
+        && solid.half_edges.iter().all(|(h, he)| he.mate() != Some(h))
 }

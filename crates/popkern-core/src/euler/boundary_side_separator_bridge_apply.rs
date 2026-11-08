@@ -1,4 +1,5 @@
 //! Boundary-side separator bridge mutation.
+use crate::topology::RadialLinks;
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;
@@ -8,8 +9,9 @@ use crate::topology::{
 };
 
 use super::boundary_side_separator_bridge_apply_types::{
-    CycleSide, SeparatorCounts, SeparatorHalfEdges, required_separator_path_handle,
-    separator_half_open_path, wire_separator_path,
+    CycleSide, SeparatorCounts, SeparatorHalfEdges, duplicate_cycle_index,
+    interval_uses_separator_source, required_separator_path_handle, separator_half_open_path,
+    wire_separator_path,
 };
 use super::{BoundarySideSeparatorBridgePlan, FaceFamilyBridgeCycleRequest};
 
@@ -103,8 +105,8 @@ impl BRep {
         });
         let forward = self.insert_separator_half_edge(edge, start);
         let reverse = self.insert_separator_half_edge(edge, end);
-        self.half_edges[forward].twin = reverse;
-        self.half_edges[reverse].twin = forward;
+        self.half_edges[forward].set_mate(reverse);
+        self.half_edges[reverse].set_mate(forward);
         self.edges[edge].half_edge = forward;
         Ok(SeparatorHalfEdges {
             edge,
@@ -120,7 +122,7 @@ impl BRep {
     ) -> HalfEdgeHandle {
         self.half_edges.insert(HalfEdge {
             origin,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -199,22 +201,23 @@ impl BRep {
             let data = &self.half_edges[half_edge];
             let edge = data.edge;
             let origin = self.half_edges[data.next].origin;
-            if !self.boundary_edges.contains(&edge) || self.half_edges.contains_key(data.twin) {
+            if !self.is_free_edge(edge)
+                || data.mate().is_some_and(|m| self.half_edges.contains_key(m))
+            {
                 return Err(CoreError::PreconditionFailed(format!(
                     "boundary-side separator bridge path half-edge {half_edge:?} is not an unowned boundary side"
                 )));
             }
             let twin = self.half_edges.insert(HalfEdge {
                 origin,
-                twin: half_edge,
+                ring: RadialLinks::pair(half_edge),
                 next: Default::default(),
                 prev: Default::default(),
                 edge,
                 loop_: Default::default(),
                 pcurve: None,
             });
-            self.half_edges[half_edge].twin = twin;
-            self.boundary_edges.remove(&edge);
+            self.half_edges[half_edge].set_mate(twin);
             twins.push(twin);
         }
         twins.reverse();
@@ -230,7 +233,8 @@ impl BRep {
         let bridge_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell: source.shell,
+            back: source.back,
+            front: source.front,
             surface: None,
             name: None,
             tolerance: source.tolerance,
@@ -239,6 +243,7 @@ impl BRep {
         let bridge_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
             face: bridge_face,
+            vertex: None,
         });
         self.faces[bridge_face].outer_loop = bridge_loop;
         Ok(bridge_loop)
@@ -298,7 +303,7 @@ impl BRep {
         });
         let half_edge = self.half_edges.insert(HalfEdge {
             origin,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -306,7 +311,6 @@ impl BRep {
             pcurve: None,
         });
         self.edges[edge].half_edge = half_edge;
-        self.boundary_edges.insert(edge);
         half_edge
     }
 
@@ -322,17 +326,15 @@ impl BRep {
         match (forward_used, reverse_used) {
             (true, true) => Ok(()),
             (true, false) => {
-                self.half_edges[separator.forward].twin = HalfEdgeHandle::default();
+                self.half_edges[separator.forward].clear_mate();
                 self.edges[separator.edge].half_edge = separator.forward;
                 self.remove_half_edge_reanchored(separator.reverse);
-                self.boundary_edges.insert(separator.edge);
                 Ok(())
             }
             (false, true) => {
-                self.half_edges[separator.reverse].twin = HalfEdgeHandle::default();
+                self.half_edges[separator.reverse].clear_mate();
                 self.edges[separator.edge].half_edge = separator.reverse;
                 self.remove_half_edge_reanchored(separator.forward);
-                self.boundary_edges.insert(separator.edge);
                 Ok(())
             }
             (false, false) => Err(CoreError::PreconditionFailed(
@@ -348,7 +350,7 @@ impl BRep {
         let data = self.half_edges.get(half_edge).ok_or_else(|| {
             CoreError::InvalidHandle("separator bridge path half-edge is stale".into())
         })?;
-        if self.boundary_edges.contains(&data.edge) {
+        if self.is_free_edge(data.edge) {
             return self
                 .half_edges
                 .get(data.next)
@@ -359,8 +361,8 @@ impl BRep {
                     )
                 });
         }
-        self.half_edges
-            .get(data.twin)
+        data.mate()
+            .and_then(|m| self.half_edges.get(m))
             .map(|twin| twin.origin)
             .ok_or_else(|| {
                 CoreError::PreconditionFailed(
@@ -418,20 +420,23 @@ impl BRep {
                 "boundary-side separator edge references a missing half-edge".into(),
             )
         })?;
-        if self.boundary_edges.contains(&edge) {
-            if data.twin == HalfEdgeHandle::default() {
+        if self.is_free_edge(edge) {
+            if data.mate().is_none() {
                 return Ok(());
             }
             return Err(CoreError::PreconditionFailed(
                 "boundary-side separator boundary edge kept a twin".into(),
             ));
         }
-        let twin = self.half_edges.get(data.twin).ok_or_else(|| {
-            CoreError::PreconditionFailed(
-                "boundary-side separator paired edge has missing twin".into(),
-            )
-        })?;
-        if twin.twin == half_edge && twin.edge == edge {
+        let twin = data
+            .mate()
+            .and_then(|m| self.half_edges.get(m))
+            .ok_or_else(|| {
+                CoreError::PreconditionFailed(
+                    "boundary-side separator paired edge has missing twin".into(),
+                )
+            })?;
+        if twin.mate() == Some(half_edge) && twin.edge == edge {
             return Ok(());
         }
         Err(CoreError::PreconditionFailed(
@@ -468,32 +473,4 @@ impl BRep {
             "boundary-side separator bridge cycle did not close".into(),
         ))
     }
-}
-
-fn duplicate_cycle_index(plan: &BoundarySideSeparatorBridgePlan) -> Result<usize, CoreError> {
-    let matches = plan
-        .cycles
-        .iter()
-        .enumerate()
-        .filter(|(_, cycle)| {
-            cycle.first_loop == cycle.second_loop
-                && interval_uses_separator_source(plan, &cycle.first_interval).unwrap_or(false)
-                && interval_uses_separator_source(plan, &cycle.second_interval).unwrap_or(false)
-        })
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    if matches.len() == 1 {
-        return Ok(matches[0]);
-    }
-    Err(CoreError::PreconditionFailed(format!(
-        "boundary-side separator bridge expected one duplicate same-loop cycle, got {}",
-        matches.len()
-    )))
-}
-
-fn interval_uses_separator_source(
-    plan: &BoundarySideSeparatorBridgePlan,
-    interval: &[HalfEdgeHandle],
-) -> Result<bool, CoreError> {
-    Ok(separator_half_open_path(interval)?.contains(&plan.separator_source_half_edge))
 }

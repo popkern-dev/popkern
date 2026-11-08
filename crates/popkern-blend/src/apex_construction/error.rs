@@ -161,3 +161,14 @@ pub enum ApexError {
     #[error(transparent)]
     Build(#[from] ApexBuildError),
 }
+
+/// A core topology refusal during apex construction (a fin with no mate
+/// on an edge the plan treats as manifold, a stale handle) means the
+/// plan no longer matches the body.
+impl From<popkern_core::error::CoreError> for ApexBuildError {
+    fn from(error: popkern_core::error::CoreError) -> Self {
+        ApexBuildError::PlanMismatch {
+            reason: error.to_string(),
+        }
+    }
+}

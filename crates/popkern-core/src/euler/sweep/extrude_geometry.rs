@@ -30,7 +30,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::constructors::{line_between, plane_from_points};
+use crate::constructors::{line_between, plane_from_loop};
 use crate::error::CoreError;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFace};
@@ -155,7 +155,7 @@ fn edge_vertices(
     he: crate::topology::HalfEdgeHandle,
 ) -> Option<(VertexHandle, VertexHandle)> {
     let hed = brep.half_edges.get(he)?;
-    let twin = brep.half_edges.get(hed.twin)?;
+    let twin = hed.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((hed.origin, twin.origin))
 }
 
@@ -192,27 +192,13 @@ fn base_half_edge_of_side(
     None
 }
 
-/// A plane from the first three loop vertices, oriented by the loop
-/// winding (the `attach_geometry` convention).
+/// A plane through the face's loop corners, oriented by the loop
+/// winding (the `attach_geometry` convention, [`plane_from_loop`]).
 fn side_plane_from_loop(brep: &BRep, face: FaceHandle) -> Result<SurfaceGeometry, CoreError> {
-    let start = brep
-        .loops
-        .get(
-            brep.faces
-                .get(face)
-                .ok_or_else(|| CoreError::InvalidHandle("side face".into()))?
-                .outer_loop,
-        )
-        .ok_or_else(|| CoreError::InvalidHandle("side loop".into()))?
-        .half_edge;
-    let he0 = &brep.half_edges[start];
-    let he1 = &brep.half_edges[he0.next];
-    let he2 = &brep.half_edges[he1.next];
-    plane_from_points(
-        brep.vertices[he0.origin].position,
-        brep.vertices[he1.origin].position,
-        brep.vertices[he2.origin].position,
-    )
+    if !brep.faces.contains_key(face) {
+        return Err(CoreError::InvalidHandle("side face".into()));
+    }
+    plane_from_loop(&brep.face_outer_loop_positions(face))
 }
 
 /// Analytic promotion of the side surface (PK-377): a circular-arc base

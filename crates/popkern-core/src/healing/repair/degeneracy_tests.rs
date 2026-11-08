@@ -40,7 +40,7 @@ fn zero_length_edge_is_detected_and_merged() {
     let edge_data = brep.edges.get(edge_handle).unwrap();
     let he = brep.half_edges.get(edge_data.half_edge).unwrap();
     let start_vertex = he.origin;
-    let twin = brep.half_edges.get(he.twin).unwrap();
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m)).unwrap();
     let end_vertex = twin.origin;
 
     // Move end vertex to start vertex position (create a zero-length edge).

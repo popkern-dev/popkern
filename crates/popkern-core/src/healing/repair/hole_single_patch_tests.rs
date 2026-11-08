@@ -32,7 +32,7 @@ fn open_box_commits_single_patch_cap_with_exact_mid_band_g1() {
         "rim containment L2 {:.3e} above budget",
         commit.worst_l2_gap
     );
-    assert!(brep.boundary_edges.is_empty(), "the hole must be closed");
+    assert!(!brep.has_free_edges(), "the hole must be closed");
     let errors = brep.validate_all();
     assert!(
         errors.is_empty(),

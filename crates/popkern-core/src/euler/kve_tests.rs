@@ -14,14 +14,16 @@ fn rebuild_incident_lines(brep: &mut BRep, vertex: VertexHandle) {
         .filter(|(_, e)| {
             let he = e.half_edge;
             brep.half_edges[he].origin == vertex
-                || brep.half_edges[brep.half_edges[he].twin].origin == vertex
+                || brep.half_edges[brep.half_edges[he].mate().unwrap_or_default()].origin == vertex
         })
         .map(|(h, _)| h)
         .collect();
     for eh in incident {
         let he = brep.edges[eh].half_edge;
         let a = brep.vertices[brep.half_edges[he].origin].position;
-        let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        let b = brep.vertices
+            [brep.half_edges[brep.half_edges[he].mate().unwrap_or_default()].origin]
+            .position;
         let d = b - a;
         let len = d.length();
         if len > 1e-12

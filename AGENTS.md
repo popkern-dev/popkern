@@ -190,13 +190,29 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   along an edge, a line or at a point make a result with zero-thickness
   contacts. `boolean()` returns `BoolError::NonManifoldResult` with the
   contact locations instead of serving coincident duplicate edges or
-  vertices, or separate shells that touch. `boolean_with_options` with
-  `NonManifoldPolicy::SplitToManifold` serves manifold pieces instead,
-  each contact recorded in `BRep::topology_contacts`; `validate_all`
-  excuses recorded contacts only. A later boolean or N-ary boolean
-  carries the contacts its operands recorded (re-recorded on the
-  result, `postprocess/contact_inherit.rs`) and still declines a new
-  one; fillets and motions keep the records. The cell complex
+  vertices, or separate shells that touch. No single body holds lumps
+  that touch without sharing, and nothing is recorded (PK-1115):
+  `NonManifoldPolicy::SplitToManifold` serves separate manifold bodies,
+  each valid alone, from the `_bodies` entry points (`boolean_bodies`,
+  `nary_boolean_bodies`, `nary_boolean_where_bodies`,
+  `Partition::select_bodies`, `symmetric_difference_bodies`; Part's
+  `boolean_bodies_with`), the single-body ones declining with
+  `BoolError::SplitIntoBodies` (a solid touching itself has no separate
+  bodies and declines; the feature tree keeps split pieces as the
+  body's solids, as a split does). `NonManifoldPolicy::General` serves
+  one general body: the split pieces glued where they touch, found
+  from their geometry alone (`BRep::glue_touching`, PK-1117: every
+  piece given a vertex at each contact point, its own, its edge split
+  there or a vertex loop of its face; each contact curve, an edge or
+  tangent ruling lying across a face, imprinted there by
+  `BRep::imprint_edge`; then `glue_coincident`: one vertex, one ring in
+  radial order; a glue that declines is
+  `BoolError::GeneralBodyDeclined`, a `GeneralDeclined` shadow line),
+  and general operands enter as their manifold pieces
+  (`BRep::separate_at_contacts`, an intermediate; `split_to_manifold`
+  returns them as separate bodies), in two-body and N-ary booleans
+  alike (Rhai `non_manifold: "general"`). An old document's stored
+  contact list loads and is ignored. The cell complex
   (`popkern-bool/src/complex/`) decides membership by region and is
   the primary classifier, falling back to the cellular classifier on a
   decline (a `PrimaryFallback` shadow line). `POPKERN_COMPLEX_PRIMARY=0`
@@ -238,18 +254,87 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   rest by the operand entities they are pieces of). The shortcut oracle
   `POPKERN_SHORTCUT_ORACLE=1` runs the general path on every touching /
   containment shortcut and logs agreement (`ShortcutOracle`).
+- **Body kinds are a contract** — `BRep::body_kind` reads the kind off
+  regions, rings and vertex fans (`Empty`, `Acorn`, `Wire`, `Sheet`,
+  `Solid`, `General`; a solid opened mid-edit is `General` until
+  `settle_open_shells`). Operations gate at entry with
+  `BRep::require_kind(operation, accepted)` (`CoreError::UnsupportedBodyKind`,
+  carried by each crate's `Core`/`Topology` error) or, in booleans and
+  the operations built on them, `popkern_bool::require_operand_kind`
+  (`BoolError::UnsupportedBodyKind` with the operand index): chamfers,
+  fillet edits, drafts, sweeps into a body, holes, hinges and booleans
+  take solids; edge fillets (open caps at a sheet's boundary), corner
+  blends, face blends, sheet booleans, partition and imprint solids or
+  sheets; shell, offset and plane splits solids (or empty, answered
+  with `NoFaces` or no pieces), thicken and the maximum safe offset
+  solids or sheets (or empty);
+  centroid and inertia solids (or empty); volume solids, general
+  bodies (the sum of their solid regions, `region_volumes`) or empty;
+  tessellation and area any kind.
+- **Non-manifold Euler operators** — `euler/nonmanifold/`: acorns
+  (`make_acorn`/`kill_acorn`), wire edges (`make_wire_edge`, joining
+  the shells its ends lie in; `kill_wire_edge` splits a shell it
+  disconnects and leaves a lone end an acorn), a lamina spanning a wire
+  cycle (`make_face_from_wire_cycle`, geometry the caller's), a region
+  behind a closed surface (`make_face_region(shell, side, kind)`), a vertex on a face's interior
+  held as a vertex loop (`make_vertex_loop`/`kill_vertex_loop`: a loop
+  of no fins naming its vertex, none of the face's boundary loops,
+  `BRep::face_vertex_loops`, a `VertexUse::Loop`; STEP `VERTEX_LOOP`
+  bounds; PK-1116), an edge imprinted across a face between two of its
+  vertices (`imprint_edge`/`kill_imprinted_edge`: the face split in two
+  between points of its outer loop, a hole joined to it, a spur into a
+  vertex loop, a slit between two; PK-1117), and
+  the glues that make one general body of touching pieces
+  (`glue_vertices`, `glue_edges` with the ring in radial order and
+  shells of one region joined across new wedges, `glue_faces` merging a
+  facing pair, its edges and the gap between in one step), each with
+  its inverse. Each checks every precondition before it changes the
+  body (`EulerError`, carried by `CoreError::Euler`); counts move by the
+  documented delta over `NonManifoldCounts`. Radial order is core's
+  (`topology/radial_order/`, generic over `RadialFins`;
+  `BRep::radial_order`, `order_ring`); the cell complex adapts its edges
+  to it, and `validate_all` checks a ring of more than two fins is in
+  radial order (`RingOrder`, `RingOrderUndecided`).
+- **General bodies downstream** — `popkern_mesh::tessellate_general`
+  meshes any kind: faces tagged with the regions behind and in front
+  (`FaceRegions`: `two_sided` for sheets and laminae, `internal` between
+  two solids), wire edges as polylines, acorns as points,
+  `region_triangles` a solid region's boundary faced out of it;
+  `popkern_measure::region_volumes` (and `body_volume` of a general
+  body, their sum) sums each face's divergence term into the region
+  behind and out of the region in front. STEP: `StepImportOptions::
+  non_manifold = StepNonManifold::General` imports a self-touching
+  `CLOSED_SHELL` as one general body (its pieces glued), and a general
+  body exports as items in one representation (`export_general`):
+  touching solids as OCC writes them (one `CLOSED_SHELL`, shared edges
+  reused, a face between two solids listed once; cavities, touching ones
+  one shell, in a `BREP_WITH_VOIDS`), sheets and laminae in a
+  `SHELL_BASED_SURFACE_MODEL` (a closed sheet around a void a
+  `CLOSED_SHELL` there), wires and acorns as a `GEOMETRIC_CURVE_SET`
+  (trimmed curves, points), which import as wire bodies; under the
+  general option the items touching or held in a solid merge back into
+  one general body (`import_general::merge_touching_items`: glued where
+  they coincide, a sheet glued on a solid's material side adopted as its
+  lamina by `glue_edges`, free sheets, wires and acorns placed in the
+  cell holding them by `fill_enclosed_cells`; PK-1114). Sewing with `allow_nonmanifold_edges` glues
+  each pair into a ring in radial order (a third sheet onto a sewn edge,
+  `GlueDeclined` when it cannot). `BRep::contacts()` lists where a body
+  touches itself, from its topology (rings of more than two fins,
+  vertices of several uses, a contact edge's ends).
 - **Sheet booleans** — `boolean_with_sheets` decides sheet ∩ solid,
   sheet − solid, solid − sheet (pieces) and the union's appendage on
   the cell complex (`sheet/complex_route.rs`, sheets as laminae:
   `partition/lamina_part.rs`), falling back to the planar split or
   imprint-and-trim path with a `PartitionFallback sheet` shadow line;
   `boolean()` still declines sheets. A sheet's free edge is canonical:
-  a null twin with its edge in `boundary_edges`, the survivor the
-  edge's canonical half-edge with the curve run its way (a recorded
-  boundary edge reads as free even on a periodic face, where a twin on
-  the same face would read as the seam). The constructors' two-face
-  sheets are converted at entry. OCC oracle:
-  `tools/occ-oracle/occ_sheet.py`.
+  a lone fin (its radial ring links null, `BRep::is_free_edge`), the
+  survivor the edge's canonical half-edge with the curve run its way.
+  The lamina view the complex reads mirrors each free edge with a
+  twin on the same face, which on a periodic face reads as a seam: the
+  view's open edges and lamina operands are passed explicitly
+  (`pipeline_view`, `ComplexInput::laminae`), never re-read off it.
+  The constructors' two-face sheets are converted at entry. OCC
+  oracle: `tools/occ-oracle/occ_sheet.py`.
 - **Wire booleans and contacts** — `boolean_with_wire` cuts a wire
   body where its curves cross the solid's faces and keeps pieces by
   midpoint (∩ keeps inside and on-face pieces, − the outside, solid −
@@ -263,12 +348,22 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   default: a partition per touching pair).
 - **STEP non-manifold bodies** — a `CLOSED_SHELL` that touches itself
   (a contact edge with four face uses, or a vertex two closed sets of
-  faces share) imports as manifold pieces meeting at recorded contacts,
-  each piece its own solid with its own copies of the contact edges and
-  vertices (`popkern-io/src/step/mapping/topology/shell_pieces.rs`).
+  faces share) imports as separate manifold bodies, one per piece, each
+  with its own copies of the contact edges and vertices
+  (`popkern-io/src/step/mapping/topology/shell_pieces.rs`,
+  `import_general::separate_touching_pieces`; healing welds vertices
+  within a piece only).
   The pieces are the face sets joined through two-use edges; a piece
-  using an edge four times declines (PK-1070), as do odd uses (an
-  internal face, PK-1071) and touching void shells (PK-1072). Fixtures
+  using an edge four times and odd uses (an internal face) decline
+  under the default option, and under `StepNonManifold::General` import
+  face by face, glued into one general body whose enclosed cells
+  become its solids (`BRep::fill_enclosed_cells`: a closed piece of
+  positive signed volume a solid when it holds a back side, else a
+  bounded void; a negative piece an inner shell of the smallest cell
+  containing it by winding number, `BRep::winding_about`; PK-1070,
+  PK-1071). Pieces touching without sharing entities (cavities touching
+  along an edge, PK-1072) glue where they coincide
+  (`BRep::glue_coincident`) under the same option. Fixtures
   are OCC-written (`tools/occ-oracle/occ_write_nonmanifold.py`).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 

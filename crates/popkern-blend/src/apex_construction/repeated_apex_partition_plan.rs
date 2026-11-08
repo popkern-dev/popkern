@@ -320,7 +320,7 @@ impl RepeatedApexPartitionPlan {
                     .and_then(|cap_side| {
                         brep.half_edges
                             .get(cap_side)
-                            .map(|half_edge| half_edge.twin)
+                            .and_then(|half_edge| half_edge.mate())
                     });
                 let residual_loop = residual_strip_loop_with_duplicated_seam(
                     brep,

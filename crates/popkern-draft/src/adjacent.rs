@@ -88,10 +88,9 @@ fn find_boundary_edges(
             continue;
         }
         let he = &brep.half_edges[he_h];
-        let twin_h = he.twin;
-        if !brep.half_edges.contains_key(twin_h) {
+        let Some(twin_h) = he.mate().filter(|t| brep.half_edges.contains_key(*t)) else {
             continue;
-        }
+        };
         let twin = &brep.half_edges[twin_h];
 
         let loop1 = he.loop_;
@@ -152,7 +151,7 @@ fn extend_trim_adjacent(
         SurfaceGeometry::Nurbs(nurbs) => {
             let edge = &brep.edges[edge_h];
             let he = &brep.half_edges[edge.half_edge];
-            let twin = &brep.half_edges[he.twin];
+            let twin = &brep.half_edges[he.require_mate()?];
 
             let start_pos = brep.vertices[he.origin].position;
             let end_pos = brep.vertices[twin.origin].position;

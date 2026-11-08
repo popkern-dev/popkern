@@ -17,7 +17,7 @@ impl BRep {
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
 
-        let twin_handle = he_data.twin;
+        let twin_handle = self.require_mate(half_edge)?;
         let edge_handle = he_data.edge;
         let twin_data = self
             .half_edges

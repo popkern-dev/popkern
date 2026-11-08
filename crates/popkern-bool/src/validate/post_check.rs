@@ -173,7 +173,10 @@ fn post_check_scoped(
                     let Some(edge) = result.edges.get(he.edge) else {
                         break;
                     };
-                    if let (Some(c), Some(tw)) = (&edge.curve, result.half_edges.get(he.twin)) {
+                    if let (Some(c), Some(tw)) = (
+                        &edge.curve,
+                        he.mate().and_then(|m| result.half_edges.get(m)),
+                    ) {
                         let v0 = result.vertices[he.origin].position;
                         let v1 = result.vertices[tw.origin].position;
                         let p0 = c.geometry.point_at(c.t_start);

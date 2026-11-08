@@ -1,9 +1,10 @@
 use super::*;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
-    ShellHandle, Solid, Vertex,
+    BRep, Edge, EdgeHandle, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop,
+    LoopHandle, Vertex,
 };
 
 #[test]
@@ -78,8 +79,9 @@ fn diagnostics_reports_corrupted_loop_and_radial_entry() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let loop_handle = brep.loops.keys().next().unwrap();
     brep.loops[loop_handle].half_edge = HalfEdgeHandle::default();
-    brep.nonmanifold_radial
-        .insert(HalfEdgeHandle::default(), HalfEdgeHandle::default());
+    // A ring link to a fin that does not exist.
+    let corrupt = brep.half_edges.keys().next().unwrap();
+    brep.half_edges[corrupt].ring.next = HalfEdgeHandle::default();
 
     let report = analyze_brep_loop_shell_validity(&brep);
 
@@ -100,14 +102,7 @@ fn diagnostics_reports_corrupted_loop_and_radial_entry() {
 
 fn two_square_fragmented_shell() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let first = add_square(
         &mut brep,
@@ -129,7 +124,7 @@ fn two_square_fragmented_shell() -> BRep {
             Point3::new(2.0, 1.0, 0.0),
         ],
     );
-    brep.shells[shell].face = first.face;
+    brep.set_sides_anchor(shell, first.face);
     brep
 }
 
@@ -137,7 +132,7 @@ struct SquareHandles {
     face: FaceHandle,
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -149,7 +144,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -158,13 +154,14 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
 
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),
@@ -182,7 +179,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
     }
     for index in 0..4 {
         let prev = (index + 3) % 4;

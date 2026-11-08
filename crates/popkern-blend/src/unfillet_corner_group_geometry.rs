@@ -137,7 +137,7 @@ pub(crate) fn needs_mef(brep: &BRep, a: VertexHandle, b: VertexHandle) -> bool {
         let Some(he) = brep.half_edges.get(ed.half_edge) else {
             return false;
         };
-        let Some(tw) = brep.half_edges.get(he.twin) else {
+        let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             return false;
         };
         (he.origin == a && tw.origin == b) || (he.origin == b && tw.origin == a)
@@ -169,12 +169,14 @@ pub(crate) fn drop_extra_corner_spurs(brep: &mut BRep, corner: VertexHandle, far
                     let Some(he) = view.half_edges.get(ed.half_edge) else {
                         return false;
                     };
-                    let Some(tw) = view.half_edges.get(he.twin) else {
+                    let Some(tw) = he.mate().and_then(|m| view.half_edges.get(m)) else {
                         return false;
                     };
                     let joins = (he.origin == corner && tw.origin == f)
                         || (he.origin == f && tw.origin == corner);
-                    joins && he.loop_ == tw.loop_ && (he.next == he.twin || tw.next == ed.half_edge)
+                    joins
+                        && he.loop_ == tw.loop_
+                        && (he.mate() == Some(he.next) || tw.next == ed.half_edge)
                 })
                 .map(|(eh, _)| eh)
                 .collect::<Vec<_>>()
@@ -219,7 +221,7 @@ pub(crate) fn pick_mef_pair(
 pub(crate) fn edge_between(brep: &BRep, a: VertexHandle, b: VertexHandle) -> Option<EdgeHandle> {
     brep.edges.iter().find_map(|(eh, ed)| {
         let he = brep.half_edges.get(ed.half_edge)?;
-        let tw = brep.half_edges.get(he.twin)?;
+        let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
         ((he.origin == a && tw.origin == b) || (he.origin == b && tw.origin == a)).then_some(eh)
     })
 }

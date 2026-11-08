@@ -20,12 +20,13 @@ impl BRep {
         if self.has_boundary_edges() {
             return Ok(());
         }
+        let wires = self.wire_part_counts()?;
 
-        let v = self.vertices.len() as i64;
-        let e = self.edges.len() as i64;
+        let v = self.vertices.len() as i64 - wires.vertices;
+        let e = self.edges.len() as i64 - wires.edges;
         let f = self.faces.len() as i64;
         let l = self.loops.len() as i64;
-        let s = self.shells.len() as i64;
+        let s = self.back_shell_count() as i64;
 
         let lhs = v - e + f - (l - f);
         let rhs = 2 * s;
@@ -50,7 +51,7 @@ impl BRep {
                     "  [euler] V={v} E={e} F={f} L={l} S={s} lhs={lhs} rhs={rhs} orphan_v={orphan_v} orphan_e={orphan_e}"
                 );
             }
-            let solid = self.solids.keys().next().unwrap_or_default();
+            let solid = self.solid_regions().first().copied().unwrap_or_default();
             return Err(ValidationError::EulerPoincare {
                 solid,
                 expected: rhs,
@@ -66,11 +67,12 @@ impl BRep {
     /// Full formula: `V - E + 2F - L = 2(S - G)`. Validates that the
     /// computed genus G is a non-negative integer.
     pub fn validate_euler_poincare_any_genus(&self) -> Result<(), ValidationError> {
-        let v = self.vertices.len() as i64;
-        let e = self.edges.len() as i64;
+        let wires = self.wire_part_counts()?;
+        let v = self.vertices.len() as i64 - wires.vertices;
+        let e = self.edges.len() as i64 - wires.edges;
         let f = self.faces.len() as i64;
         let l = self.loops.len() as i64;
-        let s = self.shells.len() as i64;
+        let s = self.back_shell_count() as i64;
 
         let lhs = v - e + 2 * f - l;
         let two_g = 2 * s - lhs;
@@ -96,7 +98,7 @@ impl BRep {
                     "  [euler-g] V={v} E={e} F={f} L={l} S={s} lhs={lhs} 2G={two_g} orphan_v={orphan_v} orphan_loops={orphan_loops}"
                 );
             }
-            let solid = self.solids.keys().next().unwrap_or_default();
+            let solid = self.solid_regions().first().copied().unwrap_or_default();
             return Err(ValidationError::EulerPoincare {
                 solid,
                 expected: 2 * s,
@@ -105,6 +107,67 @@ impl BRep {
         }
 
         Ok(())
+    }
+}
+
+/// The vertices and edges of a body's wires and acorns, counted apart
+/// from its face sets.
+struct WirePart {
+    /// Held wire edges.
+    edges: i64,
+    /// Vertices no face use reaches: wire-only vertices and acorns.
+    vertices: i64,
+}
+
+impl BRep {
+    /// Count the wire and acorn part and check it: each shell of wire
+    /// edges alone is a connected graph, V − E = 1 − h with h ≥ 0
+    /// independent cycles, so over them V − E ≤ the number of such
+    /// shells (a wire standing on a face counts its edges here and its
+    /// vertices on the face in the face formula, a cycle through the
+    /// face). An acorn is one vertex in its own shell.
+    fn wire_part_counts(&self) -> Result<WirePart, ValidationError> {
+        let held = self.held_wire_edges();
+        let acorns = self.shells.values().filter(|s| s.acorn.is_some()).count() as i64;
+        if held.is_empty() {
+            return Ok(WirePart {
+                edges: 0,
+                vertices: acorns,
+            });
+        }
+        let on_faces: std::collections::HashSet<_> = self
+            .half_edges
+            .values()
+            .filter(|f| self.loops.contains_key(f.loop_))
+            .map(|f| f.origin)
+            .collect();
+        let wire_vertices: std::collections::HashSet<_> = self
+            .half_edges
+            .values()
+            .filter(|f| held.contains(&f.edge) && !on_faces.contains(&f.origin))
+            .map(|f| f.origin)
+            .collect();
+        let edges = held.len() as i64;
+        let vertices = wire_vertices.len() as i64;
+        let wire_shells = self
+            .shells
+            .iter()
+            .filter(|(h, s)| {
+                !s.wire_edges.is_empty()
+                    && !self.faces.values().any(|f| f.back == *h || f.front == *h)
+            })
+            .count() as i64;
+        if vertices - edges > wire_shells {
+            return Err(ValidationError::EulerPoincare {
+                solid: Default::default(),
+                expected: wire_shells,
+                actual: vertices - edges,
+            });
+        }
+        Ok(WirePart {
+            edges,
+            vertices: vertices + acorns,
+        })
     }
 }
 

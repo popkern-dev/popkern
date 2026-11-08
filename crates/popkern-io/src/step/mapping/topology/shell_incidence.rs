@@ -16,11 +16,37 @@ pub(super) struct ShellIncidencePolicy {
     pub pieces: Option<ShellPieces>,
 }
 
-pub(super) fn open_shell_incidence_policy() -> ShellIncidencePolicy {
+/// The policy for an `OPEN_SHELL`'s faces (or a surface model's shell).
+/// Faces meeting more than two at an edge (sheets on a hinge) have no
+/// two-fin edge to build: they import face by face, glued into one
+/// general body under the general option (`import_general`).
+pub(super) fn open_shell_incidence_policy(
+    face_data: &FaceData,
+    log: &mut DiagnosticLog,
+) -> ShellIncidencePolicy {
+    let mut use_counts: BTreeMap<EntityId, usize> = BTreeMap::new();
+    for face in &face_data.faces {
+        for bound in &face.bounds {
+            for oriented_edge in &bound.oriented_edges {
+                *use_counts.entry(oriented_edge.edge_curve_id).or_default() += 1;
+            }
+        }
+    }
+    let hinge = use_counts.iter().find(|&(_, &u)| u > 2);
+    if let Some((&edge, &uses)) = hinge {
+        log.warn(
+            Phase::MapTopology,
+            Some(edge),
+            format!(
+                "STEP open shell uses this edge {uses} times: imported face by face (glued into \
+                 a general body under the general option)"
+            ),
+        );
+    }
     ShellIncidencePolicy {
         treat_as_open: true,
         downgraded_closed_shell: false,
-        pieces: None,
+        pieces: hinge.map(|_| ShellPieces::per_face(face_data)),
     }
 }
 
@@ -31,6 +57,7 @@ pub(super) fn open_shell_incidence_policy() -> ShellIncidencePolicy {
 pub(super) fn closed_shell_incidence_policy(
     face_data: &FaceData,
     allow_pieces: bool,
+    general: bool,
     log: &mut DiagnosticLog,
 ) -> Option<ShellIncidencePolicy> {
     let mut use_counts: BTreeMap<EntityId, usize> = BTreeMap::new();
@@ -46,6 +73,25 @@ pub(super) fn closed_shell_incidence_policy(
     let pieces = match closed && allow_pieces {
         true => match touching_pieces(face_data, &use_counts) {
             Ok(pieces) => pieces,
+            Err(unpaired) if general => {
+                // No manifold split fits (an edge one piece uses more
+                // than twice, an internal face's odd uses): import face
+                // by face, glued into one general body afterwards.
+                log.warn(
+                    Phase::MapTopology,
+                    Some(unpaired.edge),
+                    format!(
+                        "STEP CLOSED_SHELL has no split into closed pieces ({} uses of this edge in \
+                         one piece): imported face by face to glue into a general body",
+                        unpaired.uses_in_piece
+                    ),
+                );
+                return Some(ShellIncidencePolicy {
+                    treat_as_open: true,
+                    downgraded_closed_shell: false,
+                    pieces: Some(ShellPieces::per_face(face_data)),
+                });
+            }
             Err(unpaired) => {
                 log.error(
                     Phase::MapTopology,
@@ -77,6 +123,23 @@ pub(super) fn closed_shell_incidence_policy(
             treat_as_open: false,
             downgraded_closed_shell: false,
             pieces: Some(pieces),
+        });
+    }
+
+    // A shell of a solid with voids (pieces are not tried there) whose
+    // edges some faces use more than twice (cavities touching each other
+    // or the outer shell): under the general option, face by face.
+    if general && use_counts.values().any(|&u| u > 2) {
+        log.warn(
+            Phase::MapTopology,
+            None,
+            "STEP shell edges with more than two face uses: imported face by face to glue into a \
+             general body",
+        );
+        return Some(ShellIncidencePolicy {
+            treat_as_open: true,
+            downgraded_closed_shell: false,
+            pieces: Some(ShellPieces::per_face(face_data)),
         });
     }
 

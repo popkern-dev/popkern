@@ -73,7 +73,7 @@ pub fn seam_cos_profile(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin_he) = brep.half_edges.get(he.twin) else {
+        let Some(twin_he) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(twin_he.loop_)) else {
@@ -85,7 +85,7 @@ pub fn seam_cos_profile(
         }
         let curve = edge.curve.as_ref()?;
         let side_a = seam_side(brep, edge.half_edge, curve)?;
-        let side_b = seam_side(brep, he.twin, curve)?;
+        let side_b = seam_side(brep, he.mate().unwrap_or_default(), curve)?;
         let mut out = Vec::new();
         for &f in fractions {
             let (uv_a, _) = side_a.eval_fraction(f);
@@ -119,7 +119,7 @@ pub fn seam_g2t_profile(brep: &BRep, edge: EdgeHandle, fractions: &[f64]) -> Vec
     };
     let (Some(side_a), Some(side_b)) = (
         seam_side(brep, edge_data.half_edge, curve),
-        seam_side(brep, he_data.twin, curve),
+        seam_side(brep, he_data.mate().unwrap_or_default(), curve),
     ) else {
         return out;
     };
@@ -181,7 +181,7 @@ pub fn measure_live_cap_seams(
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let twin = he_data.twin;
+        let twin = he_data.mate().unwrap_or_default();
         // Index defensively: a mid-pipeline BRep can carry a stale
         // `loop_` on a twin half-edge (the PK-074 phantom-seam class).
         // A measurement helper must report that as "no measurable

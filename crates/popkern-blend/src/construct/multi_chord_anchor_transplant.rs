@@ -47,7 +47,7 @@ pub(super) fn transplant_spur_anchor_pair(
             }
             return None;
         };
-        let he_in = candidate.half_edges.get(*he_out)?.twin;
+        let he_in = candidate.half_edges.get(*he_out)?.mate()?;
         candidate.kev(he_in).ok()?;
         let nv = super::helpers::helpers_anchor_insert::insert_anchor_with_spur(
             &mut candidate,

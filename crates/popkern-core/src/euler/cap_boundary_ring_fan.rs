@@ -40,7 +40,8 @@ impl BRep {
     /// attaching sector surfaces, spoke curves, and pcurves is the
     /// caller's next step. The pole position is taken as given; a
     /// geometric degeneracy gate (pole coincident with a ring vertex)
-    /// belongs to the caller, which owns the tolerance.
+    /// belongs to the caller, which owns the tolerance. A fan closing a
+    /// sheet's last opening fills it as the single cap does.
     ///
     /// # Errors
     ///
@@ -56,6 +57,7 @@ impl BRep {
         let mut candidate = self.clone();
         let result = candidate.apply_boundary_ring_fan(ring, pole)?;
         candidate.verify_boundary_ring_fan_postconditions(before, &result)?;
+        candidate.fill_closed_shells();
         *self = candidate;
         Ok(result)
     }
@@ -65,7 +67,7 @@ impl BRep {
         ring: &[EdgeHandle],
         pole: Point3,
     ) -> Result<BoundaryRingFanResult, CoreError> {
-        let cap = self.cap_boundary_ring(ring)?;
+        let cap = self.cap_boundary_ring_unfilled(ring)?;
         let rim = cap.half_edges;
         let count = rim.len();
 

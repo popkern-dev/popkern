@@ -98,7 +98,7 @@ fn matches_occ(brep: &popkern_core::topology::BRep, volume: f64, occ: &[(usize, 
     // A body of several solids (a non-manifold shell imported as pieces
     // meeting at contacts, PK-980) matches when every piece matches one
     // of OpenCASCADE's solids.
-    if brep.solids.len() > 1 {
+    if brep.solid_regions().len() > 1 {
         return popkern_bool::pieces::piece_bodies(brep).is_ok_and(|pieces| {
             pieces.iter().all(|piece| {
                 popkern_mesh::tessellate(piece, &popkern_mesh::TessellationOptions::default())
@@ -190,7 +190,7 @@ fn measure(path: &Path) -> Row {
                                         eprintln!(
                                             "  {file}: watertight body with {} faces in {} solid(s), volume {volume:.6}, matches no OpenCASCADE solid{}",
                                             part.brep().faces.len(),
-                                            part.brep().solids.len(),
+                                            part.brep().solid_regions().len(),
                                             popkern_bool::pieces::piece_bodies(part.brep())
                                                 .err()
                                                 .map(|e| format!(" (pieces: {e})"))

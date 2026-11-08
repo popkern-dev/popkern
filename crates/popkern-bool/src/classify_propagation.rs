@@ -110,7 +110,7 @@ fn build_face_adjacency(
             Some(h) => h,
             None => continue,
         };
-        let twin = match brep.half_edges.get(he.twin) {
+        let twin = match he.mate().and_then(|m| brep.half_edges.get(m)) {
             Some(t) => t,
             None => continue,
         };
@@ -134,9 +134,9 @@ fn build_face_adjacency(
         // only ever DISCONNECTS — the cost is one extra ray cast.
         let degenerate = {
             let a = brep.vertices.get(he.origin).map(|v| v.position);
-            let b = brep
-                .half_edges
-                .get(he.twin)
+            let b = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|t| brep.vertices.get(t.origin))
                 .map(|v| v.position);
             match (a, b) {
@@ -172,9 +172,9 @@ fn build_face_adjacency(
                     .vertices
                     .get(brep.half_edges[edge.half_edge].origin)
                     .map(|v| v.position);
-                let mid2 = brep
-                    .half_edges
-                    .get(he.twin)
+                let mid2 = he
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|t| brep.vertices.get(t.origin))
                     .map(|v| v.position);
                 if let (Some(a), Some(b)) = (mid, mid2) {

@@ -36,9 +36,9 @@ pub(super) fn trace_cap_subface_neighbors(brep: &BRep, label: &str, faces: &[Fac
             let Some(he) = brep.half_edges.get(cursor) else {
                 break;
             };
-            let twin_face = brep
-                .half_edges
-                .get(he.twin)
+            let twin_face = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|t| brep.loops.get(t.loop_))
                 .map(|l| l.face);
             let twin_desc = twin_face

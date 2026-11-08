@@ -98,7 +98,7 @@ pub fn measure_cap_boundary_fidelity_split(
     let neighbour_is_cap = |he: HalfEdgeHandle| -> bool {
         brep.half_edges
             .get(he)
-            .and_then(|hd| brep.half_edges.get(hd.twin))
+            .and_then(|hd| hd.mate().and_then(|m| brep.half_edges.get(m)))
             .and_then(|twin| brep.loops.get(twin.loop_))
             .map(|l| cap_set.contains(&l.face))
             .unwrap_or(false)

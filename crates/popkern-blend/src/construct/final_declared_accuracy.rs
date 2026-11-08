@@ -35,7 +35,7 @@ pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
         let ed = brep.edges.get(edge)?;
         let curve = ed.curve.clone()?;
         let he = brep.half_edges.get(ed.half_edge)?;
-        let tw = brep.half_edges.get(he.twin)?;
+        let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
         let faces = [
             brep.loops.get(he.loop_).map(|l| l.face),
             brep.loops.get(tw.loop_).map(|l| l.face),

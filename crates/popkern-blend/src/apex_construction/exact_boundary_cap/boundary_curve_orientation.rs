@@ -15,8 +15,9 @@ pub(super) fn cap_half_edge_vertex_span(
         .get(half_edge_data.next)
         .map(|next| next.origin)
         .or_else(|| {
-            brep.half_edges
-                .get(half_edge_data.twin)
+            half_edge_data
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .map(|twin| twin.origin)
         })?;
     let destination = brep.vertices.get(destination_vertex)?.position;

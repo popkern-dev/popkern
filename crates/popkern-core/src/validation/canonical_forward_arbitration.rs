@@ -104,7 +104,9 @@ impl BRep {
                 let Some(he) = self.half_edges.get(canonical) else {
                     continue;
                 };
-                let twin = he.twin;
+                let Some(twin) = he.mate() else {
+                    continue;
+                };
                 let Some(fc) = self.pcurve_traversal_claim(canonical) else {
                     continue;
                 };

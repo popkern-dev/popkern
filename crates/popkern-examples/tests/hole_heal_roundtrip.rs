@@ -18,7 +18,7 @@ use popkern_part::Part;
 fn healed_open_box_is_watertight_and_occ_clean() {
     let tolerance = Tolerance::default();
     let mut brep = BRep::open_box(tolerance).expect("open box fixture");
-    assert_eq!(brep.boundary_edges.len(), 4, "fixture starts open");
+    assert_eq!(brep.free_edges().len(), 4, "fixture starts open");
 
     let report = heal_holes(&mut brep, tolerance.linear());
     assert_eq!(report.holes_detected, 1, "one opening detected");
@@ -31,7 +31,7 @@ fn healed_open_box_is_watertight_and_occ_clean() {
     );
 
     // Strict validation re-arms once boundary_edges empties.
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     brep.validate_euler_poincare()
         .expect("strict genus-0 Euler");
     brep.validate().expect("fast validation");

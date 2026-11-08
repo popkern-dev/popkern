@@ -28,8 +28,11 @@ pub(super) fn reorder_into_closed_chain(
     if handles.len() < 2 {
         return None;
     }
-    let start_of = |h: HalfEdgeHandle| brep.half_edges[h].origin;
-    let end_of = |h: HalfEdgeHandle| brep.half_edges[brep.half_edges[h].twin].origin;
+    // A chain's links are being repaired, so a fin's end is read from
+    // its mate, not its (possibly wrong) loop successor; a fin without a
+    // mate has no end and no chain through it is accepted.
+    let start_of = |h: HalfEdgeHandle| Some(brep.half_edges[h].origin);
+    let end_of = |h: HalfEdgeHandle| brep.mate(h).map(|t| brep.half_edges[t].origin);
     // Leave an already-connected chain untouched (byte-identical wiring
     // for the currently-passing corpus): repair activates only on loops
     // whose resolved handles do not link head-to-tail.
@@ -81,7 +84,7 @@ fn trace_reorder_decline(
     brep: &BRep,
     handles: &[HalfEdgeHandle],
     reason: &str,
-    tip: popkern_core::topology::VertexHandle,
+    tip: Option<popkern_core::topology::VertexHandle>,
 ) {
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
@@ -90,7 +93,9 @@ fn trace_reorder_decline(
         );
         for &h in handles {
             let s = brep.half_edges[h].origin;
-            let e = brep.half_edges[brep.half_edges[h].twin].origin;
+            let Some(e) = brep.mate(h).map(|t| brep.half_edges[t].origin) else {
+                continue;
+            };
             let sp = brep.vertices.get(s).map(|v| v.position);
             let ep = brep.vertices.get(e).map(|v| v.position);
             if let (Some(sp), Some(ep)) = (sp, ep) {

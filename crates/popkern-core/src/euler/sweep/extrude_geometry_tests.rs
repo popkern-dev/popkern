@@ -95,7 +95,7 @@ fn square_sheet_with_arc(tilt: f64) -> (BRep, crate::topology::FaceHandle) {
         .find_map(|(eh, ed)| {
             let he = &brep.half_edges[ed.half_edge];
             let p = brep.vertices[he.origin].position;
-            let q = brep.vertices[brep.half_edges[he.twin].origin].position;
+            let q = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
             if p.distance_to(&a) < 1e-12 && q.distance_to(&b) < 1e-12 {
                 Some((eh, true))
             } else if p.distance_to(&b) < 1e-12 && q.distance_to(&a) < 1e-12 {

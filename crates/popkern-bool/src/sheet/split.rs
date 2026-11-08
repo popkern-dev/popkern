@@ -23,6 +23,12 @@ pub fn split_solid_by_plane(
     plane_normal: popkern_core::geometry::Vec3,
     tol: popkern_core::tolerance::Tolerance,
 ) -> Result<Vec<BRep>, crate::BoolError> {
+    crate::kind_gate::require_operand(
+        solid,
+        "split by plane",
+        0,
+        &[popkern_core::topology::BodyKind::Solid],
+    )?;
     if solid.faces.is_empty() {
         return Err(crate::BoolError::DegenerateInput(
             "solid has no faces".to_string(),

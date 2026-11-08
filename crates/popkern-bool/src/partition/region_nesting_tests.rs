@@ -23,7 +23,7 @@ fn solids(bodies: &[&BRep]) -> Vec<(usize, usize, BodySet)> {
         .map(|s| {
             let findings = s.body.validate_all();
             assert!(findings.is_empty(), "{findings:?}");
-            (s.body.faces.len(), s.body.shells.len(), s.bodies)
+            (s.body.faces.len(), s.body.back_shell_count(), s.bodies)
         })
         .collect();
     out.sort_unstable_by_key(|s| (s.0, s.1));
@@ -67,7 +67,7 @@ fn a_hollow_operand_is_one_region() {
         None,
     )
     .expect("hollow");
-    assert_eq!(hollow.shells.len(), 2);
+    assert_eq!(hollow.back_shell_count(), 2);
     assert_eq!(solids(&[&hollow]), vec![(12, 2, BodySet::of(&[0]))]);
     // A cube in the void is a region of its own, the void unkept.
     let core = cube(0.2, 0.4);

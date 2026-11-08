@@ -223,7 +223,7 @@ impl PartitionBoundaryOutcome {
         let apex_to_ta = brep
             .half_edges
             .get(ta_to_apex)
-            .map(|half_edge| half_edge.twin)
+            .and_then(|half_edge| half_edge.mate())
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition FilletEnd[{}] strip candidate references \
@@ -234,7 +234,7 @@ impl PartitionBoundaryOutcome {
         let tb_to_apex = brep
             .half_edges
             .get(apex_to_tb)
-            .map(|half_edge| half_edge.twin)
+            .and_then(|half_edge| half_edge.mate())
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition FilletEnd[{}] strip candidate references \

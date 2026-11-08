@@ -102,8 +102,8 @@ fn reversed_curve(curve: &NurbsCurve) -> NurbsCurve {
 /// shared corner, where the plane is tangent to the strip (a bridge foot
 /// lies on the strip's rail). The face flags cannot: the strips are faces
 /// the blend built, the planes the input body's own faces, and a body's
-/// flags follow its shell's convention (primitives build inward shells,
-/// extrusions and booleans outward ones). Measured on an extruded block's
+/// flags follow its shell's convention (an old inward body's flags
+/// point into its material). Measured on an extruded block's
 /// mixed corner: every bridged fit read rim g1 0.8–2.1, the planes'
 /// normals flipped against the strips' (PK-623).
 fn orient_bridges_from_strips(

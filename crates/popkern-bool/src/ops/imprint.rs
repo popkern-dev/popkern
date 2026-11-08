@@ -79,6 +79,15 @@ pub fn imprint(
     tool: &BRep,
     tolerance: &Tolerance,
 ) -> Result<ImprintResult, BoolError> {
+    use popkern_core::topology::BodyKind;
+    for (operand, body) in [target, tool].into_iter().enumerate() {
+        crate::kind_gate::require_operand(
+            body,
+            "imprint",
+            operand,
+            &[BodyKind::Solid, BodyKind::Sheet],
+        )?;
+    }
     let aabbs_target = compute_face_aabbs(target);
     let aabbs_tool = compute_face_aabbs(tool);
     let mut curves = Vec::new();

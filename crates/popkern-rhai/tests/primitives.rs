@@ -134,8 +134,7 @@ fn prisms_pyramids_and_wedges() {
 
 /// Every primitive faces out of its material: a small box taken from
 /// inside it leaves exactly its volume less the box's. (Measured volume
-/// alone cannot tell: it is the absolute enclosed volume, and the Euler
-/// pyramid this kernel's pyramids start from is built inward.)
+/// alone cannot tell: it is the absolute enclosed volume.)
 #[test]
 fn every_primitive_faces_out_of_its_material() {
     let r3 = 3f64.sqrt();

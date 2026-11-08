@@ -41,7 +41,12 @@ pub(crate) fn measure_import_deviations(
         let ends = brep
             .half_edges
             .get(brep.edges[eh].half_edge)
-            .and_then(|he| Some((he.origin, brep.half_edges.get(he.twin)?.origin)));
+            .and_then(|he| {
+                Some((
+                    he.origin,
+                    he.mate().and_then(|m| brep.half_edges.get(m))?.origin,
+                ))
+            });
         let vertex_tol = ends.map_or(0.0, |(a, b)| {
             brep.vertex_tolerance(a).max(brep.vertex_tolerance(b))
         });
@@ -82,7 +87,7 @@ fn record_end_gap(
         let edge = brep.edges.get(eh)?;
         let curve = edge.curve.as_ref()?;
         let he = brep.half_edges.get(edge.half_edge)?;
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         let (va, vb) = (he.origin, twin.origin);
         let (a, b) = (
             brep.vertices.get(va)?.position,

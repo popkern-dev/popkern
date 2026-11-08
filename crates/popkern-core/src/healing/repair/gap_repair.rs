@@ -61,7 +61,7 @@ fn measure_edge_gap(brep: &BRep, edge: EdgeHandle) -> Option<(f64, Point3, Point
     let start_vertex = he.origin;
     // End vertex = origin of the next half-edge in the same loop,
     // which is the same as the twin's origin.
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let end_vertex = twin.origin;
 
     let start_pos = brep.vertices.get(start_vertex)?.position;
@@ -159,9 +159,9 @@ pub fn repair_gap(
                 .half_edges
                 .get(edge_data.half_edge)
                 .ok_or_else(|| CoreError::InvalidHandle("half-edge".to_string()))?;
-            let twin = brep
-                .half_edges
-                .get(he.twin)
+            let twin = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .ok_or_else(|| CoreError::InvalidHandle("twin half-edge".to_string()))?;
 
             let start_pos = brep
@@ -441,7 +441,7 @@ mod tests {
             .find(|&e| brep.edges[e].curve.is_some())
             .unwrap();
         let he_h = brep.edges[edge_h].half_edge;
-        let twin_h = brep.half_edges[he_h].twin;
+        let twin_h = brep.half_edges[he_h].mate().unwrap_or_default();
         let end_v = brep.half_edges[twin_h].origin;
         // Move end vertex to create gap at the end of the edge.
         brep.vertices[end_v].position.y += 0.03;

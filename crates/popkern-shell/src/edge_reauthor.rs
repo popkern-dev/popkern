@@ -31,7 +31,7 @@ pub(crate) fn reauthor_stale_same_surface_edge(
     let Some(he) = inner.half_edges.get(edge.half_edge) else {
         return Ok(());
     };
-    let Some(twin) = inner.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| inner.half_edges.get(m)) else {
         return Ok(());
     };
     let (l1, l2) = (he.loop_, twin.loop_);

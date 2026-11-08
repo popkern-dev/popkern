@@ -55,7 +55,7 @@ pub(crate) fn trim_boundary_edges(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             return false;
         };
-        let Some(tw) = brep.half_edges.get(he.twin) else {
+        let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             return false;
         };
         let face_of = |lh: popkern_core::topology::LoopHandle| brep.loops.get(lh).map(|l| l.face);

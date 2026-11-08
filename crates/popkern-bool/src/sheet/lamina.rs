@@ -10,6 +10,7 @@
 //! planar fronts; a curved front keeps its own and the moved half-edges
 //! take theirs from the front's twins.
 
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// Whether `a` and `b` lie on one plane with opposite oriented normals.
@@ -50,15 +51,10 @@ fn opposite_planes(
 pub fn single_face_sheet(body: &BRep) -> Option<BRep> {
     let mut out = body.clone();
     let pairs: Vec<(FaceHandle, FaceHandle)> = out
-        .shells
-        .keys()
+        .back_shells()
+        .into_iter()
         .map(|shell| {
-            let faces: Vec<FaceHandle> = out
-                .faces
-                .iter()
-                .filter(|(_, f)| f.shell == shell)
-                .map(|(h, _)| h)
-                .collect();
+            let faces = out.shell_faces(shell);
             let [a, b] = faces[..] else {
                 return None;
             };
@@ -87,7 +83,10 @@ pub fn single_face_sheet(body: &BRep) -> Option<BRep> {
         let mut moved = Vec::new();
         for _ in 0..=out.half_edges.len() {
             let he = out.half_edges.get(cursor)?;
-            let twin_face = out.loops.get(out.half_edges.get(he.twin)?.loop_)?.face;
+            let twin_face = out
+                .loops
+                .get(he.mate().and_then(|m| out.half_edges.get(m))?.loop_)?
+                .face;
             if twin_face != front {
                 return None;
             }
@@ -104,11 +103,15 @@ pub fn single_face_sheet(body: &BRep) -> Option<BRep> {
         // Each moved half-edge runs along its twin reversed: its pcurve
         // on the front is the twin's, reversed.
         for h in moved {
-            let twin = out.half_edges[h].twin;
+            let twin = out.half_edges[h].mate()?;
             let reversed = out.half_edges[twin].pcurve.as_ref().map(|p| p.reversed());
             out.half_edges[h].pcurve = reversed;
         }
     }
+    // The backside closed the pair round the solid region the
+    // constructor made; with it gone the shell is open and settles
+    // into the void about it, both sides of the face in one shell.
+    out.settle_open_shells();
     (out.body_kind() == popkern_core::topology::BodyKind::Sheet).then_some(out)
 }
 
@@ -116,12 +119,15 @@ pub fn single_face_sheet(body: &BRep) -> Option<BRep> {
 /// were retired to an open boundary) a twin of its own: reversed, on
 /// the same face, in a loop no face lists — the mirror form the view
 /// already presents, so the graph registers the free edge once.
-fn twin_open_boundary(view: &mut BRep) {
+fn twin_open_boundary(
+    view: &mut BRep,
+) -> std::collections::BTreeSet<popkern_core::topology::EdgeHandle> {
+    let mut opened = std::collections::BTreeSet::new();
     use popkern_core::topology::{HalfEdge, Loop};
     let open: Vec<_> = view
         .half_edges
         .iter()
-        .filter(|(_, h)| !view.half_edges.contains_key(h.twin))
+        .filter(|(_, h)| !h.mate().is_some_and(|m| view.half_edges.contains_key(m)))
         .map(|(k, _)| k)
         .collect();
     for h in open {
@@ -135,10 +141,14 @@ fn twin_open_boundary(view: &mut BRep) {
             };
             (face, end, he.edge, he.pcurve.as_ref().map(|p| p.reversed()))
         };
-        let ring = view.loops.insert(Loop { half_edge: h, face });
+        let ring = view.loops.insert(Loop {
+            half_edge: h,
+            face,
+            vertex: None,
+        });
         let twin = view.half_edges.insert(HalfEdge {
             origin: end,
-            twin: h,
+            ring: RadialLinks::pair(h),
             next: h,
             prev: h,
             edge,
@@ -148,11 +158,13 @@ fn twin_open_boundary(view: &mut BRep) {
         view.half_edges[twin].next = twin;
         view.half_edges[twin].prev = twin;
         view.loops[ring].half_edge = twin;
-        view.half_edges[h].twin = twin;
-        // Recorded as the boundary it is: on a periodic face a twin
-        // the face holds would otherwise read as the seam.
-        view.boundary_edges.insert(edge);
+        view.half_edges[h].set_mate(twin);
+        // The edge is the sheet's open boundary although the view gives
+        // it two uses of one face (on a periodic face they would read as
+        // the seam): the caller is told which edges these are.
+        opened.insert(edge);
     }
+    opened
 }
 
 #[cfg(test)]
@@ -165,9 +177,24 @@ mod tests;
 /// face lists them, so no hole or containment test reads the mirror
 /// as a hole and the graph registers each free edge once — a lamina's
 /// free edge in the complex.
-pub(crate) fn pipeline_view(sheet: &BRep) -> BRep {
+/// Returns the view and the sheet's open boundary edges in it (each
+/// carries two uses of one face in the view, so the ring does not read
+/// it as free).
+pub(crate) fn pipeline_view(
+    sheet: &BRep,
+) -> (
+    BRep,
+    std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+) {
     let mut view = sheet.clone();
-    twin_open_boundary(&mut view);
+    let mut opened = twin_open_boundary(&mut view);
+    // A sheet whose free boundary is already a mirror loop pairs it with
+    // the outer loop: those edges are its open boundary too.
+    opened.extend(
+        view.edges
+            .keys()
+            .filter(|&e| view.is_mirrored_boundary_edge(e)),
+    );
     let faces: Vec<FaceHandle> = view.faces.keys().collect();
     for face in faces {
         let mirrors: Vec<_> = view.faces[face]
@@ -180,5 +207,5 @@ pub(crate) fn pipeline_view(sheet: &BRep) -> BRep {
             .inner_loops
             .retain(|l| !mirrors.contains(l));
     }
-    view
+    (view, opened)
 }

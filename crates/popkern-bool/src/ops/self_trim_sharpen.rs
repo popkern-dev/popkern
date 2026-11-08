@@ -91,7 +91,7 @@ fn edge_endpoints(body: &BRep, eh: EdgeHandle) -> Vec<VertexHandle> {
         return Vec::new();
     };
     let mut out = vec![he.origin];
-    if let Some(twin) = body.half_edges.get(he.twin) {
+    if let Some(twin) = he.mate().and_then(|m| body.half_edges.get(m)) {
         out.push(twin.origin);
     } else if let Some(next) = body.half_edges.get(he.next) {
         out.push(next.origin);

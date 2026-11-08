@@ -36,7 +36,7 @@ fn cube_corner_edges() -> (BRep, [EdgeHandle; 3]) {
                 let he = &cube.half_edges[e.half_edge];
                 let ends = [
                     cube.vertices[he.origin].position,
-                    cube.vertices[cube.half_edges[he.twin].origin].position,
+                    cube.vertices[cube.half_edges[he.mate().unwrap_or_default()].origin].position,
                 ];
                 let at = |p: Point3| ends.iter().any(|q| (*q - p).length() < 1e-12);
                 at(Point3::new(0.0, 0.0, 0.0)) && at(far)
@@ -130,7 +130,7 @@ fn mitre_vertex_curves(input: &BRep, out: &BRep) -> Vec<CurveGeometry> {
         .values()
         .filter(|e| {
             let he = &out.half_edges[e.half_edge];
-            he.origin == vertex || out.half_edges[he.twin].origin == vertex
+            he.origin == vertex || out.half_edges[he.mate().unwrap_or_default()].origin == vertex
         })
         .map(|e| e.curve.as_ref().expect("curve").geometry.clone())
         .collect()

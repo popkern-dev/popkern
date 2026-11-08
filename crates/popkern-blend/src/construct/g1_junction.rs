@@ -20,7 +20,7 @@ const TANGENT_SINE: f64 = 1e-4;
 pub(crate) fn edge_tangent(brep: &BRep, edge: EdgeHandle, vertex: VertexHandle) -> Option<Vec3> {
     let data = brep.edges.get(edge)?;
     let he = brep.half_edges.get(data.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let (from, to) = (he.origin, twin.origin);
     if from == to {
         return None; // a closed edge has no junction end
@@ -217,7 +217,7 @@ fn exact_junction_contact(
                 .clone(),
         )
     };
-    let (sp, sq) = (surface(brep.edges[fillet].half_edge)?, surface(he.twin)?);
+    let (sp, sq) = (surface(brep.edges[fillet].half_edge)?, surface(he.mate()?)?);
     let n = edge_tangent(brep, fillet, vertex)?;
     // Ball-centre guess: from the seed, `radius` along the seed's
     // support normal, on the side whose distance to the other

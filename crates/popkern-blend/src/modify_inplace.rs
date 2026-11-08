@@ -186,8 +186,8 @@ pub(crate) fn collect_closed_layout(
     let outer_he = brep.half_edges[outer_he_h].clone();
     let inner_he = brep.half_edges[inner_he_h].clone();
 
-    let outer_twin_h = outer_he.twin;
-    let inner_twin_h = inner_he.twin;
+    let outer_twin_h = outer_he.require_mate()?;
+    let inner_twin_h = inner_he.require_mate()?;
     let outer_support = brep.loops[brep.half_edges[outer_twin_h].loop_].face;
     let inner_support = brep.loops[brep.half_edges[inner_twin_h].loop_].face;
 

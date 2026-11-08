@@ -98,11 +98,20 @@ fn filleted_cube_edge(continuity: ContinuityLevel) -> (BRep, BTreeSet<FaceHandle
         ..Default::default()
     };
     let result = fillet_edges(&cube, &specs, &options, tol, None).expect("fillet");
+    // The fillet makes the strip and a support plane anew; the strip is
+    // the new face that is not a plane.
     let strip = result
         .brep
         .faces
-        .keys()
-        .find(|f| !pre.contains(f))
+        .iter()
+        .find(|(f, face)| {
+            !pre.contains(f)
+                && !face
+                    .surface
+                    .as_ref()
+                    .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }))
+        })
+        .map(|(f, _)| f)
         .expect("strip");
     (result.brep, pre, strip)
 }
@@ -163,7 +172,7 @@ fn a_uniformly_creased_rail_stays_gated_and_fails_g1() {
         .values()
         .filter(|he| brep.loops.get(he.loop_).map(|l| l.face) == Some(strip))
         .find_map(|he| {
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let face = brep.loops.get(twin.loop_)?.face;
             let is_plane = matches!(
                 brep.faces[face].surface.as_ref().map(|s| &s.geometry),

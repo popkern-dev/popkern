@@ -62,7 +62,7 @@ pub fn certify_edge_seam(
         return not_a_seam();
     };
     let half_edge = data.half_edge;
-    let Some(twin) = brep.half_edges.get(half_edge).map(|h| h.twin) else {
+    let Some(twin) = brep.half_edges.get(half_edge).and_then(|h| h.mate()) else {
         return not_a_seam();
     };
     let face_of = |h: HalfEdgeHandle| {

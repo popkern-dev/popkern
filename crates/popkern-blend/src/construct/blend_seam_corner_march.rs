@@ -98,7 +98,7 @@ pub(super) fn repair_pair_corner_mixed(
         let Some(he) = brep.half_edges.get(e.half_edge) else {
             continue;
         };
-        let Some(tw) = brep.half_edges.get(he.twin) else {
+        let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         if he.origin != c.anchor_near && tw.origin != c.anchor_near {

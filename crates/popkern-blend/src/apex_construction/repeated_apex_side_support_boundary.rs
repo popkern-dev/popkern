@@ -196,7 +196,7 @@ impl BridgeBoundaryOwnershipBlocker {
 
     fn build(brep: &BRep, source_half_edge: HalfEdgeHandle) -> Option<Self> {
         let source = brep.half_edges.get(source_half_edge)?;
-        let blocking_half_edge = source.twin;
+        let blocking_half_edge = source.mate()?;
         let blocking = brep.half_edges.get(blocking_half_edge)?;
         Some(Self {
             source_half_edge,
@@ -254,8 +254,10 @@ fn bridge_interval_half_edge_is_boundary_ready(brep: &BRep, half_edge: HalfEdgeH
     let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
         return false;
     };
-    brep.boundary_edges.contains(&half_edge_data.edge)
-        && !brep.half_edges.contains_key(half_edge_data.twin)
+    brep.is_free_edge(half_edge_data.edge)
+        && !half_edge_data
+            .mate()
+            .is_some_and(|m| brep.half_edges.contains_key(m))
 }
 
 fn whole_retire_faces(
@@ -356,7 +358,7 @@ fn self_owned_protected_pairs(
         .iter()
         .filter_map(|half_edge| {
             let data = brep.half_edges.get(*half_edge)?;
-            let twin = data.twin;
+            let twin = data.mate()?;
             if *half_edge > twin {
                 return None;
             }

@@ -111,6 +111,7 @@ fn sheet(spec: &Value, tol: Tolerance) -> BRep {
                 .map(|(h, _)| h)
                 .collect();
             c.retire_faces_to_boundary(&caps).expect("open tube");
+            c.settle_open_shells();
             c
         }
         other => panic!("sheet {other:?}"),

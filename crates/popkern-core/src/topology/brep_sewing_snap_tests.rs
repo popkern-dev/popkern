@@ -1,10 +1,10 @@
 use super::*;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, BrepSewingClassificationOptions, BrepSewingProvenance, Edge, Face, FaceHandle, HalfEdge,
-    HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle, Solid, Vertex,
-    classify_boundary_edge_pairs,
+    BRep, BrepSewingClassificationOptions, BrepSewingProvenance, Edge, Face, FaceHandle, FaceSides,
+    HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex, classify_boundary_edge_pairs,
 };
 
 fn classification_options() -> BrepSewingClassificationOptions {
@@ -47,14 +47,7 @@ fn edge_pair(first: EdgeHandle, second: EdgeHandle) -> BrepSewingEdgePair {
 
 fn two_square_sheet(offset: f64, reversed_right: bool) -> (BRep, EdgeHandle, EdgeHandle) {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let left = add_square(
         &mut brep,
@@ -82,8 +75,8 @@ fn two_square_sheet(offset: f64, reversed_right: bool) -> (BRep, EdgeHandle, Edg
         ]
     };
     let right = add_square(&mut brep, shell, right_points);
-    if brep.shells[shell].face == FaceHandle::default() {
-        brep.shells[shell].face = left.face;
+    if brep.shell_anchor(shell.back).is_none() {
+        brep.set_sides_anchor(shell, left.face);
     }
     let right_edge = if reversed_right {
         right.edges[2]
@@ -98,7 +91,7 @@ struct SquareHandles {
     edges: [EdgeHandle; 4],
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -110,7 +103,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -119,13 +113,14 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
 
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),
@@ -143,7 +138,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
         edge
     });
 
@@ -162,7 +156,7 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
 fn snap_sewing_near_pair_moves_clone_then_welds() {
     let (brep, left_edge, right_edge) = two_square_sheet(5e-5, true);
     let before_vertices = brep.vertices.len();
-    let before_boundary_edges = brep.boundary_edges.len();
+    let before_boundary_edges = brep.free_edges().len();
     let classification = classify_boundary_edge_pairs(
         &brep,
         &[edge_pair(left_edge, right_edge)],
@@ -175,7 +169,7 @@ fn snap_sewing_near_pair_moves_clone_then_welds() {
 
     assert_eq!(brep.vertices.len(), before_vertices, "input is untouched");
     assert_eq!(
-        brep.boundary_edges.len(),
+        brep.free_edges().len(),
         before_boundary_edges,
         "input boundary set is untouched"
     );
@@ -189,7 +183,7 @@ fn snap_sewing_near_pair_moves_clone_then_welds() {
     assert!(result.report.max_vertex_motion > 0.0);
     assert!(result.report.max_vertex_motion <= 2.5e-5 + 1e-12);
     assert_eq!(result.brep.vertices.len(), 6);
-    assert_eq!(result.brep.boundary_edges.len(), 6);
+    assert_eq!(result.brep.free_edges().len(), 6);
     assert!(
         result
             .brep
@@ -221,7 +215,7 @@ fn snap_sewing_declines_rejected_classification() {
         result.report.declined_pairs[0].reason,
         BrepSnapSewingDeclineReason::RejectedClassification(_)
     ));
-    assert_eq!(result.brep.boundary_edges.len(), brep.boundary_edges.len());
+    assert_eq!(result.brep.free_edges().len(), brep.free_edges().len());
 }
 
 #[test]
@@ -243,7 +237,7 @@ fn snap_sewing_declines_motion_over_policy_limit() {
         BrepSnapSewingDeclineReason::VertexMotionExceeded { .. }
     ));
     assert_eq!(result.brep.vertices.len(), brep.vertices.len());
-    assert_eq!(result.brep.boundary_edges.len(), brep.boundary_edges.len());
+    assert_eq!(result.brep.free_edges().len(), brep.free_edges().len());
 }
 
 #[test]
@@ -261,5 +255,5 @@ fn snap_sewing_rejected_orientation_does_not_mutate_input() {
     assert_eq!(result.report.snapped_pairs, 0);
     assert_eq!(result.report.declined_pairs.len(), 1);
     assert_eq!(brep.vertices.len(), 8);
-    assert_eq!(brep.boundary_edges.len(), 8);
+    assert_eq!(brep.free_edges().len(), 8);
 }

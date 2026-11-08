@@ -70,7 +70,7 @@ pub fn check_small_edges(brep: &BRep, min_length: f64, report: &mut HealingRepor
             let Some(he) = brep.half_edges.get(edge_data.half_edge) else {
                 continue;
             };
-            let Some(twin) = brep.half_edges.get(he.twin) else {
+            let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
                 continue;
             };
             let Some(v_start) = brep.vertices.get(he.origin) else {
@@ -206,7 +206,7 @@ fn count_distinct_neighbor_faces(brep: &BRep, face: crate::topology::FaceHandle)
     let mut guard = 0usize;
     loop {
         let he = &brep.half_edges[current];
-        if let Some(twin) = brep.half_edges.get(he.twin)
+        if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m))
             && let Some(twin_loop) = brep.loops.get(twin.loop_)
             && twin_loop.face != face
         {
@@ -378,7 +378,7 @@ pub fn check_zero_length_singularity_edges(
         let Some(he) = brep.half_edges.get(edge_data.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(v_start) = brep.vertices.get(he.origin) else {

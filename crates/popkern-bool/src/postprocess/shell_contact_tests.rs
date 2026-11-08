@@ -116,5 +116,12 @@ fn contact_extent_is_point_line_or_area() {
 #[test]
 fn an_area_touch_is_not_accepted_as_a_split() {
     let flush = combine_breps(cube_at(0.0, 0.0, 0.0), cube_at(1.0, 0.0, 0.0)).expect("combines");
-    assert!(super::super::contact_record::accept_split(flush, &tol()).is_err());
+    assert!(
+        super::super::split_pieces::accept_split(
+            flush,
+            &tol(),
+            crate::NonManifoldPolicy::SplitToManifold
+        )
+        .is_err()
+    );
 }

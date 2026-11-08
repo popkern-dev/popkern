@@ -401,7 +401,7 @@ pub(crate) fn stored_ring_sigma(
     // closed boundary pieces keep their orientation flag.
     for (heh, _) in &ring {
         let he = brep.half_edges.get(*heh)?;
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         if he.origin == twin.origin {
             return None;
         }

@@ -43,7 +43,7 @@ pub(crate) fn edge(brep: &BRep, a: Point3, b: Point3) -> EdgeHandle {
             let he = &brep.half_edges[e.half_edge];
             let (o, d) = (
                 brep.vertices[he.origin].position,
-                brep.vertices[brep.half_edges[he.twin].origin].position,
+                brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position,
             );
             (o.distance_to(&a) < gate && d.distance_to(&b) < gate)
                 || (o.distance_to(&b) < gate && d.distance_to(&a) < gate)

@@ -311,13 +311,19 @@ fn self_intersecting_body_declines_naming_the_faces() {
     );
 
     // With normalization allowed, the refined realization of the same
-    // cage is tighter and measured crossing-free — the retry serves a
-    // genuinely clean body rather than masking the decline.
-    let (part, report) =
+    // cage is tighter and crossing-free, but turned inside out: the
+    // pulled corner folds the cage through itself (its signed volume
+    // is −2 or 0 by how its quads are split, +8 unpulled), so the
+    // smooth body encloses negative volume and declines on its sense
+    // rather than serving an everted solid.
+    let err =
         smooth_solid_from_control_net(&net, Tolerance::default(), SmoothMeshOptions::default())
-            .expect("the refined realization serves clean");
-    assert_eq!(report.refinement_steps, 1);
-    assert!(part.brep().validate_all().is_empty());
+            .expect_err("the everted refined realization declines");
+    let message = err.to_string();
+    assert!(
+        message.contains("point into the material") && message.contains("step 1"),
+        "decline must name the sense and the refined attempt, got: {message}"
+    );
 }
 
 #[test]

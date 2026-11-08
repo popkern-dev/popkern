@@ -261,6 +261,8 @@ pub(crate) fn execute_feature(
                     label: "remove_faces".into(),
                     error: crate::failure::FeatureFailure::other(e.to_string()).into(),
                 })?;
+            // The faces kept are the feature's result, a sheet.
+            brep.settle_open_shells();
             Ok(ExecuteSideEffects::empty())
         }
         Feature::OffsetSolid {

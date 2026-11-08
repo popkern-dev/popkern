@@ -5,6 +5,7 @@
 //!
 //! Face data collection is in the [`face_collector`] submodule.
 
+mod curve_sets;
 mod edge_trim;
 mod face_collector;
 mod half_edge_use;
@@ -15,6 +16,7 @@ mod shell_incidence;
 mod shell_pieces;
 mod surface_curve_normalization;
 mod surface_models;
+mod vertex_loops;
 mod voids;
 
 use std::collections::HashMap;
@@ -81,6 +83,7 @@ pub fn map_brep_solids(
     results.extend(surface_models::map_surface_models(
         graph, geo, log, tolerance,
     ));
+    results.extend(curve_sets::map_curve_sets(graph, geo, log, tolerance));
     results
 }
 
@@ -173,9 +176,14 @@ fn build_brep_from_faces(
     let face_data =
         face_collector::collect_face_data_reversing(graph, faces, layout.reversed_uses, log)?;
     let incidence_policy = if is_open_shell {
-        open_shell_incidence_policy()
+        open_shell_incidence_policy(&face_data, log)
     } else {
-        closed_shell_incidence_policy(&face_data, layout.sizes.len() == 1, log)?
+        closed_shell_incidence_policy(
+            &face_data,
+            layout.sizes.len() == 1,
+            geo.general_shells(),
+            log,
+        )?
     };
     // Each piece of a shell that touches itself has its own copies of
     // the STEP vertices and edges it uses (`shell_pieces`); a shell of
@@ -283,16 +291,21 @@ fn build_brep_from_faces(
                 std::iter::repeat_n(sh, n)
             })
             .collect();
-        if let Some(&outer) = shell_of.first() {
-            builder.brep_mut().solids[solid].shell = outer;
-        }
         shell_of
     };
 
     // 4. Create faces with loops
+    let mut pending_vertex_loops = Vec::new();
     for (k, face_info) in face_data.faces.iter().enumerate() {
         let face_h = builder.add_face(*shell_of.get(k)?);
         let piece = *pieces.of_face.get(k)?;
+        pending_vertex_loops.extend(face_info.vertex_loops.iter().map(|&vp| {
+            vertex_loops::PendingVertexLoop {
+                face: face_h,
+                vertex_point: vp,
+                vertex: vertex_map.get(&(vp, piece)).copied(),
+            }
+        }));
 
         // Attach surface geometry
         if let Some(sof) = geo.resolve_surface(face_info.surface_id, face_info.same_sense, log) {
@@ -414,15 +427,7 @@ fn build_brep_from_faces(
     }
 
     let mut brep = builder.build_unchecked();
-    if pieces.count() > 1 {
-        let n = pieces.count();
-        let vertices =
-            shell_pieces::copies(&face_data.vertex_ids, n, |k| vertex_map.get(k).copied());
-        let edges = shell_pieces::copies(&face_data.edge_curve_ids, n, |k| {
-            edge_map.get(k).map(|e| e.0)
-        });
-        shell_pieces::record_contacts(&mut brep, &vertices, &edges);
-    }
+    vertex_loops::attach_vertex_loops(&mut brep, pending_vertex_loops, graph, geo, log);
     reconcile_step_surface_curve_edges(&mut brep, tolerance, log);
     if incidence_policy.downgraded_closed_shell {
         report_step_import_boundary_incidence_diagnostics(&brep, &provenance, log);

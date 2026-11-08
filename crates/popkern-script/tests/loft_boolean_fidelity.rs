@@ -486,7 +486,7 @@ fn station_aligned_deep_grind_serves_census_clean() {
         assert_eq!(uses, 2, "edge {eh:?} not exactly twice-used");
     }
     assert!(
-        brep.half_edges.iter().all(|(h, he)| he.twin != h),
+        brep.half_edges.iter().all(|(h, he)| he.mate() != Some(h)),
         "served body carries a self-twinned half-edge"
     );
     assert_meshes_watertight_and_faithful(&brep, coil_deep_cut_volume(0.9), "station grind");

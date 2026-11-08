@@ -1,5 +1,6 @@
 //! Sphere constructor — proper 1-face BRep.
 
+use crate::topology::RadialLinks;
 use std::f64::consts::{PI, TAU};
 
 use crate::error::CoreError;
@@ -8,7 +9,7 @@ use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 impl BRep {
     /// Build a sphere as a proper 1-face BRep.
@@ -63,25 +64,20 @@ impl BRep {
         });
 
         // -- Solid / Shell --
-        let solid_h = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell_h = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid: solid_h,
-        });
-        brep.solids[solid_h].shell = shell_h;
+        let (_solid_h, shell_h) = brep.add_solid_region(Default::default());
 
         // -- Face & loop --
         let loop_face = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face: Default::default(),
+            vertex: None,
         });
 
         let f_sphere = brep.faces.insert(Face {
             outer_loop: loop_face,
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -89,7 +85,7 @@ impl BRep {
         });
 
         brep.loops[loop_face].face = f_sphere;
-        brep.shells[shell_h].face = f_sphere;
+        brep.set_sides_anchor(shell_h, f_sphere);
 
         // -- Edge --
         let e_seam = brep.insert_edge_tracked(Edge {
@@ -106,7 +102,7 @@ impl BRep {
         // he_seam_down: north -> south (left seam, u=0)
         let he_seam_up = brep.half_edges.insert(HalfEdge {
             origin: v_south,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -115,7 +111,7 @@ impl BRep {
         });
         let he_seam_down = brep.half_edges.insert(HalfEdge {
             origin: v_north,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -124,8 +120,8 @@ impl BRep {
         });
 
         // -- Wire twins --
-        brep.half_edges[he_seam_up].twin = he_seam_down;
-        brep.half_edges[he_seam_down].twin = he_seam_up;
+        brep.half_edges[he_seam_up].set_mate(he_seam_down);
+        brep.half_edges[he_seam_down].set_mate(he_seam_up);
 
         // -- Wire loop: next/prev --
         brep.half_edges[he_seam_up].next = he_seam_down;
@@ -199,6 +195,11 @@ impl BRep {
 
         brep.half_edges[he_seam_up].pcurve = Some(line_pcurve(TAU, PI, TAU, 0.0).into());
         brep.half_edges[he_seam_down].pcurve = Some(line_pcurve(0.0, 0.0, 0.0, PI).into());
+
+        // The chart's u × v (v colatitude from the north pole) points
+        // into the ball: reverse the face, winding and flag together,
+        // so its normal points out of the material.
+        brep.reverse_body_orientation();
 
         // =====================================================================
         // Validate

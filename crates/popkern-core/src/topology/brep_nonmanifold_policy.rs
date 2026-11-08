@@ -125,14 +125,16 @@ fn policy_outcome(
     if first.ambiguous || second.ambiguous {
         return BrepEdgePairPolicyOutcome::Declined(Reason::AmbiguousTopology);
     }
-    if !first.is_boundary || !second.is_boundary {
-        return BrepEdgePairPolicyOutcome::Declined(Reason::NotBoundaryEdge);
+    // An edge's ring says which: one fin is a free (boundary) edge, two
+    // an edge already joined, more a non-manifold edge, none a wire.
+    if !policy.allow_nonmanifold_edges && (first.has_radial_cycle || second.has_radial_cycle) {
+        return BrepEdgePairPolicyOutcome::Declined(Reason::NonManifoldRadialConflict);
     }
     if !policy.allow_nonmanifold_edges && (first.has_existing_twin || second.has_existing_twin) {
         return BrepEdgePairPolicyOutcome::Declined(Reason::AlreadyJoined);
     }
-    if !policy.allow_nonmanifold_edges && (first.has_radial_cycle || second.has_radial_cycle) {
-        return BrepEdgePairPolicyOutcome::Declined(Reason::NonManifoldRadialConflict);
+    if !first.is_boundary || !second.is_boundary {
+        return BrepEdgePairPolicyOutcome::Declined(Reason::NotBoundaryEdge);
     }
     BrepEdgePairPolicyOutcome::Accepted
 }
@@ -141,16 +143,16 @@ fn edge_policy_state(brep: &BRep, edge: EdgeHandle) -> BrepEdgePolicyState {
     let edge_data = brep.edges.get(edge);
     let half_edge = edge_data.map(|data| data.half_edge);
     let half_edge_data = half_edge.and_then(|handle| brep.half_edges.get(handle));
-    let has_existing_twin =
-        half_edge_data.is_some_and(|data| brep.half_edges.contains_key(data.twin));
-    let has_radial_cycle =
-        half_edge.is_some_and(|handle| brep.nonmanifold_radial.contains_key(&handle));
+    let has_existing_twin = half_edge_data
+        .is_some_and(|data| data.mate().is_some_and(|m| brep.half_edges.contains_key(m)));
+    let has_radial_cycle = brep.edge_fin_count(edge) > 2;
     let ambiguous = edge_data.is_some()
         && (half_edge_data.is_none() || half_edge_data.is_some_and(|data| data.edge != edge));
     BrepEdgePolicyState {
         edge,
         half_edge,
-        is_boundary: brep.boundary_edges.contains(&edge),
+        // A boundary to sew is a face's free side: a lone fin in a loop.
+        is_boundary: brep.is_free_edge(edge) && half_edge_data.is_some_and(|data| data.has_loop()),
         has_existing_twin,
         has_radial_cycle,
         ambiguous,

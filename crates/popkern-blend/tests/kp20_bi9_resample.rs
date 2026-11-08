@@ -49,7 +49,7 @@ fn cap_bounds(result: &BlendResult) -> ([f64; 3], [f64; 3]) {
         let he = &brep.half_edges[data.half_edge];
         let (fa, fb) = (
             brep.loops[he.loop_].face,
-            brep.loops[brep.half_edges[he.twin].loop_].face,
+            brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face,
         );
         let (ca, cb) = (caps.contains(&fa), caps.contains(&fb));
         if !(ca || cb) || fa == fb {

@@ -3,6 +3,7 @@
 
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
+use crate::topology::RadialLinks;
 use crate::topology::{BRep, Edge, EdgeHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle};
 
 /// Result of the kemr (Kill Edge, Make Ring) operator.
@@ -68,7 +69,7 @@ impl BRep {
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
 
-        let he_twin = he_data.twin;
+        let he_twin = self.require_mate(half_edge)?;
         let edge_handle = he_data.edge;
         let he_prev = he_data.prev;
         let he_next = he_data.next;
@@ -114,6 +115,7 @@ impl BRep {
         let inner_loop = self.loops.insert(Loop {
             half_edge: he_next,
             face,
+            vertex: None,
         });
 
         // Walk cycle B (starting from he_next) and assign to inner_loop.
@@ -228,7 +230,7 @@ impl BRep {
         // Create new_he: v_outer -> v_inner (spliced into the merged loop)
         let new_he = self.half_edges.insert(HalfEdge {
             origin: v_outer,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: he_inner,
             prev: he_outer_prev,
             edge,
@@ -239,7 +241,7 @@ impl BRep {
         // Create new_he_twin: v_inner -> v_outer
         let new_he_twin = self.half_edges.insert(HalfEdge {
             origin: v_inner,
-            twin: new_he,
+            ring: RadialLinks::pair(new_he),
             next: he_outer,
             prev: he_inner_prev,
             edge,
@@ -248,7 +250,7 @@ impl BRep {
         });
 
         // Patch twin pointer.
-        self.half_edges[new_he].twin = new_he_twin;
+        self.half_edges[new_he].set_mate(new_he_twin);
 
         // Splice into the loops.
         self.half_edges[he_outer_prev].next = new_he;
@@ -371,8 +373,8 @@ impl BRep {
             .half_edges
             .get(applied.result.half_edge_twin)
             .ok_or_else(|| CoreError::PreconditionFailed("mekr twin is not live".into()))?;
-        if half_edge.twin != applied.result.half_edge_twin
-            || twin.twin != applied.result.half_edge
+        if half_edge.mate() != Some(applied.result.half_edge_twin)
+            || twin.mate() != Some(applied.result.half_edge)
             || half_edge.loop_ != applied.merged_loop
             || twin.loop_ != applied.merged_loop
         {

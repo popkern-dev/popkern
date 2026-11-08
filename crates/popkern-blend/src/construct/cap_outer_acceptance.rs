@@ -51,7 +51,7 @@ pub(crate) fn cap_support_acceptance_error(
         let Some(ha) = brep.half_edges.get(he_a) else {
             continue;
         };
-        let Some(hb) = brep.half_edges.get(ha.twin) else {
+        let Some(hb) = ha.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(face_a) = brep.loops.get(ha.loop_).map(|loop_data| loop_data.face) else {
@@ -415,9 +415,9 @@ fn trace_seam_cap_containment(brep: &BRep, seam: &CapSupportSeamEvidence) {
         .and_then(|e| brep.half_edges.get(e.half_edge))
         .map(|he| {
             let a = brep.vertices[he.origin].position;
-            let b = brep
-                .half_edges
-                .get(he.twin)
+            let b = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .map(|t| brep.vertices[t.origin].position)
                 .unwrap_or(a);
             (a, b)
@@ -447,7 +447,7 @@ fn trace_seam_cap_containment(brep: &BRep, seam: &CapSupportSeamEvidence) {
     }
     let cap_side_loop = brep.edges.get(seam.edge).and_then(|e| {
         let first = brep.half_edges.get(e.half_edge)?;
-        let twin = brep.half_edges.get(first.twin)?;
+        let twin = first.mate().and_then(|m| brep.half_edges.get(m))?;
         let first_face = brep.loops.get(first.loop_)?.face;
         Some(if first_face == seam.cap_face {
             first.loop_

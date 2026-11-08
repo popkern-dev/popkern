@@ -1,5 +1,6 @@
-//! PK-911: a disc intersected with an inward-shelled boss (`BRep::prism`
-//! primitives are inward shells) in either operand order. The disc-first
+//! PK-911: a disc intersected with an inward-shelled boss (a prism
+//! turned inside out, as bodies written before solids faced outward
+//! may be) in either operand order. The disc-first
 //! order once served an invalid body: the cellular merge wired the
 //! mixed-sense pair's record edges one way from both sides, and the
 //! graph-merge fallback served record edges whose pcurves ran against
@@ -52,7 +53,9 @@ fn boss(z0: f64, tol: Tolerance) -> BRep {
         Point3::new(2.0, 2.0, z0),
         Point3::new(-2.0, 2.0, z0),
     ];
-    BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss")
+    let mut boss = BRep::prism(&pts, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("boss");
+    boss.reverse_body_orientation();
+    boss
 }
 
 #[test]
@@ -116,7 +119,7 @@ fn every_operation_on_the_mixed_sense_pair_validates_in_either_order() {
 }
 
 /// PK-916: a mixed-sense union whose tool's far faces the scope
-/// carries (an inward 16-gon boss of radius 10 on an outward 2 x 2
+/// carries (an outward 16-gon boss of radius 10 on an inward 2 x 2
 /// block) serves with the first operand's sense whole in either order:
 /// the carried far faces reverse with the tool's flipped fragments.
 /// Carried unreversed, the scoped union validated with the block's part

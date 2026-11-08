@@ -67,9 +67,11 @@ pub(super) fn arcify_corner_cap_boundaries(
                 continue;
             }
             let he0 = edge.half_edge;
-            let (v1, v2) = {
-                let d = &brep.half_edges[he0];
-                (d.origin, brep.half_edges[d.twin].origin)
+            let Some((v1, v2)) = brep
+                .mate(he0)
+                .map(|m| (brep.half_edges[he0].origin, brep.half_edges[m].origin))
+            else {
+                continue;
             };
             if v1 == v2 {
                 continue;
@@ -159,9 +161,10 @@ pub(super) fn arcify_corner_cap_boundaries(
                 // resurrect the chord; recompute re-authors from
                 // the arc.
                 let he0 = e.half_edge;
-                let tw = brep.half_edges[he0].twin;
                 brep.half_edges[he0].pcurve = None;
-                brep.half_edges[tw].pcurve = None;
+                if let Some(tw) = brep.half_edges[he0].mate() {
+                    brep.half_edges[tw].pcurve = None;
+                }
             }
         }
     }
@@ -232,7 +235,9 @@ pub(super) fn collapse_corner_anchor_chords(
             for _ in 0..candidate.half_edges.len() + 1 {
                 let d = &candidate.half_edges[he];
                 let v_o = d.origin;
-                let v_d = candidate.half_edges[d.twin].origin;
+                let Some(v_d) = d.mate().map(|m| candidate.half_edges[m].origin) else {
+                    break;
+                };
                 let p_o = candidate.vertices[v_o].position;
                 let p_d = candidate.vertices[v_d].position;
                 let edge = d.edge;
@@ -343,7 +348,7 @@ pub(super) fn rebuild_incident_straight_edges(
                 || brep
                     .half_edges
                     .get(he)
-                    .and_then(|h| brep.half_edges.get(h.twin))
+                    .and_then(|h| h.mate().and_then(|m| brep.half_edges.get(m)))
                     .is_some_and(|t| t.origin == vertex)
         })
         .map(|(h, _)| h)
@@ -351,7 +356,12 @@ pub(super) fn rebuild_incident_straight_edges(
     for eh in incident {
         let he = brep.edges[eh].half_edge;
         let a = brep.vertices[brep.half_edges[he].origin].position;
-        let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        let Some(b) = brep
+            .mate(he)
+            .map(|m| brep.vertices[brep.half_edges[m].origin].position)
+        else {
+            continue;
+        };
         let Some(curve) = brep.edges[eh].curve.clone() else {
             continue;
         };
@@ -455,8 +465,9 @@ pub(super) fn rebuild_incident_straight_edges(
         // drop them so the global recompute re-authors from the new
         // 3D curves.
         let he0 = brep.edges[eh].half_edge;
-        let tw = brep.half_edges[he0].twin;
         brep.half_edges[he0].pcurve = None;
-        brep.half_edges[tw].pcurve = None;
+        if let Some(tw) = brep.half_edges[he0].mate() {
+            brep.half_edges[tw].pcurve = None;
+        }
     }
 }

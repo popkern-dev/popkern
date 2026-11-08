@@ -261,15 +261,13 @@ pub(crate) fn restore_corner_group(
         let Some(data) = out.remove_half_edge_reanchored(h) else {
             continue;
         };
-        if out.half_edges.contains_key(data.twin) {
-            out.boundary_edges.insert(data.edge);
+        if data.mate().is_some_and(|m| out.half_edges.contains_key(m)) {
             if let Some(ed) = out.edges.get_mut(data.edge)
                 && ed.half_edge == h
             {
-                ed.half_edge = data.twin;
+                ed.half_edge = data.require_mate()?;
             }
         } else if out.edges.remove(data.edge).is_some() {
-            out.boundary_edges.remove(&data.edge);
         }
     }
     let mut merges = 0usize;
@@ -284,7 +282,7 @@ pub(crate) fn restore_corner_group(
             let Some(he) = out.half_edges.get(ed.half_edge) else {
                 continue;
             };
-            let Some(tw) = out.half_edges.get(he.twin) else {
+            let Some(tw) = he.mate().and_then(|m| out.half_edges.get(m)) else {
                 continue;
             };
             let (Some(la), Some(lb)) = (out.loops.get(he.loop_), out.loops.get(tw.loop_)) else {
@@ -301,7 +299,7 @@ pub(crate) fn restore_corner_group(
             let (cand, kills_residual) = if fb_res {
                 (ed.half_edge, true)
             } else if fa_res {
-                (he.twin, true)
+                (he.require_mate()?, true)
             } else {
                 (ed.half_edge, false)
             };
@@ -314,9 +312,9 @@ pub(crate) fn restore_corner_group(
             }
         }
         let Some((he, _)) = best else { break };
-        let killed = out
-            .half_edges
-            .get(out.half_edges[he].twin)
+        let killed = out.half_edges[he]
+            .mate()
+            .and_then(|m| out.half_edges.get(m))
             .and_then(|tw| out.loops.get(tw.loop_).map(|l| l.face));
         out.kef(he).map_err(BlendError::Topology)?;
         if let Some(k) = killed {

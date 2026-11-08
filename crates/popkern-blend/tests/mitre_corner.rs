@@ -36,7 +36,7 @@ fn incident_edges(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> {
         .iter()
         .filter(|(_, e)| {
             let he = &brep.half_edges[e.half_edge];
-            he.origin == vertex || brep.half_edges[he.twin].origin == vertex
+            he.origin == vertex || brep.half_edges[he.mate().unwrap_or_default()].origin == vertex
         })
         .map(|(h, _)| h)
         .collect()
@@ -223,7 +223,8 @@ fn skewed_square_pyramid(dx: f64, dy: f64) -> BRep {
     for e in edges {
         let he = b.edges[e].half_edge;
         let s = b.vertices[b.half_edges[he].origin].position;
-        let t = b.vertices[b.half_edges[b.half_edges[he].twin].origin].position;
+        let t =
+            b.vertices[b.half_edges[b.half_edges[he].mate().unwrap_or_default()].origin].position;
         b.edges[e].curve = Some(CurveOnEdge {
             geometry: CurveGeometry::Line {
                 origin: s,
@@ -242,12 +243,15 @@ fn skewed_square_pyramid(dx: f64, dy: f64) -> BRep {
         let normal = (p1 - p0).cross(&(p2 - p0)).normalized().expect("plane");
         let u_axis = (p1 - p0).normalized().expect("plane");
         let v_axis = normal.cross(&u_axis);
-        b.faces[f].surface.as_mut().expect("surface").geometry = SurfaceGeometry::Plane {
+        // The normal is read off the winding, so the flag is true.
+        let surface = b.faces[f].surface.as_mut().expect("surface");
+        surface.geometry = SurfaceGeometry::Plane {
             origin: p0,
             normal,
             u_axis,
             v_axis,
         };
+        surface.orientation = true;
     }
     b.attach_planar_pcurves().expect("pcurves");
     b.validate().expect("skewed pyramid validates");

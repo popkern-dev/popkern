@@ -4,7 +4,8 @@ use crate::euler::{
 };
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex};
+use crate::topology::RadialLinks;
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 #[test]
 fn boundary_side_separator_preflight_accepts_one_already_boundary_overlap() {
@@ -173,7 +174,7 @@ fn boundary_side_separator_bridge_commits_live_shared_start_shape() {
 
     assert_eq!(result.bridge_faces.len(), 3);
     assert_eq!(result.bridge_loops.len(), 3);
-    assert!(!brep.boundary_edges.contains(&result.separator_edge));
+    assert!(!brep.is_free_edge(result.separator_edge));
     assert_eq!(
         topology_delta(&brep, before),
         (
@@ -229,8 +230,11 @@ fn boundary_side_separator_rejects_non_boundary_overlap() {
     let loop_ = brep.faces[face].outer_loop;
     let first = brep.loops[loop_].half_edge;
     let after_first = brep.half_edges[first].next;
-    let edge = brep.half_edges[first].edge;
-    brep.boundary_edges.remove(&edge);
+    // The edge under `first` is not a boundary: give its free fin a
+    // mate (a copy of its loop use), as an interior edge has.
+    let copy = brep.half_edges[first].clone();
+    let mate = brep.half_edges.insert(copy);
+    brep.set_mates(first, mate);
 
     let err = brep
         .preflight_boundary_side_separator_bridge(BoundarySideSeparatorBridgeRequest {
@@ -251,14 +255,7 @@ fn boundary_side_separator_rejects_non_boundary_overlap() {
 
 fn same_loop_boundary_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let face = add_boundary_polygon(
         &mut brep,
         shell,
@@ -269,20 +266,13 @@ fn same_loop_boundary_fixture() -> BRep {
             Point3::new(3.0, 0.0, 0.0),
         ],
     );
-    brep.shells[shell].face = face;
+    brep.set_sides_anchor(shell, face);
     brep
 }
 
 fn separator_bridge_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     add_boundary_polygon(
         &mut brep,
         shell,
@@ -315,19 +305,20 @@ fn separator_bridge_fixture() -> BRep {
             Point3::new(5.0, 0.0, 0.0),
         ],
     );
-    brep.shells[shell].face = outside;
+    brep.set_sides_anchor(shell, outside);
     brep
 }
 
 fn add_boundary_polygon(
     brep: &mut BRep,
-    shell: crate::topology::ShellHandle,
+    shell: crate::topology::FaceSides,
     positions: &[Point3],
 ) -> crate::topology::FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -336,6 +327,7 @@ fn add_boundary_polygon(
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let mut half_edges = Vec::new();
@@ -356,7 +348,7 @@ fn add_boundary_polygon(
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -365,7 +357,6 @@ fn add_boundary_polygon(
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edges.push(half_edge);
     }
     for index in 0..half_edges.len() {

@@ -74,7 +74,7 @@ fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut Coinc
         .filter_map(|(h, e)| {
             let curve = e.curve.as_ref()?;
             let he = b.half_edges.get(e.half_edge)?;
-            let twin = b.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| b.half_edges.get(m))?;
             let bx = super::edge_box::conservative_curve_box(
                 &curve.geometry,
                 (curve.t_start, curve.t_end),
@@ -101,7 +101,7 @@ fn detect_edge_overlaps(a: &BRep, b: &BRep, tol: &BoolTolerance, map: &mut Coinc
             Some(h) => h,
             None => continue,
         };
-        let twin_a = match a.half_edges.get(he_a.twin) {
+        let twin_a = match he_a.mate().and_then(|m| a.half_edges.get(m)) {
             Some(t) => t,
             None => continue,
         };

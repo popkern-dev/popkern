@@ -230,7 +230,7 @@ fn shared_edge_component(
             let start = loop_.half_edge;
             let mut he = start;
             while let Some(he_data) = brep.half_edges.get(he) {
-                if let Some(twin_data) = brep.half_edges.get(he_data.twin)
+                if let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m))
                     && let Some(partner_loop) = brep.loops.get(twin_data.loop_)
                 {
                     let partner = partner_loop.face;
@@ -286,7 +286,7 @@ fn component_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>
             // defensive access instead of indexing (PK-328: the
             // pre-flight query reaches classify on sheet bodies).
             while let Some(he_data) = brep.half_edges.get(he) {
-                if let Some(twin_data) = brep.half_edges.get(he_data.twin)
+                if let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m))
                     && let Some(partner_loop) = brep.loops.get(twin_data.loop_)
                 {
                     let partner = partner_loop.face;
@@ -339,11 +339,11 @@ fn component_is_open(brep: &BRep, component: &[FaceHandle]) -> bool {
                 let start = loop_.half_edge;
                 let mut he = start;
                 while let Some(h) = brep.half_edges.get(he) {
-                    let across = brep
-                        .half_edges
-                        .get(h.twin)
+                    let across = h
+                        .mate()
+                        .and_then(|m| brep.half_edges.get(m))
                         .and_then(|t| brep.loops.get(t.loop_));
-                    if across.is_none() || brep.boundary_edges.contains(&h.edge) {
+                    if across.is_none() || brep.is_free_edge(h.edge) {
                         return true;
                     }
                     he = h.next;
@@ -379,14 +379,13 @@ mod tests {
         let result = classify_faces(&brep, 0.1, &[], ShellDirection::Inward, &[]).unwrap();
         assert_eq!(result.offset_faces.len(), 6);
         assert_eq!(result.removed_faces.len(), 0);
-        // The unit cube stores plane normals pointing INTO the material
-        // (component folds inward, orientation=true → c_out = −1), so
-        // material-Inward maps to the along-+n geometric flag:
-        // inward=false. The old flag-only pin (inward=true) encoded the
-        // inverted semantics that served void-outside hollow bodies.
+        // The unit cube's plane normals point out of the material
+        // (component folds outward, orientation=true → c_out = +1), so
+        // material-Inward maps to the along-−n geometric flag:
+        // inward=true.
         for &(_, dist, inward) in &result.offset_faces {
             assert!((dist - 0.1).abs() < 1e-12);
-            assert!(!inward, "material-Inward on the cube offsets along +n");
+            assert!(inward, "material-Inward on the cube offsets along −n");
         }
     }
 
@@ -407,9 +406,9 @@ mod tests {
         let result = classify_faces(&brep, 0.2, &[], ShellDirection::Midplane, &[]).unwrap();
         for &(_, dist, inward) in &result.offset_faces {
             assert!((dist - 0.1).abs() < 1e-12);
-            // Material-Inward on the cube = geometric along-+n (see
+            // Material-Inward on the cube = geometric along-−n (see
             // cube_all_faces_offset).
-            assert!(!inward);
+            assert!(inward);
         }
     }
 
@@ -418,8 +417,8 @@ mod tests {
         let brep = BRep::unit_cube(tol()).unwrap();
         let result = classify_faces(&brep, 0.1, &[], ShellDirection::Outward, &[]).unwrap();
         for &(_, _, inward) in &result.offset_faces {
-            // Material-Outward on the inward-folded cube = along −n.
-            assert!(inward);
+            // Material-Outward on the outward-folded cube = along +n.
+            assert!(!inward);
         }
     }
 

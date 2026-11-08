@@ -52,7 +52,7 @@ fn zebra_refutes_the_low_valence_cap_crease() {
             let Some(he) = brep.half_edges.get(edge.half_edge) else {
                 continue;
             };
-            let Some(twin) = brep.half_edges.get(he.twin) else {
+            let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
                 continue;
             };
             let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(twin.loop_))

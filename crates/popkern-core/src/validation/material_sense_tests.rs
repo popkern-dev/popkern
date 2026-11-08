@@ -131,3 +131,21 @@ fn a_seam_only_sphere_is_determinate_at_every_placement() {
     }
     assert!(unknown.is_empty(), "sense unknown at {unknown:?}");
 }
+
+/// The enclosed volume is the volume: a third of the wedge integral
+/// (it read three times it). Planar faces integrate exactly on the
+/// midpoint grid (a unit cube, one scaled by two).
+#[test]
+fn the_enclosed_volume_of_boxes_is_their_volume() {
+    use crate::geometry::transform::Transform3;
+    let tol = crate::tolerance::Tolerance::default();
+    let cube = crate::topology::BRep::unit_cube(tol).expect("cube");
+    let long = crate::topology::BRep::unit_cube(tol)
+        .and_then(|c| c.transform(&Transform3::scale_uniform(2.0)))
+        .expect("box");
+    for (body, want) in [(cube, 1.0), (long, 8.0)] {
+        let faces: Vec<_> = body.faces.keys().collect();
+        let v = body.enclosed_folded_volume(&faces).expect("volume");
+        assert!((v - want).abs() < 1e-9, "{v} != {want}");
+    }
+}

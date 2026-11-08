@@ -95,7 +95,7 @@ fn direct_apex_stage_d_v_free_topology_acceptance() {
         }
         let twin_owner = brep
             .half_edges
-            .get(half_edge.twin)
+            .get(half_edge.mate().unwrap_or_default())
             .and_then(|twin| brep.loops.get(twin.loop_))
             .map(|twin_loop| twin_loop.face);
         let twin_is_production = twin_owner.is_some_and(|face| {

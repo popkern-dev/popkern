@@ -96,7 +96,7 @@ fn detect_edges_vs_faces(
             Some(v) => v.position,
             None => continue,
         };
-        let twin = match edge_brep.half_edges.get(he.twin) {
+        let twin = match he.mate().and_then(|m| edge_brep.half_edges.get(m)) {
             Some(t) => t,
             None => continue,
         };

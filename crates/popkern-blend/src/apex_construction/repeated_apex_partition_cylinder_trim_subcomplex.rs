@@ -125,8 +125,8 @@ pub(super) fn twinless_boundary_spans_of_loops(
             let Some(data) = brep.half_edges.get(cursor) else {
                 break;
             };
-            if !brep.half_edges.contains_key(data.twin)
-                && brep.boundary_edges.contains(&data.edge)
+            if !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+                && brep.is_free_edge(data.edge)
                 && let Some(end) = support_split_half_edge_end_vertex(brep, cursor)
             {
                 spans.push((data.origin, end));

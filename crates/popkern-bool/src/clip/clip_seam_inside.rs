@@ -67,9 +67,9 @@ fn seam_us(brep: &BRep, face: FaceHandle) -> Vec<f64> {
             let Some(he) = brep.half_edges.get(h) else {
                 break;
             };
-            let twin_here = brep
-                .half_edges
-                .get(he.twin)
+            let twin_here = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|t| brep.loops.get(t.loop_))
                 .is_some_and(|tl| tl.face == face);
             if twin_here && let Some(pc) = he.pcurve.as_ref() {

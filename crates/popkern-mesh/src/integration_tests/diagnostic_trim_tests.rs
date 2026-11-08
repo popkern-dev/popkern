@@ -384,7 +384,7 @@ fn print_fillet_footprint_positions() {
     // Print the edge being filleted
     let he = cube.edges[edge].half_edge;
     let v_start = cube.vertices[cube.half_edges[he].origin].position;
-    let twin = cube.half_edges[he].twin;
+    let twin = cube.half_edges[he].mate().unwrap_or_default();
     let v_end = cube.vertices[cube.half_edges[twin].origin].position;
     eprintln!(
         "Filleting edge from ({:.3},{:.3},{:.3}) to ({:.3},{:.3},{:.3})",
@@ -442,7 +442,7 @@ fn trace_fillet_center_curve() {
 
     let (anchor_a, anchor_b) = {
         let he = &cube.half_edges[cube.edges[edge].half_edge];
-        let twin = &cube.half_edges[he.twin];
+        let twin = &cube.half_edges[he.mate().unwrap_or_default()];
         (
             cube.vertices[he.origin].position,
             cube.vertices[twin.origin].position,

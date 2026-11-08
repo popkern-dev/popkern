@@ -59,7 +59,7 @@ pub(crate) fn boundary_tangency(brep: &BRep, face: FaceHandle) -> Option<Vec<Bou
         }
 
         let he_data = brep.half_edges.get(he)?;
-        let twin_data = brep.half_edges.get(he_data.twin)?;
+        let twin_data = he_data.mate().and_then(|m| brep.half_edges.get(m))?;
         let neighbour_loop = brep.loops.get(twin_data.loop_)?;
         let neighbour = neighbour_loop.face;
 
@@ -167,7 +167,7 @@ pub(crate) fn edge_midpoint(brep: &BRep, edge: &popkern_core::topology::Edge) ->
     // Fallback: average the vertex positions reached through the
     // half-edge and its twin.
     if let Some(he) = brep.half_edges.get(edge.half_edge)
-        && let Some(twin) = brep.half_edges.get(he.twin)
+        && let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m))
         && let Some(v0) = brep.vertices.get(he.origin)
         && let Some(v1) = brep.vertices.get(twin.origin)
     {
@@ -279,7 +279,7 @@ fn edge_length(brep: &BRep, edge: &popkern_core::topology::Edge) -> f64 {
     let Some(he) = brep.half_edges.get(edge.half_edge) else {
         return 0.0;
     };
-    let Some(twin) = brep.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
         return 0.0;
     };
     let Some(v0) = brep.vertices.get(he.origin) else {

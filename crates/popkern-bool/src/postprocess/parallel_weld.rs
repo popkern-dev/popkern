@@ -53,7 +53,7 @@ pub(crate) fn weld_parallel_self_twins_in(
         )> = brep
             .half_edges
             .iter()
-            .filter(|(heh, he)| he.twin == *heh)
+            .filter(|(heh, he)| he.mate() == Some(*heh))
             .filter_map(|(heh, he)| {
                 let a = brep.vertices.get(he.origin)?.position;
                 let b = brep
@@ -80,8 +80,8 @@ pub(crate) fn weld_parallel_self_twins_in(
         let snapshot = brep.clone();
         let edge_a = brep.half_edges[ha].edge;
         let edge_b = brep.half_edges[hb].edge;
-        brep.half_edges[ha].twin = hb;
-        brep.half_edges[hb].twin = ha;
+        brep.half_edges[ha].set_mate(hb);
+        brep.half_edges[hb].set_mate(ha);
         brep.half_edges[hb].edge = edge_a;
         // VERTEX UNIFICATION (PK-483): each masked rim kept its own
         // endpoint vertices, so the freshly wired twins straddle

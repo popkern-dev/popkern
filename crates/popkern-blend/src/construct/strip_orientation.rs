@@ -118,7 +118,7 @@ pub(crate) fn reconcile_strip_orientation(
         let Some(he_a_data) = brep.half_edges.get(he_a) else {
             continue;
         };
-        let Some(he_b_data) = brep.half_edges.get(he_a_data.twin) else {
+        let Some(he_b_data) = he_a_data.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         // The support side of the trim: whichever half-edge's loop

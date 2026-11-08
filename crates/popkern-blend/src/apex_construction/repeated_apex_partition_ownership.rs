@@ -65,7 +65,7 @@ impl FaceEdgeOwnership {
         let support_half_edge = brep
             .half_edges
             .get(face_edge_cap_half_edge)
-            .map(|half_edge| half_edge.twin)
+            .and_then(|half_edge| half_edge.mate())
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition FaceEdge arc[{fillet_index}] has stale \
@@ -152,7 +152,7 @@ fn validate_face_edge_ownership_record(
     let cap_twin = brep
         .half_edges
         .get(face_edge.face_edge_cap_half_edge)
-        .map(|half_edge| half_edge.twin)
+        .and_then(|half_edge| half_edge.mate())
         .ok_or_else(|| ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition FaceEdge[{}] cap half-edge {:?} is stale",
@@ -238,7 +238,7 @@ fn validate_fillet_end_ownership_record(
     let cap_twin = brep
         .half_edges
         .get(fillet_end.cap_half_edge)
-        .map(|half_edge| half_edge.twin)
+        .and_then(|half_edge| half_edge.mate())
         .ok_or_else(|| ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition FilletEnd[{}] cap half-edge {:?} is stale",

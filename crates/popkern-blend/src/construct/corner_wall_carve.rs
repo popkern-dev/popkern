@@ -276,11 +276,13 @@ pub(crate) fn carve_corner_wall_topology(
         // in place when it deviates.
         let direct = cand.edges.iter().find_map(|(eh, ed)| {
             cand.half_edges.get(ed.half_edge).and_then(|he| {
-                cand.half_edges.get(he.twin).and_then(|tw| {
-                    ((he.origin == anchor_vertex && tw.origin == corner_vertex)
-                        || (he.origin == corner_vertex && tw.origin == anchor_vertex))
-                        .then_some((eh, he.origin == anchor_vertex))
-                })
+                he.mate()
+                    .and_then(|m| cand.half_edges.get(m))
+                    .and_then(|tw| {
+                        ((he.origin == anchor_vertex && tw.origin == corner_vertex)
+                            || (he.origin == corner_vertex && tw.origin == anchor_vertex))
+                            .then_some((eh, he.origin == anchor_vertex))
+                    })
             })
         });
         if let Some((direct_edge, forward)) = direct {
@@ -383,7 +385,8 @@ pub(crate) fn carve_corner_wall_topology(
                 break;
             };
             count += 1;
-            if let Some(tw) = cand.half_edges.get(he.twin)
+            if let Some(tw_h) = he.mate()
+                && let Some(tw) = cand.half_edges.get(tw_h)
                 && let Some(tl) = cand.loops.get(tw.loop_)
                 && tl.face != sliver
                 && tl.face != wall_face
@@ -393,7 +396,7 @@ pub(crate) fn carve_corner_wall_topology(
                     .and_then(|f| f.surface.as_ref())
                     .is_some_and(|sof| matches!(sof.geometry, SurfaceGeometry::Nurbs(_)))
             {
-                strip_side = Some((he.twin, tl.face));
+                strip_side = Some((tw_h, tl.face));
             }
             cur = he.next;
             if cur == start {

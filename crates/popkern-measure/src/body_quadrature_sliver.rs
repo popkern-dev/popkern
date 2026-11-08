@@ -76,9 +76,9 @@ pub(super) fn face_trims(brep: &BRep, face: FaceHandle) -> Vec<Trim<'_>> {
                 edge: brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()),
                 lo,
                 hi,
-                closed: brep
-                    .half_edges
-                    .get(h.twin)
+                closed: h
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .is_some_and(|t| t.origin == h.origin),
                 samples,
             });

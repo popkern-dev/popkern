@@ -3,8 +3,7 @@
 
 /// "solids", "solids or sheets": the kinds an operation accepts.
 pub(super) fn accepted_label(kinds: &[popkern_core::topology::BodyKind]) -> String {
-    let names: Vec<String> = kinds.iter().map(|k| format!("{}s", k.label())).collect();
-    names.join(" or ")
+    popkern_core::topology::BodyKind::list_label(kinds)
 }
 
 /// The kind of a zero-thickness contact in a non-manifold result.

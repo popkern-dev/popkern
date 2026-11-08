@@ -1,9 +1,7 @@
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, Shell, ShellHandle, Solid,
-    Vertex, VertexHandle,
-};
+use popkern_core::topology::RadialLinks;
+use popkern_core::topology::{BRep, Edge, Face, FaceHandle, HalfEdge, Loop, Vertex, VertexHandle};
 
 use super::super::repeated_apex_region_candidates::{CandidateStatus, RegionOperationKind};
 use super::super::repeated_apex_side_support_bridge::FaceFamilyBridgePrimitiveDerivation;
@@ -218,7 +216,7 @@ fn read_only_snapshot_ready_for_boundary_bridge_plan() {
     assert_eq!(applied.edges.len(), brep.edges.len() + 2);
     assert_eq!(applied.faces.len(), brep.faces.len() + 2);
     assert_eq!(applied.loops.len(), brep.loops.len() + 2);
-    assert!(applied.boundary_edges.is_empty());
+    assert!(!applied.has_free_edges());
 }
 
 #[test]
@@ -403,14 +401,7 @@ fn outer_loop_vertices(brep: &BRep, face: FaceHandle) -> Vec<VertexHandle> {
 
 fn two_boundary_quads() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
 
     let first_face = add_boundary_quad(
         &mut brep,
@@ -432,15 +423,20 @@ fn two_boundary_quads() -> BRep {
             Point3::new(0.0, 1.0, 1.0),
         ],
     );
-    brep.shells[shell].face = first_face;
+    brep.set_sides_anchor(shell, first_face);
     brep
 }
 
-fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]) -> FaceHandle {
+fn add_boundary_quad(
+    brep: &mut BRep,
+    shell: popkern_core::topology::FaceSides,
+    positions: [Point3; 4],
+) -> FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -449,6 +445,7 @@ fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let vertices = positions.map(|position| {
@@ -470,7 +467,7 @@ fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -479,7 +476,6 @@ fn add_boundary_quad(brep: &mut BRep, shell: ShellHandle, positions: [Point3; 4]
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edge
     });
     for i in 0..4 {

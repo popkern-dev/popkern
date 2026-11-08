@@ -28,4 +28,8 @@ pub enum MeasureError {
     /// Edge has no curve geometry assigned.
     #[error("edge has no curve geometry")]
     MissingCurve,
+    /// The body is not a kind the measurement applies to (the volume
+    /// of a sheet or of a general body), or another core refusal.
+    #[error(transparent)]
+    Core(#[from] popkern_core::error::CoreError),
 }

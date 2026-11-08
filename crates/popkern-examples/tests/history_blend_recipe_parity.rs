@@ -456,7 +456,7 @@ fn edge_endpoint_max_y(brep: &BRep, edge: popkern_core::topology::EdgeHandle) ->
 
 fn edge_endpoints(brep: &BRep, edge: popkern_core::topology::EdgeHandle) -> Vec<[f64; 3]> {
     let he = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he].mate().unwrap_or_default();
     [brep.half_edges[he].origin, brep.half_edges[twin].origin]
         .iter()
         .map(|&v| {

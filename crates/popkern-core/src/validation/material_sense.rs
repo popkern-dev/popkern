@@ -70,7 +70,7 @@ impl BRep {
             // Open sheets have loopless (or absent) twins at free
             // rims — no neighbour across that edge.
             while let Some(he_data) = self.half_edges.get(he) {
-                if let Some(twin_data) = self.half_edges.get(he_data.twin)
+                if let Some(twin_data) = he_data.mate().and_then(|m| self.half_edges.get(m))
                     && let Some(partner_loop) = self.loops.get(twin_data.loop_)
                 {
                     let partner = partner_loop.face;
@@ -85,15 +85,64 @@ impl BRep {
             }
         }
 
-        const GRID: usize = 6;
-        // The trim classifier's parametric boundary band
-        // (`face_trim_classify_uv`).
-        let band = self
-            .tolerance
+        let wedge = self.folded_wedge_volume(&component)?;
+        Some(if wedge > 0.0 {
+            MaterialSense::FoldedOutward
+        } else {
+            MaterialSense::FoldedInward
+        })
+    }
+
+    /// The folded-normal wedge integral (the enclosed volume, signed)
+    /// of the closed face set `faces`: positive when their folded
+    /// normals face out of the volume they bound, negative when in.
+    /// Sampled as [`BRep::component_material_sense`] describes (a 6 × 6
+    /// grid per face, samples within the trim classifier's boundary
+    /// band left out), so the magnitude is approximate and the sign is
+    /// the contract. `None` when the integral is too small to call (an
+    /// open or degenerate set, unsampleable geometry).
+    pub fn folded_wedge_volume(&self, faces: &[FaceHandle]) -> Option<f64> {
+        let band = self.sense_parametric_band();
+        self.wedge_integral(&unsigned(faces), 6, band)
+    }
+
+    /// [`BRep::folded_wedge_volume`] sampled finely enough to judge a
+    /// body by: a 12 × 12 grid per face, each sample counted by strict
+    /// trim containment. Leaving out the samples within the boundary
+    /// band drops a margin of every face from the integral, a tenth of
+    /// a unit cube's at a 1e-2 tolerance (measured: a cube less a
+    /// sphere read −1.08 where it encloses +0.2).
+    pub fn enclosed_folded_volume(&self, faces: &[FaceHandle]) -> Option<f64> {
+        self.wedge_integral(&unsigned(faces), 12, 1.0e-12)
+    }
+
+    /// [`BRep::enclosed_folded_volume`] of face sides: each face counted
+    /// with its sign, +1 where the region lies behind it, −1 where it
+    /// lies in front (a closed set of sides bounding one region, read
+    /// whichever way each face points).
+    pub fn enclosed_signed_volume(&self, sides: &[(FaceHandle, f64)]) -> Option<f64> {
+        self.wedge_integral(sides, 12, 1.0e-12)
+    }
+
+    /// The trim classifier's parametric boundary band
+    /// (`face_trim_classify_uv`).
+    fn sense_parametric_band(&self) -> f64 {
+        self.tolerance
             .parametric_base()
             .max(self.tolerance.linear())
             .max(1.0e-9)
-            * 10.0;
+            * 10.0
+    }
+
+    /// The wedge integral over `faces` on a `grid` × `grid` sample grid
+    /// per face, a sample counted when the trim classifier with
+    /// parametric band `classify_band` reads it interior.
+    fn wedge_integral(
+        &self,
+        faces: &[(FaceHandle, f64)],
+        grid: usize,
+        classify_band: f64,
+    ) -> Option<f64> {
         // The wedge integral of a closed surface is the same about any
         // centre, but the coarse grid leaves a residual ∫n dA ≠ 0 that
         // the centre multiplies: about the world origin, a thin body
@@ -105,7 +154,7 @@ impl BRep {
         let centre = {
             let mut sum = crate::geometry::Vec3::new(0.0, 0.0, 0.0);
             let mut count = 0usize;
-            for &face in &component {
+            for &(face, _) in faces {
                 for p in self.face_boundary_sample_points(face, 2) {
                     sum = sum + crate::geometry::Vec3::new(p.x, p.y, p.z);
                     count += 1;
@@ -118,8 +167,47 @@ impl BRep {
         };
         let mut wedge = 0.0;
         let mut magnitude = 0.0;
+        let sampled = self.sample_sides(faces, grid, classify_band, &mut |sign, p, n_da| {
+            // p · n dA about the centre (the volume is a third of it).
+            let r = p - crate::geometry::Point3::new(centre.x, centre.y, centre.z);
+            let contribution = sign * r.dot(&n_da);
+            wedge += contribution;
+            magnitude += contribution.abs();
+        });
+        if sampled == 0 {
+            return None;
+        }
+        // Indeterminate when the integral cancels to a sliver of its
+        // own terms (an open sheet, a degenerate body), or encloses
+        // less than a tolerance cube. The floor is relative: an
+        // absolute (100 · linear)³ read a 0.34-volume cone as
+        // indeterminate at a 1e-2 tolerance.
+        // The volume is a third of the wedge integral (the divergence
+        // of p is 3): read whole, every magnitude was three times the
+        // volume (a unit cube 3.0), which the sign checks never saw.
+        let volume = wedge / 3.0;
+        let linear = self.tolerance.linear();
+        if wedge.abs() < 1e-6 * magnitude || volume.abs() < linear * linear * linear {
+            return None;
+        }
+        Some(volume)
+    }
+
+    /// Visit every interior sample of `faces` on a `grid` × `grid` grid
+    /// per face (a sample counted when the trim classifier with
+    /// parametric band `classify_band` reads it interior) with the
+    /// face's sign, the point, and `n dA` (the folded normal times the
+    /// sample's parameter area). Returns the samples visited.
+    fn sample_sides(
+        &self,
+        faces: &[(FaceHandle, f64)],
+        grid: usize,
+        classify_band: f64,
+        integrand: &mut dyn FnMut(f64, crate::geometry::Point3, crate::geometry::Vec3),
+    ) -> usize {
+        let band = self.sense_parametric_band();
         let mut sampled = 0usize;
-        for &face in &component {
+        for &(face, sign) in faces {
             let Some(sof) = self.faces.get(face).and_then(|f| f.surface.as_ref()) else {
                 continue;
             };
@@ -157,20 +245,21 @@ impl BRep {
             {
                 v1 = v0 + p;
             }
-            let du = (u1 - u0) / GRID as f64;
-            let dv = (v1 - v0) / GRID as f64;
+            let du = (u1 - u0) / grid as f64;
+            let dv = (v1 - v0) / grid as f64;
             if du.abs() < f64::EPSILON || dv.abs() < f64::EPSILON {
                 continue;
             }
-            for i in 0..GRID {
-                for j in 0..GRID {
+            for i in 0..grid {
+                for j in 0..grid {
                     let u = u0 + du * (i as f64 + 0.5);
                     let v = v0 + dv * (j as f64 + 0.5);
                     let inside = matches!(
-                        self.face_trim_classify_uv(
+                        self.face_trim_classify_uv_band(
                             face,
                             &sof.geometry,
                             super::self_intersection_trim::UvPointForSense { u, v },
+                            classify_band,
                         ),
                         Some(super::self_intersection_trim::TrimContainmentForSense::Interior)
                     );
@@ -182,33 +271,79 @@ impl BRep {
                     let sv = sof.geometry.partial_v(u, v);
                     let n = su.cross(&sv);
                     let folded = if sof.orientation { n } else { n * -1.0 };
-                    // p · n dA with n dA = folded * du * dv.
-                    let (x, y, z) = (p.x - centre.x, p.y - centre.y, p.z - centre.z);
-                    let contribution = (x * folded.x + y * folded.y + z * folded.z) * du * dv;
-                    wedge += contribution;
-                    magnitude += contribution.abs();
+                    // n dA = folded * du * dv.
+                    integrand(sign, p, folded * (du * dv));
                     sampled += 1;
                 }
             }
         }
-        if sampled == 0 {
-            return None;
-        }
-        // Indeterminate when the integral cancels to a sliver of its
-        // own terms (an open sheet, a degenerate body), or encloses
-        // less than a tolerance cube. The floor is relative: an
-        // absolute (100 · linear)³ read a 0.34-volume cone as
-        // indeterminate at a 1e-2 tolerance.
-        let linear = self.tolerance.linear();
-        if wedge.abs() < 1e-6 * magnitude || wedge.abs() < linear * linear * linear {
-            return None;
-        }
-        Some(if wedge > 0.0 {
-            MaterialSense::FoldedOutward
-        } else {
-            MaterialSense::FoldedInward
-        })
+        sampled
     }
+
+    /// The winding number of `q` about the closed signed face set
+    /// `sides` (Gauss: the flux of (p − q) / |p − q|³ over it, over 4π):
+    /// about 1 inside the region the sides bound, 0 outside. Sampled as
+    /// [`BRep::enclosed_signed_volume`] is; `q` must lie off the faces.
+    pub fn winding_about(&self, sides: &[(FaceHandle, f64)], q: crate::geometry::Point3) -> f64 {
+        let mut flux = 0.0;
+        self.sample_sides(sides, 12, 1.0e-12, &mut |sign, p, n_da| {
+            let r = p - q;
+            let d = r.dot(&r).sqrt();
+            if d > 1e-12 {
+                flux += sign * r.dot(&n_da) / (d * d * d);
+            }
+        });
+        flux / (4.0 * std::f64::consts::PI)
+    }
+
+    /// The winding number of `q` about `region`'s boundary, every shell
+    /// of it read with its sides signed (+1 where the region lies behind
+    /// a face, −1 in front): about 1 inside the region, 0 outside it or
+    /// in a cavity of it. `q` must lie off the faces.
+    pub fn region_winding(
+        &self,
+        region: crate::topology::RegionHandle,
+        q: crate::geometry::Point3,
+    ) -> f64 {
+        let shells: std::collections::BTreeSet<_> =
+            self.region_shells(region).into_iter().collect();
+        let sides: Vec<(FaceHandle, f64)> = self
+            .faces
+            .iter()
+            .filter_map(
+                |(h, f)| match (shells.contains(&f.back), shells.contains(&f.front)) {
+                    (true, false) => Some((h, 1.0)),
+                    (false, true) => Some((h, -1.0)),
+                    _ => None,
+                },
+            )
+            .collect();
+        self.winding_about(&sides, q)
+    }
+}
+
+impl BRep {
+    /// A point of `face`'s interior: of its interior samples on a 6 × 6
+    /// grid, the one nearest their mean.
+    pub(crate) fn face_interior_sample(&self, face: FaceHandle) -> Option<crate::geometry::Point3> {
+        let mut points = Vec::new();
+        self.sample_sides(&[(face, 1.0)], 6, 1.0e-12, &mut |_, p, _| points.push(p));
+        let n = points.len() as f64;
+        let mean = points
+            .iter()
+            .fold(crate::geometry::Vec3::new(0.0, 0.0, 0.0), |a, p| {
+                a + crate::geometry::Vec3::new(p.x, p.y, p.z) * (1.0 / n)
+            });
+        let mean = crate::geometry::Point3::new(mean.x, mean.y, mean.z);
+        points
+            .into_iter()
+            .min_by(|a, b| a.distance_to(&mean).total_cmp(&b.distance_to(&mean)))
+    }
+}
+
+/// `faces`, each counted once forward.
+fn unsigned(faces: &[FaceHandle]) -> Vec<(FaceHandle, f64)> {
+    faces.iter().map(|&f| (f, 1.0)).collect()
 }
 
 #[cfg(test)]

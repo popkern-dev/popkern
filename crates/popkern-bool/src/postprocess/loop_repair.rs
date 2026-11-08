@@ -108,13 +108,13 @@ pub(crate) fn repair_stranded_loops_in(
         let Some(he) = brep.half_edges.get(heh) else {
             continue;
         };
-        let twin = he.twin;
+        let twin = he.mate();
         let edge = he.edge;
         let origin = he.origin;
         vertices_to_check.insert(origin);
 
         // If the twin is also stranded, remove the edge.
-        if stranded_set.contains(&twin) {
+        if twin.is_some_and(|t| stranded_set.contains(&t)) {
             edges_to_remove.push(edge);
         }
     }

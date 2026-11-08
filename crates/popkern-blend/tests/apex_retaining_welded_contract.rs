@@ -117,7 +117,7 @@ fn assert_claims_are_certified(result: &popkern_blend::BlendResult) {
             let he = &brep.half_edges[data.half_edge];
             let (fa, fb) = (
                 brep.loops[he.loop_].face,
-                brep.loops[brep.half_edges[he.twin].loop_].face,
+                brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face,
             );
             if fa == fb || !(fa == patch.face || fb == patch.face) {
                 continue;

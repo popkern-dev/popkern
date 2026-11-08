@@ -85,7 +85,7 @@ fn retire_mirror_ghost_complex_inner(brep: &mut BRep, grow: bool) -> usize {
                     None => {}
                     Some(face) if complex.contains(&face) => touches_complex = true,
                     Some(_) => {
-                        let Some(twin) = brep.half_edges.get(*side).map(|d| d.twin) else {
+                        let Some(twin) = brep.half_edges.get(*side).and_then(|d| d.mate()) else {
                             admissible = false;
                             break;
                         };
@@ -121,15 +121,13 @@ fn retire_mirror_ghost_complex_inner(brep: &mut BRep, grow: bool) -> usize {
         let Some(data) = brep.remove_half_edge_reanchored(side) else {
             continue;
         };
-        if brep.half_edges.contains_key(data.twin) {
-            brep.boundary_edges.insert(data.edge);
+        if let Some(survivor) = data.mate().filter(|m| brep.half_edges.contains_key(*m)) {
             if let Some(edge) = brep.edges.get_mut(data.edge)
                 && edge.half_edge == side
             {
-                edge.half_edge = data.twin;
+                edge.half_edge = survivor;
             }
         } else if brep.edges.remove(data.edge).is_some() {
-            brep.boundary_edges.remove(&data.edge);
         }
     }
     removed
@@ -162,7 +160,7 @@ pub(crate) fn remap_exact_boundary_sector_records(
                 return false;
             };
             let a = edge_data.half_edge;
-            let Some(b) = brep.half_edges.get(a).map(|d| d.twin) else {
+            let Some(b) = brep.half_edges.get(a).and_then(|d| d.mate()) else {
                 return false;
             };
             if !brep.half_edges.contains_key(b) {
@@ -317,7 +315,7 @@ fn loop_sides(brep: &BRep, face: FaceHandle) -> Vec<HalfEdgeHandle> {
 }
 
 fn twin_face_of(brep: &BRep, side: HalfEdgeHandle) -> Option<FaceHandle> {
-    let twin = brep.half_edges.get(side)?.twin;
+    let twin = brep.half_edges.get(side)?.mate()?;
     let twin_data = brep.half_edges.get(twin)?;
     brep.loops.get(twin_data.loop_).map(|l| l.face)
 }
@@ -339,7 +337,7 @@ fn has_dead_coincident_counterpart(
         if handle == side || own_sides.contains(&handle) {
             return false;
         }
-        if brep.half_edges.contains_key(data.twin) {
+        if data.mate().is_some_and(|m| brep.half_edges.contains_key(m)) {
             return false;
         }
         let Some((c, d)) = span_of(brep, handle) else {

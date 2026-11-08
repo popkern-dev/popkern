@@ -244,8 +244,7 @@ pub(super) fn trace_cellular_nonmanifold(r: &BRep) {
                     let he0 = edge.half_edge;
                     if r.half_edges.contains_key(he0) {
                         let a = r.vertices[r.half_edges[he0].origin].position;
-                        let tw = r.half_edges[he0].twin;
-                        if r.half_edges.contains_key(tw) {
+                        if let Some(tw) = r.mate(he0).filter(|t| r.half_edges.contains_key(*t)) {
                             let b = r.vertices[r.half_edges[tw].origin].position;
                             let _ = write!(
                                 endpoints,

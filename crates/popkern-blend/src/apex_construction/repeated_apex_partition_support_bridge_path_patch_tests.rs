@@ -1,20 +1,14 @@
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use popkern_core::topology::RadialLinks;
+use popkern_core::topology::{Edge, Face, HalfEdge, Loop, Vertex};
 
 use super::*;
 
 #[test]
 fn bridge_boundary_path_detects_multi_loop_regrouping_need() {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let vertices = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(1.0, 0.0, 0.0),
@@ -50,14 +44,7 @@ fn bridge_boundary_path_detects_multi_loop_regrouping_need() {
 #[test]
 fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let vertices = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(1.0, 0.0, 0.0),
@@ -102,7 +89,9 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
     let cylinder_half_edge = patch.cylinder_half_edge;
     let support_patch_face = patch.support_patch_face;
 
-    let support_half_edge = brep.half_edges[cylinder_half_edge].twin;
+    let support_half_edge = brep.half_edges[cylinder_half_edge]
+        .mate()
+        .unwrap_or_default();
     let support_loop = brep.half_edges[support_half_edge].loop_;
     assert_eq!(brep.loops[support_loop].face, support_patch_face);
     assert_eq!(
@@ -126,7 +115,7 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
         patch
             .boundary_spans
             .iter()
-            .all(|span| brep.boundary_edges.contains(&brep.half_edges[*span].edge))
+            .all(|span| brep.is_free_edge(brep.half_edges[*span].edge))
     );
     validate_replacement_loop_support_side_ownership(
         &brep,
@@ -140,14 +129,7 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
 #[test]
 fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop() {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let vertices = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(1.0, 0.0, 0.0),
@@ -189,7 +171,9 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
     let cylinder_half_edge = patch.cylinder_half_edge;
     let support_patch_face = patch.support_patch_face;
 
-    let support_half_edge = brep.half_edges[cylinder_half_edge].twin;
+    let support_half_edge = brep.half_edges[cylinder_half_edge]
+        .mate()
+        .unwrap_or_default();
     assert_eq!(
         half_edge_end_vertex(&brep, cylinder_half_edge),
         Some(vertices[1])
@@ -211,7 +195,7 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
         patch
             .boundary_spans
             .iter()
-            .all(|span| brep.boundary_edges.contains(&brep.half_edges[*span].edge))
+            .all(|span| brep.is_free_edge(brep.half_edges[*span].edge))
     );
     validate_replacement_loop_support_side_ownership(
         &brep,
@@ -225,14 +209,7 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
 #[test]
 fn bridge_path_patch_repairs_stale_shell_anchor_on_inserted_face() {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
     let vertices = [
         Point3::new(0.0, 0.0, 0.0),
         Point3::new(1.0, 0.0, 0.0),
@@ -248,7 +225,7 @@ fn bridge_path_patch_repairs_stale_shell_anchor_on_inserted_face() {
     });
     let stale_anchor =
         add_boundary_loop_face(&mut brep, shell, &[vertices[0], vertices[1], vertices[2]]);
-    brep.shells[shell].face = stale_anchor;
+    brep.set_sides_anchor(shell, stale_anchor);
     let stale_loop = brep.faces[stale_anchor].outer_loop;
     brep.loops.remove(stale_loop);
     brep.faces.remove(stale_anchor);
@@ -277,12 +254,12 @@ fn bridge_path_patch_repairs_stale_shell_anchor_on_inserted_face() {
     .expect("patch authoring succeeds")
     .expect("single span path patch applies");
 
-    assert_eq!(brep.shells[shell].face, patch.support_patch_face);
+    assert_eq!(brep.shells[shell.back].face, patch.support_patch_face);
 }
 
 fn add_boundary_loop(
     brep: &mut BRep,
-    shell: popkern_core::topology::ShellHandle,
+    shell: popkern_core::topology::FaceSides,
     vertices: &[VertexHandle],
 ) -> LoopHandle {
     let face = add_boundary_loop_face(brep, shell, vertices);
@@ -291,13 +268,14 @@ fn add_boundary_loop(
 
 fn add_boundary_loop_face(
     brep: &mut BRep,
-    shell: popkern_core::topology::ShellHandle,
+    shell: popkern_core::topology::FaceSides,
     vertices: &[VertexHandle],
 ) -> FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -306,6 +284,7 @@ fn add_boundary_loop_face(
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let half_edges = vertices
@@ -322,7 +301,7 @@ fn add_boundary_loop_face(
             });
             let half_edge = brep.half_edges.insert(HalfEdge {
                 origin: vertex,
-                twin: Default::default(),
+                ring: RadialLinks::alone(),
                 next: Default::default(),
                 prev: Default::default(),
                 edge,
@@ -330,7 +309,6 @@ fn add_boundary_loop_face(
                 pcurve: None,
             });
             brep.edges[edge].half_edge = half_edge;
-            brep.boundary_edges.insert(edge);
             if brep.vertices[vertex].outgoing == HalfEdgeHandle::default() {
                 brep.vertices[vertex].outgoing = half_edge;
             }

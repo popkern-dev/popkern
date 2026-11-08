@@ -1,5 +1,6 @@
 use super::*;
 use popkern_core::geometry::Point3;
+use popkern_core::topology::RadialLinks;
 
 #[test]
 fn weld_merges_two_vertices_at_same_position() {
@@ -92,7 +93,7 @@ fn weld_rewrites_half_edge_origins_to_canonical() {
     });
     let he1 = brep.half_edges.insert(popkern_core::topology::HalfEdge {
         origin: v1,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge: Default::default(),
@@ -101,7 +102,7 @@ fn weld_rewrites_half_edge_origins_to_canonical() {
     });
     let he2 = brep.half_edges.insert(popkern_core::topology::HalfEdge {
         origin: v2,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge: Default::default(),
@@ -148,7 +149,7 @@ fn build_duplicate_edges_fixture() -> (BRep, VertexHandle, VertexHandle, EdgeHan
     });
     let he_a1 = brep.half_edges.insert(HalfEdge {
         origin: v1,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge: edge_a,
@@ -157,14 +158,14 @@ fn build_duplicate_edges_fixture() -> (BRep, VertexHandle, VertexHandle, EdgeHan
     });
     let he_a2 = brep.half_edges.insert(HalfEdge {
         origin: v2,
-        twin: he_a1,
+        ring: RadialLinks::pair(he_a1),
         next: Default::default(),
         prev: Default::default(),
         edge: edge_a,
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[he_a1].twin = he_a2;
+    brep.half_edges[he_a1].set_mate(he_a2);
     brep.edges[edge_a].half_edge = he_a1;
 
     let edge_b = brep.edges.insert(Edge {
@@ -177,7 +178,7 @@ fn build_duplicate_edges_fixture() -> (BRep, VertexHandle, VertexHandle, EdgeHan
     });
     let he_b1 = brep.half_edges.insert(HalfEdge {
         origin: v1,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge: edge_b,
@@ -186,14 +187,14 @@ fn build_duplicate_edges_fixture() -> (BRep, VertexHandle, VertexHandle, EdgeHan
     });
     let he_b2 = brep.half_edges.insert(HalfEdge {
         origin: v2,
-        twin: he_b1,
+        ring: RadialLinks::pair(he_b1),
         next: Default::default(),
         prev: Default::default(),
         edge: edge_b,
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[he_b1].twin = he_b2;
+    brep.half_edges[he_b1].set_mate(he_b2);
     brep.edges[edge_b].half_edge = he_b1;
 
     (brep, v1, v2, edge_a, edge_b)
@@ -223,12 +224,9 @@ fn weld_edges_collapses_duplicate_edge() {
 fn weld_edges_populates_radial_cycle() {
     let (mut brep, _, _, _, _) = build_duplicate_edges_fixture();
     weld_coincident_edges(&mut brep);
-    assert_eq!(
-        brep.nonmanifold_radial.len(),
-        4,
-        "radial cycle should have 4 entries for the 4 half-edges"
-    );
-    let start = *brep.nonmanifold_radial.keys().next().unwrap();
+    assert_eq!(brep.edges.len(), 1, "the duplicates weld to one edge");
+    let welded = brep.edges.keys().next().expect("the welded edge");
+    let start = brep.edges[welded].half_edge;
     let mut cursor = start;
     let mut steps = 0;
     loop {
@@ -276,7 +274,7 @@ fn weld_edges_leaves_distinct_endpoints_untouched() {
         });
         let h1 = brep.half_edges.insert(HalfEdge {
             origin: a,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: eh,
@@ -285,14 +283,14 @@ fn weld_edges_leaves_distinct_endpoints_untouched() {
         });
         let h2 = brep.half_edges.insert(HalfEdge {
             origin: b,
-            twin: h1,
+            ring: RadialLinks::pair(h1),
             next: Default::default(),
             prev: Default::default(),
             edge: eh,
             loop_: Default::default(),
             pcurve: None,
         });
-        brep.half_edges[h1].twin = h2;
+        brep.half_edges[h1].set_mate(h2);
         brep.edges[eh].half_edge = h1;
     }
     let welds = weld_coincident_edges(&mut brep);
@@ -302,7 +300,7 @@ fn weld_edges_leaves_distinct_endpoints_untouched() {
     );
     assert_eq!(brep.edges.len(), 2);
     assert!(
-        brep.nonmanifold_radial.is_empty(),
-        "no radial cycles should be populated when nothing welds"
+        brep.edges.keys().all(|e| brep.edge_fin_count(e) <= 2),
+        "no non-manifold ring when nothing welds"
     );
 }

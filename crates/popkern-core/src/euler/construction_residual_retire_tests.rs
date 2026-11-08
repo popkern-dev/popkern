@@ -1,4 +1,5 @@
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{BRep, TopologyRole};
 
 #[test]
@@ -15,7 +16,7 @@ fn retire_construction_residual_face_exposes_surviving_edges() {
     assert_eq!(result.exposed_edges.len(), 4);
     assert_eq!(brep.faces.len(), 5);
     assert_eq!(brep.loops.len(), 5);
-    assert_eq!(brep.boundary_edges.len(), 4);
+    assert_eq!(brep.free_edges().len(), 4);
     brep.validate()
         .expect("retired residual leaves valid open shell");
 }
@@ -51,7 +52,7 @@ fn retire_unwired_construction_residual_edges_removes_null_loop_half_edges() {
     });
     let half_edge = brep.half_edges.insert(crate::topology::HalfEdge {
         origin: vertex,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge,
@@ -59,8 +60,6 @@ fn retire_unwired_construction_residual_edges_removes_null_loop_half_edges() {
         pcurve: None,
     });
     brep.edges[edge].half_edge = half_edge;
-    brep.boundary_edges.insert(edge);
-
     let result = brep
         .retire_unwired_construction_residual_edges()
         .expect("unwired residual retires");

@@ -97,7 +97,7 @@ fn incident_edges(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> {
         if half_edge.origin == vertex
             || brep
                 .half_edges
-                .get(half_edge.twin)
+                .get(half_edge.mate().unwrap_or_default())
                 .is_some_and(|twin| twin.origin == vertex)
         {
             edges.insert(half_edge.edge);

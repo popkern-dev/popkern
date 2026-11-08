@@ -92,7 +92,10 @@ fn edge_half_edges(brep: &BRep, edge: EdgeHandle) -> Vec<HalfEdgeHandle> {
         return Vec::new();
     };
     let mut out = vec![primary];
-    if let Some(twin) = brep.half_edges.get(primary).map(|half_edge| half_edge.twin)
+    if let Some(twin) = brep
+        .half_edges
+        .get(primary)
+        .and_then(|half_edge| half_edge.mate())
         && twin != primary
     {
         out.push(twin);

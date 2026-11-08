@@ -189,8 +189,11 @@ fn reverse_support_pcurve(brep: &mut BRep, half_edge: HalfEdgeHandle) {
 fn install_rational_quadratic_edge_curve(brep: &mut BRep, edge: EdgeHandle) {
     let edge_data = brep.edges[edge].clone();
     let start = brep.vertices[brep.half_edges[edge_data.half_edge].origin].position;
-    let end =
-        brep.vertices[brep.half_edges[brep.half_edges[edge_data.half_edge].twin].origin].position;
+    let end = brep.vertices[brep.half_edges[brep.half_edges[edge_data.half_edge]
+        .mate()
+        .unwrap_or_default()]
+    .origin]
+        .position;
     let midpoint = Point3::new(
         0.5 * (start.x + end.x),
         0.5 * (start.y + end.y),

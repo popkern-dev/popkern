@@ -28,11 +28,12 @@ fn pre_pk881_cone() -> BRep {
         .keys()
         .find(|&e| {
             let he = cone.edges[e].half_edge;
-            cone.half_edges[he].origin == cone.half_edges[cone.half_edges[he].twin].origin
+            cone.half_edges[he].origin
+                == cone.half_edges[cone.half_edges[he].mate().unwrap_or_default()].origin
         })
         .unwrap();
     let lateral = cone.edges[base].half_edge;
-    let cap = cone.half_edges[lateral].twin;
+    let cap = cone.half_edges[lateral].mate().unwrap_or_default();
     cone.edges[base].half_edge = cap;
     cone.half_edges[lateral].pcurve = Some(line(0.0, h, tau, h));
     let up = cone.half_edges[lateral].next;

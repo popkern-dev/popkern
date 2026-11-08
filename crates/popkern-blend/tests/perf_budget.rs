@@ -175,7 +175,7 @@ fn cylinder_base_fillet_within_budget() {
         .keys()
         .find(|&e| {
             let he = cyl.edges[e].half_edge;
-            let twin = cyl.half_edges[he].twin;
+            let twin = cyl.half_edges[he].mate().unwrap_or_default();
             cyl.loops[cyl.half_edges[he].loop_].face != cyl.loops[cyl.half_edges[twin].loop_].face
         })
         .expect("cylinder has a base edge with distinct faces");
@@ -210,7 +210,7 @@ fn cone_base_fillet_within_budget() {
         .keys()
         .find(|&e| {
             let he = cone.edges[e].half_edge;
-            let twin = cone.half_edges[he].twin;
+            let twin = cone.half_edges[he].mate().unwrap_or_default();
             cone.loops[cone.half_edges[he].loop_].face
                 != cone.loops[cone.half_edges[twin].loop_].face
         })

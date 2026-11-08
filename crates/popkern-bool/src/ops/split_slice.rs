@@ -43,6 +43,15 @@ pub fn split_by_plane(
     plane: &SplitPlane,
     tolerance: &Tolerance,
 ) -> Result<SplitResult, BoolError> {
+    crate::kind_gate::require_operand(
+        body,
+        "split by plane",
+        0,
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     let half = |normal: Vec3| -> Result<Option<BRep>, BoolError> {
         Ok(
             super::half_space::half_space(body, plane.origin, normal, *tolerance)?

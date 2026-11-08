@@ -38,7 +38,7 @@ pub fn suggest_tolerance(brep: &BRep, edge: EdgeHandle) -> Option<f64> {
     // Find the two faces adjacent to this edge via its half-edges.
     let he_handle = edge_data.half_edge;
     let he = brep.half_edges.get(he_handle)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
 
     let face_a_handle = brep.loops.get(he.loop_)?.face;
     let face_b_handle = brep.loops.get(twin.loop_)?.face;
@@ -136,7 +136,7 @@ pub fn enforce_tolerance_hierarchy(brep: &mut BRep) -> Vec<ToleranceAdjustment> 
         let mut vertex_handles: Vec<VertexHandle> = Vec::new();
         if let Some(he) = brep.half_edges.get(he_handle) {
             vertex_handles.push(he.origin);
-            if let Some(twin) = brep.half_edges.get(he.twin) {
+            if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) {
                 vertex_handles.push(twin.origin);
             }
         }

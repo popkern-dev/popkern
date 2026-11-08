@@ -41,9 +41,9 @@ pub(crate) fn record_boundary_audit(brep: &mut BRep, input: BoundaryAuditRecordI
         .loops
         .get(half_edge_data.loop_)
         .map(|loop_data| loop_data.face);
-    let twin_face = brep
-        .half_edges
-        .get(half_edge_data.twin)
+    let twin_face = half_edge_data
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
         .and_then(|twin| brep.loops.get(twin.loop_))
         .map(|loop_data| loop_data.face);
     brep.record_surface_boundary_audit_event(SurfaceBoundaryAuditEvent {

@@ -1,6 +1,7 @@
 use super::*;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{BRep, Vertex};
 
 fn tol() -> Tolerance {
@@ -211,7 +212,7 @@ fn weld_vertex_pair_updates_half_edge_origins() {
     // enough to verify the rewrite).
     let he = brep.half_edges.insert(HalfEdge {
         origin: v2,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge: Default::default(),

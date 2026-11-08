@@ -22,11 +22,11 @@ fn boundary_adjacent_interior_edges(ob: &BRep) -> Vec<popkern_core::topology::Ed
         .edges
         .iter()
         .filter(|(eh, _)| {
-            if ob.boundary_edges.contains(eh) {
+            if ob.is_free_edge(*eh) {
                 return false;
             }
             let he = ob.edges[*eh].half_edge;
-            let twin = ob.half_edges[he].twin;
+            let twin = ob.half_edges[he].mate().unwrap_or_default();
             if twin == popkern_core::topology::HalfEdgeHandle::default() {
                 return false;
             }
@@ -35,7 +35,7 @@ fn boundary_adjacent_interior_edges(ob: &BRep) -> Vec<popkern_core::topology::Ed
             let touches_boundary = |v: popkern_core::topology::VertexHandle| -> bool {
                 ob.half_edges
                     .values()
-                    .any(|h| h.origin == v && ob.boundary_edges.contains(&h.edge))
+                    .any(|h| h.origin == v && ob.is_free_edge(h.edge))
             };
             touches_boundary(v_start) || touches_boundary(v_end)
         })
@@ -168,7 +168,9 @@ fn tangent_match_cap_is_curvature_continuous_across_the_section() {
             let he = brep.half_edges.get(e.half_edge)?;
             let faces = [
                 brep.loops.get(he.loop_)?.face,
-                brep.loops.get(brep.half_edges.get(he.twin)?.loop_)?.face,
+                brep.loops
+                    .get(he.mate().and_then(|m| brep.half_edges.get(m))?.loop_)?
+                    .face,
             ];
             let (mut cap, mut cyl) = (None, None);
             for f in faces {

@@ -87,8 +87,8 @@ pub(super) fn edge_same_sense(
     // No chain info for the canonical use (its face is not periodic
     // — e.g. a plane's single-edge hole loop). The TWIN use may be
     // chain-resolved; the canonical direction is its opposite.
-    let twin = he.twin;
-    if let Some(twin_he) = brep.half_edges.get(twin)
+    if let Some(twin) = he.mate()
+        && let Some(twin_he) = brep.half_edges.get(twin)
         && let Some(twin_loop) = brep.loops.get(twin_he.loop_)
         && let Some(&twin_forward) = normalization.directions.get(&(twin_loop.face, twin))
         && let Some(twin_surface) = brep

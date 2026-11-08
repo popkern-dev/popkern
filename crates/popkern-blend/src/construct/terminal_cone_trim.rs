@@ -54,7 +54,7 @@ pub(super) fn repair_corner_conic(
 
     // Both twins must bound one shared planar cap face.
     let twin_face = |he: HalfEdgeHandle| -> Option<FaceHandle> {
-        let tw = brep.half_edges.get(brep.half_edges.get(he)?.twin)?;
+        let tw = brep.half_edges.get(brep.half_edges.get(he)?.mate()?)?;
         let l = brep.loops.get(tw.loop_)?;
         Some(l.face)
     };
@@ -255,10 +255,12 @@ pub(super) fn repair_corner_conic(
             he.pcurve = Some(stub.strip_pcurve.clone());
         }
         brep.set_face_use_pcurve(c.strip_face, stub.strip_half_edge, stub.strip_pcurve);
-        if let Some(tw) = brep.half_edges.get_mut(stub.cap_half_edge) {
-            tw.pcurve = Some(stub.cap_pcurve.clone());
+        if let Some(cap_he) = stub.cap_half_edge {
+            if let Some(tw) = brep.half_edges.get_mut(cap_he) {
+                tw.pcurve = Some(stub.cap_pcurve.clone());
+            }
+            brep.set_face_use_pcurve(cap_face, cap_he, stub.cap_pcurve);
         }
-        brep.set_face_use_pcurve(cap_face, stub.cap_half_edge, stub.cap_pcurve);
     }
     Ok(())
 }
@@ -286,7 +288,7 @@ fn author_conic_stub(
             .get(edge)
             .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?
             .half_edge;
-        (he.twin, edge, primary)
+        (he.mate(), edge, primary)
     };
     // The edge's stored curve is oriented along its primary half-edge.
     let (g_a, g_b) = if primary == he_strip {

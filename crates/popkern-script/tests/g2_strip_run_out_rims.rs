@@ -50,7 +50,7 @@ fn run_out_rims_lie_on_both_surfaces_and_rails_carry_no_gap() {
         let mut rims = 0;
         for (eh, e) in &b.edges {
             let he = &b.half_edges[e.half_edge];
-            let tw = &b.half_edges[he.twin];
+            let tw = &b.half_edges[he.mate().unwrap_or_default()];
             let a = b.vertices[he.origin].position;
             let z = b.vertices[tw.origin].position;
             if a.z.abs() > 1e-9 || z.z.abs() > 1e-9 {

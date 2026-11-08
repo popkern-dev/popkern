@@ -47,11 +47,13 @@ fn pick_sample_point_face_with_plane_surface_uses_fallback() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.5, 0.5, 0.0),
@@ -86,11 +88,13 @@ fn pick_sample_point_face_with_sphere_surface_uses_finite_range() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Sphere {
                 center: Point3::new(0.0, 0.0, 0.0),
@@ -123,7 +127,8 @@ fn face_vertex_positions_missing_loop_returns_empty() {
     let face_h = brep.faces.insert(Face {
         outer_loop: popkern_core::topology::LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: None,
         name: None,
         tolerance: None,
@@ -189,11 +194,13 @@ fn face_parameter_range_with_missing_loop_returns_default() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.0, 0.0, 0.0),
@@ -226,11 +233,13 @@ fn pick_sample_point_face_with_no_surface_returns_origin() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: None,
         name: None,
         tolerance: None,

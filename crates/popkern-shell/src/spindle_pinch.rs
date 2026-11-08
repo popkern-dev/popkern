@@ -160,15 +160,14 @@ pub(crate) fn serve_spindle_group(
     }
     let removed_count = dead.len();
 
-    let pre_boundary: BTreeSet<EdgeHandle> = body.boundary_edges.clone();
+    let pre_boundary: BTreeSet<EdgeHandle> = body.free_edges().into_iter().collect();
     body.remove_face_region_to_boundary(&dead)
         .map_err(|e| ShellError::Topology(format!("spindle region removal failed: {e}")))?;
 
     // The new boundary must fall into exactly two rings, one per pole.
     let new_boundary: Vec<EdgeHandle> = body
-        .boundary_edges
-        .iter()
-        .copied()
+        .free_edges()
+        .into_iter()
         .filter(|eh| !pre_boundary.contains(eh))
         .collect();
     let rings = connected_rings(body, &new_boundary);

@@ -49,7 +49,7 @@ pub fn measure_cap_outer_boundary(
         let Some(ha) = brep.half_edges.get(he_a) else {
             continue;
         };
-        let Some(hb) = brep.half_edges.get(ha.twin) else {
+        let Some(hb) = ha.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(loop_a) = brep.loops.get(ha.loop_) else {
@@ -68,7 +68,11 @@ pub fn measure_cap_outer_boundary(
         if a_is_cap == b_is_cap {
             continue;
         }
-        let cap_half_edge = if a_is_cap { he_a } else { ha.twin };
+        let cap_half_edge = if a_is_cap {
+            he_a
+        } else {
+            ha.mate().unwrap_or_default()
+        };
         let cap_face = if a_is_cap { face_a } else { face_b };
         if !half_edge_is_on_face_outer_loop(brep, cap_face, cap_half_edge) {
             continue;

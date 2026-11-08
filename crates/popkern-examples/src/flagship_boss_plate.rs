@@ -11,71 +11,12 @@
 
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, HalfEdge, HalfEdgeHandle};
 use popkern_sweep::{SweepOptions, SweepProfile, sweep};
 
-/// Closed degree-1 rectangle wire in the z=0 plane, centered at the
-/// origin: the plate sketch.
-fn rectangle_sketch(width: f64, depth: f64) -> NurbsCurve {
-    let (hw, hd) = (0.5 * width, 0.5 * depth);
-    let pts = vec![
-        Point3::new(-hw, -hd, 0.0),
-        Point3::new(hw, -hd, 0.0),
-        Point3::new(hw, hd, 0.0),
-        Point3::new(-hw, hd, 0.0),
-        Point3::new(-hw, -hd, 0.0),
-    ];
-    let n = pts.len();
-    let mut knots = vec![0.0];
-    for i in 0..n {
-        knots.push(i as f64 / (n - 1) as f64);
-    }
-    knots.push(1.0);
-    NurbsCurve {
-        degree: 1,
-        knots,
-        control_points: pts,
-        weights: vec![1.0; n],
-    }
-}
-
-/// Closed rational quadratic circle wire (standard 9-CP form) in the
-/// plane z = `z`, centered on the z-axis: the boss sketch.
-fn circle_sketch(radius: f64, z: f64) -> NurbsCurve {
-    let r = radius;
-    let w = std::f64::consts::FRAC_1_SQRT_2;
-    let pts = vec![
-        Point3::new(r, 0.0, z),
-        Point3::new(r, r, z),
-        Point3::new(0.0, r, z),
-        Point3::new(-r, r, z),
-        Point3::new(-r, 0.0, z),
-        Point3::new(-r, -r, z),
-        Point3::new(0.0, -r, z),
-        Point3::new(r, -r, z),
-        Point3::new(r, 0.0, z),
-    ];
-    let weights = vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0];
-    let knots = vec![
-        0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
-    ];
-    NurbsCurve {
-        degree: 2,
-        knots,
-        control_points: pts,
-        weights,
-    }
-}
-
-/// Straight extrusion path from `z0` to `z1` along +Z.
-fn extrusion_path(z0: f64, z1: f64) -> NurbsCurve {
-    NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(0.0, 0.0, z0), Point3::new(0.0, 0.0, z1)],
-        weights: vec![1.0, 1.0],
-    }
-}
+#[path = "flagship_boss_plate_sketches.rs"]
+mod flagship_boss_plate_sketches;
+use flagship_boss_plate_sketches::*;
 
 fn extrude(sketch: NurbsCurve, z0: f64, z1: f64, tol: Tolerance, label: &str) -> BRep {
     let result = sweep(
@@ -150,7 +91,7 @@ fn main() {
     for (eh, edge) in unioned.edges.iter() {
         let he = edge.half_edge;
         let f1 = unioned.loops[unioned.half_edges[he].loop_].face;
-        let f2 = unioned.loops[unioned.half_edges[unioned.half_edges[he].twin].loop_].face;
+        let f2 = unioned.loops[unioned.half_edges[twin(&unioned, he)].loop_].face;
         let kind = |fh: popkern_core::topology::FaceHandle| {
             unioned.faces[fh].surface.as_ref().map(|s| &s.geometry)
         };
@@ -182,7 +123,7 @@ fn main() {
         for (eh, edge) in unioned.edges.iter() {
             let he = edge.half_edge;
             let f1 = unioned.loops[unioned.half_edges[he].loop_].face;
-            let f2 = unioned.loops[unioned.half_edges[unioned.half_edges[he].twin].loop_].face;
+            let f2 = unioned.loops[unioned.half_edges[twin(&unioned, he)].loop_].face;
             let kindof = |fh: popkern_core::topology::FaceHandle| match unioned.faces[fh]
                 .surface
                 .as_ref()
@@ -223,7 +164,7 @@ fn main() {
         }
         let he = edge.half_edge;
         let a = unioned.vertices[unioned.half_edges[he].origin].position;
-        let b = unioned.vertices[unioned.half_edges[unioned.half_edges[he].twin].origin].position;
+        let b = unioned.vertices[unioned.fin_end(he).expect("edge end vertex")].position;
         let vertical = (a.z - b.z).abs() > 0.3
             && (a.x - b.x).abs() < 1e-9
             && (a.y - b.y).abs() < 1e-9
@@ -269,7 +210,7 @@ fn main() {
                 let (t0, t1) = pc.parameter_range();
                 use popkern_core::geometry::surface::SurfaceEval;
                 let origin = unioned.vertices[d.origin].position;
-                let dest = unioned.vertices[unioned.half_edges[d.twin].origin].position;
+                let dest = unioned.vertices[unioned.half_edges[twin_of(d)].origin].position;
                 let uv0 = pc.point_at(t0);
                 let q0 = sof.geometry.point_at(uv0.x, uv0.y);
                 let flip = q0.distance_to(&dest) + 1.0e-12 < q0.distance_to(&origin);
@@ -397,7 +338,7 @@ fn main() {
             let mut he = start;
             for _ in 0..result.brep.half_edges.len() + 1 {
                 let d = &result.brep.half_edges[he];
-                let twin_face = result.brep.loops[result.brep.half_edges[d.twin].loop_].face;
+                let twin_face = result.brep.loops[result.brep.half_edges[twin_of(d)].loop_].face;
                 let tk = result.brep.faces[twin_face]
                     .surface
                     .as_ref()
@@ -468,14 +409,14 @@ fn main() {
             let mid3d = ceval.point_at(0.5 * (c.t_start + c.t_end));
             for (side, he) in [
                 ("he", edge.half_edge),
-                ("tw", result.brep.half_edges[edge.half_edge].twin),
+                ("tw", twin(&result.brep, edge.half_edge)),
             ] {
                 let hed = &result.brep.half_edges[he];
                 let Some(pc) = hed.pcurve.as_ref() else {
                     continue;
                 };
                 let own_face = result.brep.loops[hed.loop_].face;
-                let twin_face = result.brep.loops[result.brep.half_edges[hed.twin].loop_].face;
+                let twin_face = result.brep.loops[result.brep.half_edges[twin_of(hed)].loop_].face;
                 let d_on = |fh: popkern_core::topology::FaceHandle| -> f64 {
                     let Some(sof) = result.brep.faces[fh].surface.as_ref() else {
                         return f64::NAN;
@@ -528,7 +469,7 @@ fn main() {
                     let he = edge.half_edge;
                     let f1 = result.brep.loops[result.brep.half_edges[he].loop_].face;
                     let f2 = result.brep.loops
-                        [result.brep.half_edges[result.brep.half_edges[he].twin].loop_]
+                        [result.brep.half_edges[twin(&result.brep, he)].loop_]
                         .face;
                     let ceval: &dyn CurveEval = &c.geometry;
                     let mid = ceval.point_at(0.5 * (c.t_start + c.t_end));
@@ -560,7 +501,7 @@ fn main() {
                             let a =
                                 result.brep.vertices[result.brep.half_edges[he2].origin].position;
                             let b = result.brep.vertices
-                                [result.brep.half_edges[result.brep.half_edges[he2].twin].origin]
+                                [result.brep.half_edges[twin(&result.brep, he2)].origin]
                                 .position;
                             (a, b)
                         };
@@ -787,7 +728,7 @@ fn main() {
                             ceval.point_at(c.t_start + (c.t_end - c.t_start) * k as f64 / 32.0)
                         })
                         .collect();
-                    for he in [edge.half_edge, b.half_edges[edge.half_edge].twin] {
+                    for he in [edge.half_edge, twin(b, edge.half_edge)] {
                         let hed = &b.half_edges[he];
                         let Some(pc) = hed.pcurve.as_ref() else {
                             continue;
@@ -845,4 +786,13 @@ fn main() {
             "STEP round-trip must return every exported face"
         );
     }
+}
+
+/// The other half-edge of a manifold edge, by handle and by half-edge
+/// (this example's bodies are manifold solids).
+fn twin(brep: &BRep, he: HalfEdgeHandle) -> HalfEdgeHandle {
+    brep.mate(he).expect("manifold edge")
+}
+fn twin_of(he: &HalfEdge) -> HalfEdgeHandle {
+    he.mate().expect("manifold edge")
 }

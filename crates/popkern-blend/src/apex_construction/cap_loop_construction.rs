@@ -59,7 +59,7 @@ pub(super) fn construct_cap_loop_from_preexisting_cross_face_edges(
             continue;
         }
         let he = brep.edges[edge].half_edge;
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he].require_mate()?;
         let he_loop = brep.half_edges[he].loop_;
         let twin_loop = brep.half_edges[twin].loop_;
         if he_loop == twin_loop {
@@ -153,7 +153,7 @@ fn trace_cap_loop_construction_result(brep: &BRep, cap_face: FaceHandle, v: Vert
     for he in &outgoings {
         let l = brep.half_edges[*he].loop_;
         let f = brep.loops[l].face;
-        let dest = brep.half_edges[brep.half_edges[*he].twin].origin;
+        let dest = brep.fin_end(*he);
         eprintln!("[direct-apex-trace §14.8/cap-loop]   he={he:?} -> {dest:?} face={f:?}");
     }
     let cap_loop_handle = brep.faces[cap_face].outer_loop;

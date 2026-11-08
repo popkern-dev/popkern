@@ -111,7 +111,10 @@ pub(super) fn try_author_one(attempt: SupportSeamAttempt<'_>) -> SupportSeamAtte
             f64::INFINITY,
         );
     }
-    let twin = brep.half_edges[attempt.half_edge].twin;
+    let Some(twin) = brep.half_edges[attempt.half_edge].mate() else {
+        *brep = before;
+        return SupportSeamAttemptOutcome::declined(SupportSeamDeclineReason::NoCanonicalBoundary);
+    };
     write_lifted_support_pcurve(brep, twin);
     let seam_disagreement = validation::validate_support_seam(
         brep,
@@ -278,7 +281,7 @@ fn relocate_support_vertices_to_boundary(
     else {
         return Err(SupportSeamDeclineReason::NoCanonicalBoundary);
     };
-    let Some(twin) = brep.half_edges.get(half_edge).map(|he| he.twin) else {
+    let Some(twin) = brep.half_edges.get(half_edge).and_then(|he| he.mate()) else {
         return Err(SupportSeamDeclineReason::NoCanonicalBoundary);
     };
     let Some(start_vertex) = brep.half_edges.get(half_edge).map(|he| he.origin) else {
@@ -320,7 +323,7 @@ fn oriented_boundary_endpoints_for_half_edge(
     popkern_core::geometry::Point3,
     popkern_core::geometry::Point3,
 )> {
-    let twin = brep.half_edges.get(half_edge)?.twin;
+    let twin = brep.half_edges.get(half_edge)?.mate()?;
     let start = brep
         .vertices
         .get(brep.half_edges.get(half_edge)?.origin)?
@@ -352,7 +355,7 @@ fn snap_incident_edge_curve_endpoints(
         .iter()
         .filter_map(|(edge_handle, edge)| {
             let primary = edge.half_edge;
-            let twin = brep.half_edges.get(primary)?.twin;
+            let twin = brep.half_edges.get(primary)?.mate()?;
             let a = brep.half_edges.get(primary)?.origin;
             let b = brep.half_edges.get(twin)?.origin;
             (a == vertex || b == vertex).then_some(edge_handle)
@@ -401,7 +404,7 @@ fn build_cap_boundary_curve(
     cap_surface: &SurfaceGeometry,
     boundary_side: BoundarySide,
 ) -> Option<(CurveOnEdge, Pcurve)> {
-    let twin = brep.half_edges.get(half_edge)?.twin;
+    let twin = brep.half_edges.get(half_edge)?.mate()?;
     let start = brep
         .vertices
         .get(brep.half_edges.get(half_edge)?.origin)?

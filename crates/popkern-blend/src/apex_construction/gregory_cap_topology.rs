@@ -23,7 +23,7 @@ pub(super) fn merge_cap_side_accumulators(
             let Some(he) = brep.half_edges.get(primary) else {
                 continue;
             };
-            let Some(twin_he) = brep.half_edges.get(he.twin) else {
+            let Some(twin_he) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
                 continue;
             };
             if he.loop_ == twin_he.loop_ {
@@ -127,7 +127,7 @@ fn apex_vertex_set(
         let primary = edge.half_edge;
         if let Some(he) = brep.half_edges.get(primary) {
             out.insert(he.origin);
-            if let Some(twin) = brep.half_edges.get(he.twin) {
+            if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) {
                 out.insert(twin.origin);
             }
         }
@@ -149,7 +149,10 @@ fn find_kef_candidate_between(
         let max_iters = brep.half_edges.len() + 1;
         while let Some(he) = brep.half_edges.get(cursor) {
             if !apex_set.contains(&he.edge) {
-                let twin_loop = brep.half_edges.get(he.twin).map(|t| t.loop_);
+                let twin_loop = he
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
+                    .map(|t| t.loop_);
                 let twin_face = twin_loop.and_then(|tl| brep.loops.get(tl).map(|l| l.face));
                 if let Some(tf) = twin_face
                     && tf != *fh
@@ -204,9 +207,9 @@ fn find_bisected_spoke_kef_candidate(
         let max_iters = brep.half_edges.len() + 1;
         while let Some(he) = brep.half_edges.get(cursor) {
             if !apex_set.contains(&he.edge) && apex_vertex_set.contains(&he.origin) {
-                let twin = he.twin;
-                let twin_origin = brep.half_edges.get(twin).map(|t| t.origin);
-                let twin_loop = brep.half_edges.get(twin).map(|t| t.loop_);
+                let twin_data = he.mate().and_then(|t| brep.half_edges.get(t));
+                let twin_origin = twin_data.map(|t| t.origin);
+                let twin_loop = twin_data.map(|t| t.loop_);
                 let twin_face = twin_loop.and_then(|tl| brep.loops.get(tl).map(|l| l.face));
                 if let (Some(to), Some(tf)) = (twin_origin, twin_face)
                     && apex_vertex_set.contains(&to)

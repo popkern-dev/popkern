@@ -93,9 +93,12 @@ impl BlendContinuityEvidence {
 /// Per-seam interval budget for evidence certification. The corpus
 /// median certifies in 4 intervals (PK-499 E1); a projected rail (the
 /// PK-389 rim) needs ~1/64 intervals before its per-branch Krawczyk
-/// contracts, ~150 evaluations. Seams needing more fall back to
-/// sampled classification, recorded.
-pub const EVIDENCE_CERTIFY_BUDGET: usize = 256;
+/// contracts, ~150 evaluations. A KP20 fan seam beside a thin strip
+/// spends 256 either way it runs (the octagonal h 0.4 variable apex:
+/// stopped by budget covered one way, an interval near its corner end
+/// left unbounded the other), so the budget is twice that. Seams
+/// needing more fall back to sampled classification, recorded.
+pub const EVIDENCE_CERTIFY_BUDGET: usize = 512;
 
 /// Certification options for evidence on `brep` against `gates`.
 pub fn evidence_certify_options(brep: &BRep, gates: &ContinuityGates) -> SeamCertifyOptions {

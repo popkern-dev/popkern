@@ -9,7 +9,7 @@
 //! rejects the class). `kve`/`mef` carry their own local repairs; the
 //! remaining removal sites route through this shared helper.
 
-use crate::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, ShellHandle};
 
 impl BRep {
     /// Re-anchor every vertex whose `outgoing` points at one of the
@@ -52,38 +52,56 @@ impl BRep {
         half_edge: HalfEdgeHandle,
     ) -> Option<crate::topology::HalfEdge> {
         self.reanchor_vertex_outgoing(&[half_edge]);
+        self.unlink_fin(half_edge);
         self.half_edges.remove(half_edge)
     }
 
     /// Remove a face whose loops and half-edges are already gone, and
-    /// keep its shell's anchors true. `Shell::face` and `Solid::shell`
+    /// keep its shell's anchors true. `Shell::face` and `Region::shell`
     /// are anchors like `Vertex::outgoing`: a shell anchored on the
     /// removed face moves to a surviving face of the same shell; a
     /// shell left with no face is removed (it bounds nothing — the
-    /// `validate_all` reference check rejects it, PK-966); a solid
+    /// `validate_all` reference check rejects it, PK-966); a region
     /// anchored on that shell moves to another of its shells, or is
     /// removed when it has none. Returns whether the shell went too.
     pub fn remove_face_reanchored(&mut self, face: FaceHandle) -> bool {
         let Some(removed) = self.faces.remove(face) else {
             return false;
         };
-        let shell = removed.shell;
+        let back_gone = self.release_side(removed.back, face);
+        if removed.front != removed.back {
+            self.release_side(removed.front, face);
+        }
+        back_gone
+    }
+
+    /// After `face` went, keep the shell one of its sides lay in true:
+    /// re-anchor it on a face still in it, or remove it when none is,
+    /// re-pointing or removing its region (never the outside) if the
+    /// shell was the region's peripheral one. Returns whether it went.
+    fn release_side(&mut self, shell: ShellHandle, face: FaceHandle) -> bool {
         let Some(shell_data) = self.shells.get(shell) else {
             return false;
         };
-        let solid = shell_data.solid;
-        if let Some((survivor, _)) = self.faces.iter().find(|(_, f)| f.shell == shell) {
+        let region = shell_data.region;
+        if let Some(&survivor) = self.shell_faces(shell).first() {
             if self.shells[shell].face == face {
-                self.shells[shell].face = survivor;
+                self.set_shell_anchor(shell, survivor);
             }
             return false;
         }
+        // A shell still holding wire edges or an acorn outlives its last
+        // face side.
+        if !self.shells[shell].wire_edges.is_empty() || self.shells[shell].acorn.is_some() {
+            self.shells[shell].face = FaceHandle::default();
+            return false;
+        }
         self.shells.remove(shell);
-        if self.solids.get(solid).is_some_and(|s| s.shell == shell) {
-            match self.shells.iter().find(|(_, s)| s.solid == solid) {
-                Some((other, _)) => self.solids[solid].shell = other,
+        if region != self.outside && self.regions.get(region).is_some_and(|r| r.shell == shell) {
+            match self.shells.iter().find(|(_, s)| s.region == region) {
+                Some((other, _)) => self.regions[region].shell = other,
                 None => {
-                    self.solids.remove(solid);
+                    self.regions.remove(region);
                 }
             }
         }
@@ -117,6 +135,7 @@ mod tests {
         assert_eq!(gone.iter().filter(|&&g| g).count(), 1);
         assert_eq!(gone.last(), Some(&true));
         assert!(brep.shells.is_empty());
-        assert!(brep.solids.is_empty());
+        assert!(brep.solid_regions().is_empty());
+        assert_eq!(brep.regions.keys().collect::<Vec<_>>(), vec![brep.outside]);
     }
 }

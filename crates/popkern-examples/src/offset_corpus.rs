@@ -318,7 +318,7 @@ pub fn wavy_plate(tol: Tolerance) -> Result<CorpusFixture, CorpusError> {
             num_v: 3,
             weights: vec![1.0; 9],
         }),
-        orientation: true,
+        orientation: false, // u-major grid: u along y, v along x, u × v down
     });
     brep.recompute_face_pcurves(top)?;
     // Bulge volume: h·∫B₁²(u)du·∫B₁²(v)dv = h·(1/3)² over the unit

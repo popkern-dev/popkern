@@ -1,5 +1,5 @@
 use super::*;
-use crate::{BoolOperation, BoolOptions, NonManifoldPolicy, boolean_with_options};
+use crate::{BoolOperation, BoolOptions, NonManifoldPolicy};
 use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 
@@ -22,7 +22,11 @@ fn each_piece_keeps_its_own_topology_and_names() {
     for piece in &pieces {
         assert!(piece.validate().is_ok(), "{:?}", piece.validate());
         assert_eq!(
-            (piece.solids.len(), piece.faces.len(), piece.edges.len()),
+            (
+                piece.solid_regions().len(),
+                piece.faces.len(),
+                piece.edges.len()
+            ),
             (1, 6, 12)
         );
         assert_eq!(piece.vertices.len(), 8);
@@ -47,7 +51,11 @@ fn keeping_every_piece_or_none() {
     let both = two_apart();
     let all = retain_pieces(&both, &piece_handles(&both)).expect("all");
     assert_eq!(
-        (all.solids.len(), all.faces.len(), all.vertices.len()),
+        (
+            all.solid_regions().len(),
+            all.faces.len(),
+            all.vertices.len()
+        ),
         (2, 12, 16)
     );
     let none = retain_pieces(&both, &[]).expect("none");
@@ -55,14 +63,14 @@ fn keeping_every_piece_or_none() {
 }
 
 #[test]
-fn a_contact_survives_only_with_every_piece_it_names() {
-    // Two cubes touching along one edge, served as two pieces meeting
-    // at recorded contacts.
+fn touching_split_bodies_are_each_valid_alone() {
+    // Two cubes touching along one edge, served split: two bodies,
+    // each a valid cube with its own copy of the contact edge.
     let tol = Tolerance::default();
     let options = BoolOptions {
         non_manifold: NonManifoldPolicy::SplitToManifold,
     };
-    let touching = boolean_with_options(
+    let bodies = crate::boolean_bodies(
         BoolOperation::Union,
         cube_at(0.0, 0.0, 0.0),
         cube_at(1.0, 1.0, 0.0),
@@ -70,15 +78,12 @@ fn a_contact_survives_only_with_every_piece_it_names() {
         None,
         &options,
     )
-    .expect("edge contact serves as pieces");
-    assert_eq!(touching.solids.len(), 2);
-    assert!(!touching.topology_contacts.is_empty());
-    let handles = piece_handles(&touching);
-    let kept = retain_pieces(&touching, &handles).expect("both");
-    assert_eq!(kept.topology_contacts, touching.topology_contacts);
-    let one = retain_pieces(&touching, &handles[..1]).expect("one");
-    assert!(one.topology_contacts.is_empty(), "the other side is gone");
-    assert!(one.validate_all().is_empty(), "{:?}", one.validate_all());
+    .expect("edge contact serves as bodies");
+    assert_eq!(bodies.len(), 2);
+    for one in &bodies {
+        assert_eq!(one.solid_regions().len(), 1);
+        assert!(one.validate_all().is_empty(), "{:?}", one.validate_all());
+    }
 }
 
 #[test]

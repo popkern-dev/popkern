@@ -2,6 +2,8 @@ use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, HalfEdgeHandle, VertexHandle};
 
+/// A cube's topology with no geometry: `split_vertex` is a topological
+/// operator, and a moved vertex leaves any curve at its old position.
 fn make_cube() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
     let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
@@ -17,6 +19,15 @@ fn make_cube() -> BRep {
     let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
     brep.extrude(mef.face, Vec3::new(0.0, 0.0, 1.0), 1.0, None)
         .unwrap();
+    for edge in brep.edges.values_mut() {
+        edge.curve = None;
+    }
+    for face in brep.faces.values_mut() {
+        face.surface = None;
+    }
+    for fin in brep.half_edges.values_mut() {
+        fin.pcurve = None;
+    }
     brep
 }
 
@@ -63,7 +74,7 @@ fn split_face_wedge_sector_rehomes_face_corner() {
     // both wedge edges, so the wedge face's corner re-homes entirely.
     let x = brep.half_edges[o].prev;
     let wedge_loop = brep.half_edges[o].loop_;
-    let he_first = brep.half_edges[x].twin;
+    let he_first = brep.half_edges[x].mate().unwrap_or_default();
     let pos = Point3::new(-1.0, -1.0, -1.0);
 
     let result = brep.split_vertex(he_first, o, pos).unwrap();
@@ -98,7 +109,7 @@ fn split_vertex_rejects_full_fan_sector() {
     // Walk the fan to the last outgoing before wrapping.
     let mut last = o;
     loop {
-        let succ = brep.half_edges[brep.half_edges[last].twin].next;
+        let succ = brep.half_edges[brep.half_edges[last].mate().unwrap_or_default()].next;
         if succ == o {
             break;
         }

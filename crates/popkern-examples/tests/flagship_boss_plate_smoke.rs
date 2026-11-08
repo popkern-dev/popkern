@@ -96,12 +96,12 @@ fn flagship_boss_plate_pipeline_serves_watertight() {
     for (eh, d) in unioned.edges.iter() {
         let he = &unioned.half_edges[d.half_edge];
         let f1 = unioned.loops[he.loop_].face;
-        let f2 = unioned.loops[unioned.half_edges[he.twin].loop_].face;
+        let f2 = unioned.loops[unioned.half_edges[he.mate().unwrap_or_default()].loop_].face;
         if f1 == f2 {
             continue; // cylinder seam spine — not filletable
         }
         let a = unioned.vertices[he.origin].position;
-        let b = unioned.vertices[unioned.half_edges[he.twin].origin].position;
+        let b = unioned.vertices[unioned.half_edges[he.mate().unwrap_or_default()].origin].position;
         // The flagship chain: the circular boss seam + the plate's
         // top and bottom rim edges (z = 0.4 and z = 0). The boss top
         // rim (z = 1.0) and the vertical plate edges are excluded.
@@ -139,7 +139,7 @@ fn flagship_boss_plate_pipeline_serves_watertight() {
         .iter()
         .filter_map(|s| {
             let he = &unioned.half_edges[unioned.edges[s.edge].half_edge];
-            let twin_origin = unioned.half_edges[he.twin].origin;
+            let twin_origin = unioned.half_edges[he.mate().unwrap_or_default()].origin;
             (he.origin == twin_origin).then_some(he.origin)
         })
         .collect();

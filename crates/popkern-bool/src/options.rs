@@ -5,8 +5,9 @@
 //! result that is non-manifold where they touch. No manifold solid
 //! represents it, so the boolean either refuses — the default, and
 //! what CAD systems do with a zero-thickness result — or, when asked,
-//! serves the result as manifold pieces meeting at recorded contacts
-//! (`BRep::topology_contacts`), the form a slicer or a mesher can take.
+//! serves it as one general body holding the contacts in its topology,
+//! or as separate manifold bodies that touch there (PK-1115: no single
+//! body holds touching lumps, and nothing is recorded).
 
 /// What a boolean does when its result would be non-manifold.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -15,13 +16,24 @@ pub enum NonManifoldPolicy {
     /// every contact.
     #[default]
     Decline,
-    /// Serve manifold pieces that meet at the contacts: a contact edge
-    /// or vertex becomes one copy per piece, and every contact is
-    /// recorded on the result (`BRep::topology_contacts`), so
-    /// `validate_all` accepts the deliberate touch and still rejects
-    /// any other. A union whose operands share area at the touch is
-    /// not split (they merge there); it declines if the merge fails.
+    /// Serve separate manifold bodies that touch at the contacts, each
+    /// with its own copy of a contact edge or vertex and valid on its
+    /// own: the `_bodies` entry points ([`crate::boolean_bodies`],
+    /// [`crate::nary_boolean_bodies`], ...) return them, the single-body
+    /// ones decline with [`crate::BoolError::SplitIntoBodies`]. A result
+    /// whose pieces touch nowhere is one body. A union whose operands
+    /// share area at the touch is not split (they merge there); it
+    /// declines if the merge fails.
     SplitToManifold,
+    /// Serve one general body: the touching pieces share the contact
+    /// vertex, the contact edge's ring holds every piece's faces in
+    /// radial order, a contact curve across a face is imprinted on it
+    /// (`BRep::glue_touching` over the split pieces, from their
+    /// geometry). Operands may be general bodies (taken apart into
+    /// their manifold pieces first, `BRep::separate_at_contacts`).
+    /// Where the glue declines, [`crate::BoolError::GeneralBodyDeclined`]
+    /// with a `GeneralDeclined` shadow line.
+    General,
 }
 
 impl NonManifoldPolicy {
@@ -29,6 +41,12 @@ impl NonManifoldPolicy {
     /// recorded policy is left out of a saved document when it is).
     pub fn is_decline(&self) -> bool {
         *self == NonManifoldPolicy::Decline
+    }
+
+    /// Whether a non-manifold result serves (as pieces, or as the
+    /// general body glued from them) rather than declining.
+    pub fn serves(&self) -> bool {
+        *self != NonManifoldPolicy::Decline
     }
 }
 

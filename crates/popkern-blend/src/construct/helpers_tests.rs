@@ -21,7 +21,7 @@ fn closed_fillet_edge_returns_diagnostic_error() {
     let edge_data = &cube.edges[edge];
     let he = &cube.half_edges[edge_data.half_edge];
     let face_1 = cube.loops[he.loop_].face;
-    let twin = &cube.half_edges[he.twin];
+    let twin = &cube.half_edges[he.mate().unwrap_or_default()];
     let face_2 = cube.loops[twin.loop_].face;
 
     let snapshot = cube.clone();
@@ -55,7 +55,7 @@ fn split_perp_edges_on_cube() {
     let edge_data = &cube.edges[edge];
     let he = &cube.half_edges[edge_data.half_edge];
     let face_1 = cube.loops[he.loop_].face;
-    let twin = &cube.half_edges[he.twin];
+    let twin = &cube.half_edges[he.mate().unwrap_or_default()];
     let face_2 = cube.loops[twin.loop_].face;
 
     let snapshot = cube.clone();

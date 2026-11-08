@@ -1,6 +1,7 @@
 //! Existing support-boundary ownership claims for repeated-apex trim materialization.
 
 use super::*;
+use popkern_core::topology::RadialLinks;
 
 pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
     brep: &mut BRep,
@@ -33,7 +34,7 @@ pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
                      stale support boundary side {support_half_edge:?} for {label}"
                 ),
             })?;
-        if !brep.boundary_edges.contains(&edge) {
+        if !brep.is_free_edge(edge) {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition FilletEnd[{fillet_index}] cannot claim \
@@ -44,7 +45,11 @@ pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
         if brep
             .half_edges
             .get(support_half_edge)
-            .is_some_and(|half_edge| brep.half_edges.contains_key(half_edge.twin))
+            .is_some_and(|half_edge| {
+                half_edge
+                    .mate()
+                    .is_some_and(|m| brep.half_edges.contains_key(m))
+            })
         {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
@@ -58,15 +63,14 @@ pub(super) fn claim_existing_support_boundary_for_cylinder_trim(
         }
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: start,
-            twin: support_half_edge,
+            ring: RadialLinks::pair(support_half_edge),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge,
             loop_: LoopHandle::default(),
             pcurve: None,
         });
-        brep.half_edges[support_half_edge].twin = half_edge;
-        brep.boundary_edges.remove(&edge);
+        brep.half_edges[support_half_edge].set_mate(half_edge);
         if support_split_half_edge_end_vertex(brep, half_edge) != Some(end) {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
@@ -129,8 +133,8 @@ fn trace_support_boundary_claim_miss(
                     if !touches_request {
                         return None;
                     }
-                    let boundary = brep.boundary_edges.contains(&data.edge);
-                    let twin_live = brep.half_edges.contains_key(data.twin);
+                    let boundary = brep.is_free_edge(data.edge);
+                    let twin_live = data.mate().is_some_and(|m| brep.half_edges.contains_key(m));
                     Some(format!(
                         "{half_edge:?}:{:?}->{span_end:?} boundary={boundary} twin_live={twin_live}",
                         data.origin
@@ -165,8 +169,8 @@ fn support_boundary_half_edge_for_cylinder_side(
             };
             data.origin == cylinder_end
                 && support_split_half_edge_end_vertex(brep, *half_edge) == Some(cylinder_start)
-                && brep.boundary_edges.contains(&data.edge)
-                && !brep.half_edges.contains_key(data.twin)
+                && brep.is_free_edge(data.edge)
+                && !data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
         })
 }
 
@@ -206,8 +210,8 @@ fn validate_claimed_support_boundary_owner(
             ),
         });
     };
-    if cylinder_data.twin != support_half_edge
-        || brep.half_edges[support_half_edge].twin != cylinder_half_edge
+    if cylinder_data.mate() != Some(support_half_edge)
+        || brep.half_edges[support_half_edge].mate() != Some(cylinder_half_edge)
     {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
@@ -217,7 +221,7 @@ fn validate_claimed_support_boundary_owner(
             ),
         });
     }
-    if brep.boundary_edges.contains(&cylinder_data.edge) {
+    if brep.is_free_edge(cylinder_data.edge) {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition FilletEnd[{fillet_index}] claimed {label} but \

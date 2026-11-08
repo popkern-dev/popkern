@@ -1,7 +1,8 @@
 use crate::euler::TwoLoopBridgeRequest;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, Edge, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex};
+use crate::topology::RadialLinks;
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 #[test]
 fn two_loop_bridge_commits_between_two_boundary_face_loops() {
@@ -45,7 +46,7 @@ fn two_loop_bridge_commits_between_two_boundary_face_loops() {
         brep.loops[result.second_bridge_loop].face,
         result.second_bridge_face
     );
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     brep.validate_half_edge_pairing().unwrap();
     brep.validate_half_edge_cycles().unwrap();
     brep.validate_manifold_edges().unwrap();
@@ -136,14 +137,7 @@ fn topology_counts(brep: &BRep) -> (usize, usize, usize, usize, usize) {
 
 fn two_boundary_quads() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     add_boundary_quad(
         &mut brep,
@@ -165,19 +159,20 @@ fn two_boundary_quads() -> BRep {
             Point3::new(0.0, 1.0, 1.0),
         ],
     );
-    brep.shells[shell].face = second_face;
+    brep.set_sides_anchor(shell, second_face);
     brep
 }
 
 fn add_boundary_quad(
     brep: &mut BRep,
-    shell: crate::topology::ShellHandle,
+    shell: crate::topology::FaceSides,
     positions: [Point3; 4],
 ) -> crate::topology::FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -186,6 +181,7 @@ fn add_boundary_quad(
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
 
@@ -208,7 +204,7 @@ fn add_boundary_quad(
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -217,7 +213,6 @@ fn add_boundary_quad(
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edge
     });
     for i in 0..4 {

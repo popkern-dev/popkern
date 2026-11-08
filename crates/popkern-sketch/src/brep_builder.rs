@@ -16,6 +16,7 @@ use crate::nesting::NestingNode;
 use crate::plane::SketchPlane;
 use popkern_constraint::Sketch;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     Edge, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, VertexHandle,
 };
@@ -265,7 +266,7 @@ fn attach_edge_geometry(
         brep.edges[edge_handle].curve = Some(curve);
 
         let he_a = brep.edges[edge_handle].half_edge;
-        let he_b = brep.half_edges[he_a].twin;
+        let he_b = brep.require_mate(he_a)?;
         let (he_forward, he_backward) = if brep.half_edges[he_a].origin == vertices[k] {
             (he_a, he_b)
         } else {
@@ -330,7 +331,7 @@ fn build_hole_loop(
 
         let he_fwd = brep.half_edges.insert(HalfEdge {
             origin: vertices[i],
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: edge_h,
@@ -340,7 +341,7 @@ fn build_hole_loop(
 
         let he_rev = brep.half_edges.insert(HalfEdge {
             origin: vertices[j],
-            twin: he_fwd,
+            ring: RadialLinks::pair(he_fwd),
             next: Default::default(),
             prev: Default::default(),
             edge: edge_h,
@@ -348,7 +349,7 @@ fn build_hole_loop(
             pcurve: None,
         });
 
-        brep.half_edges[he_fwd].twin = he_rev;
+        brep.half_edges[he_fwd].set_mate(he_rev);
         brep.edges[edge_h].half_edge = he_fwd;
         if brep.vertices[vertices[i]].outgoing == HalfEdgeHandle::default() {
             brep.vertices[vertices[i]].outgoing = he_fwd;
@@ -421,6 +422,7 @@ fn wire_inner_loop(
     let lh = brep.loops.insert(Loop {
         half_edge: half_edges[0],
         face,
+        vertex: None,
     });
 
     let n = half_edges.len();

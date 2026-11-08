@@ -351,6 +351,17 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
     match error {
         ValidationError::EulerPoincare { .. } => Vec::new(),
         ValidationError::DanglingReference { .. } => Vec::new(),
+        // A shell has no entity reference of its own; its faces are
+        // the shell's report.
+        ValidationError::RegionSense { .. } | ValidationError::RegionStructure { .. } => Vec::new(),
+        ValidationError::RingMembership { edge, half_edge } => {
+            vec![EntityRef::Edge(*edge), EntityRef::HalfEdge(*half_edge)]
+        }
+        ValidationError::WedgeShellMismatch { edge, .. }
+        | ValidationError::RingOrder { edge, .. }
+        | ValidationError::RingOrderUndecided { edge, .. } => vec![EntityRef::Edge(*edge)],
+        ValidationError::ShellDisconnected { shell, .. }
+        | ValidationError::ShellEuler { shell, .. } => vec![EntityRef::Shell(*shell)],
         ValidationError::BrokenTwin { half_edge } => {
             vec![EntityRef::HalfEdge(*half_edge)]
         }
@@ -385,6 +396,9 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         }
         ValidationError::OpenLoop { loop_, .. } => {
             vec![EntityRef::Loop(*loop_)]
+        }
+        ValidationError::VertexLoop { loop_, face, .. } => {
+            vec![EntityRef::Loop(*loop_), EntityRef::Face(*face)]
         }
         ValidationError::CurveSurfaceDeviation { edge, .. } => {
             vec![EntityRef::Edge(*edge)]

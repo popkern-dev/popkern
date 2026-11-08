@@ -123,7 +123,9 @@ pub(super) fn rewire_seam_edge(
     });
 
     // Support-side pcurve refit.
-    let twin = brep.half_edges[job.half_edge].twin;
+    let twin = brep.half_edges[job.half_edge]
+        .mate()
+        .ok_or("rewire_twin_surface_missing")?;
     let twin_surface = brep
         .half_edges
         .get(twin)
@@ -177,7 +179,7 @@ pub(super) fn edge_curve_endpoint_gap(brep: &BRep, job: &ReanchorJob) -> Option<
     let p_start = brep.vertices.get(primary.origin)?.position;
     let p_end = brep
         .vertices
-        .get(brep.half_edges.get(primary.twin)?.origin)?
+        .get(primary.mate().and_then(|m| brep.half_edges.get(m))?.origin)?
         .position;
     let c_start = coe.geometry.point_at(coe.t_start);
     let c_end = coe.geometry.point_at(coe.t_end);

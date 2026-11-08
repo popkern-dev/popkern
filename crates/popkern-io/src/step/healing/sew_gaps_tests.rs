@@ -1,4 +1,5 @@
 use super::*;
+use popkern_core::topology::RadialLinks;
 use popkern_core::{
     geometry::{Point3, Vec3},
     topology::{BRep, Vertex},
@@ -257,14 +258,14 @@ fn merge_rewires_half_edge_origins() {
     // half-edge from v1 (will be remapped to v0)
     let he = brep.half_edges.insert(HalfEdge {
         origin: v1,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: edge_handle,
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[he].twin = he; // self-twin for simplicity
+    brep.half_edges[he].set_mate(he); // self-twin for simplicity
     brep.edges[edge_handle].half_edge = he;
     brep.vertices[v1].outgoing = he;
 

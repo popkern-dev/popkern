@@ -4,6 +4,7 @@
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts, verify_loop_contains_half_edges};
 use crate::geometry::Point3;
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, Edge, EdgeHandle, HalfEdge, HalfEdgeHandle, LoopHandle, Vertex, VertexHandle,
 };
@@ -73,6 +74,14 @@ impl BRep {
                 "loop already has half-edges".into(),
             ));
         }
+        // A loop of no fins names its lone vertex: the edge leaves it.
+        if let Some(lone) = loop_data.vertex
+            && lone != vertex
+        {
+            return Err(CoreError::PreconditionFailed(format!(
+                "the empty loop stands at {lone:?}, not {vertex:?}"
+            )));
+        }
 
         // Create the new vertex.
         let new_vertex = self.vertices.insert(Vertex {
@@ -95,7 +104,7 @@ impl BRep {
         // Create half-edges with placeholder handles; we'll patch after insertion.
         let he = self.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -105,7 +114,7 @@ impl BRep {
 
         let he_twin = self.half_edges.insert(HalfEdge {
             origin: new_vertex,
-            twin: he,
+            ring: RadialLinks::pair(he),
             next: he,
             prev: he,
             edge,
@@ -115,12 +124,13 @@ impl BRep {
 
         // Patch he to point to its twin.
         let he_data = &mut self.half_edges[he];
-        he_data.twin = he_twin;
+        he_data.set_mate(he_twin);
         he_data.next = he_twin;
         he_data.prev = he_twin;
 
-        // Update loop to point to the new half-edge.
+        // Update loop to point to the new half-edge; it has fins now.
         self.loops[loop_].half_edge = he;
+        self.loops[loop_].vertex = None;
 
         // Update edge to point to he.
         self.edges[edge].half_edge = he;
@@ -201,7 +211,7 @@ impl BRep {
         // Create he_out: existing_vertex -> new_vertex
         let he_out = self.half_edges.insert(HalfEdge {
             origin: existing_vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: old_prev,
             edge,
@@ -212,7 +222,7 @@ impl BRep {
         // Create he_in: new_vertex -> existing_vertex
         let he_in = self.half_edges.insert(HalfEdge {
             origin: new_vertex,
-            twin: he_out,
+            ring: RadialLinks::pair(he_out),
             next: half_edge,
             prev: he_out,
             edge,
@@ -222,7 +232,7 @@ impl BRep {
 
         // Patch he_out.
         let he_out_data = &mut self.half_edges[he_out];
-        he_out_data.twin = he_in;
+        he_out_data.set_mate(he_in);
         he_out_data.next = he_in;
 
         // Splice into loop: old_prev.next = he_out
@@ -269,7 +279,7 @@ impl BRep {
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge handle is invalid".into()))?;
 
-        let he_twin_handle = he_data.twin;
+        let he_twin_handle = self.require_mate(half_edge)?;
         let edge_handle = he_data.edge;
         let he_prev = he_data.prev;
         let the_loop = he_data.loop_;
@@ -311,10 +321,12 @@ impl BRep {
         }
 
         if is_last_edge {
-            // The loop becomes empty again.
+            // The loop becomes empty again, standing at the surviving
+            // vertex.
             self.loops[the_loop].half_edge = Default::default();
             // Reset the surviving vertex's outgoing.
             let surviving_vertex = he_data.origin;
+            self.loops[the_loop].vertex = Some(surviving_vertex);
             self.vertices[surviving_vertex].outgoing = Default::default();
         } else {
             // Unsplice: he_prev.next = twin_next, twin_next.prev = he_prev
@@ -374,8 +386,8 @@ impl BRep {
         let twin = self.half_edges.get(result.half_edge_twin).ok_or_else(|| {
             CoreError::PreconditionFailed("mev twin half-edge is not live".into())
         })?;
-        if half_edge.twin != result.half_edge_twin
-            || twin.twin != result.half_edge
+        if half_edge.mate() != Some(result.half_edge_twin)
+            || twin.mate() != Some(result.half_edge)
             || half_edge.edge != result.edge
             || twin.edge != result.edge
             || half_edge.loop_ != expected_loop
@@ -425,7 +437,7 @@ impl BRep {
                 "kev left removed topology live".into(),
             ));
         }
-        if self.boundary_edges.contains(&result.edge) {
+        if self.is_free_edge(result.edge) {
             return Err(CoreError::PreconditionFailed(
                 "kev left removed edge in boundary set".into(),
             ));
@@ -440,7 +452,8 @@ impl BRep {
         for half_edge in self.half_edges.values() {
             let stale_reference = if half_edge.edge == result.edge {
                 Some("edge")
-            } else if half_edge.twin == result.half_edge || half_edge.twin == result.half_edge_twin
+            } else if half_edge.mate() == Some(result.half_edge)
+                || half_edge.mate() == Some(result.half_edge_twin)
             {
                 Some("twin")
             } else if half_edge.next == result.half_edge || half_edge.next == result.half_edge_twin

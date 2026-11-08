@@ -62,7 +62,7 @@ impl BoundingBox {
 /// dome meshes 28x slower) until the quadrature is chord-independent.
 const FINE_CHORD_PER_DIAGONAL: f64 = 5.0e-4;
 
-fn tessellate_fine(brep: &BRep) -> Result<popkern_mesh::TriMesh, MeasureError> {
+pub(crate) fn tessellate_fine(brep: &BRep) -> Result<popkern_mesh::TriMesh, MeasureError> {
     let (lo, hi) = brep.vertices.values().fold(
         (
             Point3::new(f64::MAX, f64::MAX, f64::MAX),
@@ -129,7 +129,21 @@ fn to_vec3(p: Point3) -> Vec3 {
 /// `(1/3) S · (S_u × S_v) du dv` over the UV rectangle (orders of
 /// magnitude tighter than the chord-height tessellation error).
 /// Non-Gregory non-planar faces still go through tessellation.
-pub fn body_volume(brep: &BRep, _tol: &Tolerance) -> Result<f64, MeasureError> {
+///
+/// A general body's volume is the sum of its solid regions'
+/// ([`crate::region_volumes`]).
+pub fn body_volume(brep: &BRep, tol: &Tolerance) -> Result<f64, MeasureError> {
+    let kind = brep.require_kind(
+        "volume",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::General,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
+    if kind == popkern_core::topology::BodyKind::General {
+        return Ok(crate::region_volumes(brep, tol)?.iter().map(|r| r.1).sum());
+    }
     // Fast path: all-planar bodies (boxes, prisms, polyhedra) are exact.
     let all_planar = brep.faces.iter().all(|(_, face)| {
         face.surface
@@ -308,6 +322,13 @@ pub fn body_surface_area(brep: &BRep, tol: &Tolerance) -> Result<f64, MeasureErr
 /// Uses the divergence theorem to compute the first moments of volume, then
 /// divides by total volume to obtain the centroid coordinates.
 pub fn body_centroid(brep: &BRep, _tol: &Tolerance) -> Result<Point3, MeasureError> {
+    brep.require_kind(
+        "centroid",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     let mesh = tessellate_fine(brep)?;
 
     let mut vol = 0.0_f64;
@@ -406,6 +427,13 @@ pub fn body_moment_of_inertia(
     axis: Axis,
     tol: &Tolerance,
 ) -> Result<f64, MeasureError> {
+    brep.require_kind(
+        "moment of inertia",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     let mesh = tessellate_fine(brep)?;
     let centroid = body_centroid(brep, tol)?;
 

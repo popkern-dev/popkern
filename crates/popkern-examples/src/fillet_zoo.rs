@@ -244,7 +244,7 @@ fn collect_incident_edges(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> 
         .filter_map(|(eh, _)| {
             let he = brep.edges[eh].half_edge;
             let origin = brep.half_edges[he].origin;
-            let twin_origin = brep.half_edges[brep.half_edges[he].twin].origin;
+            let twin_origin = brep.fin_end(he)?;
             (origin == vertex || twin_origin == vertex).then_some(eh)
         })
         .collect()

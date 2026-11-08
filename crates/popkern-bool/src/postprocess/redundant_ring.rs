@@ -42,12 +42,12 @@ fn plug_on_host(
     let mut cursor = start;
     for _ in 0..=brep.half_edges.len() {
         let he = brep.half_edges.get(cursor)?;
-        let twin = brep.half_edges.get(he.twin)?;
-        if he.twin == cursor {
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
+        if he.mate() == Some(cursor) {
             return None;
         }
         match host {
-            None => host = Some((he.twin, twin.loop_)),
+            None => host = Some((he.mate()?, twin.loop_)),
             Some((_, l)) if l == twin.loop_ => {}
             Some(_) => return None,
         }
@@ -83,8 +83,8 @@ fn slit_tip(brep: &BRep, loop_: LoopHandle) -> Option<HalfEdgeHandle> {
     let mut cursor = start;
     for _ in 0..brep.half_edges.len() {
         let he = brep.half_edges.get(cursor)?;
-        if he.next == he.twin {
-            let tip = brep.half_edges.get(he.twin)?.origin;
+        if he.mate() == Some(he.next) {
+            let tip = he.mate().and_then(|m| brep.half_edges.get(m))?.origin;
             if brep.half_edges.values().filter(|h| h.origin == tip).count() == 1 {
                 return Some(cursor);
             }

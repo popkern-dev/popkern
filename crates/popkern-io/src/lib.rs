@@ -12,3 +12,4 @@ pub use step::export::{
 };
 pub use step::healing::HealingLevel;
 pub use step::import::{StepImportOptions, StepImportResult, import_step, import_step_file};
+pub use step::import_general::StepNonManifold;

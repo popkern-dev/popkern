@@ -1,9 +1,10 @@
 use super::*;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, BrepSewingProvenance, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
-    Shell, ShellHandle, Solid, Vertex,
+    BRep, BrepSewingProvenance, Edge, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop,
+    LoopHandle, Vertex,
 };
 
 fn classification_options() -> BrepSewingClassificationOptions {
@@ -33,14 +34,7 @@ fn edge_pair(first: EdgeHandle, second: EdgeHandle) -> BrepSewingEdgePair {
 
 fn two_square_sheet(offset: f64, reversed_right: bool) -> (BRep, EdgeHandle, EdgeHandle) {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let left = add_square(
         &mut brep,
@@ -68,8 +62,8 @@ fn two_square_sheet(offset: f64, reversed_right: bool) -> (BRep, EdgeHandle, Edg
         ]
     };
     let right = add_square(&mut brep, shell, right_points);
-    if brep.shells[shell].face == FaceHandle::default() {
-        brep.shells[shell].face = left.face;
+    if brep.shell_anchor(shell.back).is_none() {
+        brep.set_sides_anchor(shell, left.face);
     }
     let right_edge = if reversed_right {
         right.edges[2]
@@ -84,7 +78,7 @@ struct SquareHandles {
     edges: [EdgeHandle; 4],
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -96,7 +90,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -105,13 +100,14 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
 
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),
@@ -129,7 +125,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
         edge
     });
 
@@ -153,7 +148,7 @@ fn classification_identifies_exact_clean_pair_without_mutation() {
         classification_options(),
     );
 
-    assert_eq!(brep.boundary_edges.len(), 8);
+    assert_eq!(brep.free_edges().len(), 8);
     assert_eq!(brep.vertices.len(), 8);
     assert_eq!(report.exact_clean_pairs, 1);
     assert_eq!(report.near_clean_pairs, 0);
@@ -182,7 +177,7 @@ fn classification_identifies_near_pair_inside_snap_tolerance() {
         classification_options(),
     );
 
-    assert_eq!(brep.boundary_edges.len(), 8);
+    assert_eq!(brep.free_edges().len(), 8);
     assert_eq!(report.exact_clean_pairs, 0);
     assert_eq!(report.near_clean_pairs, 1);
     assert_eq!(report.rejected_pairs, 0);

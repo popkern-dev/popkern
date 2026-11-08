@@ -302,21 +302,17 @@ mod tests {
     fn brep_with_plane_face(z: f64) -> (BRep, popkern_core::topology::FaceHandle) {
         let tol = Tolerance::default();
         let mut brep = BRep::new(tol);
-        let solid_handle = brep.solids.insert(popkern_core::topology::Solid {
-            shell: popkern_core::topology::ShellHandle::default(),
-        });
-        let shell_handle = brep.shells.insert(popkern_core::topology::Shell {
-            face: popkern_core::topology::FaceHandle::default(),
-            solid: solid_handle,
-        });
+        let (_, shell_handle) = brep.add_solid_region(Default::default());
         let loop_handle = brep.loops.insert(popkern_core::topology::Loop {
             half_edge: popkern_core::topology::HalfEdgeHandle::default(),
             face: popkern_core::topology::FaceHandle::default(),
+            vertex: None,
         });
         let face_handle = brep.faces.insert(popkern_core::topology::Face {
             outer_loop: loop_handle,
             inner_loops: vec![],
-            shell: shell_handle,
+            back: shell_handle.back,
+            front: shell_handle.front,
             surface: Some(SurfaceOnFace {
                 geometry: SurfaceGeometry::Plane {
                     origin: Point3::new(0.0, 0.0, z),
@@ -331,8 +327,7 @@ mod tests {
             role: Default::default(),
         });
         brep.loops[loop_handle].face = face_handle;
-        brep.shells[shell_handle].face = face_handle;
-        brep.solids[solid_handle].shell = shell_handle;
+        brep.set_sides_anchor(shell_handle, face_handle);
         (brep, face_handle)
     }
 

@@ -91,7 +91,7 @@ pub(crate) fn detect_apex_region(brep: &BRep, apex: VertexHandle) -> ApexRegion 
         }
         // The frontier vertex is the destination of this
         // half-edge (the other end of the incident edge).
-        if let Some(twin) = brep.half_edges.get(he.twin) {
+        if let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) {
             vertices.insert(twin.origin);
         }
     }

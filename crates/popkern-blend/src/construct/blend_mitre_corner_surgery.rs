@@ -86,13 +86,16 @@ pub(super) fn reduce_to_residue_polygon(
     loop {
         let shared = brep.half_edges.iter().find_map(|(h, he)| {
             let own = face_of(brep, h)?;
-            let across = face_of(brep, he.twin)?;
+            let across = he.mate().and_then(|m| face_of(brep, m))?;
             (own != across && flaps.contains(&own) && flaps.contains(&across)).then_some(h)
         });
         let Some(h) = shared else {
             break;
         };
-        let killed = face_of(brep, brep.half_edges[h].twin).ok_or(Reason::EulerRejected)?;
+        let killed = brep.half_edges[h]
+            .mate()
+            .and_then(|m| face_of(brep, m))
+            .ok_or(Reason::EulerRejected)?;
         brep.kef(h).map_err(|_| Reason::EulerRejected)?;
         flaps.retain(|f| *f != killed);
     }
@@ -105,7 +108,7 @@ pub(super) fn reduce_to_residue_polygon(
         let ring = outer_ring(brep, residue).ok_or(Reason::UnrecognizedResidue)?;
         let spur = ring.iter().copied().find(|&h| {
             let he = &brep.half_edges[h];
-            he.next == he.twin
+            he.mate() == Some(he.next)
         });
         let Some(h) = spur else {
             break;
@@ -117,7 +120,12 @@ pub(super) fn reduce_to_residue_polygon(
     let ring = outer_ring(brep, residue).ok_or(Reason::UnrecognizedResidue)?;
     let across: Vec<FaceHandle> = ring
         .iter()
-        .map(|&h| face_of(brep, brep.half_edges[h].twin).ok_or(Reason::UnrecognizedResidue))
+        .map(|&h| {
+            brep.half_edges[h]
+                .mate()
+                .and_then(|m| face_of(brep, m))
+                .ok_or(Reason::UnrecognizedResidue)
+        })
         .collect::<Result<_, _>>()?;
     if across.iter().any(|f| !strips.contains(f)) {
         return Err(Reason::UnrecognizedResidue);
@@ -147,7 +155,7 @@ pub(super) fn reduce_to_residue_polygon(
             let Some(&h) = ring.iter().find(|&&h| brep.half_edges[h].origin == x) else {
                 return Err(Reason::EulerRejected);
             };
-            let dest = brep.half_edges[brep.half_edges[h].twin].origin;
+            let dest = brep.fin_end(h).ok_or(Reason::EulerRejected)?;
             if crossings.contains(&dest) {
                 break;
             }
@@ -168,7 +176,12 @@ pub(super) fn reduce_to_residue_polygon(
     for k in 0..ring.len() {
         let h = ring[(start + k) % ring.len()];
         ordered.push(brep.half_edges[h].origin);
-        sides.push(face_of(brep, brep.half_edges[h].twin).ok_or(Reason::EulerRejected)?);
+        sides.push(
+            brep.half_edges[h]
+                .mate()
+                .and_then(|m| face_of(brep, m))
+                .ok_or(Reason::EulerRejected)?,
+        );
     }
     Ok(ResiduePolygon {
         face: residue,
@@ -185,7 +198,8 @@ pub(super) fn star_from_mitre_point(
 ) -> Result<VertexHandle, Reason> {
     let side_half_edge = |brep: &BRep, from: VertexHandle, strip: FaceHandle| {
         brep.half_edges.iter().find_map(|(h, he)| {
-            (he.origin == from && face_of(brep, he.twin) == Some(strip)).then_some(h)
+            (he.origin == from && he.mate().and_then(|m| face_of(brep, m)) == Some(strip))
+                .then_some(h)
         })
     };
     let first = side_half_edge(brep, polygon.crossings[0], polygon.sides[0])
@@ -207,7 +221,7 @@ pub(super) fn star_from_mitre_point(
     // Every triangle joins the strip across its polygon side.
     for (k, &x) in polygon.crossings.iter().enumerate() {
         let side = side_half_edge(brep, x, polygon.sides[k]).ok_or(Reason::EulerRejected)?;
-        let strip_side = brep.half_edges[side].twin;
+        let strip_side = brep.half_edges[side].mate().ok_or(Reason::EulerRejected)?;
         brep.kef(strip_side).map_err(|_| Reason::EulerRejected)?;
     }
     if brep.faces.get(polygon.face).is_some() {

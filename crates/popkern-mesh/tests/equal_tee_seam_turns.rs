@@ -106,15 +106,14 @@ fn pinched_difference(x0: f64, k: usize, want: f64) -> Result<(), String> {
         tol,
         None,
         &BoolOptions {
-            non_manifold: NonManifoldPolicy::SplitToManifold,
+            non_manifold: NonManifoldPolicy::General,
         },
     )
-    .map_err(|e| format!("split: {e}"))?;
-    if split.topology_contacts.len() != 2 {
-        return Err(format!(
-            "split recorded {} contacts",
-            split.topology_contacts.len()
-        ));
+    .map_err(|e| format!("general: {e}"))?;
+    // The two singular points are the general body's contacts.
+    let held = split.contacts();
+    if held.len() != 2 {
+        return Err(format!("general body holds {} contacts", held.len()));
     }
     let got = mesh_volume(&split);
     if (got - want).abs() > 2e-3 * want {

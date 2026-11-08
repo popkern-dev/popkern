@@ -86,6 +86,18 @@ pub fn seam_hinge_component(
     tolerance: Tolerance,
 ) -> Result<BRep, HingeError> {
     seam.check()?;
+    if let Some(body) = body {
+        popkern_bool::require_operand_kind(
+            body,
+            "seam hinge",
+            0,
+            &[popkern_core::topology::BodyKind::Solid],
+        )
+        .map_err(|source| HingeError::Boolean {
+            stage: "seam hinge".into(),
+            source: Box::new(source),
+        })?;
+    }
     // The leaf width only matters to plate hinges; give the layout one
     // wide enough not to refuse.
     let mut layout_params = params.clone();
@@ -177,9 +189,9 @@ pub fn seam_hinge_component(
             )?;
             knuckle = subtract(&knuckle, &bore, "seam knuckle bore", tolerance)?;
         }
-        let shells = result.shells.len();
+        let shells = result.back_shell_count();
         result = union(&result, &knuckle, "seam knuckle", tolerance)?;
-        if result.shells.len() != shells {
+        if result.back_shell_count() != shells {
             return Err(construction(
                 "seam knuckle",
                 "the knuckle did not join the body (its web misses the wall)".into(),

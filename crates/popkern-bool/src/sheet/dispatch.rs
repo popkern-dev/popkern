@@ -97,6 +97,21 @@ pub fn boolean_with_sheets(
         super::complex_route::as_sheet(b),
     );
     let (a, b) = (a_sheet.as_ref().unwrap_or(a), b_sheet.as_ref().unwrap_or(b));
+    // Solids and sheets (an empty operand goes on to the boolean's own
+    // "no faces" finding); a general body or a wire is refused.
+    for (operand, body) in [a, b].into_iter().enumerate() {
+        if !body.faces.is_empty() {
+            crate::kind_gate::require_operand(
+                body,
+                "sheet boolean",
+                operand,
+                &[
+                    popkern_core::topology::BodyKind::Solid,
+                    popkern_core::topology::BodyKind::Sheet,
+                ],
+            )?;
+        }
+    }
     let a_is_sheet = is_sheet_body(a);
     let b_is_sheet = is_sheet_body(b);
     let kind = classify_sheet_operation(op, a_is_sheet, b_is_sheet);

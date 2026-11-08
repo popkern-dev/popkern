@@ -88,6 +88,8 @@ pub enum BrepSewingClassificationBucket {
     MissingSurfaceSampleData,
     /// Surface sample gap exceeded snap tolerance.
     SurfaceGapExceeded,
+    /// Non-manifold sewing's glue declined.
+    GlueDeclined,
 }
 
 /// Stable serialized label for a sewing-classification bucket.
@@ -108,6 +110,7 @@ pub fn brep_sewing_classification_bucket_label(
         BrepSewingClassificationBucket::EndpointGapExceeded => "endpoint_gap_exceeded",
         BrepSewingClassificationBucket::MissingSurfaceSampleData => "missing_surface_sample_data",
         BrepSewingClassificationBucket::SurfaceGapExceeded => "surface_gap_exceeded",
+        BrepSewingClassificationBucket::GlueDeclined => "glue_declined",
     }
 }
 
@@ -389,6 +392,9 @@ fn rejection_bucket(
         }
         BrepSewingDeclineReason::SurfaceGapExceeded { .. } => {
             BrepSewingClassificationBucket::SurfaceGapExceeded
+        }
+        BrepSewingDeclineReason::GlueDeclined { .. } => {
+            BrepSewingClassificationBucket::GlueDeclined
         }
     }
 }

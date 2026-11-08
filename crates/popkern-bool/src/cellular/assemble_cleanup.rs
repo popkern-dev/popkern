@@ -27,12 +27,17 @@ pub(super) fn cleanup_unwired(builder: &mut BRepBuilder) {
 
     let twins: Vec<(HalfEdgeHandle, HalfEdgeHandle)> = dangling
         .iter()
-        .filter_map(|&h| brep.half_edges.get(h).map(|he| (h, he.twin)))
+        .filter_map(|&h| {
+            brep.half_edges
+                .get(h)
+                .and_then(|he| he.mate())
+                .map(|t| (h, t))
+        })
         .collect();
 
     for (h, twin_h) in &twins {
         if let Some(twin) = brep.half_edges.get_mut(*twin_h) {
-            twin.twin = *twin_h;
+            twin.set_mate(*twin_h);
         }
         // The surviving edge KEEPS its curve: edge geometry is a
         // property of the edge, not of its twin wiring — clearing it
@@ -133,10 +138,12 @@ pub(super) fn partition_shells(
         r
     }
     for (h, he) in brep.half_edges.iter() {
-        let twin = he.twin;
-        if twin == h || !brep.half_edges.contains_key(twin) {
+        let Some(twin) = he
+            .mate()
+            .filter(|t| *t != h && brep.half_edges.contains_key(*t))
+        else {
             continue;
-        }
+        };
         let (Some(l1), Some(l2)) = (
             brep.loops.get(he.loop_),
             brep.loops.get(brep.half_edges[twin].loop_),
@@ -344,11 +351,18 @@ pub(super) fn partition_shells(
     let Some(first_own) = first_own else {
         return false; // every component claims to be a cavity — lie
     };
-    let existing_shell = brep.faces[faces[0]].shell;
-    let existing_solid = brep.shells[existing_shell].solid;
-    let mut shells: Vec<Option<popkern_core::topology::ShellHandle>> = vec![None; roots.len()];
-    let mut solids: Vec<Option<popkern_core::topology::SolidHandle>> = vec![None; roots.len()];
-    shells[first_own] = Some(existing_shell);
+    let Some(existing_shell) = brep.face_back_shell(faces[0]) else {
+        return false;
+    };
+    let Some(existing_solid) = brep.shell_region(existing_shell) else {
+        return false;
+    };
+    let Some(existing_sides) = brep.face_sides(faces[0]) else {
+        return false;
+    };
+    let mut shells: Vec<Option<popkern_core::topology::FaceSides>> = vec![None; roots.len()];
+    let mut solids: Vec<Option<popkern_core::topology::RegionHandle>> = vec![None; roots.len()];
+    shells[first_own] = Some(existing_sides);
     solids[first_own] = Some(existing_solid);
     for c in 0..roots.len() {
         if c == first_own || encloser[c].is_some() {
@@ -356,7 +370,8 @@ pub(super) fn partition_shells(
         }
         let solid = builder.add_solid();
         solids[c] = Some(solid);
-        shells[c] = Some(builder.add_shell(solid));
+        let shell = builder.add_shell(solid);
+        shells[c] = Some(builder.shell_sides(shell));
     }
     let mut cavity_count = 0usize;
     for c in 0..roots.len() {
@@ -364,28 +379,22 @@ pub(super) fn partition_shells(
             let Some(owner_solid) = solids[e] else {
                 return false;
             };
-            shells[c] = Some(builder.add_shell(owner_solid));
+            let shell = builder.add_shell(owner_solid);
+            shells[c] = Some(builder.shell_sides(shell));
             cavity_count += 1;
         }
     }
-    // `add_shell` re-points its solid's primary shell at the newest
-    // one; cavity shells must not usurp the outer shell's slot.
+    // A region's first shell stays its outer shell: cavity shells
+    // added after it do not usurp the slot.
     let brep = builder.brep_mut();
-    for c in 0..roots.len() {
-        if encloser[c].is_none()
-            && let (Some(sh), Some(so)) = (shells[c], solids[c])
-        {
-            brep.solids[so].shell = sh;
-        }
-    }
     // Re-anchor every shell's representative face (component 0's may
     // have pointed at a face now moved to another shell).
     let mut anchored = vec![false; roots.len()];
     for (f, c) in face_component {
-        let Some(sh) = shells[c] else { return false };
-        brep.faces[f].shell = sh;
+        let Some(sides) = shells[c] else { return false };
+        brep.set_face_sides(f, sides);
         if !anchored[c] {
-            brep.shells[sh].face = f;
+            brep.set_sides_anchor(sides, f);
             anchored[c] = true;
         }
     }

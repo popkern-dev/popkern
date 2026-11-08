@@ -2,6 +2,7 @@
 #![allow(clippy::result_large_err)]
 
 use popkern_core::geometry::{CurveEval, CurveOnEdge, NurbsCurve, Point3};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, TopologyRole, Vertex,
     VertexHandle,
@@ -171,8 +172,8 @@ fn rest_path_after(
 
 fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
     let data = brep.half_edges.get(half_edge)?;
-    brep.half_edges
-        .get(data.twin)
+    data.mate()
+        .and_then(|m| brep.half_edges.get(m))
         .map(|twin| twin.origin)
         .or_else(|| brep.half_edges.get(data.next).map(|next| next.origin))
 }
@@ -206,7 +207,7 @@ fn insert_generated_edge_pair(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: start,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
@@ -215,14 +216,14 @@ fn insert_generated_edge_pair(
     });
     let twin = brep.half_edges.insert(HalfEdge {
         origin: end,
-        twin: half_edge,
+        ring: RadialLinks::pair(half_edge),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[half_edge].twin = twin;
+    brep.half_edges[half_edge].set_mate(twin);
     brep.edges[edge].half_edge = half_edge;
     if brep.vertices[start].outgoing == HalfEdgeHandle::default() {
         brep.vertices[start].outgoing = half_edge;
@@ -238,7 +239,8 @@ fn insert_inner_face_like(brep: &mut BRep, template_face: FaceHandle) -> Option<
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: Vec::new(),
-        shell: template.shell,
+        back: template.back,
+        front: template.front,
         surface: None,
         name: None,
         tolerance: template.tolerance,
@@ -247,6 +249,7 @@ fn insert_inner_face_like(brep: &mut BRep, template_face: FaceHandle) -> Option<
     let loop_handle = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_handle;
     Some(face)

@@ -53,7 +53,7 @@ fn served_g2_cube_edge_curves_run_canonical_forward() {
         };
         let he = &brep.half_edges[edge.half_edge];
         let origin = brep.vertices[he.origin].position;
-        let dest = brep.vertices[brep.half_edges[he.twin].origin].position;
+        let dest = brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position;
         let separation = origin.distance_to(&dest);
         if separation < 1.0e-6 {
             continue;

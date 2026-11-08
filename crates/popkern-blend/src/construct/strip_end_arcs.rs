@@ -186,7 +186,7 @@ fn plane_of(brep: &BRep, face: FaceHandle) -> Option<(Point3, Vec3)> {
 }
 
 fn face_across(brep: &BRep, he: HalfEdgeHandle) -> Option<FaceHandle> {
-    let twin = brep.half_edges.get(he)?.twin;
+    let twin = brep.half_edges.get(he)?.mate()?;
     let l = brep.half_edges.get(twin)?.loop_;
     Some(brep.loops.get(l)?.face)
 }
@@ -335,7 +335,9 @@ fn arcify_runout_boundaries(
                 .unwrap_or(false)
         {
             let v_o = d.origin;
-            let v_d = brep.half_edges[d.twin].origin;
+            let Some(v_d) = d.mate().map(|m| brep.half_edges[m].origin) else {
+                continue;
+            };
             if v_o != v_d {
                 let p_o = brep.vertices[v_o].position;
                 let p_d = brep.vertices[v_d].position;
@@ -391,9 +393,11 @@ fn arcify_runout_boundaries(
         let t = (p_origin - origin).dot(&n_hat) / denom;
         let c0 = origin + axis * t;
         let he0 = brep.edges[eh].half_edge;
-        let (v1, v2) = {
-            let d = &brep.half_edges[he0];
-            (d.origin, brep.half_edges[d.twin].origin)
+        let Some((v1, v2)) = brep
+            .mate(he0)
+            .map(|m| (brep.half_edges[he0].origin, brep.half_edges[m].origin))
+        else {
+            continue;
         };
         let p1 = brep.vertices[v1].position;
         let p2 = brep.vertices[v2].position;
@@ -431,9 +435,10 @@ fn arcify_runout_boundaries(
             // passes — null both sides, recompute re-authors from
             // the arc.
             let he0 = e.half_edge;
-            let tw = candidate.half_edges[he0].twin;
             candidate.half_edges[he0].pcurve = None;
-            candidate.half_edges[tw].pcurve = None;
+            if let Some(tw) = candidate.half_edges[he0].mate() {
+                candidate.half_edges[tw].pcurve = None;
+            }
         }
         if candidate.validate().is_ok() {
             *brep = candidate;

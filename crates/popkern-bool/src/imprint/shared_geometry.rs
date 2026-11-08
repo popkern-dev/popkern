@@ -79,7 +79,7 @@ pub fn validate_watertightness(
             Some(h) => h,
             None => continue,
         };
-        let twin = match brep.half_edges.get(he.twin) {
+        let twin = match he.mate().and_then(|m| brep.half_edges.get(m)) {
             Some(t) => t,
             None => continue,
         };
@@ -155,7 +155,7 @@ pub fn edge_face_deviation(
     let curve = edge_data.curve.as_ref()?;
 
     let he = brep.half_edges.get(edge_data.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
 
     let face_a = brep.loops.get(he.loop_)?.face;
     let face_b = brep.loops.get(twin.loop_)?.face;

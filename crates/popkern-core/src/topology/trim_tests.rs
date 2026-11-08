@@ -162,10 +162,11 @@ fn add_inner_loop_twins_are_paired() {
     let mut cursor = start_he;
     loop {
         let he = &cube.half_edges[cursor];
-        let twin = he.twin;
+        let twin = he.mate().unwrap_or_default();
         assert_ne!(twin, cursor, "half-edge should not be self-twinned");
         assert_eq!(
-            cube.half_edges[twin].twin, cursor,
+            cube.half_edges[twin].mate().unwrap_or_default(),
+            cursor,
             "twin's twin should point back"
         );
         cursor = he.next;

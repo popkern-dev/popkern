@@ -13,12 +13,7 @@ pub(super) fn loop_shell_knowledge(brep: &BRep) -> BrepRepairKnowledgeGraph {
         .faces
         .keys()
         .map(BrepRepairScopeSeed::Face)
-        .chain(
-            brep.boundary_edges
-                .iter()
-                .copied()
-                .map(BrepRepairScopeSeed::Edge),
-        )
+        .chain(brep.free_edges().into_iter().map(BrepRepairScopeSeed::Edge))
         .collect::<Vec<_>>();
     seeds.sort();
     seeds.dedup();
@@ -61,7 +56,7 @@ fn finding_fact_ids(
     let mut ids = BTreeSet::new();
     if let Some(shell) = finding.shell {
         for (face, data) in &brep.faces {
-            if data.shell == shell {
+            if data.back == shell {
                 insert_fact_ids(graph, BrepRepairTopologyHandle::Face(face), &mut ids);
             }
         }

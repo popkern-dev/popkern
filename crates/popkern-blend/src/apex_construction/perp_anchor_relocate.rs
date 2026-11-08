@@ -213,7 +213,7 @@ fn bfs_collect_neighborhood(
             if he.origin != u {
                 continue;
             }
-            let Some(twin_he) = brep.half_edges.get(he.twin) else {
+            let Some(twin_he) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
                 continue;
             };
             let neighbor = twin_he.origin;

@@ -168,7 +168,7 @@ impl BRep {
         let mut cur = start;
         for _ in 0..self.half_edges.len() + 1 {
             let he = self.half_edges.get(cur)?;
-            let twin = self.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| self.half_edges.get(m))?;
             let neighbour = self.loops.get(twin.loop_)?.face;
             if neighbour != face
                 && let Some(&neighbour_honest) = known.get(&neighbour)
@@ -391,7 +391,11 @@ impl BRep {
             .get(he.origin)
             .ok_or("missing-vertex")?
             .position;
-        let dest_handle = self.half_edges.get(he.twin).ok_or("missing-twin")?.origin;
+        let dest_handle = he
+            .mate()
+            .and_then(|m| self.half_edges.get(m))
+            .ok_or("missing-twin")?
+            .origin;
         let dest = self
             .vertices
             .get(dest_handle)

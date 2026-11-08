@@ -73,7 +73,7 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
             if let popkern_core::error::ValidationError::CurveSurfaceDeviation { edge, .. } = &err {
                 let identity = brep.edges.get(*edge).map(|ed| {
                     let he = &brep.half_edges[ed.half_edge];
-                    let tw = &brep.half_edges[he.twin];
+                    let tw = &brep.half_edges[he.mate().unwrap_or_default()];
                     let face_kind = |f: popkern_core::topology::FaceHandle| {
                         brep.faces
                             .get(f)
@@ -113,7 +113,7 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
                         let t = cur.t_start + (cur.t_end - cur.t_start) * frac;
                         let pt = cur.geometry.point_at(t);
                         let he0 = &brep.half_edges[ed.half_edge];
-                        let tw0 = &brep.half_edges[he0.twin];
+                        let tw0 = &brep.half_edges[he0.mate().unwrap_or_default()];
                         let mut ds = String::new();
                         for f in [brep.loops[he0.loop_].face, brep.loops[tw0.loop_].face] {
                             if let Some(sof) = brep.faces.get(f).and_then(|fd| fd.surface.as_ref())
@@ -134,7 +134,7 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
                     }
                     let mid = cur.geometry.point_at(0.5 * (cur.t_start + cur.t_end));
                     let he = &brep.half_edges[ed.half_edge];
-                    let tw = &brep.half_edges[he.twin];
+                    let tw = &brep.half_edges[he.mate().unwrap_or_default()];
                     for f in [brep.loops[he.loop_].face, brep.loops[tw.loop_].face] {
                         if let Some(sof) = brep.faces.get(f).and_then(|fd| fd.surface.as_ref()) {
                             let g = &sof.geometry;

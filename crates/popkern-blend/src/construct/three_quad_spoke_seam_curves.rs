@@ -52,7 +52,9 @@ pub(super) fn author_interior_spoke_seam_curves_from_committed_caps(
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let twin = he_data.twin;
+        let Some(twin) = he_data.mate() else {
+            continue;
+        };
         let Some(twin_data) = brep.half_edges.get(twin) else {
             continue;
         };

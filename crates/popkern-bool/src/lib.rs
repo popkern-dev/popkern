@@ -61,6 +61,7 @@ mod error_remediation;
 mod face_box;
 mod face_box_analytic;
 mod face_region_probe;
+mod general;
 pub mod history;
 pub mod imprint;
 pub mod instancing;
@@ -74,13 +75,16 @@ pub(crate) mod intersect_edge_in_face_spans;
 pub(crate) mod intersect_residue_filter;
 pub(crate) mod intersect_residue_split;
 pub(crate) mod intersect_residue_witness;
+mod kind_gate;
 pub(crate) mod merge;
 pub mod merge_fallback;
 mod pcurve_box;
 pub(crate) mod periodic_chart_parity;
 pub(crate) mod periodic_chart_parity_torus;
 pub mod pieces;
+mod split_serve;
 mod wire_boolean;
+pub use kind_gate::require_operand as require_operand_kind;
 pub use wire_boolean::boolean_with_wire;
 pub mod propagation_report;
 mod record_coparam;
@@ -111,15 +115,18 @@ pub mod tolerance;
 pub(crate) mod tolerance_zone;
 pub mod validate;
 
+pub use bool_api_core::boolean_bodies;
 pub use bool_api_extras::{boolean_strict, boolean_with_provenance, boolean_with_remediation};
 pub use classify::{point_in_solid, point_in_solid_final};
 pub use csg::{CsgNode, csg_eval};
-pub use ops::contact::{BodyContact, TouchExtent, contact_report, symmetric_difference};
+pub use ops::contact::{
+    BodyContact, TouchExtent, contact_report, symmetric_difference, symmetric_difference_bodies,
+};
 pub use options::{BoolOptions, NonManifoldPolicy};
 pub use partition::{
     BodySet, FALLBACK_COUNTING_LIMIT, Interface, MAX_BODIES, Partition, RegionInfo, RegionSolid,
-    RegionSolids, SetExpr, SplitPiece, SplitResult, nary_boolean, nary_boolean_where, partition,
-    split,
+    RegionSolids, SetExpr, SplitPiece, SplitResult, nary_boolean, nary_boolean_bodies,
+    nary_boolean_where, nary_boolean_where_bodies, partition, split,
 };
 
 pub use error::{
@@ -181,7 +188,9 @@ pub fn boolean(
 /// options it is exactly [`boolean`].
 ///
 /// ```
-/// use popkern_bool::{BoolOperation, BoolOptions, NonManifoldPolicy, boolean_with_options};
+/// use popkern_bool::{
+///     BoolOperation, BoolOptions, NonManifoldPolicy, boolean_bodies, boolean_with_options,
+/// };
 /// use popkern_core::{geometry::Transform3, tolerance::Tolerance, topology::BRep};
 ///
 /// let tol = Tolerance::default();
@@ -191,17 +200,27 @@ pub fn boolean(
 ///     .unwrap()
 ///     .transform(&Transform3::translation(1.0, 1.0, 0.0))
 ///     .unwrap();
-/// let split = BoolOptions { non_manifold: NonManifoldPolicy::SplitToManifold };
-/// let body = boolean_with_options(BoolOperation::Union, a, b, tol, None, &split).unwrap();
-/// assert!(!body.topology_contacts.is_empty());
+/// let general = BoolOptions { non_manifold: NonManifoldPolicy::General };
+/// let body =
+///     boolean_with_options(BoolOperation::Union, a.clone(), b.clone(), tol, None, &general)
+///         .unwrap();
+/// assert!(!body.contacts().is_empty());
 /// assert!(body.validate_all().is_empty());
+/// // Split, the two cubes are two bodies.
+/// let split = BoolOptions { non_manifold: NonManifoldPolicy::SplitToManifold };
+/// let bodies = boolean_bodies(BoolOperation::Union, a, b, tol, None, &split).unwrap();
+/// assert_eq!(bodies.len(), 2);
 /// ```
 ///
 /// # Errors
 ///
-/// As [`boolean`]; under [`NonManifoldPolicy::SplitToManifold`] a
-/// non-manifold result serves instead of declining, unless its pieces
-/// cannot be served valid (then [`BoolError::NonManifoldResult`]).
+/// As [`boolean`]; under [`NonManifoldPolicy::General`] a non-manifold
+/// result serves as one general body ([`BoolError::GeneralBodyDeclined`]
+/// when its pieces cannot be glued valid); under
+/// [`NonManifoldPolicy::SplitToManifold`] pieces that touch are several
+/// bodies, [`BoolError::SplitIntoBodies`] here ([`boolean_bodies`]
+/// returns them); pieces that cannot be served valid decline with
+/// [`BoolError::NonManifoldResult`].
 pub fn boolean_with_options(
     op: BoolOperation,
     a: BRep,
@@ -210,7 +229,8 @@ pub fn boolean_with_options(
     tracking: Option<&mut TrackingContext>,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    bool_api_core::boolean_under(op, a, b, tol, tracking, options.non_manifold)
+    let pieces = bool_api_core::boolean_under(op, a, b, tol, tracking, options.non_manifold);
+    split_serve::serve_one(pieces, options.non_manifold, &tol)
 }
 
 /// Concatenate two solids into ONE multi-solid [`BRep`] with NO

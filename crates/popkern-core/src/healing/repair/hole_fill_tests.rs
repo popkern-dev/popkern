@@ -293,7 +293,7 @@ fn detect_holes_finds_the_open_box_opening() {
     assert_eq!(holes[0].num_sides, 4);
     for edge in &holes[0].boundary_edges {
         assert!(
-            brep.boundary_edges.contains(edge),
+            brep.is_free_edge(*edge),
             "detected hole edges must be registered boundary edges"
         );
     }

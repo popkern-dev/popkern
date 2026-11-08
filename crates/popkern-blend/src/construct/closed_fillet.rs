@@ -56,7 +56,7 @@ pub(crate) fn is_closed_fillet_edge(brep: &BRep, edge: EdgeHandle) -> bool {
     let Some(he) = brep.half_edges.get(edata.half_edge) else {
         return false;
     };
-    let Some(twin) = brep.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
         return false;
     };
     he.origin == twin.origin
@@ -94,7 +94,7 @@ pub(crate) fn apply_closed_fillet(
                 reason: format!("closed-fillet: half-edge {he_a_h:?} not found"),
                 location: edge_loc,
             })?;
-    let he_b_h = he_a.twin;
+    let he_b_h = he_a.require_mate()?;
     let he_b =
         brep.half_edges
             .get(he_b_h)
@@ -339,14 +339,14 @@ pub(crate) fn apply_closed_fillet(
         role: Default::default(),
     });
 
-    // 8. Create the fillet face shell — we need this BEFORE the
-    //    half-edges so each half-edge can reference its loop.
-    //    Build with placeholder loop handles, then patch.
-    let shell = brep.faces[face_a].shell;
+    // 8. Create the fillet face (sides of face_a) before the half-edges
+    //    so each can reference its loop; loop handles patched after.
+    let shell = brep.faces[face_a].sides();
     let fillet_face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(popkern_core::geometry::surface::SurfaceOnFace {
             geometry: eg.surface.clone(),
             orientation: true,
@@ -356,14 +356,12 @@ pub(crate) fn apply_closed_fillet(
         role: Default::default(),
     });
 
-    let loop_fillet_outer = brep.loops.insert(Loop {
-        half_edge: HalfEdgeHandle::default(),
-        face: fillet_face,
-    });
-    let loop_fillet_inner = brep.loops.insert(Loop {
-        half_edge: HalfEdgeHandle::default(),
-        face: fillet_face,
-    });
+    let loop_fillet_outer = brep
+        .loops
+        .insert(Loop::new(HalfEdgeHandle::default(), fillet_face));
+    let loop_fillet_inner = brep
+        .loops
+        .insert(Loop::new(HalfEdgeHandle::default(), fillet_face));
 
     brep.faces[fillet_face].outer_loop = loop_fillet_outer;
     brep.faces[fillet_face].inner_loops = vec![loop_fillet_inner];
@@ -393,7 +391,7 @@ pub(crate) fn apply_closed_fillet(
 
     let he_seam_support = brep.half_edges.insert(HalfEdge {
         origin: v_with_seam,
-        twin: HalfEdgeHandle::default(),
+        ring: popkern_core::topology::RadialLinks::alone(),
         next: seam_old_next,
         prev: seam_old_prev,
         edge: edge_seam_side,
@@ -402,14 +400,14 @@ pub(crate) fn apply_closed_fillet(
     });
     let he_seam_fillet = brep.half_edges.insert(HalfEdge {
         origin: v_with_seam,
-        twin: he_seam_support,
+        ring: popkern_core::topology::RadialLinks::pair(he_seam_support),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: edge_seam_side,
         loop_: loop_fillet_outer,
         pcurve: None,
     });
-    brep.half_edges[he_seam_support].twin = he_seam_fillet;
+    brep.half_edges[he_seam_support].set_mate(he_seam_fillet);
     // The fillet-side half-edge is the sole element of its loop:
     // next/prev point back at itself.
     brep.half_edges[he_seam_fillet].next = he_seam_fillet;
@@ -417,7 +415,7 @@ pub(crate) fn apply_closed_fillet(
 
     let he_fresh_support = brep.half_edges.insert(HalfEdge {
         origin: v_fresh,
-        twin: HalfEdgeHandle::default(),
+        ring: popkern_core::topology::RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: edge_fresh_side,
@@ -429,14 +427,14 @@ pub(crate) fn apply_closed_fillet(
 
     let he_fresh_fillet = brep.half_edges.insert(HalfEdge {
         origin: v_fresh,
-        twin: he_fresh_support,
+        ring: popkern_core::topology::RadialLinks::pair(he_fresh_support),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: edge_fresh_side,
         loop_: loop_fillet_inner,
         pcurve: None,
     });
-    brep.half_edges[he_fresh_support].twin = he_fresh_fillet;
+    brep.half_edges[he_fresh_support].set_mate(he_fresh_fillet);
     // Both supports seamed (a revolved groove's torus beside its wall
     // cylinder, PK-433): the fresh vertex takes over the second seam.
     if let Some(seam) = seam_a.and(seam_b) {

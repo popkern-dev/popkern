@@ -43,11 +43,11 @@ crates/popkern-core/src/geometry/gregory/kp20_paper_guide.rs 679
 crates/popkern-core/src/geometry/uv_projection.rs 502
 crates/popkern-core/src/topology/pcurve_recompute.rs 622
 crates/popkern-examples/src/dice_set.rs 1186
-crates/popkern-examples/src/flagship_boss_plate.rs 849
+crates/popkern-examples/src/flagship_boss_plate.rs 798
 crates/popkern-examples/src/kp15_bi6_cap_variants_compare.rs 825
 crates/popkern-examples/src/laptop_stand_api.rs 1070
 crates/popkern-blend/src/chamfer_curve.rs 711
-crates/popkern-blend/src/construct/blend_insert.rs 604
+crates/popkern-blend/src/construct/blend_insert.rs 504
 crates/popkern-blend/src/construct/closed_fillet.rs 548
 crates/popkern-blend/src/construct/kp20_paper_border_extract.rs 767
 crates/popkern-blend/src/construct/pns_setback_candidate.rs 509

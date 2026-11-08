@@ -235,7 +235,7 @@ impl BRep {
         //
         // The circle the arcs lie on: centre at the origin of the
         // diameter midpoint (0, 0, z_plane), normal (0, 0, -1)
-        // (matches the plane normal from `plane_from_points`,
+        // (matches the plane normal from `plane_from_loop`,
         // which for our counter-clockwise walk of v0, v1, v2
         // computes `(v1 - v0) × (v2 - v0) = (0, 0, −2r²) → normal
         // (0, 0, −1)`), and our chosen `radius`.

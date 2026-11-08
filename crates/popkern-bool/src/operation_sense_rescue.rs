@@ -45,8 +45,7 @@ pub(crate) fn execute_boolean_full(
         Err(e)
             if op == BoolOperation::Union
                 && !matches!(e, BoolError::Cancelled)
-                && (policy == NonManifoldPolicy::SplitToManifold
-                    || !matches!(e, BoolError::NonManifoldResult { .. })) =>
+                && (policy.serves() || !matches!(e, BoolError::NonManifoldResult { .. })) =>
         {
             let Some(contacts) = super::empty::touching_union_contacts(a, b, tolerance) else {
                 return Err(e);
@@ -55,9 +54,9 @@ pub(crate) fn execute_boolean_full(
             // bodies side by side, meeting at the contacts.
             return match policy {
                 NonManifoldPolicy::Decline => Err(BoolError::NonManifoldResult { contacts }),
-                NonManifoldPolicy::SplitToManifold => {
+                NonManifoldPolicy::SplitToManifold | NonManifoldPolicy::General => {
                     let side_by_side = super::helpers::combine_breps(a.clone(), b.clone())?;
-                    crate::postprocess::contact_record::accept_split(side_by_side, tolerance)
+                    crate::postprocess::split_pieces::accept_split(side_by_side, tolerance, policy)
                 }
             };
         }
@@ -77,8 +76,8 @@ pub(crate) fn execute_boolean_full(
     }
     match policy {
         NonManifoldPolicy::Decline => Err(BoolError::NonManifoldResult { contacts }),
-        NonManifoldPolicy::SplitToManifold => {
-            crate::postprocess::contact_record::accept_split(served, tolerance)
+        NonManifoldPolicy::SplitToManifold | NonManifoldPolicy::General => {
+            crate::postprocess::split_pieces::accept_split(served, tolerance, policy)
         }
     }
 }
