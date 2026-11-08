@@ -173,11 +173,20 @@ impl FeatureTree {
         tree.enforce_unique_feature_labels();
         // The body manager is not serialized: every feature node records
         // its body, so the assignments come back from the timeline
-        // (PK-710 — a loaded document reported no bodies).
+        // (PK-710 — a loaded document reported no bodies), with the
+        // further bodies a feature serving several bodies wrote (PK-1120).
         let assignments: Vec<_> = tree
             .timeline
             .iter()
-            .filter_map(|&id| tree.features.get(id).map(|n| (n.body, id)))
+            .filter_map(|&id| tree.features.get(id).map(|n| (id, n)))
+            .flat_map(|(id, n)| {
+                let further = n
+                    .output_bodies
+                    .iter()
+                    .map(|o| o.body)
+                    .filter(|&b| b != n.body);
+                std::iter::once(n.body).chain(further).map(move |b| (b, id))
+            })
             .collect();
         tree.body_manager.rebuild(assignments);
         Ok(tree)

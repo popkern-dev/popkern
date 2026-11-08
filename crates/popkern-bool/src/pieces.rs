@@ -2,10 +2,10 @@
 //! its solids, each kept or dropped whole with the faces, edges and
 //! vertices that bound it, their names and lineage unchanged.
 //!
-//! A split serves its pieces as one body of several solids
-//! ([`crate::split`], [`crate::concatenate_solids`]), each with its own
-//! topology, apart from the others. Taking pieces out therefore removes
-//! whole components; nothing is cut. A
+//! A body of several solids apart from each other (lumps, as
+//! [`crate::concatenate_solids`] joins them) holds each with its own
+//! topology. Taking pieces out therefore removes whole components;
+//! nothing is cut. A
 //! body whose solids share an entity (a vertex or edge used by two
 //! solids) is not pieces of this kind and declines.
 

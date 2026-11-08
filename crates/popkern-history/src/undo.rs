@@ -51,7 +51,7 @@ pub(crate) fn reverse_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
 
         TreeCommand::ModifyFeature { id, old, .. } => {
             if let Some(node) = tree.features.get_mut(*id) {
-                node.feature = old.clone();
+                node.feature = (**old).clone();
             }
         }
 
@@ -219,7 +219,7 @@ pub(crate) fn apply_command(tree: &mut FeatureTree, cmd: &TreeCommand) {
 
         TreeCommand::ModifyFeature { id, new, .. } => {
             if let Some(node) = tree.features.get_mut(*id) {
-                node.feature = new.clone();
+                node.feature = (**new).clone();
             }
         }
 

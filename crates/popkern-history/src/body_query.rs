@@ -30,6 +30,25 @@ impl FeatureTree {
         self.body_manager.body_features(body)
     }
 
+    /// The bodies `feature` served, its own body first: a split's
+    /// pieces, a split-policy boolean's touching pieces, each its own
+    /// body (PK-1120); for a feature serving one body, that body. Only
+    /// bodies alive after the last replay are listed.
+    pub fn served_bodies(&self, feature: FeatureId) -> Vec<BodyId> {
+        let Some(node) = self.features.get(feature) else {
+            return Vec::new();
+        };
+        let further = node
+            .output_bodies
+            .iter()
+            .map(|o| o.body)
+            .filter(|&b| b != node.body);
+        std::iter::once(node.body)
+            .chain(further)
+            .filter(|&b| self.body_brep(b).is_some())
+            .collect()
+    }
+
     /// The body a Boss/Cut feature merges into: the body whose BRep
     /// carries the face its sketch was placed on. `None` for a feature
     /// with no on-face sketch in its body (a new body, or a base-plane

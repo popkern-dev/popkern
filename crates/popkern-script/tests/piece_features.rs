@@ -8,37 +8,44 @@ use popkern_measure::body_volume;
 use popkern_script::Plane;
 use popkern_script::prelude::*;
 
-const FULL: f64 = 2.4 * 1.6 * 0.4;
 const MIDDLE: f64 = 0.4 * 1.6 * 0.4;
-const SIDE: f64 = (FULL - MIDDLE) / 2.0;
+const SIDE: f64 = 0.9 * 1.6 * 0.4;
+/// The three pieces: the plate less the two 0.1 wide slots.
+const FULL: f64 = 2.0 * SIDE + MIDDLE;
 
-/// A 2.4 x 1.6 x 0.4 plate cut into three pieces (x < -0.2, the
-/// middle, x > 0.2) by a slab centred at parameter `x`.
+/// A 2.4 x 1.6 x 0.4 plate less two 0.1 wide slots through it, either
+/// side of a 0.4 wide middle centred at parameter `x`: one body of three
+/// pieces apart (x < -0.3, the middle, x > 0.3 at x = 0). Pieces apart
+/// are lumps of one body; a split's touching pieces are bodies of their
+/// own (PK-1120).
 fn three_pieces(m: &mut Model) -> Body {
     m.param("x", 0.0, Unit::Meters).expect("param");
-    let p = m
+    let mut p = m
         .profile(Plane::XY)
         .rect(2.4, 1.6)
         .sketch("plate")
         .expect("sketch")
         .extrude(m, End::Blind(0.4.into()))
         .expect("extrude");
-    let s = m
-        .tool(|m| {
-            m.profile(Plane::xy_at(-0.5))
-                .rect(0.4, 3.0)
-                .at(popkern_script::scalar::p("x"), 0.0)
-                .sketch("slab")?
-                .extrude(m, End::Blind(2.0.into()))
-        })
-        .expect("slab");
-    p.split(m, &[s], PieceRule::All).expect("split")
+    for at in ["x - 250mm", "x + 250mm"] {
+        let slot = m
+            .tool(|m| {
+                m.profile(Plane::xy_at(-0.5))
+                    .rect(0.1, 3.0)
+                    .at(popkern_script::scalar::expr(at), 0.0)
+                    .sketch("slot")?
+                    .extrude(m, End::Blind(2.0.into()))
+            })
+            .expect("slot");
+        p = p.subtract(m, slot).expect("cut");
+    }
+    p
 }
 
 /// Solids, volume and lowest x of `body`; every face named, valid.
 fn measured(m: &mut Model, body: Body) -> (usize, f64, f64) {
     let brep = m.brep_of(body).expect("brep");
-    assert!(brep.validate().is_ok(), "{:?}", brep.validate());
+    assert!(brep.validate_all().is_empty(), "{:?}", brep.validate_all());
     assert!(
         brep.faces.values().all(|f| f.name.is_some()),
         "every face is named"
@@ -72,14 +79,14 @@ fn keep_pieces_keeps_the_largest_and_a_fillet_after_it_resolves() {
     let (solids, volume, lo) = measured(&mut m, p);
     assert_eq!(solids, 1);
     assert!(volume < SIDE && volume > SIDE - 0.01, "{volume}");
-    assert!((lo - 0.2).abs() < 1e-9, "{lo}");
+    assert!((lo - 0.3).abs() < 1e-9, "{lo}");
     // The tool moves: the pieces are cut again and the rules select
     // again; the fillet's edge names still resolve.
     m.set_param("x", 0.3).expect("move");
     m.replay().expect("replay with the tool moved");
     let (solids, _, lo) = measured(&mut m, p);
     assert_eq!(solids, 1);
-    assert!((lo - 0.5).abs() < 1e-9, "the kept piece moved: {lo}");
+    assert!((lo - 0.6).abs() < 1e-9, "the kept piece moved: {lo}");
 }
 
 #[test]
@@ -93,7 +100,7 @@ fn separate_pieces_moves_the_selected_pieces_into_a_new_body() {
     assert!(p.is_alive(&m) && right.is_alive(&m));
     let (solids, volume, lo) = measured(&mut m, right);
     assert_eq!(solids, 1);
-    assert!((volume - SIDE).abs() < 1e-9 && (lo - 0.2).abs() < 1e-9);
+    assert!((volume - SIDE).abs() < 1e-9 && (lo - 0.3).abs() < 1e-9);
     let (solids, volume, _) = measured(&mut m, p);
     assert_eq!(solids, 2);
     assert!((volume - (FULL - SIDE)).abs() < 1e-9, "{volume}");
@@ -114,8 +121,8 @@ fn separate_pieces_moves_the_selected_pieces_into_a_new_body() {
     m.set_param("x", -0.3).expect("move");
     m.replay().expect("replay with the tool moved");
     let (_, volume, lo) = measured(&mut m, right);
-    assert!((lo + 0.1).abs() < 1e-9, "{lo}");
-    assert!((volume - 1.3 * 1.6 * 0.4).abs() < 1e-9, "{volume}");
+    assert!(lo.abs() < 1e-9, "{lo}");
+    assert!((volume - 1.2 * 1.6 * 0.4).abs() < 1e-9, "{volume}");
 }
 
 #[test]

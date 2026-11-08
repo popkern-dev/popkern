@@ -282,6 +282,12 @@ impl FeatureTree {
                     body_breps.insert(written, rewritten);
                     touched.insert(written);
                 }
+                let pieces = side_effects.served_bodies;
+                let served =
+                    self.serve_outputs(id, pieces, body_breps, &mut touched, &mut evidence);
+                if let Some(own) = served {
+                    brep = own;
+                }
                 let history = ctx.finish();
                 let fr = FeatureResult::Success { history };
                 self.features[id].last_result = Some(fr.clone());

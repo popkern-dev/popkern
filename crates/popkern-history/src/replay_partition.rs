@@ -55,14 +55,13 @@ pub(crate) fn execute_boolean(
         let op = format!("{operation:?}").to_lowercase();
         failed_with("boolean", FeatureFailure::boolean(&op, &e).into())
     })?;
-    let result = solids_of("boolean", bodies)?;
     let mut evidence = FeatureEvidence::empty();
     evidence.record_boolean_fallbacks(popkern_bool::merge_fallback::take_merge_fallback_events());
-    *brep = result;
     Ok(ExecuteSideEffects {
         consumed_bodies: vec![*tool_body],
         evidence,
         written_bodies: Vec::new(),
+        served_bodies: bodies,
     })
 }
 
@@ -94,8 +93,8 @@ pub(crate) fn execute(
     // belong to this feature.
     let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
     let mut classes = Vec::new();
-    let mut result = match feature {
-        Feature::Split { keep, .. } => split(brep, &refs, keep, tolerance)?,
+    let (mut result, touching_pieces) = match feature {
+        Feature::Split { keep, .. } => (split(brep, &refs, keep, tolerance)?, false),
         Feature::NaryBoolean {
             expr, non_manifold, ..
         } => {
@@ -106,13 +105,13 @@ pub(crate) fn execute(
             };
             let served = popkern_bool::nary_boolean_bodies(&bodies, expr, *tolerance, &options)
                 .map_err(|e| failed(label, &e))?;
-            solids_of(label, served)?
+            all_solids(label, served)?
         }
         _ => {
             let imprinted = popkern_bool::ops::imprint::imprint(brep, &tool_breps[0], tolerance)
                 .map_err(|e| failed(label, &e))?;
             classes = imprinted.classes;
-            imprinted.imprinted_target
+            (imprinted.imprinted_target, false)
         }
     };
     popkern_bool::name_from_operands(&mut result, brep, &refs, tolerance, tracking);
@@ -130,16 +129,32 @@ pub(crate) fn execute(
         evidence.imprint = Some(crate::replay_report::ImprintRecord { classes });
     }
     evidence.record_boolean_fallbacks(popkern_bool::merge_fallback::take_merge_fallback_events());
-    *brep = result;
+    // Named as one, then served as its pieces: a split serves a body
+    // per kept piece, an N-ary boolean a body per touching piece
+    // (PK-1120); an imprint changes its body in place.
+    let served_bodies = match feature {
+        Feature::Imprint { .. } => {
+            *brep = result;
+            Vec::new()
+        }
+        Feature::Split { .. } => {
+            popkern_bool::pieces::piece_bodies(&result).map_err(|e| failed(label, &e))?
+        }
+        _ if touching_pieces => result
+            .piece_bodies()
+            .map_err(|e| failed_with(label, format!("{e}").into()))?,
+        _ => vec![result],
+    };
     Ok(ExecuteSideEffects {
         consumed_bodies: tools,
         evidence,
         written_bodies: Vec::new(),
+        served_bodies,
     })
 }
 
 /// `target` cut by `tools`, the pieces `keep` selects as one body of
-/// several solids.
+/// several solids (named as one, then served as a body per piece).
 fn split(
     target: &BRep,
     tools: &[&BRep],
@@ -165,17 +180,19 @@ fn split(
     })
 }
 
-/// A result served as several bodies (split manifold pieces that touch)
-/// as the feature's one body of several solids, as a split keeps its
-/// pieces: `KeepPieces` and `SeparatePieces` take them apart.
-fn solids_of(label: &str, bodies: Vec<BRep>) -> Result<BRep, ReplayError> {
+/// Bodies served for one feature (split manifold pieces that touch)
+/// as one body of several solids, to be named as one; `true` when
+/// there were several, to be served again as their pieces.
+fn all_solids(label: &str, bodies: Vec<BRep>) -> Result<(BRep, bool), ReplayError> {
+    let several = bodies.len() > 1;
     let mut bodies = bodies.into_iter();
     let Some(first) = bodies.next() else {
         return Err(failed_with(label, "no body served".into()));
     };
-    bodies.try_fold(first, |body, piece| {
+    let body = bodies.try_fold(first, |body, piece| {
         popkern_bool::concatenate_solids(body, piece).map_err(|e| failed(label, &e))
-    })
+    })?;
+    Ok((body, several))
 }
 
 fn failed(label: &str, error: &BoolError) -> ReplayError {

@@ -5,7 +5,7 @@
 //! and piece rules spelled by their builders.
 
 use popkern_history::feature::{Feature, NonManifoldPolicy, PieceRule, SetExpr};
-use popkern_history::node::BodyId;
+use popkern_history::node::{BodyId, FeatureNode};
 
 use crate::emit_spelling::{float, label_option, options, quoted};
 
@@ -99,4 +99,32 @@ pub(super) fn call(
         ),
         _ => return None,
     })
+}
+
+/// The array of `node`'s served bodies, for a feature serving several
+/// (PK-1120): a split's call returns its pieces (bound to `{body}_pieces`),
+/// a boolean's are read back with `served_bodies()`.
+pub(crate) fn pieces_var(node: &FeatureNode, body: &str) -> String {
+    if matches!(node.feature, Feature::Split { .. }) {
+        format!("{body}_pieces")
+    } else {
+        format!("{body}.served_bodies()")
+    }
+}
+
+/// The lines binding the further bodies `node` served, each by its
+/// place in the served array (the own body first, then the others in
+/// the order they were recorded): `let b7 = b0_pieces[1];`.
+pub(crate) fn served_body_lines(
+    node: &FeatureNode,
+    var: &dyn Fn(BodyId) -> String,
+) -> Vec<(BodyId, String)> {
+    let pieces = pieces_var(node, &var(node.body));
+    node.output_bodies
+        .iter()
+        .map(|o| o.body)
+        .filter(|&b| b != node.body)
+        .enumerate()
+        .map(|(k, b)| (b, format!("let {} = {pieces}[{}];", var(b), k + 1)))
+        .collect()
 }
