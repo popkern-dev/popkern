@@ -140,24 +140,27 @@ fn a_corner_glued_to_a_vertex_loop_makes_a_general_body() {
     assert_eq!(body.vertex_uses(shared).len(), 1);
 }
 
-/// Split into manifold pieces, the vertex loop goes and the contact is
-/// recorded by the two faces, as the split policy records a vertex on a
-/// face; gluing the contacts makes the vertex loop again, nothing kept.
+/// Split into manifold bodies, the vertex loop goes (each piece's face
+/// plain); glued again where they touch, the face holds the vertex
+/// loop again.
 #[test]
 fn a_vertex_loop_splits_and_glues_again() {
-    let (mut body, _) = corner_on_a_face();
-    let loops = body.loops.len();
-    let contacts = body.split_to_manifold().expect("split");
-    assert_eq!(contacts.len(), 1);
-    assert!(body.vertex_loops().is_empty());
-    assert_eq!(body.loops.len(), loops - 1);
-    assert_eq!(body.body_kind(), BodyKind::Solid);
-    assert_valid(&body, "pieces");
-    let glued = body.glue_contacts().expect("glue");
-    assert_eq!((glued.glued, glued.kept.len()), (1, 0));
-    assert_eq!(body.vertex_loops().len(), 1);
-    assert_eq!(body.body_kind(), BodyKind::General);
-    assert_valid(&body, "glued again");
+    let (body, _) = corner_on_a_face();
+    let bodies = body.split_to_manifold().expect("split");
+    assert_eq!(bodies.len(), 2);
+    for b in &bodies {
+        assert!(b.vertex_loops().is_empty());
+        assert_eq!(b.body_kind(), BodyKind::Solid);
+        assert_valid(b, "piece");
+    }
+    let mut again = BRep::new(tol());
+    for b in &bodies {
+        again.append_body(b);
+    }
+    again.glue_touching().expect("glue");
+    assert_eq!(again.vertex_loops().len(), 1);
+    assert_eq!(again.body_kind(), BodyKind::General);
+    assert_valid(&again, "glued again");
 }
 
 /// A stored body keeps its vertex loops: the loop names its vertex

@@ -205,15 +205,25 @@ fn touching(bodies: Vec<PlacedBody>, contacts: bool) -> Result<Bonded, BondError
             out.push(solids[*only].clone());
             continue;
         }
-        let brep = complex
-            .select_where(|held| held.iter().any(|i| members.contains(&i)), &options)
+        let breps = complex
+            .select_where_bodies(|held| held.iter().any(|i| members.contains(&i)), &options)
             .map_err(kernel)?;
         let name = members
             .iter()
             .map(|&i| solids[i].name.as_str())
             .collect::<Vec<_>>()
             .join(" + ");
-        out.push(PlacedBody { name, brep });
+        // Bonded members touching only along edges or at points stay
+        // separate manifold bodies, each named after the group.
+        let count = breps.len();
+        for (k, brep) in breps.into_iter().enumerate() {
+            let name = if count == 1 {
+                name.clone()
+            } else {
+                format!("{name} ({})", k + 1)
+            };
+            out.push(PlacedBody { name, brep });
+        }
     }
     Ok(Bonded {
         bodies: out,

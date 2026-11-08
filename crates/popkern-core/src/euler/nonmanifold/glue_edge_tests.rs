@@ -108,7 +108,7 @@ fn two_cubes_glue_along_an_edge_and_come_apart() {
     assert_eq!(NonManifoldCounts::of(&body), apart);
     // Apart again, the two cubes touch along an edge without sharing it:
     // a body crossing itself there, as before gluing (validation reports
-    // it; recorded contacts or gluing are the valid forms).
+    // it; separate bodies or gluing are the valid forms).
     assert_eq!(body.body_kind(), BodyKind::Solid);
     assert!(matches!(
         body.validate_all().as_slice(),

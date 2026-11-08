@@ -56,7 +56,7 @@ pub(crate) fn execute_boolean_full(
                 NonManifoldPolicy::Decline => Err(BoolError::NonManifoldResult { contacts }),
                 NonManifoldPolicy::SplitToManifold | NonManifoldPolicy::General => {
                     let side_by_side = super::helpers::combine_breps(a.clone(), b.clone())?;
-                    crate::postprocess::contact_record::accept_split(side_by_side, tolerance)
+                    crate::postprocess::split_pieces::accept_split(side_by_side, tolerance, policy)
                 }
             };
         }
@@ -77,7 +77,7 @@ pub(crate) fn execute_boolean_full(
     match policy {
         NonManifoldPolicy::Decline => Err(BoolError::NonManifoldResult { contacts }),
         NonManifoldPolicy::SplitToManifold | NonManifoldPolicy::General => {
-            crate::postprocess::contact_record::accept_split(served, tolerance)
+            crate::postprocess::split_pieces::accept_split(served, tolerance, policy)
         }
     }
 }

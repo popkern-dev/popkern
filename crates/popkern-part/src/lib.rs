@@ -33,6 +33,7 @@ mod error;
 pub mod fastener;
 mod feature;
 mod part;
+mod part_bodies;
 mod part_export;
 mod part_partition;
 mod part_polyhedron;

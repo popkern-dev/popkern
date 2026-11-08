@@ -29,8 +29,8 @@ pub struct StepImportOptions {
     pub product_filter: Option<Vec<String>>,
     /// How aggressively to heal the imported model.
     pub healing: HealingLevel,
-    /// How a shell that touches itself imports: manifold pieces with
-    /// recorded contacts (the default) or one general body.
+    /// How a shell that touches itself imports: its manifold pieces as
+    /// separate bodies (the default) or one general body.
     pub non_manifold: crate::step::import_general::StepNonManifold,
 }
 
@@ -219,12 +219,21 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
         }
     }
 
-    // Map product structure
+    // Map product structure: a shell mapped as touching pieces is one
+    // general body under the general option, else a body per piece.
     if options.non_manifold == crate::step::import_general::StepNonManifold::General {
         for (id, brep) in brep_solids.iter_mut() {
             crate::step::import_general::glue_pieces(brep, *id, &mut log);
         }
     }
+    let brep_solids: Vec<_> = brep_solids
+        .into_iter()
+        .flat_map(|(id, brep)| {
+            crate::step::import_general::separate_touching_pieces(brep, id, &mut log)
+                .into_iter()
+                .map(move |b| (id, b))
+        })
+        .collect();
     let brep_refs: Vec<_> = brep_solids.iter().map(|(id, b)| (*id, b.clone())).collect();
     let (mut products, mut roots) = map_products(&graph, &brep_refs, &mut geo_cache, &mut log);
     if options.non_manifold == crate::step::import_general::StepNonManifold::General {

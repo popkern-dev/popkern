@@ -428,15 +428,6 @@ fn build_brep_from_faces(
 
     let mut brep = builder.build_unchecked();
     vertex_loops::attach_vertex_loops(&mut brep, pending_vertex_loops, graph, geo, log);
-    if pieces.count() > 1 {
-        let n = pieces.count();
-        let vertices =
-            shell_pieces::copies(&face_data.vertex_ids, n, |k| vertex_map.get(k).copied());
-        let edges = shell_pieces::copies(&face_data.edge_curve_ids, n, |k| {
-            edge_map.get(k).map(|e| e.0)
-        });
-        shell_pieces::record_contacts(&mut brep, &vertices, &edges);
-    }
     reconcile_step_surface_curve_edges(&mut brep, tolerance, log);
     if incidence_policy.downgraded_closed_shell {
         report_step_import_boundary_incidence_diagnostics(&brep, &provenance, log);

@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use slotmap::{Key, SlotMap};
 
 use super::{
-    BRep, ContactEntity, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, RegionHandle,
-    ShellHandle, VertexHandle,
+    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, RegionHandle, ShellHandle,
+    VertexHandle,
 };
 
 /// Where each entity of an appended body went ([`BRep::append_body`]).
@@ -55,7 +55,7 @@ impl BRep {
     /// face, shell and region of `other` is copied into fresh handles
     /// with its geometry, names, tolerances and roles, every link
     /// (loop cycles, edge rings, face sides, anchors, ownership)
-    /// remapped, and its recorded contacts carried. Its outside is this
+    /// remapped. Its outside is this
     /// body's outside: the shells it held move there. Nothing is welded: the result holds
     /// both bodies side by side. Returns where each entity went.
     pub fn append_body(&mut self, other: &BRep) -> AppendMap {
@@ -123,21 +123,6 @@ impl BRep {
                 let r = &mut self.regions[new];
                 r.shell = remap(&m.shells, r.shell);
             }
-        }
-        for contact in &other.topology_contacts {
-            let mut moved = contact.clone();
-            moved.entities = contact
-                .entities
-                .iter()
-                .filter_map(|e| match *e {
-                    ContactEntity::Vertex(v) => {
-                        m.vertices.get(&v).map(|&v| ContactEntity::Vertex(v))
-                    }
-                    ContactEntity::Edge(x) => m.edges.get(&x).map(|&x| ContactEntity::Edge(x)),
-                    ContactEntity::Face(f) => m.faces.get(&f).map(|&f| ContactEntity::Face(f)),
-                })
-                .collect();
-            self.topology_contacts.push(moved);
         }
         m
     }

@@ -2,24 +2,19 @@
 //!
 //! A general body holds its contacts in its topology: a ring of more
 //! than two face uses is an edge where solids meet, a vertex with more
-//! than one use a point where they do. Manifold pieces meeting at
-//! contacts (the split policy's result, a document written before
-//! general bodies) record them instead (`BRep::topology_contacts`).
-//! [`BRep::contacts`] answers for both, so a consumer asking where a
-//! body touches itself reads one list.
+//! than one use a point where they do (PK-1115: nothing is recorded).
 
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
 use crate::topology::{BRep, ContactEntity, TopologyContact, TopologyContactKind};
 
 impl BRep {
-    /// Every contact of the body: the recorded ones, then those its
-    /// topology holds, named by the shared edge or vertex: each edge
+    /// Every contact of the body, named by the shared edge or vertex: each edge
     /// with more than two face uses, and each vertex with more than one
     /// use or ending such an edge (pieces meeting along an edge meet at
     /// its ends too, as the split form records them).
     pub fn contacts(&self) -> Vec<TopologyContact> {
-        let mut out = self.topology_contacts.clone();
+        let mut out = Vec::new();
         let mut ends = std::collections::BTreeSet::new();
         for edge in self.edges.keys() {
             if self.ring_summary(edge).count <= 2 {

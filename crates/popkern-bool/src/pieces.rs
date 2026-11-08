@@ -4,15 +4,12 @@
 //!
 //! A split serves its pieces as one body of several solids
 //! ([`crate::split`], [`crate::concatenate_solids`]), each with its own
-//! topology: pieces meeting at a contact hold one copy of the contact
-//! edge or vertex each, the contact recorded on the body. Taking
-//! pieces out therefore removes whole components; nothing is cut. A
+//! topology, apart from the others. Taking pieces out therefore removes
+//! whole components; nothing is cut. A
 //! body whose solids share an entity (a vertex or edge used by two
 //! solids) is not pieces of this kind and declines.
 
-use std::collections::HashSet;
-
-use popkern_core::topology::{BRep, ContactEntity, RegionHandle};
+use popkern_core::topology::{BRep, RegionHandle};
 
 use crate::error::BoolError;
 
@@ -24,8 +21,7 @@ pub fn piece_handles(body: &BRep) -> Vec<RegionHandle> {
 
 /// `body` with only the solids in `keep`: every entity bounding a
 /// dropped solid is removed, every kept entity keeps its handle, name
-/// and geometry, and a recorded contact survives when every entity it
-/// names is kept.
+/// and geometry (`BRep::retain_pieces`).
 ///
 /// ```
 /// use popkern_bool::{concatenate_solids, pieces};
@@ -48,82 +44,8 @@ pub fn piece_handles(body: &BRep) -> Vec<RegionHandle> {
 /// [`BoolError::DegenerateInput`] when a kept and a dropped solid share
 /// a half-edge, edge or vertex (the body is not separable pieces).
 pub fn retain_pieces(body: &BRep, keep: &[RegionHandle]) -> Result<BRep, BoolError> {
-    let solids: HashSet<_> = keep
-        .iter()
-        .copied()
-        .filter(|s| body.solid_regions().contains(s))
-        .collect();
-    let shells: HashSet<_> = solids.iter().flat_map(|&s| body.region_shells(s)).collect();
-    let faces: HashSet<_> = shells.iter().flat_map(|&s| body.shell_faces(s)).collect();
-    let loops: HashSet<_> = body
-        .loops
-        .iter()
-        .filter(|(_, l)| faces.contains(&l.face))
-        .map(|(h, _)| h)
-        .collect();
-    let half_edges: HashSet<_> = body
-        .half_edges
-        .iter()
-        .filter(|(_, he)| loops.contains(&he.loop_))
-        .map(|(h, _)| h)
-        .collect();
-    let edges: HashSet<_> = half_edges
-        .iter()
-        .filter_map(|h| body.half_edges.get(*h).map(|he| he.edge))
-        .collect();
-    let vertices: HashSet<_> = half_edges
-        .iter()
-        .filter_map(|h| body.half_edges.get(*h).map(|he| he.origin))
-        .collect();
-    let shared = |what: &str| {
-        BoolError::DegenerateInput(format!(
-            "the body's solids share {what}: its pieces cannot be taken apart"
-        ))
-    };
-    for h in &half_edges {
-        let he = &body.half_edges[*h];
-        let links = [he.ring.next, he.ring.prev, he.next, he.prev];
-        if links
-            .iter()
-            .any(|l| body.half_edges.contains_key(*l) && !half_edges.contains(l))
-        {
-            return Err(shared("a half-edge"));
-        }
-    }
-    for (h, he) in &body.half_edges {
-        if half_edges.contains(&h) {
-            continue;
-        }
-        if edges.contains(&he.edge) {
-            return Err(shared("an edge"));
-        }
-        if vertices.contains(&he.origin) {
-            return Err(shared("a vertex"));
-        }
-    }
-
-    let mut out = body.clone();
-    out.retain_solid_regions(&solids.iter().copied().collect::<Vec<_>>());
-    out.loops.retain(|h, _| loops.contains(&h));
-    out.half_edges.retain(|h, _| half_edges.contains(&h));
-    out.edges.retain(|h, _| edges.contains(&h));
-    out.vertices.retain(|h, _| vertices.contains(&h));
-    out.surface_boundary_hints
-        .retain(|h, _| half_edges.contains(h));
-    out.surface_boundary_declines
-        .retain(|h, _| half_edges.contains(h));
-    out.surface_boundary_audit_events
-        .retain(|e| half_edges.contains(&e.half_edge));
-    out.face_use_pcurves
-        .retain(|k, _| faces.contains(&k.face) && half_edges.contains(&k.half_edge));
-    out.topology_contacts.retain(|c| {
-        c.entities.iter().all(|e| match e {
-            ContactEntity::Vertex(v) => vertices.contains(v),
-            ContactEntity::Edge(e) => edges.contains(e),
-            ContactEntity::Face(f) => faces.contains(f),
-        })
-    });
-    Ok(out)
+    body.retain_pieces(keep)
+        .map_err(|e| BoolError::DegenerateInput(format!("{e}: its pieces cannot be taken apart")))
 }
 
 /// Each piece of `body` as its own body (see [`retain_pieces`]), in

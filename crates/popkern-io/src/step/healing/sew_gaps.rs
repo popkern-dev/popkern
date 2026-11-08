@@ -62,25 +62,16 @@ impl HealingPass for SewGapsPass {
 ///
 /// Finds vertex pairs within tolerance, keeps the lower-index vertex, and
 /// rewires all half-edge origin references. Returns the number of vertices
-/// removed. Vertices a recorded contact names (`BRep::topology_contacts`)
-/// are deliberate copies, one per piece meeting there, and are never
-/// merged: welding them made a non-manifold import's pieces one body
-/// again (PK-980, measured on every OCC-written non-manifold fixture
-/// under default healing).
+/// removed. Only vertices of one piece (joined through its edges) merge:
+/// a gap lies within a shell, while coincident vertices of different
+/// pieces are where they touch, one copy per piece (a self-touching
+/// shell imported as pieces); welding those made the pieces one body
+/// again by an origin rewire no glue checks (PK-980, PK-1115).
 pub fn merge_coincident_vertices(brep: &mut BRep, tolerance: &Tolerance) -> usize {
-    let contact: std::collections::HashSet<VertexHandle> = brep
-        .topology_contacts
-        .iter()
-        .flat_map(|c| &c.entities)
-        .filter_map(|e| match e {
-            popkern_core::topology::ContactEntity::Vertex(v) => Some(*v),
-            _ => None,
-        })
-        .collect();
+    let piece = vertex_pieces(brep);
     let verts: Vec<(VertexHandle, _)> = brep
         .vertices
         .iter()
-        .filter(|(vh, _)| !contact.contains(vh))
         .map(|(vh, v)| (vh, v.position))
         .collect();
 
@@ -95,7 +86,12 @@ pub fn merge_coincident_vertices(brep: &mut BRep, tolerance: &Tolerance) -> usiz
             if remap.contains_key(&vh_j) {
                 continue;
             }
-            if tolerance.points_coincident(&pos_i, &pos_j) {
+            // A vertex no fin uses (an orphan) lies in no piece.
+            let one_piece = match (piece.get(&vh_i), piece.get(&vh_j)) {
+                (Some(a), Some(b)) => a == b,
+                _ => true,
+            };
+            if one_piece && tolerance.points_coincident(&pos_i, &pos_j) {
                 remap.insert(vh_j, vh_i);
             }
         }
@@ -126,6 +122,40 @@ pub fn merge_coincident_vertices(brep: &mut BRep, tolerance: &Tolerance) -> usiz
     }
 
     count
+}
+
+/// Each fin-using vertex's piece: vertices joined through an edge (a
+/// fin's origin and its successor's) are one.
+fn vertex_pieces(brep: &BRep) -> HashMap<VertexHandle, VertexHandle> {
+    let mut parent: HashMap<VertexHandle, VertexHandle> = brep
+        .half_edges
+        .values()
+        .map(|h| (h.origin, h.origin))
+        .collect();
+    fn root(parent: &mut HashMap<VertexHandle, VertexHandle>, mut v: VertexHandle) -> VertexHandle {
+        while let Some(&p) = parent.get(&v) {
+            if p == v {
+                break;
+            }
+            let up = parent.get(&p).copied().unwrap_or(p);
+            parent.insert(v, up);
+            v = p;
+        }
+        v
+    }
+    for he in brep.half_edges.values() {
+        let Some(next) = brep.half_edges.get(he.next) else {
+            continue;
+        };
+        let (a, b) = (root(&mut parent, he.origin), root(&mut parent, next.origin));
+        if a != b {
+            parent.insert(a, b);
+        }
+    }
+    let keys: Vec<VertexHandle> = parent.keys().copied().collect();
+    keys.into_iter()
+        .map(|v| (v, root(&mut parent, v)))
+        .collect()
 }
 
 /// Reconcile edge curve endpoints with vertex positions.

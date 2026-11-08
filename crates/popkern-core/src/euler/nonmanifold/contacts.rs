@@ -1,167 +1,121 @@
-//! A body's recorded contacts glued into one general body, and a
-//! general body split back into manifold pieces meeting at recorded
-//! contacts.
+//! A general body taken apart into its manifold pieces (PK-1106,
+//! PK-1115).
 //!
-//! Manifold pieces that touch (the split policy's boolean results,
-//! PK-964) record each contact with the coincident entities from every
-//! piece: copies of a vertex, pairs of coincident edges. Gluing them
-//! (vertices first, then edges, in radial order) makes the general body
-//! those pieces are; a vertex on another piece's face interior becomes
-//! a vertex loop of that face glued to it, one on another piece's edge
-//! interior the vertex splitting it (PK-1116). Splitting is the
+//! Gluing touching pieces into one general body is
+//! [`BRep::glue_touching`], which reads their geometry; this is the
 //! inverse: every ring of more than two fins comes apart into the
-//! manifold pairs bounding its solid wedges, every vertex with more than
-//! one use into one copy per use, each contact recorded as the split
-//! policy records it.
+//! manifold pairs bounding its solid wedges, every vertex with more
+//! than one use into one copy per use. The pieces then touch without
+//! sharing an entity, which no single body may hold, so
+//! [`BRep::split_to_manifold`] returns them as separate bodies;
+//! [`BRep::separate_at_contacts`] leaves them in one body for operators
+//! that take pieces as an intermediate.
 
 use std::collections::BTreeMap;
 
 use super::EulerError;
-use crate::geometry::Point3;
-use crate::geometry::curve::CurveEval;
-use crate::topology::{
-    BRep, ContactEntity, EdgeHandle, FaceHandle, RegionKind, TopologyContact, TopologyContactKind,
-    VertexHandle,
-};
-
-/// What [`BRep::glue_contacts`] did.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ContactGlue {
-    /// Contacts glued (their records gone).
-    pub glued: usize,
-    /// Contacts kept recorded: those no glue resolves (a vertex on an
-    /// edge's interior).
-    pub kept: Vec<TopologyContact>,
-}
-
-/// Why [`BRep::glue_contacts`] declined.
-#[derive(Debug, Clone, PartialEq, thiserror::Error)]
-#[error("contact at {:?} could not be glued: {error}", contact.location)]
-pub struct ContactGlueError {
-    /// The contact.
-    pub contact: TopologyContact,
-    /// The operator's decline.
-    pub error: EulerError,
-}
+use crate::topology::{BRep, EdgeHandle, RegionKind, VertexHandle};
 
 impl BRep {
-    /// Glue every recorded vertex and edge contact: copies of a vertex
-    /// become one vertex, coincident edges one ring in radial order, a
-    /// vertex on another piece's face interior one vertex with a vertex
-    /// loop of that face. A contact no glue resolves stays recorded. All
-    /// or nothing: on an error the body is unchanged.
+    /// This general body's manifold pieces as separate bodies, one per
+    /// solid, each valid on its own; touching pieces meet where their
+    /// own copies of the contact edges and vertices coincide. A body
+    /// with nothing to take apart comes back as its solids (one body
+    /// for a solid).
     ///
     /// # Errors
     ///
-    /// [`ContactGlueError`] naming the contact and the operator's
-    /// decline (curves not coincident, a ring whose order is undecided,
-    /// a wedge between two regions).
-    pub fn glue_contacts(&mut self) -> Result<ContactGlue, ContactGlueError> {
+    /// As [`BRep::separate_at_contacts`].
+    pub fn split_to_manifold(&self) -> Result<Vec<BRep>, EulerError> {
         let mut work = self.clone();
-        let contacts = std::mem::take(&mut work.topology_contacts);
-        let mut vertex_alias: BTreeMap<VertexHandle, VertexHandle> = BTreeMap::new();
-        let mut edge_alias: BTreeMap<EdgeHandle, EdgeHandle> = BTreeMap::new();
-        let mut kept = Vec::new();
-        let mut glued = 0;
-        let fail = |contact: &TopologyContact, error| ContactGlueError {
-            contact: contact.clone(),
-            error,
-        };
-        let on_face = |c: &TopologyContact| {
-            c.entities
-                .iter()
-                .any(|e| matches!(e, ContactEntity::Face(_)))
-        };
-        for contact in contacts
-            .iter()
-            .filter(|c| c.kind == TopologyContactKind::Vertex)
-        {
-            let vertices: Vec<VertexHandle> = contact
-                .entities
-                .iter()
-                .filter_map(|e| match e {
-                    ContactEntity::Vertex(v) => Some(resolve(&vertex_alias, *v)),
-                    _ => None,
-                })
-                .collect();
-            if on_face(contact) || vertices.len() < 2 {
-                kept.push(contact.clone());
-                continue;
-            }
-            for &v in &vertices[1..] {
-                let keep = resolve(&vertex_alias, vertices[0]);
-                if v != keep {
-                    work.glue_vertices(keep, v).map_err(|e| fail(contact, e))?;
-                    vertex_alias.insert(v, keep);
-                }
-            }
-            glued += 1;
-        }
-        for contact in contacts
-            .iter()
-            .filter(|c| c.kind == TopologyContactKind::Edge)
-        {
-            let edges: Vec<EdgeHandle> = contact
-                .entities
-                .iter()
-                .filter_map(|e| match e {
-                    ContactEntity::Edge(x) => Some(resolve(&edge_alias, *x)),
-                    _ => None,
-                })
-                .collect();
-            if on_face(contact) || edges.len() < 2 {
-                kept.push(contact.clone());
-                continue;
-            }
-            let keep = edges[0];
-            for &gone in &edges[1..] {
-                if gone == keep {
-                    continue;
-                }
-                work.glue_edge_ends(keep, gone, &mut vertex_alias)
-                    .map_err(|e| fail(contact, e))?;
-                work.glue_edges(keep, gone).map_err(|e| fail(contact, e))?;
-                edge_alias.insert(gone, keep);
-            }
-            glued += 1;
-        }
-        // Contacts named by the faces that touch (the split policy's
-        // shell findings): glue the faces' coincident boundary vertices,
-        // then the edges sharing both ends; resolved when the faces now
-        // share a vertex at the contact.
-        let mut still = Vec::new();
-        for contact in kept {
-            let faces: Vec<FaceHandle> = contact
-                .entities
-                .iter()
-                .filter_map(|e| match e {
-                    ContactEntity::Face(f) => Some(*f),
-                    _ => None,
-                })
-                .filter(|&f| work.faces.contains_key(f))
-                .collect();
-            if faces.len() < 2 {
-                still.push(contact);
-                continue;
-            }
-            work.glue_face_boundaries(&faces, &mut vertex_alias)
-                .map_err(|e| fail(&contact, e))?;
-            if !work.faces_share_vertex_at(&faces, contact.location) {
-                work.glue_vertex_into_face(&faces, contact.location)
-                    .map_err(|e| fail(&contact, e))?;
-            }
-            if work.faces_share_vertex_at(&faces, contact.location) {
-                glued += 1;
-            } else {
-                still.push(contact);
-            }
-        }
-        work.topology_contacts = still.clone();
-        *self = work;
-        Ok(ContactGlue { glued, kept: still })
+        work.separate_at_contacts()?;
+        work.piece_bodies()
     }
 
-    /// Glue `gone`'s end vertices onto `keep`'s, each to the nearer.
+    /// Take this general body apart into its manifold pieces, left in
+    /// this body touching without sharing an entity: each ring of more
+    /// than two fins into the pairs bounding its solid wedges, then each
+    /// vertex with more than one use into a copy per use (a copy
+    /// standing in a vertex loop dropped with its loop). The result is
+    /// an intermediate for operators that take pieces (a boolean's
+    /// general operand), not a valid body: touching lumps are one
+    /// general body or separate bodies ([`BRep::split_to_manifold`]).
+    /// On an error the body is unchanged.
+    ///
+    /// # Errors
+    ///
+    /// [`EulerError::NotSplittable`] for a body with wire edges, acorns
+    /// or a face between two solids (no manifold pieces hold those), or
+    /// a ring whose fins do not pair off across solid wedges; an
+    /// unglue's own decline.
+    pub fn separate_at_contacts(&mut self) -> Result<(), EulerError> {
+        let unsplittable = |reason: &'static str| EulerError::NotSplittable { reason };
+        if self
+            .shells
+            .values()
+            .any(|s| !s.wire_edges.is_empty() || s.acorn.is_some())
+        {
+            return Err(unsplittable("the body holds wire edges or acorns"));
+        }
+        let solid = |b: &BRep, s| {
+            b.shell_region(s).and_then(|r| b.region_kind(r)) == Some(RegionKind::Solid)
+        };
+        if self
+            .faces
+            .values()
+            .any(|f| f.back != f.front && solid(self, f.back) && solid(self, f.front))
+        {
+            return Err(unsplittable("a face lies between two solids"));
+        }
+        let mut work = self.clone();
+        let long: Vec<EdgeHandle> = work
+            .edges
+            .keys()
+            .filter(|&e| work.ring_summary(e).count > 2)
+            .collect();
+        for edge in long {
+            let wedges = work
+                .edge_wedges(edge)
+                .ok_or(unsplittable("a fin's sense along its edge is undecidable"))?;
+            let pairs: Vec<_> = wedges
+                .iter()
+                .filter(|w| {
+                    let face = work.fin_face(w.from);
+                    face.and_then(|f| work.face_side_shell(f, w.from_side))
+                        .is_some_and(|s| solid(&work, s))
+                })
+                .map(|w| [w.from, w.to])
+                .collect();
+            if pairs.len() * 2 != wedges.len() || pairs.iter().any(|p| p[0] == p[1]) {
+                return Err(unsplittable(
+                    "a ring's fins do not pair off across solid wedges",
+                ));
+            }
+            let first = work.edges[edge].half_edge;
+            for pair in pairs.iter().filter(|p| !p.contains(&first)) {
+                work.unglue_edge(edge, pair)?;
+            }
+        }
+        let shared: Vec<VertexHandle> = work
+            .vertices
+            .keys()
+            .filter(|&v| work.vertex_uses(v).len() > 1)
+            .collect();
+        for v in shared {
+            let mut copies = vec![v];
+            copies.extend(work.unglue_vertex(v)?);
+            for c in copies {
+                if let Some((l, _)) = work.vertex_loops().into_iter().find(|&(_, w)| w == c) {
+                    work.kill_vertex_loop(l)?;
+                }
+            }
+        }
+        *self = work;
+        Ok(())
+    }
+
+    /// Glue `gone`'s end vertices onto `keep`'s, each to the nearer,
+    /// noting each glued vertex in `alias` (sewing's edge glue).
     pub(crate) fn glue_edge_ends(
         &mut self,
         keep: EdgeHandle,
@@ -190,154 +144,4 @@ impl BRep {
         }
         Ok(())
     }
-
-    /// Split this general body into manifold pieces meeting at recorded
-    /// contacts, the inverse of [`BRep::glue_contacts`]: each ring of
-    /// more than two fins into the pairs bounding its solid wedges,
-    /// then each vertex with more than one use into a copy per use.
-    /// Returns the contacts recorded. On an error the body is unchanged.
-    ///
-    /// # Errors
-    ///
-    /// [`EulerError::NotSplittable`] for a body with wire edges, acorns
-    /// or a face between two solids (no manifold pieces hold those), or
-    /// a ring whose fins do not pair off across solid wedges; an
-    /// unglue's own decline.
-    pub fn split_to_manifold(&mut self) -> Result<Vec<TopologyContact>, EulerError> {
-        let unsplittable = |reason: &'static str| EulerError::NotSplittable { reason };
-        if self
-            .shells
-            .values()
-            .any(|s| !s.wire_edges.is_empty() || s.acorn.is_some())
-        {
-            return Err(unsplittable("the body holds wire edges or acorns"));
-        }
-        let solid = |b: &BRep, s| {
-            b.shell_region(s).and_then(|r| b.region_kind(r)) == Some(RegionKind::Solid)
-        };
-        if self
-            .faces
-            .values()
-            .any(|f| f.back != f.front && solid(self, f.back) && solid(self, f.front))
-        {
-            return Err(unsplittable("a face lies between two solids"));
-        }
-        let mut work = self.clone();
-        let mut contacts = Vec::new();
-        let long: Vec<EdgeHandle> = work
-            .edges
-            .keys()
-            .filter(|&e| work.ring_summary(e).count > 2)
-            .collect();
-        for edge in long {
-            let wedges = work
-                .edge_wedges(edge)
-                .ok_or(unsplittable("a fin's sense along its edge is undecidable"))?;
-            let pairs: Vec<_> = wedges
-                .iter()
-                .filter(|w| {
-                    let face = work.fin_face(w.from);
-                    face.and_then(|f| work.face_side_shell(f, w.from_side))
-                        .is_some_and(|s| solid(&work, s))
-                })
-                .map(|w| [w.from, w.to])
-                .collect();
-            let paired: usize = pairs.len() * 2;
-            if paired != wedges.len() || pairs.iter().any(|p| p[0] == p[1]) {
-                return Err(unsplittable(
-                    "a ring's fins do not pair off across solid wedges",
-                ));
-            }
-            let first = work.edges[edge].half_edge;
-            let mut copies = vec![edge];
-            for pair in pairs.iter().filter(|p| !p.contains(&first)) {
-                copies.push(work.unglue_edge(edge, pair)?);
-            }
-            let location = work.edge_midpoint(edge);
-            for (i, &a) in copies.iter().enumerate() {
-                for &b in &copies[i + 1..] {
-                    contacts.push(TopologyContact {
-                        kind: TopologyContactKind::Edge,
-                        location,
-                        entities: vec![ContactEntity::Edge(a), ContactEntity::Edge(b)],
-                    });
-                }
-            }
-        }
-        let shared: Vec<VertexHandle> = work
-            .vertices
-            .keys()
-            .filter(|&v| work.vertex_uses(v).len() > 1)
-            .collect();
-        for v in shared {
-            let location = work.vertices[v].position;
-            let mut copies = vec![v];
-            copies.extend(work.unglue_vertex(v)?);
-            // A copy standing in a face's vertex loop: the piece's face is
-            // plain, the contact named by that face and a face at the
-            // other copy, as the split policy names a vertex on a face.
-            let mut corners = Vec::new();
-            for c in copies {
-                let lone = work
-                    .vertex_loops()
-                    .into_iter()
-                    .find(|&(_, w)| w == c)
-                    .map(|(l, _)| l);
-                match lone {
-                    Some(l) => {
-                        let face = work.loops[l].face;
-                        work.kill_vertex_loop(l)?;
-                        corners.push(ContactEntity::Face(face));
-                    }
-                    None => corners.push(ContactEntity::Vertex(c)),
-                }
-            }
-            let faces = corners
-                .iter()
-                .filter(|e| matches!(e, ContactEntity::Face(_)))
-                .count();
-            if faces > 0 {
-                // Name every corner by a face it bounds.
-                corners = corners
-                    .into_iter()
-                    .filter_map(|e| match e {
-                        ContactEntity::Vertex(c) => work
-                            .half_edges
-                            .values()
-                            .find(|h| h.origin == c && work.loops.contains_key(h.loop_))
-                            .map(|h| ContactEntity::Face(work.loops[h.loop_].face)),
-                        other => Some(other),
-                    })
-                    .collect();
-            }
-            contacts.push(TopologyContact {
-                kind: TopologyContactKind::Vertex,
-                location,
-                entities: corners,
-            });
-        }
-        work.topology_contacts.extend(contacts.iter().cloned());
-        *self = work;
-        Ok(contacts)
-    }
-
-    /// A point of `edge`: its curve's midpoint, else its chord's.
-    fn edge_midpoint(&self, edge: EdgeHandle) -> Point3 {
-        if let Some(c) = self.edges.get(edge).and_then(|e| e.curve.as_ref()) {
-            return c.geometry.point_at(0.5 * (c.t_start + c.t_end));
-        }
-        self.edge_vertices(edge)
-            .map_or(Point3::new(0.0, 0.0, 0.0), |(a, b)| {
-                let (a, b) = (self.vertices[a].position, self.vertices[b].position);
-                a + (b - a) * 0.5
-            })
-    }
-}
-
-/// Follow `alias` from `h` to the handle it was glued onto.
-pub(super) fn resolve<H: Copy + Ord>(alias: &BTreeMap<H, H>, mut h: H) -> H {
-    while let Some(&next) = alias.get(&h) {
-        h = next;
-    }
-    h
 }

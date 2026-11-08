@@ -47,8 +47,11 @@ pub(super) struct StoredBRep {
     surface_boundary_audit_events: Vec<SurfaceBoundaryAuditEvent>,
     #[serde(default)]
     face_use_pcurves: BTreeMap<FaceUseTrimKey, Pcurve>,
-    #[serde(default)]
-    topology_contacts: Vec<TopologyContact>,
+    /// Retired (PK-1115): the recorded contacts of manifold pieces that
+    /// touched in one body; touching pieces are one general body, their
+    /// contacts in its topology, or separate bodies.
+    #[serde(default, rename = "topology_contacts")]
+    _topology_contacts: IgnoredAny,
     /// Retired: the recorded free-edge set, read off the fin rings now.
     #[serde(default, rename = "boundary_edges")]
     _boundary_edges: IgnoredAny,
@@ -76,7 +79,6 @@ impl From<StoredBRep> for BRep {
         b.surface_boundary_declines = s.surface_boundary_declines;
         b.surface_boundary_audit_events = s.surface_boundary_audit_events;
         b.face_use_pcurves = s.face_use_pcurves;
-        b.topology_contacts = s.topology_contacts;
         b.derive_regions();
         b
     }

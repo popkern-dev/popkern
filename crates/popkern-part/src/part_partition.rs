@@ -123,6 +123,26 @@ impl PartPartition {
         self.part_of(body, "partition select")
     }
 
+    /// [`PartPartition::select`] as a list of parts: one part, except
+    /// under `NonManifoldPolicy::SplitToManifold` a selection whose
+    /// manifold pieces touch, each piece its own part.
+    ///
+    /// # Errors
+    ///
+    /// [`PartError::Boolean`] with the kernel diagnostics.
+    pub fn select_bodies(
+        &self,
+        expr: &SetExpr,
+        options: &BoolOptions,
+    ) -> Result<Vec<Part>, PartError> {
+        self.partition
+            .select_bodies(expr, options)
+            .map_err(boolean_error("partition select"))?
+            .into_iter()
+            .map(|body| self.part_of(body, "partition select"))
+            .collect()
+    }
+
     /// Every region `expr` keeps as its own part.
     ///
     /// # Errors

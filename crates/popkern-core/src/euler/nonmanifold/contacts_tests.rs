@@ -1,8 +1,7 @@
 use super::*;
-use crate::geometry::Point3;
 use crate::geometry::transform::Transform3;
 use crate::tolerance::Tolerance;
-use crate::topology::{BodyKind, TopologyContactKind};
+use crate::topology::BodyKind;
 
 fn tol() -> Tolerance {
     Tolerance::default()
@@ -71,64 +70,82 @@ impl BRep {
     }
 }
 
-/// Two cubes glued along an edge split into the two cubes meeting at
-/// one recorded edge contact and two vertex contacts, which validate;
-/// gluing the contacts gives the general body back.
+/// `bodies` appended into one body and glued where they touch.
+fn reglued(bodies: &[BRep]) -> BRep {
+    let mut body = BRep::new(tol());
+    for b in bodies {
+        body.append_body(b);
+    }
+    body.glue_touching().expect("glue");
+    body
+}
+
+/// Two cubes glued along an edge split into the two cubes as separate
+/// bodies, each a valid solid holding nothing of the other; glued again
+/// where they touch they are the general body.
 #[test]
-fn an_edge_contact_splits_and_glues_again() {
+fn an_edge_contact_splits_into_bodies_and_glues_again() {
     let general = glued(1.0, 1.0, 0.0);
     assert_eq!(general.body_kind(), BodyKind::General);
-    let general_counts = NonManifoldCounts::of(&general);
-    let mut pieces = general.clone();
-    let contacts = pieces.split_to_manifold().expect("split");
-    let kinds: Vec<_> = contacts.iter().map(|c| c.kind).collect();
+    let bodies = general.split_to_manifold().expect("split");
+    assert_eq!(bodies.len(), 2);
+    for b in &bodies {
+        assert_eq!(b.body_kind(), BodyKind::Solid);
+        assert_eq!((b.faces.len(), b.edges.len(), b.vertices.len()), (6, 12, 8));
+        assert!(b.contacts().is_empty());
+        assert_valid(b, "piece");
+    }
+    let again = reglued(&bodies);
     assert_eq!(
-        kinds
-            .iter()
-            .filter(|&&k| k == TopologyContactKind::Edge)
-            .count(),
-        1
+        NonManifoldCounts::of(&again),
+        NonManifoldCounts::of(&general)
     );
-    assert_eq!(
-        kinds
-            .iter()
-            .filter(|&&k| k == TopologyContactKind::Vertex)
-            .count(),
-        2
-    );
-    assert_eq!(pieces.body_kind(), BodyKind::Solid);
-    assert_eq!(pieces.topology_contacts.len(), 3);
-    assert_valid(&pieces, "pieces with recorded contacts");
-    let apart = {
-        let mut b = cube_at(0.0, 0.0, 0.0);
-        b.append_body(&cube_at(1.0, 1.0, 0.0));
-        NonManifoldCounts::of(&b)
-    };
-    assert_eq!(NonManifoldCounts::of(&pieces), apart);
-
-    let report = pieces.glue_contacts().expect("glue");
-    assert_eq!((report.glued, report.kept.len()), (3, 0));
-    assert!(pieces.topology_contacts.is_empty());
-    assert_eq!(NonManifoldCounts::of(&pieces), general_counts);
-    assert_eq!(pieces.body_kind(), BodyKind::General);
-    assert_valid(&pieces, "glued again");
+    assert_eq!(again.body_kind(), BodyKind::General);
+    assert_valid(&again, "glued again");
 }
 
 /// Two cubes sharing a corner split at the vertex alone.
 #[test]
-fn a_vertex_contact_splits_and_glues_again() {
+fn a_vertex_contact_splits_into_bodies_and_glues_again() {
     let general = glued(1.0, 1.0, 1.0);
-    let mut pieces = general.clone();
-    let contacts = pieces.split_to_manifold().expect("split");
-    assert_eq!(contacts.len(), 1);
-    assert_eq!(contacts[0].kind, TopologyContactKind::Vertex);
-    assert_eq!(contacts[0].location, Point3::new(1.0, 1.0, 1.0));
-    assert_valid(&pieces, "pieces");
-    pieces.glue_contacts().expect("glue");
+    let bodies = general.split_to_manifold().expect("split");
+    assert_eq!(bodies.len(), 2);
+    for b in &bodies {
+        assert_valid(b, "piece");
+    }
     assert_eq!(
-        NonManifoldCounts::of(&pieces),
+        NonManifoldCounts::of(&reglued(&bodies)),
         NonManifoldCounts::of(&general)
     );
+}
+
+/// Taken apart in place, the pieces stay in one body touching without
+/// sharing: an intermediate, which validation rejects (negative
+/// control), coming apart into the same bodies.
+#[test]
+fn pieces_left_in_one_body_do_not_validate() {
+    let general = glued(1.0, 1.0, 0.0);
+    let mut pieces = general.clone();
+    pieces.separate_at_contacts().expect("separate");
+    assert_eq!(pieces.solid_regions().len(), 2);
+    assert!(!pieces.validate_all().is_empty(), "touching lumps");
+    assert_eq!(pieces.piece_bodies().expect("bodies").len(), 2);
+}
+
+/// A body stored with recorded contacts (written before they retired)
+/// loads, the list ignored.
+#[test]
+fn an_old_document_with_recorded_contacts_loads() {
+    let cube = cube_at(0.0, 0.0, 0.0);
+    let mut value: serde_json::Value = serde_json::to_value(&cube).expect("save");
+    value["topology_contacts"] = serde_json::json!([{
+        "kind": "Vertex",
+        "location": {"x": 1.0, "y": 1.0, "z": 1.0},
+        "entities": []
+    }]);
+    let loaded: BRep = serde_json::from_value(value).expect("load");
+    assert_eq!(NonManifoldCounts::of(&loaded), NonManifoldCounts::of(&cube));
+    assert_valid(&loaded, "loaded");
 }
 
 /// A face between two solids has no manifold pieces: the split
@@ -170,11 +187,12 @@ fn bodies_without_manifold_pieces_do_not_split() {
         .collect();
     stacked.glue_faces(at_one[0], at_one[1]).expect("faces");
     let before = NonManifoldCounts::of(&stacked);
-    assert_eq!(
+    assert!(matches!(
         stacked.split_to_manifold(),
         Err(EulerError::NotSplittable {
             reason: "a face lies between two solids"
         })
-    );
+    ));
+    assert!(stacked.separate_at_contacts().is_err());
     assert_eq!(NonManifoldCounts::of(&stacked), before);
 }

@@ -190,25 +190,29 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   along an edge, a line or at a point make a result with zero-thickness
   contacts. `boolean()` returns `BoolError::NonManifoldResult` with the
   contact locations instead of serving coincident duplicate edges or
-  vertices, or separate shells that touch. `boolean_with_options` with
-  `NonManifoldPolicy::SplitToManifold` serves manifold pieces instead,
-  each contact recorded in `BRep::topology_contacts`; `validate_all`
-  excuses recorded contacts only. `NonManifoldPolicy::General` serves
+  vertices, or separate shells that touch. No single body holds lumps
+  that touch without sharing, and nothing is recorded (PK-1115):
+  `NonManifoldPolicy::SplitToManifold` serves separate manifold bodies,
+  each valid alone, from the `_bodies` entry points (`boolean_bodies`,
+  `nary_boolean_bodies`, `nary_boolean_where_bodies`,
+  `Partition::select_bodies`, `symmetric_difference_bodies`; Part's
+  `boolean_bodies_with`), the single-body ones declining with
+  `BoolError::SplitIntoBodies` (a solid touching itself has no separate
+  bodies and declines; the feature tree keeps split pieces as the
+  body's solids, as a split does). `NonManifoldPolicy::General` serves
   one general body: the split pieces glued where they touch, found
   from their geometry alone (`BRep::glue_touching`, PK-1117: every
   piece given a vertex at each contact point, its own, its edge split
   there or a vertex loop of its face; each contact curve, an edge or
   tangent ruling lying across a face, imprinted there by
   `BRep::imprint_edge`; then `glue_coincident`: one vertex, one ring in
-  radial order). Where it declines the recorded contacts are glued
-  (`BRep::glue_contacts`, a `TouchGlueFallback` shadow line) until the
-  stored list retires (PK-1115); a glue that declines serves the pieces
-  with a `GeneralFallback` shadow line), and general operands enter as their
-  manifold pieces (`BRep::split_to_manifold`, its inverse), in two-body
-  and N-ary booleans alike (Rhai `non_manifold: "general"`). A later boolean or N-ary boolean
-  carries the contacts its operands recorded (re-recorded on the
-  result, `postprocess/contact_inherit.rs`) and still declines a new
-  one; fillets and motions keep the records. The cell complex
+  radial order; a glue that declines is
+  `BoolError::GeneralBodyDeclined`, a `GeneralDeclined` shadow line),
+  and general operands enter as their manifold pieces
+  (`BRep::separate_at_contacts`, an intermediate; `split_to_manifold`
+  returns them as separate bodies), in two-body and N-ary booleans
+  alike (Rhai `non_manifold: "general"`). An old document's stored
+  contact list loads and is ignored. The cell complex
   (`popkern-bool/src/complex/`) decides membership by region and is
   the primary classifier, falling back to the cellular classifier on a
   decline (a `PrimaryFallback` shadow line). `POPKERN_COMPLEX_PRIMARY=0`
@@ -315,8 +319,7 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   cell holding them by `fill_enclosed_cells`; PK-1114). Sewing with `allow_nonmanifold_edges` glues
   each pair into a ring in radial order (a third sheet onto a sewn edge,
   `GlueDeclined` when it cannot). `BRep::contacts()` lists where a body
-  touches itself in either form: recorded contacts (split pieces, old
-  documents) and those its topology holds (rings of more than two fins,
+  touches itself, from its topology (rings of more than two fins,
   vertices of several uses, a contact edge's ends).
 - **Sheet booleans** — `boolean_with_sheets` decides sheet ∩ solid,
   sheet − solid, solid − sheet (pieces) and the union's appendage on
@@ -345,9 +348,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   default: a partition per touching pair).
 - **STEP non-manifold bodies** — a `CLOSED_SHELL` that touches itself
   (a contact edge with four face uses, or a vertex two closed sets of
-  faces share) imports as manifold pieces meeting at recorded contacts,
-  each piece its own solid with its own copies of the contact edges and
-  vertices (`popkern-io/src/step/mapping/topology/shell_pieces.rs`).
+  faces share) imports as separate manifold bodies, one per piece, each
+  with its own copies of the contact edges and vertices
+  (`popkern-io/src/step/mapping/topology/shell_pieces.rs`,
+  `import_general::separate_touching_pieces`; healing welds vertices
+  within a piece only).
   The pieces are the face sets joined through two-use edges; a piece
   using an edge four times and odd uses (an internal face) decline
   under the default option, and under `StepNonManifold::General` import
