@@ -107,3 +107,52 @@ fn the_pcurve_sense_agrees_with_topology() {
         }
     }
 }
+
+/// An edge whose first fin runs its stored curve backward (an operator
+/// re-anchored the ring without reversing the curve) is ordered about
+/// that fin's direction (PK-1118): the cycle comes back reversed, as
+/// seen from the other end, and every wedge spans the same two pages
+/// with the same sides. Ordered about the curve instead, the ring read
+/// one solid's material against another's.
+#[test]
+fn an_edge_whose_first_fin_runs_backward_orders_about_that_fin() {
+    let angles = [0.0, 220.0 * DEG, 100.0 * DEG, 300.0 * DEG];
+    // The spine's stored curve runs x from 0 to 1, as page 0 does.
+    let line = |b: &mut BRep, spine| {
+        b.edges[spine].curve = Some(crate::geometry::curve::CurveOnEdge {
+            geometry: crate::geometry::curve::CurveGeometry::Line {
+                origin: crate::geometry::Point3::new(0.0, 0.0, 0.0),
+                direction: crate::geometry::Vec3::new(1.0, 0.0, 0.0),
+            },
+            t_start: 0.0,
+            t_end: 1.0,
+        });
+    };
+    let (mut forward, spine, fins) = book(&angles, &[true, false, true, false]);
+    line(&mut forward, spine);
+    forward.order_ring(spine, &tol()).expect("ordered");
+    let sides = |b: &BRep| {
+        let mut out: Vec<_> = b
+            .edge_wedges(spine)
+            .expect("decidable")
+            .into_iter()
+            .map(|w| {
+                // Each wedge as its two pages and the side each shows it,
+                // whichever way round it was walked.
+                let (a, b) = ((w.from, w.from_side), (w.to, w.to_side));
+                if a.0 < b.0 { (a, b) } else { (b, a) }
+            })
+            .collect();
+        out.sort_by_key(|((f, _), (g, _))| (*f, *g));
+        out
+    };
+    let want = sides(&forward);
+    let (mut backward, _, _) = book(&angles, &[true, false, true, false]);
+    line(&mut backward, spine);
+    // The reversed page made first, the curve as it was.
+    backward.edges[spine].half_edge = fins[1];
+    let order = backward.radial_order(spine, &tol()).expect("ordered");
+    assert_eq!(order, vec![fins[1], fins[2], fins[0], fins[3]]);
+    backward.order_ring(spine, &tol()).expect("ordered");
+    assert_eq!(sides(&backward), want);
+}

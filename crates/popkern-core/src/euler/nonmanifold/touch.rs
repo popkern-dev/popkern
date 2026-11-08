@@ -7,7 +7,8 @@
 //! face), imprints each contact curve on the faces it crosses
 //! ([`BRep::imprint_edge`]), and glues what now coincides
 //! ([`BRep::glue_coincident`]): one vertex at each point, one ring in
-//! radial order along each curve.
+//! radial order along each curve. Space the glued pieces close in all
+//! round becomes a bounded void ([`BRep::fill_enclosed_cells`]).
 
 use std::collections::BTreeMap;
 
@@ -31,6 +32,11 @@ pub struct TouchGlue {
     pub imprinted: usize,
     /// What the final glue joined.
     pub glued: CoincidentGlue,
+    /// Bounded voids the glued pieces enclose, each made a region
+    /// ([`BRep::fill_enclosed_cells`]): the space between pieces that
+    /// touch all round it (the cell inside two of three crossing rods
+    /// when exactly one is kept, PK-1118).
+    pub enclosed: usize,
 }
 
 impl BRep {
@@ -98,6 +104,9 @@ impl BRep {
             }
         }
         out.glued = work.glue_coincident()?;
+        if out.glued != CoincidentGlue::default() {
+            out.enclosed = work.fill_enclosed_cells().len();
+        }
         *self = work;
         Ok(out)
     }
