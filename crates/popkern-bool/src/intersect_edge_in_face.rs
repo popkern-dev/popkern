@@ -176,7 +176,7 @@ fn curve_meets_vertices(
             .and_then(|d| brep.vertices.get(d.origin))
             .map(|v| v.position)
     };
-    let Some(twin) = brep.half_edges.get(he).map(|h| h.twin) else {
+    let Some(twin) = brep.half_edges.get(he).and_then(|h| h.mate()) else {
         return false;
     };
     let (Some(p), Some(q)) = (vertex(he), vertex(twin)) else {
@@ -241,7 +241,7 @@ fn edge_faces(brep: &BRep, eh: EdgeHandle) -> Vec<(FaceHandle, HalfEdgeHandle)> 
     let Some(he0) = brep.edges.get(eh).map(|e| e.half_edge) else {
         return out;
     };
-    let twin = brep.half_edges.get(he0).map(|h| h.twin);
+    let twin = brep.half_edges.get(he0).and_then(|h| h.mate());
     for he in std::iter::once(he0).chain(twin) {
         let Some(face) = brep
             .half_edges

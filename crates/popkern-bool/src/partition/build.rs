@@ -55,7 +55,13 @@ pub(super) struct Built {
 
 /// Build the complex of `bodies` and read off its bounded regions, each
 /// with its membership and an interior point.
-pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, BoolError> {
+/// `lamina_edges[k]` are operand `k`'s open boundary edges when it is a
+/// sheet entering as a lamina (empty otherwise).
+pub(super) fn build(
+    bodies: &[&BRep],
+    lamina_edges: &[std::collections::BTreeSet<popkern_core::topology::EdgeHandle>],
+    tolerance: &Tolerance,
+) -> Result<Built, BoolError> {
     let linear = tolerance.linear();
     let snap = linear * 2.0;
     let boxes: Vec<_> = bodies
@@ -131,7 +137,7 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
         crate::merge::graph_duplicates::remove_collinear_duplicates(&mut graph, linear);
     }
     crate::merge::radial::sort_all_radial(&mut graph);
-    mark_lamina_boundary_nodes(&mut graph, bodies);
+    mark_lamina_boundary_nodes(&mut graph, lamina_edges);
 
     let mut fallbacks = Vec::new();
     let fragments = crate::merge::walk::walk_all_fragments_ext(
@@ -149,6 +155,7 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
             .unwrap_or(fragments);
     let box_slices: Vec<&[_]> = boxes.iter().map(|b| &b[..]).collect();
     let frontier = std::collections::BTreeSet::new();
+    let laminae: Vec<bool> = lamina_edges.iter().map(|e| !e.is_empty()).collect();
     let input = crate::complex::pipeline::ComplexInput {
         graph: &graph,
         fragments: &fragments,
@@ -157,6 +164,7 @@ pub(super) fn build(bodies: &[&BRep], tolerance: &Tolerance) -> Result<Built, Bo
         overlaps: &overlaps,
         tolerance,
         frontier: &frontier,
+        laminae: &laminae,
     };
     let complex = crate::complex::pipeline::complex_regions(&input, "partition")
         .map_err(|d| declined("Complex", format!("{d:?}")))?;
@@ -226,13 +234,12 @@ fn interior_point(
 }
 
 /// Record every node on a sheet operand's free boundary edges (PK-978).
-fn mark_lamina_boundary_nodes(graph: &mut IntersectionGraph, bodies: &[&BRep]) {
+fn mark_lamina_boundary_nodes(
+    graph: &mut IntersectionGraph,
+    lamina_edges: &[std::collections::BTreeSet<popkern_core::topology::EdgeHandle>],
+) {
     use crate::merge::graph::EdgeSource;
-    let sheets: Vec<bool> = bodies
-        .iter()
-        .map(|b| b.body_kind() == popkern_core::topology::BodyKind::Sheet)
-        .collect();
-    if !sheets.iter().any(|&s| s) {
+    if lamina_edges.iter().all(|e| e.is_empty()) {
         return;
     }
     let mut marked = Vec::new();
@@ -246,7 +253,10 @@ fn mark_lamina_boundary_nodes(graph: &mut IntersectionGraph, bodies: &[&BRep]) {
             EdgeSource::Shared { .. } => continue,
         };
         let k = operand.index();
-        if sheets.get(k).copied().unwrap_or(false) && bodies[k].is_free_edge(edge) {
+        if lamina_edges
+            .get(k)
+            .is_some_and(|edges| edges.contains(&edge))
+        {
             marked.push(he.origin);
             marked.push(graph.half_edges[he.twin].origin);
         }

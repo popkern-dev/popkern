@@ -30,7 +30,7 @@ fn find_cylinder_plane_edge(brep: &BRep) -> Option<popkern_core::topology::EdgeH
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let Some(twin_data) = brep.half_edges.get(he_data.twin) else {
+        let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let f1 = brep.loops[he_data.loop_].face;
@@ -49,7 +49,8 @@ fn find_cylinder_plane_edge(brep: &BRep) -> Option<popkern_core::topology::EdgeH
         );
         if is_cyl_plane {
             let v1 = brep.vertices[he_data.origin].position;
-            let v2 = brep.vertices[brep.half_edges[he_data.twin].origin].position;
+            let v2 =
+                brep.vertices[brep.half_edges[he_data.mate().unwrap_or_default()].origin].position;
             let len =
                 ((v1.x - v2.x).powi(2) + (v1.y - v2.y).powi(2) + (v1.z - v2.z).powi(2)).sqrt();
             if best.is_none_or(|(_, bl)| len < bl) {

@@ -6,6 +6,7 @@ mod boundary_side_separator_bridge;
 mod boundary_side_separator_bridge_apply;
 mod boundary_side_separator_bridge_apply_types;
 mod bridge_diagnostics;
+mod bridge_paths;
 mod cap_boundary_ring;
 mod cap_boundary_ring_fan;
 mod construction_residual_retire;
@@ -16,6 +17,7 @@ mod cylinder_mediated_support_apply;
 mod cylinder_mediated_support_facts;
 mod cylinder_mediated_support_labels;
 mod cylinder_mediated_support_partition;
+mod cylinder_mediated_support_shells;
 mod face_boundary_fragment;
 mod face_boundary_retire;
 mod face_family_bridge;
@@ -41,6 +43,12 @@ mod loop_bridge_apply;
 mod mef;
 mod mev;
 mod mvfs;
+mod nonmanifold;
+pub use nonmanifold::{
+    AcornResult, CoincidentGlue, EulerError, GlueEdgeResult, GlueFaceResult, GlueVertexResult,
+    ImprintedEdge, NonManifoldCounts, TouchGlue, VertexLoopResult, WireEdgeKill, WireEdgeResult,
+    WireFaceResult,
+};
 mod same_loop_boundary_exposure;
 mod same_loop_bridge_dissolve;
 mod same_loop_face_bridge;

@@ -25,7 +25,7 @@ fn precheck_reports_collapsed_edge_as_degeneracy() {
     let (mut brep, edge) = cube_and_edge();
     let edge_rec = &brep.edges[edge];
     let he = &brep.half_edges[edge_rec.half_edge];
-    let twin = &brep.half_edges[he.twin];
+    let twin = &brep.half_edges[he.mate().unwrap_or_default()];
     let v_start = he.origin;
     let v_end = twin.origin;
     brep.vertices[v_start].position = brep.vertices[v_end].position;

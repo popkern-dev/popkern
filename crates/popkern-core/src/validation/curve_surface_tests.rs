@@ -32,7 +32,7 @@ fn make_cube() -> BRep {
 fn bulge_edge(brep: &mut BRep, edge: EdgeHandle, bulge: f64) {
     let half_edge = brep.edges[edge].half_edge;
     let start = brep.vertices[brep.half_edges[half_edge].origin].position;
-    let twin = brep.half_edges[half_edge].twin;
+    let twin = brep.half_edges[half_edge].mate().unwrap_or_default();
     let end = brep.vertices[brep.half_edges[twin].origin].position;
     let s = bulge / 3.0_f64.sqrt();
     let lifted = Point3::new(

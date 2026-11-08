@@ -169,13 +169,12 @@ pub struct BlendBoundaryOptions {
     /// with a setback margin, so all junctions land on real rails
     /// and all bridges cross real face regions.
     pub ring_station_pushback: bool,
-    /// PK-517: put the ring into the outward sense the cap builders
-    /// need (`boundary_ring_sense`); set by the convex ring rung.
-    /// Saddles keep the walk sense by margin, not rule (PK-523): their
-    /// N-quad cap near-folds in BOTH senses (in-patch normal cos -0.965
-    /// walk, -0.993 loop) and only the walk sense clears the -0.98
-    /// reversal gate. Unifying waits on a fold-free saddle cap (PK-527).
-    pub ring_sense_from_solid: bool,
+    /// PK-517: put the ring into the sense its cap builder needs
+    /// about the material (`boundary_ring_sense`): the convex rule for
+    /// the convex ring rung, the saddle rule for saddle (`OppositeSide`)
+    /// corners. `None` keeps the walk sense, an accident of how the
+    /// extractor parameterized one arc.
+    pub ring_sense: Option<super::boundary_ring_sense::RingSenseRule>,
 }
 
 /// Compute the blend boundary at a vertex where multiple fillets meet.
@@ -313,16 +312,16 @@ pub fn compute_blend_boundary_with_options(
             &face_supports,
             tolerance.linear().max(1e-6),
         );
-        let reorder = if options.ring_sense_from_solid {
-            super::boundary_ring_sense::orient_pushed_ring(
+        let reorder = match options.ring_sense {
+            Some(rule) => super::boundary_ring_sense::orient_pushed_ring(
                 brep,
                 &faces_at_vertex,
                 vertex_pos,
                 reorder,
                 tolerance.linear().max(1e-6) * 10.0,
-            )
-        } else {
-            reorder
+                rule,
+            ),
+            None => reorder,
         };
         if let Some((order, flip, arc_by_k)) = reorder {
             // `arc_by_k[k]` is the arc to emit at position `k`,

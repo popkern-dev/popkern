@@ -222,7 +222,7 @@ fn external_boundary_edge_count(
         .expect("face loop")
         .into_iter()
         .filter(|half_edge| {
-            let twin = brep.half_edges[*half_edge].twin;
+            let twin = brep.half_edges[*half_edge].mate().unwrap_or_default();
             let Some(twin_face) = brep
                 .loops
                 .get(brep.half_edges[twin].loop_)

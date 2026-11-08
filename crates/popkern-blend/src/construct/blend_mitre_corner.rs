@@ -165,7 +165,10 @@ fn corner_strips(
                 .half_edges
                 .get(cursor)
                 .ok_or(Reason::UnrecognizedResidue)?;
-            let neighbour = face_of(he.twin).ok_or(Reason::UnrecognizedResidue)?;
+            let neighbour = he
+                .mate()
+                .and_then(face_of)
+                .ok_or(Reason::UnrecognizedResidue)?;
             let surface = brep
                 .faces
                 .get(neighbour)
@@ -318,7 +321,7 @@ fn corner_reach(brep: &BRep, corner: VertexHandle) -> f64 {
     brep.half_edges
         .values()
         .filter(|he| he.origin == corner)
-        .filter_map(|he| brep.half_edges.get(he.twin))
+        .filter_map(|he| he.mate().and_then(|m| brep.half_edges.get(m)))
         .filter_map(|tw| brep.vertices.get(tw.origin))
         .map(|v| (v.position - c).length())
         .fold(0.0, f64::max)
@@ -327,7 +330,7 @@ fn corner_reach(brep: &BRep, corner: VertexHandle) -> f64 {
 /// The half-edge `from → to`, when an edge joins them.
 fn half_edge_between(brep: &BRep, from: VertexHandle, to: VertexHandle) -> Option<HalfEdgeHandle> {
     brep.half_edges.iter().find_map(|(h, he)| {
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         (he.origin == from && twin.origin == to).then_some(h)
     })
 }
@@ -347,7 +350,8 @@ fn author_seam_edge(
         .half_edges
         .get(he_out)
         .ok_or(Reason::EulerRejected)?
-        .twin;
+        .mate()
+        .ok_or(Reason::EulerRejected)?;
     let edge: EdgeHandle = brep
         .half_edges
         .get(he_out)

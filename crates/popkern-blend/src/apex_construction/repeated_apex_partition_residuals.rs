@@ -367,10 +367,10 @@ fn face_has_construction_boundary_edge(brep: &BRep, face: &Face) -> bool {
         .is_some_and(|cycle| {
             cycle.iter().any(|half_edge| {
                 brep.half_edges.get(*half_edge).is_some_and(|data| {
-                    brep.boundary_edges.contains(&data.edge)
-                        || brep
-                            .half_edges
-                            .get(data.twin)
+                    brep.is_free_edge(data.edge)
+                        || data
+                            .mate()
+                            .and_then(|m| brep.half_edges.get(m))
                             .and_then(|twin| brep.loops.get(twin.loop_))
                             .is_none()
                 })
@@ -401,14 +401,14 @@ pub(super) fn demote_residual_interior_edges(brep: &mut BRep) -> usize {
         let Some(he_data) = brep.half_edges.get(he) else {
             continue;
         };
-        let twin = he_data.twin;
+        let twin = he_data.mate();
         let face_of = |h| {
             brep.half_edges
                 .get(h)
                 .and_then(|d| brep.loops.get(d.loop_))
                 .map(|l| l.face)
         };
-        let (Some(f_a), Some(f_b)) = (face_of(he), face_of(twin)) else {
+        let (Some(f_a), Some(f_b)) = (face_of(he), twin.and_then(face_of)) else {
             continue;
         };
         let residual = |f| {

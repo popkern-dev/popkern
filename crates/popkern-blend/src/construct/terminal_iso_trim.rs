@@ -131,10 +131,12 @@ pub(super) fn repair_corner_iso(
         if let Some(e) = brep.edges.get_mut(stub.edge) {
             e.curve = Some(stub.curve);
         }
-        if let Some(tw) = brep.half_edges.get_mut(stub.cap_half_edge) {
-            tw.pcurve = Some(stub.cap_pcurve.clone());
+        if let Some(cap_he) = stub.cap_half_edge {
+            if let Some(tw) = brep.half_edges.get_mut(cap_he) {
+                tw.pcurve = Some(stub.cap_pcurve.clone());
+            }
+            brep.set_face_use_pcurve(cap_face, cap_he, stub.cap_pcurve);
         }
-        brep.set_face_use_pcurve(cap_face, stub.cap_half_edge, stub.cap_pcurve);
     }
     Ok(())
 }
@@ -219,7 +221,7 @@ fn compute_iso_stub(
             .or(he.pcurve.as_ref())
             .cloned()
             .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?;
-        (edge, primary, pc, he.twin)
+        (edge, primary, pc, he.mate())
     };
     // The recorded curve follows the PRIMARY half-edge.
     let curve3 = if primary == he_strip {

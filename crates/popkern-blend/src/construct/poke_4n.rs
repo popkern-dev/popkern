@@ -157,7 +157,7 @@ fn collect_vertex_outgoing_edges(
     for _ in 0..bound {
         let he = &brep.half_edges[cursor];
         edges.push(he.edge);
-        let twin = he.twin;
+        let twin = he.require_mate()?;
         let twin_data = brep
             .half_edges
             .get(twin)

@@ -376,8 +376,9 @@ fn oriented_fillet_end_boundary_curve(
         .half_edges
         .get(cap_half_edge)
         .and_then(|half_edge| {
-            brep.half_edges
-                .get(half_edge.twin)
+            half_edge
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .or_else(|| brep.half_edges.get(half_edge.next))
         })
         .and_then(|end_side| brep.vertices.get(end_side.origin))

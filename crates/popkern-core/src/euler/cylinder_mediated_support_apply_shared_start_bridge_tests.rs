@@ -5,9 +5,8 @@ use crate::euler::{
 };
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
-use crate::topology::{
-    BRep, Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, Shell, Solid, Vertex,
-};
+use crate::topology::RadialLinks;
+use crate::topology::{BRep, Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, Vertex};
 
 #[test]
 fn shared_start_bridge_preflight_requires_complete_candidate_gate() {
@@ -43,14 +42,7 @@ struct SharedStartCrossLoopFixture {
 
 fn shared_start_cross_loop_fixture() -> SharedStartCrossLoopFixture {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let first = add_boundary_polygon(
         &mut brep,
         shell,
@@ -71,7 +63,7 @@ fn shared_start_cross_loop_fixture() -> SharedStartCrossLoopFixture {
             Point3::new(2.0, 1.0, 0.0),
         ],
     );
-    brep.shells[shell].face = first;
+    brep.set_sides_anchor(shell, first);
     let outside = first_two_half_edges(&brep, brep.faces[first].outer_loop);
     let cylinder = first_two_half_edges(&brep, brep.faces[second].outer_loop);
     let authoring = vec![authoring_segment(
@@ -132,13 +124,14 @@ fn edges_for_half_edges(brep: &BRep, half_edges: &[HalfEdgeHandle]) -> Vec<EdgeH
 
 fn add_boundary_polygon(
     brep: &mut BRep,
-    shell: crate::topology::ShellHandle,
+    shell: crate::topology::FaceSides,
     points: &[Point3],
 ) -> crate::topology::FaceHandle {
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -147,6 +140,7 @@ fn add_boundary_polygon(
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let mut half_edges = Vec::new();
@@ -167,7 +161,7 @@ fn add_boundary_polygon(
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -176,7 +170,6 @@ fn add_boundary_polygon(
         });
         brep.vertices[vertex].outgoing = half_edge;
         brep.edges[edge].half_edge = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edges.push(half_edge);
     }
     for index in 0..half_edges.len() {

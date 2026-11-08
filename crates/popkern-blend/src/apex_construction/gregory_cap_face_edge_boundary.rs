@@ -93,7 +93,7 @@ fn cap_edge_endpoints(
     edge: EdgeHandle,
 ) -> Option<(Point3, Point3)> {
     let cap_half_edge = half_edge_for_face_on_edge(brep, edge, cap_face)?;
-    let support_half_edge = brep.half_edges.get(cap_half_edge)?.twin;
+    let support_half_edge = brep.half_edges.get(cap_half_edge)?.mate()?;
     let start = brep
         .vertices
         .get(brep.half_edges[cap_half_edge].origin)?
@@ -111,7 +111,7 @@ fn oriented_support_trim_curve(
     edge: EdgeHandle,
 ) -> Option<NurbsCurve> {
     let cap_half_edge = half_edge_for_face_on_edge(brep, edge, cap_face)?;
-    let support_half_edge = brep.half_edges.get(cap_half_edge)?.twin;
+    let support_half_edge = brep.half_edges.get(cap_half_edge)?.mate()?;
     let support_half_edge_data = brep.half_edges.get(support_half_edge)?;
     let support_face = brep.loops.get(support_half_edge_data.loop_)?.face;
     let support_surface = brep.faces.get(support_face)?.surface.as_ref()?;

@@ -55,7 +55,7 @@ pub(in crate::apex_construction) fn topology_count_summary(brep: &BRep) -> Topol
         edges: brep.edges.len() as i64,
         faces: brep.faces.len() as i64,
         loops: brep.loops.len() as i64,
-        shells: brep.shells.len() as i64,
+        shells: brep.back_shell_count() as i64,
     }
 }
 

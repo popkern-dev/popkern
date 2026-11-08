@@ -116,7 +116,10 @@ impl ServeRegion {
             let Some(he) = brep.half_edges.get(edge.half_edge) else {
                 continue;
             };
-            let sides = [he, brep.half_edges.get(he.twin).unwrap_or(he)];
+            let sides = [
+                he,
+                he.mate().and_then(|m| brep.half_edges.get(m)).unwrap_or(he),
+            ];
             let face_of =
                 |h: &popkern_core::topology::HalfEdge| brep.loops.get(h.loop_).map(|l| l.face);
             let stands = |edges: &CarriedEdges, faces: &SecondaryMap<FaceHandle, ()>| {
@@ -170,7 +173,7 @@ impl ServeRegion {
         else {
             return false;
         };
-        [Some(he), brep.half_edges.get(he.twin)]
+        [Some(he), he.mate().and_then(|m| brep.half_edges.get(m))]
             .into_iter()
             .all(|h| {
                 h.and_then(|h| brep.loops.get(h.loop_))

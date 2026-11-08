@@ -28,7 +28,7 @@ pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
         let self_twins = brep
             .half_edges
             .iter()
-            .filter(|(heh, he)| he.twin == *heh)
+            .filter(|(heh, he)| he.mate() == Some(*heh))
             .count();
         eprintln!(
             "  [post] {label}: {} faces {} edges {} self-twinned",
@@ -38,7 +38,7 @@ pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
         );
         if self_twins > 0 && popkern_core::trace::trace_enabled("spur") {
             for (heh, he) in &brep.half_edges {
-                if he.twin != heh {
+                if he.mate() != Some(heh) {
                     continue;
                 }
                 let face = brep.loops.get(he.loop_).map(|l| l.face);

@@ -95,7 +95,7 @@ fn primary_cylinder_identity_of_face(
         safety -= 1;
         let he = brep.half_edges.get(cursor)?;
         let next = he.next;
-        let twin_loop = brep.half_edges.get(he.twin)?.loop_;
+        let twin_loop = he.mate().and_then(|m| brep.half_edges.get(m))?.loop_;
         let twin_face = brep.loops.get(twin_loop)?.face;
         if let Some(SurfaceGeometry::Cylinder {
             origin,

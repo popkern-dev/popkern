@@ -274,7 +274,7 @@ pub(super) fn try_repair_obstructed_end(
             stub.strip_half_edge,
             stub.strip_pcurve.clone(),
         );
-        if let Some(tw) = cand.half_edges.get_mut(stub.cap_half_edge) {
+        if let Some(tw) = stub.cap_half_edge.and_then(|h| cand.half_edges.get_mut(h)) {
             tw.pcurve = Some(stub.cap_pcurve.clone());
         }
     }
@@ -340,8 +340,8 @@ pub(super) fn try_repair_obstructed_end(
     // re-register its elliptical pcurve there (same plane chart).
     for stub in &staged {
         let twf = twin_face(&cand, stub.strip_half_edge);
-        if let Some(f) = twf {
-            cand.set_face_use_pcurve(f, stub.cap_half_edge, stub.cap_pcurve.clone());
+        if let (Some(f), Some(cap_he)) = (twf, stub.cap_half_edge) {
+            cand.set_face_use_pcurve(f, cap_he, stub.cap_pcurve.clone());
         }
     }
     // Refresh projected pcurves on every touched face (analytic
@@ -373,7 +373,7 @@ pub(super) fn try_repair_obstructed_end(
 }
 
 fn twin_face(brep: &BRep, he: HalfEdgeHandle) -> Option<FaceHandle> {
-    let tw = brep.half_edges.get(brep.half_edges.get(he)?.twin)?;
+    let tw = brep.half_edges.get(brep.half_edges.get(he)?.mate()?)?;
     Some(brep.loops.get(tw.loop_)?.face)
 }
 

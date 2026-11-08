@@ -81,7 +81,7 @@ fn pyramid3_mixed_default_serve_is_native_direct_apex() {
         result.corner_patches
     );
     assert!(
-        result.brep.boundary_edges.is_empty(),
+        !result.brep.has_free_edges(),
         "pyramid3_mixed: the native serve carries no dead boundary sides"
     );
 }
@@ -114,7 +114,7 @@ fn pyramid3_extreme_default_serve_takes_the_setback_rung_over_the_creased_direct
         result.corner_patches
     );
     assert!(
-        result.brep.boundary_edges.is_empty(),
+        !result.brep.has_free_edges(),
         "pyramid3_extreme: the serve carries no dead boundary sides"
     );
 }

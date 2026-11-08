@@ -17,7 +17,7 @@ use crate::topology::{
     BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions, BrepFaceUseTrimAuthorityOptions,
     BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingEdgePair,
     BrepSewingOptions, BrepSewingProvenance, BrepSnapSewingOptions, BrepTopologyOutputPolicy,
-    BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle, Shell, ShellHandle, Solid,
+    BrepTrimRepairOptions, EdgeHandle, FaceSides, HalfEdgeHandle,
     analyze_brep_export_quality_with_local_diagnostics,
     analyze_scoped_brep_edge_surface_compatibility, analyze_scoped_brep_export_quality,
     analyze_scoped_brep_trims, build_brep_repair_action_artifact, edge_segment,
@@ -199,7 +199,7 @@ pub fn weld_clean_surface_complex_boundaries(
                     .as_ref()
                     .map_or(0, |clean| clean.declined_pairs.len())
         }),
-        remaining_boundary_edges: result.brep.boundary_edges.len(),
+        remaining_boundary_edges: result.brep.free_edges().len(),
         max_weld_gap: clean_report.map_or(0.0, |report| {
             report.max_endpoint_gap.max(report.max_surface_gap)
         }),
@@ -361,14 +361,7 @@ fn assemble_components(
 ) -> Result<AssembledSurfaceComplex, String> {
     let mut out = BRep::new(crate::tolerance::Tolerance::default());
     let mut edge_component = HashMap::new();
-    let solid = out.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = out.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    out.solids[solid].shell = shell;
+    let (_solid, shell) = out.add_solid_region(Default::default());
     for (component_index, component) in complex.components.iter().enumerate() {
         copy_component_brep(
             &mut out,
@@ -386,7 +379,7 @@ fn assemble_components(
 
 fn copy_component_brep(
     out: &mut BRep,
-    shell: ShellHandle,
+    sides: FaceSides,
     component_index: usize,
     src: &BRep,
     edge_component: &mut HashMap<EdgeHandle, usize>,
@@ -404,9 +397,7 @@ fn copy_component_brep(
         let new = out.insert_edge_tracked(edge.clone());
         edges.insert(old, new);
         edge_component.insert(new, component_index);
-        if src.boundary_edges.contains(&old) {
-            out.boundary_edges.insert(new);
-        }
+        if src.is_free_edge(old) {}
     }
     for (old, half_edge) in &src.half_edges {
         half_edges.insert(old, out.half_edges.insert(half_edge.clone()));
@@ -416,11 +407,10 @@ fn copy_component_brep(
     }
     for (old, face) in &src.faces {
         let mut new_face = face.clone();
-        new_face.shell = shell;
+        new_face.back = sides.back;
+        new_face.front = sides.front;
         let new = out.faces.insert(new_face);
-        if out.shells[shell].face == FaceHandle::default() {
-            out.shells[shell].face = new;
-        }
+        out.anchor_unset_sides(new);
         faces.insert(old, new);
     }
 
@@ -430,7 +420,10 @@ fn copy_component_brep(
     for (old, half_edge) in &src.half_edges {
         let new = half_edges[&old];
         out.half_edges[new].origin = vertices[&half_edge.origin];
-        out.half_edges[new].twin = remap_half_edge(half_edge.twin, &half_edges);
+        match half_edge.mate() {
+            Some(mate) => out.half_edges[new].set_mate(remap_half_edge(mate, &half_edges)),
+            None => out.half_edges[new].clear_mate(),
+        }
         out.half_edges[new].next = half_edges[&half_edge.next];
         out.half_edges[new].prev = half_edges[&half_edge.prev];
         out.half_edges[new].edge = edges[&half_edge.edge];
@@ -460,9 +453,9 @@ fn brep_boundary_segments(
     brep: &BRep,
     edge_component: &HashMap<EdgeHandle, usize>,
 ) -> Vec<BoundarySegment> {
-    brep.boundary_edges
-        .iter()
-        .filter_map(|&edge| {
+    brep.free_edges()
+        .into_iter()
+        .filter_map(|edge| {
             edge_segment(brep, edge).map(|(start, end)| BoundarySegment {
                 component: edge_component.get(&edge).copied().unwrap_or_default(),
                 edge,

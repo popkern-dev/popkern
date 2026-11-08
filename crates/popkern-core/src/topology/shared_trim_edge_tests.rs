@@ -8,7 +8,7 @@ use crate::topology::{
 fn cube_edge_pair(brep: &BRep) -> (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle) {
     let (edge, edge_data) = brep.edges.iter().next().expect("cube edge");
     let half_edge_a = edge_data.half_edge;
-    let half_edge_b = brep.half_edges[half_edge_a].twin;
+    let half_edge_b = brep.half_edges[half_edge_a].mate().unwrap_or_default();
     (edge, half_edge_a, half_edge_b)
 }
 
@@ -116,7 +116,9 @@ fn shared_trim_edge_rejects_non_twin_half_edges() {
         .half_edges
         .iter()
         .map(|(handle, _)| handle)
-        .find(|handle| *handle != half_edge_a && *handle != brep.half_edges[half_edge_a].twin)
+        .find(|handle| {
+            *handle != half_edge_a && brep.half_edges[half_edge_a].mate() != Some(*handle)
+        })
         .expect("non twin half-edge");
     let curve = brep.edges[edge].curve.clone().expect("edge curve");
     let pcurve_a = brep.half_edges[half_edge_a]

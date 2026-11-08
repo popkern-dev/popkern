@@ -32,7 +32,7 @@ pub(crate) fn edge_seam_faces(
 ) -> Option<EdgeSeamFaces> {
     let he = edge.half_edge;
     let he_data = brep.half_edges.get(he)?;
-    let twin = he_data.twin;
+    let twin = he_data.mate()?;
     let twin_data = brep.half_edges.get(twin)?;
     let face_a = brep.loops.get(he_data.loop_)?.face;
     let face_b = brep.loops.get(twin_data.loop_)?.face;

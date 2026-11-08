@@ -12,7 +12,7 @@ use popkern_core::topology::{BRep, EdgeHandle};
 pub(crate) fn edge_box(brep: &BRep, eh: EdgeHandle) -> Option<Aabb> {
     let edge = brep.edges.get(eh)?;
     let he = brep.half_edges.get(edge.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let mut points = vec![
         brep.vertices.get(he.origin)?.position,
         brep.vertices.get(twin.origin)?.position,

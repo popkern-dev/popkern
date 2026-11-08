@@ -24,8 +24,8 @@ cup = cup.subtract(m.tool(|t| t.profile(xy_at(2.0)).circle(8.0).sketch("h").extr
 cup.union(m.tool(|t| t.profile(xy_at(8.0)).circle(9.0).sketch("plug").extrude(blind(4.0))), #{ label: "plug" });
 m"#,
     );
-    assert_eq!(brep.solids.len(), 1);
-    assert_eq!(brep.shells.len(), 2, "outer shell + cavity shell");
+    assert_eq!(brep.solid_regions().len(), 1);
+    assert_eq!(brep.back_shell_count(), 2, "outer shell + cavity shell");
     assert!(brep.validate().is_ok());
     // Cup (r 10 × 20 less the r 8 pocket above z 2) plus the plug's
     // r 8 × 4 core: π(2000 − 1152 + 256) = 1104π.
@@ -46,7 +46,7 @@ cup = cup.subtract(m.tool(|t| t.profile(xy_at(2.0)).circle(8.0).sketch("h").extr
 cup.union(m.tool(|t| t.profile(xy_at(8.0)).rect(18.0, 18.0).sketch("lid").extrude(blind(4.0))), #{ label: "lid" });
 m"#,
     );
-    assert_eq!(brep.solids.len(), 1);
-    assert_eq!(brep.shells.len(), 2, "outer shell + cavity shell");
+    assert_eq!(brep.solid_regions().len(), 1);
+    assert_eq!(brep.back_shell_count(), 2, "outer shell + cavity shell");
     assert!(brep.validate().is_ok());
 }

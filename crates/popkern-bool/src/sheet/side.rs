@@ -28,9 +28,14 @@ pub enum SideOfSheet {
 /// Classify a query point against a sheet body via boundary-relative
 /// semantics.
 ///
-/// Finds the closest face on the sheet, evaluates its surface and
-/// outward normal at the closest UV, and reports which side the
-/// point lies on. If the point is closer than `tolerance.linear()`,
+/// Finds the face nearest the point and reports which side of that
+/// face's oriented surface the point lies on. A face is near where its
+/// surface's closest point lies inside its trims: an unbounded plane's
+/// foot past its face's edges is no point of the face (a cube's side
+/// wall plane is nearer a point above the cube than its top face is).
+/// When no face's foot lies inside its trims (the point is beyond every
+/// face's edges), the face with the nearest boundary sample is read at
+/// its surface foot. If the point is closer than `tolerance.linear()`,
 /// returns `On`.
 ///
 /// This is the building block §6.x asks for: open-shell classification
@@ -44,11 +49,11 @@ pub fn side_of_sheet(
 ) -> SideOfSheet {
     use popkern_core::geometry::surface::SurfaceEval;
 
-    let mut best_dist = f64::INFINITY;
-    let mut best_signed_dist = 0.0_f64;
-    let mut best_found = false;
-
-    for (_fh, face) in &sheet.faces {
+    // (distance, signed distance) of the nearest face whose foot lies
+    // in its trims, and of the face with the nearest boundary sample.
+    let mut in_trim: Option<(f64, f64)> = None;
+    let mut by_boundary: Option<(f64, f64)> = None;
+    for (fh, face) in &sheet.faces {
         let Some(surf) = face.surface.as_ref() else {
             continue;
         };
@@ -66,17 +71,34 @@ pub fn side_of_sheet(
         }
         let to_point = *point - p_surf;
         let dist = to_point.length();
-        if dist < best_dist {
-            best_dist = dist;
-            let signed = to_point.dot(&normal) / n_len;
-            best_signed_dist = signed;
-            best_found = true;
+        let signed = to_point.dot(&normal) / n_len;
+        let foot = popkern_core::geometry::Point3::new(u, v, 0.0);
+        if crate::split_inner_loop::point_inside_face_region_uv(sheet, fh, foot, tolerance) {
+            if in_trim.is_none_or(|(best, _)| dist < best) {
+                in_trim = Some((dist, signed));
+            }
+            continue;
+        }
+        let edge_dist = sheet
+            .face_boundary_sample_points(fh, 8)
+            .iter()
+            .map(|q| q.distance_to(point))
+            .fold(f64::INFINITY, f64::min);
+        if edge_dist.is_finite() && by_boundary.is_none_or(|(best, _)| edge_dist < best) {
+            by_boundary = Some((edge_dist, signed));
         }
     }
 
-    if !best_found {
+    // A face reached inside its trims wins unless some face's edge is
+    // nearer still (the point then lies beyond that face's edge).
+    let best = match (in_trim, by_boundary) {
+        (Some(t), Some(b)) if b.0 < t.0 => Some(b),
+        (Some(t), _) => Some(t),
+        (None, b) => b,
+    };
+    let Some((best_dist, best_signed_dist)) = best else {
         return SideOfSheet::Indeterminate;
-    }
+    };
 
     if best_dist < tolerance.linear() {
         SideOfSheet::On

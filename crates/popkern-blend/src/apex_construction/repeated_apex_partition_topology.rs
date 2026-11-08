@@ -1,6 +1,7 @@
 //! Low-level topology helpers for planned repeated-apex partitioning.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, TopologyRole,
     VertexHandle,
@@ -27,10 +28,10 @@ pub(super) fn oriented_edge_half_edges_on_face(
     let edge_data = brep.edges.get(edge)?;
     for he in [
         edge_data.half_edge,
-        brep.half_edges.get(edge_data.half_edge)?.twin,
+        brep.half_edges.get(edge_data.half_edge)?.mate()?,
     ] {
         let half_edge = brep.half_edges.get(he)?;
-        let twin = half_edge.twin;
+        let twin = half_edge.mate()?;
         let half_edge_face = brep.loops.get(half_edge.loop_)?.face;
         if half_edge_face != face {
             continue;
@@ -58,7 +59,7 @@ pub(super) fn insert_unwired_edge_pair(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: start,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
@@ -67,14 +68,14 @@ pub(super) fn insert_unwired_edge_pair(
     });
     let twin = brep.half_edges.insert(HalfEdge {
         origin: end,
-        twin: half_edge,
+        ring: RadialLinks::pair(half_edge),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
         loop_: Default::default(),
         pcurve: None,
     });
-    brep.half_edges[half_edge].twin = twin;
+    brep.half_edges[half_edge].set_mate(twin);
     brep.edges[edge].half_edge = half_edge;
     if brep.vertices[start].outgoing == HalfEdgeHandle::default() {
         brep.vertices[start].outgoing = half_edge;
@@ -99,7 +100,7 @@ pub(super) fn insert_boundary_half_edge(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: start,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
@@ -107,7 +108,6 @@ pub(super) fn insert_boundary_half_edge(
         pcurve: None,
     });
     brep.edges[edge].half_edge = half_edge;
-    brep.boundary_edges.insert(edge);
     if brep.vertices[start].outgoing == HalfEdgeHandle::default() {
         brep.vertices[start].outgoing = half_edge;
     }
@@ -136,22 +136,18 @@ pub(super) fn insert_face_with_outer_loop(
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: Vec::new(),
-        shell: template.shell,
+        back: template.back,
+        front: template.front,
         surface: template.surface,
         name: None,
         tolerance: template.tolerance,
         role: Default::default(),
     });
-    if brep
-        .shells
-        .get(template.shell)
-        .is_some_and(|shell| !brep.faces.contains_key(shell.face))
-    {
-        brep.shells[template.shell].face = face;
-    }
+    brep.anchor_unset_sides(face);
     let loop_handle = brep.loops.insert(Loop {
         half_edge: half_edges[0],
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_handle;
     wire_existing_loop(brep, loop_handle, face, half_edges)?;
@@ -159,27 +155,15 @@ pub(super) fn insert_face_with_outer_loop(
 }
 
 pub(crate) fn repair_stale_shell_anchors(brep: &mut BRep) -> Result<(), ApexBuildError> {
-    let shells = brep.shells.keys().collect::<Vec<_>>();
-    for shell in shells {
-        let Some(anchor) = brep.shells.get(shell).map(|shell_data| shell_data.face) else {
-            continue;
-        };
-        if brep.faces.contains_key(anchor) {
-            continue;
-        }
-        let replacement = brep
-            .faces
-            .iter()
-            .find_map(|(face, data)| (data.shell == shell).then_some(face))
-            .ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition cannot repair stale shell anchor for \
-                     {shell:?}: no live replacement face remains"
-                ),
-            })?;
-        brep.shells[shell].face = replacement;
+    match brep.repair_shell_anchors().first() {
+        Some(shell) => Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition cannot repair stale shell anchor for \
+                 {shell:?}: no live replacement face remains"
+            ),
+        }),
+        None => Ok(()),
     }
-    Ok(())
 }
 
 pub(super) fn wire_existing_loop(
@@ -445,7 +429,7 @@ fn collect_loop_half_edges(
 
 fn edge_incident_faces(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<(FaceHandle, FaceHandle)> {
     let side_a = brep.half_edges.get(half_edge)?;
-    let side_b = brep.half_edges.get(side_a.twin)?;
+    let side_b = side_a.mate().and_then(|m| brep.half_edges.get(m))?;
     let face_a = brep
         .loops
         .get(side_a.loop_)

@@ -173,8 +173,7 @@ fn collect_face_neighbors(brep: &BRep, face: FaceHandle) -> Vec<FaceHandle> {
         let Some(he) = brep.half_edges.get(cursor) else {
             break;
         };
-        let twin = he.twin;
-        if let Some(twin_he) = brep.half_edges.get(twin)
+        if let Some(twin_he) = he.mate().and_then(|t| brep.half_edges.get(t))
             && let Some(twin_loop) = brep.loops.get(twin_he.loop_)
         {
             let nf = twin_loop.face;

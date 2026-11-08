@@ -129,7 +129,12 @@ fn fan(out: &BRep, vertex: VertexHandle) -> Result<Vec<HalfEdgeHandle>, String> 
     let mut fan = vec![first];
     loop {
         let last = *fan.last().ok_or("empty fan")?;
-        let twin = out.half_edges.get(last).ok_or("stale half-edge")?.twin;
+        let twin = out
+            .half_edges
+            .get(last)
+            .ok_or("stale half-edge")?
+            .require_mate()
+            .map_err(|e| e.to_string())?;
         let next = out.half_edges.get(twin).ok_or("stale twin")?.next;
         if next == first {
             return Ok(fan);
@@ -172,7 +177,12 @@ fn consume(out: &mut BRep, face: FaceHandle, gate: f64) -> Result<Vec<VertexHand
         }
     }
     vanished.retain(|&h| h != longest.0);
-    let neighbour_side = out.half_edges.get(longest.0).ok_or("stale half-edge")?.twin;
+    let neighbour_side = out
+        .half_edges
+        .get(longest.0)
+        .ok_or("stale half-edge")?
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     out.kef(neighbour_side)
         .map_err(|e| format!("consume kef: {e}"))?;
     let mut merged = Vec::new();

@@ -223,6 +223,7 @@ pub(super) fn sewing_decline_reason_label(reason: &BrepSewingDeclineReason) -> &
         BrepSewingDeclineReason::EndpointGapExceeded { .. } => "endpoint_gap_exceeded",
         BrepSewingDeclineReason::MissingSurfaceSampleData => "missing_surface_sample_data",
         BrepSewingDeclineReason::SurfaceGapExceeded { .. } => "surface_gap_exceeded",
+        BrepSewingDeclineReason::GlueDeclined { .. } => "glue_declined",
     }
 }
 

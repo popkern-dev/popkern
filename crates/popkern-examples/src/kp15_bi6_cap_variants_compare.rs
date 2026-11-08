@@ -217,7 +217,7 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
         .filter_map(|(h, e)| {
             let he = &pyramid.half_edges[e.half_edge];
             let v0 = he.origin;
-            let v1 = pyramid.half_edges[he.twin].origin;
+            let v1 = pyramid.fin_end(e.half_edge)?;
             if v0 == apex || v1 == apex {
                 Some(h)
             } else {

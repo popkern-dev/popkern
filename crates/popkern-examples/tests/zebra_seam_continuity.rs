@@ -24,7 +24,7 @@ fn top_edge(b: &BRep) -> popkern_core::topology::EdgeHandle {
         .find(|(_, e)| {
             let he = &b.half_edges[e.half_edge];
             let p = b.vertices[he.origin].position;
-            let q = b.vertices[b.half_edges[he.twin].origin].position;
+            let q = b.vertices[b.half_edges[he.mate().unwrap_or_default()].origin].position;
             (p.x - 1.0).abs() < 1e-9
                 && (q.x - 1.0).abs() < 1e-9
                 && (p.z - 1.0).abs() < 1e-9

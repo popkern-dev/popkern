@@ -158,7 +158,7 @@ fn seam_hover_axial_edge_classifies_iso_line() {
         .iter()
         .find(|(_, e)| {
             let he = &brep.half_edges[e.half_edge];
-            let twin = &brep.half_edges[he.twin];
+            let twin = &brep.half_edges[he.mate().unwrap_or_default()];
             brep.loops[he.loop_].face == brep.loops[twin.loop_].face
         })
         .map(|(eh, _)| eh)
@@ -168,7 +168,10 @@ fn seam_hover_axial_edge_classifies_iso_line() {
     // stay at +0.
     let (he, twin) = {
         let e = &brep.edges[seam];
-        (e.half_edge, brep.half_edges[e.half_edge].twin)
+        (
+            e.half_edge,
+            brep.half_edges[e.half_edge].mate().unwrap_or_default(),
+        )
     };
     let far_vertex = brep.half_edges[brep.half_edges[he].next].origin;
     let pos = brep.vertices[far_vertex].position;

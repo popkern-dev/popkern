@@ -85,20 +85,21 @@ impl BRep {
                 CoreError::InvalidHandle("residual retire half-edge handle is invalid".into())
             })?;
             let edge = half_edge_data.edge;
-            let twin = half_edge_data.twin;
-            if doomed_half_edges.contains(&twin) {
+            let twin = half_edge_data.mate();
+            if twin.is_some_and(|t| doomed_half_edges.contains(&t)) {
                 removed_edges.insert(edge);
                 continue;
             }
-            if let Some(twin_data) = self.half_edges.get(twin) {
-                if twin_data.edge != edge || twin_data.twin != half_edge {
+            if let Some(twin) = twin
+                && let Some(twin_data) = self.half_edges.get(twin)
+            {
+                if twin_data.edge != edge || twin_data.mate() != Some(half_edge) {
                     return Err(CoreError::PreconditionFailed(
                         "residual retire found inconsistent surviving twin pairing".into(),
                     ));
                 }
-                self.half_edges[twin].twin = HalfEdgeHandle::default();
+                self.half_edges[twin].clear_mate();
                 self.edges[edge].half_edge = twin;
-                self.boundary_edges.insert(edge);
                 exposed_edges.insert(edge);
             } else {
                 removed_edges.insert(edge);
@@ -111,7 +112,6 @@ impl BRep {
             removed_half_edges.push(*half_edge);
         }
         for edge in &removed_edges {
-            self.boundary_edges.remove(edge);
             self.edges.remove(*edge);
         }
         for &face in faces {
@@ -216,27 +216,14 @@ impl BRep {
         &mut self,
         face: FaceHandle,
     ) -> Result<(), CoreError> {
-        let shell = self
-            .faces
-            .get(face)
-            .ok_or_else(|| {
-                CoreError::InvalidHandle("residual retire face handle is invalid".into())
-            })?
-            .shell;
-        if self.shells[shell].face != face {
-            return Ok(());
+        self.faces.get(face).ok_or_else(|| {
+            CoreError::InvalidHandle("residual retire face handle is invalid".into())
+        })?;
+        if !self.move_shell_anchor_off(face) {
+            return Err(CoreError::PreconditionFailed(
+                "residual retire cannot remove the last face in a shell".into(),
+            ));
         }
-        let replacement = self
-            .faces
-            .iter()
-            .find(|(candidate, data)| *candidate != face && data.shell == shell)
-            .map(|(candidate, _)| candidate)
-            .ok_or_else(|| {
-                CoreError::PreconditionFailed(
-                    "residual retire cannot remove the last face in a shell".into(),
-                )
-            })?;
-        self.shells[shell].face = replacement;
         Ok(())
     }
 
@@ -266,7 +253,7 @@ impl BRep {
             }
         }
         for edge in &result.removed_edges {
-            if self.edges.contains_key(*edge) || self.boundary_edges.contains(edge) {
+            if self.edges.contains_key(*edge) || self.is_free_edge(*edge) {
                 return Err(CoreError::PreconditionFailed(
                     "residual retire left a retired edge live".into(),
                 ));
@@ -283,9 +270,7 @@ impl BRep {
             let half_edge_data = self.half_edges.get(half_edge).ok_or_else(|| {
                 CoreError::PreconditionFailed("residual retire exposed stale half-edge".into())
             })?;
-            if half_edge_data.twin != HalfEdgeHandle::default()
-                || !self.boundary_edges.contains(edge)
-            {
+            if half_edge_data.mate().is_some() || !self.is_free_edge(*edge) {
                 return Err(CoreError::PreconditionFailed(
                     "residual retire exposed edge is not a boundary side".into(),
                 ));
@@ -385,7 +370,6 @@ impl BRep {
             {
                 removed_half_edges.insert(half_edge);
             }
-            self.boundary_edges.remove(&edge);
             self.edges.remove(edge);
             removed_edges.push(edge);
         }
@@ -419,7 +403,7 @@ impl BRep {
         result: &UnwiredConstructionResidualRetireResult,
     ) -> Result<(), CoreError> {
         for edge in &result.removed_edges {
-            if self.edges.contains_key(*edge) || self.boundary_edges.contains(edge) {
+            if self.edges.contains_key(*edge) || self.is_free_edge(*edge) {
                 return Err(CoreError::PreconditionFailed(
                     "unwired residual retire left a removed edge live".into(),
                 ));
@@ -461,7 +445,9 @@ impl BRep {
             }
             if result.removed_half_edges.contains(&half_edge.next)
                 || result.removed_half_edges.contains(&half_edge.prev)
-                || result.removed_half_edges.contains(&half_edge.twin)
+                || half_edge
+                    .mate()
+                    .is_some_and(|m| result.removed_half_edges.contains(&m))
             {
                 return Err(CoreError::PreconditionFailed(format!(
                     "live half-edge {live_half_edge:?} references an unwired retired residual half-edge"

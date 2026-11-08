@@ -186,6 +186,13 @@ pub fn face_blend(
     spec: &FaceBlendSpec,
     tolerance: Tolerance,
 ) -> Result<FaceBlendResult, BlendError> {
+    brep.require_kind(
+        "face blend",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+        ],
+    )?;
     if !(spec.radius.is_finite() && spec.radius > 0.0) {
         return Err(BlendError::InvalidParameter {
             parameter: "radius".into(),

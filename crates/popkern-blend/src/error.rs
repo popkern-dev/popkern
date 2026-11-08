@@ -340,3 +340,15 @@ pub use crate::remediation::{Remediation, RemediationAction, RemediationContext}
 #[cfg(test)]
 #[path = "error_tests.rs"]
 mod tests;
+
+/// A core topology refusal met inside blend surgery (a fin with no
+/// mate on an edge the surgery requires to be manifold, a stale
+/// handle) is an invalid-topology failure of the blend.
+impl From<popkern_core::error::CoreError> for BlendFailure {
+    fn from(error: popkern_core::error::CoreError) -> Self {
+        BlendFailure::InvalidTopology {
+            reason: error.to_string(),
+            location: None,
+        }
+    }
+}

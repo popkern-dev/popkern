@@ -44,6 +44,14 @@ pub fn face_level_boolean(
     face_pairs: &[FacePairSpec],
     tolerance: &Tolerance,
 ) -> Result<FaceLevelResult, BoolError> {
+    for (operand, body) in [a, b].into_iter().enumerate() {
+        crate::kind_gate::require_operand(
+            body,
+            "face-level boolean",
+            operand,
+            &[popkern_core::topology::BodyKind::Solid],
+        )?;
+    }
     if face_pairs.is_empty() {
         return Ok(FaceLevelResult {
             body: None,

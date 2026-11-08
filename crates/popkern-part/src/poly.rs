@@ -10,6 +10,7 @@
 //! u_axis, so STEP export needs no sense compensation), recomputes
 //! pcurves, and validates.
 
+use popkern_core::topology::RadialLinks;
 use popkern_math::PortableMath;
 use std::collections::HashMap;
 
@@ -224,14 +225,7 @@ pub fn build_polyhedron_brep(
         })
         .collect();
 
-    let solid_h = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell_h = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid: solid_h,
-    });
-    brep.solids[solid_h].shell = shell_h;
+    let (_, shell_h) = brep.add_solid_region(Default::default());
 
     let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::new();
     let ensure_edges =
@@ -264,7 +258,8 @@ pub fn build_polyhedron_brep(
         let fh = brep.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -277,6 +272,7 @@ pub fn build_polyhedron_brep(
             let lh = brep.loops.insert(Loop {
                 half_edge: Default::default(),
                 face: fh,
+                vertex: None,
             });
             let n = cycle.len();
             let mut hes: Vec<HalfEdgeHandle> = Vec::with_capacity(n);
@@ -285,7 +281,7 @@ pub fn build_polyhedron_brep(
                 let eh = edge_of[&(a.min(b), a.max(b))];
                 let he = brep.half_edges.insert(HalfEdge {
                     origin: vhs[a],
-                    twin: Default::default(),
+                    ring: RadialLinks::alone(),
                     next: Default::default(),
                     prev: Default::default(),
                     edge: eh,
@@ -315,7 +311,7 @@ pub fn build_polyhedron_brep(
             brep.faces[fh].inner_loops.push(lh);
         }
     }
-    brep.shells[shell_h].face = brep.faces.keys().next().unwrap_or_default();
+    brep.set_sides_anchor(shell_h, brep.faces.keys().next().unwrap_or_default());
 
     for (&(a, b), &he) in &he_of {
         let twin = *he_of.get(&(b, a)).ok_or_else(|| {
@@ -323,16 +319,19 @@ pub fn build_polyhedron_brep(
                 "polyhedron is not closed: edge ({a},{b}) has no opposite face use"
             ))
         })?;
-        brep.half_edges[he].twin = twin;
+        brep.half_edges[he].set_mate(twin);
     }
-    components::split_components(&mut brep, solid_h, shell_h);
+    components::split_components(&mut brep, shell_h);
 
     // Analytic line curves.
     let edge_handles: Vec<EdgeHandle> = brep.edges.keys().collect();
     for eh in edge_handles {
         let he = brep.edges[eh].half_edge;
         let a = brep.vertices[brep.half_edges[he].origin].position;
-        let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        let end = brep
+            .fin_end(he)
+            .ok_or_else(|| PartError::NotApplicable("polyhedron edge has no end vertex".into()))?;
+        let b = brep.vertices[end].position;
         let dir = b - a;
         let len = dir.length();
         if len < 1e-12 {

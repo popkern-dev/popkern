@@ -24,6 +24,7 @@ pub mod pns_adapter;
 #[path = "pns_adapter_tests.rs"]
 mod pns_adapter_tests;
 pub(crate) mod pns_cap_authoring;
+pub(crate) mod pns_patch_assignment;
 pub mod pns_promote;
 #[cfg(test)]
 #[path = "pns_promote_tests.rs"]
@@ -55,5 +56,6 @@ pub use boundary::{
     BlendBoundary, BlendBoundaryOptions, BoundarySegment, compute_blend_boundary,
     compute_blend_boundary_with_options,
 };
+pub use boundary_ring_sense::RingSenseRule;
 pub use runout::{RunoutEnd, runout_radius_fn};
 pub use surface::{BlendSurfaceResult, build_blend_surface};

@@ -97,7 +97,15 @@ fn validate_inputs_with_policy(
                     ),
                 });
             };
-            let twin = primary_he.twin;
+            let Some(twin) = primary_he.mate() else {
+                return Err(ApexPlanError::InvalidInput {
+                    field: "fillet_specs[].edge",
+                    value: format!(
+                        "fillet {idx}: edge {:?}'s twin half-edge missing",
+                        spec.edge
+                    ),
+                });
+            };
             let Some(twin_he) = brep.half_edges.get(twin) else {
                 return Err(ApexPlanError::InvalidInput {
                     field: "fillet_specs[].edge",

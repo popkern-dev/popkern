@@ -169,7 +169,10 @@ pub(super) fn vertex_snap_gate(
 ) -> f64 {
     let ends = || {
         let he = brep.half_edges.get(half_edge)?;
-        Some((he.origin, brep.half_edges.get(he.twin)?.origin))
+        Some((
+            he.origin,
+            he.mate().and_then(|m| brep.half_edges.get(m))?.origin,
+        ))
     };
     ends()
         .map_or(brep.tolerance.linear(), |(a, b)| {

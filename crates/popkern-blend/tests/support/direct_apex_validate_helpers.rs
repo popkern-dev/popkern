@@ -41,6 +41,15 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
                 }
             }
             ValidationError::InconsistentOrientation { .. }
+            | ValidationError::RegionSense { .. }
+            | ValidationError::RingMembership { .. }
+            | ValidationError::RingOrder { .. }
+            | ValidationError::RingOrderUndecided { .. }
+            | ValidationError::VertexLoop { .. }
+            | ValidationError::WedgeShellMismatch { .. }
+            | ValidationError::ShellDisconnected { .. }
+            | ValidationError::ShellEuler { .. }
+            | ValidationError::RegionStructure { .. }
             | ValidationError::WindingDishonest { .. }
             | ValidationError::InnerLoopWinding { .. }
             | ValidationError::MissingPcurves { .. }
@@ -193,7 +202,7 @@ pub(crate) fn assert_welded_native_postconditions(name: &str, result: &BlendResu
         "{name} must not serve glued surfaceless residuals (the PK-216 membrane class)"
     );
     assert!(
-        result.brep.boundary_edges.is_empty(),
+        !result.brep.has_free_edges(),
         "{name} must serve without dead boundary sides"
     );
     let errors = result.brep.validate_all();
@@ -254,7 +263,7 @@ pub(crate) fn assert_native_cap_has_cylinder_seams(
         let Some(ha) = result.brep.half_edges.get(he_a) else {
             continue;
         };
-        let Some(hb) = result.brep.half_edges.get(ha.twin) else {
+        let Some(hb) = ha.mate().and_then(|m| result.brep.half_edges.get(m)) else {
             continue;
         };
         let Some(loop_a) = result.brep.loops.get(ha.loop_) else {

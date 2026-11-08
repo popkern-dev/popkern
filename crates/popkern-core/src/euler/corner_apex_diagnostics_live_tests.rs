@@ -252,9 +252,9 @@ fn live_missing_support_surface_names_geometry_dependency() {
 #[test]
 fn live_open_box_boundary_vertex_reports_cliff_termination() {
     let open_box = BRep::open_box(Tolerance::default()).expect("open box");
-    let boundary_edge = *open_box
-        .boundary_edges
-        .iter()
+    let boundary_edge = open_box
+        .free_edges()
+        .into_iter()
         .next()
         .expect("boundary edge");
     let vertex = open_box.half_edges[open_box.edges[boundary_edge].half_edge].origin;
@@ -317,8 +317,7 @@ fn live_nonmanifold_radial_marker_blocks_strategy() {
     let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let vertex = vertex_at(&cube, 0.0, 0.0, 0.0);
     let edges = incident_edges(&cube, vertex);
-    let half_edge = cube.edges[edges[0]].half_edge;
-    cube.nonmanifold_radial.insert(half_edge, half_edge);
+    cube.thread_test_third_fin(edges[0]);
 
     let report = cube.diagnose_corner_apex(request(
         vertex,
@@ -450,7 +449,7 @@ fn incident_edges(brep: &BRep, vertex: VertexHandle) -> Vec<EdgeHandle> {
         if half_edge.origin == vertex
             || brep
                 .half_edges
-                .get(half_edge.twin)
+                .get(half_edge.mate().unwrap_or_default())
                 .is_some_and(|twin| twin.origin == vertex)
         {
             edges.insert(half_edge.edge);
@@ -485,7 +484,7 @@ fn incident_face(brep: &BRep, vertex: VertexHandle) -> crate::topology::FaceHand
 fn edge_faces_for_test(brep: &BRep, edge: EdgeHandle) -> Vec<crate::topology::FaceHandle> {
     let mut faces = std::collections::BTreeSet::new();
     let first = brep.edges[edge].half_edge;
-    for half_edge in [first, brep.half_edges[first].twin] {
+    for half_edge in [first, brep.half_edges[first].mate().unwrap_or_default()] {
         if let Some(loop_) = brep.half_edges.get(half_edge).map(|he| he.loop_) {
             faces.insert(brep.loops[loop_].face);
         }

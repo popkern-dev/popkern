@@ -1,6 +1,7 @@
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, Vertex, VertexHandle,
 };
@@ -73,7 +74,7 @@ fn exact_authorable_shared_edge_merge_fixture() -> (BRep, TrimRewriteSubcomplexP
 
     let support_face = brep.faces.keys().next().expect("cube has a face");
     let shared_half_edge = first_shared_half_edge(&brep, support_face);
-    let shared_twin = brep.half_edges[shared_half_edge].twin;
+    let shared_twin = brep.half_edges[shared_half_edge].mate().unwrap_or_default();
     let outside_face = brep.loops[brep.half_edges[shared_twin].loop_].face;
     let cylinder_face = add_isolated_cylinder_carrier_face(&mut brep, support_face);
     let support_start = brep.half_edges[shared_half_edge].origin;
@@ -138,11 +139,12 @@ fn assign_exact_merge_surfaces(
 }
 
 fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle) -> FaceHandle {
-    let shell = brep.faces[support_face].shell;
+    let shell = brep.faces[support_face].sides();
     let face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -151,6 +153,7 @@ fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle)
     let loop_ = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
     let vertices = [
@@ -178,7 +181,7 @@ fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle)
         });
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: vertex,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge,
@@ -187,7 +190,6 @@ fn add_isolated_cylinder_carrier_face(brep: &mut BRep, support_face: FaceHandle)
         });
         brep.edges[edge].half_edge = half_edge;
         brep.vertices[vertex].outgoing = half_edge;
-        brep.boundary_edges.insert(edge);
         half_edge
     });
     for i in 0..4 {
@@ -203,7 +205,7 @@ fn first_shared_half_edge(brep: &BRep, face: FaceHandle) -> HalfEdgeHandle {
     let start = brep.loops[loop_].half_edge;
     let mut cursor = start;
     loop {
-        let twin = brep.half_edges[cursor].twin;
+        let twin = brep.half_edges[cursor].mate().unwrap_or_default();
         if brep.half_edges[twin].loop_ != loop_ {
             return cursor;
         }

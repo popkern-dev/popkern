@@ -299,9 +299,9 @@ fn edge_adjacent_faces(brep: &BRep, edge: EdgeHandle) -> (Option<FaceHandle>, Op
         return (None, None);
     };
     let face_a = brep.loops.get(primary_he.loop_).map(|l| l.face);
-    let face_b = brep
-        .half_edges
-        .get(primary_he.twin)
+    let face_b = primary_he
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
         .and_then(|t| brep.loops.get(t.loop_))
         .map(|l| l.face);
     (face_a, face_b)

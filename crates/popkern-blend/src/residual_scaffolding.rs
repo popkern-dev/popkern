@@ -81,7 +81,7 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
             .copied()
             .collect();
         let glued = sides.iter().any(|side| {
-            let twin = brep.half_edges.get(*side).map(|data| data.twin);
+            let twin = brep.half_edges.get(*side).and_then(|data| data.mate());
             twin.and_then(|twin| brep.half_edges.get(twin))
                 .and_then(|twin_data| brep.loops.get(twin_data.loop_))
                 .and_then(|loop_data| brep.faces.get(loop_data.face))
@@ -103,23 +103,22 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
             let Some(side_data) = brep.remove_half_edge_reanchored(*side) else {
                 continue;
             };
-            match brep.half_edges.get(side_data.twin) {
+            match side_data.mate().and_then(|m| brep.half_edges.get(m)) {
                 Some(_) => {
                     // The twin survives (a retained membrane side or a
                     // side of a residual face retired later in this
                     // sweep); if it survives the sweep its edge is a
                     // boundary edge. The edge's canonical half-edge
                     // must not dangle on the removed side.
-                    brep.boundary_edges.insert(side_data.edge);
                     if let Some(edge_data) = brep.edges.get_mut(side_data.edge)
                         && edge_data.half_edge == *side
+                        && let Some(survivor) = side_data.mate()
                     {
-                        edge_data.half_edge = side_data.twin;
+                        edge_data.half_edge = survivor;
                     }
                 }
                 None => {
                     if brep.edges.remove(side_data.edge).is_some() {
-                        brep.boundary_edges.remove(&side_data.edge);
                         report.retired_edges += 1;
                     }
                 }
@@ -131,11 +130,6 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
         brep.faces.remove(*face);
         report.retired_faces += 1;
     }
-
-    // Drop boundary markers for edges that were fully removed after
-    // their marker was set (twin removed later in the sweep).
-    brep.boundary_edges
-        .retain(|edge| brep.edges.contains_key(*edge));
 
     // Repair vertex outgoing pointers and drop unreferenced vertices.
     let mut outgoing_by_vertex = std::collections::BTreeMap::new();
@@ -160,19 +154,7 @@ pub(crate) fn retire_unglued_construction_residual_scaffolding(
     }
 
     // Repoint shells whose representative face was retired.
-    let shells: Vec<_> = brep.shells.keys().collect();
-    for shell in shells {
-        if brep.faces.contains_key(brep.shells[shell].face) {
-            continue;
-        }
-        if let Some(replacement) = brep
-            .faces
-            .iter()
-            .find_map(|(face, data)| (data.shell == shell).then_some(face))
-        {
-            brep.shells[shell].face = replacement;
-        }
-    }
+    brep.repair_shell_anchors();
 
     if brep.validate().is_err() {
         *brep = rollback;

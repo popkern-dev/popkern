@@ -214,5 +214,8 @@ mod conic_profile_tests;
 #[path = "corner_warning_tests.rs"]
 mod corner_warning_tests;
 #[cfg(test)]
+#[path = "kind_gate_tests.rs"]
+mod kind_gate_tests;
+#[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;

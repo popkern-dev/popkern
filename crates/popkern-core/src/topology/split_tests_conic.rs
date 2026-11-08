@@ -50,7 +50,7 @@ fn check_split(geometry: CurveGeometry, range: (f64, f64), fraction: f64) {
         let he = &brep.half_edges[brep.edges[child].half_edge];
         let ends = [
             brep.vertices[he.origin].position,
-            brep.vertices[brep.half_edges[he.twin].origin].position,
+            brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position,
         ];
         let (s, e) = (
             curve.geometry.point_at(curve.t_start),
@@ -121,7 +121,7 @@ fn an_arc_splits_on_its_circle_at_its_vertex() {
             let he = &brep.half_edges[brep.edges[child].half_edge];
             let ends = [
                 brep.vertices[he.origin].position,
-                brep.vertices[brep.half_edges[he.twin].origin].position,
+                brep.vertices[brep.half_edges[he.mate().unwrap_or_default()].origin].position,
             ];
             let (s0, s1) = (
                 curve.geometry.point_at(curve.t_start),

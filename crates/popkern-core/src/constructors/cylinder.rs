@@ -1,5 +1,6 @@
 //! Cylinder constructor — proper 3-face BRep.
 
+use crate::topology::RadialLinks;
 use std::f64::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI, TAU};
 
 use crate::error::CoreError;
@@ -8,7 +9,7 @@ use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
+use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Vertex};
 
 /// Build a NURBS full-circle in the XY plane at height `z`, centered at the
 /// origin, starting at `(radius, 0, z)`.
@@ -134,33 +135,30 @@ impl BRep {
         });
 
         // -- Solid / Shell (placeholders, wired below) --
-        let solid_h = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell_h = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid: solid_h,
-        });
-        brep.solids[solid_h].shell = shell_h;
+        let (_solid_h, shell_h) = brep.add_solid_region(Default::default());
 
         // -- Faces & loops (placeholders) --
         let loop_lateral = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face: Default::default(),
+            vertex: None,
         });
         let loop_bot = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face: Default::default(),
+            vertex: None,
         });
         let loop_top = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face: Default::default(),
+            vertex: None,
         });
 
         let f_lateral = brep.faces.insert(Face {
             outer_loop: loop_lateral,
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -169,7 +167,8 @@ impl BRep {
         let f_bot = brep.faces.insert(Face {
             outer_loop: loop_bot,
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -178,7 +177,8 @@ impl BRep {
         let f_top = brep.faces.insert(Face {
             outer_loop: loop_top,
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -188,7 +188,7 @@ impl BRep {
         brep.loops[loop_lateral].face = f_lateral;
         brep.loops[loop_bot].face = f_bot;
         brep.loops[loop_top].face = f_top;
-        brep.shells[shell_h].face = f_lateral;
+        brep.set_sides_anchor(shell_h, f_lateral);
 
         // -- Edges --
         let e_bot_circle = brep.insert_edge_tracked(Edge {
@@ -221,7 +221,7 @@ impl BRep {
         //   he_bot_arc -> he_seam_up -> he_top_arc -> he_seam_down -> he_bot_arc
         let he_bot_arc = brep.half_edges.insert(HalfEdge {
             origin: v_bot,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_bot_circle,
@@ -230,7 +230,7 @@ impl BRep {
         });
         let he_seam_up = brep.half_edges.insert(HalfEdge {
             origin: v_bot,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -239,7 +239,7 @@ impl BRep {
         });
         let he_top_arc = brep.half_edges.insert(HalfEdge {
             origin: v_top,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_top_circle,
@@ -248,7 +248,7 @@ impl BRep {
         });
         let he_seam_down = brep.half_edges.insert(HalfEdge {
             origin: v_top,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_seam,
@@ -259,7 +259,7 @@ impl BRep {
         // Cap face loops (1 half-edge each, self-loop):
         let he_bot_cap = brep.half_edges.insert(HalfEdge {
             origin: v_bot,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_bot_circle,
@@ -268,7 +268,7 @@ impl BRep {
         });
         let he_top_cap = brep.half_edges.insert(HalfEdge {
             origin: v_top,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: Default::default(),
             prev: Default::default(),
             edge: e_top_circle,
@@ -277,12 +277,12 @@ impl BRep {
         });
 
         // -- Wire twins --
-        brep.half_edges[he_bot_arc].twin = he_bot_cap;
-        brep.half_edges[he_bot_cap].twin = he_bot_arc;
-        brep.half_edges[he_top_arc].twin = he_top_cap;
-        brep.half_edges[he_top_cap].twin = he_top_arc;
-        brep.half_edges[he_seam_up].twin = he_seam_down;
-        brep.half_edges[he_seam_down].twin = he_seam_up;
+        brep.half_edges[he_bot_arc].set_mate(he_bot_cap);
+        brep.half_edges[he_bot_cap].set_mate(he_bot_arc);
+        brep.half_edges[he_top_arc].set_mate(he_top_cap);
+        brep.half_edges[he_top_cap].set_mate(he_top_arc);
+        brep.half_edges[he_seam_up].set_mate(he_seam_down);
+        brep.half_edges[he_seam_down].set_mate(he_seam_up);
 
         // -- Wire lateral loop: next/prev --
         brep.half_edges[he_bot_arc].next = he_seam_up;

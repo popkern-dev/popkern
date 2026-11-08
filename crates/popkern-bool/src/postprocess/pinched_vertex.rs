@@ -65,7 +65,7 @@ fn fan_count(brep: &BRep, v: VertexHandle, hs: &[HalfEdgeHandle]) -> usize {
             let Some(next) = brep
                 .half_edges
                 .get(cur)
-                .and_then(|h| brep.half_edges.get(h.twin))
+                .and_then(|h| h.mate().and_then(|m| brep.half_edges.get(m)))
                 .map(|tw| tw.next)
             else {
                 break;

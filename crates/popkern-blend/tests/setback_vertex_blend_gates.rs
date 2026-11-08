@@ -29,7 +29,8 @@ fn setback_commit_produces_valid_g2_vertex_blend() {
         .filter_map(|(eh, _)| {
             let he = pyramid.edges[eh].half_edge;
             let origin = pyramid.half_edges[he].origin;
-            let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            let twin_origin =
+                pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
             (origin == apex || twin_origin == apex).then_some(eh)
         })
         .collect();
@@ -139,7 +140,8 @@ fn setback_commit_is_independent_of_spec_order() {
         .filter_map(|(eh, _)| {
             let he = pyramid.edges[eh].half_edge;
             let origin = pyramid.half_edges[he].origin;
-            let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            let twin_origin =
+                pyramid.half_edges[pyramid.half_edges[he].mate().unwrap_or_default()].origin;
             (origin == apex || twin_origin == apex).then_some(eh)
         })
         .collect();

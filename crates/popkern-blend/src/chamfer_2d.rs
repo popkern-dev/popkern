@@ -38,6 +38,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{BRep, Edge, HalfEdge, HalfEdgeHandle, VertexHandle};
 use popkern_math::PortableMath;
 
@@ -86,6 +87,13 @@ pub fn chamfer_corner_2d(
     dist_a: f64,
     dist_b: f64,
 ) -> Result<BRep, BlendError> {
+    brep.require_kind(
+        "corner chamfer",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+        ],
+    )?;
     if !dist_a.is_finite() || dist_a <= 0.0 {
         return Err(BlendError::InvalidParameter {
             parameter: "dist_a".into(),
@@ -284,7 +292,7 @@ pub(crate) fn apply_chamfer_plan(
 
     let new_front = brep.half_edges.insert(HalfEdge {
         origin: v_t2,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: plan.he_out_a,
         prev: prev_front,
         edge: chamfer_edge,
@@ -293,14 +301,14 @@ pub(crate) fn apply_chamfer_plan(
     });
     let new_back = brep.half_edges.insert(HalfEdge {
         origin: v_t1,
-        twin: new_front,
+        ring: RadialLinks::pair(new_front),
         next: plan.he_out_b,
         prev: prev_back,
         edge: chamfer_edge,
         loop_: loop_back,
         pcurve: None,
     });
-    brep.half_edges[new_front].twin = new_back;
+    brep.half_edges[new_front].set_mate(new_back);
     // Canonical half-edge matches the Line curve direction
     // `t1 → t2` (origin = `v_t1` ⇒ `new_back`).
     brep.edges[chamfer_edge].half_edge = new_back;

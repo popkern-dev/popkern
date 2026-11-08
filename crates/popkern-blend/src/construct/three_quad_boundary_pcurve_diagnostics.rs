@@ -20,7 +20,7 @@ pub(super) fn boundary_owned_pcurve_decline_diagnostic(
     let support_half_edge = brep
         .half_edges
         .get(half_edge)
-        .map(|half_edge| half_edge.twin);
+        .and_then(|half_edge| half_edge.mate());
     let support_face = support_half_edge
         .and_then(|support_half_edge| brep.half_edges.get(support_half_edge))
         .and_then(|half_edge| brep.loops.get(half_edge.loop_))

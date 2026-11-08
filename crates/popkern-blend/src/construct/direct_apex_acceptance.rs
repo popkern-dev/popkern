@@ -69,7 +69,7 @@ pub(super) fn native_gregory_cap_outer_g0_error(
         let Some(ha) = brep.half_edges.get(he_a) else {
             continue;
         };
-        let Some(hb) = brep.half_edges.get(ha.twin) else {
+        let Some(hb) = ha.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(face_a) = brep.loops.get(ha.loop_).map(|loop_data| loop_data.face) else {
@@ -114,7 +114,7 @@ pub(super) fn native_gregory_cap_outer_g0_error(
                 brep,
                 edge_handle,
                 he_a,
-                ha.twin,
+                ha.mate()?,
                 face_a,
                 face_b,
                 a_is_cap,
@@ -189,7 +189,7 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
         let Some(ha) = brep.half_edges.get(he_a) else {
             continue;
         };
-        let Some(hb) = brep.half_edges.get(ha.twin) else {
+        let Some(hb) = ha.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(face_a) = brep.loops.get(ha.loop_).map(|loop_data| loop_data.face) else {

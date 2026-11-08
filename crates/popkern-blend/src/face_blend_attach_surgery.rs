@@ -250,7 +250,7 @@ fn flood_doomed(
             if blocked.contains(&edge) {
                 continue;
             }
-            let twin = work.half_edges[he].twin;
+            let twin = work.half_edges[he].require_mate()?;
             let neighbor = work.loops[work.half_edges[twin].loop_].face;
             if barriers.contains(&neighbor) {
                 continue;
@@ -279,7 +279,7 @@ fn merge_region(
                 if blocked.contains(&edge) {
                     continue;
                 }
-                let twin = work.half_edges[he].twin;
+                let twin = work.half_edges[he].require_mate()?;
                 let other = work.loops[work.half_edges[twin].loop_].face;
                 if other != f && region.contains(&other) {
                     candidate = Some(he);
@@ -310,7 +310,7 @@ fn merge_region(
     loop {
         let mut tip: Option<HalfEdgeHandle> = None;
         for he in loop_half_edges(work, work.faces[face].outer_loop) {
-            if work.half_edges[he].next == work.half_edges[he].twin {
+            if work.half_edges[he].mate() == Some(work.half_edges[he].next) {
                 tip = Some(he);
                 break;
             }
@@ -318,7 +318,7 @@ fn merge_region(
         let Some(he) = tip else {
             break;
         };
-        let tip_vertex = work.half_edges[work.half_edges[he].twin].origin;
+        let tip_vertex = work.half_edges[work.half_edges[he].require_mate()?].origin;
         work.dissolve_same_loop_bridge(he)
             .map_err(|e| decline("spur dissolve", format!("{e}")))?;
         if work.half_edges.iter().all(|(_, d)| d.origin != tip_vertex) {
@@ -369,7 +369,7 @@ fn resurface_strip(
     for &he in &hes {
         let he_data = &work.half_edges[he];
         let origin = work.vertices[he_data.origin].position;
-        let dest = work.vertices[work.half_edges[he_data.twin].origin].position;
+        let dest = work.vertices[work.half_edges[he_data.require_mate()?].origin].position;
         let border = sides.iter().find_map(|(pts, border)| {
             let first = *pts.first()?;
             let last = *pts.last()?;

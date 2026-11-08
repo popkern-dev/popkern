@@ -96,7 +96,10 @@ pub(super) fn rail_spur_recut(
         let edge = hd.edge;
         let he0 = brep.edges[edge].half_edge;
         let v_a = brep.half_edges[he0].origin;
-        let v_b = brep.half_edges[brep.half_edges[he0].twin].origin;
+        let v_b = brep.half_edges[brep.half_edges[he0]
+            .require_mate()
+            .map_err(|e| e.to_string())?]
+        .origin;
         let d_a = rail.distance_to(&brep.vertices[v_a].position, &point);
         let d_b = rail.distance_to(&brep.vertices[v_b].position, &point);
         let (v_on, d_on, d_off) = if d_a <= d_b {
@@ -107,7 +110,8 @@ pub(super) fn rail_spur_recut(
         if d_on > SPUR_ANCHOR_ON_RAIL_BAND || d_off <= SPUR_ANCHOR_ON_RAIL_BAND {
             continue;
         }
-        let other = brep.loops[brep.half_edges[hd.twin].loop_].face;
+        let other =
+            brep.loops[brep.half_edges[hd.require_mate().map_err(|e| e.to_string())?].loop_].face;
         let Some(surface) = brep.faces.get(other).and_then(|f| f.surface.as_ref()) else {
             continue;
         };

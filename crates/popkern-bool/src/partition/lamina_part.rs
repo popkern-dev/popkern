@@ -79,18 +79,21 @@ pub(super) fn open_sheet(mut body: BRep) -> Result<BRep, BoolError> {
     let open: Vec<_> = body
         .half_edges
         .iter()
-        .filter(|(h, he)| he.twin == *h || !body.half_edges.contains_key(he.twin))
+        .filter(|(h, he)| {
+            he.mate() == Some(*h) || !he.mate().is_some_and(|m| body.half_edges.contains_key(m))
+        })
         .map(|(h, he)| (h, he.edge))
         .collect();
-    for &(h, edge) in &open {
-        body.half_edges[h].twin = Default::default();
-        body.boundary_edges.insert(edge);
+    for &(h, _) in &open {
+        body.half_edges[h].clear_mate();
     }
     body.recompute_pcurves_where_missing()
         .map_err(|e| BoolError::ValidationFailed(format!("sheet pcurves: {e}")))?;
     for &(h, _) in &open {
         run_curve_along(&mut body, h);
     }
+    // A sheet bounds no volume: its faces lie in the void, both sides.
+    body.settle_open_shells();
     let findings = body.validate_all();
     if !findings.is_empty() {
         return Err(BoolError::ValidationFailed(format!(

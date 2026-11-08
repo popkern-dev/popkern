@@ -14,9 +14,8 @@ use popkern_core::topology::BRep;
 
 use super::super::ids::{EdgeId, FinId};
 use super::super::model::{CellComplex, FaceOwner};
-use super::super::radial_ladder::TieLadder;
-use super::super::radial_stations::same_cycle;
 use super::{FaceGeometry, RadialDecline, order_radially_with, station};
+use popkern_core::topology::radial_order::{TieLadder, same_cycle};
 
 const TIE: f64 = 1e-4;
 const LINEAR: f64 = 1e-6;
@@ -104,7 +103,7 @@ fn order(brep: &BRep, c: &mut CellComplex, ladder: TieLadder) -> Result<Vec<FinI
 }
 
 fn assert_cycle(got: &[FinId], want: &[FinId]) {
-    let tag = |o: &[FinId]| o.iter().map(|&f| (f, false)).collect::<Vec<_>>();
+    let tag = |o: &[FinId]| o.iter().map(|f| f.index()).collect::<Vec<_>>();
     assert!(
         same_cycle(&tag(want), &tag(got)),
         "got {got:?}, want {want:?}"

@@ -118,15 +118,21 @@ fn mid_face_collision_declines_or_completes() {
             let he2 = &brep.half_edges[d2.half_edge];
             let f1 = [
                 brep.loops[he1.loop_].face,
-                brep.loops[brep.half_edges[he1.twin].loop_].face,
+                brep.loops[brep.half_edges[he1.mate().unwrap_or_default()].loop_].face,
             ];
             let f2 = [
                 brep.loops[he2.loop_].face,
-                brep.loops[brep.half_edges[he2.twin].loop_].face,
+                brep.loops[brep.half_edges[he2.mate().unwrap_or_default()].loop_].face,
             ];
             let shares_face = f1.iter().any(|f| f2.contains(f));
-            let v1 = [he1.origin, brep.half_edges[he1.twin].origin];
-            let v2 = [he2.origin, brep.half_edges[he2.twin].origin];
+            let v1 = [
+                he1.origin,
+                brep.half_edges[he1.mate().unwrap_or_default()].origin,
+            ];
+            let v2 = [
+                he2.origin,
+                brep.half_edges[he2.mate().unwrap_or_default()].origin,
+            ];
             let shares_vertex = v1.iter().any(|v| v2.contains(v));
             if shares_face && !shares_vertex {
                 pair = Some((e1, e2));

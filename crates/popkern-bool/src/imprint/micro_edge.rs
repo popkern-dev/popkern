@@ -29,7 +29,7 @@ pub fn find_micro_edges(brep: &BRep, threshold: f64) -> Vec<MicroEdge> {
             Some(h) => h,
             None => continue,
         };
-        let twin = match brep.half_edges.get(he.twin) {
+        let twin = match he.mate().and_then(|m| brep.half_edges.get(m)) {
             Some(t) => t,
             None => continue,
         };

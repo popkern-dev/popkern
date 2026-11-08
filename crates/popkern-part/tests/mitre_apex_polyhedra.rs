@@ -72,7 +72,7 @@ fn chamfer_half_spaces(part: &Part, d: f64) -> Vec<HalfSpace> {
     }
     for (_, e) in b.edges.iter() {
         let he = b.half_edges.get(e.half_edge).expect("half-edge");
-        let tw = b.half_edges.get(he.twin).expect("twin");
+        let tw = he.mate().and_then(|m| b.half_edges.get(m)).expect("twin");
         let f1 = b.loops.get(he.loop_).expect("loop").face;
         let f2 = b.loops.get(tw.loop_).expect("loop").face;
         let p0 = to_vec(b.vertices.get(he.origin).expect("v").position);

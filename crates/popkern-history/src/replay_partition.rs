@@ -43,7 +43,7 @@ pub(crate) fn execute_boolean(
     let options = BoolOptions {
         non_manifold: *non_manifold,
     };
-    let result = popkern_bool::boolean_with_options(
+    let bodies = popkern_bool::boolean_bodies(
         crate::replay::replay_fns::to_bool_operation(*operation),
         brep.clone(),
         tool_brep,
@@ -55,6 +55,7 @@ pub(crate) fn execute_boolean(
         let op = format!("{operation:?}").to_lowercase();
         failed_with("boolean", FeatureFailure::boolean(&op, &e).into())
     })?;
+    let result = solids_of("boolean", bodies)?;
     let mut evidence = FeatureEvidence::empty();
     evidence.record_boolean_fallbacks(popkern_bool::merge_fallback::take_merge_fallback_events());
     *brep = result;
@@ -103,8 +104,9 @@ pub(crate) fn execute(
             let options = BoolOptions {
                 non_manifold: *non_manifold,
             };
-            popkern_bool::nary_boolean(&bodies, expr, *tolerance, &options)
-                .map_err(|e| failed(label, &e))?
+            let served = popkern_bool::nary_boolean_bodies(&bodies, expr, *tolerance, &options)
+                .map_err(|e| failed(label, &e))?;
+            solids_of(label, served)?
         }
         _ => {
             let imprinted = popkern_bool::ops::imprint::imprint(brep, &tool_breps[0], tolerance)
@@ -160,6 +162,19 @@ fn split(
     };
     pieces.try_fold(first.body, |body, (_, piece)| {
         popkern_bool::concatenate_solids(body, piece.body).map_err(|e| failed("split", &e))
+    })
+}
+
+/// A result served as several bodies (split manifold pieces that touch)
+/// as the feature's one body of several solids, as a split keeps its
+/// pieces: `KeepPieces` and `SeparatePieces` take them apart.
+fn solids_of(label: &str, bodies: Vec<BRep>) -> Result<BRep, ReplayError> {
+    let mut bodies = bodies.into_iter();
+    let Some(first) = bodies.next() else {
+        return Err(failed_with(label, "no body served".into()));
+    };
+    bodies.try_fold(first, |body, piece| {
+        popkern_bool::concatenate_solids(body, piece).map_err(|e| failed(label, &e))
     })
 }
 

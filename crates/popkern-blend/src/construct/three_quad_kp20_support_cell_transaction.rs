@@ -193,6 +193,15 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         | ValidationError::NonManifoldEdge { .. }
         | ValidationError::LowValence { .. }
         | ValidationError::InconsistentOrientation { .. }
+        | ValidationError::RegionSense { .. }
+        | ValidationError::RingMembership { .. }
+        | ValidationError::RingOrder { .. }
+        | ValidationError::RingOrderUndecided { .. }
+        | ValidationError::VertexLoop { .. }
+        | ValidationError::WedgeShellMismatch { .. }
+        | ValidationError::ShellDisconnected { .. }
+        | ValidationError::ShellEuler { .. }
+        | ValidationError::RegionStructure { .. }
         | ValidationError::WindingDishonest { .. }
         | ValidationError::InnerLoopWinding { .. }
         | ValidationError::CanonicalBackward { .. }
@@ -212,6 +221,15 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::NonManifoldEdge { .. } => "NonManifoldEdge",
         ValidationError::LowValence { .. } => "LowValence",
         ValidationError::InconsistentOrientation { .. } => "InconsistentOrientation",
+        ValidationError::RegionSense { .. } => "RegionSense",
+        ValidationError::RingMembership { .. } => "RingMembership",
+        ValidationError::RingOrder { .. } => "RingOrder",
+        ValidationError::RingOrderUndecided { .. } => "RingOrderUndecided",
+        ValidationError::VertexLoop { .. } => "VertexLoop",
+        ValidationError::WedgeShellMismatch { .. } => "WedgeShellMismatch",
+        ValidationError::ShellDisconnected { .. } => "ShellDisconnected",
+        ValidationError::ShellEuler { .. } => "ShellEuler",
+        ValidationError::RegionStructure { .. } => "RegionStructure",
         ValidationError::OpenLoop { .. } => "OpenLoop",
         ValidationError::CurveSurfaceDeviation { .. } => "CurveSurfaceDeviation",
         ValidationError::ShellGap { .. } => "ShellGap",

@@ -58,7 +58,7 @@ fn edge_key(brep: &BRep, edge: EdgeHandle) -> Option<EdgeKey> {
     let data = brep.edges.get(edge)?;
     let curve = data.curve.as_ref()?;
     let half_edge = brep.half_edges.get(data.half_edge)?;
-    let twin = brep.half_edges.get(half_edge.twin)?;
+    let twin = half_edge.mate().and_then(|m| brep.half_edges.get(m))?;
     let geometry = &curve.geometry as &dyn CurveEval;
     Some(EdgeKey {
         ends: [
@@ -327,8 +327,12 @@ const POPKERN_BASELINE: &[(&str, &[(&str, usize)])] = &[
 /// precision the conditioned corner block puts a certified curvature
 /// jump at the gate within 1.2e-4 of these seams' corner ends
 /// (geometric, pinned by `step_twelve_digit_corner`; see the decision
-/// record's 2026-10-23 addendum).
-const OCC_BASELINE_DROPS: usize = 35;
+/// record's 2026-10-23 addendum). Since solids face out of their
+/// material (2026-11-06) the saddle's corner rounds clear of the gate
+/// at 12 digits and those two seams cross at G2 again, on this leg as
+/// on the 12-digit one: phase luck in the corner control points, as
+/// the addendum records.
+const OCC_BASELINE_DROPS: usize = 33;
 
 fn as_drops(row: &[(&str, usize)]) -> Drops {
     row.iter().map(|&(k, n)| (k.to_string(), n)).collect()

@@ -424,7 +424,7 @@ fn vertex_blend_3d_variable_rejects_non_incident_edge() {
         .find(|(_, e)| {
             let he = e.half_edge;
             let a = cube.half_edges[he].origin;
-            let b = cube.half_edges[cube.half_edges[he].twin].origin;
+            let b = cube.half_edges[cube.half_edges[he].mate().unwrap_or_default()].origin;
             a != corner && b != corner
         })
         .map(|(h, _)| h)

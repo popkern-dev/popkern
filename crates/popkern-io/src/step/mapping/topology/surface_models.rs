@@ -1,7 +1,9 @@
 //! `SHELL_BASED_SURFACE_MODEL` items: one sheet body per listed shell
-//! (split from `mod.rs` under the file-size budget).
+//! (split from `mod.rs` under the file-size budget), a closed shell a
+//! sheet around a void.
 
 use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::RegionKind;
 use popkern_core::topology::brep::BRep;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
@@ -38,7 +40,19 @@ pub(super) fn map_surface_models(
 
         for shell_id in model.shells {
             match super::build_shell_body(graph, geo, shell_id, true, log, tolerance) {
-                Some(brep) => results.push((item_id, brep)),
+                Some(mut brep) => {
+                    // A surface model's closed shell is a closed sheet: what
+                    // it encloses is a void, not material (PK-1114).
+                    if graph
+                        .get(shell_id)
+                        .is_some_and(|e| e.type_name == "CLOSED_SHELL")
+                    {
+                        for region in brep.solid_regions() {
+                            brep.regions[region].kind = RegionKind::Void;
+                        }
+                    }
+                    results.push((item_id, brep))
+                }
                 None => log.error(
                     Phase::MapTopology,
                     Some(shell_id),

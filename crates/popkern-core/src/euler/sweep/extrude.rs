@@ -32,6 +32,11 @@ impl BRep {
     /// Creates side faces and a cap face by extruding each vertex of the face's
     /// outer loop along `direction * distance`, using only Euler operators (mev + mef).
     ///
+    /// Extruding one side of a lamina (a profile's two faces) makes the
+    /// whole solid, which then faces out of its material whichever side
+    /// was swept: a planar cap whose folded normal points back along
+    /// the sweep reverses the body.
+    ///
     /// # Errors
     ///
     /// - [`CoreError::InvalidHandle`] if the face handle is invalid.
@@ -56,8 +61,12 @@ impl BRep {
     ) -> Result<ExtrudeResult, CoreError> {
         use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
         let before = EulerTopologyCounts::from_brep(self);
+        let lamina = self.is_lamina_face(face);
         let mut work = self.clone();
         let result = work.extrude_steps(face, direction, distance, tracking)?;
+        if lamina {
+            work.orient_extruded_lamina(&result, direction * distance);
+        }
         let n = result.side_faces.len() as isize;
         EulerDelta::verify(
             "extrude",
@@ -257,5 +266,41 @@ impl BRep {
         // measured failure in `extrude_geometry`).
         super::extrude_geometry::author_extrude_geometry(self, &result, face, displacement)?;
         Ok(result)
+    }
+}
+
+impl BRep {
+    /// Whether `face` is one side of a lamina: its shell holds it and
+    /// one other face (the mvfs/mef build of a profile, before it is
+    /// swept). Extruding such a face makes the whole solid, so the
+    /// extrude owns which way it faces.
+    fn is_lamina_face(&self, face: FaceHandle) -> bool {
+        self.face_back_shell(face)
+            .is_some_and(|shell| self.shell_faces(shell).len() == 2)
+    }
+
+    /// Turn a solid swept from a lamina out of its material. The cap's
+    /// folded normal (its orientation flag is derived from its winding)
+    /// must point along the sweep's `displacement`; when it points
+    /// back, the lamina's extruded side wound into the material and
+    /// the whole body is reversed, winding and flags together. Decided
+    /// exactly on a planar cap; any other cap is left as built (a
+    /// lamina of a curved face is not built today).
+    fn orient_extruded_lamina(&mut self, result: &ExtrudeResult, displacement: Vec3) {
+        use crate::geometry::surface::SurfaceGeometry;
+        let Some(sof) = self
+            .faces
+            .get(result.cap_face)
+            .and_then(|f| f.surface.as_ref())
+        else {
+            return;
+        };
+        let SurfaceGeometry::Plane { normal, .. } = &sof.geometry else {
+            return;
+        };
+        let folded = if sof.orientation { *normal } else { -*normal };
+        if folded.dot(&displacement) < 0.0 {
+            self.reverse_body_orientation();
+        }
     }
 }

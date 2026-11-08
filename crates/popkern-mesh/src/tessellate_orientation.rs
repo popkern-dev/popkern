@@ -214,7 +214,7 @@ pub(super) fn orient_face_meshes_coherently(
             brep.half_edges.get(he),
             brep.half_edges
                 .get(he)
-                .and_then(|h| brep.half_edges.get(h.twin)),
+                .and_then(|h| h.mate().and_then(|m| brep.half_edges.get(m))),
         ) else {
             continue;
         };
@@ -457,9 +457,9 @@ fn component_is_closed(
                     let Some(h) = brep.half_edges.get(he) else {
                         return false;
                     };
-                    let other = brep
-                        .half_edges
-                        .get(h.twin)
+                    let other = h
+                        .mate()
+                        .and_then(|m| brep.half_edges.get(m))
                         .and_then(|t| brep.loops.get(t.loop_))
                         .map(|l| l.face);
                     if !other.is_some_and(|o| faces.contains(&o)) {

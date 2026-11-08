@@ -1,7 +1,7 @@
 use popkern_core::error::ValidationError;
 use popkern_core::geometry::CurveEval;
 use popkern_core::topology::{
-    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, SolidHandle,
+    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, RegionHandle, ShellHandle,
 };
 
 use crate::step_validation::StepRoundTripBodyReport;
@@ -30,7 +30,7 @@ pub enum StepImportedValidationFailureKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StepImportedEulerPoincareEvidence {
-    pub solid: SolidHandle,
+    pub solid: RegionHandle,
     pub shell: Option<ShellHandle>,
     pub expected: i64,
     pub actual: i64,
@@ -116,16 +116,16 @@ pub(super) fn imported_validation_failure(
 
 fn imported_euler_poincare_evidence(
     body: &BRep,
-    solid: SolidHandle,
+    solid: RegionHandle,
     expected: i64,
     actual: i64,
 ) -> StepImportedEulerPoincareEvidence {
-    let shell = body.solids.get(solid).map(|solid_data| solid_data.shell);
+    let shell = body.region_outer_shell(solid);
     let solid_shell_faces = shell
         .map(|shell| {
             body.faces
                 .values()
-                .filter(|face| face.shell == shell)
+                .filter(|face| face.back == shell)
                 .count()
         })
         .unwrap_or_default();
@@ -136,7 +136,7 @@ fn imported_euler_poincare_evidence(
                 .filter(|loop_| {
                     body.faces
                         .get(loop_.face)
-                        .is_some_and(|face| face.shell == shell)
+                        .is_some_and(|face| face.back == shell)
                 })
                 .count()
         })
@@ -150,7 +150,7 @@ fn imported_euler_poincare_evidence(
                         .get(edge.half_edge)
                         .and_then(|half_edge| body.loops.get(half_edge.loop_))
                         .and_then(|loop_| body.faces.get(loop_.face))
-                        .is_some_and(|face| face.shell == shell)
+                        .is_some_and(|face| face.back == shell)
                 })
                 .count()
         })
@@ -166,9 +166,9 @@ fn imported_euler_poincare_evidence(
         half_edges: body.half_edges.len(),
         loops: body.loops.len(),
         faces: body.faces.len(),
-        shells: body.shells.len(),
-        solids: body.solids.len(),
-        boundary_edges: body.boundary_edges.len(),
+        shells: body.back_shell_count(),
+        solids: body.solid_regions().len(),
+        boundary_edges: body.free_edges().len(),
         solid_shell_faces,
         solid_shell_loops,
         solid_shell_edges,
@@ -206,7 +206,7 @@ fn imported_shell_gap_evidence(
     let twin = body
         .half_edges
         .get(half_edge)
-        .map(|half_edge| half_edge.twin)
+        .and_then(|half_edge| half_edge.mate())
         .unwrap_or_default();
     let half_edge_origin = body
         .half_edges

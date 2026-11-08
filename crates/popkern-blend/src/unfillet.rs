@@ -99,6 +99,7 @@ pub use unfillet_plan_open::compute_unfillet_plan;
 ///   implemented yet. The remediation hint points to the working
 ///   alternatives.
 pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendError> {
+    brep.require_kind("remove fillet", &[popkern_core::topology::BodyKind::Solid])?;
     // Closed-fillet annulus dispatch : if the face is
     // an annulus (outer + inner loops), it was created by the
     // closed-fillet construction path and needs the inverse
@@ -187,7 +188,12 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
             value: format!("{long_a:?}"),
             reason: "half-edge handle does not exist".to_string(),
         })?
-        .twin;
+        .mate()
+        .ok_or_else(|| BlendError::InvalidParameter {
+            parameter: "long_he_to_a".to_string(),
+            value: format!("{long_a:?}"),
+            reason: "half-edge handle does not exist".to_string(),
+        })?;
     out.kef(twin_of_long_a).map_err(BlendError::Topology)?;
 
     // 4b. KEF the long boundary on F-B. After step 4a, long_b is

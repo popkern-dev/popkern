@@ -22,7 +22,7 @@ fn sheet_area(model: &mut popkern_script::Model) -> f64 {
         let brep = model.brep_of(body).expect("body");
         assert_eq!(brep.body_kind(), BodyKind::Sheet);
         assert_eq!(brep.faces.len(), 1);
-        assert_eq!(brep.boundary_edges.len(), brep.edges.len());
+        assert_eq!(brep.free_edges().len(), brep.edges.len());
         area += popkern_measure::body_surface_area(&brep, &brep.tolerance).expect("area");
     }
     area

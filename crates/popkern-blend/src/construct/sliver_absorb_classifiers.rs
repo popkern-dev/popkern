@@ -56,8 +56,10 @@ pub(super) fn find_corner_fragment_target(
         let walk_cap = brep.half_edges.len() + 1;
         for _ in 0..walk_cap {
             let he = &brep.half_edges[cursor];
-            let twin_h = he.twin;
-            let Some(twin) = brep.half_edges.get(twin_h) else {
+            let Some((twin_h, twin)) = he
+                .mate()
+                .and_then(|t| brep.half_edges.get(t).map(|d| (t, d)))
+            else {
                 cursor = he.next;
                 continue;
             };
@@ -159,8 +161,10 @@ pub(super) fn find_zero_area_target(
         let walk_cap = brep.half_edges.len() + 1;
         for _ in 0..walk_cap {
             let he = &brep.half_edges[cursor];
-            let twin_h = he.twin;
-            let Some(twin) = brep.half_edges.get(twin_h) else {
+            let Some((twin_h, twin)) = he
+                .mate()
+                .and_then(|t| brep.half_edges.get(t).map(|d| (t, d)))
+            else {
                 cursor = he.next;
                 continue;
             };
@@ -195,8 +199,10 @@ pub(super) fn find_redundant_edge_target(
         let Some(he) = brep.half_edges.get(he_h) else {
             continue;
         };
-        let twin_h = he.twin;
-        let Some(twin) = brep.half_edges.get(twin_h) else {
+        let Some((twin_h, twin)) = he
+            .mate()
+            .and_then(|t| brep.half_edges.get(t).map(|d| (t, d)))
+        else {
             continue; // boundary edge
         };
         let Some(loop_a) = brep.loops.get(he.loop_) else {

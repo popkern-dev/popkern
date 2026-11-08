@@ -1,3 +1,4 @@
+use popkern_core::topology::RadialLinks;
 use std::sync::Arc;
 
 use popkern_core::geometry::curve::CurveGeometry;
@@ -7,8 +8,8 @@ use popkern_core::geometry::{Point3, SurfaceGeometry, SurfaceOnFace};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, BrepExportQualityOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions, Edge,
-    EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, Vertex, analyze_brep_export_quality,
+    EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex,
+    analyze_brep_export_quality,
 };
 use popkern_io::{
     HealingLevel, OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind,
@@ -35,10 +36,7 @@ fn open_shell_sheet_body_round_trips_through_step() {
 
     assert_eq!(round_tripped.faces.len(), brep.faces.len());
     assert_eq!(round_tripped.edges.len(), brep.edges.len());
-    assert_eq!(
-        round_tripped.boundary_edges.len(),
-        brep.boundary_edges.len()
-    );
+    assert_eq!(round_tripped.free_edges().len(), brep.free_edges().len());
     round_tripped.validate().unwrap();
 }
 
@@ -59,7 +57,7 @@ fn collapsed_trim_degenerate_edge_curve_reimports_from_step() {
     );
     let round_tripped = first_body(&imported).expect("expected one imported sheet body");
     assert_eq!(round_tripped.edges.len(), 1);
-    assert_eq!(round_tripped.boundary_edges.len(), 1);
+    assert_eq!(round_tripped.free_edges().len(), 1);
 
     let edge = round_tripped.edges.values().next().unwrap();
     assert!(
@@ -135,14 +133,7 @@ fn first_body(result: &popkern_io::StepImportResult) -> Option<&BRep> {
 
 fn collapsed_trim_sheet() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let vertex = brep.vertices.insert(Vertex {
         position: Point3::new(0.0, 0.0, 0.0),
         outgoing: HalfEdgeHandle::default(),
@@ -152,7 +143,8 @@ fn collapsed_trim_sheet() -> BRep {
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(SurfaceOnFace {
             geometry: collapsed_edge_surface(),
             orientation: true,
@@ -164,10 +156,11 @@ fn collapsed_trim_sheet() -> BRep {
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: EdgeHandle::default(),
@@ -188,8 +181,7 @@ fn collapsed_trim_sheet() -> BRep {
     brep.vertices[vertex].outgoing = half_edge;
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
-    brep.shells[shell].face = face;
-    brep.boundary_edges.insert(edge);
+    brep.set_sides_anchor(shell, face);
     brep
 }
 

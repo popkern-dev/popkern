@@ -107,6 +107,12 @@ pub fn plane_section(
     chord: f64,
     tolerance: &Tolerance,
 ) -> Result<PlaneSection, BoolError> {
+    crate::kind_gate::require_operand(
+        body,
+        "plane section",
+        0,
+        &[popkern_core::topology::BodyKind::Solid],
+    )?;
     let empty = PlaneSection {
         plane: *plane,
         regions: Vec::new(),

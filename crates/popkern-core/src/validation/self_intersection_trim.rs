@@ -295,13 +295,26 @@ impl BRep {
         surface: &SurfaceGeometry,
         query: UvPoint,
     ) -> Option<TrimContainment> {
-        let face = self.faces.get(face_handle)?;
         let param_tol = self
             .tolerance
             .parametric_base()
             .max(self.tolerance.linear())
             .max(1.0e-9)
             * 10.0;
+        self.face_trim_classify_uv_band(face_handle, surface, query, param_tol)
+    }
+
+    /// [`Self::face_trim_classify_uv`] with an explicit parametric
+    /// boundary band `param_tol` (a query within it of a trim is
+    /// `Boundary`).
+    pub(in crate::validation) fn face_trim_classify_uv_band(
+        &self,
+        face_handle: FaceHandle,
+        surface: &SurfaceGeometry,
+        query: UvPoint,
+        param_tol: f64,
+    ) -> Option<TrimContainment> {
+        let face = self.faces.get(face_handle)?;
 
         let (periodic_u, periodic_v) = surface.is_periodic();
         let outer = self.loop_uv_polygon(face.outer_loop, surface, query)?;

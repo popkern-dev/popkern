@@ -56,9 +56,9 @@ pub(super) fn decline_on_lethal_strands(
             let Some(he) = brep.half_edges.get(heh) else {
                 return false;
             };
-            let twin_wired = brep
-                .half_edges
-                .get(he.twin)
+            let twin_wired = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .is_some_and(|t| t.loop_ != default_loop);
             if !twin_wired {
                 return false;
@@ -85,9 +85,9 @@ pub(super) fn decline_on_lethal_strands(
                 return false;
             }
             let a = brep.vertices.get(he.origin).map(|v| v.position);
-            let b = brep
-                .half_edges
-                .get(he.twin)
+            let b = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|t| brep.vertices.get(t.origin))
                 .map(|v| v.position);
             let (Some(a), Some(b)) = (a, b) else {
@@ -102,9 +102,9 @@ pub(super) fn decline_on_lethal_strands(
                     return false;
                 }
                 let ca = brep.vertices.get(cand.origin).map(|v| v.position);
-                let cb = brep
-                    .half_edges
-                    .get(cand.twin)
+                let cb = cand
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|t| brep.vertices.get(t.origin))
                     .map(|v| v.position);
                 match (ca, cb) {
@@ -124,9 +124,9 @@ pub(super) fn decline_on_lethal_strands(
                 continue;
             };
             let a = brep.vertices.get(he.origin).map(|v| v.position);
-            let b = brep
-                .half_edges
-                .get(he.twin)
+            let b = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|t| brep.vertices.get(t.origin))
                 .map(|v| v.position);
             if let (Some(a), Some(b)) = (a, b) {
@@ -171,7 +171,7 @@ pub(super) fn mask_dangling_halves(
     // Collect twin info before mutating.
     let twin_fixups: Vec<(HalfEdgeHandle, HalfEdgeHandle)> = dangling_hes
         .iter()
-        .filter_map(|&heh| brep.half_edges.get(heh).map(|he| (heh, he.twin)))
+        .filter_map(|&heh| brep.mate(heh).map(|t| (heh, t)))
         .collect();
 
     if popkern_core::trace::trace_enabled("boolean") {
@@ -180,20 +180,20 @@ pub(super) fn mask_dangling_halves(
         for (heh, _) in &twin_fixups {
             if let Some(he) = brep.half_edges.get(*heh) {
                 let a = brep.vertices.get(he.origin).map(|v| v.position);
-                let b = brep
-                    .half_edges
-                    .get(he.twin)
+                let b = he
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|t| brep.vertices.get(t.origin))
                     .map(|v| v.position);
                 let src = rev
                     .get(heh)
                     .map(|&g| format!("ghe {g} {:?}", graph.half_edges[g].source));
-                let survivor_face = brep
-                    .half_edges
-                    .get(he.twin)
+                let survivor_face = he
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|t| brep.loops.get(t.loop_))
                     .map(|l| l.face);
-                let twin_ghe = rev.get(&he.twin);
+                let twin_ghe = he.mate().and_then(|t| rev.get(&t));
                 if let (Some(a), Some(b)) = (a, b) {
                     eprintln!(
                         "  [assemble-strand] {heh:?} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) {src:?} survivor-face {survivor_face:?} twin-ghe {twin_ghe:?}",
@@ -211,7 +211,7 @@ pub(super) fn mask_dangling_halves(
         // half-wiring that strands these halves is the recorded
         // follow-up.
         if let Some(twin) = brep.half_edges.get_mut(*twin_h) {
-            twin.twin = *twin_h;
+            twin.set_mate(*twin_h);
         }
         // Remove curve geometry from the edge — the watertight check
         // evaluates curves at endpoints and compares to vertex positions,

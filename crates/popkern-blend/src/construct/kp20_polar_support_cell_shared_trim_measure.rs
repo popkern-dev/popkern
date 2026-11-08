@@ -66,8 +66,10 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
         let mut cursor = start;
         for _ in 0..brep.half_edges.len().max(1) {
             let half_edge = &brep.half_edges[cursor];
-            if visited_edges.insert(half_edge.edge) {
-                let twin = &brep.half_edges[half_edge.twin];
+            if visited_edges.insert(half_edge.edge)
+                && let Some(mate) = half_edge.mate()
+            {
+                let twin = &brep.half_edges[mate];
                 if let Some(twin_face) = brep.loops.get(twin.loop_).map(|loop_| loop_.face)
                     && face_set.contains(&twin_face)
                 {
@@ -76,7 +78,7 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
                         face,
                         cursor,
                         twin_face,
-                        half_edge.twin,
+                        mate,
                         n_samples,
                         &mut quality,
                         &mut boundary_row_counts,

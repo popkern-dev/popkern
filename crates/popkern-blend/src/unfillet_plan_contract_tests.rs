@@ -37,7 +37,8 @@ fn bore_rim_fillet() -> (BRep, popkern_core::topology::FaceHandle) {
         .find(|e| {
             let he = &subtracted.half_edges[subtracted.edges[*e].half_edge];
             let face_a = subtracted.loops[he.loop_].face;
-            let face_b = subtracted.loops[subtracted.half_edges[he.twin].loop_].face;
+            let face_b =
+                subtracted.loops[subtracted.half_edges[he.mate().unwrap_or_default()].loop_].face;
             let surf_a = subtracted.faces[face_a]
                 .surface
                 .as_ref()

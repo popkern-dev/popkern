@@ -290,9 +290,9 @@ pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f6
             // The pcurve, unless the 3D curve sits nearer the true trim.
             let on_curve = brep.edges.get(he.edge).and_then(|e| {
                 let curve = e.curve.as_ref()?;
-                let other = brep
-                    .half_edges
-                    .get(he.twin)
+                let other = he
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .and_then(|t| brep.loops.get(t.loop_))
                     .and_then(|tl| brep.faces.get(tl.face))
                     .and_then(|tf| tf.surface.as_ref())?;

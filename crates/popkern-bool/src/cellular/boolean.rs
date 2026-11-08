@@ -332,6 +332,8 @@ pub(crate) fn cellular_graph_merge(
         overlaps: &overlap_pairs,
         tolerance,
         frontier: &frontier,
+        laminae: &[original_a, original_b]
+            .map(|b| b.body_kind() == popkern_core::topology::BodyKind::Sheet),
     };
     let cellular = || -> Result<_, BoolDiagnostics> {
         // Phase 6 (CELLULAR): Classify fragments by cell membership.

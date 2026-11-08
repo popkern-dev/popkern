@@ -31,7 +31,7 @@ use super::postprocess::{
 pub(super) fn free_half_edges(brep: &BRep) -> usize {
     brep.half_edges
         .iter()
-        .filter(|(handle, he)| he.twin == *handle)
+        .filter(|(handle, he)| he.mate() == Some(*handle))
         .count()
 }
 
@@ -183,7 +183,8 @@ pub(super) fn select_and_serve(
                     nonmanifold = Some(error);
                     // Under the split policy the complex splits its own
                     // verdict into manifold pieces (PK-987).
-                    (policy == crate::options::NonManifoldPolicy::SplitToManifold)
+                    policy
+                        .serves()
                         .then(|| {
                             crate::complex::serve::rescue_split(
                                 original_a,
@@ -241,16 +242,19 @@ pub(super) fn select_and_serve(
             }
             return match policy {
                 crate::options::NonManifoldPolicy::Decline => Err(nm),
-                crate::options::NonManifoldPolicy::SplitToManifold => {
-                    crate::postprocess::contact_record::accept_split(body, tolerance).map_err(|e| {
-                        crate::complex_shadow::record_complex_rescue(
-                            op,
-                            crate::complex_shadow::ComplexRescueOutcome::SplitRejected(
-                                e.to_string(),
-                            ),
-                        );
-                        nm
-                    })
+                crate::options::NonManifoldPolicy::SplitToManifold
+                | crate::options::NonManifoldPolicy::General => {
+                    crate::postprocess::split_pieces::accept_split(body, tolerance, policy).map_err(
+                        |e| {
+                            crate::complex_shadow::record_complex_rescue(
+                                op,
+                                crate::complex_shadow::ComplexRescueOutcome::SplitRejected(
+                                    e.to_string(),
+                                ),
+                            );
+                            nm
+                        },
+                    )
                 }
             };
         }

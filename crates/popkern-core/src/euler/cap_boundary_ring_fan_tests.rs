@@ -3,7 +3,7 @@ use crate::tolerance::Tolerance;
 use crate::topology::{BRep, EdgeHandle};
 
 fn open_box_ring(brep: &BRep) -> Vec<EdgeHandle> {
-    brep.boundary_edges.iter().copied().collect()
+    brep.free_edges().into_iter().collect()
 }
 
 fn fan_pole() -> Point3 {
@@ -25,7 +25,7 @@ fn open_box_fan_closes_and_validates_strictly() {
     assert_eq!(brep.half_edges.len(), 32);
     assert_eq!(brep.faces.len(), 9);
     assert_eq!(brep.loops.len(), 9);
-    assert!(brep.boundary_edges.is_empty());
+    assert!(!brep.has_free_edges());
     assert_eq!(result.sector_faces.len(), 4);
     assert_eq!(result.spoke_edges.len(), 4);
     assert_eq!(result.rim_half_edges.len(), 4);
@@ -102,7 +102,7 @@ fn fan_spokes_connect_ring_vertices_to_pole() {
         let ring_vertex = brep.half_edges[result.rim_half_edges[index]].origin;
         let he = brep.edges[spoke].half_edge;
         let origin = brep.half_edges[he].origin;
-        let end = brep.half_edges[brep.half_edges[he].twin].origin;
+        let end = brep.half_edges[brep.half_edges[he].mate().unwrap_or_default()].origin;
         let endpoints = std::collections::BTreeSet::from([origin, end]);
         assert_eq!(
             endpoints,

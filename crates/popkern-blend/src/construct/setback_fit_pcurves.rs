@@ -58,7 +58,11 @@ pub(super) fn author_cap_pcurves(
         };
         for he in face_loop_half_edges(brep, face)? {
             let a = brep.vertices[brep.half_edges[he].origin].position;
-            let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+            let b = brep.vertices[brep.half_edges[brep.half_edges[he]
+                .require_mate()
+                .map_err(|e| e.to_string())?]
+            .origin]
+                .position;
             let k = (0..4)
                 .min_by(|&x, &y| miss(x, a, b).total_cmp(&miss(y, a, b)))
                 .unwrap_or(0);

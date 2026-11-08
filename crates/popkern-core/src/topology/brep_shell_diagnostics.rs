@@ -87,7 +87,7 @@ pub struct BrepLoopShellDiagnosticReport {
     pub boundary_chains: usize,
     /// Number of connected face components across all shells.
     pub face_components: usize,
-    /// Number of non-manifold radial entries.
+    /// Number of fins on non-manifold edges (rings of more than two).
     pub radial_entries: usize,
     /// Structured findings.
     pub findings: Vec<BrepTopologyDiagnosticFinding>,
@@ -117,13 +117,18 @@ pub fn analyze_brep_loop_shell_validity(brep: &BRep) -> BrepLoopShellDiagnosticR
 
     let report = BrepLoopShellDiagnosticReport {
         loops: brep.loops.len(),
-        shells: brep.shells.len(),
+        shells: brep.back_shell_count(),
         faces: brep.faces.len(),
-        boundary_edges: brep.boundary_edges.len(),
+        boundary_edges: brep.free_edges().len(),
         boundary_cycles: boundary.cycles,
         boundary_chains: boundary.chains,
         face_components,
-        radial_entries: brep.nonmanifold_radial.len(),
+        radial_entries: brep
+            .edges
+            .keys()
+            .map(|e| brep.edge_fin_count(e))
+            .filter(|&n| n > 2)
+            .sum(),
         findings,
         shared_fact_ids: Vec::new(),
     }
@@ -259,18 +264,18 @@ fn analyze_shell_ownership(brep: &BRep, findings: &mut Vec<BrepTopologyDiagnosti
         }
     }
     for (face_handle, face) in &brep.faces {
-        if !brep.shells.contains_key(face.shell) {
+        if !brep.shells.contains_key(face.back) {
             push_finding(
                 findings,
                 BrepTopologyDiagnosticSeverity::Error,
                 BrepTopologyDiagnosticKind::MissingFaceShell,
                 format!(
                     "face {face_handle:?} references missing shell {:?}",
-                    face.shell
+                    face.back
                 ),
             )
             .face(face_handle)
-            .shell(face.shell);
+            .shell(face.back);
         }
     }
 }
@@ -284,30 +289,30 @@ fn analyze_shell_components(
         adjacency.entry(face).or_default();
     }
     for (edge_handle, edge) in &brep.edges {
-        if brep.boundary_edges.contains(&edge_handle) {
+        if brep.is_free_edge(edge_handle) {
             continue;
         }
         let Some(a) = face_for_half_edge(brep, edge.half_edge) else {
             continue;
         };
-        let Some(half_edge) = brep.half_edges.get(edge.half_edge) else {
+        let Some(b) = brep
+            .mate(edge.half_edge)
+            .and_then(|mate| face_for_half_edge(brep, mate))
+        else {
             continue;
         };
-        let Some(b) = face_for_half_edge(brep, half_edge.twin) else {
-            continue;
-        };
-        if brep.faces[a].shell == brep.faces[b].shell {
+        if brep.faces[a].back == brep.faces[b].back {
             adjacency.entry(a).or_default().push(b);
             adjacency.entry(b).or_default().push(a);
         }
     }
 
     let mut total_components = 0usize;
-    for shell in brep.shells.keys() {
+    for shell in brep.back_shells() {
         let faces: Vec<_> = brep
             .faces
             .iter()
-            .filter_map(|(face, data)| (data.shell == shell).then_some(face))
+            .filter_map(|(face, data)| (data.back == shell).then_some(face))
             .collect();
         let components = count_components(&faces, &adjacency);
         total_components += components;
@@ -335,7 +340,7 @@ fn analyze_boundary_graph(
     findings: &mut Vec<BrepTopologyDiagnosticFinding>,
 ) -> BoundarySummary {
     let mut graph: HashMap<VertexHandle, Vec<VertexHandle>> = HashMap::new();
-    for &edge in &brep.boundary_edges {
+    for edge in brep.free_edges() {
         let Some((start, end)) = edge_vertices(brep, edge) else {
             push_finding(
                 findings,
@@ -388,24 +393,40 @@ fn analyze_boundary_graph(
     summary
 }
 
+/// Ring links that point at no fin, or do not point back, are errors;
+/// a well-formed ring of more than two fins (a non-manifold edge) is
+/// reported as a warning, since this diagnostic serves manifold repair.
 fn analyze_radial_conflicts(brep: &BRep, findings: &mut Vec<BrepTopologyDiagnosticFinding>) {
-    for (&from, &to) in &brep.nonmanifold_radial {
-        if !brep.half_edges.contains_key(from) || !brep.half_edges.contains_key(to) {
-            push_finding(
-                findings,
-                BrepTopologyDiagnosticSeverity::Error,
-                BrepTopologyDiagnosticKind::RadialConflict,
-                format!("radial entry {from:?} -> {to:?} references missing half-edge"),
-            )
-            .half_edge(from);
-        } else {
+    use slotmap::Key;
+    for (from, fin) in &brep.half_edges {
+        for (to, back) in [(fin.ring.next, true), (fin.ring.prev, false)] {
+            if to.is_null() {
+                continue;
+            }
+            let returns = brep.half_edges.get(to).is_some_and(|t| {
+                (if back { t.ring.prev } else { t.ring.next }) == from && t.edge == fin.edge
+            });
+            if !returns {
+                push_finding(
+                    findings,
+                    BrepTopologyDiagnosticSeverity::Error,
+                    BrepTopologyDiagnosticKind::RadialConflict,
+                    format!("radial link {from:?} -> {to:?} is missing, crosses edges or does not point back"),
+                )
+                .half_edge(from);
+            }
+        }
+    }
+    for (edge, data) in &brep.edges {
+        let fins = brep.edge_fin_count(edge);
+        if fins > 2 {
             push_finding(
                 findings,
                 BrepTopologyDiagnosticSeverity::Warning,
                 BrepTopologyDiagnosticKind::RadialConflict,
-                format!("non-manifold radial entry {from:?} -> {to:?} is present"),
+                format!("non-manifold edge {edge:?} has {fins} fins"),
             )
-            .half_edge(from);
+            .half_edge(data.half_edge);
         }
     }
 }

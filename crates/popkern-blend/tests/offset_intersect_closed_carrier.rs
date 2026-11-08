@@ -41,7 +41,7 @@ fn boss_on_wall_chain(tol: Tolerance) -> (BRep, Vec<EdgeHandle>) {
     for (e, d) in united.edges.iter() {
         let he = &united.half_edges[d.half_edge];
         let f1 = united.loops[he.loop_].face;
-        let f2 = united.loops[united.half_edges[he.twin].loop_].face;
+        let f2 = united.loops[united.half_edges[he.mate().unwrap_or_default()].loop_].face;
         let a = united.vertices[he.origin].position;
         if f1 != f2
             && kind(&united, f1) != kind(&united, f2)

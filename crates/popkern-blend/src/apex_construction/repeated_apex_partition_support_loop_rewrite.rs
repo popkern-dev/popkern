@@ -197,7 +197,7 @@ fn materialize_closed_support_trim_cycles_candidate(
         let twin = brep
             .half_edges
             .get(trim_side.half_edge)
-            .map(|half_edge| half_edge.twin)
+            .and_then(|half_edge| half_edge.mate())
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition FilletEnd[{fillet_index}] cannot plan \
@@ -271,10 +271,13 @@ fn materialize_closed_support_trim_cycles_candidate(
                 let Some(data) = brep.half_edges.get(*side) else {
                     continue;
                 };
-                let end = brep.half_edges.get(data.twin).map(|twin| twin.origin);
-                let twin_owner = brep
-                    .half_edges
-                    .get(data.twin)
+                let end = data
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
+                    .map(|twin| twin.origin);
+                let twin_owner = data
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
                     .map(|twin| twin.loop_)
                     .and_then(|loop_handle| {
                         brep.loops.get(loop_handle).map(|loop_data| {
@@ -290,7 +293,8 @@ fn materialize_closed_support_trim_cycles_candidate(
                     "[direct-apex-trace §14.9/group-ownership] support {support_face:?} side \
                      {side:?} {:?}->{end:?} twin {:?} owned by {twin_owner:?} (loop, face, role, \
                      consumed-source-transfer)",
-                    data.origin, data.twin
+                    data.origin,
+                    data.mate()
                 );
             }
         }
@@ -332,7 +336,11 @@ fn materialize_closed_support_trim_cycles_candidate(
                     continue;
                 };
                 let side_start = data.origin;
-                let Some(side_end) = brep.half_edges.get(data.twin).map(|twin| twin.origin) else {
+                let Some(side_end) = data
+                    .mate()
+                    .and_then(|m| brep.half_edges.get(m))
+                    .map(|twin| twin.origin)
+                else {
                     continue;
                 };
                 let mut holding = vec![*side];
@@ -452,20 +460,9 @@ fn retire_consumed_support_source_loops(
                 ),
             });
         }
-        let shell = face_data.shell;
+        brep.move_shell_anchor_off(loop_data.face);
         brep.loops.remove(loop_handle);
         brep.faces.remove(loop_data.face);
-        if brep
-            .shells
-            .get(shell)
-            .is_some_and(|shell_data| shell_data.face == loop_data.face)
-            && let Some(replacement_face) = brep
-                .faces
-                .iter()
-                .find_map(|(face, data)| (data.shell == shell).then_some(face))
-        {
-            brep.shells[shell].face = replacement_face;
-        }
     }
     Ok(())
 }

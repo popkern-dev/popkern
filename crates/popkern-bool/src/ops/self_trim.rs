@@ -76,7 +76,7 @@ pub fn trim_self_intersections(
         })
         .collect();
 
-    let pre_boundary: BTreeSet<EdgeHandle> = body.boundary_edges.clone();
+    let pre_boundary: BTreeSet<EdgeHandle> = body.free_edges().into_iter().collect();
     let (mut split_body, fragments) = self_split_along_curves(body.clone(), &records, tolerance)
         .map_err(|d| {
             BoolError::SelfTrimFailed(match d.error {
@@ -130,9 +130,8 @@ pub fn trim_self_intersections(
     // intersection curves (one per split side). Pair by opposed
     // endpoints + agreeing midpoints, then weld.
     let new_boundary: Vec<EdgeHandle> = split_body
-        .boundary_edges
-        .iter()
-        .copied()
+        .free_edges()
+        .into_iter()
         .filter(|eh| !pre_boundary.contains(eh))
         .collect();
     // The midpoint arm reads the surviving half-edge's PCURVE through
@@ -179,7 +178,7 @@ pub fn trim_self_intersections(
         }
     }
     while let Some(keep_edge) = unpaired.pop() {
-        if !split_body.boundary_edges.contains(&keep_edge) {
+        if !split_body.is_free_edge(keep_edge) {
             continue; // already welded as a partner
         }
         let Some((k0, k1, km)) = signature(&split_body, keep_edge) else {
@@ -190,7 +189,7 @@ pub fn trim_self_intersections(
         let partner = unpaired
             .iter()
             .copied()
-            .filter(|eh| split_body.boundary_edges.contains(eh))
+            .filter(|eh| split_body.is_free_edge(*eh))
             .find(|&eh| {
                 signature(&split_body, eh).is_some_and(|(x0, x1, xm)| {
                     (x0 - k1).length() <= tol
@@ -264,7 +263,7 @@ pub fn trim_self_intersections(
                         let Some(he) = split_body.half_edges.get(cur) else {
                             break;
                         };
-                        if let Some(tw) = split_body.half_edges.get(he.twin)
+                        if let Some(tw) = he.mate().and_then(|m| split_body.half_edges.get(m))
                             && let Some(tl) = split_body.loops.get(tw.loop_)
                             && !comp.contains_key(&tl.face)
                         {
@@ -294,15 +293,15 @@ pub fn trim_self_intersections(
             split_body.faces.len(),
             split_body.loops.len(),
             split_body.half_edges.len(),
-            split_body.shells.len(),
-            split_body.boundary_edges.len(),
+            split_body.back_shell_count(),
+            split_body.free_edges().len(),
         ))
     })?;
-    if split_body.boundary_edges != pre_boundary {
+    if split_body.free_edges().into_iter().collect::<BTreeSet<_>>() != pre_boundary {
         return Err(BoolError::SelfTrimFailed(format!(
             "trim changed the boundary set: {} before, {} after",
             pre_boundary.len(),
-            split_body.boundary_edges.len()
+            split_body.free_edges().len()
         )));
     }
 

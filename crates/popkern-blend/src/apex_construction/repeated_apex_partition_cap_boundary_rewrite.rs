@@ -108,7 +108,7 @@ fn plan_adjacent_loop_rewrites_for_reauthored_cap_cycle(
                 ),
             });
         };
-        let replacement_neighbor_side = stolen.twin;
+        let replacement_neighbor_side = stolen.require_mate()?;
         let neighbor_loop = brep
             .loops
             .contains_key(stolen.loop_)
@@ -126,7 +126,7 @@ fn plan_adjacent_loop_rewrites_for_reauthored_cap_cycle(
         let has_boundary_neighbor_side = current_neighbor_cycle.iter().any(|half_edge| {
             brep.half_edges
                 .get(*half_edge)
-                .is_some_and(|data| !brep.half_edges.contains_key(data.twin))
+                .is_some_and(|data| !data.mate().is_some_and(|m| brep.half_edges.contains_key(m)))
         });
         let neighbor_is_construction_residual = neighbor_face
             .and_then(|face| brep.faces.get(face))
@@ -371,7 +371,7 @@ impl CapBoundaryRewritePlan {
         let twin = brep
             .half_edges
             .get(current_cylinder_half_edge)
-            .map(|half_edge| half_edge.twin)
+            .and_then(|half_edge| half_edge.mate())
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition cap-boundary rewrite for FilletEnd[{}] \
@@ -452,7 +452,7 @@ impl CapBoundaryRewritePlan {
         let twin = brep
             .half_edges
             .get(face_edge.support_half_edge)
-            .map(|half_edge| half_edge.twin)
+            .and_then(|half_edge| half_edge.mate())
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition cap-boundary rewrite for FaceEdge[{}] \

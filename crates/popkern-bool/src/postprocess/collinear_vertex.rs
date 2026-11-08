@@ -67,7 +67,7 @@ fn face_pair(
 )> {
     let he = brep.edges.get(eh)?.half_edge;
     let h = brep.half_edges.get(he)?;
-    let t = brep.half_edges.get(h.twin)?;
+    let t = h.mate().and_then(|m| brep.half_edges.get(m))?;
     let f1 = brep.loops.get(h.loop_)?.face;
     let f2 = brep.loops.get(t.loop_)?.face;
     Some((f1.min(f2), f1.max(f2)))
@@ -196,8 +196,8 @@ fn find_candidate(
         }
         // Far endpoints: h1/h2 depart M, so their twins' origins are
         // the far ends.
-        let a = brep.half_edges[brep.half_edges[h1].twin].origin;
-        let b = brep.half_edges[brep.half_edges[h2].twin].origin;
+        let a = brep.half_edges[brep.half_edges[h1].mate()?].origin;
+        let b = brep.half_edges[brep.half_edges[h2].mate()?].origin;
         if a == b || a == *m || b == *m {
             continue;
         }
@@ -224,7 +224,7 @@ fn find_candidate(
         }
         // Contract e1 via the half-edge running A → M (kve keeps the
         // origin A and merges M into it); e2 survives spanning A → B.
-        let a_to_m = brep.half_edges[h1].twin;
+        let a_to_m = brep.half_edges[h1].mate()?;
         return Some((*m, a_to_m, e2, pa, pb));
     }
     None

@@ -34,7 +34,7 @@ pub(crate) fn recompute_displaced_pcurves(brep: &mut BRep) {
         let Some(hd) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        for he in [edge.half_edge, hd.twin] {
+        for he in [Some(edge.half_edge), hd.mate()].into_iter().flatten() {
             let Some(h) = brep.half_edges.get(he) else {
                 continue;
             };

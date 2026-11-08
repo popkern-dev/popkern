@@ -16,17 +16,18 @@
 //! (measured: the void imported with no faces, the volume of the outer
 //! alone).
 
-use popkern_core::topology::{BRep, ShellHandle};
+use popkern_core::topology::{BRep, RegionKind, ShellHandle};
 
 use crate::step::export::{ExportContext, bool_, list, ref_, str_param};
 use crate::step::parser::types::{EntityId, Parameter};
 
-/// Whether `shell` is a cavity: a shell of a solid other than its outer.
+/// Whether `shell` is a cavity: a shell of a solid region other than its
+/// outer one (a sheet's shell, in a void, is none).
 pub(super) fn is_cavity(brep: &BRep, shell: ShellHandle) -> bool {
-    brep.shells
-        .get(shell)
-        .and_then(|s| brep.solids.get(s.solid))
-        .is_some_and(|solid| solid.shell != shell)
+    brep.shell_region(shell).is_some_and(|region| {
+        brep.region_kind(region) == Some(RegionKind::Solid)
+            && brep.region_outer_shell(region) != Some(shell)
+    })
 }
 
 /// Emit one solid item per popkern solid (cavity shells as voids of
@@ -42,25 +43,20 @@ pub(super) fn emit_solids(
     let mut items = Vec::new();
     let mut used = vec![false; faces.len()];
     let index_of = |sh: ShellHandle| shells.iter().position(|s| *s == Some(sh));
-    let mut solid_handles: Vec<_> = brep.solids.keys().collect();
+    let mut solid_handles = brep.solid_regions();
     solid_handles.sort();
     let closed = |ctx: &mut ExportContext, ids: &[EntityId]| {
         let refs: Vec<_> = ids.iter().map(|&id| ref_(id)).collect();
         ctx.emit("CLOSED_SHELL", vec![str_param(""), list(refs)])
     };
     for so in solid_handles {
-        let Some(outer) = brep.solids.get(so).and_then(|s| index_of(s.shell)) else {
+        let Some(outer) = brep.region_outer_shell(so).and_then(index_of) else {
             continue;
         };
         let voids: Vec<usize> = shells
             .iter()
             .enumerate()
-            .filter(|&(i, sh)| {
-                i != outer
-                    && sh
-                        .and_then(|h| brep.shells.get(h))
-                        .is_some_and(|s| s.solid == so)
-            })
+            .filter(|&(i, sh)| i != outer && sh.and_then(|h| brep.shell_region(h)) == Some(so))
             .map(|(i, _)| i)
             .collect();
         if used[outer] {

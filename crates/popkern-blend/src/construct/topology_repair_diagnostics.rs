@@ -37,7 +37,10 @@ pub(super) fn dump_cylinder_face(brep: &BRep, fh: FaceHandle) {
         };
         let v = he.origin;
         let p = brep.vertices[v].position;
-        let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
+        let Some(mate) = he.mate() else {
+            continue;
+        };
+        let twin_face = brep.loops[brep.half_edges[mate].loop_].face;
         let twin_surf = brep
             .faces
             .get(twin_face)

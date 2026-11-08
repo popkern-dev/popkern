@@ -65,7 +65,7 @@ pub(super) fn read_fan(out: &BRep, vertex: VertexHandle) -> Option<Fan> {
     let mut half_edges = vec![first];
     loop {
         let last = *half_edges.last()?;
-        let twin = out.half_edges.get(last)?.twin;
+        let twin = out.half_edges.get(last)?.mate()?;
         let next = out.half_edges.get(twin)?.next;
         if next == first {
             break;

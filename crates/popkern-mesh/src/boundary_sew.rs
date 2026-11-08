@@ -104,9 +104,9 @@ pub(crate) fn sew_boundaries_to_edge_polylines(
                 let (eh, pcurve, twin_same_face) = {
                     let data = &brep.half_edges[he];
                     // Boundary sides have a dead twin: not same-face.
-                    let same = brep
-                        .half_edges
-                        .get(data.twin)
+                    let same = data
+                        .mate()
+                        .and_then(|m| brep.half_edges.get(m))
                         .and_then(|twin| brep.loops.get(twin.loop_))
                         .map(|l| l.face == fm.face)
                         .unwrap_or(false);

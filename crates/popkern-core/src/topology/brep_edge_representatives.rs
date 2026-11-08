@@ -23,7 +23,6 @@ impl BRep {
         for edge_handle in edge_handles {
             let Some(representative) = representative_by_edge.get(&edge_handle).copied() else {
                 self.edges.remove(edge_handle);
-                self.boundary_edges.remove(&edge_handle);
                 continue;
             };
             let primary_is_valid = self
@@ -217,7 +216,7 @@ impl BRep {
                 if !seen.insert(half_edge) {
                     continue;
                 }
-                let Some(twin) = self.half_edges.get(half_edge).map(|he| he.twin) else {
+                let Some(twin) = self.half_edges.get(half_edge).and_then(|he| he.mate()) else {
                     continue;
                 };
                 seen.insert(twin);
@@ -416,7 +415,7 @@ fn edge_vertices(
     half_edge: crate::topology::HalfEdgeHandle,
 ) -> Option<(Point3, Point3)> {
     let half_edge = brep.half_edges.get(half_edge)?;
-    let twin = brep.half_edges.get(half_edge.twin)?;
+    let twin = half_edge.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((
         brep.vertices.get(half_edge.origin)?.position,
         brep.vertices.get(twin.origin)?.position,

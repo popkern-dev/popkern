@@ -69,7 +69,10 @@ pub(crate) fn refine_to_triple_point(
         return seed;
     };
     let mut faces = [None, None];
-    for (slot, h) in [(0, edge.half_edge), (1, he.twin)] {
+    for (slot, h) in [(0, Some(edge.half_edge)), (1, he.mate())] {
+        let Some(h) = h else {
+            continue;
+        };
         faces[slot] = brep_x
             .half_edges
             .get(h)

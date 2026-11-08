@@ -237,10 +237,10 @@ pub(crate) fn face_has_own_seam(
                 };
                 let twin_on_face = brep
                     .half_edges
-                    .get(he.twin)
+                    .get(he.mate().unwrap_or_default())
                     .and_then(|tw| brep.loops.get(tw.loop_))
                     .is_some_and(|l| l.face == face);
-                if twin_on_face && he.twin != h {
+                if twin_on_face && he.mate() != Some(h) {
                     return true;
                 }
                 h = he.next;

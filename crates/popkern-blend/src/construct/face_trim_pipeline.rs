@@ -279,7 +279,7 @@ pub(super) fn apply_face_trim_pipeline(
             let Some(he) = result.half_edges.get(he_h) else {
                 continue;
             };
-            let Some(twin) = result.half_edges.get(he.twin) else {
+            let Some(twin) = he.mate().and_then(|m| result.half_edges.get(m)) else {
                 continue;
             };
             let p0 = result.vertices[he.origin].position;
@@ -427,7 +427,9 @@ pub(super) fn apply_face_trim_pipeline(
             // Check vertex count of both faces before merging.
             let he = result.edges[trim_edge].half_edge;
             let he_face = result.loops[result.half_edges[he].loop_].face;
-            let twin = result.half_edges[he].twin;
+            let Some(twin) = result.half_edges[he].mate() else {
+                continue;
+            };
             let twin_face = result.loops[result.half_edges[twin].loop_].face;
             if he_face == twin_face {
                 continue;

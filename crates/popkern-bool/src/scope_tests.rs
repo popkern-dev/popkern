@@ -186,7 +186,7 @@ fn a_far_hole_rim_bounds_the_scope() {
         .keys()
         .filter(|&e| {
             let he = body.edges[e].half_edge;
-            [he, body.half_edges[he].twin]
+            [he, body.half_edges[he].mate().unwrap_or_default()]
                 .iter()
                 .any(|&h| body.half_edges[h].loop_ == hole)
         })

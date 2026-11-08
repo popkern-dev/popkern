@@ -89,12 +89,16 @@ fn runs_out_on_end_face(
     }
     // The face between the two others: the one both border.
     let faces = |he: &popkern_core::topology::HalfEdge| {
-        [
-            brep.loops[he.loop_].face,
-            brep.loops[brep.half_edges[he.twin].loop_].face,
-        ]
+        he.mate().map(|m| {
+            [
+                brep.loops[he.loop_].face,
+                brep.loops[brep.half_edges[m].loop_].face,
+            ]
+        })
     };
-    let (f0, f1) = (faces(others[0]), faces(others[1]));
+    let (Some(f0), Some(f1)) = (faces(others[0]), faces(others[1])) else {
+        return false;
+    };
     f0.iter().filter(|f| f1.contains(f)).any(|&f| {
         matches!(
             brep.faces[f].surface.as_ref().map(|s| &s.geometry),
@@ -279,7 +283,10 @@ pub(super) fn open_tangent_chains(brep: &BRep, edge_geometries: &[EdgeGeometry])
         let h0 = if brep.half_edges[h].origin == v0 {
             h
         } else {
-            brep.half_edges[h].twin
+            let Some(mate) = brep.half_edges[h].mate() else {
+                continue;
+            };
+            mate
         };
         group.sort_unstable();
         chains.push((group, h0, (*k0, *k1)));

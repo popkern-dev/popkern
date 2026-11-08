@@ -83,7 +83,7 @@ fn open_box_boundary_vertex_is_free_boundary() {
     let (vertex, incident_boundary) = ob
         .half_edges
         .values()
-        .filter(|he| ob.boundary_edges.contains(&he.edge))
+        .filter(|he| ob.is_free_edge(he.edge))
         .map(|he| (he.origin, he.edge))
         .next()
         .unwrap();

@@ -89,10 +89,10 @@ impl Model {
         let mut records = Vec::new();
         let name = body.one_edge_recorded(self, "seam", selector, &mut records)?;
         let brep = self.brep_of(body)?;
-        let edge = brep
+        let (edge_handle, edge) = brep
             .edges
-            .values()
-            .find(|e| e.name.and_then(|n| brep.name_pool.get(n)) == Some(&name))
+            .iter()
+            .find(|(_, e)| e.name.and_then(|n| brep.name_pool.get(n)) == Some(&name))
             .ok_or_else(|| ScriptError::Argument {
                 argument: "seam".into(),
                 reason: "the selected edge is not on the body".into(),
@@ -107,10 +107,13 @@ impl Model {
                 reason: "a hinge seam is a straight edge".into(),
             });
         }
-        let he = &brep.half_edges[edge.half_edge];
-        let a = brep.vertices[he.origin].position;
-        let b = brep.vertices[brep.half_edges[he.twin].origin].position;
-        Ok((a, b))
+        let (va, vb) = brep
+            .edge_vertices(edge_handle)
+            .ok_or_else(|| ScriptError::Argument {
+                argument: "seam".into(),
+                reason: "the seam edge has no end vertex".into(),
+            })?;
+        Ok((brep.vertices[va].position, brep.vertices[vb].position))
     }
 
     /// The seam between bodies `a` and `b` along the line through

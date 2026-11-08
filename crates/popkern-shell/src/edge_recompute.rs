@@ -88,11 +88,9 @@ pub fn recompute_edges_with_skips(
 
         // Find the two adjacent faces via the half-edge and its twin.
         let he = &inner.half_edges[he_handle];
-        let twin_handle = he.twin;
-
-        if !inner.half_edges.contains_key(twin_handle) {
+        let Some(twin_handle) = he.mate().filter(|t| inner.half_edges.contains_key(*t)) else {
             return Ok(EdgeOutcome::Skip);
-        }
+        };
 
         let twin = &inner.half_edges[twin_handle];
 
@@ -239,7 +237,7 @@ fn other_face_of_edge(
 ) -> Option<FaceHandle> {
     let edge = outer.edges.get(outer_eh)?;
     let he = outer.half_edges.get(edge.half_edge)?;
-    let twin = outer.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| outer.half_edges.get(m))?;
     let f1 = outer.loops.get(he.loop_).map(|l| l.face);
     let f2 = outer.loops.get(twin.loop_).map(|l| l.face);
     match (f1, f2) {
@@ -339,7 +337,7 @@ mod tests {
                 None => continue,
             };
             let he = &inner.half_edges[edge.half_edge];
-            let twin = &inner.half_edges[he.twin];
+            let twin = &inner.half_edges[he.mate().unwrap_or_default()];
             let start_pos = inner.vertices[he.origin].position;
             let end_pos = inner.vertices[twin.origin].position;
 

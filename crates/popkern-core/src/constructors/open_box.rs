@@ -11,7 +11,7 @@
 
 use crate::error::CoreError;
 use crate::tolerance::Tolerance;
-use crate::topology::{BRep, HalfEdgeHandle};
+use crate::topology::BRep;
 use popkern_math::PortableMath;
 
 impl BRep {
@@ -35,10 +35,9 @@ impl BRep {
     /// - [`CoreError::Validation`] if downstream validation fails
     ///   (shouldn't happen for well-formed inputs).
     pub fn open_box(tolerance: Tolerance) -> Result<Self, CoreError> {
+        // The cube faces out of its material, which a sheet keeps as
+        // its faces' own normals.
         let mut brep = Self::unit_cube(tolerance)?;
-        // The cube is built facing into itself; a sheet's outward side
-        // is its faces' own normals, so face out of the box first.
-        brep.reverse_body_orientation();
 
         // Pick the first face to remove.
         let face_to_remove = brep
@@ -102,8 +101,6 @@ impl BRep {
             .ok_or_else(|| {
                 CoreError::PreconditionFailed(format!("prism({n}) has no {n}-sided cap face"))
             })?;
-        // Facing out of the prism (see `open_box`).
-        brep.reverse_body_orientation();
         brep.remove_face_to_boundary(cap)?;
         Ok(brep)
     }
@@ -133,7 +130,7 @@ impl BRep {
         // becomes a boundary half-edge (twin = null). Mark the
         // parent edge as boundary.
         for &heh in &doomed_hes {
-            let twin_h = brep.half_edges[heh].twin;
+            let twin_h = brep.require_mate(heh)?;
             let edge_h = brep.half_edges[heh].edge;
             // Point the edge's canonical half-edge at the surviving
             // twin (it may currently point at the doomed one) — and
@@ -153,8 +150,7 @@ impl BRep {
             }
             brep.edges[edge_h].half_edge = twin_h;
             // Null out the twin pointer on the surviving half-edge.
-            brep.half_edges[twin_h].twin = HalfEdgeHandle::default();
-            brep.boundary_edges.insert(edge_h);
+            brep.half_edges[twin_h].clear_mate();
         }
 
         // Fix vertex outgoing pointers that reference doomed
@@ -185,11 +181,10 @@ impl BRep {
 
         // Remove the loop and face.
         brep.loops.remove(loop_h);
+        brep.move_shell_anchor_off(face_to_remove);
         brep.faces.remove(face_to_remove);
-        if let Some((replacement_face, _)) = brep.faces.iter().next() {
-            let shell = brep.faces[replacement_face].shell;
-            brep.shells[shell].face = replacement_face;
-        }
+        // The box is open now: a sheet, its shell in the outside.
+        brep.settle_open_shells();
 
         brep.validate().map_err(CoreError::Validation)?;
         Ok(())
@@ -208,10 +203,26 @@ mod tests {
         assert_eq!(ob.faces.len(), 5);
     }
 
+    /// An open box bounds no volume: no solid region, its one shell in
+    /// the outside holding both sides of every face.
+    #[test]
+    fn open_box_is_a_sheet_in_the_outside() {
+        let ob = BRep::open_box(Tolerance::default()).unwrap();
+        assert!(ob.solid_regions().is_empty());
+        let shells: Vec<_> = ob.shells.keys().collect();
+        assert_eq!(shells.len(), 1);
+        assert_eq!(ob.shell_region(shells[0]), Some(ob.outside));
+        assert!(
+            ob.faces
+                .values()
+                .all(|f| f.back == shells[0] && f.front == shells[0])
+        );
+    }
+
     #[test]
     fn open_box_has_four_boundary_edges() {
         let ob = BRep::open_box(Tolerance::default()).unwrap();
-        assert_eq!(ob.boundary_edges.len(), 4);
+        assert_eq!(ob.free_edges().len(), 4);
     }
 
     #[test]
@@ -223,13 +234,11 @@ mod tests {
     #[test]
     fn open_box_boundary_edges_have_null_twin() {
         let ob = BRep::open_box(Tolerance::default()).unwrap();
-        for &edge_h in &ob.boundary_edges {
+        for edge_h in ob.free_edges() {
             let he = ob.edges[edge_h].half_edge;
-            let twin = ob.half_edges[he].twin;
-            assert_eq!(
-                twin,
-                HalfEdgeHandle::default(),
-                "boundary edge's surviving half-edge should have null twin"
+            assert!(
+                ob.half_edges[he].mate().is_none(),
+                "boundary edge's surviving half-edge should have no mate"
             );
         }
     }
@@ -260,11 +269,11 @@ mod tests {
     fn open_box_interior_edges_are_manifold() {
         let ob = BRep::open_box(Tolerance::default()).unwrap();
         for (edge_h, edge) in &ob.edges {
-            if ob.boundary_edges.contains(&edge_h) {
+            if ob.is_free_edge(edge_h) {
                 continue;
             }
             let he = &ob.half_edges[edge.half_edge];
-            let twin = &ob.half_edges[he.twin];
+            let twin = &ob.half_edges[he.mate().unwrap_or_default()];
             assert_eq!(
                 twin.edge, edge_h,
                 "interior edge twin should reference back"
@@ -281,7 +290,7 @@ mod open_prism_tests {
     fn open_prism_has_n_boundary_edges_and_validates() {
         for n in [5usize, 6] {
             let prism = BRep::open_prism(n, 1.0, 1.0, Tolerance::default()).unwrap();
-            assert_eq!(prism.boundary_edges.len(), n, "n={n}");
+            assert_eq!(prism.free_edges().len(), n, "n={n}");
             assert_eq!(prism.faces.len(), n + 1, "n={n}: walls + one cap");
             prism.validate().unwrap();
         }

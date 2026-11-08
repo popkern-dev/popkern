@@ -10,16 +10,46 @@ impl Partition {
     /// The regularized union of the regions `expr` keeps: a face between
     /// two kept regions is internal and merged away. A non-manifold
     /// result follows `options.non_manifold` as a two-operand boolean
-    /// does (declined with its contacts by default, served as manifold
-    /// pieces meeting at recorded contacts under `SplitToManifold`). No
-    /// region kept is an empty body.
+    /// does (declined with its contacts by default, one general body
+    /// under `General`, separate bodies under `SplitToManifold`, which
+    /// [`Partition::select_bodies`] returns). No region kept is an empty
+    /// body.
     ///
     /// # Errors
     ///
     /// [`BoolError::DegenerateInput`] when `expr` names a body past
     /// [`Partition::body_count`]; [`BoolError::NonManifoldResult`];
+    /// [`BoolError::SplitIntoBodies`]; [`BoolError::GeneralBodyDeclined`];
     /// the assembler's and acceptance gates' errors.
     pub fn select(&self, expr: &SetExpr, options: &BoolOptions) -> Result<BRep, BoolError> {
+        let pieces = self.select_pieces(expr, options);
+        crate::split_serve::serve_one(pieces, options.non_manifold, &self.tolerance)
+    }
+
+    /// [`Partition::select`] as a list of bodies: one body, except under
+    /// `SplitToManifold` a selection whose manifold pieces touch, each
+    /// piece its own valid body.
+    ///
+    /// # Errors
+    ///
+    /// As [`Partition::select`], never [`BoolError::SplitIntoBodies`].
+    pub fn select_bodies(
+        &self,
+        expr: &SetExpr,
+        options: &BoolOptions,
+    ) -> Result<Vec<BRep>, BoolError> {
+        let pieces = self.select_pieces(expr, options);
+        crate::split_serve::serve_bodies(pieces, options.non_manifold, &self.tolerance)
+    }
+
+    /// [`Partition::select`] as the pipeline answers it: a non-manifold
+    /// selection as manifold pieces in one body under the split and
+    /// general policies.
+    pub(crate) fn select_pieces(
+        &self,
+        expr: &SetExpr,
+        options: &BoolOptions,
+    ) -> Result<BRep, BoolError> {
         if let Some(i) = expr.max_body()
             && i >= self.body_count
         {
@@ -29,7 +59,7 @@ impl Partition {
             )));
         }
         let n = self.body_count;
-        self.select_where(|m| expr.holds(m, n), options)
+        self.select_where_pieces(|m| expr.holds(m, n), options)
     }
 
     /// [`Partition::select`] by a predicate on each region's bodies (the
@@ -39,6 +69,32 @@ impl Partition {
     ///
     /// As [`Partition::select`].
     pub fn select_where(
+        &self,
+        keep: impl Fn(&BodySet) -> bool,
+        options: &BoolOptions,
+    ) -> Result<BRep, BoolError> {
+        let pieces = self.select_where_pieces(keep, options);
+        crate::split_serve::serve_one(pieces, options.non_manifold, &self.tolerance)
+    }
+
+    /// [`Partition::select_where`] as a list of bodies (as
+    /// [`Partition::select_bodies`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`Partition::select`], never [`BoolError::SplitIntoBodies`].
+    pub fn select_where_bodies(
+        &self,
+        keep: impl Fn(&BodySet) -> bool,
+        options: &BoolOptions,
+    ) -> Result<Vec<BRep>, BoolError> {
+        let pieces = self.select_where_pieces(keep, options);
+        crate::split_serve::serve_bodies(pieces, options.non_manifold, &self.tolerance)
+    }
+
+    /// [`Partition::select_where`] as the pipeline answers it (see
+    /// [`Partition::select_pieces`]).
+    pub(crate) fn select_where_pieces(
         &self,
         keep: impl Fn(&BodySet) -> bool,
         options: &BoolOptions,
@@ -57,9 +113,10 @@ impl Partition {
         self.extract(&selection, options.non_manifold, nothing_kept)
     }
 
-    /// Assemble `selection` into a validated body: a non-manifold
-    /// selection declines with its contacts or, under `SplitToManifold`,
-    /// is served as manifold pieces meeting at recorded contacts.
+    /// Assemble `selection` into a body: a non-manifold selection
+    /// declines with its contacts or, under `SplitToManifold` (and
+    /// `General`, which runs it), is served as manifold pieces in one
+    /// body, each valid alone (the entry points serve them on).
     /// `nothing_kept` says an empty body is the answer.
     pub(super) fn extract(
         &self,
@@ -71,7 +128,7 @@ impl Partition {
         let c = &regions.lift.complex;
         let mut plan = None;
         if !selection.nonmanifold_edges.is_empty() || !selection.nonmanifold_vertices.is_empty() {
-            let split = (policy == NonManifoldPolicy::SplitToManifold).then(|| {
+            let split = policy.serves().then(|| {
                 crate::complex::split_plan::split_plan(
                     c,
                     &regions.sides,
@@ -134,7 +191,7 @@ impl Partition {
             &mut None,
         )?;
         if plan.is_some() {
-            return crate::postprocess::contact_record::accept_split(body, &self.tolerance);
+            return crate::postprocess::split_pieces::accept_split(body, &self.tolerance, policy);
         }
         Ok(body)
     }

@@ -76,7 +76,7 @@ fn scoped_matches_unscoped(
             b.faces.len(),
             b.edges.len(),
             b.vertices.len(),
-            b.shells.len(),
+            b.back_shell_count(),
         )
     };
     assert_eq!(counts(&scoped), counts(&unscoped), "{op:?}");
@@ -189,7 +189,7 @@ fn a_two_solid_body_cut_at_one_solid_keeps_the_other_whole() {
     );
     let two = crate::boolean(BoolOperation::Union, body.clone(), far_block, tol, None)
         .expect("two solids");
-    assert_eq!((two.solids.len(), two.shells.len()), (2, 2));
+    assert_eq!((two.solid_regions().len(), two.back_shell_count()), (2, 2));
     let pocket = prism(
         Point3::new(101.0, 1.0, -1.0),
         Point3::new(103.0, 3.0, 5.0),
@@ -199,5 +199,8 @@ fn a_two_solid_body_cut_at_one_solid_keeps_the_other_whole() {
         scoped_matches_unscoped(BoolOperation::Subtraction, &two, &pocket, tol);
     let far = scopes.a.as_ref().map_or(0, |s| s.far.len());
     assert!(far >= body.faces.len(), "the whole disc is far ({far})");
-    assert_eq!((result.solids.len(), result.shells.len()), (2, 2));
+    assert_eq!(
+        (result.solid_regions().len(), result.back_shell_count()),
+        (2, 2)
+    );
 }

@@ -212,7 +212,7 @@ fn torus_carrying_cylinder_union_within_budget() {
         .keys()
         .find(|&e| {
             let he = cyl.edges[e].half_edge;
-            let twin = cyl.half_edges[he].twin;
+            let twin = cyl.half_edges[he].mate().unwrap_or_default();
             let f1 = cyl.loops[cyl.half_edges[he].loop_].face;
             let f2 = cyl.loops[cyl.half_edges[twin].loop_].face;
             if f1 == f2 {

@@ -62,7 +62,10 @@ fn hollow_cube() -> BRep {
 #[test]
 fn a_hollow_solid_exports_as_one_brep_with_voids() {
     let hollow = hollow_cube();
-    assert_eq!((hollow.solids.len(), hollow.shells.len()), (1, 2));
+    assert_eq!(
+        (hollow.solid_regions().len(), hollow.back_shell_count()),
+        (1, 2)
+    );
     let bytes = export_step(&document_with_body(hollow), &StepExportOptions::default()).unwrap();
     let text = String::from_utf8_lossy(&bytes);
     let count = |name: &str| text.matches(&format!("={name}(")).count();
@@ -103,7 +106,11 @@ fn a_hollow_solid_round_trips_with_its_cavity_facing_the_void() {
     assert_eq!(bodies.len(), 1, "one body");
     let body = bodies[0];
     assert_eq!(
-        (body.solids.len(), body.shells.len(), body.faces.len()),
+        (
+            body.solid_regions().len(),
+            body.back_shell_count(),
+            body.faces.len()
+        ),
         (1, 2, 12)
     );
     let errors = body.validate_all();

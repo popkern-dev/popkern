@@ -293,7 +293,7 @@ fn record_unclassified_gregory_outer_loop_boundaries(
         let Some(half_edge_data) = brep.half_edges.get(half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(half_edge_data.twin) else {
+        let Some(twin) = half_edge_data.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(twin_face) = brep.loops.get(twin.loop_).map(|loop_data| loop_data.face) else {

@@ -10,8 +10,8 @@ fn new_brep_is_empty() {
     assert_eq!(brep.edges.len(), 0);
     assert_eq!(brep.loops.len(), 0);
     assert_eq!(brep.faces.len(), 0);
-    assert_eq!(brep.shells.len(), 0);
-    assert_eq!(brep.solids.len(), 0);
+    assert_eq!(brep.back_shell_count(), 0);
+    assert_eq!(brep.solid_regions().len(), 0);
 }
 
 #[test]

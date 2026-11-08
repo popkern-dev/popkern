@@ -18,7 +18,10 @@ mod select;
 mod set_expr;
 mod split;
 
-pub use nary::{FALLBACK_COUNTING_LIMIT, nary_boolean, nary_boolean_where};
+pub use nary::{
+    FALLBACK_COUNTING_LIMIT, nary_boolean, nary_boolean_bodies, nary_boolean_where,
+    nary_boolean_where_bodies,
+};
 pub use region_solids::{Interface, RegionSolid, RegionSolids};
 pub use set_expr::SetExpr;
 pub use split::{SplitPiece, SplitResult, split};
@@ -130,15 +133,12 @@ pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, Bo
         });
     }
     for (operand, body) in bodies.iter().enumerate() {
-        let kind = body.body_kind();
-        if kind != BodyKind::Solid && kind != BodyKind::Sheet {
-            return Err(BoolError::UnsupportedBodyKind {
-                operation: "partition",
-                operand,
-                kind,
-                accepted: &[BodyKind::Solid, BodyKind::Sheet],
-            });
-        }
+        crate::kind_gate::require_operand(
+            body,
+            "partition",
+            operand,
+            &[BodyKind::Solid, BodyKind::Sheet],
+        )?;
         if let Some((face, _)) = body.faces.iter().find(|(_, f)| f.surface.is_none()) {
             return Err(BoolError::DegenerateInput(format!(
                 "body {operand} face {face:?} has no surface"
@@ -147,18 +147,18 @@ pub fn partition(bodies: &[&BRep], tolerance: Tolerance) -> Result<Partition, Bo
     }
     // Sheets enter as laminae: their free-boundary mirror loops are no
     // holes (PK-978).
-    let views: Vec<BRep> = bodies
+    let (views, lamina_edges): (Vec<BRep>, Vec<_>) = bodies
         .iter()
         .map(|b| {
             if b.body_kind() == BodyKind::Sheet {
                 crate::sheet::lamina::pipeline_view(b)
             } else {
-                (*b).clone()
+                ((*b).clone(), Default::default())
             }
         })
-        .collect();
+        .unzip();
     let view_refs: Vec<&BRep> = views.iter().collect();
-    let built = build::build(&view_refs, &tolerance)?;
+    let built = build::build(&view_refs, &lamina_edges, &tolerance)?;
     let mut partition = Partition {
         body_count: bodies.len(),
         // The bodies as the pipeline read them (a sheet's view): the

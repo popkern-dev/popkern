@@ -78,8 +78,8 @@ pub(crate) fn seamed_band_bridge(brep: &BRep, face: FaceHandle) -> Option<HalfEd
     let edge_of = |h: HalfEdgeHandle| brep.half_edges[h].edge;
     let is_ring = |h: HalfEdgeHandle| {
         let d = &brep.half_edges[h];
-        brep.half_edges
-            .get(d.twin)
+        d.mate()
+            .and_then(|m| brep.half_edges.get(m))
             .map(|tw| tw.origin == d.origin)
             .unwrap_or(false)
     };
@@ -196,8 +196,8 @@ pub fn unfillet_closed_annulus(brep: &BRep, fillet_face: FaceHandle) -> Result<B
                 reason: "inner loop's half-edge missing".to_string(),
             })?;
 
-    let outer_twin_h = outer_he.twin;
-    let inner_twin_h = inner_he.twin;
+    let outer_twin_h = outer_he.require_mate()?;
+    let inner_twin_h = inner_he.require_mate()?;
     let outer_support_face = brep
         .loops
         .get(brep.half_edges[outer_twin_h].loop_)
@@ -311,10 +311,10 @@ pub fn unfillet_closed_annulus(brep: &BRep, fillet_face: FaceHandle) -> Result<B
     //    fillet-face half-edge (which we're about to delete).
     //    Rewire it to reference cyl_edge and twin with the
     //    cyl-side half-edge.
-    out.half_edges[plane_twin_h].twin = cyl_twin_h;
+    out.half_edges[plane_twin_h].set_mate(cyl_twin_h);
     out.half_edges[plane_twin_h].edge = cyl_edge;
     out.half_edges[plane_twin_h].origin = v_keep;
-    out.half_edges[cyl_twin_h].twin = plane_twin_h;
+    out.half_edges[cyl_twin_h].set_mate(plane_twin_h);
 
     // 9. Delete the fillet face's half-edges (outer_he, inner_he),
     //    the obsolete plane_edge, the obsolete v_delete, and the

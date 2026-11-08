@@ -281,7 +281,7 @@ fn edges_incident_to_vertex(
     for e in brep.edges.keys() {
         let ed = &brep.edges[e];
         let he = &brep.half_edges[ed.half_edge];
-        let twin = &brep.half_edges[he.twin];
+        let twin = &brep.half_edges[he.mate().unwrap_or_default()];
         if he.origin == vertex || twin.origin == vertex {
             incident.push(e);
         }

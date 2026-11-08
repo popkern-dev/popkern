@@ -63,7 +63,7 @@ impl BRep {
             let h = self.half_edges.get(he)?;
             if self
                 .loops
-                .get(self.half_edges.get(h.twin)?.loop_)
+                .get(h.mate().and_then(|m| self.half_edges.get(m))?.loop_)
                 .map(|l| l.face)
                 == Some(face)
             {

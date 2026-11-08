@@ -48,7 +48,9 @@ pub fn snap_vertices_to_recomputed_curves(
             continue;
         };
         let he = &brep.half_edges[edge.half_edge];
-        let twin_origin = brep.half_edges[he.twin].origin;
+        let Some(twin_origin) = brep.fin_end(edge.half_edge) else {
+            continue;
+        };
         for vh in [he.origin, twin_origin] {
             let pos = brep.vertices[vh].position;
             let target = closest_point_on_curve(&curve.geometry, pos);
@@ -77,7 +79,9 @@ pub fn snap_vertices_to_recomputed_curves(
         let he_handle = edge.half_edge;
         let he = &brep.half_edges[he_handle];
         let origin = brep.vertices[he.origin].position;
-        let twin_origin_v = brep.half_edges[he.twin].origin;
+        let Some(twin_origin_v) = brep.fin_end(he_handle) else {
+            continue;
+        };
         let closed = he.origin == twin_origin_v;
         let end = brep.vertices[twin_origin_v].position;
         let Some(curve) = brep.edges[eh].curve.clone() else {

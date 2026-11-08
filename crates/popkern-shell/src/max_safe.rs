@@ -188,6 +188,15 @@ pub fn max_safe_offset(
     direction: ShellDirection,
     tolerance: Tolerance,
 ) -> Result<SafeOffsetReport, ShellError> {
+    // Sheets too: thicken's preflight reads the same bound.
+    brep.require_kind(
+        "maximum safe offset",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     if matches!(direction, ShellDirection::Midplane) {
         let inward = max_safe_offset(brep, ShellDirection::Inward, tolerance)?;
         let outward = max_safe_offset(brep, ShellDirection::Outward, tolerance)?;
@@ -245,7 +254,7 @@ pub fn max_safe_offset(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
+        let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let (Some(v0d), Some(v1d)) = (brep.vertices.get(he.origin), brep.vertices.get(twin.origin))

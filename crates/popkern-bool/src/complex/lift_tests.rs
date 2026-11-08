@@ -37,14 +37,14 @@ fn is_cap(b: &BRep, f: FaceHandle) -> bool {
 /// diagonal), probed caps first: beside a cap on either side lies
 /// outside, so the caps cast no vote and the walls decide, as the
 /// volume sign of the same prism built 1 thick says. A one-sided probe
-/// stepped through both inward-folded caps and voted them outward.
+/// stepped through both caps and voted them the wrong way.
 #[test]
 fn a_plate_thinner_than_the_probe_offset_keeps_its_sense() {
     let tol = Tolerance::default();
     let thick = slab(1.0, tol);
     let seed = thick.faces.keys().min().expect("faces");
     let want = thick.component_material_sense(seed) == Some(MaterialSense::FoldedOutward);
-    assert!(!want, "prisms fold inward");
+    assert!(want, "prisms fold outward");
     let plate = slab(1.0e-4, tol);
     let boxes = crate::intersect::compute_face_aabbs(&plate);
     let (caps, walls): (Vec<FaceHandle>, Vec<FaceHandle>) =

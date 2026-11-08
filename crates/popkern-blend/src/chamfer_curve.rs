@@ -199,7 +199,7 @@ pub fn compute_chamfer(
             .get(analysis.edge)
             .and_then(|e| brep.half_edges.get(e.half_edge))
             .and_then(|he| {
-                let tw = brep.half_edges.get(he.twin)?;
+                let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
                 Some((he.origin, tw.origin))
             })
         else {

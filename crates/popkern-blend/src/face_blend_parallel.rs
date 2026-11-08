@@ -152,7 +152,7 @@ fn parallel_bulge_direction(
     let mut he = brep.loops[wall.outer_loop].half_edge;
     let start = he;
     for _ in 0..brep.half_edges.len() + 1 {
-        let twin = brep.half_edges[he].twin;
+        let twin = brep.half_edges[he].mate()?;
         let neighbor = brep.loops[brep.half_edges[twin].loop_].face;
         if neighbor != spec.face_a && neighbor != spec.face_b {
             let c = loop_position_centroid(&brep.face_outer_loop_positions(neighbor));

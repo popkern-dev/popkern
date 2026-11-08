@@ -3,13 +3,13 @@
 
 use crate::error::CoreError;
 use crate::euler::contract::{EulerDelta, EulerTopologyCounts};
-use crate::topology::{BRep, Face, FaceHandle, LoopHandle, Shell, ShellHandle, Solid};
+use crate::topology::{BRep, Face, FaceHandle, LoopHandle, ShellHandle};
 
 #[derive(Debug, Clone)]
 struct KfmrhApplied {
     loop_to_move: LoopHandle,
     killed_shell: ShellHandle,
-    killed_solid: crate::topology::SolidHandle,
+    killed_solid: crate::topology::RegionHandle,
     target_shell: ShellHandle,
     reassigned_faces: Vec<FaceHandle>,
 }
@@ -74,7 +74,7 @@ impl BRep {
             .ok_or_else(|| CoreError::InvalidHandle("target_face handle is invalid".into()))?
             .clone();
 
-        if face_data.shell == target_data.shell {
+        if face_data.back == target_data.back {
             return Err(CoreError::PreconditionFailed(
                 "face and target_face must be in different shells".into(),
             ));
@@ -87,27 +87,29 @@ impl BRep {
         }
 
         let loop_to_move = face_data.outer_loop;
-        let killed_shell = face_data.shell;
+        let killed_shell = face_data.back;
+        let killed_front = face_data.front;
+        let target_front = target_data.front;
         let killed_shell_data = self
             .shells
             .get(killed_shell)
             .ok_or_else(|| CoreError::InvalidHandle("face shell handle is invalid".into()))?;
-        let target_shell_data = self.shells.get(target_data.shell).ok_or_else(|| {
+        let target_shell_data = self.shells.get(target_data.back).ok_or_else(|| {
             CoreError::InvalidHandle("target face shell handle is invalid".into())
         })?;
-        let killed_solid = killed_shell_data.solid;
-        let target_solid = target_shell_data.solid;
+        let killed_solid = killed_shell_data.region;
+        let target_solid = target_shell_data.region;
         if killed_solid == target_solid {
             return Err(CoreError::PreconditionFailed(
                 "face and target_face must belong to different solids".into(),
             ));
         }
-        if !self.solids.contains_key(killed_solid) {
+        if !self.regions.contains_key(killed_solid) {
             return Err(CoreError::InvalidHandle(
                 "face shell solid handle is invalid".into(),
             ));
         }
-        if !self.solids.contains_key(target_solid) {
+        if !self.regions.contains_key(target_solid) {
             return Err(CoreError::InvalidHandle(
                 "target face shell solid handle is invalid".into(),
             ));
@@ -125,20 +127,29 @@ impl BRep {
         self.loops[loop_to_move].face = target_face;
         self.faces[target_face].inner_loops.push(loop_to_move);
 
-        let target_shell = target_data.shell;
+        let target_shell = target_data.back;
         let faces_to_update: Vec<FaceHandle> = self
             .faces
             .iter()
-            .filter(|(fh, fd)| fd.shell == killed_shell && *fh != face)
+            .filter(|(fh, fd)| fd.back == killed_shell && *fh != face)
             .map(|(fh, _)| fh)
             .collect();
         for fh in faces_to_update.iter().copied() {
-            self.faces[fh].shell = target_shell;
+            let f = &mut self.faces[fh];
+            f.back = target_shell;
+            // The killed solid's faces now front onto the void across the
+            // target's.
+            if f.front == killed_front {
+                f.front = target_front;
+            }
         }
 
         self.faces.remove(face);
+        if killed_front != target_front && killed_front != killed_shell {
+            self.shells.remove(killed_front);
+        }
         self.shells.remove(killed_shell);
-        self.solids.remove(killed_solid);
+        self.regions.remove(killed_solid);
 
         Ok(KfmrhApplied {
             loop_to_move,
@@ -176,7 +187,9 @@ impl BRep {
         let new_face = self.faces.insert(Face {
             outer_loop: inner_loop,
             inner_loops: vec![],
-            shell: Default::default(), // patched below
+            // Sides patched below.
+            back: Default::default(),
+            front: Default::default(),
             surface: None,
             name: None,
             tolerance: None,
@@ -185,19 +198,12 @@ impl BRep {
 
         self.loops[inner_loop].face = new_face;
 
-        let new_shell = self.shells.insert(Shell {
-            face: new_face,
-            solid: Default::default(), // patched below
-        });
-
-        let new_solid = self.solids.insert(Solid { shell: new_shell });
-
-        self.faces[new_face].shell = new_shell;
-        self.shells[new_shell].solid = new_solid;
+        let (_, sides) = self.add_solid_region(new_face);
+        self.set_face_sides(new_face, sides);
 
         Ok(MfkrhResult {
             face: new_face,
-            shell: new_shell,
+            shell: sides.back,
         })
     }
 
@@ -224,7 +230,7 @@ impl BRep {
                 "kfmrh postcondition failed: killed shell remains live".into(),
             ));
         }
-        if self.solids.contains_key(applied.killed_solid) {
+        if self.regions.contains_key(applied.killed_solid) {
             return Err(CoreError::PreconditionFailed(
                 "kfmrh postcondition failed: killed solid remains live".into(),
             ));
@@ -233,7 +239,7 @@ impl BRep {
             .faces
             .get(target_face)
             .ok_or_else(|| CoreError::PreconditionFailed("target face is not live".into()))?;
-        if target.shell != applied.target_shell {
+        if target.back != applied.target_shell {
             return Err(CoreError::PreconditionFailed(
                 "kfmrh postcondition failed: target face changed shells".into(),
             ));
@@ -257,7 +263,7 @@ impl BRep {
                 .faces
                 .get(*moved_face)
                 .ok_or_else(|| CoreError::PreconditionFailed("moved face is not live".into()))?;
-            if moved.shell != applied.target_shell {
+            if moved.back != applied.target_shell {
                 return Err(CoreError::PreconditionFailed(
                     "kfmrh postcondition failed: moved face has wrong target shell".into(),
                 ));
@@ -304,7 +310,7 @@ impl BRep {
                 "mfkrh postcondition failed: new face does not use promoted outer loop".into(),
             ));
         }
-        if new_face.shell != result.shell {
+        if new_face.back != result.shell {
             return Err(CoreError::PreconditionFailed(
                 "mfkrh postcondition failed: new face has wrong shell".into(),
             ));
@@ -328,8 +334,8 @@ impl BRep {
             ));
         }
         let solid = self
-            .solids
-            .get(shell.solid)
+            .regions
+            .get(shell.region)
             .ok_or_else(|| CoreError::PreconditionFailed("new solid is not live".into()))?;
         if solid.shell != result.shell {
             return Err(CoreError::PreconditionFailed(
@@ -345,7 +351,7 @@ impl BRep {
         &self,
         face: FaceHandle,
         shell: ShellHandle,
-        solid: crate::topology::SolidHandle,
+        solid: crate::topology::RegionHandle,
     ) -> Result<(), CoreError> {
         if self
             .loops
@@ -359,7 +365,7 @@ impl BRep {
         if self
             .faces
             .iter()
-            .any(|(_, face_data)| face_data.shell == shell)
+            .any(|(_, face_data)| face_data.back == shell)
         {
             return Err(CoreError::PreconditionFailed(
                 "kfmrh postcondition failed: a face still references the killed shell".into(),
@@ -368,14 +374,14 @@ impl BRep {
         if self
             .shells
             .iter()
-            .any(|(_, shell_data)| shell_data.solid == solid)
+            .any(|(_, shell_data)| shell_data.region == solid)
         {
             return Err(CoreError::PreconditionFailed(
                 "kfmrh postcondition failed: a shell still references the killed solid".into(),
             ));
         }
         if self
-            .solids
+            .regions
             .iter()
             .any(|(_, solid_data)| solid_data.shell == shell)
         {

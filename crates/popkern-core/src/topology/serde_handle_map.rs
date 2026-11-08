@@ -54,11 +54,9 @@ mod tests {
         let he = brep.half_edges.keys().next().unwrap();
         brep.surface_boundary_hints
             .insert(he, crate::geometry::edge_triple::BoundarySide::VMin);
-        brep.nonmanifold_radial.insert(he, he);
         let bytes = serde_json::to_vec(&brep).expect("hint-carrying body must serialize");
         let back: BRep = serde_json::from_slice(&bytes).expect("roundtrip");
         assert_eq!(back.surface_boundary_hints.len(), 1);
-        assert_eq!(back.nonmanifold_radial.len(), 1);
         assert_eq!(
             back.surface_boundary_hints.get(&he),
             brep.surface_boundary_hints.get(&he)

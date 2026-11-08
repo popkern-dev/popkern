@@ -248,7 +248,7 @@ pub(in crate::construct) fn native_gregory_has_expected_cylinder_seams(
         let Some(ha) = brep.half_edges.get(he_a) else {
             continue;
         };
-        let Some(hb) = brep.half_edges.get(ha.twin) else {
+        let Some(hb) = ha.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(face_a) = brep.loops.get(ha.loop_).map(|loop_data| loop_data.face) else {
@@ -396,10 +396,10 @@ fn half_edge_destination_vertex_for_acceptance(
     half_edge: popkern_core::topology::HalfEdgeHandle,
 ) -> Option<popkern_core::topology::VertexHandle> {
     let data = brep.half_edges.get(half_edge)?;
-    if let Some(twin) = brep.half_edges.get(data.twin) {
+    if let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) {
         return Some(twin.origin);
     }
-    if !brep.boundary_edges.contains(&data.edge) {
+    if !brep.is_free_edge(data.edge) {
         return brep
             .half_edges
             .get(data.next)
@@ -451,7 +451,7 @@ pub(super) fn trace_shell_gap_edge(brep: &BRep, edge: popkern_core::topology::Ed
         let vt = brep
             .half_edges
             .get(he_a)
-            .and_then(|d| brep.half_edges.get(d.twin))
+            .and_then(|d| d.mate().and_then(|m| brep.half_edges.get(m)))
             .map(|t| (t.origin, brep.vertices.get(t.origin).map(|v| v.position)));
         eprintln!(
             "[direct-apex-trace] shell-gap {edge:?} endpoints: curve=({ps:?} -> {pe:?}) \
@@ -460,7 +460,7 @@ pub(super) fn trace_shell_gap_edge(brep: &BRep, edge: popkern_core::topology::Ed
     }
     for (label, he) in [
         ("a", Some(he_a)),
-        ("b", brep.half_edges.get(he_a).map(|d| d.twin)),
+        ("b", brep.half_edges.get(he_a).and_then(|d| d.mate())),
     ] {
         let Some(he) = he else { continue };
         let Some(data) = brep.half_edges.get(he) else {

@@ -78,7 +78,7 @@ fn next_pole_crossing(brep: &BRep) -> Option<(EdgeHandle, Point3, [FaceHandle; 2
             continue;
         };
         let he = brep.half_edges.get(edge.half_edge)?;
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         let faces = [
             brep.loops.get(he.loop_)?.face,
             brep.loops.get(twin.loop_)?.face,
@@ -178,7 +178,12 @@ fn split_at_pole(
     // re-project them on both faces.
     for half in [split.edge_a, split.edge_b] {
         let first = brep.edges[half].half_edge;
-        for he in [first, brep.half_edges[first].twin] {
+        for he in [
+            first,
+            brep.half_edges[first]
+                .require_mate()
+                .map_err(|e| e.to_string())?,
+        ] {
             brep.half_edges[he].pcurve = None;
         }
     }

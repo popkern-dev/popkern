@@ -8,6 +8,7 @@
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::*;
 use popkern_math::PortableMath;
 
@@ -84,14 +85,7 @@ impl BRep {
         });
 
         // ── Solid / shell ─────────────────────────────────────
-        let solid_h = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell_h = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid: solid_h,
-        });
-        brep.solids[solid_h].shell = shell_h;
+        let (_solid_h, shell_h) = brep.add_solid_region(Default::default());
 
         // ── Faces & loops ─────────────────────────────────────
         // 1 base + 4 slant = 5 faces.
@@ -99,7 +93,8 @@ impl BRep {
             brep.faces.insert(Face {
                 outer_loop: Default::default(),
                 inner_loops: Vec::new(),
-                shell: shell_h,
+                back: shell_h.back,
+                front: shell_h.front,
                 surface: None,
                 name: None,
                 tolerance: None,
@@ -110,12 +105,13 @@ impl BRep {
             brep.loops.insert(Loop {
                 half_edge: Default::default(),
                 face: faces[i],
+                vertex: None,
             })
         });
         for (i, lh) in loops.iter().enumerate() {
             brep.faces[faces[i]].outer_loop = *lh;
         }
-        brep.shells[shell_h].face = faces[0];
+        brep.set_sides_anchor(shell_h, faces[0]);
         let [_f_base, _f_front, _f_right, _f_back, _f_left] = faces;
         let [l_base, l_front, l_right, l_back, l_left] = loops;
 
@@ -139,7 +135,7 @@ impl BRep {
         let mk_he = |brep: &mut BRep, origin, edge, loop_| {
             brep.half_edges.insert(HalfEdge {
                 origin,
-                twin: Default::default(),
+                ring: RadialLinks::alone(),
                 next: Default::default(),
                 prev: Default::default(),
                 edge,
@@ -190,8 +186,8 @@ impl BRep {
             (hk_v3_a, hl_a_v3), // e_3a (back ↔ left)
         ];
         for &(a, b) in &pairs {
-            brep.half_edges[a].twin = b;
-            brep.half_edges[b].twin = a;
+            brep.half_edges[a].set_mate(b);
+            brep.half_edges[b].set_mate(a);
         }
 
         // ── Loop next/prev wiring ──────────────────────────────
@@ -233,6 +229,9 @@ impl BRep {
         // ── Geometry: straight-line curves + plane surfaces ────
         brep.attach_geometry()?;
         brep.attach_planar_pcurves()?;
+        // The Euler build winds the faces into the material; turn the
+        // body out of it (exact planar volume sign).
+        brep.orient_planar_outward()?;
 
         brep.validate().map_err(CoreError::Validation)?;
 
@@ -387,6 +386,9 @@ impl BRep {
 
         brep.attach_geometry()?;
         brep.attach_planar_pcurves()?;
+        // The Euler build winds the faces into the material; turn the
+        // body out of it (exact planar volume sign).
+        brep.orient_planar_outward()?;
         brep.validate().map_err(CoreError::Validation)?;
 
         Ok(brep)
@@ -421,7 +423,7 @@ mod tests {
         loop {
             let he = &p.half_edges[cursor];
             edges.insert(he.edge);
-            cursor = p.half_edges[he.twin].next;
+            cursor = p.half_edges[he.mate().unwrap_or_default()].next;
             if cursor == start {
                 break;
             }

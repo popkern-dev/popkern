@@ -8,7 +8,7 @@
 //! The leg SKIPS when the OCP venv is absent (CI without the oracle
 //! stays green).
 
-use popkern_bool::{BoolOptions, NonManifoldPolicy, SetExpr, nary_boolean};
+use popkern_bool::{BoolOptions, NonManifoldPolicy, SetExpr, nary_boolean_bodies};
 use popkern_core::geometry::Transform3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -56,21 +56,24 @@ fn oracle(script: &str, args: &[&std::ffi::OsStr]) -> Option<serde_json::Value> 
     Some(serde_json::from_slice(&out.stdout).expect("oracle json"))
 }
 
-/// The served body of `expr` over `bodies` (manifold pieces where the
-/// kept regions touch at edges or vertices) against OCC's `op` fold of
-/// the same operands: their volumes agree to 1e-6 relative.
+/// The served bodies of `expr` over `bodies` (separate manifold bodies
+/// where the kept regions touch at edges or vertices) against OCC's `op`
+/// fold of the same operands: their volumes agree to 1e-6 relative.
 fn agrees(name: &str, bodies: &[BRep], expr: &SetExpr, op: &str) {
     let tol = Tolerance::default();
     let refs: Vec<&BRep> = bodies.iter().collect();
     let options = BoolOptions {
         non_manifold: NonManifoldPolicy::SplitToManifold,
     };
-    let served = nary_boolean(&refs, expr, tol, &options).unwrap_or_else(|e| panic!("{name}: {e}"));
-    assert!(served.validate().is_ok(), "{name}: {:?}", served.validate());
+    let served =
+        nary_boolean_bodies(&refs, expr, tol, &options).unwrap_or_else(|e| panic!("{name}: {e}"));
+    for body in &served {
+        assert!(body.validate().is_ok(), "{name}: {:?}", body.validate());
+    }
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("nary_oracle");
     std::fs::create_dir_all(&dir).expect("dir");
     let step = dir.join(format!("{name}.step"));
-    export(vec![served], &step);
+    export(served, &step);
     let mut operands = Vec::new();
     for (k, b) in bodies.iter().enumerate() {
         let path = dir.join(format!("{name}_operand_{k}.step"));

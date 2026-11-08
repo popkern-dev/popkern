@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use popkern_core::topology::*;
 
 /// One solid per edge-connected set of faces: the first keeps
-/// `solid`/`shell`, each further set gets its own (a design body can be
+/// `sides`, each further set gets its own (a design body can be
 /// several pieces; one shell over them breaks Euler-Poincaré).
-pub(super) fn split_components(brep: &mut BRep, solid: SolidHandle, shell: ShellHandle) {
+pub(super) fn split_components(brep: &mut BRep, first: FaceSides) {
     let faces: Vec<FaceHandle> = brep.faces.keys().collect();
     let index: HashMap<FaceHandle, usize> =
         faces.iter().enumerate().map(|(i, &f)| (f, i)).collect();
@@ -28,9 +28,10 @@ pub(super) fn split_components(brep: &mut BRep, solid: SolidHandle, shell: Shell
                 let first = brep.loops[lh].half_edge;
                 let mut he = first;
                 loop {
-                    let twin = brep.half_edges[he].twin;
-                    let other = brep.loops[brep.half_edges[twin].loop_].face;
-                    if let Some(&j) = index.get(&other)
+                    let other = brep
+                        .mate(he)
+                        .map(|twin| brep.loops[brep.half_edges[twin].loop_].face);
+                    if let Some(&j) = other.and_then(|other| index.get(&other))
                         && component[j] == usize::MAX
                     {
                         component[j] = count;
@@ -45,26 +46,17 @@ pub(super) fn split_components(brep: &mut BRep, solid: SolidHandle, shell: Shell
         }
         count += 1;
     }
-    let mut shells = vec![(solid, shell)];
+    let mut sides = vec![first];
     for _ in 1..count {
-        let s = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let sh = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid: s,
-        });
-        brep.solids[s].shell = sh;
-        shells.push((s, sh));
+        sides.push(brep.add_solid_region(Default::default()).1);
     }
     let mut represented = vec![false; count];
     for (i, &f) in faces.iter().enumerate() {
         let c = component[i];
-        let (_, sh) = shells[c];
-        brep.faces[f].shell = sh;
+        brep.set_face_sides(f, sides[c]);
         if !represented[c] {
             represented[c] = true;
-            brep.shells[sh].face = f;
+            brep.set_sides_anchor(sides[c], f);
         }
     }
 }

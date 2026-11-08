@@ -71,7 +71,7 @@ pub(crate) fn exact_ball_rims(
     let mut faces = vec![face];
     for he in loop_half_edges(brep, face) {
         let h = brep.half_edges.get(he).ok_or("stale half-edge")?;
-        let (edge, twin) = (h.edge, h.twin);
+        let (edge, twin) = (h.edge, h.mate().ok_or("stale twin")?);
         let round = face_of(brep, twin).ok_or("stale twin")?;
         let Some(SurfaceGeometry::Cylinder { axis, .. }) = brep
             .faces
@@ -89,9 +89,9 @@ pub(crate) fn exact_ball_rims(
             .get(first.origin)
             .ok_or("stale vertex")?
             .position;
-        let end = brep
-            .half_edges
-            .get(first.twin)
+        let end = first
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
             .and_then(|t| brep.vertices.get(t.origin))
             .ok_or("stale vertex")?
             .position;

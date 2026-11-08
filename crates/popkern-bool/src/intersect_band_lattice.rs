@@ -55,9 +55,9 @@ fn partial_seam(brep: &BRep, face: FaceHandle) -> Option<PartialSeam> {
         let mut h = start;
         for _ in 0..=brep.half_edges.len() {
             let he = brep.half_edges.get(h)?;
-            let twin_here = brep
-                .half_edges
-                .get(he.twin)
+            let twin_here = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|t| brep.loops.get(t.loop_))
                 .is_some_and(|tl| tl.face == face);
             if twin_here && let Some(pc) = he.pcurve.as_ref() {

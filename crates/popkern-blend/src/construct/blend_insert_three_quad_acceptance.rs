@@ -147,9 +147,9 @@ fn trace_external_seam_boundary_evidence(brep: &BRep, cap_faces: &[FaceHandle]) 
             let Some(data) = brep.half_edges.get(cursor) else {
                 break;
             };
-            let support_face = brep
-                .half_edges
-                .get(data.twin)
+            let support_face = data
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|twin| brep.loops.get(twin.loop_))
                 .map(|loop_data| loop_data.face);
             if let Some(support_face) = support_face

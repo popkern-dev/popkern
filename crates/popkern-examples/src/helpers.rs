@@ -45,7 +45,9 @@ pub fn debug_extreme_non_manifold(brep: &BRep) {
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let twin = he.twin;
+        let Some(twin) = he.mate() else {
+            continue;
+        };
         let Some(twin_he) = brep.half_edges.get(twin) else {
             continue;
         };

@@ -79,7 +79,7 @@ fn cap_feet(result: &BlendResult) -> Vec<(popkern_core::geometry::Vec3, Point3)>
         if !caps.contains(&brep.loops[he.loop_].face) {
             continue;
         }
-        let twin = &brep.half_edges[he.twin];
+        let twin = &brep.half_edges[he.mate().unwrap_or_default()];
         let across = brep.loops[twin.loop_].face;
         if let Some(SurfaceGeometry::Cylinder { axis, .. }) =
             brep.faces[across].surface.as_ref().map(|s| &s.geometry)
@@ -141,7 +141,7 @@ fn an_end_override_moves_only_its_round() {
                 .values()
                 .find(|h| h.edge == edges[0] && h.origin == vertex)
                 .expect("edge 0 leaves the apex");
-            body.vertices[body.half_edges[he.twin].origin].position
+            body.vertices[body.half_edges[he.mate().unwrap_or_default()].origin].position
         });
         let dir = (b - a).normalized().expect("edge direction");
         dir.dot(&axis).abs() > 1.0 - 1e-9

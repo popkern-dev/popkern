@@ -206,9 +206,9 @@ impl Part {
     }
 
     /// A boolean under explicit [`popkern_bool::BoolOptions`]: with
-    /// `NonManifoldPolicy::SplitToManifold`, parts that only touch
-    /// combine into manifold pieces meeting at recorded contacts
-    /// instead of declining.
+    /// `NonManifoldPolicy::General`, parts that only touch combine into
+    /// one general part instead of declining; under `SplitToManifold`
+    /// they are separate parts ([`Part::boolean_bodies_with`]).
     ///
     /// # Errors
     ///
@@ -231,8 +231,9 @@ impl Part {
 
     /// The material in exactly one of the two parts (A ⊕ B). Where the
     /// parts overlap, the two differences meet with zero thickness, so
-    /// this serves only under `NonManifoldPolicy::SplitToManifold`
-    /// (see [`popkern_bool::symmetric_difference`]).
+    /// this serves one general part under `NonManifoldPolicy::General`,
+    /// or separate parts ([`Part::symmetric_difference_bodies`]) under
+    /// `SplitToManifold` (see [`popkern_bool::symmetric_difference`]).
     ///
     /// # Errors
     ///

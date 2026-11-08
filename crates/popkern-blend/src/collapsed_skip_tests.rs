@@ -51,7 +51,7 @@ fn skip_collapsed_edges_drops_collapsed_spec_and_emits_warning() {
     let mut brep = BRep::unit_cube(tol()).unwrap();
     let target_edge = brep.edges.keys().next().unwrap();
     let he = brep.edges[target_edge].half_edge;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he].mate().unwrap_or_default();
     let v_start = brep.half_edges[he].origin;
     let v_end = brep.half_edges[twin].origin;
     brep.vertices[v_start].position = brep.vertices[v_end].position;
@@ -113,7 +113,7 @@ fn skip_collapsed_edges_preserves_closed_intentional_edges() {
     let mut brep = BRep::unit_cube(tol()).unwrap();
     let target_edge = brep.edges.keys().next().unwrap();
     let he = brep.edges[target_edge].half_edge;
-    let twin = brep.half_edges[he].twin;
+    let twin = brep.half_edges[he].mate().unwrap_or_default();
     let v_start = brep.half_edges[he].origin;
     // Override the twin's origin to match the first half-edge's
     // origin — simulates a closed edge.

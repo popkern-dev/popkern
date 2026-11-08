@@ -181,31 +181,27 @@ fn handle_reverse_containment(
 
 /// Build a hollow solid: A with a B-shaped void inside.
 ///
-/// Copies B's skin into A with its material side mirrored, and joins its
-/// shells to the A solid enclosing them as cavity shells — the model the
-/// cellular shell partition serves (a cavity shell belongs to its
-/// encloser's solid). B's own solids are dropped: copied as solids, the
-/// void read as a second, positive body (PK-879).
+/// Copies B's skin into A with its material side mirrored, and turns B's
+/// regions inside out into the A solid enclosing them
+/// ([`BRep::invert_regions_into`]): B's skin becomes that solid's cavity
+/// shell and B's material a void region — the model the cellular shell
+/// partition serves (a cavity shell belongs to its encloser's solid).
+/// Copied as solids, the void read as a second, positive body (PK-879).
 fn build_hollow_solid(a: BRep, b: BRep, _tolerance: &Tolerance) -> Result<BRep, BoolError> {
     let host = enclosing_solid(&a, &b);
-    let a_solids: Vec<_> = a.solids.keys().collect();
+    let a_regions: Vec<_> = a.regions.keys().collect();
     let mut result = copy_brep_into(a, b, true)?;
     let Some(host) = host else {
         return Ok(result);
     };
-    let void_solids: Vec<_> = result
-        .solids
+    // B's bounded regions, its material and any cavity of it, turn
+    // inside out into the host: B's material is the host's cavity.
+    let b_regions: Vec<_> = result
+        .regions
         .keys()
-        .filter(|s| !a_solids.contains(s))
+        .filter(|r| !a_regions.contains(r))
         .collect();
-    for shell in result.shells.values_mut() {
-        if void_solids.contains(&shell.solid) {
-            shell.solid = host;
-        }
-    }
-    for s in void_solids {
-        result.solids.remove(s);
-    }
+    result.invert_regions_into(&b_regions, host);
     Ok(result)
 }
 
@@ -214,7 +210,7 @@ fn build_hollow_solid(a: BRep, b: BRep, _tolerance: &Tolerance) -> Result<BRep, 
 /// established that B lies inside A, so a box test picks among A's
 /// disjoint solids. Face boxes, not vertex boxes: a revolved body's
 /// vertices sit on its seam alone.
-fn enclosing_solid(a: &BRep, b: &BRep) -> Option<popkern_core::topology::SolidHandle> {
+fn enclosing_solid(a: &BRep, b: &BRep) -> Option<popkern_core::topology::RegionHandle> {
     use popkern_core::geometry::intersection::surface_subdivision::Aabb;
     let union = |boxes: &mut dyn Iterator<Item = Aabb>| {
         boxes.reduce(|u, x| Aabb {
@@ -236,11 +232,10 @@ fn enclosing_solid(a: &BRep, b: &BRep) -> Option<popkern_core::topology::SolidHa
             .into_iter()
             .map(|(_, x)| x),
     )?;
-    let mut best: Option<(f64, popkern_core::topology::SolidHandle)> = None;
-    for (sh, _) in &a.solids {
+    let mut best: Option<(f64, popkern_core::topology::RegionHandle)> = None;
+    for sh in a.solid_regions() {
         let Some(u) = union(&mut a_boxes.iter().filter_map(|(f, x)| {
-            let face = a.faces.get(*f)?;
-            (a.shells.get(face.shell)?.solid == sh).then_some(x.clone())
+            (a.shell_region(a.face_back_shell(*f)?)? == sh).then_some(x.clone())
         })) else {
             continue;
         };
@@ -255,5 +250,6 @@ fn enclosing_solid(a: &BRep, b: &BRep) -> Option<popkern_core::topology::SolidHa
             best = Some((size, sh));
         }
     }
-    best.map(|(_, s)| s).or_else(|| a.solids.keys().next())
+    best.map(|(_, s)| s)
+        .or_else(|| a.solid_regions().first().copied())
 }

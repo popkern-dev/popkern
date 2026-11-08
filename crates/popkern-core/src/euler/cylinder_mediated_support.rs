@@ -230,7 +230,7 @@ impl BRep {
         })
     }
 
-    fn require_face(&self, face: FaceHandle, label: &str) -> Result<(), CoreError> {
+    pub(super) fn require_face(&self, face: FaceHandle, label: &str) -> Result<(), CoreError> {
         self.faces
             .contains_key(face)
             .then_some(())
@@ -373,9 +373,12 @@ impl BRep {
                 data.loop_
             )));
         }
-        let twin = self.half_edges.get(data.twin).ok_or_else(|| {
-            CoreError::PreconditionFailed(format!("{label} {half_edge:?} has no live twin"))
-        })?;
+        let twin = data
+            .mate()
+            .and_then(|m| self.half_edges.get(m))
+            .ok_or_else(|| {
+                CoreError::PreconditionFailed(format!("{label} {half_edge:?} has no live twin"))
+            })?;
         let twin_face = self.loops[twin.loop_].face;
         if twin_face != adjacent_face {
             return Err(CoreError::PreconditionFailed(format!(
@@ -398,8 +401,12 @@ impl BRep {
                     .into(),
             ));
         }
-        let outside_cylinder_twin = self.half_edges[outside_cylinder_half_edge].twin;
-        let support_cylinder_twin = self.half_edges[support_cylinder_half_edge].twin;
+        let outside_cylinder_twin = self.half_edges[outside_cylinder_half_edge]
+            .mate()
+            .unwrap_or_default();
+        let support_cylinder_twin = self.half_edges[support_cylinder_half_edge]
+            .mate()
+            .unwrap_or_default();
         if interval.first().copied() != Some(outside_cylinder_twin)
             || interval.last().copied() != Some(support_cylinder_twin)
         {
@@ -433,47 +440,6 @@ impl BRep {
                 return Err(CoreError::PreconditionFailed(format!(
                     "cylinder interval is not directed at {:?}->{:?}",
                     pair[0], pair[1]
-                )));
-            }
-        }
-        Ok(())
-    }
-
-    fn require_same_shell(
-        &self,
-        support_face: FaceHandle,
-        outside_face: FaceHandle,
-        cylinder_face: FaceHandle,
-    ) -> Result<(), CoreError> {
-        let shell = self.faces[support_face].shell;
-        if self.faces[outside_face].shell != shell || self.faces[cylinder_face].shell != shell {
-            return Err(CoreError::PreconditionFailed(format!(
-                "cylinder-mediated support continuation requires one shell: support={:?} outside={:?} cylinder={:?}",
-                self.faces[support_face].shell,
-                self.faces[outside_face].shell,
-                self.faces[cylinder_face].shell
-            )));
-        }
-        Ok(())
-    }
-
-    fn require_context_owner_faces(
-        &self,
-        support_face: FaceHandle,
-        outside_face: FaceHandle,
-        cylinder_face: FaceHandle,
-        context_owner_faces: &[FaceHandle],
-    ) -> Result<(), CoreError> {
-        let shell = self.faces[support_face].shell;
-        for &face in context_owner_faces {
-            self.require_face(face, "context owner face")?;
-            if face == support_face || face == outside_face || face == cylinder_face {
-                continue;
-            }
-            if self.faces[face].shell != shell {
-                return Err(CoreError::PreconditionFailed(format!(
-                    "context owner face {face:?} belongs to shell {:?}, expected {shell:?}",
-                    self.faces[face].shell
                 )));
             }
         }

@@ -82,7 +82,7 @@ pub(crate) fn collect_faces_around_vertex(
             faces.push((face, he.prev));
         }
 
-        cursor = brep.half_edges[he.twin].next;
+        cursor = brep.half_edges[he.require_mate().map_err(|e| e.to_string())?].next;
         iters += 1;
         if cursor == outgoing || iters >= max_iters {
             break;
@@ -259,7 +259,7 @@ pub(crate) fn find_face_trim_anchors(
                         return true;
                     }
                 }
-                let Some(twin) = brep.half_edges.get(he.twin) else {
+                let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
                     star.push("BROKEN-twin".into());
                     break;
                 };
@@ -417,7 +417,7 @@ pub(crate) fn collect_edges_through_vertex(
             edges.push(he.edge);
         }
 
-        cursor = brep.half_edges[he.twin].next;
+        cursor = brep.half_edges[he.require_mate().map_err(|e| e.to_string())?].next;
         iters += 1;
         if cursor == outgoing || iters >= max_iters {
             break;

@@ -1,7 +1,9 @@
+use crate::topology::RadialLinks;
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;
 use crate::euler::TwoLoopBridgePlan;
+use crate::euler::bridge_paths::{TopologyCounts, half_open_path, required_path_handle};
 use crate::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
 };
@@ -29,14 +31,6 @@ pub struct TwoLoopBridgeResult {
     pub second_bridge_face: FaceHandle,
     /// New loop owning the second planned bridge cycle.
     pub second_bridge_loop: LoopHandle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TopologyCounts {
-    vertices: i64,
-    edges: i64,
-    faces: i64,
-    loops: i64,
 }
 
 impl BRep {
@@ -90,7 +84,7 @@ impl BRep {
                 "two-loop bridge endpoints are not on their planned loops".into(),
             ));
         }
-        if self.faces[plan.first_face].shell != self.faces[plan.second_face].shell {
+        if self.faces[plan.first_face].back != self.faces[plan.second_face].back {
             return Err(CoreError::PreconditionFailed(
                 "two-loop bridge requires operand faces in the same shell".into(),
             ));
@@ -106,7 +100,7 @@ impl BRep {
 
         let start_bridge_half_edge = self.half_edges.insert(HalfEdge {
             origin: first_start_vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: second_start,
             prev: first_end,
             edge: start_bridge_edge,
@@ -115,18 +109,18 @@ impl BRep {
         });
         let start_bridge_half_edge_twin = self.half_edges.insert(HalfEdge {
             origin: second_start_vertex,
-            twin: start_bridge_half_edge,
+            ring: RadialLinks::pair(start_bridge_half_edge),
             next: first_start,
             prev: second_end,
             edge: start_bridge_edge,
             loop_: second_loop,
             pcurve: None,
         });
-        self.half_edges[start_bridge_half_edge].twin = start_bridge_half_edge_twin;
+        self.half_edges[start_bridge_half_edge].set_mate(start_bridge_half_edge_twin);
 
         let end_bridge_half_edge = self.half_edges.insert(HalfEdge {
             origin: first_end_vertex,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: second_end,
             prev: first_start,
             edge: end_bridge_edge,
@@ -135,14 +129,14 @@ impl BRep {
         });
         let end_bridge_half_edge_twin = self.half_edges.insert(HalfEdge {
             origin: second_end_vertex,
-            twin: end_bridge_half_edge,
+            ring: RadialLinks::pair(end_bridge_half_edge),
             next: first_end,
             prev: second_start,
             edge: end_bridge_edge,
             loop_: first_loop,
             pcurve: None,
         });
-        self.half_edges[end_bridge_half_edge].twin = end_bridge_half_edge_twin;
+        self.half_edges[end_bridge_half_edge].set_mate(end_bridge_half_edge_twin);
 
         self.edges[start_bridge_edge].half_edge = start_bridge_half_edge;
         self.edges[end_bridge_edge].half_edge = end_bridge_half_edge;
@@ -210,12 +204,13 @@ impl BRep {
             .faces
             .get(source_face)
             .ok_or_else(|| CoreError::InvalidHandle("source face is invalid".into()))?;
-        let shell = source.shell;
+        let shell = source.sides();
         let tolerance = source.tolerance;
         let bridge_face = self.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: None,
             name: None,
             tolerance,
@@ -224,6 +219,7 @@ impl BRep {
         let bridge_loop = self.loops.insert(Loop {
             half_edge: Default::default(),
             face: bridge_face,
+            vertex: None,
         });
         self.faces[bridge_face].outer_loop = bridge_loop;
         Ok(bridge_loop)
@@ -233,7 +229,7 @@ impl BRep {
         &mut self,
         interval: &[HalfEdgeHandle],
     ) -> Result<Vec<HalfEdgeHandle>, CoreError> {
-        let path = half_open_path(interval)?;
+        let path = half_open_path(interval, "two-loop")?;
         let mut twins = Vec::with_capacity(path.len());
         for &half_edge in path {
             twins.push(self.create_boundary_twin_for_bridge(half_edge)?);
@@ -252,8 +248,10 @@ impl BRep {
             .ok_or_else(|| CoreError::InvalidHandle("bridge path half-edge is invalid".into()))?;
         let edge = data.edge;
         let next = data.next;
-        let existing_twin = data.twin;
-        if !self.boundary_edges.contains(&edge) || self.half_edges.contains_key(existing_twin) {
+        let existing_twin = data.mate();
+        if !self.is_free_edge(edge)
+            || existing_twin.is_some_and(|t| self.half_edges.contains_key(t))
+        {
             return Err(CoreError::PreconditionFailed(format!(
                 "two-loop bridge path half-edge {half_edge:?} is not an unowned boundary side"
             )));
@@ -261,15 +259,14 @@ impl BRep {
         let origin = self.half_edges[next].origin;
         let twin = self.half_edges.insert(HalfEdge {
             origin,
-            twin: half_edge,
+            ring: RadialLinks::pair(half_edge),
             next: Default::default(),
             prev: Default::default(),
             edge,
             loop_: Default::default(),
             pcurve: None,
         });
-        self.half_edges[half_edge].twin = twin;
-        self.boundary_edges.remove(&edge);
+        self.half_edges[half_edge].set_mate(twin);
         Ok(twin)
     }
 
@@ -281,10 +278,12 @@ impl BRep {
         second_path: &[HalfEdgeHandle],
         second_bridge: HalfEdgeHandle,
     ) -> Result<(), CoreError> {
-        let first_path_start = required_path_handle(first_path.first(), "first", "start")?;
-        let second_path_start = required_path_handle(second_path.first(), "second", "start")?;
-        let first_path_end = required_path_handle(first_path.last(), "first", "end")?;
-        let second_path_end = required_path_handle(second_path.last(), "second", "end")?;
+        let first_path_start =
+            required_path_handle(first_path.first(), "first", "bridge", "start")?;
+        let second_path_start =
+            required_path_handle(second_path.first(), "second", "bridge", "start")?;
+        let first_path_end = required_path_handle(first_path.last(), "first", "bridge", "end")?;
+        let second_path_end = required_path_handle(second_path.last(), "second", "bridge", "end")?;
 
         self.wire_bridge_path(first_path);
         self.wire_bridge_path(second_path);
@@ -430,8 +429,8 @@ impl BRep {
     }
 
     fn verify_bridge_cycle_ownership(&self, interval: &[HalfEdgeHandle]) -> Result<(), CoreError> {
-        for &half_edge in half_open_path(interval)? {
-            let twin = self.half_edges[half_edge].twin;
+        for &half_edge in half_open_path(interval, "two-loop")? {
+            let twin = self.require_mate(half_edge)?;
             let loop_handle = self.half_edges[twin].loop_;
             let face = self.loops[loop_handle].face;
             if face == self.loops[self.half_edges[half_edge].loop_].face {
@@ -453,45 +452,6 @@ impl BRep {
             .map(|data| data.loop_)
             .ok_or_else(|| CoreError::InvalidHandle(format!("{label} half-edge is invalid")))
     }
-}
-
-impl TopologyCounts {
-    fn capture(brep: &BRep) -> Self {
-        Self {
-            vertices: brep.vertices.len() as i64,
-            edges: brep.edges.len() as i64,
-            faces: brep.faces.len() as i64,
-            loops: brep.loops.len() as i64,
-        }
-    }
-
-    fn delta_from(self, before: Self) -> Self {
-        Self {
-            vertices: self.vertices - before.vertices,
-            edges: self.edges - before.edges,
-            faces: self.faces - before.faces,
-            loops: self.loops - before.loops,
-        }
-    }
-}
-
-fn half_open_path(interval: &[HalfEdgeHandle]) -> Result<&[HalfEdgeHandle], CoreError> {
-    if interval.len() < 2 {
-        return Err(CoreError::PreconditionFailed(
-            "two-loop bridge path needs distinct endpoint origins".into(),
-        ));
-    }
-    Ok(&interval[..interval.len() - 1])
-}
-
-fn required_path_handle(
-    handle: Option<&HalfEdgeHandle>,
-    path: &'static str,
-    end: &'static str,
-) -> Result<HalfEdgeHandle, CoreError> {
-    handle
-        .copied()
-        .ok_or_else(|| CoreError::PreconditionFailed(format!("{path} bridge path {end} is empty")))
 }
 
 #[cfg(test)]

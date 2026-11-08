@@ -191,7 +191,7 @@ impl BRep {
     ) -> Option<L2Disagreement> {
         let edge_data = self.edges.get(edge)?;
         let he_ab = self.half_edges.get(edge_data.half_edge)?;
-        let he_ba = self.half_edges.get(he_ab.twin)?;
+        let he_ba = he_ab.mate().and_then(|m| self.half_edges.get(m))?;
         let face_a = self.loops.get(he_ab.loop_)?.face;
         let face_b = self.loops.get(he_ba.loop_)?.face;
         let surface_a = self.faces.get(face_a)?.surface.as_ref()?;

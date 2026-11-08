@@ -211,7 +211,7 @@ pub fn model_from_step_file_with(
     )?;
     let names = bodies
         .iter()
-        .flat_map(|b| std::iter::repeat_n(b.name.clone(), b.brep.solids.len()));
+        .flat_map(|b| std::iter::repeat_n(b.name.clone(), b.brep.solid_regions().len()));
     for (solid, name) in model.solids.iter_mut().zip(names) {
         solid.name = Some(name);
     }

@@ -36,17 +36,60 @@ pub fn nary_boolean(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    // Bodies served as pieces with recorded contacts (PK-986): run split,
-    // keep the contacts they recorded, decline any new one.
-    use crate::postprocess::contact_inherit::{inherited_or_declined, run_policy};
-    if let Some(non_manifold) = run_policy(options.non_manifold, bodies) {
-        let split = BoolOptions { non_manifold };
-        let served = partition(bodies, tolerance).and_then(|p| p.select(expr, &split));
-        let body = or_fold(served, bodies, expr, tolerance, &split)?;
-        return inherited_or_declined(body, bodies, &tolerance);
+    let pieces = nary_pieces(bodies, expr, tolerance, options);
+    crate::split_serve::serve_one(pieces, options.non_manifold, &tolerance)
+}
+
+/// [`nary_boolean`] as a list of bodies: one body, except under
+/// `SplitToManifold` a result whose manifold pieces touch, each piece
+/// its own valid body (as [`crate::boolean_bodies`]).
+///
+/// # Errors
+///
+/// As [`nary_boolean`], never [`BoolError::SplitIntoBodies`].
+pub fn nary_boolean_bodies(
+    bodies: &[&BRep],
+    expr: &SetExpr,
+    tolerance: Tolerance,
+    options: &BoolOptions,
+) -> Result<Vec<BRep>, BoolError> {
+    let pieces = nary_pieces(bodies, expr, tolerance, options);
+    crate::split_serve::serve_bodies(pieces, options.non_manifold, &tolerance)
+}
+
+/// [`nary_boolean`] as the pipeline answers it: a non-manifold result
+/// as manifold pieces in one body under the split and general policies.
+fn nary_pieces(
+    bodies: &[&BRep],
+    expr: &SetExpr,
+    tolerance: Tolerance,
+    options: &BoolOptions,
+) -> Result<BRep, BoolError> {
+    let pieces = general_operands(bodies, options)?;
+    let bodies: Vec<&BRep> = match &pieces {
+        Some(pieces) => pieces.iter().collect(),
+        None => bodies.to_vec(),
+    };
+    let served = partition(&bodies, tolerance).and_then(|p| p.select_pieces(expr, options));
+    or_fold(served, &bodies, expr, tolerance, options)
+}
+
+/// Under the general policy, the bodies as manifold pieces (a general
+/// body taken apart); the entry point glues the result. `None`
+/// otherwise.
+fn general_operands(
+    bodies: &[&BRep],
+    options: &BoolOptions,
+) -> Result<Option<Vec<BRep>>, BoolError> {
+    if options.non_manifold != crate::options::NonManifoldPolicy::General {
+        return Ok(None);
     }
-    let served = partition(bodies, tolerance).and_then(|p| p.select(expr, options));
-    or_fold(served, bodies, expr, tolerance, options)
+    let pieces = bodies
+        .iter()
+        .enumerate()
+        .map(|(i, b)| crate::general::operand_pieces((*b).clone(), i))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Some(pieces))
 }
 
 /// The partition's answer, or on a decline the fold of `expr` by
@@ -88,13 +131,40 @@ pub fn nary_boolean_where(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    use crate::postprocess::contact_inherit::{inherited_or_declined, run_policy};
-    if let Some(non_manifold) = run_policy(options.non_manifold, bodies) {
-        let split = BoolOptions { non_manifold };
-        let body = nary_boolean_where_under(bodies, keep, tolerance, &split)?;
-        return inherited_or_declined(body, bodies, &tolerance);
-    }
-    nary_boolean_where_under(bodies, keep, tolerance, options)
+    let pieces = nary_where_pieces(bodies, keep, tolerance, options);
+    crate::split_serve::serve_one(pieces, options.non_manifold, &tolerance)
+}
+
+/// [`nary_boolean_where`] as a list of bodies (as
+/// [`nary_boolean_bodies`]).
+///
+/// # Errors
+///
+/// As [`nary_boolean_where`], never [`BoolError::SplitIntoBodies`].
+pub fn nary_boolean_where_bodies(
+    bodies: &[&BRep],
+    keep: impl Fn(&BodySet) -> bool,
+    tolerance: Tolerance,
+    options: &BoolOptions,
+) -> Result<Vec<BRep>, BoolError> {
+    let pieces = nary_where_pieces(bodies, keep, tolerance, options);
+    crate::split_serve::serve_bodies(pieces, options.non_manifold, &tolerance)
+}
+
+/// [`nary_boolean_where`] as the pipeline answers it (see
+/// [`nary_pieces`]).
+fn nary_where_pieces(
+    bodies: &[&BRep],
+    keep: impl Fn(&BodySet) -> bool,
+    tolerance: Tolerance,
+    options: &BoolOptions,
+) -> Result<BRep, BoolError> {
+    let pieces = general_operands(bodies, options)?;
+    let bodies: Vec<&BRep> = match &pieces {
+        Some(pieces) => pieces.iter().collect(),
+        None => bodies.to_vec(),
+    };
+    nary_boolean_where_under(&bodies, keep, tolerance, options)
 }
 
 fn nary_boolean_where_under(
@@ -103,13 +173,13 @@ fn nary_boolean_where_under(
     tolerance: Tolerance,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    let decline =
-        match decline_of(partition(bodies, tolerance).and_then(|p| p.select_where(&keep, options)))
-        {
-            Ok(body) => return Ok(body),
-            Err(Ok(answer)) => return Err(answer),
-            Err(Err(decline)) => decline,
-        };
+    let decline = match decline_of(
+        partition(bodies, tolerance).and_then(|p| p.select_where_pieces(&keep, options)),
+    ) {
+        Ok(body) => return Ok(body),
+        Err(Ok(answer)) => return Err(answer),
+        Err(Err(decline)) => decline,
+    };
     if bodies.len() > FALLBACK_COUNTING_LIMIT {
         return Err(decline);
     }
@@ -155,7 +225,7 @@ fn combine(
         (BoolOperation::Intersection, true, _) | (BoolOperation::Subtraction, true, _) => Ok(a),
         (BoolOperation::Intersection, _, true) => Ok(b),
         (BoolOperation::Subtraction, _, true) => Ok(a),
-        _ => crate::boolean_with_options(op, a, b, tolerance, None, options),
+        _ => crate::bool_api_core::boolean_under(op, a, b, tolerance, None, options.non_manifold),
     }
 }
 

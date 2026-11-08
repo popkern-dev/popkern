@@ -30,7 +30,7 @@ fn base_edge(brep: &BRep) -> EdgeHandle {
         .keys()
         .find(|&e| {
             let he = brep.edges[e].half_edge;
-            let twin = brep.half_edges[he].twin;
+            let twin = brep.half_edges[he].mate().unwrap_or_default();
             brep.loops[brep.half_edges[he].loop_].face
                 != brep.loops[brep.half_edges[twin].loop_].face
         })

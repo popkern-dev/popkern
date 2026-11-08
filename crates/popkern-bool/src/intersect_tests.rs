@@ -130,11 +130,13 @@ fn face_vertex_positions_missing_half_edge_returns_empty() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: None,
         name: None,
         tolerance: None,
@@ -161,11 +163,13 @@ fn face_aabb_sphere_surface_samples_grid() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Sphere {
                 center: Point3::new(0.0, 0.0, 0.0),
@@ -248,11 +252,13 @@ fn face_aabb_torus_surface_samples_grid() {
     let loop_h = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: popkern_core::topology::FaceHandle::default(),
+        vertex: None,
     });
     let face_h = brep.faces.insert(Face {
         outer_loop: loop_h,
         inner_loops: Vec::new(),
-        shell: ShellHandle::default(),
+        back: ShellHandle::default(),
+        front: ShellHandle::default(),
         surface: Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Torus {
                 center: Point3::new(0.0, 0.0, 0.0),

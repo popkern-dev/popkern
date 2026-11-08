@@ -25,7 +25,7 @@ pub(crate) fn edge_dissolve_keeps_cell_resolvable(
     let Some(he) = brep.half_edges.get(edge_data.half_edge) else {
         return true;
     };
-    let Some(twin) = brep.half_edges.get(he.twin) else {
+    let Some(twin) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
         return true;
     };
     let (Some(loop_a), Some(loop_b)) = (brep.loops.get(he.loop_), brep.loops.get(twin.loop_))

@@ -123,9 +123,9 @@ fn encroaching_subtraction_tessellation_within_budget() {
         .filter(|(_, d)| {
             let he = &cyl.half_edges[d.half_edge];
             let a = cyl.vertices[he.origin].position;
-            let b = cyl.vertices[cyl.half_edges[he.twin].origin].position;
+            let b = cyl.vertices[cyl.half_edges[he.mate().unwrap_or_default()].origin].position;
             let f1 = cyl.loops[he.loop_].face;
-            let f2 = cyl.loops[cyl.half_edges[he.twin].loop_].face;
+            let f2 = cyl.loops[cyl.half_edges[he.mate().unwrap_or_default()].loop_].face;
             f1 != f2 && (a.z - 2.0).abs() < 1e-9 && (b.z - 2.0).abs() < 1e-9
         })
         .map(|(e, _)| FilletSpec {

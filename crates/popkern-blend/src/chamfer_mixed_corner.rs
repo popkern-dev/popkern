@@ -219,7 +219,7 @@ fn failure_reason(failure: &BlendFailure) -> String {
 
 fn endpoints(brep: &BRep, edge: EdgeHandle) -> Option<(Point3, Point3)> {
     let he = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some((
         brep.vertices.get(he.origin)?.position,
         brep.vertices.get(twin.origin)?.position,
@@ -296,7 +296,7 @@ fn surface_distance(surface: &SurfaceGeometry, p: &Point3) -> Option<f64> {
 /// The two faces of `edge`.
 fn edge_faces(brep: &BRep, edge: EdgeHandle) -> Option<[FaceHandle; 2]> {
     let he = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
+    let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     Some([
         brep.loops.get(he.loop_)?.face,
         brep.loops.get(twin.loop_)?.face,

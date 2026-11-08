@@ -135,7 +135,7 @@ pub(super) fn classify_convexity(
         // The half-edge of THIS edge whose loop belongs to `face`.
         let edge_data = brep.edges.get(edge_handle)?;
         let he_a = edge_data.half_edge;
-        let he_b = brep.half_edges.get(he_a)?.twin;
+        let he_b = brep.half_edges.get(he_a)?.mate()?;
         let mut he_face = None;
         for cand in [he_a, he_b] {
             let d = brep.half_edges.get(cand)?;
@@ -163,7 +163,7 @@ pub(super) fn classify_convexity(
             let origin = brep.vertices.get(d.origin)?.position;
             let dest = brep
                 .vertices
-                .get(brep.half_edges.get(d.twin)?.origin)?
+                .get(d.mate().and_then(|m| brep.half_edges.get(m))?.origin)?
                 .position;
             let along = dest - origin;
             if along.dot(&tangent) < 0.0 {
@@ -218,7 +218,7 @@ pub(super) fn classify_convexity(
         let origin = brep.vertices.get(d.origin)?.position;
         let dest = brep
             .vertices
-            .get(brep.half_edges.get(d.twin)?.origin)?
+            .get(d.mate().and_then(|m| brep.half_edges.get(m))?.origin)?
             .position;
         let uv0 = pcurve.point_at(t0);
         let q0 = surface.point_at(uv0.x, uv0.y);

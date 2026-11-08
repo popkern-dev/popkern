@@ -136,7 +136,9 @@ pub(super) fn author_boundary_owned_seam_pcurves(
             }
             continue;
         };
-        let twin = brep.half_edges[he].twin;
+        let Some(twin) = brep.half_edges[he].mate() else {
+            continue;
+        };
         let edge = brep.half_edges[he].edge;
         let curve = orient_curve_to_canonical_edge(brep, edge, curve);
         let commit_result = commit_shared_trim_edge_transactionally(
@@ -231,9 +233,9 @@ fn record_boundary_owned_audit(brep: &mut BRep, input: BoundaryOwnedAuditInput) 
         .loops
         .get(half_edge_data.loop_)
         .map(|loop_data| loop_data.face);
-    let twin_face = brep
-        .half_edges
-        .get(half_edge_data.twin)
+    let twin_face = half_edge_data
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
         .and_then(|twin| brep.loops.get(twin.loop_))
         .map(|loop_data| loop_data.face);
     brep.record_surface_boundary_audit_event(SurfaceBoundaryAuditEvent {
@@ -420,8 +422,10 @@ fn gregory_cap_cylinder_boundary_hint_count(brep: &BRep) -> usize {
         let mut cursor = start;
         for _ in 0..=brep.half_edges.len() {
             let half_edge = &brep.half_edges[cursor];
-            let twin_face = brep.loops[brep.half_edges[half_edge.twin].loop_].face;
-            if face_has_cylinder_surface(brep, twin_face)
+            let twin_face = half_edge
+                .mate()
+                .map(|m| brep.loops[brep.half_edges[m].loop_].face);
+            if twin_face.is_some_and(|f| face_has_cylinder_surface(brep, f))
                 && brep.surface_boundary_hint(cursor).is_some()
             {
                 hinted += 1;
@@ -455,7 +459,7 @@ fn subface_half_edge_candidates_for_boundary_segment(
         let Some(he) = brep.half_edges.get(cursor) else {
             break;
         };
-        let Some(twin_half_edge) = brep.half_edges.get(he.twin) else {
+        let Some(twin_half_edge) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             break;
         };
         let Some(twin_loop) = brep.loops.get(twin_half_edge.loop_) else {

@@ -50,7 +50,7 @@ pub(crate) fn remove_self_twin_stubs_in(
         .half_edges
         .iter()
         .filter(|(h, he)| {
-            he.twin == *h
+            he.mate() == Some(*h)
                 && brep
                     .loops
                     .get(he.loop_)

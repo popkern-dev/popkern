@@ -192,6 +192,13 @@ pub(crate) fn shell_impl(
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
     naming_sink: Option<&mut ShellProvenance>,
 ) -> Result<ShellResult, ShellError> {
+    brep.require_kind(
+        "shell",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {
@@ -321,6 +328,9 @@ pub(crate) fn shell_impl(
     let t0 = popkern_core::time::Stopwatch::start();
     let (mut result, assembly_maps) =
         assemble::assemble_shell_with_maps(brep, &inner, &all_removed, &skin_map, tolerance)?;
+    if matches!(direction, ShellDirection::Outward) {
+        assemble::outward_shell_out_of_material(&mut result, &assembly_maps);
+    }
     tracker.finish_stage("shell.assemble", t0, result.faces.len());
 
     // Exact face provenance for stable naming (PK-328): handles are
@@ -428,7 +438,7 @@ pub(crate) fn shell_impl(
             for (eh, edge) in &result.edges {
                 let ends = {
                     let he = &result.half_edges[edge.half_edge];
-                    let tw = &result.half_edges[he.twin];
+                    let tw = &result.half_edges[he.require_mate()?];
                     (
                         result.vertices[he.origin].position,
                         result.vertices[tw.origin].position,

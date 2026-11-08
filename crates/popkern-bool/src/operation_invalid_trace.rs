@@ -45,7 +45,7 @@ pub(crate) fn trace_invalid_result(result: &popkern_core::topology::BRep) {
             .and_then(|h| result.vertices.get(h.origin))
             .map(|v| v.position);
         let v1 = he
-            .and_then(|h| result.half_edges.get(h.twin))
+            .and_then(|h| h.mate().and_then(|m| result.half_edges.get(m)))
             .and_then(|t| result.vertices.get(t.origin))
             .map(|v| v.position);
         eprintln!(

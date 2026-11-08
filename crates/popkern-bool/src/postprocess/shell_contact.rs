@@ -220,13 +220,13 @@ pub(crate) fn shell_contacts(brep: &BRep, tolerance: &Tolerance) -> Vec<NonManif
 /// the pair touches (one finding per pair: a contact record must name
 /// every pair it excuses).
 pub(crate) fn shell_findings(brep: &BRep, tolerance: &Tolerance) -> Vec<ShellFinding> {
-    if brep.shells.len() < 2 {
+    if brep.back_shell_count() < 2 {
         return Vec::new();
     }
     let linear = tolerance.linear();
     let mut faces: Vec<(FaceHandle, Aabb)> = crate::intersect::compute_face_aabbs(brep);
     faces.sort_by_key(|(f, _)| *f);
-    let shell = |f: FaceHandle| brep.faces.get(f).map(|face| face.shell);
+    let shell = |f: FaceHandle| brep.faces.get(f).map(|face| face.back);
     let mut out: Vec<ShellFinding> = Vec::new();
     for (i, (f, box_f)) in faces.iter().enumerate() {
         for (g, box_g) in &faces[i + 1..] {

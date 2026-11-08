@@ -283,7 +283,7 @@ pub fn repair_brep_boundary_edges_transactionally(
         report.loop_shell = Some(diagnostics);
     }
 
-    report.final_boundary_edges = Some(repaired.boundary_edges.len());
+    report.final_boundary_edges = Some(repaired.free_edges().len());
     Ok(BrepRepairPipelineResult {
         brep: repaired,
         report,

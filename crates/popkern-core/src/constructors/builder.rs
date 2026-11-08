@@ -6,6 +6,7 @@
 use crate::error::CoreError;
 use crate::geometry::point::Point3;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::*;
 
 /// Builder for constructing BRep topology directly (without Euler operators).
@@ -15,6 +16,8 @@ use crate::topology::*;
 /// to validate and consume the builder.
 pub struct BRepBuilder {
     pub(crate) brep: BRep,
+    /// The sides each shell made here gives its faces.
+    sides: std::collections::HashMap<ShellHandle, FaceSides>,
 }
 
 impl BRepBuilder {
@@ -22,6 +25,7 @@ impl BRepBuilder {
     pub fn new(tolerance: Tolerance) -> Self {
         Self {
             brep: BRep::new(tolerance),
+            sides: std::collections::HashMap::new(),
         }
     }
 
@@ -35,21 +39,32 @@ impl BRepBuilder {
         })
     }
 
-    /// Insert an empty solid and return its handle.
-    pub fn add_solid(&mut self) -> SolidHandle {
-        self.brep.solids.insert(Solid {
+    /// Insert an empty solid region and return its handle.
+    pub fn add_solid(&mut self) -> RegionHandle {
+        self.brep.regions.insert(Region {
+            kind: RegionKind::Solid,
             shell: ShellHandle::default(),
         })
     }
 
-    /// Insert a shell belonging to the given solid.
-    pub fn add_shell(&mut self, solid: SolidHandle) -> ShellHandle {
-        let sh = self.brep.shells.insert(Shell {
-            face: FaceHandle::default(),
-            solid,
-        });
-        self.brep.solids[solid].shell = sh;
-        sh
+    /// Insert a shell bounding the given region
+    /// ([`BRep::add_region_shell`]): a solid's first shell is its outer
+    /// shell, later ones bound cavities. A shell that turns out open (a
+    /// sheet) moves to the outside when the body is built.
+    pub fn add_shell(&mut self, region: RegionHandle) -> ShellHandle {
+        let sides = self.brep.add_region_shell(region, FaceHandle::default());
+        self.sides.insert(sides.back, sides);
+        sides.back
+    }
+
+    /// The sides a face of `shell` takes: those the shell was made with
+    /// here, else read off a face already in it, else both in `shell`.
+    pub fn shell_sides(&self, shell: ShellHandle) -> FaceSides {
+        self.sides
+            .get(&shell)
+            .copied()
+            .or_else(|| self.brep.sides_beside(shell))
+            .unwrap_or(FaceSides::both(shell))
     }
 
     /// Insert an edge between two vertices, creating a twin half-edge pair.
@@ -75,7 +90,7 @@ impl BRepBuilder {
 
         let he1 = self.brep.half_edges.insert(HalfEdge {
             origin: v1,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: edge_handle,
@@ -85,7 +100,7 @@ impl BRepBuilder {
 
         let he2 = self.brep.half_edges.insert(HalfEdge {
             origin: v2,
-            twin: he1,
+            ring: RadialLinks::pair(he1),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: edge_handle,
@@ -93,7 +108,7 @@ impl BRepBuilder {
             pcurve: None,
         });
 
-        self.brep.half_edges[he1].twin = he2;
+        self.brep.half_edges[he1].set_mate(he2);
         self.brep.edges[edge_handle].half_edge = he1;
         if self.brep.vertices[v1].outgoing == HalfEdgeHandle::default() {
             self.brep.vertices[v1].outgoing = he1;
@@ -109,17 +124,21 @@ impl BRepBuilder {
     ///
     /// The face has no loops yet. Add them with `add_loop` and `add_inner_loop`.
     pub fn add_face(&mut self, shell: ShellHandle) -> FaceHandle {
+        let sides = self.shell_sides(shell);
         let fh = self.brep.faces.insert(Face {
             outer_loop: LoopHandle::default(),
             inner_loops: Vec::new(),
-            shell,
+            back: sides.back,
+            front: sides.front,
             surface: None,
             name: None,
             tolerance: None,
             role: Default::default(),
         });
-        if self.brep.shells[shell].face == FaceHandle::default() {
-            self.brep.shells[shell].face = fh;
+        for side in [sides.back, sides.front] {
+            if self.brep.shell_anchor(side).is_none() {
+                self.brep.set_shell_anchor(side, fh);
+            }
         }
         fh
     }
@@ -142,6 +161,7 @@ impl BRepBuilder {
         let lh = self.brep.loops.insert(Loop {
             half_edge: half_edges[0],
             face,
+            vertex: None,
         });
 
         let n = half_edges.len();
@@ -179,6 +199,7 @@ impl BRepBuilder {
         let lh = self.brep.loops.insert(Loop {
             half_edge: half_edges[0],
             face,
+            vertex: None,
         });
 
         let n = half_edges.len();
@@ -199,18 +220,25 @@ impl BRepBuilder {
 impl BRepBuilder {
     /// Consume the builder, validate the topology, and return the BRep.
     ///
-    /// Runs the full validation suite. Returns `CoreError::Validation`
-    /// if any check fails.
+    /// Open shells are settled as sheets ([`BRep::settle_open_shells`])
+    /// and wire edges into shells of the outside
+    /// ([`BRep::settle_wire_edges`]), then the full validation suite
+    /// runs. Returns
+    /// `CoreError::Validation` if any check fails.
     pub fn build(self) -> Result<BRep, CoreError> {
-        self.brep.validate().map_err(CoreError::from)?;
-        Ok(self.brep)
+        let brep = self.build_unchecked();
+        brep.validate().map_err(CoreError::from)?;
+        Ok(brep)
     }
 
     /// Consume the builder without validation.
     ///
     /// Use when you want to run validation yourself (e.g., with `validate_all()`
     /// to collect all errors instead of failing on the first).
-    pub fn build_unchecked(self) -> BRep {
+    /// Open shells and wire edges are still settled.
+    pub fn build_unchecked(mut self) -> BRep {
+        self.brep.settle_open_shells();
+        self.brep.settle_wire_edges();
         self.brep
     }
 
@@ -245,8 +273,8 @@ mod tests {
         let mut b = BRepBuilder::new(Tolerance::default());
         let solid = b.add_solid();
         let shell = b.add_shell(solid);
-        assert_eq!(b.brep.solids[solid].shell, shell);
-        assert_eq!(b.brep.shells[shell].solid, solid);
+        assert_eq!(b.brep.regions[solid].shell, shell);
+        assert_eq!(b.brep.shells[shell].region, solid);
     }
 
     #[test]
@@ -255,8 +283,8 @@ mod tests {
         let v1 = b.add_vertex(Point3::new(0.0, 0.0, 0.0));
         let v2 = b.add_vertex(Point3::new(1.0, 0.0, 0.0));
         let (edge, he1, he2) = b.add_edge(v1, v2);
-        assert_eq!(b.brep.half_edges[he1].twin, he2);
-        assert_eq!(b.brep.half_edges[he2].twin, he1);
+        assert_eq!(b.brep.half_edges[he1].mate().unwrap_or_default(), he2);
+        assert_eq!(b.brep.half_edges[he2].mate().unwrap_or_default(), he1);
         assert_eq!(b.brep.half_edges[he1].origin, v1);
         assert_eq!(b.brep.half_edges[he2].origin, v2);
         assert_eq!(b.brep.half_edges[he1].edge, edge);
@@ -290,7 +318,7 @@ mod tests {
         assert_eq!(b.brep.loops[loop_h].half_edge, he01);
         assert_eq!(b.brep.loops[loop_h].face, face);
         assert_eq!(b.brep.faces[face].outer_loop, loop_h);
-        assert_eq!(b.brep.faces[face].shell, shell);
+        assert_eq!(b.brep.faces[face].back, shell);
     }
 
     #[test]
@@ -386,6 +414,6 @@ mod tests {
         assert_eq!(brep.vertices.len(), 8);
         assert_eq!(brep.edges.len(), 12);
         assert_eq!(brep.faces.len(), 6);
-        assert_eq!(brep.solids.len(), 1);
+        assert_eq!(brep.solid_regions().len(), 1);
     }
 }

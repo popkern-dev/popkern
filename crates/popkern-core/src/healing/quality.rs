@@ -198,7 +198,7 @@ fn measure_max_position_gap(brep: &BRep) -> f64 {
         let Some(he1) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(he2) = brep.half_edges.get(he1.twin) else {
+        let Some(he2) = he1.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
 
@@ -239,7 +239,7 @@ fn measure_max_normal_angle(brep: &BRep) -> f64 {
         let Some(he1) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(he2) = brep.half_edges.get(he1.twin) else {
+        let Some(he2) = he1.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
 
@@ -266,10 +266,13 @@ fn measure_max_normal_angle(brep: &BRep) -> f64 {
         let Some(ref surf2) = face2.surface else {
             continue;
         };
+        let Some(mate) = he1.mate() else {
+            continue;
+        };
 
         // Get UV coordinates at the edge midpoint via pcurves or fallback.
         let (u1, v1) = uv_from_pcurve_or_center(brep, edge.half_edge, surf1);
-        let (u2, v2) = uv_from_pcurve_or_center(brep, he1.twin, surf2);
+        let (u2, v2) = uv_from_pcurve_or_center(brep, mate, surf2);
         let _ = curve; // suppress unused warning
 
         let n1 = surf1.geometry.normal_at(u1, v1);
@@ -335,7 +338,7 @@ fn measure_min_edge_length(brep: &BRep) -> f64 {
             let Some(he1) = brep.half_edges.get(edge.half_edge) else {
                 continue;
             };
-            let Some(he2) = brep.half_edges.get(he1.twin) else {
+            let Some(he2) = he1.mate().and_then(|m| brep.half_edges.get(m)) else {
                 continue;
             };
             let Some(v1) = brep.vertices.get(he1.origin) else {

@@ -216,7 +216,7 @@ fn edge_faces(
 ) -> Option<(FaceHandle, FaceHandle)> {
     let he = brep.edges.get(edge)?.half_edge;
     let hed = brep.half_edges.get(he)?;
-    let twin = brep.half_edges.get(hed.twin)?;
+    let twin = hed.mate().and_then(|m| brep.half_edges.get(m))?;
     let f1 = brep.loops.get(hed.loop_)?.face;
     let f2 = brep.loops.get(twin.loop_)?.face;
     Some((f1, f2))

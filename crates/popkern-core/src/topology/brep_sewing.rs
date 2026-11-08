@@ -121,6 +121,13 @@ pub enum BrepSewingDeclineReason {
         /// Local sewing tolerance.
         tolerance: f64,
     },
+    /// Non-manifold sewing: gluing the pair into one ring declined (the
+    /// curves part, the ring's radial order is undecided, a wedge would
+    /// lie between two regions).
+    GlueDeclined {
+        /// The glue operator's decline.
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -161,14 +168,34 @@ pub fn sew_clean_boundary_edge_pairs(
         accepted_pairs: 0,
         declined_pairs: Vec::new(),
         accepted_pair_edges: Vec::new(),
-        remaining_boundary_edges: candidate.boundary_edges.len(),
+        remaining_boundary_edges: candidate.free_edges().len(),
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,
         shared_fact_ids: Vec::new(),
     };
 
+    // Non-manifold sewing glues each pair into one ring in radial order
+    // (an edge may already be joined: a third face onto a sewn edge).
+    let mut alias: std::collections::BTreeMap<EdgeHandle, EdgeHandle> = Default::default();
     for pair in pairs {
         let shared_fact_ids = sewing_pair_fact_ids(&knowledge, brep, pair);
+        if options.allow_nonmanifold_edges {
+            match super::brep_sewing_glue::glue_pair(&mut candidate, pair, options, &mut alias) {
+                Ok(gap) => {
+                    report.max_endpoint_gap = report.max_endpoint_gap.max(gap);
+                    report.accepted_pairs += 1;
+                    report.accepted_pair_edges.push((pair.first, pair.second));
+                }
+                Err(reason) => report.declined_pairs.push(BrepSewingDecline {
+                    pair: pair.clone(),
+                    reason,
+                    policy: None,
+                    shared_fact_ids: shared_fact_ids.clone(),
+                }),
+            }
+            report.shared_fact_ids.extend(shared_fact_ids);
+            continue;
+        }
         match assess_pair(&candidate, pair, options, &used) {
             Ok(assessment) => {
                 report.max_endpoint_gap = report.max_endpoint_gap.max(assessment.endpoint_gap);
@@ -200,7 +227,7 @@ pub fn sew_clean_boundary_edge_pairs(
     }
 
     repair_vertex_outgoing(&mut candidate);
-    report.remaining_boundary_edges = candidate.boundary_edges.len();
+    report.remaining_boundary_edges = candidate.free_edges().len();
     report.shared_fact_ids.sort();
     report.shared_fact_ids.dedup();
     if options.validate_output
@@ -223,7 +250,7 @@ fn empty_report(brep: &BRep, pairs: &[BrepSewingEdgePair]) -> BrepSewingReport {
         accepted_pairs: 0,
         declined_pairs: Vec::new(),
         accepted_pair_edges: Vec::new(),
-        remaining_boundary_edges: brep.boundary_edges.len(),
+        remaining_boundary_edges: brep.free_edges().len(),
         max_endpoint_gap: 0.0,
         max_surface_gap: 0.0,
         shared_fact_ids: Vec::new(),
@@ -369,7 +396,7 @@ fn sample_edge_on_face(brep: &BRep, edge: EdgeHandle, samples: usize) -> Option<
     Some(points)
 }
 
-fn reversed_endpoint_gap(a: (Point3, Point3), b: (Point3, Point3)) -> f64 {
+pub(super) fn reversed_endpoint_gap(a: (Point3, Point3), b: (Point3, Point3)) -> f64 {
     a.0.distance_to(&b.1).max(a.1.distance_to(&b.0))
 }
 
@@ -383,11 +410,9 @@ fn weld_boundary_pair(brep: &mut BRep, edge_a: EdgeHandle, edge_b: EdgeHandle) {
 
     replace_vertex(brep, b_start, a_end);
     replace_vertex(brep, b_end, a_start);
-    brep.half_edges[he_a].twin = he_b;
-    brep.half_edges[he_b].twin = he_a;
+    brep.half_edges[he_a].set_mate(he_b);
+    brep.half_edges[he_b].set_mate(he_a);
     brep.half_edges[he_b].edge = edge_a;
-    brep.boundary_edges.remove(&edge_a);
-    brep.boundary_edges.remove(&edge_b);
     brep.edges.remove(edge_b);
 }
 

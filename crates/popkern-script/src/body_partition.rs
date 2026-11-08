@@ -199,8 +199,8 @@ impl Body {
 
     /// The material in exactly one of this body and `tool` (consumed).
     /// Where the two boundaries cross, the two sides' pieces meet along
-    /// the crossing curves with zero thickness: they are served as
-    /// manifold pieces with recorded contacts.
+    /// the crossing curves with zero thickness: they are served split,
+    /// as the body's solids (`SeparatePieces` takes them apart).
     ///
     /// # Errors
     ///

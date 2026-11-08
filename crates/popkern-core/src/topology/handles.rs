@@ -18,6 +18,6 @@ new_key_type! {
     pub struct FaceHandle;
     /// Handle to a shell in a BRep.
     pub struct ShellHandle;
-    /// Handle to a solid in a BRep.
-    pub struct SolidHandle;
+    /// Handle to a region (a solid or void 3-cell of space) in a BRep.
+    pub struct RegionHandle;
 }

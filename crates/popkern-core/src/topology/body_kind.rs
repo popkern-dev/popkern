@@ -1,39 +1,59 @@
-//! What kind of body a `BRep` is: solid, sheet, wire, a mix, or empty.
+//! What kind of body a `BRep` is: empty, an acorn, a wire, a sheet, a
+//! solid, or general.
 //!
-//! Commercial kernels type their bodies and every operation declares
-//! the kinds it accepts (plan D4): a boolean of solids refuses a sheet
-//! with a structured error instead of classifying volume it does not
-//! bound. The kind is decided from topology alone, per lump (shell):
+//! One body type holds everything (PK-1101): a body is regions of
+//! space, the shells bounding them and the faces, wire edges and
+//! isolated vertices those hold. Its kind is read off that structure,
+//! cached nowhere, and every operation declares the kinds it accepts
+//! ([`BRep::require_kind`]), refusing others with a structured error
+//! instead of computing on a body it does not understand:
 //!
-//! - an edge is **free** when one face holds both its half-edges and
-//!   that face's surface is not closed across the edge (a sheet's open
-//!   boundary is stored that way; a cylinder's seam is not free);
-//! - an edge on no face is a **wire** edge;
-//! - a shell with a free edge is a sheet, one without is closed.
+//! - **Empty**: no faces, edges or vertices.
+//! - **Acorn**: isolated vertices only.
+//! - **Wire**: edges on no face, no vertex ending more than two of
+//!   them.
+//! - **Sheet**: faces holding the void on both sides, no edge with
+//!   more than two face uses, one fan of faces at each vertex, no wire
+//!   edges or acorns.
+//! - **Solid**: faces each with solid on one side and void on the
+//!   other, every edge with exactly two face uses, one fan at each
+//!   vertex, no wire edges or acorns.
+//! - **General**: anything else: non-manifold edges or vertices,
+//!   internal faces (solid both sides), sheets in or on a solid, lumps
+//!   of different kinds, branching wires, a solid opened mid-edit.
 //!
-//! "Closed" is topological: a closed shell is reported `Solid` without
-//! measuring the volume it bounds.
+//! An edge is **free** when its radial ring holds one face use (a
+//! sheet's open boundary; older producers that store it as two uses of
+//! one face in two of its loops, the face not closed across the edge,
+//! also read free; two uses in one loop are not free, the face lying on
+//! both sides: a cylinder's seam, a keyhole bridge, a slit). A shell
+//! with a free edge is open, one without closed; "closed" is
+//! topological, and a closed solid is not measured for the volume it
+//! bounds (validation checks that).
 
 use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::{BRep, EdgeHandle, ShellHandle};
+use super::{BRep, EdgeHandle, HalfEdgeHandle, RegionKind, ShellHandle};
+use crate::error::CoreError;
 
-/// The kind of body a `BRep` is.
+/// The kind of body a `BRep` is (see the module docs).
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BodyKind {
-    /// No faces and no edges.
+    /// No faces, edges or vertices.
     Empty,
-    /// Every shell closed.
-    Solid,
-    /// Faces only, at least one shell open (free edges).
-    Sheet,
-    /// Edges on no face, and no faces.
+    /// Isolated vertices only.
+    Acorn,
+    /// Edges on no face, none branching.
     Wire,
-    /// More than one of the kinds above among its lumps.
-    Mixed,
+    /// Faces with the void on both sides, manifold.
+    Sheet,
+    /// Faces each between solid and void, closed and manifold.
+    Solid,
+    /// Anything else: non-manifold, internal faces, mixed lumps.
+    General,
 }
 
 impl BodyKind {
@@ -41,11 +61,18 @@ impl BodyKind {
     pub fn label(self) -> &'static str {
         match self {
             BodyKind::Empty => "empty body",
-            BodyKind::Solid => "solid",
-            BodyKind::Sheet => "sheet",
+            BodyKind::Acorn => "acorn",
             BodyKind::Wire => "wire",
-            BodyKind::Mixed => "mixed body",
+            BodyKind::Sheet => "sheet",
+            BodyKind::Solid => "solid",
+            BodyKind::General => "general body",
         }
+    }
+
+    /// "solids", "solids or sheets": a list of kinds for messages.
+    pub fn list_label(kinds: &[BodyKind]) -> String {
+        let names: Vec<String> = kinds.iter().map(|k| format!("{}s", k.label())).collect();
+        names.join(" or ")
     }
 }
 
@@ -65,67 +92,162 @@ impl BRep {
     pub fn body_kind(&self) -> BodyKind {
         if self.faces.is_empty() {
             return if self.edges.is_empty() {
-                BodyKind::Empty
+                if self.vertices.is_empty() {
+                    BodyKind::Empty
+                } else {
+                    BodyKind::Acorn
+                }
             } else {
-                BodyKind::Wire
+                self.wire_kind()
             };
         }
-        let mut open: BTreeSet<ShellHandle> = BTreeSet::new();
-        let mut wire = false;
-        for (eh, _) in &self.edges {
-            match self.edge_use(eh) {
-                EdgeUse::Bounded => {}
-                EdgeUse::Wire => wire = true,
-                EdgeUse::Free => {
-                    if let Some(shell) = self.edge_shell(eh) {
-                        open.insert(shell);
-                    }
-                }
+        let mut solid_void = true;
+        let mut void_void = true;
+        for face in self.faces.values() {
+            let solid = |shell| {
+                self.shell_region(shell)
+                    .and_then(|r| self.region_kind(r))
+                    .map(|k| k == RegionKind::Solid)
+            };
+            match (solid(face.back), solid(face.front)) {
+                (Some(false), Some(false)) => solid_void = false,
+                (Some(a), Some(b)) if a != b => void_void = false,
+                _ => return BodyKind::General,
             }
         }
-        let shells: BTreeSet<ShellHandle> = self.faces.values().map(|f| f.shell).collect();
-        let sheet = !open.is_empty();
-        let solid = shells.iter().any(|s| !open.contains(s));
-        match (solid, sheet, wire) {
-            (true, false, false) => BodyKind::Solid,
-            (false, true, false) => BodyKind::Sheet,
-            _ => BodyKind::Mixed,
+        let mut rings_of_two = true;
+        for edge in self.edges.keys() {
+            let ring = self.ring_summary(edge);
+            match self.ring_use(&ring) {
+                EdgeUse::Wire => return BodyKind::General,
+                EdgeUse::Free => rings_of_two = false,
+                EdgeUse::Bounded if ring.count > 2 => return BodyKind::General,
+                EdgeUse::Bounded => {}
+            }
+        }
+        if self.shells.values().any(|s| s.acorn.is_some()) || !self.one_fan_per_vertex() {
+            return BodyKind::General;
+        }
+        match (solid_void, void_void, rings_of_two) {
+            (true, false, true) => BodyKind::Solid,
+            (false, true, _) => BodyKind::Sheet,
+            _ => BodyKind::General,
         }
     }
 
-    /// Whether `edge` is a free (open boundary) edge: recorded in
-    /// `boundary_edges`, or one face holds both its half-edges and that
-    /// face's surface is not closed across it. An edge with a missing
-    /// half-edge, twin or loop counts as free when it has a face, so a
-    /// broken body never reads as closed.
+    /// A body of edges and no faces: a wire when every edge is a wire
+    /// edge, no vertex ends more than two and none is an acorn.
+    fn wire_kind(&self) -> BodyKind {
+        if self.shells.values().any(|s| s.acorn.is_some()) {
+            return BodyKind::General;
+        }
+        let mut ends: std::collections::HashMap<super::VertexHandle, usize> =
+            std::collections::HashMap::new();
+        for edge in self.edges.keys() {
+            if self.edge_use(edge) != EdgeUse::Wire {
+                return BodyKind::General;
+            }
+            if let Some((a, b)) = self.edge_vertices(edge) {
+                *ends.entry(a).or_default() += 1;
+                *ends.entry(b).or_default() += 1;
+            }
+        }
+        if ends.values().all(|&n| n <= 2) {
+            BodyKind::Wire
+        } else {
+            BodyKind::General
+        }
+    }
+
+    /// The gate at an operation's entry: this body's kind when it is one
+    /// of `accepted`.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::UnsupportedBodyKind`] naming the operation, the kind
+    /// found and the kinds accepted.
+    pub fn require_kind(
+        &self,
+        operation: &'static str,
+        accepted: &'static [BodyKind],
+    ) -> Result<BodyKind, CoreError> {
+        let found = self.body_kind();
+        if accepted.contains(&found) {
+            Ok(found)
+        } else {
+            Err(CoreError::UnsupportedBodyKind {
+                operation,
+                found,
+                accepted,
+            })
+        }
+    }
+
+    /// The shells with a free edge on one of their faces: a sheet's
+    /// shells, open where a solid's would close.
+    pub(crate) fn open_shells(&self) -> BTreeSet<ShellHandle> {
+        self.edges
+            .keys()
+            .filter(|&e| self.edge_use(e) == EdgeUse::Free)
+            .filter_map(|e| self.edge_shell(e))
+            .collect()
+    }
+
+    /// Whether `edge` is a free (open boundary) edge: its fin is alone
+    /// on it, a ring of one (null ring links). An edge whose fin has a
+    /// mate is not free even while the mate is in no loop yet (a fin
+    /// being wired, a wire edge's half-edge pair); a seam (two uses of
+    /// one periodic face) is not free.
     pub fn is_free_edge(&self, edge: EdgeHandle) -> bool {
-        self.edge_use(edge) == EdgeUse::Free
+        use slotmap::Key;
+        self.edges
+            .get(edge)
+            .and_then(|e| self.half_edges.get(e.half_edge))
+            .is_some_and(|fin| fin.ring.next.is_null() && fin.ring.prev.is_null())
+    }
+
+    /// Whether the body has any free edge (an open sheet boundary).
+    pub fn has_free_edges(&self) -> bool {
+        self.edges.keys().any(|e| self.is_free_edge(e))
     }
 
     fn edge_use(&self, edge: EdgeHandle) -> EdgeUse {
-        let Some(e) = self.edges.get(edge) else {
-            return EdgeUse::Free;
-        };
-        // A recorded boundary edge is free whatever pairs its
-        // half-edges: on a periodic face, an open edge whose twin the
-        // face also holds would otherwise read as the seam.
-        if self.boundary_edges.contains(&edge) {
-            return EdgeUse::Free;
+        self.ring_use(&self.ring_summary(edge))
+    }
+
+    /// How `edge` sits in its body, from its ring summary.
+    fn ring_use(&self, ring: &super::body_kind_reads::RingSummary) -> EdgeUse {
+        if ring.present && ring.count == 0 {
+            return EdgeUse::Wire;
         }
-        let face_of = |he| {
-            self.half_edges
-                .get(he)
-                .and_then(|h| self.loops.get(h.loop_))
-                .map(|l| l.face)
-        };
-        let Some(he) = self.half_edges.get(e.half_edge) else {
-            return EdgeUse::Free;
-        };
-        match (face_of(e.half_edge), face_of(he.twin)) {
-            (None, None) => EdgeUse::Wire,
-            (Some(a), Some(b)) if a != b => EdgeUse::Bounded,
-            (Some(a), Some(_)) if self.face_closed_across_seam(a) => EdgeUse::Bounded,
-            _ => EdgeUse::Free,
+        match ring.count {
+            // A missing half-edge reads as free so a broken body never
+            // reads as closed.
+            0 | 1 => EdgeUse::Free,
+            // Two uses of one face in two of its loops, the face not
+            // closing across the edge: the older mirrored sheet
+            // boundary (a face's own loop and a mirror of it). Two uses
+            // in ONE loop have the face on both sides: a bridge the
+            // loop crosses twice (a keyhole joining an annulus's rims,
+            // a seam) or a spur the loop runs out and back along (a
+            // slit a sheet leaves dangling in a solid's face, mvfs +
+            // mev's edge), neither of which opens the shell.
+            2 => {
+                // `is_mirrored_boundary_edge`, read off the two fins.
+                let place = |h: HalfEdgeHandle| {
+                    let loop_ = self.half_edges.get(h)?.loop_;
+                    Some((loop_, self.loops.get(loop_)?.face))
+                };
+                match (place(ring.fins[0]), place(ring.fins[1])) {
+                    (Some((la, fa)), Some((lb, fb)))
+                        if la != lb && fa == fb && !self.face_closed_across_seam(fa) =>
+                    {
+                        EdgeUse::Free
+                    }
+                    _ => EdgeUse::Bounded,
+                }
+            }
+            _ => EdgeUse::Bounded,
         }
     }
 
@@ -133,7 +255,7 @@ impl BRep {
         let e = self.edges.get(edge)?;
         let h = self.half_edges.get(e.half_edge)?;
         let l = self.loops.get(h.loop_)?;
-        self.faces.get(l.face).map(|f| f.shell)
+        self.faces.get(l.face).map(|f| f.back)
     }
 
     /// Whether `face`'s surface closes on itself, so an edge holding the

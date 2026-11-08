@@ -11,30 +11,32 @@ pub mod half_edge;
 pub mod handles;
 /// Loop topology entity.
 pub mod loop_;
+/// Region topology entity: a solid or void 3-cell of space.
+pub mod region;
 /// Semantic ownership role for topology entities.
 pub mod role;
 /// Shell topology entity.
 pub mod shell;
-/// Solid topology entity.
-pub mod solid;
 /// Vertex topology entity.
 pub mod vertex;
 
 pub use edge::{CanonicalForm, Edge};
 pub use face::Face;
-pub use half_edge::HalfEdge;
+pub use half_edge::{HalfEdge, RadialLinks};
 pub use handles::*;
 pub use loop_::Loop;
+pub use region::{Region, RegionKind};
 pub use role::TopologyRole;
 pub use shell::Shell;
-pub use solid::Solid;
 pub use vertex::Vertex;
 
 pub mod body_kind;
+pub(crate) mod body_kind_reads;
 pub mod brep;
 pub use body_kind::BodyKind;
 pub use brep::BRep;
 pub mod contact;
+mod contact_query;
 pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
 pub use contact::{ContactEntity, TopologyContact, TopologyContactKind};
 pub mod coherence;
@@ -52,8 +54,24 @@ pub use surface_boundary_audit::{
     SurfaceBoundarySharedTrimValidation,
 };
 
+/// Appending one body to another.
+mod brep_append;
 /// Non-manifold radial-cycle helpers for [`BRep`].
 mod brep_radial;
+mod brep_sewing_glue;
+pub mod radial_order;
+pub use radial_order::RadialOrderError;
+/// Regions, shells and face sides for [`BRep`].
+mod brep_regions;
+pub use brep_regions::FaceSides;
+mod brep_region_derive;
+mod brep_wedges;
+mod brep_wires;
+pub use brep_wedges::{FaceSide, Wedge};
+pub use brep_wires::VertexUse;
+mod brep_region_edits;
+mod brep_stored;
+pub use brep_append::AppendMap;
 
 /// Non-manifold repair policy and user-facing explanations.
 pub mod brep_nonmanifold_policy;

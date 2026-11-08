@@ -131,7 +131,7 @@ pub(super) fn outgoing(brep: &BRep, vertex: VertexHandle) -> Vec<HalfEdgeHandle>
 }
 
 pub(super) fn destination(brep: &BRep, he: HalfEdgeHandle) -> Option<VertexHandle> {
-    let twin = brep.half_edges.get(he)?.twin;
+    let twin = brep.half_edges.get(he)?.mate()?;
     Some(brep.half_edges.get(twin)?.origin)
 }
 
@@ -288,7 +288,12 @@ fn rebuild_corner(
     for (i, &stub) in merged.iter().enumerate() {
         out.kef(stub).map_err(|e| format!("kef stub {i}: {e}"))?;
     }
-    let into_v = out.half_edges.get(*last).ok_or("stale last stub")?.twin;
+    let into_v = out
+        .half_edges
+        .get(*last)
+        .ok_or("stale last stub")?
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     let kev = out
         .kev(into_v)
         .map_err(|e| format!("kev corner vertex: {e}"))?;
@@ -357,7 +362,7 @@ fn rebuild_corner(
         // side so the bevel survives.
         let he_a = a_out[0];
         let he_data = out.half_edges.get(he_a).ok_or("stale anchor half-edge")?;
-        let twin = he_data.twin;
+        let twin = he_data.mate().ok_or("anchor half-edge has no mate")?;
         let quad_side = if interior
             .iter()
             .any(|&t| half_edge_in_loop_from(out, he_data.loop_, t).is_some())
@@ -366,7 +371,12 @@ fn rebuild_corner(
         } else {
             twin
         };
-        let bevel_side = out.half_edges.get(quad_side).ok_or("stale quad side")?.twin;
+        let bevel_side = out
+            .half_edges
+            .get(quad_side)
+            .ok_or("stale quad side")?
+            .require_mate()
+            .map_err(|e| e.to_string())?;
         out.kef(bevel_side)
             .map_err(|e| format!("kef quad into bevel at {a:?}: {e}"))?;
         // `a` is now a valence-1 spur; kill it via the half-edge that
@@ -378,7 +388,12 @@ fn rebuild_corner(
                 remaining.len()
             ));
         }
-        let into_a = out.half_edges.get(remaining[0]).ok_or("stale spur")?.twin;
+        let into_a = out
+            .half_edges
+            .get(remaining[0])
+            .ok_or("stale spur")?
+            .require_mate()
+            .map_err(|e| e.to_string())?;
         out.kev(into_a)
             .map_err(|e| format!("kev anchor {a:?}: {e}"))?;
     }

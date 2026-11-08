@@ -1,3 +1,4 @@
+use popkern_core::topology::RadialLinks;
 use std::collections::BTreeSet;
 
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
@@ -8,8 +9,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFac
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, Vertex, VertexHandle,
+    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex, VertexHandle,
 };
 
 #[test]
@@ -59,14 +59,7 @@ fn rejected_cap_boundary_hint_falls_back_to_sample_repair() {
 
 fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_, shell) = brep.add_solid_region(Default::default());
 
     let start = Point3::new(0.0, 0.0, 0.0);
     let end = Point3::new(0.0, 1.0, 0.0);
@@ -77,10 +70,12 @@ fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
     let cap_loop = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: cap_face,
+        vertex: None,
     });
     let support_loop = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: support_face,
+        vertex: None,
     });
     let cap_half_edge = brep.half_edges.insert(half_edge(va, cap_loop));
     let support_half_edge = brep.half_edges.insert(half_edge(vb, support_loop));
@@ -95,8 +90,8 @@ fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
 
     brep.half_edges[cap_half_edge].edge = edge;
     brep.half_edges[support_half_edge].edge = edge;
-    brep.half_edges[cap_half_edge].twin = support_half_edge;
-    brep.half_edges[support_half_edge].twin = cap_half_edge;
+    brep.half_edges[cap_half_edge].set_mate(support_half_edge);
+    brep.half_edges[support_half_edge].set_mate(cap_half_edge);
     brep.half_edges[cap_half_edge].next = support_half_edge;
     brep.half_edges[support_half_edge].next = cap_half_edge;
     brep.half_edges[cap_half_edge].prev = support_half_edge;
@@ -112,7 +107,7 @@ fn hinted_cap_support_fixture() -> (BRep, FaceHandle, HalfEdgeHandle) {
     brep.faces[support_face].outer_loop = support_loop;
     brep.vertices[va].outgoing = cap_half_edge;
     brep.vertices[vb].outgoing = support_half_edge;
-    brep.shells[shell].face = cap_face;
+    brep.set_sides_anchor(shell, cap_face);
     (brep, cap_face, cap_half_edge)
 }
 
@@ -128,7 +123,7 @@ fn vertex(position: Point3) -> Vertex {
 fn half_edge(origin: VertexHandle, loop_: LoopHandle) -> HalfEdge {
     HalfEdge {
         origin,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: Default::default(),
@@ -137,11 +132,12 @@ fn half_edge(origin: VertexHandle, loop_: LoopHandle) -> HalfEdge {
     }
 }
 
-fn face(shell: ShellHandle, surface: SurfaceOnFace) -> Face {
+fn face(shell: popkern_core::topology::FaceSides, surface: SurfaceOnFace) -> Face {
     Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(surface),
         name: None,
         tolerance: None,

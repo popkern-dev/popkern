@@ -196,10 +196,9 @@ fn collect_vertex_faces(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
             }
         }
 
-        let twin = he.twin;
-        if !brep.half_edges.contains_key(twin) {
+        let Some(twin) = he.mate().filter(|t| brep.half_edges.contains_key(*t)) else {
             break;
-        }
+        };
         let next_outgoing = brep.half_edges[twin].next;
         if next_outgoing == start_he || !brep.half_edges.contains_key(next_outgoing) {
             break;

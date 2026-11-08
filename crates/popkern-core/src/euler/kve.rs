@@ -83,7 +83,7 @@ impl BRep {
             .get(half_edge)
             .ok_or_else(|| CoreError::InvalidHandle("kve: half-edge not found".to_string()))?
             .clone();
-        let twin_h = he.twin;
+        let twin_h = self.require_mate(half_edge)?;
         let twin = self
             .half_edges
             .get(twin_h)

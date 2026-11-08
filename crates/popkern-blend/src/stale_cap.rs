@@ -69,7 +69,7 @@ pub fn detect_stale_caps(brep: &BRep, tolerance: &Tolerance) -> Vec<StaleCap> {
                 let Some(he) = brep.half_edges.get(cur) else {
                     break;
                 };
-                let Some(tw) = brep.half_edges.get(he.twin) else {
+                let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
                     break;
                 };
                 let far = brep.loops.get(tw.loop_).map(|l| l.face);
@@ -148,7 +148,9 @@ mod tests {
         let mut edges = Vec::new();
         for (e, d) in brep.edges.iter() {
             let he = &brep.half_edges[d.half_edge];
-            if he.origin == corner || brep.half_edges[he.twin].origin == corner {
+            if he.origin == corner
+                || brep.half_edges[he.mate().unwrap_or_default()].origin == corner
+            {
                 edges.push(e);
             }
         }

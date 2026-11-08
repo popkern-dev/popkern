@@ -32,7 +32,9 @@ fn pick(b: &BRep, slant: bool) -> EdgeHandle {
         .find(|(_, e)| {
             let he = &b.half_edges[e.half_edge];
             let z0 = b.vertices[he.origin].position.z;
-            let z1 = b.vertices[b.half_edges[he.twin].origin].position.z;
+            let z1 = b.vertices[b.half_edges[he.mate().unwrap_or_default()].origin]
+                .position
+                .z;
             if slant {
                 (z0 - z1).abs() > 0.5
             } else {
@@ -125,7 +127,10 @@ fn blend_on_blend_vertical_ends_settle_against_the_top_strips() {
         .filter(|(_, e)| {
             let he = &cube.half_edges[e.half_edge];
             cube.vertices[he.origin].position.z > 0.99
-                && cube.vertices[cube.half_edges[he.twin].origin].position.z > 0.99
+                && cube.vertices[cube.half_edges[he.mate().unwrap_or_default()].origin]
+                    .position
+                    .z
+                    > 0.99
         })
         .map(|(edge, _)| FilletSpec {
             edge,

@@ -371,7 +371,7 @@ fn half_edge_destination_vertex(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
 ) -> Option<popkern_core::topology::VertexHandle> {
-    let twin = brep.half_edges.get(half_edge)?.twin;
+    let twin = brep.half_edges.get(half_edge)?.mate()?;
     brep.half_edges.get(twin).map(|twin| twin.origin)
 }
 

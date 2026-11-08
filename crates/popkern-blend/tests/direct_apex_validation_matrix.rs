@@ -417,7 +417,7 @@ fn direct_apex_does_not_store_semantic_lines_as_nurbs() {
             let Some(he_data) = result.brep.half_edges.get(he) else {
                 continue;
             };
-            let twin = he_data.twin;
+            let twin = he_data.mate().unwrap_or_default();
             let Some(twin_data) = result.brep.half_edges.get(twin) else {
                 continue;
             };

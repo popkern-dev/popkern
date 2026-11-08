@@ -65,9 +65,9 @@ impl BRep {
             // Free rims (open sheets) may carry twin-less half-edges;
             // the destination then falls back to the next half-edge's
             // origin below via the curveless interpolant.
-            let dest_v = self
-                .half_edges
-                .get(he.twin)
+            let dest_v = he
+                .mate()
+                .and_then(|m| self.half_edges.get(m))
                 .and_then(|tw| self.vertices.get(tw.origin));
             if samples_per_edge > 0
                 && let Some(dest_v) = dest_v

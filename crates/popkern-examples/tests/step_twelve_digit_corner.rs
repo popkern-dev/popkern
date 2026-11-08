@@ -19,8 +19,11 @@
 //! 2026-09-26-interchange-continuity-at-setback-corners.md.
 //!
 //! This test keeps the attribution without the OCC venv: the 12-digit
-//! leg must reproduce the OCC leg's saddle drops, and the two extra
-//! drops must be certified geometric (lower bound over 0.9x the gate).
+//! leg must reproduce the OCC leg's saddle drops, and any extra drop
+//! must be certified geometric (lower bound over 0.9x the gate). Since
+//! solids face out of their material (2026-11-06) the saddle's rounded
+//! corner lands clear of the gate and there is none: the phase luck
+//! turned, on both legs.
 
 use popkern_blend::ContinuityGates;
 use popkern_blend::blend_continuity_certification::evidence_certify_options;
@@ -123,7 +126,7 @@ fn matched(
         let d = b.edges.get(e)?;
         let c = d.curve.as_ref()?;
         let h = b.half_edges.get(d.half_edge)?;
-        let t = b.half_edges.get(h.twin)?;
+        let t = h.mate().and_then(|m| b.half_edges.get(m))?;
         Some((
             [
                 b.vertices.get(h.origin)?.position,
@@ -181,10 +184,13 @@ fn a_twelve_digit_export_crosses_the_saddle_corner_seams_at_g1() {
             (false, false) => {}
         }
     }
-    // The popkern leg's three corner-layer seams (PK-575), and the two
-    // the 12-digit file adds, as OCC's leg measures.
+    // The popkern leg's three corner-layer seams (PK-575), and none the
+    // 12-digit file adds, as OCC's leg measures (OCC_BASELINE_DROPS in
+    // `step_roundtrip_continuity`): since solids face out of their
+    // material (2026-11-06) the rounded corner lands clear of the gate.
+    // Until then two seams dropped at 12 digits only, on both legs.
     assert_eq!(both, 3, "seams dropping at both precisions");
-    assert_eq!(twelve_only.len(), 2, "seams dropping at 12 digits only");
+    assert_eq!(twelve_only.len(), 0, "seams dropping at 12 digits only");
     for c in &twelve_only {
         // Geometric, not certifier slack: a certified true value of the
         // jump sits at the gate, at the seam's cap-corner end.

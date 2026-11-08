@@ -31,7 +31,7 @@ pub(super) fn coplanar_residual_support_faces(
     brep.faces
         .iter()
         .filter_map(|(face, face_data)| {
-            if face == support_face || face_data.shell != source_face.shell {
+            if face == support_face || face_data.back != source_face.back {
                 return None;
             }
             let SurfaceGeometry::Plane { origin, normal, .. } = face_data

@@ -90,7 +90,7 @@ fn find_plane_cylinder_edge(brep: &BRep) -> Option<EdgeHandle> {
             Some(h) => h,
             None => continue,
         };
-        let he_rev = match brep.half_edges.get(he_fwd.twin) {
+        let he_rev = match he_fwd.mate().and_then(|m| brep.half_edges.get(m)) {
             Some(h) => h,
             None => continue,
         };

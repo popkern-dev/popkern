@@ -26,9 +26,9 @@ impl TopologySnapshot {
             half_edges: brep.half_edges.len(),
             loops: brep.loops.len(),
             faces: brep.faces.len(),
-            shells: brep.shells.len(),
-            solids: brep.solids.len(),
-            boundary_edges: brep.boundary_edges.len(),
+            shells: brep.back_shell_count(),
+            solids: brep.solid_regions().len(),
+            boundary_edges: brep.free_edges().len(),
         }
     }
 
@@ -217,9 +217,8 @@ fn boundary_normalized_test_brep(mut brep: BRep) -> BRep {
         else {
             panic!("two incident half-edges include one residual");
         };
-        brep.half_edges[boundary_half_edge].twin = HalfEdgeHandle::default();
+        brep.half_edges[boundary_half_edge].clear_mate();
         brep.edges[edge].half_edge = boundary_half_edge;
-        brep.boundary_edges.insert(edge);
         brep.remove_half_edge_reanchored(residual_half_edge);
         removed_half_edges.push(residual_half_edge);
     }

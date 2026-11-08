@@ -151,9 +151,9 @@ impl BRep {
                                     p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, c.t_start, c.t_end
                                 )
                             });
-                            let twin_side = self
-                                .half_edges
-                                .get(he.twin)
+                            let twin_side = he
+                                .mate()
+                                .and_then(|m| self.half_edges.get(m))
                                 .map(|t| {
                                     let tf = self
                                         .loops
@@ -170,7 +170,7 @@ impl BRep {
                                             )
                                         })
                                         .unwrap_or_else(|| "<dead-vertex>".into());
-                                    format!("{:?} face {tf} origin {to}", he.twin)
+                                    format!("{:?} face {tf} origin {to}", he.mate())
                                 })
                                 .unwrap_or_else(|| "<dead-twin>".into());
                             eprintln!(
@@ -232,7 +232,7 @@ impl BRep {
                 Some(h) => h,
                 None => continue,
             };
-            let twin = match self.half_edges.get(he.twin) {
+            let twin = match he.mate().and_then(|m| self.half_edges.get(m)) {
                 Some(t) => t,
                 None => continue,
             };
@@ -311,7 +311,7 @@ impl BRep {
             let Some(he) = self.half_edges.get(edge_data.half_edge) else {
                 continue;
             };
-            let Some(twin) = self.half_edges.get(he.twin) else {
+            let Some(twin) = he.mate().and_then(|m| self.half_edges.get(m)) else {
                 continue;
             };
             let Some(loop_a) = self.loops.get(he.loop_) else {

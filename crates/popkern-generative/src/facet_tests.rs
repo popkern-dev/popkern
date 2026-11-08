@@ -233,6 +233,6 @@ fn separate_pieces_become_separate_solids() {
     let owners = vec![0; t.len()];
     let body =
         facet(&v, &t, &owners, &options(), Tolerance::default()).unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(body.brep.solids.len(), 2);
+    assert_eq!(body.brep.solid_regions().len(), 2);
     assert_eq!(body.brep.faces.len(), 12);
 }

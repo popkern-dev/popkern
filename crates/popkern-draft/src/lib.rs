@@ -44,6 +44,7 @@ pub fn draft_faces(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<DraftResult, DraftError> {
+    brep.require_kind("draft", &[popkern_core::topology::BodyKind::Solid])?;
     if specs.is_empty() {
         return Err(DraftError::EmptySpecs);
     }
@@ -163,6 +164,7 @@ pub fn draft_face(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<DraftResult, DraftError> {
+    brep.require_kind("draft", &[popkern_core::topology::BodyKind::Solid])?;
     draft_faces(
         brep,
         &[DraftSpec {

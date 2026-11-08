@@ -79,7 +79,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
             let Some(hd) = brep.half_edges.get(he) else {
                 break;
             };
-            if let Some(twin) = brep.half_edges.get(hd.twin)
+            if let Some(twin) = hd.mate().and_then(|m| brep.half_edges.get(m))
                 && let Some(l) = brep.loops.get(twin.loop_)
                 && !audited.contains(&l.face)
             {

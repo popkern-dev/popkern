@@ -40,6 +40,7 @@ fn shell(faces: &[&[EntityId]], ends: &[(EntityId, (EntityId, EntityId))]) -> Fa
                         })
                         .collect(),
                 }],
+                vertex_loops: Vec::new(),
             })
             .collect(),
     }

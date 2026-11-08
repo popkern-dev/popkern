@@ -95,10 +95,10 @@ pub(super) fn mitre_section(
 ) -> Result<Mitre, BlendFailure> {
     let face = |he: HalfEdgeHandle| brep.loops[brep.half_edges[he].loop_].face;
     let ha = &brep.half_edges[a.h];
-    let v = brep.half_edges[ha.twin].origin;
+    let v = brep.half_edges[ha.require_mate()?].origin;
     let vp = brep.vertices[v].position;
-    let (pa, qa) = (face(a.h), face(ha.twin));
-    let (pb, qb) = (face(b.h), face(brep.half_edges[b.h].twin));
+    let (pa, qa) = (face(a.h), face(ha.require_mate()?));
+    let (pb, qb) = (face(b.h), face(brep.half_edges[b.h].require_mate()?));
     let shared = [pa, qa]
         .into_iter()
         .filter(|f| *f == pb || *f == qb)
@@ -265,10 +265,8 @@ pub(super) fn mitre_vertices(
         .split_edge_at_point(mitre.g, mitre.on_g, tolerance)
         .map_err(|e| decline(format!("mitre: g split at m2: {e}"), mitre.on_g))?;
     brep.vertices[split.vertex].position = mitre.on_g;
-    let has_v = |brep: &BRep, e: EdgeHandle| {
-        let he = &brep.half_edges[brep.edges[e].half_edge];
-        he.origin == v || brep.half_edges[he.twin].origin == v
-    };
+    let has_v =
+        |brep: &BRep, e: EdgeHandle| brep.edge_vertices(e).is_some_and(|(a, b)| a == v || b == v);
     let corner = if has_v(brep, split.edge_a) {
         split.edge_a
     } else {

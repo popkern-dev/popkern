@@ -122,7 +122,7 @@ fn support_plane_face_and_edge(
     half_edge: HalfEdgeHandle,
 ) -> Option<(FaceHandle, EdgeHandle)> {
     let he = brep.half_edges.get(half_edge)?;
-    let twin = he.twin;
+    let twin = he.mate()?;
     let support_face = brep.loops.get(brep.half_edges.get(twin)?.loop_)?.face;
     if support_face == cap_face {
         return None;
@@ -159,10 +159,9 @@ pub(super) fn gregory_cap_cylinder_neighbor_count(brep: &BRep) -> usize {
             let Some(half_edge) = brep.half_edges.get(cursor) else {
                 break;
             };
-            let twin = half_edge.twin;
-            let Some(twin_face) = brep
-                .half_edges
-                .get(twin)
+            let Some(twin_face) = half_edge
+                .mate()
+                .and_then(|twin| brep.half_edges.get(twin))
                 .and_then(|he| brep.loops.get(he.loop_))
                 .map(|loop_| loop_.face)
             else {
@@ -204,10 +203,9 @@ fn cap_face_preserves_cylinder_neighbor(brep: &BRep, cap_face: FaceHandle) -> bo
         let Some(half_edge) = brep.half_edges.get(cursor) else {
             return false;
         };
-        let twin = half_edge.twin;
-        let Some(twin_face) = brep
-            .half_edges
-            .get(twin)
+        let Some(twin_face) = half_edge
+            .mate()
+            .and_then(|twin| brep.half_edges.get(twin))
             .and_then(|he| brep.loops.get(he.loop_))
             .map(|loop_| loop_.face)
         else {

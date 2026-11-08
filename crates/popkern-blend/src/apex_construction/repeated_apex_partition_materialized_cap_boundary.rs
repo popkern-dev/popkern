@@ -128,7 +128,7 @@ fn reused_cap_side_from_shared_cylinder_seam(
     let cap_side = brep
         .half_edges
         .get(shared_cylinder_side)
-        .map(|half_edge| half_edge.twin)
+        .and_then(|half_edge| half_edge.mate())
         .ok_or_else(|| ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition FilletEnd[{}] cannot reuse the shared \

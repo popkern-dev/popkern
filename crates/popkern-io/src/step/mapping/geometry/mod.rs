@@ -50,6 +50,9 @@ pub struct GeometryCache<'a> {
     /// How far a vertex may sit from its edge curve's end and still be
     /// that end (the file's declared precision, PK-639).
     trim_allowance: f64,
+    /// A closed shell no split into manifold pieces fits imports face by
+    /// face for gluing into a general body (`StepNonManifold::General`).
+    general_shells: bool,
 }
 
 impl<'a> GeometryCache<'a> {
@@ -63,7 +66,20 @@ impl<'a> GeometryCache<'a> {
             radians_per_angle: 1.0,
             model_box: None,
             trim_allowance: 0.0,
+            general_shells: false,
         }
+    }
+
+    /// Import closed shells no manifold split fits face by face, to be
+    /// glued into general bodies.
+    pub(crate) fn set_general_shells(&mut self, general: bool) {
+        self.general_shells = general;
+    }
+
+    /// Whether closed shells import face by face where no manifold split
+    /// fits.
+    pub(crate) fn general_shells(&self) -> bool {
+        self.general_shells
     }
 
     /// Accept vertices within `allowance` of their edge curve's ends

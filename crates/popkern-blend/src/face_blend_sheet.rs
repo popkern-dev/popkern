@@ -161,7 +161,7 @@ pub(crate) fn strip_sheet_body(
     for _ in 0..4 {
         let he_data = sheet.half_edges[he].clone();
         let origin = sheet.vertices[he_data.origin].position;
-        let dest = sheet.vertices[sheet.half_edges[he_data.twin].origin].position;
+        let dest = sheet.vertices[sheet.half_edges[he_data.require_mate()?].origin].position;
         let (points, border) = sides
             .iter()
             .find_map(|(pts, border)| {
@@ -188,7 +188,8 @@ pub(crate) fn strip_sheet_body(
         };
         sheet.edges[he_data.edge].curve = Some(polyline_curve(&curve_points).map_err(wrap)?);
         sheet.half_edges[he].pcurve = Some(Pcurve::linear(border.0, border.1, 0.0, 1.0));
-        sheet.half_edges[he_data.twin].pcurve = Some(Pcurve::linear(border.1, border.0, 0.0, 1.0));
+        sheet.half_edges[he_data.require_mate()?].pcurve =
+            Some(Pcurve::linear(border.1, border.0, 0.0, 1.0));
         he = he_data.next;
     }
     let _ = radius;

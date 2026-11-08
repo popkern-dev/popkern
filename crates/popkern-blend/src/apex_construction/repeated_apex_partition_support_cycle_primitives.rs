@@ -76,7 +76,7 @@ pub(super) fn support_split_half_edge_end_vertex(
 
 fn boundary_curve_end_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
     let half_edge_data = brep.half_edges.get(half_edge)?;
-    if !brep.boundary_edges.contains(&half_edge_data.edge) {
+    if !brep.is_free_edge(half_edge_data.edge) {
         return None;
     }
     let curve = brep.edges.get(half_edge_data.edge)?.curve.as_ref()?;

@@ -100,7 +100,7 @@ fn small_edge_detected_via_vertex_fallback() {
     brep.edges[edge_h].curve = None; // force vertex-to-vertex fallback
     let he_h = brep.edges[edge_h].half_edge;
     let he = &brep.half_edges[he_h];
-    let twin_h = he.twin;
+    let twin_h = he.mate().unwrap_or_default();
     let twin = &brep.half_edges[twin_h];
     let v2 = twin.origin;
     let v1_pos = brep.vertices[he.origin].position;
@@ -214,7 +214,7 @@ fn zero_length_singularity_edge_detected() {
     let edge_h = brep.edges.keys().next().unwrap();
     let he_h = brep.edges[edge_h].half_edge;
     let he = &brep.half_edges[he_h];
-    let twin_h = he.twin;
+    let twin_h = he.mate().unwrap_or_default();
     let twin = &brep.half_edges[twin_h];
     let v1 = he.origin;
     let v2 = twin.origin;

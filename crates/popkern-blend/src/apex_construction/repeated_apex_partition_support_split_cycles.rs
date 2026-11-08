@@ -180,7 +180,7 @@ fn author_support_split_closing_span(
                 ),
             });
         }
-        if !brep.boundary_edges.contains(&edge) {
+        if !brep.is_free_edge(edge) {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition support closing span {start:?}->{end:?} on \

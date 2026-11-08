@@ -126,13 +126,17 @@ pub(crate) fn insert_operand_topology_scoped(
     for (eh, edge) in &brep.edges {
         let he_h = edge.half_edge;
         let he = &brep.half_edges[he_h];
-        let twin_h = he.twin;
+        // The graph is built from manifold operands: every edge has a
+        // mate (a free edge here is a broken operand).
+        let Some(twin_h) = he.mate() else {
+            continue;
+        };
 
         // Skip if we already inserted this edge (both half-edges mapped).
         if he_map.contains_key(&he_h) {
             continue;
         }
-        if active.is_some() && !in_scope(he_h) && !in_scope(he.twin) {
+        if active.is_some() && !in_scope(he_h) && !in_scope(twin_h) {
             continue;
         }
 

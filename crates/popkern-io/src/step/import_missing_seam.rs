@@ -358,7 +358,12 @@ fn resynthesize_neighbours(
         let Some(first) = brep.edges.get(edge).map(|e| e.half_edge) else {
             continue;
         };
-        for he in [first, brep.half_edges[first].twin] {
+        for he in [
+            first,
+            brep.half_edges[first]
+                .require_mate()
+                .map_err(|e| e.to_string())?,
+        ] {
             let lh = brep.half_edges[he].loop_;
             let Some(owner) = brep.loops.get(lh).map(|l| l.face) else {
                 continue;

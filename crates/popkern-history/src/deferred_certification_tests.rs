@@ -102,7 +102,7 @@ fn sharp_edge_name(state: &BRep) -> EntityName {
             crate::resolve::resolve_edge(n, state).is_ok_and(|eh| {
                 let ed = &state.edges[eh];
                 let hed = &state.half_edges[ed.half_edge];
-                let twin = &state.half_edges[hed.twin];
+                let twin = &state.half_edges[hed.mate().unwrap_or_default()];
                 let normal = |lh| {
                     let f = state.loops.get(lh).map(|l| l.face)?;
                     match &state.faces.get(f)?.surface.as_ref()?.geometry {

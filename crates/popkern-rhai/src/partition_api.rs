@@ -49,8 +49,19 @@ pub(crate) fn non_manifold(
         &[
             ("decline", NonManifoldPolicy::Decline),
             ("split_to_manifold", NonManifoldPolicy::SplitToManifold),
+            ("general", NonManifoldPolicy::General),
         ],
     )
+}
+
+/// The script spelling of a non-default policy (`None` for the
+/// default, which the emitted call leaves out).
+pub(crate) fn non_manifold_spelling(policy: NonManifoldPolicy) -> Option<&'static str> {
+    match policy {
+        NonManifoldPolicy::Decline => None,
+        NonManifoldPolicy::SplitToManifold => Some("split_to_manifold"),
+        NonManifoldPolicy::General => Some("general"),
+    }
 }
 
 impl ScriptBody {

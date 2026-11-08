@@ -27,11 +27,10 @@ fn body_shell_membership(brep: &BRep, faces: &[FaceHandle]) -> CornerBodyShellMe
     }
     let mut shells = std::collections::BTreeSet::new();
     for face in faces {
-        let shell = brep.faces[*face].shell;
-        let Some(shell_record) = brep.shells.get(shell) else {
+        let Some(shell) = brep.face_back_shell(*face) else {
             return CornerBodyShellMembership::MissingShell;
         };
-        if !brep.solids.contains_key(shell_record.solid) {
+        if brep.shell_region(shell).is_none() {
             return CornerBodyShellMembership::MissingSolid;
         }
         shells.insert(shell);
@@ -47,7 +46,7 @@ fn boundary_membership(brep: &BRep, edges: &[EdgeHandle]) -> CornerBoundaryMembe
     if edges.is_empty() {
         return CornerBoundaryMembership::WireOrSheet;
     }
-    if edges.iter().any(|edge| brep.boundary_edges.contains(edge)) {
+    if edges.iter().any(|edge| brep.is_free_edge(*edge)) {
         CornerBoundaryMembership::Boundary
     } else {
         CornerBoundaryMembership::Interior
@@ -58,14 +57,7 @@ fn radial_topology(brep: &BRep, edges: &[EdgeHandle]) -> CornerRadialTopology {
     if edges.is_empty() {
         return CornerRadialTopology::UnknownInputFact;
     }
-    if edges.iter().any(|edge| {
-        let half_edge = brep.edges[*edge].half_edge;
-        brep.nonmanifold_radial.contains_key(&half_edge)
-            || brep
-                .half_edges
-                .get(half_edge)
-                .is_some_and(|he| brep.nonmanifold_radial.contains_key(&he.twin))
-    }) {
+    if edges.iter().any(|edge| brep.edge_fin_count(*edge) > 2) {
         CornerRadialTopology::NonManifoldRadial
     } else {
         CornerRadialTopology::Manifold

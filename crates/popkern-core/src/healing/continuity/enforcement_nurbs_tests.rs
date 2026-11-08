@@ -171,7 +171,7 @@ fn find_shared(brep: &BRep, fa: FaceHandle, fb: FaceHandle) -> Option<EdgeHandle
         let Some(h1) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(h2) = brep.half_edges.get(h1.twin) else {
+        let Some(h2) = h1.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let Some(l1) = brep.loops.get(h1.loop_) else {

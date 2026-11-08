@@ -170,20 +170,13 @@ fn topology_state(
     if incident_edges.is_empty() {
         return CornerTopologyState::WireOrSheet;
     }
-    if incident_edges.iter().any(|edge| {
-        let half_edge = brep.edges[*edge].half_edge;
-        brep.nonmanifold_radial.contains_key(&half_edge)
-            || brep
-                .half_edges
-                .get(half_edge)
-                .is_some_and(|he| brep.nonmanifold_radial.contains_key(&he.twin))
-    }) {
-        return CornerTopologyState::NonManifold;
-    }
     if incident_edges
         .iter()
-        .any(|edge| brep.boundary_edges.contains(edge))
+        .any(|edge| brep.edge_fin_count(*edge) > 2)
     {
+        return CornerTopologyState::NonManifold;
+    }
+    if incident_edges.iter().any(|edge| brep.is_free_edge(*edge)) {
         return CornerTopologyState::Boundary;
     }
     if brep.vertices[vertex].outgoing == HalfEdgeHandle::default() {

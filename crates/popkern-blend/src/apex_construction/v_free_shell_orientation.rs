@@ -183,7 +183,7 @@ fn seam_parity_constraints(brep: &BRep) -> Vec<SeamConstraint> {
     let mut constraints = Vec::new();
     let mut seen_edges = BTreeSet::new();
     for (handle, data) in &brep.half_edges {
-        if let Some(twin) = brep.half_edges.get(data.twin) {
+        if let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) {
             if !seen_edges.insert(data.edge) {
                 continue;
             }
@@ -207,7 +207,7 @@ fn seam_parity_constraints(brep: &BRep) -> Vec<SeamConstraint> {
     let dead: Vec<HalfEdgeHandle> = brep
         .half_edges
         .iter()
-        .filter(|(_, data)| !brep.half_edges.contains_key(data.twin))
+        .filter(|(_, data)| !data.mate().is_some_and(|m| brep.half_edges.contains_key(m)))
         .map(|(handle, _)| handle)
         .collect();
     let tol = brep.tolerance.linear().max(1.0e-9) * 10.0;
@@ -474,15 +474,13 @@ fn remove_side(brep: &mut BRep, side: HalfEdgeHandle) {
     let Some(data) = brep.remove_half_edge_reanchored(side) else {
         return;
     };
-    if brep.half_edges.contains_key(data.twin) {
-        brep.boundary_edges.insert(data.edge);
+    if let Some(survivor) = data.mate().filter(|m| brep.half_edges.contains_key(*m)) {
         if let Some(edge_data) = brep.edges.get_mut(data.edge)
             && edge_data.half_edge == side
         {
-            edge_data.half_edge = data.twin;
+            edge_data.half_edge = survivor;
         }
     } else if brep.edges.remove(data.edge).is_some() {
-        brep.boundary_edges.remove(&data.edge);
     }
 }
 

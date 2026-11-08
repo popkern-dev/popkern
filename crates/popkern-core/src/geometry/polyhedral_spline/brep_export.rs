@@ -1,3 +1,4 @@
+use crate::topology::RadialLinks;
 use std::collections::HashMap;
 
 use super::readiness::{PatchEdgeRole, validate_brep_readiness};
@@ -10,8 +11,8 @@ use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use crate::naming::{EntityName, EntityRole, OperationId, RoleCategory};
 use crate::tolerance::Tolerance;
 use crate::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, TopologyRole, Vertex, VertexHandle,
+    BRep, Edge, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
+    TopologyRole, Vertex, VertexHandle,
 };
 use slotmap::Key;
 
@@ -62,14 +63,7 @@ pub fn build_polyhedral_spline_brep(
 ) -> Result<PolyhedralBrepExport, PolyhedralSplineError> {
     let readiness = validate_brep_readiness(spline, options.samples, options.c0_tolerance)?;
     let mut brep = BRep::new(options.tolerance);
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let mut vertices = HashMap::new();
     let mut edges = HashMap::new();
@@ -78,9 +72,7 @@ pub fn build_polyhedral_spline_brep(
 
     for (patch_index, patch) in spline.patches.iter().enumerate() {
         let face = insert_patch_face(&mut brep, shell, options.operation, patch_index);
-        if brep.shells[shell].face == FaceHandle::default() {
-            brep.shells[shell].face = face;
-        }
+        brep.anchor_unset_sides(face);
         brep.faces[face].surface = Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Nurbs(patch.to_bezier_nurbs()),
             orientation: true,
@@ -122,11 +114,12 @@ pub fn build_polyhedral_spline_brep(
         faces.push(PolyhedralBrepFaceProvenance { patch_index, face });
     }
 
+    brep.settle_open_shells();
     brep.validate()
         .map_err(|err| export_error(spline, format!("post-build validation failed: {err}")))?;
     Ok(PolyhedralBrepExport {
-        boundary_edge_count: brep.boundary_edges.len(),
-        seam_edge_count: edges.len().saturating_sub(brep.boundary_edges.len()),
+        boundary_edge_count: brep.free_edges().len(),
+        seam_edge_count: edges.len().saturating_sub(brep.free_edges().len()),
         collapsed_singularity_count,
         brep,
         faces,
@@ -175,7 +168,7 @@ fn patch_boundary() -> [BoundaryEdge; 4] {
 
 fn insert_patch_face(
     brep: &mut BRep,
-    shell: ShellHandle,
+    sides: FaceSides,
     operation: OperationId,
     patch_index: usize,
 ) -> FaceHandle {
@@ -193,7 +186,8 @@ fn insert_patch_face(
     brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: sides.back,
+        front: sides.front,
         surface: None,
         name: Some(name),
         tolerance: None,
@@ -243,14 +237,14 @@ fn intern_half_edge(
         }
         let half_edge = brep.half_edges.insert(HalfEdge {
             origin: build.start_vertex,
-            twin: other,
+            ring: RadialLinks::pair(other),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge,
             loop_: LoopHandle::default(),
             pcurve: None,
         });
-        brep.half_edges[other].twin = half_edge;
+        brep.half_edges[other].set_mate(half_edge);
         return Ok(half_edge);
     }
 
@@ -264,7 +258,7 @@ fn intern_half_edge(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: build.start_vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,
@@ -274,12 +268,6 @@ fn intern_half_edge(
     brep.edges[edge].half_edge = half_edge;
     if brep.vertices[build.start_vertex].outgoing == HalfEdgeHandle::default() {
         brep.vertices[build.start_vertex].outgoing = half_edge;
-    }
-    if matches!(
-        build.role,
-        PatchEdgeRole::Boundary | PatchEdgeRole::CollapsedSingularity { .. }
-    ) {
-        brep.boundary_edges.insert(edge);
     }
     if !collapsed {
         edges.insert(key, half_edge);
@@ -352,6 +340,7 @@ fn wire_loop(
     let loop_handle = brep.loops.insert(Loop {
         half_edge: half_edges[0],
         face,
+        vertex: None,
     });
     let len = half_edges.len();
     for (index, &half_edge) in half_edges.iter().enumerate() {

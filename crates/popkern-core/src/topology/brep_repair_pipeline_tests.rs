@@ -2,10 +2,11 @@ use super::*;
 use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
     BRep, BrepRepairActionOutcome, BrepRepairTopologyHandle, BrepSewingOptions,
-    BrepSewingProvenance, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop,
-    LoopHandle, Shell, ShellHandle, Solid, Vertex, build_brep_repair_action_artifact,
+    BrepSewingProvenance, Edge, EdgeHandle, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle,
+    Loop, LoopHandle, Vertex, build_brep_repair_action_artifact,
 };
 fn pipeline_options(diagnose_loop_shell: bool) -> BrepRepairPipelineOptions {
     let clean_sewing = BrepSewingOptions {
@@ -102,7 +103,7 @@ fn pipeline_repairs_clean_non_pns_pair_transactionally() {
     )
     .unwrap();
 
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(brep.free_edges().len(), 8, "input BRep is untouched");
     assert_eq!(result.report.candidate_pairs, 1);
     assert_eq!(result.report.policy_preflight.len(), 1);
     assert!(result.report.policy_preflight[0].is_accepted());
@@ -121,15 +122,13 @@ fn pipeline_repairs_clean_non_pns_pair_transactionally() {
         "pipeline action should preserve snap/sewing shared facts"
     );
     assert_eq!(result.report.final_boundary_edges, Some(6));
-    assert_eq!(result.brep.boundary_edges.len(), 6);
+    assert_eq!(result.brep.free_edges().len(), 6);
 }
 
 #[test]
 fn pipeline_declines_nonmanifold_candidate_before_mutation() {
     let (mut brep, left_edge, right_edge) = two_square_sheet();
-    let left_half_edge = brep.edges[left_edge].half_edge;
-    brep.nonmanifold_radial
-        .insert(left_half_edge, left_half_edge);
+    brep.thread_test_third_fin(left_edge);
 
     let failure = repair_brep_boundary_edges_transactionally(
         &brep,
@@ -149,7 +148,8 @@ fn pipeline_declines_nonmanifold_candidate_before_mutation() {
             .explanation
             .contains("radial non-manifold")
     );
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    // The three-fin edge is no longer free; the rest are untouched.
+    assert_eq!(brep.free_edges().len(), 7, "input is untouched");
     assert_eq!(failure.report.actions.authored_actions, 0);
     assert_eq!(failure.report.actions.declined_actions, 0);
 }
@@ -209,9 +209,8 @@ fn pipeline_repairs_missing_trims_after_sewing_stage() {
 fn pipeline_reports_geometric_rejection_without_partial_output() {
     let (brep, left_edge, _) = two_square_sheet();
     let far_edge = brep
-        .boundary_edges
-        .iter()
-        .copied()
+        .free_edges()
+        .into_iter()
         .find(|edge| *edge != left_edge && edge_segment_gap(&brep, left_edge, *edge) > 0.5)
         .unwrap();
 
@@ -227,7 +226,7 @@ fn pipeline_reports_geometric_rejection_without_partial_output() {
         failure.reason,
         BrepRepairPipelineFailureReason::ClassificationRejected
     );
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(brep.free_edges().len(), 8, "input BRep is untouched");
 }
 
 #[test]
@@ -244,7 +243,7 @@ fn pipeline_allows_open_sheet_boundary_diagnostics_under_open_sheet_policy() {
     assert!(diagnostics.boundary_edges > 0);
     assert!(diagnostics.has_no_errors());
     assert_eq!(result.report.final_boundary_edges, Some(6));
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(brep.free_edges().len(), 8, "input BRep is untouched");
 }
 
 #[test]
@@ -263,7 +262,7 @@ fn pipeline_rejects_same_open_sheet_when_closed_shell_required() {
         BrepRepairPipelineFailureReason::LoopShellErrors
     );
     assert!(failure.report.loop_shell.unwrap().boundary_edges > 0);
-    assert_eq!(brep.boundary_edges.len(), 8, "input BRep is untouched");
+    assert_eq!(brep.free_edges().len(), 8, "input BRep is untouched");
 }
 
 #[test]
@@ -368,14 +367,7 @@ fn pipeline_repairs_edge_surface_compatibility_from_surface_boundary_authority()
 
 fn two_square_sheet() -> (BRep, EdgeHandle, EdgeHandle) {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
 
     let left = add_square(
         &mut brep,
@@ -397,7 +389,7 @@ fn two_square_sheet() -> (BRep, EdgeHandle, EdgeHandle) {
             Point3::new(1.0, 0.0, 0.0),
         ],
     );
-    brep.shells[shell].face = left.face;
+    brep.set_sides_anchor(shell, left.face);
     (brep, left.edges[1], right.edges[2])
 }
 
@@ -406,7 +398,7 @@ struct SquareHandles {
     edges: [EdgeHandle; 4],
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -418,7 +410,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -427,13 +420,14 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
 
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),
@@ -451,7 +445,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
         edge
     });
 

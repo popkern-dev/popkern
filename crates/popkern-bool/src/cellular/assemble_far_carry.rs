@@ -331,8 +331,8 @@ fn carry_half_edge(
     let src = a.half_edges.get(h).ok_or("far half-edge missing")?;
     let e = src.edge;
     let start = if reversed {
-        a.half_edges
-            .get(src.twin)
+        src.mate()
+            .and_then(|m| a.half_edges.get(m))
             .ok_or("far half-edge missing")?
             .origin
     } else {
@@ -349,9 +349,9 @@ fn carry_half_edge(
                 .half_edges
                 .get(edge.half_edge)
                 .ok_or("far half-edge missing")?;
-            let twin = a
-                .half_edges
-                .get(canon.twin)
+            let twin = canon
+                .mate()
+                .and_then(|m| a.half_edges.get(m))
                 .ok_or("far half-edge missing")?;
             let (v0, v1) = (canon.origin, twin.origin);
             let (rv0, rv1) = (
@@ -371,7 +371,9 @@ fn carry_half_edge(
     };
     let r = builder.brep_mut();
     let first = r.edges[re].half_edge;
-    let second = r.half_edges[first].twin;
+    let second = r.half_edges[first]
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     let unwired = |x: HalfEdgeHandle| r.half_edges[x].loop_ == LoopHandle::default();
     // A far-only edge pairs by canonical identity (a closed edge has one
     // vertex, so origin cannot tell its sides apart; reversal moves the

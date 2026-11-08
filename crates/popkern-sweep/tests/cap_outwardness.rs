@@ -100,7 +100,7 @@ fn assert_caps_outward(brep: &BRep, fixture: &str) {
 fn assert_self_loop_pcurves_anchored(brep: &BRep, fixture: &str) {
     let mut checked = 0;
     for (he, h) in brep.half_edges.iter() {
-        let twin = &brep.half_edges[h.twin];
+        let twin = &brep.half_edges[h.mate().unwrap_or_default()];
         if h.origin != twin.origin {
             continue;
         }

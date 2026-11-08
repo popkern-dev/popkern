@@ -45,8 +45,8 @@ fn import_cube_step_file() {
     assert_eq!(brep.vertices.len(), 8, "cube must have 8 vertices");
     assert_eq!(brep.edges.len(), 12, "cube must have 12 edges");
     assert_eq!(brep.faces.len(), 6, "cube must have 6 faces");
-    assert_eq!(brep.shells.len(), 1, "cube must have 1 shell");
-    assert_eq!(brep.solids.len(), 1, "cube must have 1 solid");
+    assert_eq!(brep.back_shell_count(), 1, "cube must have 1 shell");
+    assert_eq!(brep.solid_regions().len(), 1, "cube must have 1 solid");
 }
 
 // ---------------------------------------------------------------------------

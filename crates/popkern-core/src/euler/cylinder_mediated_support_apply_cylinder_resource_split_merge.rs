@@ -214,17 +214,17 @@ fn split_resource_run_readiness(
                 "split cylinder resource run references stale half-edge {half_edge:?}"
             ))
         })?;
-        if !brep.boundary_edges.contains(&data.edge) {
+        if !brep.is_free_edge(data.edge) {
             not_boundary_half_edges += 1;
         }
-        if let Some(twin) = brep.half_edges.get(data.twin) {
+        if let Some(twin) = data.mate().and_then(|m| brep.half_edges.get(m)) {
             live_twin_half_edges += 1;
             if let Some(loop_data) = brep.loops.get(twin.loop_) {
                 *live_twin_owner_faces.entry(loop_data.face).or_default() += 1;
             }
             continue;
         }
-        if brep.boundary_edges.contains(&data.edge) {
+        if brep.is_free_edge(data.edge) {
             boundary_ready_half_edges += 1;
         }
     }

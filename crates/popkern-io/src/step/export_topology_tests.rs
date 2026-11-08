@@ -503,19 +503,11 @@ fn collapsed_trim_sheet() -> BRep {
     use popkern_core::geometry::pcurve::Pcurve;
     use popkern_core::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
     use popkern_core::topology::{
-        Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
-        ShellHandle, Solid, Vertex,
+        Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex,
     };
 
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let vertex = brep.vertices.insert(Vertex {
         position: Point3::new(0.0, 0.0, 0.0),
         outgoing: HalfEdgeHandle::default(),
@@ -525,7 +517,8 @@ fn collapsed_trim_sheet() -> BRep {
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.0, 0.0, 0.0),
@@ -542,10 +535,11 @@ fn collapsed_trim_sheet() -> BRep {
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: popkern_core::topology::RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: EdgeHandle::default(),
@@ -566,7 +560,6 @@ fn collapsed_trim_sheet() -> BRep {
     brep.vertices[vertex].outgoing = half_edge;
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
-    brep.shells[shell].face = face;
-    brep.boundary_edges.insert(edge);
+    brep.set_sides_anchor(shell, face);
     brep
 }

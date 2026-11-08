@@ -43,7 +43,7 @@ pub(super) fn normalize_spilled_fillet_corners(
             trace_decline(clone, "clone side is stale");
             continue;
         };
-        if !half_edge_is_unpaired_boundary(brep, clone_side.twin) {
+        if !half_edge_is_unpaired_boundary(brep, clone_side.mate()) {
             trace_decline(clone, "clone twin is paired");
             continue;
         }
@@ -94,7 +94,9 @@ pub(super) fn normalize_spilled_fillet_corners(
         let Some(stolen) = brep.half_edges.get(trim_side.half_edge) else {
             continue;
         };
-        let arc_support_side = stolen.twin;
+        let Some(arc_support_side) = stolen.mate() else {
+            continue;
+        };
         let Some(support_side) = brep.half_edges.get(arc_support_side) else {
             continue;
         };
@@ -117,7 +119,7 @@ pub(super) fn normalize_spilled_fillet_corners(
         let Some(clone) = transfers.iter().find_map(|transfer| {
             let candidate = transfer.replacement;
             let side = brep.half_edges.get(candidate)?;
-            if half_edge_is_unpaired_boundary(brep, side.twin)
+            if half_edge_is_unpaired_boundary(brep, side.mate())
                 && half_edge_spans_same_vertices(brep, candidate, arc_support_side)
             {
                 Some(candidate)
@@ -205,8 +207,8 @@ fn trace_decline(clone: HalfEdgeHandle, reason: &str) {
 
 /// A boundary side's opposite: either absent from the map outright or
 /// present but never wired into a loop.
-fn half_edge_is_unpaired_boundary(brep: &BRep, twin: HalfEdgeHandle) -> bool {
-    match brep.half_edges.get(twin) {
+fn half_edge_is_unpaired_boundary(brep: &BRep, twin: Option<HalfEdgeHandle>) -> bool {
+    match twin.and_then(|t| brep.half_edges.get(t)) {
         None => true,
         Some(twin_side) => !brep.loops.contains_key(twin_side.loop_),
     }

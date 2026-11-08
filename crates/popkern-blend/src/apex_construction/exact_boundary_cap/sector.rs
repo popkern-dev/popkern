@@ -5,13 +5,18 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 #[path = "sector_support_side.rs"]
 mod sector_support_side;
 
-use crate::apex_construction::error::ApexBuildError;
 use crate::apex_construction::gregory_cap::GregoryCapSector;
 use crate::apex_construction::gregory_cap_boundary::half_edge_for_face_on_edge;
 use crate::apex_construction::plan::ApexPlan;
 use crate::apex_construction::target_topology::{TargetCapFace, TargetEdgeRole};
 use sector_support_side::{
     coincident_support_side, same_oriented_cylinder_support_side, same_oriented_support_side,
+};
+
+#[path = "sector_diagnostic.rs"]
+mod sector_diagnostic;
+pub(crate) use sector_diagnostic::{
+    ExactBoundarySectorDeclineReason, ExactBoundarySectorDiagnostic,
 };
 
 /// Sector-local side occupied by an immutable cap/support seam.
@@ -101,92 +106,6 @@ impl ExactBoundaryCapSectorInput {
         match side {
             ExactBoundaryOuterSide::FilletEnd => Some(&self.fillet_seam),
             ExactBoundaryOuterSide::FaceEdge => self.bridge_seam.as_ref(),
-        }
-    }
-}
-
-/// Stable decline reason for sector extraction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExactBoundarySectorDeclineReason {
-    /// The plan is not a Gregory cap topology.
-    NonGregoryCap,
-    /// Planner order and sector inventory disagree.
-    SectorInventoryMismatch,
-    /// A sector edge handle is stale.
-    StaleEdge,
-    /// A sector edge has no exact 3D curve.
-    MissingEdgeCurve,
-    /// The edge is not bounded by the cap face.
-    MissingCapHalfEdge,
-    /// The cap half-edge has no live twin.
-    MissingSupportHalfEdge,
-    /// The support half-edge does not resolve to a non-cap face.
-    MissingSupportFace,
-    /// The two immutable outer seams collapsed to the same edge.
-    DuplicateOuterSeam,
-}
-
-impl ExactBoundarySectorDeclineReason {
-    /// Stable diagnostic code for API, GUI, and test assertions.
-    pub(crate) fn code(self) -> &'static str {
-        match self {
-            Self::NonGregoryCap => "exact_boundary_cap.sector.non_gregory_cap",
-            Self::SectorInventoryMismatch => "exact_boundary_cap.sector.inventory_mismatch",
-            Self::StaleEdge => "exact_boundary_cap.sector.stale_edge",
-            Self::MissingEdgeCurve => "exact_boundary_cap.sector.boundary_missing_curve",
-            Self::MissingCapHalfEdge => "exact_boundary_cap.sector.cap_half_edge_missing",
-            Self::MissingSupportHalfEdge => "exact_boundary_cap.sector.support_half_edge_missing",
-            Self::MissingSupportFace => "exact_boundary_cap.sector.support_face_missing",
-            Self::DuplicateOuterSeam => "exact_boundary_cap.sector.duplicate_outer_seam",
-        }
-    }
-}
-
-/// Structured extraction decline with stable handles where available.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ExactBoundarySectorDiagnostic {
-    /// Stable decline reason.
-    pub reason: ExactBoundarySectorDeclineReason,
-    /// Stable diagnostic code.
-    pub code: &'static str,
-    /// Planner-order sector index, if known.
-    pub sector_index: Option<usize>,
-    /// Stable sector name, if known.
-    pub sector_name: Option<String>,
-    /// Cap face being inspected.
-    pub cap_face: Option<FaceHandle>,
-    /// Edge being inspected.
-    pub edge: Option<EdgeHandle>,
-    /// Half-edge being inspected.
-    pub half_edge: Option<HalfEdgeHandle>,
-}
-
-impl ExactBoundarySectorDiagnostic {
-    fn new(
-        reason: ExactBoundarySectorDeclineReason,
-        sector_index: Option<usize>,
-        sector_name: Option<String>,
-        cap_face: Option<FaceHandle>,
-        edge: Option<EdgeHandle>,
-        half_edge: Option<HalfEdgeHandle>,
-    ) -> Self {
-        Self {
-            reason,
-            code: reason.code(),
-            sector_index,
-            sector_name,
-            cap_face,
-            edge,
-            half_edge,
-        }
-    }
-
-    pub(crate) fn into_build_error(self) -> ApexBuildError {
-        ApexBuildError::PlanMismatch {
-            reason: format!(
-                "{} sector={:?} edge={:?} half_edge={:?}",
-                self.code, self.sector_name, self.edge, self.half_edge
-            ),
         }
     }
 }
@@ -386,8 +305,8 @@ fn extract_outer_seam(
             Some(cap_half_edge),
         )
     })?;
-    let mut support_half_edge = cap_half_edge_data.twin;
-    let mut support_half_edge_data = brep.half_edges.get(support_half_edge);
+    let mut support_half_edge = cap_half_edge_data.mate();
+    let mut support_half_edge_data = support_half_edge.and_then(|h| brep.half_edges.get(h));
     let mut support_face = support_half_edge_data
         .and_then(|data| brep.loops.get(data.loop_))
         .map(|loop_data| loop_data.face)
@@ -395,8 +314,9 @@ fn extract_outer_seam(
     if support_half_edge_data
         .and_then(|data| brep.loops.get(data.loop_))
         .is_some_and(|loop_data| loop_data.face == cap_face)
+        && let Some(mate) = support_half_edge
     {
-        cap_half_edge = support_half_edge;
+        cap_half_edge = mate;
         cap_half_edge_data = brep.half_edges.get(cap_half_edge).ok_or_else(|| {
             diagnostic(
                 ExactBoundarySectorDeclineReason::MissingCapHalfEdge,
@@ -407,8 +327,8 @@ fn extract_outer_seam(
                 Some(cap_half_edge),
             )
         })?;
-        support_half_edge = cap_half_edge_data.twin;
-        support_half_edge_data = brep.half_edges.get(support_half_edge);
+        support_half_edge = cap_half_edge_data.mate();
+        support_half_edge_data = support_half_edge.and_then(|h| brep.half_edges.get(h));
         support_face = support_half_edge_data
             .and_then(|data| brep.loops.get(data.loop_))
             .map(|loop_data| loop_data.face)
@@ -425,24 +345,24 @@ fn extract_outer_seam(
         && let Some((semantic_support_half_edge, semantic_support_face)) =
             same_oriented_cylinder_support_side(brep, cap_face, cap_half_edge)
     {
-        support_half_edge = semantic_support_half_edge;
-        support_half_edge_data = brep.half_edges.get(support_half_edge);
+        support_half_edge = Some(semantic_support_half_edge);
+        support_half_edge_data = brep.half_edges.get(semantic_support_half_edge);
         support_face = Some(semantic_support_face);
     }
     if support_face.is_none_or(|face| face == cap_face)
         && let Some((semantic_support_half_edge, semantic_support_face)) =
             same_oriented_support_side(brep, cap_face, cap_half_edge)
     {
-        support_half_edge = semantic_support_half_edge;
-        support_half_edge_data = brep.half_edges.get(support_half_edge);
+        support_half_edge = Some(semantic_support_half_edge);
+        support_half_edge_data = brep.half_edges.get(semantic_support_half_edge);
         support_face = Some(semantic_support_face);
     }
     if support_face.is_none_or(|face| face == cap_face)
         && let Some((semantic_support_half_edge, semantic_support_face)) =
             coincident_support_side(brep, cap_face, cap_half_edge)
     {
-        support_half_edge = semantic_support_half_edge;
-        support_half_edge_data = brep.half_edges.get(support_half_edge);
+        support_half_edge = Some(semantic_support_half_edge);
+        support_half_edge_data = brep.half_edges.get(semantic_support_half_edge);
         support_face = Some(semantic_support_face);
     }
     let support_half_edge_data = support_half_edge_data.ok_or_else(|| {
@@ -452,7 +372,7 @@ fn extract_outer_seam(
             sector_name,
             cap_face,
             Some(edge),
-            Some(support_half_edge),
+            support_half_edge,
         )
     })?;
     let support_face = support_face.ok_or_else(|| {
@@ -462,7 +382,17 @@ fn extract_outer_seam(
             sector_name,
             cap_face,
             Some(edge),
-            Some(support_half_edge),
+            support_half_edge,
+        )
+    })?;
+    let support_half_edge = support_half_edge.ok_or_else(|| {
+        diagnostic(
+            ExactBoundarySectorDeclineReason::MissingSupportHalfEdge,
+            sector,
+            sector_name,
+            cap_face,
+            Some(edge),
+            None,
         )
     })?;
 

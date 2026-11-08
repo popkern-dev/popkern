@@ -153,7 +153,7 @@ fn blend_on_blend_chain_is_winding_honest() {
     let mut best: Option<(popkern_core::topology::EdgeHandle, f64)> = None;
     for (eh, edge) in &blended.edges {
         let he = &blended.half_edges[edge.half_edge];
-        let twin = &blended.half_edges[he.twin];
+        let twin = &blended.half_edges[he.mate().unwrap_or_default()];
         let f1 = blended.loops[he.loop_].face;
         let f2 = blended.loops[twin.loop_].face;
         let s1 = blended.faces[f1].surface.as_ref().map(|s| &s.geometry);

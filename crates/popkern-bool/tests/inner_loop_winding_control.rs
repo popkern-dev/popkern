@@ -29,7 +29,7 @@ fn reverse_region(b: &mut BRep, loops: &[LoopHandle], faces: &[FaceHandle]) {
     let hes: Vec<HalfEdgeHandle> = loops.iter().flat_map(|&l| loop_half_edges(b, l)).collect();
     let origins: Vec<_> = hes
         .iter()
-        .map(|&h| b.half_edges[b.half_edges[h].twin].origin)
+        .map(|&h| b.half_edges[b.half_edges[h].mate().unwrap_or_default()].origin)
         .collect();
     for (&h, o) in hes.iter().zip(origins) {
         let he = &mut b.half_edges[h];
@@ -41,11 +41,11 @@ fn reverse_region(b: &mut BRep, loops: &[LoopHandle], faces: &[FaceHandle]) {
         let v = b.half_edges[h].origin;
         b.vertices[v].outgoing = h;
         let e = b.half_edges[h].edge;
-        if b.edges[e].half_edge == b.half_edges[h].twin {
+        if b.half_edges[h].mate() == Some(b.edges[e].half_edge) {
             continue;
         }
-        if b.edges[e].half_edge == h && hes.contains(&b.half_edges[h].twin) {
-            b.edges[e].half_edge = b.half_edges[h].twin;
+        if b.edges[e].half_edge == h && hes.contains(&b.half_edges[h].mate().unwrap_or_default()) {
+            b.edges[e].half_edge = b.half_edges[h].mate().unwrap_or_default();
         }
     }
     for &f in faces {
@@ -64,8 +64,7 @@ fn a_hole_wound_with_its_outer_loop_is_rejected() {
         Point3::new(2.0, 2.0, 0.0),
         Point3::new(-2.0, 2.0, 0.0),
     ];
-    let mut plate = BRep::prism(&square, Vec3::new(0.0, 0.0, 1.0), 1.0, tol).expect("plate");
-    plate.reverse_body_orientation();
+    let plate = BRep::prism(&square, Vec3::new(0.0, 0.0, 1.0), 1.0, tol).expect("plate");
     let drill = BRep::cylinder(0.5, 3.0, tol)
         .expect("drill")
         .transform(&popkern_core::geometry::Transform3::translation(
@@ -166,7 +165,7 @@ fn a_seamless_band_validates_clean() {
     let seam = band
         .half_edges
         .iter()
-        .find(|(_, h)| band.half_edges[h.twin].loop_ == h.loop_)
+        .find(|(_, h)| band.half_edges[h.mate().unwrap_or_default()].loop_ == h.loop_)
         .map(|(k, _)| k)
         .expect("seam half-edge");
     let ring = band.kemr(seam).expect("kemr").inner_loop;

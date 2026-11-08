@@ -32,6 +32,10 @@ pub(super) struct FaceInfo {
     pub same_sense: bool,
     /// Face bounds (loops), with outer bound first if present.
     pub bounds: Vec<BoundInfo>,
+    /// The `VERTEX_POINT`s of the face's `VERTEX_LOOP` bounds: a vertex
+    /// on the face's interior (a vertex loop, PK-1116), or a degenerate
+    /// apex bound the face's other loops already close.
+    pub vertex_loops: Vec<EntityId>,
 }
 
 /// Topology of a single face bound (loop).
@@ -114,6 +118,7 @@ pub(super) fn collect_face_data_reversing(
         }
 
         let mut bounds = Vec::new();
+        let mut vertex_loops = Vec::new();
         for &bound_id in &af.bounds {
             let bound_entity = graph.get(bound_id)?;
             let (loop_id, is_outer, bound_orientation) = match bound_entity.type_name.as_str() {
@@ -151,15 +156,18 @@ pub(super) fn collect_face_data_reversing(
             let bound_orientation = bound_orientation != reversed;
             let loop_entity = graph.get(loop_id)?;
             if loop_entity.type_name == "VERTEX_LOOP" {
-                // A degenerate bound — one vertex, a cone's apex: the
-                // face's other loop already closes the region, so the
-                // point loop carries no boundary to wire (PK-635,
-                // measured: team.stp).
-                log.warn(
-                    Phase::MapTopology,
-                    Some(loop_id),
-                    "VERTEX_LOOP bound (degenerate apex) skipped",
-                );
+                // One vertex: a vertex on the face's interior, or a
+                // degenerate bound (a cone's apex) the face's other loop
+                // already closes (PK-635, measured: team.stp). Which one
+                // is read once the face is built (`vertex_loops`).
+                match loop_entity.params.get(1) {
+                    Some(Parameter::EntityRef(vp)) => vertex_loops.push(*vp),
+                    _ => log.warn(
+                        Phase::MapTopology,
+                        Some(loop_id),
+                        "VERTEX_LOOP without a vertex skipped",
+                    ),
+                }
                 continue;
             }
             let el = match EdgeLoop::from_params(&loop_entity.params) {
@@ -235,6 +243,7 @@ pub(super) fn collect_face_data_reversing(
             surface_id: af.face_geometry,
             same_sense: af.same_sense,
             bounds,
+            vertex_loops,
         });
     }
 

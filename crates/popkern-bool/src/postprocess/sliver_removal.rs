@@ -198,7 +198,7 @@ fn find_killing_half_edge(
     let limit = brep.half_edges.len() + 1;
     for _ in 0..limit {
         let he = brep.half_edges.get(cursor)?;
-        let twin = brep.half_edges.get(he.twin)?;
+        let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
         let twin_loop = brep.loops.get(twin.loop_)?;
         let neighbor_face = twin_loop.face;
 
@@ -219,7 +219,7 @@ fn find_killing_half_edge(
                 // Pass the TWIN to kef: kef will survive the twin's
                 // face (the neighbor) and kill `cursor`'s face (the
                 // sliver `target`).
-                return Some(he.twin);
+                return he.mate();
             }
         }
 
@@ -248,7 +248,7 @@ fn face_boundary_wraps(brep: &BRep, face: FaceHandle) -> bool {
         let Some(d) = brep.half_edges.get(he) else {
             return false;
         };
-        let Some(tw) = brep.half_edges.get(d.twin) else {
+        let Some(tw) = d.mate().and_then(|m| brep.half_edges.get(m)) else {
             return false;
         };
         let twin_face = brep.loops.get(tw.loop_).map(|tl| tl.face);

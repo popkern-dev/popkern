@@ -30,9 +30,9 @@ pub(super) fn perform_flap_surgery(brep: &mut BRep, c: &PairCornerCandidate) -> 
     }
     // The seam edge must now run between the two anchors.
     let he_n_data = brep.half_edges.get(c.he_n).ok_or(Reason::EulerRejected)?;
-    let he_p_data = brep
-        .half_edges
-        .get(he_n_data.twin)
+    let he_p_data = he_n_data
+        .mate()
+        .and_then(|m| brep.half_edges.get(m))
         .ok_or(Reason::EulerRejected)?;
     if he_n_data.origin != c.anchor_near || he_p_data.origin != c.anchor_far {
         return Err(Reason::EulerRejected);

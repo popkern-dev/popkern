@@ -16,7 +16,11 @@ use popkern_core::topology::BRep;
 #[test]
 fn the_whole_seam_reading_sees_a_crease_the_mid_seam_misses() {
     let tol = Tolerance::default();
-    let cube = BRep::unit_cube(tol).expect("cube");
+    // A cube facing into itself, as cubes were built before solids
+    // faced outward: the outward cube commits a cap with no crease at
+    // this corner (served_cap_seam_g1 2.9e-2), leaving nothing to read.
+    let mut cube = BRep::unit_cube(tol).expect("cube");
+    cube.reverse_body_orientation();
     let corner = cube
         .vertices
         .iter()

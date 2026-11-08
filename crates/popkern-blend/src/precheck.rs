@@ -420,7 +420,7 @@ fn edge_length(brep: &BRep, edge: EdgeHandle) -> Option<f64> {
     // An edge's vertices live on its pair of half-edges: the
     // half-edge's `origin` and the twin's `origin`.
     let he = brep.half_edges.get(e.half_edge)?;
-    let he_twin = brep.half_edges.get(he.twin)?;
+    let he_twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
     let v1 = brep.vertices.get(he.origin)?.position;
     let v2 = brep.vertices.get(he_twin.origin)?.position;
     Some(v1.distance_to(&v2))

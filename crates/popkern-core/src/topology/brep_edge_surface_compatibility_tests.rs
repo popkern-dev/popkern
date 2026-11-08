@@ -7,10 +7,11 @@ use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace};
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::brep_edge_surface_compatibility_helpers::adjacent_surfaced_pair;
 use crate::topology::{
-    BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
-    Solid, SurfaceBoundaryHintDeclineReason, Vertex,
+    BRep, Edge, Face, FaceSides, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
+    SurfaceBoundaryHintDeclineReason, Vertex,
 };
 
 fn options() -> BrepEdgeSurfaceCompatibilityOptions {
@@ -265,14 +266,7 @@ fn no_validation_options() -> BrepEdgeSurfaceCompatibilityOptions {
 
 fn nurbs_nurbs_boundary_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let start = Point3::new(0.0, 0.0, 0.0);
     let end = Point3::new(0.0, 1.0, 0.0);
     let va = brep.vertices.insert(vertex(start));
@@ -294,10 +288,12 @@ fn nurbs_nurbs_boundary_fixture() -> BRep {
     let loop_a = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: face_a,
+        vertex: None,
     });
     let loop_b = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: face_b,
+        vertex: None,
     });
     let he_a = brep.half_edges.insert(half_edge(va, loop_a));
     let he_b = brep.half_edges.insert(half_edge(vb, loop_b));
@@ -315,8 +311,8 @@ fn nurbs_nurbs_boundary_fixture() -> BRep {
     });
     brep.half_edges[he_a].edge = edge;
     brep.half_edges[he_b].edge = edge;
-    brep.half_edges[he_a].twin = he_b;
-    brep.half_edges[he_b].twin = he_a;
+    brep.half_edges[he_a].set_mate(he_b);
+    brep.half_edges[he_b].set_mate(he_a);
     brep.half_edges[he_a].next = he_b;
     brep.half_edges[he_b].next = he_a;
     brep.half_edges[he_a].prev = he_b;
@@ -330,7 +326,7 @@ fn nurbs_nurbs_boundary_fixture() -> BRep {
     brep.faces[face_b].outer_loop = loop_b;
     brep.vertices[va].outgoing = he_a;
     brep.vertices[vb].outgoing = he_b;
-    brep.shells[shell].face = face_a;
+    brep.set_sides_anchor(shell, face_a);
     brep
 }
 
@@ -354,14 +350,7 @@ fn nurbs_patch(x_extent: f64) -> SurfaceGeometry {
 
 fn gregory_plane_boundary_fixture() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let start = Point3::new(0.0, 0.0, 0.0);
     let end = Point3::new(0.0, 1.0, 0.0);
     let va = brep.vertices.insert(vertex(start));
@@ -371,10 +360,12 @@ fn gregory_plane_boundary_fixture() -> BRep {
     let loop_a = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: face_a,
+        vertex: None,
     });
     let loop_b = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face: face_b,
+        vertex: None,
     });
     let he_a = brep.half_edges.insert(half_edge(va, loop_a));
     let he_b = brep.half_edges.insert(half_edge(vb, loop_b));
@@ -392,8 +383,8 @@ fn gregory_plane_boundary_fixture() -> BRep {
     });
     brep.half_edges[he_a].edge = edge;
     brep.half_edges[he_b].edge = edge;
-    brep.half_edges[he_a].twin = he_b;
-    brep.half_edges[he_b].twin = he_a;
+    brep.half_edges[he_a].set_mate(he_b);
+    brep.half_edges[he_b].set_mate(he_a);
     brep.half_edges[he_a].next = he_b;
     brep.half_edges[he_b].next = he_a;
     brep.half_edges[he_a].prev = he_b;
@@ -406,7 +397,7 @@ fn gregory_plane_boundary_fixture() -> BRep {
     brep.faces[face_b].outer_loop = loop_b;
     brep.vertices[va].outgoing = he_a;
     brep.vertices[vb].outgoing = he_b;
-    brep.shells[shell].face = face_a;
+    brep.set_sides_anchor(shell, face_a);
     brep
 }
 
@@ -422,7 +413,7 @@ fn vertex(position: Point3) -> Vertex {
 fn half_edge(origin: crate::topology::VertexHandle, loop_: LoopHandle) -> HalfEdge {
     HalfEdge {
         origin,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: Default::default(),
@@ -431,11 +422,12 @@ fn half_edge(origin: crate::topology::VertexHandle, loop_: LoopHandle) -> HalfEd
     }
 }
 
-fn face(shell: ShellHandle, surface: SurfaceOnFace) -> Face {
+fn face(shell: FaceSides, surface: SurfaceOnFace) -> Face {
     Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(surface),
         name: None,
         tolerance: None,

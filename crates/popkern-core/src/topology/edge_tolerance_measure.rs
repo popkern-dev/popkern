@@ -60,7 +60,7 @@ impl BRep {
                 continue;
             };
             let first = edge.half_edge;
-            let Some(twin) = self.half_edges.get(first).map(|h| h.twin) else {
+            let Some(twin) = self.half_edges.get(first).and_then(|h| h.mate()) else {
                 continue;
             };
             let current = edge.tolerance.unwrap_or(linear);

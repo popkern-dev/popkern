@@ -50,7 +50,7 @@ impl BRep {
                     "weld_boundary_edge_pair: edge {eh:?} is not in the body"
                 )));
             }
-            if !self.boundary_edges.contains(&eh) {
+            if !self.is_free_edge(eh) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "weld_boundary_edge_pair: edge {eh:?} is not a boundary edge"
                 )));
@@ -66,7 +66,7 @@ impl BRep {
                     "weld_boundary_edge_pair: {label} edge has no surviving half-edge"
                 )));
             };
-            if self.half_edges.contains_key(he.twin) {
+            if he.mate().is_some_and(|m| self.half_edges.contains_key(m)) {
                 return Err(CoreError::PreconditionFailed(format!(
                     "weld_boundary_edge_pair: {label} edge's half-edge still has a twin"
                 )));
@@ -118,19 +118,18 @@ impl BRep {
         }
 
         // Twin the survivors and retire the kill edge.
-        candidate.half_edges[hk].twin = hx;
-        candidate.half_edges[hx].twin = hk;
+        candidate.half_edges[hk].set_mate(hx);
+        candidate.half_edges[hx].set_mate(hk);
         candidate.half_edges[hx].edge = keep;
         candidate.edges.remove(kill);
-        candidate.boundary_edges.remove(&keep);
-        candidate.boundary_edges.remove(&kill);
-
         // Local postconditions only: a weld BATCH passes through
         // intermediate states (a slit welded half-way) whose global
         // Euler bookkeeping is legitimately off — the batch owner
         // validates the whole body after the last weld. Here: mutual
         // twins and both incident loops still walk closed.
-        if candidate.half_edges[hk].twin != hx || candidate.half_edges[hx].twin != hk {
+        if candidate.half_edges[hk].mate() != Some(hx)
+            || candidate.half_edges[hx].mate() != Some(hk)
+        {
             return Err(CoreError::PreconditionFailed(
                 "weld_boundary_edge_pair: twin rewire failed".into(),
             ));

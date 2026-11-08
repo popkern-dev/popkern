@@ -11,6 +11,7 @@ use crate::error::CoreError;
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{split_helpers::chart_branch_occurrences, *};
 
 #[path = "split_results.rs"]
@@ -51,7 +52,6 @@ impl BRep {
             .get(he_ab)
             .ok_or_else(|| CoreError::InvalidHandle("half_edge on edge is invalid".into()))?;
 
-        let he_ba = he_ab_data.twin;
         let vertex_a = he_ab_data.origin;
         let he_ab_next = he_ab_data.next;
         let he_ab_loop = he_ab_data.loop_;
@@ -59,7 +59,7 @@ impl BRep {
 
         // Boundary edges have a null twin — handle them with a
         // simplified split that only touches the surviving side.
-        let is_boundary = self.boundary_edges.contains(&edge);
+        let is_boundary = self.is_free_edge(edge);
         if is_boundary {
             return self.split_boundary_edge(
                 edge,
@@ -73,6 +73,7 @@ impl BRep {
             );
         }
 
+        let he_ba = self.require_mate(he_ab)?;
         let he_ba_data = self
             .half_edges
             .get(he_ba)
@@ -157,7 +158,7 @@ impl BRep {
         // Create new half-edges: he_vb (V->B) and he_bv (B->V).
         let he_vb = self.half_edges.insert(HalfEdge {
             origin: vertex_v,
-            twin: Default::default(),
+            ring: RadialLinks::alone(),
             next: he_ab_next,
             prev: he_ab,
             edge: edge_b,
@@ -167,7 +168,7 @@ impl BRep {
 
         let he_bv = self.half_edges.insert(HalfEdge {
             origin: vertex_b,
-            twin: he_vb,
+            ring: RadialLinks::pair(he_vb),
             next: he_ba,
             prev: he_ba_prev,
             edge: edge_b,
@@ -176,7 +177,7 @@ impl BRep {
         });
 
         // Patch twin of he_vb.
-        self.half_edges[he_vb].twin = he_bv;
+        self.half_edges[he_vb].set_mate(he_bv);
 
         if he_ab_next == he_ba {
             // SEAM TURNAROUND at B (he_ab and its twin are adjacent in

@@ -200,7 +200,7 @@ fn construct_apex_inner(
             let Some(he) = brep.half_edges.get(primary) else {
                 continue;
             };
-            let twin = brep.half_edges.get(he.twin);
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m));
             let touches = he.origin == v || twin.is_some_and(|t| t.origin == v);
             if !touches {
                 continue;
@@ -279,7 +279,7 @@ fn construct_apex_inner(
             while let Some(he) = brep.half_edges.get(cursor) {
                 let twin_face = brep
                     .half_edges
-                    .get(he.twin)
+                    .get(he.mate().unwrap_or_default())
                     .and_then(|t| brep.loops.get(t.loop_))
                     .map(|l| l.face);
                 let p = brep.vertices.get(he.origin).map(|v| v.position);
@@ -379,7 +379,7 @@ fn construct_apex_inner(
         while let Some(he) = brep.half_edges.get(cursor) {
             let twin_face = brep
                 .half_edges
-                .get(he.twin)
+                .get(he.mate().unwrap_or_default())
                 .and_then(|t| brep.loops.get(t.loop_))
                 .map(|l| l.face)
                 .unwrap_or(cap_face);

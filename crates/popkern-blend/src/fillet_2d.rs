@@ -50,6 +50,7 @@
 //! never mutated).
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{BRep, Edge, HalfEdge, VertexHandle};
 
 use crate::corner_2d_helpers::{rebuild_edge_curve_clipped, topology_failure};
@@ -77,6 +78,13 @@ pub fn fillet_corner_2d(
     vertex: VertexHandle,
     radius: f64,
 ) -> Result<BRep, BlendError> {
+    brep.require_kind(
+        "corner fillet",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+        ],
+    )?;
     if !radius.is_finite() || radius <= 0.0 {
         return Err(BlendError::InvalidParameter {
             parameter: "radius".into(),
@@ -220,7 +228,7 @@ pub(crate) fn apply_corner_plan(
     // before `he_out_a` in the front loop.
     let new_front = brep.half_edges.insert(HalfEdge {
         origin: v_t2,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: plan.he_out_a,
         prev: prev_front,
         edge: arc_edge,
@@ -231,14 +239,14 @@ pub(crate) fn apply_corner_plan(
     // before `he_out_b` in the back loop.
     let new_back = brep.half_edges.insert(HalfEdge {
         origin: v_t1,
-        twin: new_front,
+        ring: RadialLinks::pair(new_front),
         next: plan.he_out_b,
         prev: prev_back,
         edge: arc_edge,
         loop_: loop_back,
         pcurve: None,
     });
-    brep.half_edges[new_front].twin = new_back;
+    brep.half_edges[new_front].set_mate(new_back);
     // Canonical half-edge direction matches the arc curve's
     // parameterisation: start_angle → t1, end_angle → t2. The
     // half-edge that starts at t1 is `new_back` (origin = v_t1).

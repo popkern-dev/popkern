@@ -1,5 +1,6 @@
 //! Mutation for multi-run bridge-face plans.
 
+use crate::topology::RadialLinks;
 use std::collections::{BTreeSet, HashSet};
 
 use crate::error::CoreError;
@@ -142,27 +143,28 @@ fn create_multi_run_bridge_boundary_twins(
                     "multi-run bridge path after-last half-edge is stale".into(),
                 )
             })?;
-        if !consumed_edges.insert(edge) || brep.half_edges.contains_key(data.twin) {
+        if !consumed_edges.insert(edge)
+            || data.mate().is_some_and(|m| brep.half_edges.contains_key(m))
+        {
             twins.push(insert_multi_run_bridge_separator(brep, half_edge, origin)?);
             separator_edges += 1;
             continue;
         }
-        if !brep.boundary_edges.contains(&edge) {
+        if !brep.is_free_edge(edge) {
             return Err(CoreError::PreconditionFailed(format!(
                 "multi-run bridge path half-edge {half_edge:?} is not an unowned boundary side"
             )));
         }
         let twin = brep.half_edges.insert(HalfEdge {
             origin,
-            twin: half_edge,
+            ring: RadialLinks::pair(half_edge),
             next: Default::default(),
             prev: Default::default(),
             edge,
             loop_: Default::default(),
             pcurve: None,
         });
-        brep.half_edges[half_edge].twin = twin;
-        brep.boundary_edges.remove(&edge);
+        brep.half_edges[half_edge].set_mate(twin);
         twins.push(twin);
     }
     twins.reverse();
@@ -206,7 +208,7 @@ fn insert_multi_run_bridge_separator(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge,
@@ -214,7 +216,6 @@ fn insert_multi_run_bridge_separator(
         pcurve: source_pcurve,
     });
     brep.edges[edge].half_edge = half_edge;
-    brep.boundary_edges.insert(edge);
     Ok(half_edge)
 }
 
@@ -235,7 +236,8 @@ fn insert_multi_run_bridge_face_loop(
     let bridge_face = brep.faces.insert(Face {
         outer_loop: Default::default(),
         inner_loops: vec![],
-        shell: source.shell,
+        back: source.back,
+        front: source.front,
         surface: None,
         name: None,
         tolerance: source.tolerance,
@@ -244,6 +246,7 @@ fn insert_multi_run_bridge_face_loop(
     let bridge_loop = brep.loops.insert(Loop {
         half_edge: Default::default(),
         face: bridge_face,
+        vertex: None,
     });
     brep.faces[bridge_face].outer_loop = bridge_loop;
     Ok(bridge_loop)
@@ -310,7 +313,7 @@ fn insert_multi_run_bridge_connector(
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin,
-        twin: Default::default(),
+        ring: RadialLinks::alone(),
         next: Default::default(),
         prev: Default::default(),
         edge,
@@ -318,7 +321,6 @@ fn insert_multi_run_bridge_connector(
         pcurve: None,
     });
     brep.edges[edge].half_edge = half_edge;
-    brep.boundary_edges.insert(edge);
     half_edge
 }
 

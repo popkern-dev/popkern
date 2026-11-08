@@ -141,7 +141,7 @@ fn build(
     let nj = if closed { k } else { k - 1 };
     // An open chain's end vertices: the strips' tips.
     let start_vertex = brep.half_edges[links[0].h].origin;
-    let end_vertex = brep.half_edges[brep.half_edges[links[k - 1].h].twin].origin;
+    let end_vertex = brep.half_edges[brep.half_edges[links[k - 1].h].require_mate()?].origin;
 
     // Junction analysis: v_i = dest(h_i), third edge, section contacts;
     // a junction where the next link is not tangent is a MITRE (PK-768).
@@ -151,7 +151,7 @@ fn build(
     let mut sections: Vec<(Point3, Vec3)> = Vec::with_capacity(nj);
     for i in 0..nj {
         let (a, b) = (&links[i], &links[(i + 1) % k]);
-        let v = brep.half_edges[brep.half_edges[a.h].twin].origin;
+        let v = brep.half_edges[brep.half_edges[a.h].require_mate()?].origin;
         let (ea, eb) = (brep.half_edges[a.h].edge, brep.half_edges[b.h].edge);
         if super::g1_junction::tangent_at_vertex(brep, ea, eb, v) {
             let (third, contact, section) =
@@ -186,7 +186,7 @@ fn build(
     let mut vq_of = Vec::with_capacity(nj);
     let mut corners = Vec::new();
     for i in 0..nj {
-        let v = brep.half_edges[brep.half_edges[links[i].h].twin].origin;
+        let v = brep.half_edges[brep.half_edges[links[i].h].require_mate()?].origin;
         if let Some(m) = &mitres[i] {
             let (vp, vq, corner) = mitre_vertices(brep, m, v, tolerance)?;
             vp_of.push(vp);
@@ -218,7 +218,7 @@ fn build(
     }
 
     // Edges and half-edges.
-    let shell = brep.faces[brep.loops[brep.half_edges[links[0].h].loop_].face].shell;
+    let shell = brep.faces[brep.loops[brep.half_edges[links[0].h].loop_].face].sides();
     // Tangent caps at the open ends.
     let cap_at = |brep: &mut BRep, kind: Option<ChainEnd>, at_start: bool| {
         let link = if at_start { &links[0] } else { &links[k - 1] };
@@ -275,8 +275,8 @@ fn build(
     for i in 0..nj {
         let a = brep.half_edges.insert(blank(vq_of[i], x_edges[i]));
         let b = brep.half_edges.insert(blank(vp_of[i], x_edges[i]));
-        brep.half_edges[a].twin = b;
-        brep.half_edges[b].twin = a;
+        brep.half_edges[a].set_mate(b);
+        brep.half_edges[b].set_mate(a);
         // The curve runs P → Q (a mitre's M may run Q → P).
         let p_to_q = mitres[i].as_ref().is_none_or(|m| m.starts_at_p);
         brep.edges[x_edges[i]].half_edge = if p_to_q { b } else { a };
@@ -292,7 +292,7 @@ fn build(
         };
         let after = if closed || i + 1 < k { Some(i) } else { None };
         let h = link.h;
-        let tw = brep.half_edges[h].twin;
+        let tw = brep.half_edges[h].require_mate()?;
         // A cap end stops on the cap's section; a vanishing end runs
         // out to the end vertex.
         let start_end = start_cap.filter(|_| i == 0);
@@ -329,7 +329,8 @@ fn build(
         let face = brep.faces.insert(Face {
             outer_loop: LoopHandle::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: Some(SurfaceOnFace {
                 geometry: link.eg.surface.clone(),
                 orientation: true,
@@ -341,14 +342,15 @@ fn build(
         let lp = brep.loops.insert(Loop {
             half_edge: HalfEdgeHandle::default(),
             face,
+            vertex: None,
         });
         brep.faces[face].outer_loop = lp;
         let fp = brep.half_edges.insert(blank(pb, e_p));
         let fq = brep.half_edges.insert(blank(qa, e_q));
-        brep.half_edges[sp].twin = fp;
-        brep.half_edges[fp].twin = sp;
-        brep.half_edges[sq].twin = fq;
-        brep.half_edges[fq].twin = sq;
+        brep.half_edges[sp].set_mate(fp);
+        brep.half_edges[fp].set_mate(sp);
+        brep.half_edges[sq].set_mate(fq);
+        brep.half_edges[fq].set_mate(sq);
         brep.edges[e_p].half_edge = sp; // P side runs pa → pb with the curve
         brep.edges[e_q].half_edge = fq; // strip side runs qa → qb with the curve
         // Strip loop: P trim back, section X_prev (P→Q), Q trim, X_i

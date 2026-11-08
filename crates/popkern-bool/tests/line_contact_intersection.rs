@@ -36,8 +36,8 @@ fn line_contact_intersection_is_an_empty_body() {
     )
     .expect("intersection serves");
     assert_eq!(r.faces.len(), 0);
-    assert_eq!(r.shells.len(), 0, "no face-less shell");
-    assert_eq!(r.solids.len(), 0, "no solid around nothing");
+    assert_eq!(r.back_shell_count(), 0, "no face-less shell");
+    assert_eq!(r.solid_regions().len(), 0, "no solid around nothing");
     assert!(r.validate_all().is_empty());
 }
 
@@ -46,11 +46,8 @@ fn line_contact_intersection_is_an_empty_body() {
 #[test]
 fn validate_all_rejects_a_shell_without_faces() {
     let mut cube = BRep::unit_cube(Tolerance::default()).expect("cube builds");
-    let solid = cube.solids.keys().next().expect("a solid");
-    cube.shells.insert(popkern_core::topology::Shell {
-        face: Default::default(),
-        solid,
-    });
+    let solid = cube.solid_regions()[0];
+    cube.add_region_shell(solid, Default::default());
     let errors = cube.validate_all();
     assert!(
         errors

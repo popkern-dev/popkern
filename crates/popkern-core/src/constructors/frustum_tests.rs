@@ -35,8 +35,9 @@ fn signed_volume(brep: &BRep) -> f64 {
         .sum()
 }
 
-/// The Euler prism is built inward (−4); turned outward it measures
-/// +4 and validates, and turning an outward body is a no-op.
+/// The Euler prism is built outward (+4); turned inside out (−4) it is
+/// turned back, measures +4 and validates, and turning an outward body
+/// is a no-op.
 #[test]
 fn an_inward_prism_is_turned_outward() {
     let mut prism = BRep::prism(
@@ -46,6 +47,8 @@ fn an_inward_prism_is_turned_outward() {
         Tolerance::default(),
     )
     .expect("prism");
+    assert!((signed_volume(&prism) - 4.0).abs() < 1e-12);
+    prism.reverse_body_orientation();
     assert!((signed_volume(&prism) + 4.0).abs() < 1e-12);
     assert!(prism.orient_planar_outward().expect("planar"));
     assert!((signed_volume(&prism) - 4.0).abs() < 1e-12);

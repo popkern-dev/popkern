@@ -172,7 +172,7 @@ fn copy_skin_entities(
     let edge_reachable = |eh: EdgeHandle| -> bool {
         let edge = &source.edges[eh];
         let he = &source.half_edges[edge.half_edge];
-        for heh in [edge.half_edge, he.twin] {
+        for heh in [Some(edge.half_edge), he.mate()].into_iter().flatten() {
             let loop_h = source.half_edges[heh].loop_;
             if source.loops.contains_key(loop_h) {
                 let face = source.loops[loop_h].face;
@@ -193,7 +193,7 @@ fn copy_skin_entities(
             continue;
         }
         let he = &source.half_edges[edge.half_edge];
-        let twin = &source.half_edges[he.twin];
+        let twin = &source.half_edges[he.require_mate()?];
         needed_vertices.insert(he.origin);
         needed_vertices.insert(twin.origin);
     }
@@ -215,7 +215,7 @@ fn copy_skin_entities(
         }
         let he_handle = edge.half_edge;
         let he = &source.half_edges[he_handle];
-        let twin_handle = he.twin;
+        let twin_handle = he.require_mate()?;
         let twin = &source.half_edges[twin_handle];
 
         let new_v1 = *vertex_map
@@ -332,6 +332,27 @@ fn collect_loop_half_edges(
         }
     }
     Ok(result)
+}
+
+/// Turn an outward shell's assembly out of its material. The outward
+/// pipeline assembles the source body as the outer skin and the moved
+/// skin (beyond it) as the mirrored inner one, so every face points
+/// into the wall: reverse the body, winding and flags together. With
+/// no opening the two skins are separate shells and the source's was
+/// laid down as the outer one; the moved skin is, so the two trade.
+pub(crate) fn outward_shell_out_of_material(result: &mut BRep, maps: &ShellAssemblyMaps) {
+    result.reverse_body_orientation();
+    let Some(&moved_face) = maps.inner_faces.values().next() else {
+        return;
+    };
+    let Some(moved_shell) = result.face_back_shell(moved_face) else {
+        return;
+    };
+    for region in result.solid_regions() {
+        if result.region_outer_shell(region) != Some(moved_shell) {
+            result.exchange_outer_shell(region, moved_shell);
+        }
+    }
 }
 
 #[cfg(test)]

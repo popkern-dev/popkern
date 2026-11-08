@@ -10,10 +10,12 @@
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::{Point3, Vec3};
-use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{BRep, HalfEdgeHandle};
 use popkern_math::PortableMath;
 
-use crate::error::{BlendError, BlendFailure};
+#[path = "corner_2d_failure.rs"]
+mod corner_2d_failure;
+pub(crate) use corner_2d_failure::topology_failure;
 
 /// Find the parameter `t` on a NURBS curve such that the arc
 /// length from `t_start_walk` to `t` equals `target_dist`,
@@ -332,7 +334,9 @@ pub(crate) fn rebuild_edge_curve_clipped(
     edge: popkern_core::topology::EdgeHandle,
 ) -> Result<(), String> {
     let canonical = brep.edges[edge].half_edge;
-    let twin = brep.half_edges[canonical].twin;
+    let twin = brep.half_edges[canonical]
+        .require_mate()
+        .map_err(|e| e.to_string())?;
     let v_from = brep.half_edges[canonical].origin;
     let v_to = brep.half_edges[twin].origin;
     let p_from = brep.vertices[v_from].position;
@@ -473,27 +477,4 @@ pub(crate) fn circle_basis_like_core(normal: Vec3) -> (Vec3, Vec3) {
         .normalized()
         .unwrap_or(Vec3::new(0.0, 1.0, 0.0));
     (u, v)
-}
-
-/// Build a uniform `PartialFailure` wrapping an `InvalidTopology`
-/// blend failure for a 2D corner operation. Shared between
-/// fillet and chamfer so both emit the same error shape.
-///
-/// The location is looked up from `brep` when `vertex` resolves;
-/// callers that fail outside the context of a specific corner
-/// (e.g. chain-walk failures in `edges_2d`) pass
-/// `VertexHandle::default()`, which yields `location: None`.
-pub(crate) fn topology_failure(brep: &BRep, vertex: VertexHandle, reason: String) -> BlendError {
-    let location = brep.vertices.get(vertex).map(|v| v.position);
-    BlendError::partial_failure(
-        1,
-        BRep::new(popkern_core::tolerance::Tolerance::default()),
-        vec![(
-            popkern_core::topology::EdgeHandle::default(),
-            BlendFailure::InvalidTopology {
-                reason: format!("2D corner at {vertex:?}: {reason}"),
-                location,
-            },
-        )],
-    )
 }

@@ -69,8 +69,8 @@ pub(super) fn call(
             non_manifold,
         } => {
             let mut pairs = Vec::new();
-            if *non_manifold == NonManifoldPolicy::SplitToManifold {
-                pairs.push(("non_manifold", quoted("split_to_manifold")));
+            if let Some(spelling) = crate::partition_api::non_manifold_spelling(*non_manifold) {
+                pairs.push(("non_manifold", quoted(spelling)));
             }
             pairs.push(label_option(label));
             format!(

@@ -15,7 +15,7 @@ pub(super) fn rebuild_stale_lines_at(brep: &mut BRep, vertex: VertexHandle) -> R
         .iter()
         .filter_map(|(eh, e)| {
             let hd = brep.half_edges.get(e.half_edge)?;
-            let td = brep.half_edges.get(hd.twin)?;
+            let td = hd.mate().and_then(|m| brep.half_edges.get(m))?;
             if hd.origin != vertex && td.origin != vertex {
                 return None;
             }
@@ -56,7 +56,8 @@ pub(super) fn rebuild_line(brep: &mut BRep, edge: EdgeHandle) -> Result<(), Stri
         .ok_or("edge vanished")?;
     let hd = brep.half_edges.get(he).ok_or("half-edge vanished")?;
     let p0 = brep.vertices[hd.origin].position;
-    let p1 = brep.vertices[brep.half_edges[hd.twin].origin].position;
+    let p1 = brep.vertices[brep.half_edges[hd.require_mate().map_err(|e| e.to_string())?].origin]
+        .position;
     brep.edges[edge].curve = CurveOnEdge::line_segment(p0, p1, 1.0e-12);
     Ok(())
 }
@@ -78,7 +79,8 @@ pub(super) fn split_at(
     let hd = brep.half_edges.get(he).ok_or("half-edge vanished")?;
     let origin = hd.origin;
     let p0 = brep.vertices[origin].position;
-    let p1 = brep.vertices[brep.half_edges[hd.twin].origin].position;
+    let p1 = brep.vertices[brep.half_edges[hd.require_mate().map_err(|e| e.to_string())?].origin]
+        .position;
     let along = p1 - p0;
     let len2 = along.length_squared();
     if len2 < 1.0e-24 {
@@ -104,7 +106,7 @@ pub(super) fn edge_between(brep: &BRep, v1: VertexHandle, v2: VertexHandle) -> O
         let Some(hd) = brep.half_edges.get(e.half_edge) else {
             continue;
         };
-        let Some(td) = brep.half_edges.get(hd.twin) else {
+        let Some(td) = hd.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         if (hd.origin == v1 && td.origin == v2) || (hd.origin == v2 && td.origin == v1) {
@@ -213,7 +215,7 @@ pub(super) fn shell_outward_witness(
         let Some(hd) = brep.half_edges.get(cur) else {
             break;
         };
-        let Some(td) = brep.half_edges.get(hd.twin) else {
+        let Some(td) = hd.mate().and_then(|m| brep.half_edges.get(m)) else {
             break;
         };
         if let Some(other) = brep.loops.get(td.loop_).map(|ol| ol.face)
@@ -360,7 +362,7 @@ pub(super) fn edge_max_deviation(brep: &BRep, edge: EdgeHandle) -> f64 {
     let Some(hd) = brep.half_edges.get(e.half_edge) else {
         return 0.0;
     };
-    let Some(td) = brep.half_edges.get(hd.twin) else {
+    let Some(td) = hd.mate().and_then(|m| brep.half_edges.get(m)) else {
         return 0.0;
     };
     let faces = [

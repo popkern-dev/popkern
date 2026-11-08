@@ -272,7 +272,11 @@ fn carve_ring(
             && let Some(he) = brep.edges.get(chord).map(|e| e.half_edge)
         {
             let f_a = brep.loops[brep.half_edges[he].loop_].face;
-            let f_b = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
+            let f_b = brep.loops[brep.half_edges[brep.half_edges[he]
+                .require_mate()
+                .map_err(|e| e.to_string())?]
+            .loop_]
+                .face;
             let sliver = if f_a == strip_face || f_a == mef.face {
                 f_a
             } else {
@@ -311,7 +315,11 @@ fn carve_ring(
                 // the side that is NOT the arc-mef sliver — the face
                 // NOT equal to either arc-split product.
                 let f_a = brep.loops[brep.half_edges[he].loop_].face;
-                let f_b = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
+                let f_b = brep.loops[brep.half_edges[brep.half_edges[he]
+                    .require_mate()
+                    .map_err(|e| e.to_string())?]
+                .loop_]
+                    .face;
                 let support_side = if f_a == strip_face || f_a == mef.face {
                     f_b
                 } else {

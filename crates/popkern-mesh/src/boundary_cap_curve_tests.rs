@@ -17,7 +17,7 @@ fn a_chord_splits_only_with_a_copy_in_every_face_of_its_edge() {
         .iter()
         .find_map(|(eh, e)| {
             let h = &brep.half_edges[e.half_edge];
-            let t = &brep.half_edges[h.twin];
+            let t = &brep.half_edges[h.mate().unwrap_or_default()];
             let (f0, f1) = (brep.loops[h.loop_].face, brep.loops[t.loop_].face);
             (e.curve.is_some() && f0 != f1).then_some((eh, [f0, f1]))
         })

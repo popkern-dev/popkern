@@ -50,7 +50,7 @@ pub fn classify_edge_smoothness(
     let he_a_data = brep.half_edges.get(he_a)?;
 
     // Get the twin half-edge and its face.
-    let he_b = he_a_data.twin;
+    let he_b = he_a_data.mate()?;
     let he_b_data = brep.half_edges.get(he_b)?;
 
     // Retrieve the two faces.
@@ -118,8 +118,7 @@ fn sample_edge_points(brep: &BRep, edge: EdgeHandle, count: usize) -> Vec<crate:
         if let Some(v) = brep.vertices.get(he.origin) {
             pts.push(v.position);
         }
-        let twin = he.twin;
-        if let Some(twin_he) = brep.half_edges.get(twin)
+        if let Some(twin_he) = he.mate().and_then(|m| brep.half_edges.get(m))
             && let Some(v) = brep.vertices.get(twin_he.origin)
         {
             pts.push(v.position);
@@ -170,7 +169,7 @@ pub fn detect_smooth_chains(
         .filter_map(|&eh| {
             let edge_data = brep.edges.get(eh)?;
             let he = brep.half_edges.get(edge_data.half_edge)?;
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             Some((eh, vec![he.origin, twin.origin]))
         })
         .collect();

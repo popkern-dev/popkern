@@ -4,13 +4,15 @@ use crate::error::ValidationError;
 use crate::topology::BRep;
 
 impl BRep {
-    /// Check 5: Every edge's half-edge must have a twin, and that twin must
-    /// reference the same edge.
+    /// Check 5: every edge's ring holds fins of that edge: a free edge
+    /// is skipped, a ring of two is a fin and its twin on the edge, and
+    /// every fin of a longer ring (a general body's non-manifold edge)
+    /// names the edge.
     pub fn validate_manifold_edges(&self) -> Result<(), ValidationError> {
         for (edge_handle, edge_data) in &self.edges {
             // Boundary edges have a null twin — skip the twin
             // check for those.
-            if self.boundary_edges.contains(&edge_handle) {
+            if self.is_free_edge(edge_handle) {
                 continue;
             }
             let he = self
@@ -20,11 +22,23 @@ impl BRep {
             if he.edge != edge_handle {
                 return Err(ValidationError::NonManifoldEdge { edge: edge_handle });
             }
-
-            let twin = self
-                .half_edges
-                .get(he.twin)
-                .ok_or(ValidationError::NonManifoldEdge { edge: edge_handle })?;
+            // A ring of more than two face uses (a general body's
+            // non-manifold edge) has no mate: each fin must name the
+            // edge; its order and wedges are checked apart
+            // (`validate_ring_order_all`, `validate_wedges_all`). Read
+            // only where there is no mate: this check runs on every
+            // fast validation, and collecting each ring allocated.
+            let Some(twin) = he.mate().and_then(|m| self.half_edges.get(m)) else {
+                let ring = self.radial_fins(edge_handle);
+                if ring.len() > 2
+                    && ring
+                        .iter()
+                        .all(|&f| self.half_edges.get(f).map(|h| h.edge) == Some(edge_handle))
+                {
+                    continue;
+                }
+                return Err(ValidationError::NonManifoldEdge { edge: edge_handle });
+            };
 
             if twin.edge != edge_handle {
                 return Err(ValidationError::NonManifoldEdge { edge: edge_handle });
@@ -75,8 +89,7 @@ impl BRep {
                     Some(h) => h,
                     None => break, // Stale handle — stop walking.
                 };
-                let twin = he.twin;
-                match self.half_edges.get(twin) {
+                match he.mate().and_then(|m| self.half_edges.get(m)) {
                     Some(twin_data) => {
                         cursor = twin_data.next;
                         if cursor == start {
@@ -87,6 +100,20 @@ impl BRep {
                 }
             }
 
+            // The walk steps from mate to mate, so it stops at a ring of
+            // more than two fins (a general body's non-manifold edge);
+            // count the distinct edges leaving the vertex there.
+            if count < 2 {
+                let edges: std::collections::BTreeSet<_> = self
+                    .half_edges
+                    .values()
+                    .filter(|h| h.origin == v_handle && self.loops.contains_key(h.loop_))
+                    .map(|h| h.edge)
+                    .collect();
+                if edges.len() >= 2 && edges.iter().any(|&e| self.radial_fins(e).len() > 2) {
+                    continue;
+                }
+            }
             if count < 2 {
                 // Allow valence-1 degenerate vertices (e.g. cone apex, sphere
                 // poles) where the single edge is a seam: both half-edges on
@@ -94,7 +121,7 @@ impl BRep {
                 // half-edges (ruling out trivial wire-only topologies).
                 if count == 1
                     && let Some(he) = self.half_edges.get(start)
-                    && let Some(twin_data) = self.half_edges.get(he.twin)
+                    && let Some(twin_data) = he.mate().and_then(|m| self.half_edges.get(m))
                 {
                     let face_he = match self.loops.get(he.loop_) {
                         Some(l) => l.face,
@@ -254,9 +281,9 @@ mod tests {
         let mut brep = make_cube();
         // Find a vertex and corrupt its fan by removing a twin
         let he_handle = brep.half_edges.keys().next().unwrap();
-        let _twin = brep.half_edges[he_handle].twin;
+        let _twin = brep.half_edges[he_handle].mate().unwrap_or_default();
         // Make twin point to invalid handle so the fan walk breaks early
-        brep.half_edges[he_handle].twin = Default::default();
+        brep.half_edges[he_handle].clear_mate();
         // Should not panic; may return Ok or Err depending on resulting valence
         let _ = brep.validate_vertex_valence();
     }
@@ -277,7 +304,7 @@ mod tests {
 
         // Make the twin's next point to a different half-edge that doesn't cycle back,
         // creating an unbounded walk. We'll make twin.next -> outgoing (self-loop in fan).
-        let twin = brep.half_edges[outgoing].twin;
+        let twin = brep.half_edges[outgoing].mate().unwrap_or_default();
         brep.half_edges[twin].next = outgoing;
 
         // Should not hang — safety break after `bound` steps

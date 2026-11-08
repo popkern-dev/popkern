@@ -235,7 +235,7 @@ fn rim_split(
     for (eh, e) in brep.edges.iter() {
         let he = &brep.half_edges[e.half_edge];
         let fa = brep.loops[he.loop_].face;
-        let fb = brep.loops[brep.half_edges[he.twin].loop_].face;
+        let fb = brep.loops[brep.half_edges[he.mate().unwrap_or_default()].loop_].face;
         let is_strip = |f: FaceHandle| !caps.contains(&f) && !pre.contains(&f);
         let rim = (caps.contains(&fa) && is_strip(fb)) || (caps.contains(&fb) && is_strip(fa));
         if !rim {

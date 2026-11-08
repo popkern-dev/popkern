@@ -74,7 +74,7 @@ fn weld_clean_boundaries_reduces_tee_open_edges_transactionally() {
     let original_boundary_edges: usize = complex
         .components
         .iter()
-        .map(|component| component.brep.boundary_edges.len())
+        .map(|component| component.brep.free_edges().len())
         .sum();
     assert_eq!(original_boundary_edges, before.boundary_edges);
 }

@@ -96,17 +96,23 @@ impl BRep {
                         Some(h) => h,
                         None => break,
                     };
-                    let twin_handle = he.twin;
-                    if let Some(twin) = self.half_edges.get(twin_handle) {
-                        let twin_loop_handle = twin.loop_;
-                        if let Some(twin_loop) = self.loops.get(twin_loop_handle) {
-                            let twin_face = twin_loop.face;
-                            if let Some(j) = face_keys.iter().position(|&k| k == twin_face)
-                                && i != j
-                            {
-                                let pair = if i < j { (i, j) } else { (j, i) };
-                                adjacent.insert(pair);
-                            }
+                    // A mate's face directly; a longer ring's (a general
+                    // body's) collected.
+                    let mate_face = he
+                        .mate()
+                        .and_then(|m| self.half_edges.get(m))
+                        .and_then(|t| self.loops.get(t.loop_))
+                        .map(|l| l.face);
+                    let ring_faces = match mate_face {
+                        Some(_) => Vec::new(),
+                        None => self.ring_neighbour_faces(he_handle),
+                    };
+                    for twin_face in mate_face.into_iter().chain(ring_faces) {
+                        if let Some(j) = face_keys.iter().position(|&k| k == twin_face)
+                            && i != j
+                        {
+                            let pair = if i < j { (i, j) } else { (j, i) };
+                            adjacent.insert(pair);
                         }
                     }
                     he_handle = he.next;
@@ -116,9 +122,6 @@ impl BRep {
                 }
             }
         }
-
-        // Recorded zero-thickness contacts are adjacencies (PK-964).
-        adjacent.extend(self.contact_index_pairs(&face_keys));
 
         // ------------------------------------------------------------------ //
         // 2. Compute face AABBs via 5×5 sampling; build BVH                  //

@@ -299,9 +299,9 @@ fn live_seam_cycle(
             let Some(he) = brep.half_edges.get(cursor) else {
                 break;
             };
-            let twin_face = brep
-                .half_edges
-                .get(he.twin)
+            let twin_face = he
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
                 .and_then(|twin| brep.loops.get(twin.loop_))
                 .map(|l| l.face);
             if twin_face.is_some_and(|f| !cap_faces.contains(&f))

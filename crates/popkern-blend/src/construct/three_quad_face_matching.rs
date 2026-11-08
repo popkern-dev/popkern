@@ -23,7 +23,7 @@ pub(super) fn half_edge_endpoints_match_curve(
     let Some(he_data) = brep.half_edges.get(he) else {
         return false;
     };
-    let Some(twin_data) = brep.half_edges.get(he_data.twin) else {
+    let Some(twin_data) = he_data.mate().and_then(|m| brep.half_edges.get(m)) else {
         return false;
     };
     let (Some(origin), Some(dest)) = (
@@ -107,7 +107,7 @@ pub(super) fn primary_cylinder_identity_of_face(
         }
         safety -= 1;
         let he = brep.half_edges.get(cursor)?;
-        let twin = he.twin;
+        let twin = he.mate()?;
         let next = he.next;
         let twin_loop = brep.half_edges.get(twin)?.loop_;
         let twin_face = brep.loops.get(twin_loop)?.face;

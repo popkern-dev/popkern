@@ -122,7 +122,9 @@ fn wire_trim_edge_pcurves(
         let Some(he_fwd_data) = brep.half_edges.get(he_fwd) else {
             continue;
         };
-        let he_rev = he_fwd_data.twin;
+        let Some(he_rev) = he_fwd_data.mate() else {
+            continue;
+        };
 
         let (fillet_he, kept_he) = classify_trim_halfedges(brep, fillet_face, he_fwd, he_rev);
 
@@ -312,7 +314,7 @@ fn slice_pcurve_to_halfedge(
     let origin = brep.vertices.get(he_data.origin)?.position;
     let dest = brep
         .vertices
-        .get(brep.half_edges.get(he_data.twin)?.origin)?
+        .get(he_data.mate().and_then(|m| brep.half_edges.get(m))?.origin)?
         .position;
     let (t0, t1) = pcurve.parameter_range();
     if (t1 - t0).abs() <= 0.0 {

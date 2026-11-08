@@ -229,7 +229,7 @@ pub(crate) fn find_intersections_with_aabbs(
             let he_h = brep.edges.get(eh)?.half_edge;
             let he = brep.half_edges.get(he_h)?;
             let f1 = brep.loops.get(he.loop_)?.face;
-            let tw = brep.half_edges.get(he.twin)?;
+            let tw = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let f2 = brep.loops.get(tw.loop_)?.face;
             Some((f1, f2))
         };

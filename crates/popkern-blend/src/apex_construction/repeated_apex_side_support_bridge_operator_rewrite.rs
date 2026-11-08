@@ -122,7 +122,7 @@ pub(super) fn try_in_place_support_rewrites(
             plans.len(),
             welded,
             merged.len(),
-            candidate.boundary_edges.len()
+            candidate.free_edges().len()
         );
     }
     Some(
@@ -179,7 +179,9 @@ fn closing_dead_chain(
     let dead: Vec<HalfEdgeHandle> = brep
         .half_edges
         .iter()
-        .filter(|(h, data)| !brep.half_edges.contains_key(data.twin) && !removed.contains(h))
+        .filter(|(h, data)| {
+            !data.mate().is_some_and(|m| brep.half_edges.contains_key(m)) && !removed.contains(h)
+        })
         .map(|(h, _)| h)
         .collect();
     let dest_of = |h: HalfEdgeHandle| -> Option<VertexHandle> {

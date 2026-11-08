@@ -738,14 +738,7 @@ fn build_polyhedron(
         })
         .collect();
 
-    let solid_h = brep.solids.insert(Solid {
-        shell: Default::default(),
-    });
-    let shell_h = brep.shells.insert(Shell {
-        face: Default::default(),
-        solid: solid_h,
-    });
-    brep.solids[solid_h].shell = shell_h;
+    let (_, shell_h) = brep.add_solid_region(Default::default());
 
     // Edges: one per unordered vertex pair present in any cycle.
     let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::new();
@@ -780,7 +773,8 @@ fn build_polyhedron(
         let fh = brep.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: Vec::new(),
-            shell: shell_h,
+            back: shell_h.back,
+            front: shell_h.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -793,6 +787,7 @@ fn build_polyhedron(
             let lh = brep.loops.insert(Loop {
                 half_edge: Default::default(),
                 face: fh,
+                vertex: None,
             });
             let n = cycle.len();
             let hes: Vec<HalfEdgeHandle> = (0..n)
@@ -801,7 +796,7 @@ fn build_polyhedron(
                     let eh = edge_of[&(a.min(b), a.max(b))];
                     let he = brep.half_edges.insert(HalfEdge {
                         origin: vhs[a],
-                        twin: Default::default(),
+                        ring: popkern_core::topology::RadialLinks::alone(),
                         next: Default::default(),
                         prev: Default::default(),
                         edge: eh,
@@ -831,7 +826,7 @@ fn build_polyhedron(
             brep.faces[fh].inner_loops.push(lh);
         }
     }
-    brep.shells[shell_h].face = brep.faces.keys().next().unwrap_or_default();
+    brep.set_sides_anchor(shell_h, brep.faces.keys().next().unwrap_or_default());
 
     // Twin wiring: (a,b) pairs with (b,a); a miss means the input
     // was not a closed manifold.
@@ -841,7 +836,7 @@ fn build_polyhedron(
                 "polyhedron not closed: edge ({a},{b}) has no opposite face use"
             ))
         })?;
-        brep.half_edges[he].twin = twin;
+        brep.half_edges[he].set_mate(twin);
     }
 
     // Geometry: line curves; right-handed plane charts.
@@ -849,7 +844,7 @@ fn build_polyhedron(
     for eh in edge_handles {
         let he = brep.edges[eh].half_edge;
         let a = brep.vertices[brep.half_edges[he].origin].position;
-        let b = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        let b = brep.vertices[brep.fin_end(he).expect("edge end vertex")].position;
         let dir = b - a;
         let len = dir.length();
         brep.edges[eh].curve = Some(CurveOnEdge {

@@ -77,11 +77,19 @@ fn symmetric_difference_splits_into_the_two_differences() {
     };
     let a = cube_at(0.0, 0.0, 0.0);
     let b = cube_at(0.5, 0.5, 0.5);
-    let body = symmetric_difference(a, b, tol(), &split).expect("serves split");
-    assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
-    assert!(!body.topology_contacts.is_empty());
+    assert!(matches!(
+        symmetric_difference(a.clone(), b.clone(), tol(), &split),
+        Err(crate::BoolError::SplitIntoBodies { bodies: 2, .. })
+    ));
+    let bodies = crate::symmetric_difference_bodies(a, b, tol(), &split).expect("serves split");
+    assert_eq!(bodies.len(), 2);
+    let mut total = 0.0;
+    for body in &bodies {
+        assert!(body.validate_all().is_empty(), "{:?}", body.validate_all());
+        total += volume(body);
+    }
     // vol(A ⊕ B) = vol(A ∪ B) − vol(A ∩ B) = 1.875 − 0.125.
-    assert!((volume(&body) - 1.75).abs() < 1e-9, "{}", volume(&body));
+    assert!((total - 1.75).abs() < 1e-9, "{total}");
 }
 
 #[test]
@@ -103,6 +111,6 @@ fn symmetric_difference_declines_by_default_and_disjoint_is_both() {
         &BoolOptions::default(),
     )
     .expect("disjoint serves");
-    assert_eq!(apart.shells.len(), 2);
+    assert_eq!(apart.back_shell_count(), 2);
     assert!((volume(&apart) - 2.0).abs() < 1e-9);
 }

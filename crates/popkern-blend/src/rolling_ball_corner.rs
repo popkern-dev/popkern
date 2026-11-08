@@ -162,7 +162,7 @@ pub(crate) fn rounds_ball(brep: &BRep, face: FaceHandle, tol: f64) -> Option<(Po
     let mut seen = BTreeSet::new();
     let mut surfaces = Vec::new();
     for he in loop_half_edges(brep, face) {
-        let other = face_of(brep, brep.half_edges.get(he)?.twin)?;
+        let other = face_of(brep, brep.half_edges.get(he)?.mate()?)?;
         if seen.insert(other) {
             surfaces.push(&brep.faces.get(other)?.surface.as_ref()?.geometry);
         }
@@ -199,7 +199,7 @@ pub(crate) fn corner_ball(
             let twin = brep
                 .half_edges
                 .get(he)
-                .map(|h| h.twin)
+                .and_then(|h| h.mate())
                 .ok_or("stale half-edge")?;
             let other = face_of(brep, twin).ok_or("stale twin")?;
             if cap.contains(&other) {
@@ -280,7 +280,7 @@ fn merge_cap(brep: &mut BRep, cap: &BTreeSet<FaceHandle>) -> Result<FaceHandle, 
     loop {
         let inner = faces.iter().find_map(|&f| {
             loop_half_edges(brep, f).into_iter().find(|&he| {
-                let twin = brep.half_edges.get(he).map(|h| h.twin);
+                let twin = brep.half_edges.get(he).and_then(|h| h.mate());
                 let other = twin.and_then(|t| face_of(brep, t));
                 other.is_some_and(|o| o != f && faces.contains(&o))
             })
@@ -300,7 +300,7 @@ fn merge_cap(brep: &mut BRep, cap: &BTreeSet<FaceHandle>) -> Result<FaceHandle, 
             let Some(h) = brep.half_edges.get(he) else {
                 return false;
             };
-            let Some(t) = brep.half_edges.get(h.twin) else {
+            let Some(t) = h.mate().and_then(|m| brep.half_edges.get(m)) else {
                 return false;
             };
             // The spur's tip: the destination with valence 1.

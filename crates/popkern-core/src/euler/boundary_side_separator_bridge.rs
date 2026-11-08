@@ -108,8 +108,10 @@ impl BRep {
                 "boundary-side separator duplicate half-edge does not own separator edge".into(),
             ));
         }
-        if !self.boundary_edges.contains(&separator_source_edge)
-            || self.half_edges.contains_key(half_edge.twin)
+        if !self.is_free_edge(separator_source_edge)
+            || half_edge
+                .mate()
+                .is_some_and(|m| self.half_edges.contains_key(m))
         {
             return Err(CoreError::PreconditionFailed(
                 "boundary-side separator source edge is not an unowned boundary side".into(),

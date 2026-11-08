@@ -13,8 +13,9 @@
 //! - Entity counts, handles, loop membership, and twin pairing are
 //!   all unchanged — the operation is a pure re-orientation, an
 //!   involution (applying it twice restores the original body).
-//! - Per half-edge: `next`/`prev` swap and the origin moves to the
-//!   old destination (the twin's origin). Twins remain opposite.
+//! - Per fin: `next`/`prev` swap and the origin moves to the old
+//!   destination ([`BRep::fin_end`]). Mates remain opposite; a free
+//!   edge's single fin reverses like any other.
 //! - Pcurves keep their UV image (the trim is identical) and are
 //!   REVERSED in place so their parameterization direction follows
 //!   the half-edge's new traversal. Endpoint-verifying consumers are
@@ -26,9 +27,9 @@
 //!   exhausted, and both wall and cone fell to the mis-partitioning
 //!   3D-Newell fallback (measured, PK-475: the sense-normalized
 //!   tip-chamfered rod stranded 4 record sides).
-//! - Vertex `outgoing` pointers are re-anchored (the old outgoing
-//!   half-edge's origin moves away from the vertex; its twin's
-//!   moves onto it).
+//! - Vertex `outgoing` pointers are re-anchored to a fin that ran into
+//!   the vertex: the old outgoing fin's mate, or on a free edge its
+//!   loop predecessor.
 //! - Edge curves are edge-level (undirected) and unchanged.
 //! - Half-edges whose loop has been deleted (e.g. a skin builder
 //!   removed a face but kept the shared edge ring) are reversed the
@@ -48,17 +49,30 @@ impl BRep {
         // 1. Per half-edge: swap next/prev, move origin to the old
         //    destination. Collect new origins first so the update
         //    does not observe partially-mutated state.
+        // A fin that ran into each vertex runs out of it once reversed.
+        // Read before anything moves.
+        let new_outgoing: Vec<(
+            crate::topology::VertexHandle,
+            crate::topology::HalfEdgeHandle,
+        )> = self
+            .vertices
+            .iter()
+            .filter_map(|(vh, vertex)| {
+                let he = self.half_edges.get(vertex.outgoing)?;
+                // The mate where there is one (the manifold rule,
+                // unchanged), else the loop predecessor (a vertex on a
+                // free edge).
+                let into = he.mate().or(he.has_loop().then_some(he.prev));
+                into.map(|h| (vh, h))
+            })
+            .collect();
         let new_origins: Vec<(
             crate::topology::HalfEdgeHandle,
             crate::topology::VertexHandle,
         )> = self
             .half_edges
-            .iter()
-            .filter_map(|(handle, he)| {
-                self.half_edges
-                    .get(he.twin)
-                    .map(|twin| (handle, twin.origin))
-            })
+            .keys()
+            .filter_map(|handle| self.fin_end(handle).map(|end| (handle, end)))
             .collect();
         for (handle, origin) in new_origins {
             let he = &mut self.half_edges[handle];
@@ -66,16 +80,7 @@ impl BRep {
             std::mem::swap(&mut he.next, &mut he.prev);
         }
 
-        // 2. Re-anchor vertex outgoing pointers: the twin of the old
-        //    outgoing half-edge now originates at this vertex.
-        let new_outgoing: Vec<(
-            crate::topology::VertexHandle,
-            crate::topology::HalfEdgeHandle,
-        )> = self
-            .vertices
-            .iter()
-            .filter_map(|(vh, vertex)| self.half_edges.get(vertex.outgoing).map(|he| (vh, he.twin)))
-            .collect();
+        // 2. Re-anchor vertex outgoing pointers.
         for (vh, outgoing) in new_outgoing {
             self.vertices[vh].outgoing = outgoing;
         }
@@ -118,15 +123,25 @@ impl BRep {
         //    of a reversed skin wind its loops against the (flipped)
         //    orientation flags — WindingDishonest on shell/offset
         //    assembly output while the un-re-authored body looked fine.
-        let canonical_swaps: Vec<(crate::topology::EdgeHandle, crate::topology::HalfEdgeHandle)> =
-            self.edges
-                .iter()
-                .filter_map(|(eh, edge)| {
-                    self.half_edges.get(edge.half_edge).map(|he| (eh, he.twin))
-                })
-                .collect();
-        for (eh, twin) in canonical_swaps {
-            self.edges[eh].half_edge = twin;
+        //    A free edge has no other fin: its one fin now runs the
+        //    curve backward, so the curve's range turns instead.
+        let canonical_swaps: Vec<(
+            crate::topology::EdgeHandle,
+            Option<crate::topology::HalfEdgeHandle>,
+        )> = self
+            .edges
+            .iter()
+            .map(|(eh, edge)| (eh, self.mate(edge.half_edge)))
+            .collect();
+        for (eh, mate) in canonical_swaps {
+            match mate {
+                Some(twin) => self.edges[eh].half_edge = twin,
+                None => {
+                    if let Some(curve) = self.edges[eh].curve.as_mut() {
+                        std::mem::swap(&mut curve.t_start, &mut curve.t_end);
+                    }
+                }
+            }
         }
     }
 }

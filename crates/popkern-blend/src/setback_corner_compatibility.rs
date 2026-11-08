@@ -111,7 +111,7 @@ pub fn setback_corner_compatibility(
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
         };
-        let Some(tw) = brep.half_edges.get(he.twin) else {
+        let Some(tw) = he.mate().and_then(|m| brep.half_edges.get(m)) else {
             continue;
         };
         let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(tw.loop_)) else {

@@ -262,7 +262,7 @@ fn per_phase_allocation_breakdown_cone_walker() {
         .keys()
         .find(|&e| {
             let he = cone.edges[e].half_edge;
-            let twin = cone.half_edges[he].twin;
+            let twin = cone.half_edges[he].mate().unwrap_or_default();
             let face_a = cone.loops[cone.half_edges[he].loop_].face;
             let face_b = cone.loops[cone.half_edges[twin].loop_].face;
             face_a != face_b
@@ -400,7 +400,7 @@ fn baseline_cone_base_fillet_allocation_profile() {
         .keys()
         .find(|&e| {
             let he = cone.edges[e].half_edge;
-            let twin = cone.half_edges[he].twin;
+            let twin = cone.half_edges[he].mate().unwrap_or_default();
             let face_a = cone.loops[cone.half_edges[he].loop_].face;
             let face_b = cone.loops[cone.half_edges[twin].loop_].face;
             face_a != face_b

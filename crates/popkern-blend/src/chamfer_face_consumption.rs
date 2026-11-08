@@ -106,7 +106,7 @@ fn convex_sides(brep: &BRep, face: FaceHandle, tol: f64) -> Option<(Vec3, Point3
         let p = brep.vertices.get(h.origin)?.position;
         let q = brep
             .vertices
-            .get(brep.half_edges.get(h.twin)?.origin)?
+            .get(h.mate().and_then(|m| brep.half_edges.get(m))?.origin)?
             .position;
         let c = brep.edges.get(h.edge)?.curve.as_ref()?;
         straight(&c.geometry.to_nurbs_in_range((c.t_start, c.t_end)), tol)?;

@@ -9,6 +9,7 @@ use crate::error::ShellError;
 use crate::types::{ShellDirection, ShellOptions, ShellResult, ThickenSide};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_core::topology::RadialLinks;
 
 /// Thicken a body into a solid wall body.
 ///
@@ -84,6 +85,14 @@ pub(crate) fn thicken_impl(
     tolerance: Tolerance,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
 ) -> Result<ShellResult, ShellError> {
+    brep.require_kind(
+        "thicken",
+        &[
+            popkern_core::topology::BodyKind::Solid,
+            popkern_core::topology::BodyKind::Sheet,
+            popkern_core::topology::BodyKind::Empty,
+        ],
+    )?;
     // Normalize the open-boundary representation: constructors register
     // sheet rims as null-sentinel twins (`boundary_edges`), while the
     // skin pipeline works in the loopless-twin form (both half-edges
@@ -94,7 +103,7 @@ pub(crate) fn thicken_impl(
     let brep = if brep
         .half_edges
         .iter()
-        .any(|(_, he)| !brep.half_edges.contains_key(he.twin))
+        .any(|(_, he)| !he.mate().is_some_and(|m| brep.half_edges.contains_key(m)))
     {
         let mut owned = brep.clone();
         materialize_boundary_twins(&mut owned)?;
@@ -385,7 +394,7 @@ fn materialize_boundary_twins(brep: &mut BRep) -> Result<(), ShellError> {
     let survivors: Vec<HalfEdgeHandle> = brep
         .half_edges
         .iter()
-        .filter(|(_, he)| !brep.half_edges.contains_key(he.twin))
+        .filter(|(_, he)| !he.mate().is_some_and(|m| brep.half_edges.contains_key(m)))
         .map(|(h, _)| h)
         .collect();
 
@@ -402,14 +411,14 @@ fn materialize_boundary_twins(brep: &mut BRep) -> Result<(), ShellError> {
         let edge = brep.half_edges[*s].edge;
         let new = brep.half_edges.insert(HalfEdge {
             origin: dest,
-            twin: *s,
+            ring: RadialLinks::pair(*s),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge,
             loop_: Default::default(),
             pcurve: None,
         });
-        brep.half_edges[*s].twin = new;
+        brep.half_edges[*s].set_mate(new);
         if new_by_origin.insert(dest, new).is_some() {
             return Err(ShellError::Topology(format!(
                 "non-manifold sheet rim at vertex {dest:?} (two outgoing boundary half-edges)"
@@ -421,7 +430,7 @@ fn materialize_boundary_twins(brep: &mut BRep) -> Result<(), ShellError> {
     // Chain each hole ring: next(b) = the boundary half-edge starting
     // where b ends (its survivor's origin).
     for b in created {
-        let survivor = brep.half_edges[b].twin;
+        let survivor = brep.half_edges[b].require_mate()?;
         let end_vertex = brep.half_edges[survivor].origin;
         let next_b = *new_by_origin.get(&end_vertex).ok_or_else(|| {
             ShellError::Topology(format!(

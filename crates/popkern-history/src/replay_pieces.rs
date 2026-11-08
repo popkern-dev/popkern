@@ -36,7 +36,7 @@ pub(crate) fn execute(
                 .get(source)
                 .ok_or_else(|| failed(label, format!("source body {source:?} not found").into()))?;
             let (moved, rest) = partition(from, label, rule, tolerance)?;
-            if rest.solids.is_empty() {
+            if rest.solid_regions().is_empty() {
                 return Err(failed(
                     label,
                     FeatureFailure::InvalidParameter {
@@ -74,7 +74,7 @@ fn partition(
         .iter()
         .enumerate()
         .partition(|(i, _)| kept.contains(i));
-    let take = |set: Vec<(usize, &popkern_core::topology::SolidHandle)>| {
+    let take = |set: Vec<(usize, &popkern_core::topology::RegionHandle)>| {
         let handles: Vec<_> = set.into_iter().map(|(_, h)| *h).collect();
         popkern_bool::pieces::retain_pieces(body, &handles).map_err(|e| boolean(label, &e))
     };

@@ -9,7 +9,7 @@ pub(super) fn validate_moved_vertex_curve_coherence(
     half_edge: HalfEdgeHandle,
     tolerance: f64,
 ) -> bool {
-    let Some(twin) = brep.half_edges.get(half_edge).map(|he| he.twin) else {
+    let Some(twin) = brep.half_edges.get(half_edge).and_then(|he| he.mate()) else {
         return false;
     };
     let Some(start_vertex) = brep.half_edges.get(half_edge).map(|he| he.origin) else {
@@ -27,7 +27,7 @@ fn incident_curves_touch_vertex(brep: &BRep, vertex: VertexHandle, tolerance: f6
     let vertex_position = brep.vertices[vertex].position;
     brep.edges.iter().all(|(_, edge)| {
         let primary = edge.half_edge;
-        let Some(twin) = brep.half_edges.get(primary).map(|he| he.twin) else {
+        let Some(twin) = brep.half_edges.get(primary).and_then(|he| he.mate()) else {
             return true;
         };
         let Some(a) = brep.half_edges.get(primary).map(|he| he.origin) else {

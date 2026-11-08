@@ -403,10 +403,12 @@ fn build_triangle_solid() {
     assert_eq!(brep.vertices.len(), 3);
     assert_eq!(brep.edges.len(), 3);
     assert_eq!(brep.faces.len(), 1);
-    assert_eq!(brep.solids.len(), 1);
-    assert_eq!(brep.shells.len(), 1);
+    // One triangle bounds no volume: its shell is open, so the builder
+    // settles it in the outside as a sheet, not a solid region.
+    assert!(brep.solid_regions().is_empty());
+    assert_eq!(brep.back_shell_count(), 1);
     assert_eq!(
-        brep.boundary_edges.len(),
+        brep.free_edges().len(),
         3,
         "single-face CLOSED_SHELL is invalid closed incidence and must import as open boundary topology"
     );

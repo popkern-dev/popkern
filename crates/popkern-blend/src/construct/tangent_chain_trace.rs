@@ -15,10 +15,11 @@ pub(super) fn trace_edge_ends(brep: &BRep, strips: &[FaceHandle]) {
         let start = brep.loops[lp].half_edge;
         let mut he = start;
         loop {
-            let tw = brep.half_edges[he].twin;
-            let g = brep.loops[brep.half_edges[tw].loop_].face;
-            if !faces.contains(&g) {
-                faces.push(g);
+            if let Some(tw) = brep.half_edges[he].mate() {
+                let g = brep.loops[brep.half_edges[tw].loop_].face;
+                if !faces.contains(&g) {
+                    faces.push(g);
+                }
             }
             he = brep.half_edges[he].next;
             if he == start {
@@ -34,10 +35,11 @@ pub(super) fn trace_edge_ends(brep: &BRep, strips: &[FaceHandle]) {
             loop {
                 let h = &brep.half_edges[he];
                 let e = &brep.edges[h.edge];
-                if let Some(c) = e.curve.as_ref() {
-                    let eh = &brep.half_edges[e.half_edge];
-                    let a = brep.vertices[eh.origin].position;
-                    let b = brep.vertices[brep.half_edges[eh.twin].origin].position;
+                if let Some(c) = e.curve.as_ref()
+                    && let Some((va, vb)) = brep.edge_vertices(h.edge)
+                {
+                    let a = brep.vertices[va].position;
+                    let b = brep.vertices[vb].position;
                     let da = c.geometry.point_at(c.t_start).distance_to(&a);
                     let db = c.geometry.point_at(c.t_end).distance_to(&b);
                     if da.max(db) > 1e-7 {

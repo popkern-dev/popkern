@@ -256,7 +256,7 @@ fn cap_strip_ends(
         let he = if brep.half_edges[he0].origin == corner {
             he0
         } else {
-            brep.half_edges[he0].twin
+            brep.half_edges[he0].mate().ok_or("stub gone")?
         };
         if brep.half_edges[he].origin != corner {
             return Err("stub half-edge does not originate at the corner".into());

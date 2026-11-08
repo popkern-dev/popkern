@@ -146,7 +146,7 @@ pub(crate) fn reconcile_junction_cluster_geometry(brep: &mut BRep, tolerance: &T
         let (t0, t1) = t_range;
         let Some((v0, v1)) = brep.half_edges.get(he_h).and_then(|he| {
             let p0 = brep.vertices.get(he.origin)?.position;
-            let twin = brep.half_edges.get(he.twin)?;
+            let twin = he.mate().and_then(|m| brep.half_edges.get(m))?;
             let p1 = brep.vertices.get(twin.origin)?.position;
             Some((p0, p1))
         }) else {
@@ -174,7 +174,7 @@ pub(crate) fn reconcile_junction_cluster_geometry(brep: &mut BRep, tolerance: &T
                 if let Some(f) = he_face.get(&he_h) {
                     out.push(*f);
                 }
-                if let Some(f) = he_face.get(&he.twin)
+                if let Some(f) = he.mate().and_then(|t| he_face.get(&t))
                     && !out.contains(f)
                 {
                     out.push(*f);

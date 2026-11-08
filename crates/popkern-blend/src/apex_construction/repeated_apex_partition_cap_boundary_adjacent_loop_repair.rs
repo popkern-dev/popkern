@@ -308,7 +308,7 @@ fn validate_boundary_preserving_adjacent_loop_repair(
             ),
         });
     }
-    if !brep.boundary_edges.contains(&replacement_data.edge) {
+    if !brep.is_free_edge(replacement_data.edge) {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition boundary-bearing adjacent loop repair replacement \
@@ -333,21 +333,14 @@ fn validate_boundary_preserving_adjacent_loop_repair(
 mod tests {
     use popkern_core::geometry::Point3;
     use popkern_core::tolerance::Tolerance;
-    use popkern_core::topology::{Face, Loop, Shell, Solid, Vertex};
+    use popkern_core::topology::{Face, Loop, Vertex};
 
     use super::*;
 
     #[test]
     fn boundary_bearing_adjacent_loop_repairs_with_same_direction_boundary_span() {
         let mut brep = BRep::new(Tolerance::default());
-        let solid = brep.solids.insert(Solid {
-            shell: Default::default(),
-        });
-        let shell = brep.shells.insert(Shell {
-            face: Default::default(),
-            solid,
-        });
-        brep.solids[solid].shell = shell;
+        let (_, shell) = brep.add_solid_region(Default::default());
         let vertices = [
             Point3::new(0.0, 0.0, 0.0),
             Point3::new(1.0, 0.0, 0.0),
@@ -432,20 +425,15 @@ mod tests {
             support_split_half_edge_end_vertex(&brep, repaired_cycle[0]),
             Some(vertices[1])
         );
-        assert!(
-            brep.boundary_edges
-                .contains(&brep.half_edges[repaired_cycle[0]].edge)
-        );
+        assert!(brep.is_free_edge(brep.half_edges[repaired_cycle[0]].edge));
     }
 
-    fn insert_empty_face(
-        brep: &mut BRep,
-        shell: popkern_core::topology::ShellHandle,
-    ) -> FaceHandle {
+    fn insert_empty_face(brep: &mut BRep, shell: popkern_core::topology::FaceSides) -> FaceHandle {
         let face = brep.faces.insert(Face {
             outer_loop: Default::default(),
             inner_loops: vec![],
-            shell,
+            back: shell.back,
+            front: shell.front,
             surface: None,
             name: None,
             tolerance: None,
@@ -454,6 +442,7 @@ mod tests {
         let loop_ = brep.loops.insert(Loop {
             half_edge: Default::default(),
             face,
+            vertex: None,
         });
         brep.faces[face].outer_loop = loop_;
         face

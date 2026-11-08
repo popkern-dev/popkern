@@ -6,6 +6,7 @@
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::topology::RadialLinks;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, VertexHandle,
 };
@@ -25,7 +26,7 @@ pub(super) fn chain_tangent_at_origin(brep: &BRep, h: HalfEdgeHandle) -> Option<
 /// The chain direction along half-edge `h` at its destination.
 pub(super) fn chain_tangent(brep: &BRep, h: HalfEdgeHandle) -> Option<Vec3> {
     let he = &brep.half_edges[h];
-    let to = brep.half_edges[he.twin].origin;
+    let to = brep.half_edges[he.mate()?].origin;
     let t = super::g1_junction::edge_tangent(brep, he.edge, to)?;
     // edge_tangent runs along the stored curve; orient it along h.
     let e = &brep.edges[he.edge];
@@ -55,9 +56,11 @@ pub(super) fn nearest(trim: (&NurbsCurve, Circle), p: Point3) -> Point3 {
 
 /// Distance from `p` to a curveless edge's chord.
 pub(super) fn segment_distance(brep: &BRep, edge: EdgeHandle, p: Point3) -> f64 {
-    let he = &brep.half_edges[brep.edges[edge].half_edge];
-    let a = brep.vertices[he.origin].position;
-    let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+    let Some((va, vb)) = brep.edge_vertices(edge) else {
+        return f64::INFINITY;
+    };
+    let a = brep.vertices[va].position;
+    let b = brep.vertices[vb].position;
     let d = b - a;
     let l2 = d.dot(&d).max(1e-300);
     let s = ((p - a).dot(&d) / l2).clamp(0.0, 1.0);
@@ -336,7 +339,7 @@ pub(super) fn orient_strip(
 pub(super) fn blank(origin: VertexHandle, edge: EdgeHandle) -> HalfEdge {
     HalfEdge {
         origin,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge,

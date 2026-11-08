@@ -2,9 +2,10 @@ use super::*;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
+use crate::topology::RadialLinks;
 use crate::topology::{
-    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
-    ShellHandle, Solid, TopologyRole, Vertex,
+    BRep, Edge, EdgeHandle, Face, FaceHandle, FaceSides, HalfEdge, HalfEdgeHandle, Loop,
+    LoopHandle, TopologyRole, Vertex,
 };
 
 fn options(topology_output: BrepTopologyOutputPolicy) -> BrepExportQualityOptions {
@@ -135,7 +136,7 @@ fn export_quality_artifact_lists_boundary_edges_deterministically() {
 
     assert_eq!(artifact.summary.readiness, "ready_open_sheet");
     assert_eq!(artifact.summary.topology_output, "open_sheet");
-    assert_eq!(artifact.boundary_edges.len(), brep.boundary_edges.len());
+    assert_eq!(artifact.boundary_edges.len(), brep.free_edges().len());
     assert!(
         artifact
             .boundary_edges
@@ -217,14 +218,7 @@ fn export_quality_blocks_edge_curve_off_adjacent_surface() {
 
 fn single_square_sheet() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let square = add_square(
         &mut brep,
         shell,
@@ -235,20 +229,13 @@ fn single_square_sheet() -> BRep {
             Point3::new(0.0, 1.0, 0.0),
         ],
     );
-    brep.shells[shell].face = square.face;
+    brep.set_sides_anchor(shell, square.face);
     brep
 }
 
 fn collapsed_trim_sheet() -> BRep {
     let mut brep = BRep::new(Tolerance::default());
-    let solid = brep.solids.insert(Solid {
-        shell: ShellHandle::default(),
-    });
-    let shell = brep.shells.insert(Shell {
-        face: FaceHandle::default(),
-        solid,
-    });
-    brep.solids[solid].shell = shell;
+    let (_solid, shell) = brep.add_solid_region(Default::default());
     let vertex = brep.vertices.insert(Vertex {
         position: Point3::new(0.0, 0.0, 0.0),
         outgoing: HalfEdgeHandle::default(),
@@ -258,7 +245,8 @@ fn collapsed_trim_sheet() -> BRep {
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: Some(SurfaceOnFace {
             geometry: SurfaceGeometry::Plane {
                 origin: Point3::new(0.0, 0.0, 0.0),
@@ -275,10 +263,11 @@ fn collapsed_trim_sheet() -> BRep {
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin: vertex,
-        twin: HalfEdgeHandle::default(),
+        ring: RadialLinks::alone(),
         next: HalfEdgeHandle::default(),
         prev: HalfEdgeHandle::default(),
         edge: EdgeHandle::default(),
@@ -299,8 +288,7 @@ fn collapsed_trim_sheet() -> BRep {
     brep.vertices[vertex].outgoing = half_edge;
     brep.loops[loop_].half_edge = half_edge;
     brep.faces[face].outer_loop = loop_;
-    brep.shells[shell].face = face;
-    brep.boundary_edges.insert(edge);
+    brep.set_sides_anchor(shell, face);
     brep
 }
 
@@ -308,7 +296,7 @@ struct SquareHandles {
     face: FaceHandle,
 }
 
-fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> SquareHandles {
+fn add_square(brep: &mut BRep, shell: FaceSides, points: [Point3; 4]) -> SquareHandles {
     let vertices = points.map(|position| {
         brep.vertices.insert(Vertex {
             position,
@@ -320,7 +308,8 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let face = brep.faces.insert(Face {
         outer_loop: LoopHandle::default(),
         inner_loops: Vec::new(),
-        shell,
+        back: shell.back,
+        front: shell.front,
         surface: None,
         name: None,
         tolerance: None,
@@ -329,13 +318,14 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
         face,
+        vertex: None,
     });
     brep.faces[face].outer_loop = loop_;
 
     let half_edges = vertices.map(|origin| {
         brep.half_edges.insert(HalfEdge {
             origin,
-            twin: HalfEdgeHandle::default(),
+            ring: RadialLinks::alone(),
             next: HalfEdgeHandle::default(),
             prev: HalfEdgeHandle::default(),
             edge: EdgeHandle::default(),
@@ -353,7 +343,6 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             role: Default::default(),
         });
         brep.half_edges[half_edge].edge = edge;
-        brep.boundary_edges.insert(edge);
     }
 
     for index in 0..4 {

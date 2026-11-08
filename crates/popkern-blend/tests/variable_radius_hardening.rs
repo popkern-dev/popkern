@@ -190,11 +190,17 @@ fn variable_ends_feed_corner_with_endpoint_radius() {
             }
             let v1 = {
                 let he = &brep.half_edges[d1.half_edge];
-                [he.origin, brep.half_edges[he.twin].origin]
+                [
+                    he.origin,
+                    brep.half_edges[he.mate().unwrap_or_default()].origin,
+                ]
             };
             let v2 = {
                 let he = &brep.half_edges[d2.half_edge];
-                [he.origin, brep.half_edges[he.twin].origin]
+                [
+                    he.origin,
+                    brep.half_edges[he.mate().unwrap_or_default()].origin,
+                ]
             };
             if v1.iter().any(|v| v2.contains(v)) {
                 chosen = Some((e1, e2));
@@ -258,11 +264,17 @@ fn varying_laws_matched_corner_close_swept_seam() {
             }
             let v1 = {
                 let he = &brep.half_edges[d1.half_edge];
-                [he.origin, brep.half_edges[he.twin].origin]
+                [
+                    he.origin,
+                    brep.half_edges[he.mate().unwrap_or_default()].origin,
+                ]
             };
             let v2 = {
                 let he = &brep.half_edges[d2.half_edge];
-                [he.origin, brep.half_edges[he.twin].origin]
+                [
+                    he.origin,
+                    brep.half_edges[he.mate().unwrap_or_default()].origin,
+                ]
             };
             if v1.iter().any(|v| v2.contains(v)) {
                 chosen = Some((e1, e2));
@@ -274,11 +286,17 @@ fn varying_laws_matched_corner_close_swept_seam() {
     let shared = {
         let v1 = {
             let he = &brep.half_edges[brep.edges[e1].half_edge];
-            [he.origin, brep.half_edges[he.twin].origin]
+            [
+                he.origin,
+                brep.half_edges[he.mate().unwrap_or_default()].origin,
+            ]
         };
         let v2 = {
             let he = &brep.half_edges[brep.edges[e2].half_edge];
-            [he.origin, brep.half_edges[he.twin].origin]
+            [
+                he.origin,
+                brep.half_edges[he.mate().unwrap_or_default()].origin,
+            ]
         };
         *v1.iter().find(|v| v2.contains(v)).expect("shared vertex")
     };
@@ -350,11 +368,17 @@ fn varying_laws_mismatched_corner_close_swept_exit() {
             }
             let v1 = {
                 let he = &brep.half_edges[d1.half_edge];
-                [he.origin, brep.half_edges[he.twin].origin]
+                [
+                    he.origin,
+                    brep.half_edges[he.mate().unwrap_or_default()].origin,
+                ]
             };
             let v2 = {
                 let he = &brep.half_edges[d2.half_edge];
-                [he.origin, brep.half_edges[he.twin].origin]
+                [
+                    he.origin,
+                    brep.half_edges[he.mate().unwrap_or_default()].origin,
+                ]
             };
             if v1.iter().any(|v| v2.contains(v)) {
                 chosen = Some((e1, e2));
