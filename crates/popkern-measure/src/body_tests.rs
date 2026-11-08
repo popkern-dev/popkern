@@ -303,3 +303,23 @@ fn bored_cube_volume_is_exact() {
     let v = body_volume(&bored, &tol).unwrap();
     assert!((v - exact).abs() < 1e-9, "{v} vs {exact}");
 }
+
+/// A small body far from the origin measures its own volume: the
+/// divergence terms about the origin are large and cancel, so the body
+/// is measured moved to its box centre (PK-1135). A ball of radius
+/// 0.01 at (5, 0, 0) and at the origin agree to 1e-9.
+#[test]
+fn a_small_ball_far_from_the_origin_measures_its_volume() {
+    let tol = popkern_core::tolerance::Tolerance::default();
+    let ball = popkern_core::topology::BRep::sphere(0.01, tol).expect("sphere");
+    let here = body_volume(&ball, &tol).expect("volume");
+    let far = ball
+        .transform(&popkern_core::geometry::Transform3::translation(
+            1000.0, 0.0, 0.0,
+        ))
+        .expect("moves");
+    let there = body_volume(&far, &tol).expect("volume");
+    let exact = 4.0 / 3.0 * std::f64::consts::PI * 1e-6;
+    assert!((here - exact).abs() / exact < 1e-9, "{here}");
+    assert!((there - exact).abs() / exact < 1e-9, "{there}");
+}
