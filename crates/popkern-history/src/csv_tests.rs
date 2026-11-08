@@ -31,6 +31,7 @@ fn add_dummy_feature(tree: &mut FeatureTree, label: &str) -> crate::node::Featur
         last_result: None,
         selections: Vec::new(),
         provenance: Vec::new(),
+        output_bodies: Vec::new(),
     };
     let fid = tree.features.insert(node);
     tree.timeline.push(fid);

@@ -79,6 +79,7 @@ pub mod reference_rebind;
 pub(crate) mod replay;
 mod replay_exact_extrude;
 mod replay_exact_extrude_names;
+mod replay_outputs;
 mod replay_partition;
 mod replay_pieces;
 pub mod replay_report;

@@ -160,7 +160,8 @@ impl Body {
     }
 
     /// This body cut into its pieces by `tools` (consumed), keeping the
-    /// pieces `keep` selects as one body of several solids.
+    /// pieces `keep` selects, each its own body: this body first (the
+    /// piece it continues as), then the others (PK-1120).
     ///
     /// # Errors
     ///
@@ -170,14 +171,32 @@ impl Body {
         model: &mut Model,
         tools: &[Body],
         keep: PieceRule,
-    ) -> Result<Body, ScriptError> {
+    ) -> Result<Vec<Body>, ScriptError> {
         let tools = tools.to_vec();
-        self.partition_with(model, PartitionOp::Split { tools, keep }, "")
+        let body = self.partition_with(model, PartitionOp::Split { tools, keep }, "")?;
+        Ok(body.served_bodies(model))
+    }
+
+    /// The bodies the latest feature on this body served, this body
+    /// first: a split's pieces, or a split-policy boolean's touching
+    /// pieces, each its own body (PK-1120); this body alone for a
+    /// feature serving one body.
+    pub fn served_bodies(self, model: &Model) -> Vec<Body> {
+        let latest = model.tree.body_features(self.id).last().copied();
+        let served = latest
+            .map(|f| model.tree.served_bodies(f))
+            .unwrap_or_default();
+        if served.first() == Some(&self.id) {
+            served.into_iter().map(Body::new).collect()
+        } else {
+            vec![self]
+        }
     }
 
     /// The regions of this body (body 0) and `tools` (bodies 1..N,
     /// consumed) that `expr` keeps, as one body; kept regions touching
-    /// only along edges or at points follow `non_manifold`.
+    /// only along edges or at points follow `non_manifold` (split, each
+    /// piece its own body: [`Body::served_bodies`]).
     ///
     /// # Errors
     ///
@@ -200,7 +219,7 @@ impl Body {
     /// The material in exactly one of this body and `tool` (consumed).
     /// Where the two boundaries cross, the two sides' pieces meet along
     /// the crossing curves with zero thickness: they are served split,
-    /// as the body's solids (`SeparatePieces` takes them apart).
+    /// each its own body ([`Body::served_bodies`] lists them).
     ///
     /// # Errors
     ///

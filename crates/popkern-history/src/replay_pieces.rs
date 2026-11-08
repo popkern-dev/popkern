@@ -53,6 +53,7 @@ pub(crate) fn execute(
                 consumed_bodies: Vec::new(),
                 evidence: FeatureEvidence::empty(),
                 written_bodies: vec![(*source, rest)],
+                served_bodies: Vec::new(),
             })
         }
         _ => Err(failed("pieces", "not a piece feature".into())),

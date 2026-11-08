@@ -198,8 +198,8 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `Partition::select_bodies`, `symmetric_difference_bodies`; Part's
   `boolean_bodies_with`), the single-body ones declining with
   `BoolError::SplitIntoBodies` (a solid touching itself has no separate
-  bodies and declines; the feature tree keeps split pieces as the
-  body's solids, as a split does). `NonManifoldPolicy::General` serves
+  bodies and declines; in the feature tree each piece is its own body,
+  see N-body operations). `NonManifoldPolicy::General` serves
   one general body: the split pieces glued where they touch, found
   from their geometry alone (`BRep::glue_touching`, PK-1117: every
   piece given a vertex at each contact point, its own, its edge split
@@ -247,7 +247,18 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `NaryBoolean { tools, expr, non_manifold }`, `Imprint`, and
   `KeepPieces` / `SeparatePieces { source, rule }` (whole solids taken
   out by `popkern_bool::pieces`, names kept; a body made by
-  `SeparatePieces` is chosen over the body its names point to); an
+  `SeparatePieces` is chosen over the body its names point to). A
+  split serves each kept piece as its own body, and a split-policy
+  boolean each touching piece (PK-1120: no body holds lumps that
+  touch): the node records its bodies (`FeatureNode::output_bodies`,
+  its own body first), each keyed by a face name only its piece
+  carried, names with lineage before positional generated ones; a
+  replay serves the piece carrying the key as that body, a body whose
+  key is gone takes the next unclaimed piece in order (a `Naming`
+  fallback record), a gone piece leaves its body absent and a new
+  piece gets a new body (`replay_outputs`); `FeatureTree::served_bodies`,
+  script `Body::split` (returns the bodies) and `Body::served_bodies`,
+  Rhai `b.split(..)` (an array) and `b.served_bodies()`; an
   imprint's face classes are recorded by stable name in its report row
   (`FeatureTree::imprint_class`, Rhai `m.imprint_class(name)`). Named by
   `popkern_bool::name_from_operands` (the target's names carry, the

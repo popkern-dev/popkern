@@ -71,6 +71,7 @@ impl FeatureTree {
             last_result: None,
             selections: Vec::new(),
             provenance: Vec::new(),
+            output_bodies: Vec::new(),
         };
 
         let feature_clone = node.feature.clone();
@@ -85,7 +86,7 @@ impl FeatureTree {
         let index = self.timeline.len() - 1;
         self.record_undo(TreeCommand::AddFeature {
             id,
-            snapshot: self.features[id].clone(),
+            snapshot: Box::new(self.features[id].clone()),
             index,
         });
 
@@ -133,7 +134,8 @@ impl FeatureTree {
     }
 
     /// [`insert_feature_at`](Self::insert_feature_at) on `body` when
-    /// `body` was made by `SeparatePieces`: its entities carry the names
+    /// `body` was made by `SeparatePieces` or served as one of a feature's
+    /// several bodies: its entities carry the names
     /// of the body they were taken from, so the inferred body is wrong.
     ///
     /// # Errors
@@ -189,6 +191,7 @@ impl FeatureTree {
             last_result: None,
             selections: Vec::new(),
             provenance: Vec::new(),
+            output_bodies: Vec::new(),
         };
 
         let feature_clone = node.feature.clone();
@@ -202,7 +205,7 @@ impl FeatureTree {
 
         self.record_undo(TreeCommand::AddFeature {
             id,
-            snapshot: self.features[id].clone(),
+            snapshot: Box::new(self.features[id].clone()),
             index,
         });
 
@@ -246,9 +249,10 @@ impl FeatureTree {
     /// is alive, the feature does not start a body, and either nothing
     /// the feature references chose a body (`derived`; when appending,
     /// `unreferenced`) or `explicit` was
-    /// made by `SeparatePieces` — its entities keep the names minted by
-    /// the operations of the body they were taken from, so inferring
-    /// the body from those names finds the source instead.
+    /// made by `SeparatePieces` or served as one of a feature's several
+    /// bodies — its entities keep the names minted by the operations of
+    /// the body they were taken from, so inferring the body from those
+    /// names finds the source instead.
     fn chosen_body(
         &self,
         feature: &Feature,
@@ -260,10 +264,10 @@ impl FeatureTree {
         let Some(explicit) = explicit else {
             return derived;
         };
-        let separated = self
-            .features
-            .values()
-            .any(|n| n.body == explicit && matches!(n.feature, Feature::SeparatePieces { .. }));
+        let separated = self.features.values().any(|n| {
+            (n.body == explicit && matches!(n.feature, Feature::SeparatePieces { .. }))
+                || n.output_bodies.iter().any(|o| o.body == explicit)
+        });
         if ((unreferenced && depends_on.is_empty()) || separated)
             && !crate::timeline::starts_new_body(feature)
             && self.body_manager.bodies().contains(&explicit)
@@ -399,8 +403,8 @@ impl FeatureTree {
 
         self.record_undo(TreeCommand::ModifyFeature {
             id,
-            old,
-            new: feature,
+            old: Box::new(old),
+            new: Box::new(feature),
         });
 
         // Cached states are content-addressed, so the edit cannot be

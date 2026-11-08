@@ -89,11 +89,23 @@ m"#,
         "pieces",
         r#"let m = model();
 let plate = m.profile(xy()).rect(2.4, 1.6).sketch("plate").extrude(blind(0.4));
-let s = m.tool(|m| m.profile(xy_at(-0.5)).rect(0.4, 3.0).sketch("s").extrude(blind(2.0)));
-plate.split([s]);
+let s = m.tool(|m| m.profile(xy_at(-0.5)).rect(0.1, 3.0).at(-0.25, 0.0).sketch("s").extrude(blind(2.0)));
+let t = m.tool(|m| m.profile(xy_at(-0.5)).rect(0.1, 3.0).at(0.25, 0.0).sketch("t").extrude(blind(2.0)));
+plate.subtract(s);
+plate.subtract(t);
 let right = plate.separate_pieces(containing([1.0, 0.0, 0.2]), #{ label: "right" });
 plate.keep_pieces(largest(1));
 right.fillet(edges().straight().direction("z"), 0.05);
+m"#,
+    ),
+    (
+        "split_pieces",
+        r#"let m = model();
+let plate = m.profile(xy()).rect(2.4, 1.6).sketch("plate").extrude(blind(0.4));
+let s = m.tool(|m| m.profile(xy_at(-0.5)).rect(0.4, 3.0).sketch("s").extrude(blind(2.0)));
+let pieces = plate.split([s]);
+if pieces.len() != 3 { throw "three pieces"; }
+pieces[1].translate(0.0, 0.0, 1.0);
 m"#,
     ),
 ];
@@ -139,9 +151,10 @@ fn a_two_body_boolean_records_its_non_manifold_policy() {
         emitted.contains(r#"non_manifold: "split_to_manifold""#),
         "{emitted}"
     );
-    // Split, the two touching cubes are the body's two solids.
-    let part = m.to_part().expect("part");
-    assert_eq!(part.brep().solid_regions().len(), 2, "two pieces");
+    // Split, the two touching cubes are two bodies (PK-1120).
+    assert_eq!(m.to_part().expect("part").brep().solid_regions().len(), 1);
+    let alive = m.bodies().into_iter().filter(|b| b.is_alive(&m)).count();
+    assert_eq!(alive, 2, "two pieces, each a body");
     // The default declines the same edge contact.
     let declined = source.replace(r#", #{ non_manifold: "split_to_manifold" }"#, "");
     let error = host
@@ -161,7 +174,7 @@ fn piece_features_spell_their_rules_and_the_separated_body() {
     let emitted = to_rhai(&mut m).expect("emit");
     assert!(
         emitted.contains(
-            "let b2 = b0.separate_pieces(containing([1.0, 0.0, 0.2]), #{ label: \"right\" });"
+            "let b3 = b0.separate_pieces(containing([1.0, 0.0, 0.2]), #{ label: \"right\" });"
         ),
         "{emitted}"
     );
@@ -170,11 +183,27 @@ fn piece_features_spell_their_rules_and_the_separated_body() {
         "{emitted}"
     );
     assert!(
-        emitted.contains("b2 = b2.fillet("),
+        emitted.contains("b3 = b3.fillet("),
         "the fillet stays on the piece"
     );
     let alive = m.bodies().into_iter().filter(|b| b.is_alive(&m)).count();
     assert_eq!(alive, 2, "the plate and the separated piece");
+}
+
+/// A split's pieces are bodies (PK-1120): the call returns them, the
+/// emitted script binds each from the returned array and a feature on
+/// one stays on it.
+#[test]
+fn split_pieces_spell_as_bodies_from_the_returned_array() {
+    let mut host = ScriptHost::new();
+    let mut m = run(&mut host, SCRIPTS[7].1, "split_pieces");
+    let emitted = to_rhai(&mut m).expect("emit");
+    assert!(emitted.contains("let b0_pieces = b0.split("), "{emitted}");
+    assert!(emitted.contains("let b2 = b0_pieces[1];"), "{emitted}");
+    assert!(emitted.contains("let b3 = b0_pieces[2];"), "{emitted}");
+    assert!(emitted.contains("b2 = b2.translate("), "{emitted}");
+    let alive = m.bodies().into_iter().filter(|b| b.is_alive(&m)).count();
+    assert_eq!(alive, 3, "three pieces, each a body");
 }
 
 #[test]
