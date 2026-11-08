@@ -147,7 +147,15 @@ pub(crate) fn zip_recorded_tolerance_cracks(
         let band = DEFAULT_BAND
             .max(chord_height)
             .max(edge.tolerance.map(|t| 1.5 * t).unwrap_or(0.0));
-        let pts = curve_polyline(ce, curve.t_start, curve.t_end, 0.25 * band);
+        // A straight edge is its two ends, exactly; the 65 stations a
+        // curve starts from only grew the segment index (a 48-gon
+        // prism's union paid 6.5 ms of its tessellation here, PK-1122).
+        let pts = match curve.geometry {
+            popkern_core::geometry::curve::CurveGeometry::Line { .. } => {
+                vec![ce.point_at(curve.t_start), ce.point_at(curve.t_end)]
+            }
+            _ => curve_polyline(ce, curve.t_start, curve.t_end, 0.25 * band),
+        };
         let mut cum = Vec::with_capacity(pts.len());
         let mut total = 0.0;
         cum.push(0.0);
