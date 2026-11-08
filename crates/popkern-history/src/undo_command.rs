@@ -22,8 +22,9 @@ pub(crate) enum TreeCommand {
     AddFeature {
         /// The ID that was assigned to the new feature.
         id: FeatureId,
-        /// Full snapshot of the node at the time of insertion.
-        snapshot: FeatureNode,
+        /// Full snapshot of the node at the time of insertion (boxed, as
+        /// the features of a modification: the largest payloads).
+        snapshot: Box<FeatureNode>,
         /// The timeline index at which the feature was inserted.
         index: usize,
     },
@@ -36,10 +37,10 @@ pub(crate) enum TreeCommand {
     ModifyFeature {
         /// The ID of the modified feature.
         id: FeatureId,
-        /// The previous feature parameters.
-        old: Feature,
+        /// The previous feature parameters (boxed, as the node snapshot).
+        old: Box<Feature>,
         /// The new feature parameters.
-        new: Feature,
+        new: Box<Feature>,
     },
     /// A feature was moved in the timeline.
     ReorderFeature {

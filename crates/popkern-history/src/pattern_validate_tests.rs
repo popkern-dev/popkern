@@ -37,6 +37,7 @@ fn insert(
         last_result: None,
         selections: Vec::new(),
         provenance: Vec::new(),
+        output_bodies: Vec::new(),
     };
     let id = features.insert(node);
     timeline.push(id);
@@ -140,6 +141,7 @@ fn missing_feature_id_is_rejected() {
         last_result: None,
         selections: Vec::new(),
         provenance: Vec::new(),
+        output_bodies: Vec::new(),
     });
     features.remove(ghost_id);
 

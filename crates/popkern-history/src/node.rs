@@ -74,6 +74,25 @@ pub struct FeatureNode {
     /// an upstream edit renumbered its name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub provenance: Vec<crate::reference_rebind::ReferenceProvenance>,
+    /// The bodies a feature serving several bodies writes (a split's
+    /// pieces, a split-policy boolean's touching pieces; PK-1120), its
+    /// own `body` first: each with the face name that finds its piece
+    /// on replay. Empty for a feature serving one body.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_bodies: Vec<OutputBody>,
+}
+
+/// One body a feature serving several bodies writes, and how replay
+/// finds its piece among the feature's pieces (PK-1120).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputBody {
+    /// The body the piece is served as.
+    pub body: BodyId,
+    /// A face name only this piece carried when the body was assigned
+    /// (its least such name, else its least name; `None` for a piece of
+    /// unnamed faces): the piece carrying it on a later replay is served
+    /// as `body`.
+    pub key: Option<popkern_core::naming::EntityName>,
 }
 
 /// The authored form of one selection argument of a feature.
