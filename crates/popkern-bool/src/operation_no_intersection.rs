@@ -7,9 +7,9 @@
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
-use crate::classify::point_in_solid_final;
 use crate::error::{BoolError, BoolOperation, PointClassification};
 use crate::operation::helpers::{combine_breps, copy_brep_into};
+use crate::operation::relation_probes;
 
 pub(super) fn handle_no_intersection(
     op: BoolOperation,
@@ -25,80 +25,41 @@ pub(super) fn handle_no_intersection(
     )],
     tolerance: &Tolerance,
 ) -> Result<BRep, BoolError> {
-    // Classify sample points of A against B. A SINGLE vertex probe is
-    // a knife edge: one degenerate ray (a sphere pole, a seam vertex)
-    // answers OnBoundary for a clearly-separated body and the whole
-    // no-intersection case was declared CoincidentFaces with bogus
-    // face handles (measured: a bearing's merged races+balls union
-    // with the NEXT ball — every operand pair disjoint by 0.01+).
-    // Probe several stations (vertices, then face-interior samples)
-    // and take the first decisive Inside/Outside; only a unanimously
-    // boundary-touching body is the ambiguous coincident class.
-    let classify_probes = |inner: &BRep,
-                           outer: &BRep,
-                           outer_aabbs: &[(
-        popkern_core::topology::FaceHandle,
-        popkern_core::geometry::intersection::surface_subdivision::Aabb,
-    )]|
-     -> Result<PointClassification, BoolError> {
-        let mut probes: Vec<popkern_core::geometry::Point3> = inner
-            .vertices
-            .values()
-            .take(4)
-            .map(|v| v.position)
-            .collect();
-        for face in inner.faces.keys().take(4) {
-            probes.extend(inner.face_outer_loop_sample_positions(face, 3));
-        }
-        if probes.is_empty() {
-            return Err(BoolError::DegenerateInput(
-                "solid has no vertices".to_string(),
-            ));
-        }
-        let mut verdict = PointClassification::OnBoundary;
-        for p in &probes {
-            // Boolean operands are FINAL bodies: a ray hit inside one of
-            // a face's holes is a void and must not count. Counting it
-            // classified an output pin passing through a cycloid disc's
-            // window as inside the disc, and the intersection served
-            // the whole pin (PK-722).
-            match point_in_solid_final(p, outer, outer_aabbs, tolerance)? {
-                PointClassification::OnBoundary => {}
-                decisive => {
-                    verdict = decisive;
-                    break;
-                }
-            }
-        }
-        Ok(verdict)
-    };
-    let classification = classify_probes(&a, &b, aabbs_b)?;
-
-    let result = match classification {
-        PointClassification::Outside => {
-            // A's samples are outside B. Check reverse: is B inside A?
-            let reverse = classify_probes(&b, &a, aabbs_a)?;
-            match reverse {
-                PointClassification::Inside => {
-                    // B is inside A — reverse containment.
-                    handle_reverse_containment(op, a, b, tolerance)
-                }
-                _ => {
-                    // Truly disjoint.
-                    handle_disjoint(op, a, b, tolerance)
-                }
-            }
-        }
-        PointClassification::Inside => {
+    // Classify probe points of each body against the other. A SINGLE
+    // vertex probe is a knife edge: one degenerate ray (a sphere pole,
+    // a seam vertex) answers OnBoundary for a clearly-separated body
+    // and the whole no-intersection case was declared CoincidentFaces
+    // (measured: a bearing's merged races+balls union with the NEXT
+    // ball). Probes are face-interior points first, the decisive ones
+    // must agree, and an undecided relation declines (PK-1124): an
+    // OnBoundary reverse read as "apart" served an empty intersection
+    // of a cube and its inscribed ball, whose poles and seam touch the
+    // cube's faces.
+    let forward = relation_probes::probe_relation(&a, &b, aabbs_b, tolerance)?;
+    let result = match forward.verdict() {
+        None => Err(forward.undecided(0)),
+        Some(PointClassification::Inside) => {
             // Containment: A is entirely inside B.
             handle_containment(op, a, b, tolerance)
         }
-        PointClassification::OnBoundary => {
-            // Coincident boundary — ambiguous case.
+        Some(PointClassification::OnBoundary) => {
+            // Every probe of A on B's boundary: coincident boundaries.
             Err(BoolError::CoincidentFaces {
                 face_a: a.faces.keys().next().unwrap_or_default(),
                 face_b: b.faces.keys().next().unwrap_or_default(),
             })
+        }
+        Some(PointClassification::Outside) => {
+            // A's probes are outside B. Is B inside A, or are they apart?
+            let reverse = relation_probes::probe_relation(&b, &a, aabbs_a, tolerance)?;
+            match reverse.verdict() {
+                Some(PointClassification::Inside) => {
+                    handle_reverse_containment(op, a, b, tolerance)
+                }
+                Some(PointClassification::Outside) => handle_disjoint(op, a, b, tolerance),
+                // B's probes all on A's boundary, or disagreeing.
+                Some(PointClassification::OnBoundary) | None => Err(reverse.undecided(1)),
+            }
         }
     };
 

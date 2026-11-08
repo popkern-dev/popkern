@@ -134,17 +134,43 @@ pub(super) fn certify_empty_result(
 /// area, would have merged — but the pipeline already failed, so only
 /// the decline's reason changes). Never a body: the caller declines
 /// with these contacts in place of the pipeline's failure.
+///
+/// Operands that share area (a face lying on a face of the other) are
+/// not merely touching: their union merges there into one manifold
+/// body, so a pipeline failure on them is that failure, not a contact,
+/// and `None` keeps it (PK-1124).
 pub(super) fn touching_union_contacts(
     a: &BRep,
     b: &BRep,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Option<Vec<crate::error::NonManifoldContact>> {
-    if !verify_disjoint_interiors(a, b) {
+    if !verify_disjoint_interiors(a, b) || shares_area(a, b, tolerance) {
         return None;
     }
     let side_by_side = super::helpers::combine_breps(a.clone(), b.clone()).ok()?;
     let contacts = crate::postprocess::shell_contact::shell_contacts(&side_by_side, tolerance);
     (!contacts.is_empty()).then_some(contacts)
+}
+
+/// Whether a face of `a` lies on `b`'s boundary over an area: at least
+/// two of its three face-interior probes on `b`'s boundary. One is not
+/// enough, since a point contact can sit exactly at a face's centre
+/// (a cube's inscribed ball touches each face there).
+pub(super) fn shares_area(
+    a: &BRep,
+    b: &BRep,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    let aabbs_b = crate::intersect::compute_face_aabbs(b);
+    a.faces.keys().any(|f| {
+        super::relation_probes::face_interior_points(a, f, 3)
+            .iter()
+            .filter(|p| {
+                crate::postprocess::zero_thickness::on_body_boundary(p, b, &aabbs_b, tolerance)
+            })
+            .count()
+            >= 2
+    })
 }
 
 #[cfg(test)]

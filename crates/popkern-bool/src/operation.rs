@@ -10,6 +10,8 @@ pub(crate) mod helpers;
 mod helpers_pcurve_coherence;
 #[path = "operation_no_intersection.rs"]
 pub(crate) mod no_intersection;
+#[path = "operation_relation_probes.rs"]
+pub(crate) mod relation_probes;
 
 #[path = "operation_contact.rs"]
 pub(crate) mod contact;

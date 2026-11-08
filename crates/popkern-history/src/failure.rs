@@ -167,6 +167,7 @@ impl FeatureFailure {
             BoolError::GeneralBodyDeclined { .. } => ("GeneralBodyDeclined", None),
             BoolError::UnsupportedBodyKind { .. } => ("UnsupportedBodyKind", None),
             BoolError::TooManyBodies { .. } => ("TooManyBodies", None),
+            BoolError::RelationUndecided { .. } => ("RelationUndecided", None),
         };
         FeatureFailure::BooleanFailed {
             operation: operation.to_string(),
