@@ -75,7 +75,10 @@ pub(crate) fn intersect_line_cylinder(
     // tangent contact. The band is open at a whole tolerance: a contact
     // exactly that deep is the secant the stadium fixtures serve on (a
     // closed band read them tangent and left 18 curveless edges).
-    let t_candidates: Vec<f64> = if h > cyl_radius {
+    // "Outside" is past rounding: an exactly tangent line reads h = r ±
+    // ulps (a cube edge tangent to an inscribed cylinder missed, PK-1144).
+    let scale = coordinate_scale(&[*line_origin, *cyl_origin]) + cyl_radius;
+    let t_candidates: Vec<f64> = if h > cyl_radius + 64.0 * f64::EPSILON * scale {
         // No real intersection — line misses the cylinder.
         return Vec::new();
     } else if h > cyl_radius
