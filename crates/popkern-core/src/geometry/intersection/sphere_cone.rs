@@ -75,7 +75,8 @@ pub(crate) fn try_sphere_cone(
     let tan = sin / cos;
     // A touch along a circle (or none at all): nothing to emit.
     let gap = c.abs() * sin.abs() - radius;
-    if gap.abs() <= lin {
+    let scale = super::coordinate_scale(&[*apex, *center]) + radius;
+    if gap.abs() < tolerance.tangency_band(scale) {
         return Some(Vec::new());
     }
     // (1 + tan²) v² − 2 c v + (c² − R²) = 0.
