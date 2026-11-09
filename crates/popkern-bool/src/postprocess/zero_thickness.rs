@@ -181,33 +181,59 @@ pub(crate) fn zero_thickness_findings(
     out
 }
 
-/// The copy test's shadow (PK-1130, the plan's §6.1): when the copy
-/// tests above found `copies` contacts and `POPKERN_COMPLEX_SHADOW_LOG`
-/// is set, glue a clone's coincident copies and read its
-/// neighbourhoods. `repairable` (manifold once glued: the construction
-/// failed to identify one point, an identity defect), `contact` (still
-/// non-manifold: a real zero-thickness contact) or `glue-declined`.
-/// The copy test retires once the suite shows which it reports.
+/// Glue `brep`'s coincident copies and read its neighbourhoods: `Some`
+/// with the glued body when it is a manifold once glued (the
+/// construction failed to identify one point: an identity defect),
+/// `None` when the copies are a real contact or the glue declines.
+fn glued_if_manifold(brep: &BRep) -> Option<BRep> {
+    let mut glued = brep.clone();
+    glued.glue_coincident().ok()?;
+    let manifold = glued
+        .vertex_neighbourhoods()
+        .iter()
+        .all(|(_, n)| n.is_manifold())
+        && glued.edges.keys().all(|e| {
+            !matches!(
+                glued.edge_neighbourhood(e),
+                popkern_core::topology::EdgeNeighbourhood::Ring { .. }
+            )
+        });
+    (manifold && glued.validate_all().is_empty()).then_some(glued)
+}
+
+/// The copy test decides by gluing (PK-1130, the plan's §6.1): where the
+/// copy tests find coincident copies, a body that is a manifold once
+/// they are glued had an identity defect, and is served glued (an
+/// `IdentityRepair` shadow line); one still non-manifold keeps its
+/// contacts. Measured over the whole kernel suite before the switch:
+/// 299 firings, 298 real contacts, 1 glue declined, no identity defect.
+/// Returns whether it repaired.
+pub(crate) fn repair_identity_copies(brep: &mut BRep, tolerance: &Tolerance) -> bool {
+    let copies = zero_thickness_findings(brep, tolerance)
+        .iter()
+        .filter(|(_, entities)| entities.len() > 1)
+        .count();
+    if copies == 0 {
+        return false;
+    }
+    match glued_if_manifold(brep) {
+        Some(glued) => {
+            *brep = glued;
+            crate::complex_shadow::append_log_line(&format!("IdentityRepair {copies}"));
+            true
+        }
+        None => false,
+    }
+}
+
 fn copy_test_shadow(brep: &BRep, copies: usize) {
     if copies == 0 || std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG").is_none() {
         return;
     }
-    let mut glued = brep.clone();
-    let verdict = match glued.glue_coincident() {
-        Err(_) => "glue-declined",
-        Ok(_) => {
-            let manifold = glued
-                .vertex_neighbourhoods()
-                .iter()
-                .all(|(_, n)| n.is_manifold())
-                && glued.edges.keys().all(|e| {
-                    !matches!(
-                        glued.edge_neighbourhood(e),
-                        popkern_core::topology::EdgeNeighbourhood::Ring { .. }
-                    )
-                });
-            if manifold { "repairable" } else { "contact" }
-        }
+    let verdict = if glued_if_manifold(brep).is_some() {
+        "repairable"
+    } else {
+        "contact"
     };
     crate::complex_shadow::append_log_line(&format!("CopyTest {copies} {verdict}"));
 }
@@ -292,4 +318,31 @@ pub(crate) fn on_face(
         && body
             .face_uv_trim_containment(face, &surface.geometry, u, v)
             .is_some_and(|c| c != FaceUvContainment::Outside)
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use popkern_core::geometry::Transform3;
+
+    /// Two cubes touching along an edge, put side by side in one body:
+    /// their coincident copies are a real contact (a ring of four fins
+    /// once glued), so nothing is repaired and the contacts stay; a lone
+    /// cube has no copies at all.
+    #[test]
+    fn a_real_contact_is_not_repaired() {
+        let tol = Tolerance::default();
+        let mut body = BRep::unit_cube(tol).expect("cube");
+        body.append_body(
+            &BRep::unit_cube(tol)
+                .expect("cube")
+                .transform(&Transform3::translation(1.0, 1.0, 0.0))
+                .expect("moves"),
+        );
+        assert!(!zero_thickness_contacts(&body, &tol).is_empty());
+        assert!(!repair_identity_copies(&mut body, &tol));
+        assert!(!zero_thickness_contacts(&body, &tol).is_empty());
+        let mut lone = BRep::unit_cube(tol).expect("cube");
+        assert!(!repair_identity_copies(&mut lone, &tol));
+    }
 }

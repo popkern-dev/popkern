@@ -68,6 +68,7 @@ pub(crate) fn execute_boolean_full(
     // (PK-1129).
     let mut served = served;
     served.join_loops_sharing_vertices();
+    crate::postprocess::zero_thickness::repair_identity_copies(&mut served, tolerance);
     // Whatever route served it, a result that touches itself (two
     // vertices or two edges in one place: bodies meeting along an
     // edge or at a point; two shells meeting anywhere) is non-manifold
