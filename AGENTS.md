@@ -376,6 +376,39 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   along an edge, PK-1072) glue where they coincide
   (`BRep::glue_coincident`) under the same option. Fixtures
   are OCC-written (`tools/occ-oracle/occ_write_nonmanifold.py`).
+- **Tangency and contacts (PK-1123..1130)** — where two surfaces
+  touch without crossing, `contact_classify` reads the relative
+  curvature `D = II₁ − II₂` in one tangent frame (a touch, a crossing
+  with its branch directions, a tangent curve, or `Undecided`, an
+  eigenvalue under `2ε/L²` decided by the gap on a ring), and
+  `intersect_surfaces_typed` reports `contacts` beside the unchanged
+  curves (`contact_discovery`: critical points of the signed gap). An
+  arm meeting a touch emits no curve, as every arm does: contacts are
+  typed beside. A boolean whose operands meet in no curve classifies
+  only by probes that agree off the other body's boundary and declines
+  `BoolError::RelationUndecided` otherwise. Records meeting inside one
+  another on a face are split there (`tolerance_zone/meetings.rs`),
+  the one rule for records of one face pair passing within the
+  tolerance (the vertex table's old branch rule is retired). A key
+  runs its span's way by its ends when open and its leaving tangent
+  when closed
+  (`assemble_span_unify::runs_same_way`: a closed span's ends are one
+  node). Touches of an edge with a face land on the root of `C′ · N`,
+  not a minimum of distance values (`surface_curve_touch.rs`). Exact
+  arms: sphere × sphere, sphere × coaxial cone, cones sharing an apex,
+  and a NURBS surface of revolution (either parameter the angle,
+  clamped or periodic form) × a coaxial plane, cylinder, cone or
+  sphere (`revolved_nurbs.rs`). Manifoldness has one authority,
+  `BRep::vertex_neighbourhood(s)` / `edge_neighbourhood` (a face
+  meeting a vertex twice round one fan is a pinch use, still a
+  manifold; the boolean's pinched-vertex test is its client); fillets,
+  chamfers at a pinch vertex, shells, offsets and thickens decline
+  `CoreError::PinchUse` before building. Corpora:
+  `popkern-examples/tests/tangency_corpus.rs` (placements, scales,
+  self-turns, per policy, closed forms) and
+  `popkern-rhai/tests/tangency_bench_scripts.rs`; both ratchet (a gate
+  must pass, a target that starts passing must be promoted);
+  `pinch_use_consumers.rs` puts a pinch use through every consumer.
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks

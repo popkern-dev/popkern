@@ -1,20 +1,17 @@
-//! Branches of one intersection meeting (plan §4.3a, the branch rule).
+//! Records of one face pair (plan §4.3a, §5.4).
 //!
 //! Two records of one face pair are two branches of that pair's
 //! intersection, or two pieces of one branch cut at a hit, a seam or a
-//! band lattice. Where the faces cross transversally the intersection
-//! is locally one smooth curve, so two branches meet only at a singular
-//! point, and the SSI's own tangency analysis is the evidence: it ends
-//! a branch there. Two records ending at one point are pieces of one
-//! branch or branches the SSI stopped at a branch point; a record
-//! whose interior passes within tolerance of another record of the same
-//! pair was marched through, the SSI seeing no branch point there, and
-//! is a second branch passing close.
+//! band lattice. A record end is not given an interior incidence on
+//! another record of its own pair (`incidence`): where two branches of
+//! one pair come within the tolerance of each other, the face
+//! arrangement's meeting is the vertex (`meetings`), one point on both.
 //!
-//! Measured before the rule (bool, examples, mesh and blend, table
-//! on): no record's interior met another record of its face pair, so
-//! the rule changes no served boolean; it keeps the near-pass fixture
-//! two vertices.
+//! The rule that kept such a pass as two vertices (two branches the SSI
+//! marched through) is retired (PK-1130): within the tolerance two
+//! points are one, and no served boolean depended on it (measured with
+//! the vertex table on: no record's interior met another of its pair
+//! outside the rule's own fixture).
 
 use crate::intersect::IntersectionRecord;
 

@@ -334,13 +334,6 @@ fn zone_along(
     widest
 }
 
-/// Whether records' meetings are candidates: always, unless
-/// `POPKERN_FACE_ARRANGEMENT=0` restores the records running through
-/// one another unsplit (the comparison the kill switch exists for).
-pub(crate) fn meetings_enabled() -> bool {
-    std::env::var_os("POPKERN_FACE_ARRANGEMENT").is_none_or(|v| v != "0")
-}
-
 /// A face's tolerance, the model's linear where it has none.
 fn face_tol(brep: &BRep, face: FaceHandle, linear: f64) -> f64 {
     brep.faces
@@ -358,9 +351,6 @@ pub(super) fn meeting_candidates(
     records: &[IntersectionRecord],
     linear: f64,
 ) -> Vec<CandidateVertex> {
-    if !meetings_enabled() {
-        return Vec::new();
-    }
     let mut out = Vec::new();
     let radius_of =
         |r: &IntersectionRecord| face_tol(a, r.face_a, linear) + face_tol(b, r.face_b, linear);

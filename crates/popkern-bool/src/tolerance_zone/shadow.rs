@@ -62,9 +62,6 @@ pub(crate) struct ResolutionShadow {
     /// faces' interiors (a branch point, or two branches passing within
     /// tolerance, which the branch rule must keep apart).
     pub branch_meets: usize,
-    /// Candidate pairs the branch rule kept apart: two records of one
-    /// face pair meeting away from both their ends (`branches`).
-    pub branch_separations: usize,
     /// Candidate pairs the face-side rule kept apart (`face_side`).
     pub face_side_separations: usize,
     /// Candidate pairs the period rule kept apart, with the largest
@@ -375,15 +372,11 @@ pub(crate) fn run(
                     })
                 })
                 .collect();
-        let separated = |rule| {
-            res.separations
-                .iter()
-                .filter(|(_, _, why)| *why == rule)
-                .count()
-        };
-        shadow.branch_separations = separated(super::resolve::Incompatibility::DistinctBranches);
-        shadow.face_side_separations =
-            separated(super::resolve::Incompatibility::OppositeFaceSides);
+        shadow.face_side_separations = res
+            .separations
+            .iter()
+            .filter(|(_, _, why)| *why == super::resolve::Incompatibility::OppositeFaceSides)
+            .count();
         shadow.record_order_separations = res
             .separations
             .iter()

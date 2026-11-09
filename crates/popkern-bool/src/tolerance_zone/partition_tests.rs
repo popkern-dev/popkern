@@ -7,7 +7,7 @@ use popkern_core::topology::VertexHandle;
 
 use super::candidates::{CandidateVertex, Incidence, SourceKind};
 use super::resolve::{ResolutionContext, ResolutionDecline, ResolutionOptions, resolve};
-use super::tests::{TOL, cube, line, record, record_end, vertex};
+use super::tests::{TOL, cube, line, record, vertex};
 
 fn options(exact_limit: usize) -> ResolutionOptions {
     ResolutionOptions {
@@ -17,18 +17,19 @@ fn options(exact_limit: usize) -> ResolutionOptions {
 }
 
 /// Two vertices a, b of one operand 1.8 tol apart; a point c between
-/// them touching both; and the end d of a branch that a, lying in
-/// another branch's interior, may not join, touching only c. The
-/// canonical-order pass puts c with a, so d starts a third vertex; the
-/// fewest is two, {a} and {b, c, d}.
+/// them touching both; and a vertex d of the other operand that a, also
+/// coinciding with another vertex of that operand, may not join,
+/// touching only c. The canonical-order pass puts c with a, so d starts
+/// a third vertex; the fewest is two, {a} and {b, c, d}. (Built on the
+/// retired branch rule until PK-1130; the incompatibility is now two
+/// vertices of one operand.)
 fn early_join() -> Vec<CandidateVertex> {
     let c = cube();
-    let vs: Vec<VertexHandle> = c.vertices.keys().take(2).collect();
+    let vs: Vec<VertexHandle> = c.vertices.keys().take(4).collect();
     let mut a = vertex(0, vs[0], Point3::new(0.0, 0.0, 0.0));
-    a.incidence.push(Incidence::Record {
-        record: 0,
-        s: 0.5,
-        end: None,
+    a.incidence.push(Incidence::Vertex {
+        operand: 1,
+        vertex: vs[2],
     });
     let b = vertex(0, vs[1], Point3::new(1.8 * TOL, 0.0, 0.0));
     let mid = CandidateVertex {
@@ -39,7 +40,7 @@ fn early_join() -> Vec<CandidateVertex> {
         incidence: vec![],
         key: (SourceKind::EdgeFaceHit, 0, 0, 0, 0),
     };
-    let d = record_end(1, 1.0, true, Point3::new(-0.5 * TOL, 1.2 * TOL, 0.0));
+    let d = vertex(1, vs[3], Point3::new(-0.5 * TOL, 1.2 * TOL, 0.0));
     vec![a, b, mid, d]
 }
 
