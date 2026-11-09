@@ -31,6 +31,7 @@ mod tilt_relax;
 mod trim;
 mod trim_canonical;
 mod trim_clip;
+mod trim_periodic_holes;
 mod trim_pole_lift;
 mod trim_sampling;
 mod vertex_normal;

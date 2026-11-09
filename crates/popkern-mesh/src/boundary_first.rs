@@ -113,12 +113,11 @@ pub(crate) fn tessellate_face_boundary_first(
     let orientation = surface_on_face.orientation;
 
     // A face whose outer loop traverses EVERY edge twice is a pure
-    // seam spine (a full sphere's meridian pair): its chart "polygon"
-    // is two overlapping border lines that bound no interior, and
-    // Delaunay on it emits only degenerate slivers (measured: the
-    // primitive sphere meshed 0/46). A torus face's seam SQUARE bounds
-    // its whole chart: with holes it meshes here (the pcurve grid cut a
-    // drilled torus's holes off its neighbours' samples, PK-459).
+    // seam spine (a full sphere's meridian pair): with no holes its
+    // chart "polygon" bounds no interior (Delaunay meshed the primitive
+    // sphere 0/46). With holes, and a torus face's seam SQUARE, it meshes
+    // here (a drilled torus, PK-459; a ball with Viviani's figure eight
+    // cut out fell back to the grid, the union 1.5e-5 high, PK-1140).
     let seam_square =
         matches!(surface.periodicity(), (Some(_), Some(_))) && !face.inner_loops.is_empty();
     {
@@ -135,7 +134,8 @@ pub(crate) fn tessellate_face_boundary_first(
                 break;
             }
         }
-        if !seam_square && !edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2) {
+        let spine = !edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2);
+        if spine && !seam_square && face.inner_loops.is_empty() {
             // PK-339: the two-apex revolution arm serves the classic
             // member of this class (a full sphere: two poles joined by
             // one meridian seam) by construction — attempt it before

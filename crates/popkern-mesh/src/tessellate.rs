@@ -81,7 +81,7 @@ pub(crate) fn tessellate_face_with_samples(
         if nu0.is_finite() && nu1.is_finite() && nv0.is_finite() && nv1.is_finite() {
             u_range = (nu0, nu1);
             v_range = (nv0, nv1);
-            trim_loops.retain(|l| !l.is_outer);
+            crate::trim_periodic_holes::retain_holes_wrapped(&mut trim_loops, surface);
             // Push the synthetic outer rectangle a hair OUTSIDE the
             // grid domain: a rectangle coinciding exactly with the
             // first/last grid rows classifies every pole-row triangle
