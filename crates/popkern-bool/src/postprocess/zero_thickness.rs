@@ -174,10 +174,42 @@ pub(crate) fn zero_thickness_findings(
             }
         }
     }
+    copy_test_shadow(brep, out.len());
     // One vertex shared by separate fans: the contact the result
     // carries without a coincident copy.
     out.extend(super::pinched_vertex::pinched_vertices(brep));
     out
+}
+
+/// The copy test's shadow (PK-1130, the plan's §6.1): when the copy
+/// tests above found `copies` contacts and `POPKERN_COMPLEX_SHADOW_LOG`
+/// is set, glue a clone's coincident copies and read its
+/// neighbourhoods. `repairable` (manifold once glued: the construction
+/// failed to identify one point, an identity defect), `contact` (still
+/// non-manifold: a real zero-thickness contact) or `glue-declined`.
+/// The copy test retires once the suite shows which it reports.
+fn copy_test_shadow(brep: &BRep, copies: usize) {
+    if copies == 0 || std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG").is_none() {
+        return;
+    }
+    let mut glued = brep.clone();
+    let verdict = match glued.glue_coincident() {
+        Err(_) => "glue-declined",
+        Ok(_) => {
+            let manifold = glued
+                .vertex_neighbourhoods()
+                .iter()
+                .all(|(_, n)| n.is_manifold())
+                && glued.edges.keys().all(|e| {
+                    !matches!(
+                        glued.edge_neighbourhood(e),
+                        popkern_core::topology::EdgeNeighbourhood::Ring { .. }
+                    )
+                });
+            if manifold { "repairable" } else { "contact" }
+        }
+    };
+    crate::complex_shadow::append_log_line(&format!("CopyTest {copies} {verdict}"));
 }
 
 /// Each zero-thickness finding of `brep` with, for every vertex in it,
