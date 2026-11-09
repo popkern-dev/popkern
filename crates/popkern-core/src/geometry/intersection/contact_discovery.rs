@@ -343,5 +343,9 @@ fn newton_critical(
 }
 
 #[cfg(test)]
+#[path = "contact_discovery_twin_tests.rs"]
+mod twin_tests;
+
+#[cfg(test)]
 #[path = "contact_discovery_tests.rs"]
 mod tests;

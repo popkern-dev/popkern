@@ -1,6 +1,8 @@
 //! Surface geometry types, evaluation trait, and topology binding.
 
 use crate::geometry::gregory::GregoryPatch;
+#[path = "surface_quadric_nurbs.rs"]
+mod surface_quadric_nurbs;
 #[path = "surface_torus_nurbs.rs"]
 mod surface_torus_nurbs;
 use crate::geometry::intersection::surface_subdivision::Aabb;
@@ -376,7 +378,10 @@ impl SurfaceGeometry {
                     )
                 }
             }
-            _ => sample_to_nurbs(self, u_range, v_range),
+            // Exact rational patches of cylinders, cones and spheres
+            // (PK-1142: the sampled control net left the surface).
+            _ => surface_quadric_nurbs::exact_quadric(self, u_range, v_range)
+                .unwrap_or_else(|| sample_to_nurbs(self, u_range, v_range)),
         }
     }
 
