@@ -117,3 +117,56 @@ fn a_bore_beside_the_ball_misses_it() {
             .is_empty()
     );
 }
+
+/// Viviani's curve with the ball's pole at its double point: a cylinder
+/// of radius 5 on x = 5 inside a ball of radius 10, its pole on x. The
+/// branches end at the pole (10, 0, 0), where the chart's longitude is
+/// arbitrary; they take its limit along the branch, and the pierce
+/// serves the two lobes (each root over the whole turn, from the double
+/// point back to it) exactly, every pcurve image on its surface
+/// (PK-1139: the arbitrary longitude read as a pole sweep and declined
+/// to the marcher, whose records stopped 7.5e-5 short).
+#[test]
+fn vivianis_curve_through_the_balls_pole_serves() {
+    let cyl = SurfaceGeometry::Cylinder {
+        origin: Point3::new(5.0, 0.0, -12.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 5.0,
+    };
+    let ball = SurfaceGeometry::Sphere {
+        center: Point3::new(0.0, 0.0, 0.0),
+        radius: 10.0,
+        axis: Vec3::new(1.0, 0.0, 0.0),
+    };
+    let found = try_cylinder_sphere(
+        &cyl,
+        ((0.0, TAU), (0.0, 24.0)),
+        &ball,
+        ((0.0, TAU), (0.0, PI)),
+        &tol(),
+    )
+    .expect("the pierce serves");
+    assert_eq!(found.len(), 2, "a lobe per root");
+    let pole = Point3::new(10.0, 0.0, 0.0);
+    for f in &found {
+        let SurfaceSurfaceIntersection::Curve(c) = f else {
+            panic!("a curve");
+        };
+        let (t0, t1) = c.curve_3d.parameter_range();
+        let ends = [c.curve_3d.point_at(t0), c.curve_3d.point_at(t1)];
+        assert!(ends.iter().all(|e| e.distance_to(&pole) < 1e-9), "{ends:?}");
+        for k in 0..=200 {
+            let t = t0 + (t1 - t0) * f64::from(k) / 200.0;
+            let p = c.curve_3d.point_at(t);
+            let (q1, q2) = (c.curve_uv1.point_at(t), c.curve_uv2.point_at(t));
+            assert!(
+                cyl.point_at(q1.x, q1.y).distance_to(&p) < 1e-5,
+                "uv1 at {t}"
+            );
+            assert!(
+                ball.point_at(q2.x, q2.y).distance_to(&p) < 1e-5,
+                "uv2 at {t}"
+            );
+        }
+    }
+}
