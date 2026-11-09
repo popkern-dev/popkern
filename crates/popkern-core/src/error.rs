@@ -120,6 +120,19 @@ pub enum CoreError {
         /// The kinds the operation accepts.
         accepted: &'static [crate::topology::BodyKind],
     },
+    /// The operation does not handle a face touching itself at a vertex
+    /// (a pinch use: one loop through the vertex twice) yet.
+    #[error(
+        "{operation} does not handle a face touching itself at a vertex: face {face:?} at vertex {vertex:?}"
+    )]
+    PinchUse {
+        /// The operation.
+        operation: &'static str,
+        /// The face meeting the vertex more than once.
+        face: crate::topology::FaceHandle,
+        /// The vertex.
+        vertex: crate::topology::VertexHandle,
+    },
 }
 
 #[cfg(test)]

@@ -76,6 +76,11 @@ fn chamfer_edges_internal(
     cancel: Option<&cancellation::CancellationToken>,
 ) -> Result<BlendResult, BlendError> {
     brep.require_kind("chamfer", &[popkern_core::topology::BodyKind::Solid])?;
+    let chamfered: Vec<_> = specs.iter().map(|s| s.edge).collect();
+    brep.require_no_pinch_use(
+        "chamfer",
+        Some(&crate::fillet_serving_retry::edge_ends(brep, &chamfered)),
+    )?;
     let mixed = crate::chamfer_mixed_corner::mixed_corners(brep, specs);
     if mixed.is_empty() {
         let mut tracking = tracking;

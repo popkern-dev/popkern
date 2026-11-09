@@ -338,6 +338,7 @@ pub(crate) fn fillet_edges_internal(
         ],
     )?;
     let filleted: Vec<_> = specs.iter().map(|s| s.edge).collect();
+    brep.require_no_pinch_use("fillet", Some(&edge_ends(brep, &filleted)))?;
     options
         .corner_setback
         .validate(brep, &filleted, &options.vertex_mode, options.corner_cap)?;
@@ -384,6 +385,25 @@ pub(crate) fn fillet_edges_internal(
             crate::setback_rim_landing::setback_rim_landing(&result.brep, &caps);
     }
     Ok(result)
+}
+
+/// The end vertices of `edges`.
+pub(crate) fn edge_ends(
+    brep: &BRep,
+    edges: &[popkern_core::topology::EdgeHandle],
+) -> Vec<popkern_core::topology::VertexHandle> {
+    edges
+        .iter()
+        .filter_map(|&e| brep.edges.get(e))
+        .filter_map(|e| brep.half_edges.get(e.half_edge))
+        .flat_map(|h| {
+            let mate = h
+                .mate()
+                .and_then(|m| brep.half_edges.get(m))
+                .map(|m| m.origin);
+            std::iter::once(h.origin).chain(mate)
+        })
+        .collect()
 }
 
 #[cfg(test)]

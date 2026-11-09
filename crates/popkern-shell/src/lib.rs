@@ -199,6 +199,7 @@ pub(crate) fn shell_impl(
             popkern_core::topology::BodyKind::Empty,
         ],
     )?;
+    brep.require_no_pinch_use("shell", None)?;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {

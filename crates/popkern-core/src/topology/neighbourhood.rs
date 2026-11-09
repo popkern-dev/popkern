@@ -61,6 +61,34 @@ pub enum EdgeNeighbourhood {
     },
 }
 
+/// The faces met in more than one run round a fan (`faces` in fan
+/// order, cyclic when the fan closes). Consecutive uses of one face are
+/// one run: the fan crossed a seam edge, the face continuing into
+/// itself (a cylinder's lateral face either side of its seam at a rim
+/// vertex, a sphere's at its pole), which is no pinch. A pinch is the
+/// face coming back after others (a plate's top face either side of a
+/// dimple touching its edge).
+fn pinch_uses_of(faces: &[FaceHandle], open: bool) -> Vec<FaceHandle> {
+    let n = faces.len();
+    let mut runs: Vec<FaceHandle> = (0..n)
+        .filter(|&i| i == 0 || faces[i] != faces[i - 1])
+        .map(|i| faces[i])
+        .collect();
+    // A closed fan's last run continues into its first.
+    if !open && runs.len() > 1 && runs.first() == runs.last() {
+        runs.pop();
+    }
+    let mut sorted = runs;
+    sorted.sort();
+    let mut pinch: Vec<FaceHandle> = sorted
+        .windows(2)
+        .filter(|w| w[0] == w[1])
+        .map(|w| w[0])
+        .collect();
+    pinch.dedup();
+    pinch
+}
+
 impl BRep {
     /// The body around vertex `v` (see the module docs).
     pub fn vertex_neighbourhood(&self, v: VertexHandle) -> VertexNeighbourhood {
@@ -71,12 +99,46 @@ impl BRep {
             .map(|(k, _)| k)
             .collect();
         leaving.sort();
+        self.neighbourhood_of(v, &leaving)
+    }
+
+    /// The body around every vertex, in vertex order: one pass over the
+    /// half-edges, where asking per vertex scans them all each time.
+    pub fn vertex_neighbourhoods(&self) -> Vec<(VertexHandle, VertexNeighbourhood)> {
+        let mut leaving: Vec<(VertexHandle, HalfEdgeHandle)> = self
+            .half_edges
+            .iter()
+            .map(|(h, he)| (he.origin, h))
+            .collect();
+        leaving.sort();
+        let mut out = Vec::with_capacity(self.vertices.len());
+        let mut runs = leaving.chunk_by(|a, b| a.0 == b.0).peekable();
+        for v in self.vertices.keys() {
+            // Runs of a vertex no longer in the body are skipped.
+            while runs.peek().is_some_and(|run| run[0].0 < v) {
+                runs.next();
+            }
+            let hs: Vec<HalfEdgeHandle> = match runs.peek() {
+                Some(run) if run[0].0 == v => runs
+                    .next()
+                    .map(|run| run.iter().map(|&(_, h)| h).collect())
+                    .unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            out.push((v, self.neighbourhood_of(v, &hs)));
+        }
+        out
+    }
+
+    /// The neighbourhood of `v` from `leaving`, its leaving half-edges
+    /// in handle order.
+    fn neighbourhood_of(&self, v: VertexHandle, leaving: &[HalfEdgeHandle]) -> VertexNeighbourhood {
         if leaving.is_empty() {
             return VertexNeighbourhood::Lower;
         }
         let mut seen: Vec<HalfEdgeHandle> = Vec::with_capacity(leaving.len());
         let mut fans: Vec<(Vec<FaceHandle>, bool)> = Vec::new();
-        for &start in &leaving {
+        for &start in leaving {
             if seen.contains(&start) {
                 continue;
             }
@@ -105,14 +167,16 @@ impl BRep {
                 }
             }
             if !closed {
-                // The other way round to the fan's other end.
+                // The other way round to the fan's other end, kept in
+                // fan order (before the start).
                 let mut back = start;
+                let mut before = Vec::new();
                 for _ in 0..=leaving.len() {
                     match self.fan_prev(back, v) {
                         Some(p) if !seen.contains(&p) => {
                             seen.push(p);
                             if let Some(f) = self.face_of(p) {
-                                faces.push(f);
+                                before.push(f);
                             }
                             back = p;
                         }
@@ -123,6 +187,9 @@ impl BRep {
                         }
                     }
                 }
+                before.reverse();
+                before.extend(faces);
+                faces = before;
             }
             fans.push((faces, open));
         }
@@ -130,18 +197,52 @@ impl BRep {
             return VertexNeighbourhood::Fans { count: fans.len() };
         }
         let (faces, open) = fans.swap_remove(0);
-        let mut sorted = faces.clone();
-        sorted.sort();
-        let mut pinch_uses: Vec<FaceHandle> = sorted
-            .windows(2)
-            .filter(|w| w[0] == w[1])
-            .map(|w| w[0])
-            .collect();
-        pinch_uses.dedup();
+        let pinch_uses = pinch_uses_of(&faces, open);
         if open {
             VertexNeighbourhood::HalfDisc { pinch_uses }
         } else {
             VertexNeighbourhood::Disc { pinch_uses }
+        }
+    }
+
+    /// Every pinch use of the body, in vertex order: a face meeting a
+    /// vertex more than once round it.
+    pub fn pinch_uses(&self) -> Vec<(FaceHandle, VertexHandle)> {
+        self.vertex_neighbourhoods()
+            .into_iter()
+            .flat_map(|(v, n)| match n {
+                VertexNeighbourhood::Disc { pinch_uses }
+                | VertexNeighbourhood::HalfDisc { pinch_uses } => {
+                    pinch_uses.into_iter().map(|f| (f, v)).collect()
+                }
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    /// Decline `operation` at the body's first pinch use, or the first
+    /// at one of `at` when given: for operations that do not handle a
+    /// face touching itself at a vertex yet.
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::PinchUse`] naming the face and the vertex.
+    pub fn require_no_pinch_use(
+        &self,
+        operation: &'static str,
+        at: Option<&[VertexHandle]>,
+    ) -> Result<(), crate::error::CoreError> {
+        let first = self
+            .pinch_uses()
+            .into_iter()
+            .find(|(_, v)| at.is_none_or(|at| at.contains(v)));
+        match first {
+            Some((face, vertex)) => Err(crate::error::CoreError::PinchUse {
+                operation,
+                face,
+                vertex,
+            }),
+            None => Ok(()),
         }
     }
 
@@ -168,23 +269,10 @@ impl BRep {
         (self.half_edges.get(n)?.origin == v).then_some(n)
     }
 
-    /// The previous one: the half-edge arriving at `v` before `h` in its
-    /// loop, across its edge.
+    /// The previous one: across the edge of the half-edge arriving at
+    /// `v` before `h` in its loop.
     fn fan_prev(&self, h: HalfEdgeHandle, v: VertexHandle) -> Option<HalfEdgeHandle> {
-        let l = self.half_edges.get(h)?.loop_;
-        let start = self.loops.get(l)?.half_edge;
-        // The loop's half-edge whose next is `h`.
-        let mut p = start;
-        for _ in 0..self.half_edges.len() {
-            let he = self.half_edges.get(p)?;
-            if he.next == h {
-                break;
-            }
-            p = he.next;
-            if p == start {
-                return None;
-            }
-        }
+        let p = self.half_edges.get(h)?.prev;
         let m = self.mate(p)?;
         (self.half_edges.get(m)?.origin == v).then_some(m)
     }
