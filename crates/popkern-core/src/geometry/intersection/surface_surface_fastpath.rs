@@ -9,8 +9,8 @@ use crate::geometry::intersection::coincident::{
 use crate::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::{
-    cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_cylinder, plane_sphere,
-    plane_torus, radial_level_curve, sphere_sphere, torus_coaxial,
+    cone_cone_apex, cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_cylinder,
+    plane_sphere, plane_torus, radial_level_curve, sphere_sphere, torus_coaxial,
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
@@ -168,6 +168,19 @@ pub(super) fn try_analytic_pair(
     if let Some(intersections) =
         cylinder_cylinder::try_cylinder_cylinder(surface1, v1_range, surface2, v2_range, tolerance)
     {
+        return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
+    }
+
+    // Fast path: two cones with one apex meet in shared rulings, exact
+    // lines through the apex (PK-1127; the marcher fitted them with
+    // over a thousand control points bent at the apex).
+    if let Some(intersections) = cone_cone_apex::try_cone_cone_apex(
+        surface1,
+        (u1_range, v1_range),
+        surface2,
+        (u2_range, v2_range),
+        tolerance,
+    ) {
         return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
     }
 

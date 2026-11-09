@@ -7,6 +7,7 @@ mod circle_cylinder;
 mod circle_of_revolution;
 pub mod coincident;
 pub mod coincident_analytic;
+pub(crate) mod cone_cone_apex;
 pub mod contact_classify;
 pub mod contact_discovery;
 pub(crate) mod cylinder_cone;
