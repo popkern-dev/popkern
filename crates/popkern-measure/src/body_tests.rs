@@ -323,3 +323,80 @@ fn a_small_ball_far_from_the_origin_measures_its_volume() {
     assert!((here - exact).abs() / exact < 1e-9, "{here}");
     assert!((there - exact).abs() / exact < 1e-9, "{there}");
 }
+
+/// A ball of radius 5000 is measured at the relative fineness of a
+/// small one, quickly: the chords scale with the body past the extent
+/// they were tuned at (PK-1132; at an absolute 0.001 it meshed for
+/// minutes past 3.8 GB).
+#[test]
+fn a_kilometre_ball_measures_quickly_and_to_its_relative_precision() {
+    let tol = popkern_core::tolerance::Tolerance::default().with_linear(1e-3);
+    let ball = popkern_core::topology::BRep::sphere(5000.0, tol).expect("sphere");
+    let started = std::time::Instant::now();
+    let v = body_volume(&ball, &tol).expect("volume");
+    let a = body_surface_area(&ball, &tol).expect("area");
+    let pi = std::f64::consts::PI;
+    let (ev, ea) = (
+        (v - 4.0 / 3.0 * pi * 5000f64.powi(3)).abs() / (4.0 / 3.0 * pi * 5000f64.powi(3)),
+        (a - 4.0 * pi * 5000f64.powi(2)).abs() / (4.0 * pi * 5000f64.powi(2)),
+    );
+    assert!(ev < 1e-9 && ea < 1e-9, "{ev:.1e} {ea:.1e}");
+    assert!(
+        started.elapsed().as_secs_f64() < 20.0,
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+/// A boolean's apex vertex lies within its tolerance of a cone's apex,
+/// not at it: on the kilometre ice-cream cone (a ball of radius 15000
+/// on a cone tangent along its rim) 0.016 up the slant, where the
+/// chart's partials differ by only 1e-2. The apex triangles must still
+/// be read as a pole's: measured as triangles they covered one row of
+/// the apex and the cone lost a third of its term, the union 8.3% low
+/// (PK-1133). With the cone turned about its axis the apex's stored
+/// angle lies half a period from the seam, and the seam sliver must run
+/// from the pole row under its rim end (read from the stored angle it
+/// was a wedge of the fan, the union 8.3% high); turning the ball moves
+/// its seam and poles.
+#[test]
+fn a_cone_apex_vertex_off_the_apex_is_still_a_pole() {
+    use popkern_core::geometry::Transform3;
+    use popkern_core::topology::BRep;
+    let base = Tolerance::default();
+    let s = 1e3;
+    let tol = base.with_linear(base.linear() * s);
+    let k = Transform3::scale_uniform(s);
+    let ball_turn = Transform3::rotation_around_axis(
+        Point3::new(0.0, 0.0, 0.0),
+        Vec3::new(1.0, 0.7, 0.3),
+        0.645_771_823_237_9,
+    )
+    .expect("axis");
+    for (turn_ball, turn_cone) in [(false, 0.0), (false, 0.7), (true, 0.0)] {
+        let ball = BRep::sphere(15.0, base).expect("ball");
+        let ball = if turn_ball {
+            ball.transform(&ball_turn).expect("turn")
+        } else {
+            ball
+        };
+        let cone = BRep::cone(12.0, 16.0, base)
+            .expect("cone")
+            .transform(&Transform3::rotation_x(std::f64::consts::PI))
+            .and_then(|c| c.transform(&Transform3::translation(0.0, 0.0, -9.0)))
+            .and_then(|c| c.transform(&Transform3::rotation_z(turn_cone)))
+            .and_then(|c| c.transform(&k))
+            .expect("place");
+        let ball = ball.transform(&k).expect("scale");
+        let union =
+            popkern_bool::boolean(popkern_bool::BoolOperation::Union, ball, cone, tol, None)
+                .expect("union");
+        // The ball and the cone below its tangent circle: 4500 pi + 300 pi.
+        let exact = 4800.0 * std::f64::consts::PI * s.powi(3);
+        let v = body_volume(&union, &tol).expect("volume");
+        assert!(
+            (v - exact).abs() / exact < 1e-6,
+            "{turn_ball} {turn_cone}: {v} for {exact}"
+        );
+    }
+}

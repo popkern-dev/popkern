@@ -102,6 +102,11 @@ pub(crate) enum Integrand {
 /// is a pole of the chart (see `surface_term`).
 const POLE_RATIO: f64 = 1e-4;
 
+/// A corner whose one chart partial is under this fraction of the same
+/// partial at the triangle's other corners is at a pole (see
+/// `pole_corner`).
+const POLE_RELATIVE: f64 = 1e-3;
+
 /// Flat facet term `⅙ a · (b × c)`.
 fn facet_term(a: Point3, b: Point3, c: Point3) -> f64 {
     as_vec(a).dot(&as_vec(b).cross(&as_vec(c))) / 6.0
@@ -127,21 +132,9 @@ fn surface_term(
     // its facet spans (measured: a unit sphere read -3.3e-4). The pole
     // is really an edge: integrate the quad from the pole row under the
     // other two corners' collapsed coordinates.
-    for k in 0..3 {
+    if let Some((k, collapsed_u)) = pole_corner(surface, uv) {
         let (u, v) = uv[k];
         let (b, c) = (uv[(k + 1) % 3], uv[(k + 2) % 3]);
-        // Collapsed by ratio: a pole vertex may sit a few micro-radians
-        // off the pole in parameter (measured 3e-6 on a primitive
-        // sphere), where the vanishing partial is tiny but not zero.
-        let (su, sv) = (
-            surface.partial_u(u, v).length(),
-            surface.partial_v(u, v).length(),
-        );
-        let collapsed_u = su <= POLE_RATIO * sv;
-        let collapsed_v = sv <= POLE_RATIO * su;
-        if collapsed_u == collapsed_v {
-            continue;
-        }
         let (pb, pc) = if collapsed_u {
             ((b.0, v), (c.0, v))
         } else {
@@ -152,6 +145,36 @@ fn surface_term(
         );
     }
     Some(oriented_term(surface, uv, kind))
+}
+
+/// The corner of `uv` at a chart pole, and whether its `u` (else its
+/// `v`) is the collapsed coordinate. Collapsed by ratio to the other
+/// partial: a pole vertex may sit a few micro-radians off the pole in
+/// parameter (measured 3e-6 on a primitive sphere), where the vanishing
+/// partial is tiny but not zero. Or relative to the triangle's other
+/// corners: a boolean's apex vertex lies within its tolerance of the
+/// apex, not at it, on a kilometre-scale cone 0.016 up the slant where
+/// the partial ratio is 1e-2 but the rim's `∂u` is 1e6 times the apex's
+/// (PK-1133; read as a triangle, the apex fan integrated one row of the
+/// cone and lost a third of it). Both are ratios, so neither reads a
+/// small ball's rows near its pole (0.5 to their neighbours) or a long
+/// sliver on a cylinder (1) as a pole.
+fn pole_corner(surface: &SurfaceGeometry, uv: [(f64, f64); 3]) -> Option<(usize, bool)> {
+    let partials = uv.map(|(u, v)| {
+        (
+            surface.partial_u(u, v).length(),
+            surface.partial_v(u, v).length(),
+        )
+    });
+    (0..3).find_map(|k| {
+        let (su, sv) = partials[k];
+        let others = [partials[(k + 1) % 3], partials[(k + 2) % 3]];
+        let su_far = others[0].0.max(others[1].0);
+        let sv_far = others[0].1.max(others[1].1);
+        let collapsed_u = su <= POLE_RATIO * sv || su <= POLE_RELATIVE * su_far;
+        let collapsed_v = sv <= POLE_RATIO * su || sv <= POLE_RELATIVE * sv_far;
+        (collapsed_u != collapsed_v).then_some((k, collapsed_u))
+    })
 }
 
 /// `kind`'s integrand over the oriented (u, v) triangle `uv`.
@@ -340,10 +363,29 @@ fn face_quadrature(
                     return None;
                 }
                 let corners = [a, b, c];
+                // A chord from a pole corner runs in (u, v) from the pole
+                // row under its other end: read at the pole's stored
+                // coordinate, a turned cone's apex half a period from its
+                // seam made the seam sliver a wedge of the whole fan (a
+                // kilometre ice-cream cone read 4/3 of its area,
+                // PK-1133).
+                let pole = pole_corner(s, corners);
+                let chord = |k: usize| {
+                    let (mut p, mut q) = (corners[k], corners[(k + 1) % 3]);
+                    match pole {
+                        Some((i, true)) if i == k => p.0 = q.0,
+                        Some((i, false)) if i == k => p.1 = q.1,
+                        Some((i, true)) if i == (k + 1) % 3 => q.0 = p.0,
+                        Some((i, false)) if i == (k + 1) % 3 => q.1 = p.1,
+                        _ => {}
+                    }
+                    (p, q)
+                };
                 let slivers: f64 = (0..3)
                     .filter(|&k| boundary[k] && !trims.is_empty())
                     .filter_map(|k| {
-                        sliver::sliver_term(s, &trims, corners[k], corners[(k + 1) % 3], gate, kind)
+                        let (p, q) = chord(k);
+                        sliver::sliver_term(s, &trims, p, q, gate, kind)
                     })
                     .sum();
                 Some(match kind {
