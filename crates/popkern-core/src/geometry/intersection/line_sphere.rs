@@ -39,14 +39,24 @@ pub(crate) fn intersect_line_sphere(
 
     let disc = b * b - 4.0 * a * c;
     let eps2 = tolerance.linear() * tolerance.linear();
-
-    let candidates: Vec<f64> = if a < eps2 {
+    if a < eps2 {
         // Degenerate: zero-length direction — no parameterised intersection
         return Vec::new();
-    } else if disc < -eps2 {
+    }
+    // The line's distance h from the centre decides, as a length:
+    // h² = R² − disc / 4a. Judged on `disc` against ε² (an area times
+    // |D|⁴), rounding in the coordinates read a tangent line as a
+    // crossing: a thousand units from the origin `disc` carried 2e-11
+    // of noise, and the touch became two hits 2e-6 apart along the
+    // line (an ice-cream cone's seam ruling, tangent to its ball at the
+    // rim; the union's loops then failed to close, PK-1133). A tangent
+    // amplifies a gap error δ to √(2Rδ) along the line; the tolerance
+    // is the gap's.
+    let h = (r * r - disc / (4.0 * a)).max(0.0).sqrt();
+    let candidates: Vec<f64> = if h > r + tolerance.linear() {
         return Vec::new();
-    } else if disc <= eps2 {
-        // Tangent
+    } else if r - h <= tolerance.linear() {
+        // Tangent: the foot of the perpendicular from the centre.
         vec![-b / (2.0 * a)]
     } else {
         let sqrt_disc = disc.sqrt();
@@ -170,6 +180,38 @@ mod tests {
             .collect();
         assert!((ts[0] - 2.0).abs() < 1e-6, "t0 expected 2.0, got {}", ts[0]);
         assert!((ts[1] - 4.0).abs() < 1e-6, "t1 expected 4.0, got {}", ts[1]);
+    }
+
+    /// A line tangent to a ball a thousand units from the origin (an
+    /// ice-cream cone's seam ruling, from its apex 25 below the centre of
+    /// a ball of radius 15, through the rim point): one hit, at the
+    /// touch. Judged on the discriminant against ε², rounding gave two
+    /// hits about 2e-6 apart (PK-1133).
+    #[test]
+    fn a_tangent_line_far_from_the_origin_touches_once() {
+        let centre = Point3::new(1234.5, -678.25, 910.125);
+        for turn in [0.0f64, 0.7, 2.1] {
+            let (s, c) = (turn.sin(), turn.cos());
+            let apex = centre + Vec3::new(0.0, 0.0, -25.0);
+            let touch = centre + Vec3::new(12.0 * c, 12.0 * s, -9.0);
+            let dir = touch - apex;
+            let hits = intersect_line_sphere(
+                &apex,
+                &dir,
+                (0.0, 2.0),
+                &centre,
+                15.0,
+                &Vec3::Z,
+                (0.0, TAU),
+                (0.0, PI),
+                &default_tol(),
+            );
+            assert_eq!(hits.len(), 1, "turn {turn}: {hits:?}");
+            let SurfaceCurveIntersection::Point { point, .. } = &hits[0] else {
+                panic!("a point");
+            };
+            assert!(point.distance_to(&touch) < 1e-9, "{point:?}");
+        }
     }
 
     #[test]

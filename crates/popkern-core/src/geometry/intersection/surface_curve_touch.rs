@@ -42,6 +42,12 @@ fn distance(
     Some((surface.point_at(u, v).distance_to(&p), (u, v), p))
 }
 
+/// The rounding in a distance evaluated at `p`: a few hundred ulps of
+/// its largest coordinate (of 1 near the origin).
+fn rounding(p: &Point3) -> f64 {
+    256.0 * f64::EPSILON * p.x.abs().max(p.y.abs()).max(p.z.abs()).max(1.0)
+}
+
 /// The curve's parameter window, closed or not.
 #[derive(Clone, Copy)]
 struct Window {
@@ -116,8 +122,15 @@ fn band_edge(
 }
 
 /// The closest approach of the curve to the surface over `[a, b]`
-/// (golden section on the distance; `a`, `b` may run past the window
-/// on a closed curve). The root itself when nothing is closer.
+/// (golden section on the distance, refined to the distance's
+/// stationary point; `a`, `b` may run past the window on a closed
+/// curve). The root itself when the approach is farther from the
+/// surface than the root by more than rounding: at a touch both gaps
+/// are rounding (1e-13 against 1e-13 a thousand units out), and a plain
+/// "closer than the root" decided by a coin toss whether the
+/// refinement was kept; but accepting any point within the band moved
+/// a seam meridian's crossings of a lens thinner than the tolerance
+/// together and the lens served empty (the scripted thin-lens gate).
 fn closest_approach(
     curve: &CurveGeometry,
     surface: &SurfaceGeometry,
@@ -147,11 +160,62 @@ fn closest_approach(
             f2 = d(x2);
         }
     }
-    let t = window.wrap(0.5 * (lo + hi));
+    let t = stationary_point(curve, surface, uv, window, (a, b), 0.5 * (lo + hi));
     match distance(curve, surface, t, uv) {
-        Some((gap, (u, v), p)) if gap <= d(root.0) => (t, u, v, p),
+        Some((gap, (u, v), p)) if gap <= d(root.0) + rounding(&p) => (t, u, v, p),
         _ => *root,
     }
+}
+
+/// The touch nearest `seed` in `[a, b]`: a root of
+/// `h(t) = C′(t) · N(π C(t))`, where the curve's tangent lies in the
+/// surface's tangent plane, by bisection where it changes sign about
+/// the seed; else the seed (a transversal crossing, whose distance is
+/// V-shaped and its golden-section minimum well placed). A touch's
+/// minimum located from distance values is only known to `√(δ/κ)` for
+/// a rounding `δ` in the distance, flat to second order: a thousand
+/// units from the origin, a ball's seam meridian touching an ice-cream
+/// cone landed 1.9e-6 off the touch, the record's node there was
+/// another vertex and the union's loops did not close (PK-1133). The
+/// residual `C − S(π C)` cannot say where: inside the band the
+/// projection's foot is the point itself and the residual is zero. `N`
+/// needs only an approximate foot, and `h` crosses zero with slope the
+/// relative curvature, so its root is known to rounding over it.
+fn stationary_point(
+    curve: &CurveGeometry,
+    surface: &SurfaceGeometry,
+    uv: (f64, f64),
+    window: Window,
+    (a, b): (f64, f64),
+    seed: f64,
+) -> f64 {
+    let h = |t: f64| -> Option<f64> {
+        let w = window.wrap(t);
+        let (_, (u, v), _) = distance(curve, surface, w, uv)?;
+        let n = surface.partial_u(u, v).cross(&surface.partial_v(u, v));
+        let n = n.normalized()?;
+        let d = curve.derivative_at(w, 1).normalized()?;
+        Some(d.dot(&n))
+    };
+    let (lo, hi) = (a.min(b), a.max(b));
+    let (Some(h_lo), Some(h_hi)) = (h(lo), h(hi)) else {
+        return window.wrap(seed);
+    };
+    if h_lo * h_hi > 0.0 {
+        return window.wrap(seed);
+    }
+    let (mut lo, mut hi, mut h_lo) = (lo, hi, h_lo);
+    for _ in 0..100 {
+        let mid = 0.5 * (lo + hi);
+        let Some(hm) = h(mid) else { break };
+        if hm * h_lo <= 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+            h_lo = hm;
+        }
+    }
+    window.wrap(0.5 * (lo + hi))
 }
 
 /// Move each root to its band's closest approach and collapse roots
