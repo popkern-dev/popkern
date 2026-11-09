@@ -69,6 +69,25 @@ pub(crate) fn split_vertices(c: &CellComplex, kept_face: &[bool]) -> Vec<VertexI
             .filter(|&k| find(&mut parent, k) == k)
             .count();
         if fans > 1 {
+            if popkern_core::trace::trace_enabled("contacts") {
+                eprintln!(
+                    "  [contacts] complex vertex {v:?} at {:?}: {fans} fans of {} corners",
+                    c.vertices[v.index()].position,
+                    list.len()
+                );
+                for (k, &(arrive, leave)) in list.iter().enumerate() {
+                    let edge = |f: FinId| c.fins[f.index()].edge;
+                    eprintln!(
+                        "    corner {k} (fan {}) face {:?}: arrive {:?} ({} kept uses), leave {:?} ({} kept uses)",
+                        find(&mut parent, k),
+                        c.fins[arrive.index()].face,
+                        edge(arrive),
+                        kept_uses[edge(arrive).index()],
+                        edge(leave),
+                        kept_uses[edge(leave).index()]
+                    );
+                }
+            }
             out.push(v);
         }
     }

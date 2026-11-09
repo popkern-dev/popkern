@@ -144,7 +144,11 @@ pub(crate) fn next_in_chart(
             .iter()
             .map(|(a, d, hh)| format!("{}{}@{a:.3}", if *d { "dep" } else { "arr" }, hh))
             .collect();
-        eprintln!("      [wedge] bp {bp_key:?} slots {}", names.join(" "));
+        eprintln!(
+            "      [wedge] bp {bp_key:?} at {:?} slots {}",
+            graph.nodes.get(bp_key.node).map(|n| n.position),
+            names.join(" ")
+        );
         for &(_, is_dep, hh) in &slots {
             if let Some(em) = sub.embeddings.get(&hh) {
                 let n = em.uv.len();

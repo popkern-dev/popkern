@@ -66,6 +66,9 @@ pub(crate) fn execute_boolean_full(
     // vertices or two edges in one place: bodies meeting along an
     // edge or at a point; two shells meeting anywhere) is non-manifold
     // and declines (PK-964, D1).
+    if popkern_core::trace::trace_enabled("contacts") {
+        crate::postprocess::zero_thickness::trace_findings(&served, tolerance);
+    }
     let mut contacts =
         crate::postprocess::zero_thickness::zero_thickness_contacts(&served, tolerance);
     if contacts.is_empty() {

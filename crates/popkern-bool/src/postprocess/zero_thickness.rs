@@ -180,6 +180,41 @@ pub(crate) fn zero_thickness_findings(
     out
 }
 
+/// Each zero-thickness finding of `brep` with, for every vertex in it,
+/// its incident edges and where they lead (the `contacts` trace topic):
+/// what to read when a result declines on a contact it should not have.
+pub(crate) fn trace_findings(brep: &BRep, tolerance: &Tolerance) {
+    for (contact, entities) in zero_thickness_findings(brep, tolerance) {
+        eprintln!("  [contacts] {:?} at {:?}", contact.kind, contact.location);
+        for e in entities {
+            let ContactEntity::Vertex(v) = e else {
+                eprintln!("    {e:?}");
+                continue;
+            };
+            eprintln!("    vertex {v:?}:");
+            for (eh, _) in brep.edges.iter() {
+                let Some((a, b)) = edge_ends(brep, eh) else {
+                    continue;
+                };
+                if a != v && b != v {
+                    continue;
+                }
+                let other = if a == v { b } else { a };
+                let faces: Vec<_> = brep
+                    .half_edges
+                    .values()
+                    .filter(|h| h.edge == eh)
+                    .filter_map(|h| brep.loops.get(h.loop_).map(|l| l.face))
+                    .collect();
+                eprintln!(
+                    "      edge {eh:?} to {:?} on faces {faces:?}",
+                    brep.vertices.get(other).map(|x| x.position)
+                );
+            }
+        }
+    }
+}
+
 /// Whether `point` lies on a face of `body` among `aabbs`: within the
 /// linear tolerance of the face's surface, inside or on its trim. The
 /// ray vote of point classification has no on-boundary verdict of its

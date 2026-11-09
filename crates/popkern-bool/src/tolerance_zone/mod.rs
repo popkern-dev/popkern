@@ -30,12 +30,14 @@ pub(crate) mod face_info;
 pub(crate) mod face_path;
 pub(crate) mod face_side;
 pub(crate) mod incidence;
+pub(crate) mod meetings;
 pub(crate) mod partition;
 pub(crate) mod pave_blocks;
 pub(crate) mod record_order;
 pub(crate) mod region;
 pub(crate) mod resolution_record;
 pub(crate) mod resolve;
+mod resolve_record;
 pub(crate) mod shadow;
 pub(crate) mod table;
 
