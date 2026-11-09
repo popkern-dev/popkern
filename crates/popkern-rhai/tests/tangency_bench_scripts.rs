@@ -48,7 +48,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "ball_in_a_paraboloid_cup",
         Body(654.498_469_497_873_6, 455.329_476_094_537_3),
-        Target("S4"),
+        Gate,
     ),
     (
         "ball_in_band",
@@ -104,7 +104,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "half_tori_overlapping",
         Body(1_332.396_594_147_063_4, 1_105.034_289_195_738),
-        Target("PK-1138"),
+        Gate,
     ),
     (
         "ice_cream_cone",
@@ -135,12 +135,12 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "paraboloid_tip_a_ten_thousandth_high",
         Body(1.256_637_061_435_917_3e-7, 0.005_026_579_661_408_410_6),
-        Target("S2"),
+        Gate,
     ),
     (
         "paraboloid_tip_on_face",
         Body(4_706.858_347_057_704, 1_824.495_160_552_916_8),
-        Target("S4"),
+        Gate,
     ),
     (
         "pole_cap_a_ten_thousandth_high",
@@ -181,13 +181,13 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "viviani_common",
         Body(1_205.506_213_504_306_5, 628.318_530_717_958_7),
-        Target("S3"),
+        Gate,
     ),
     ("viviani_cut", NonManifold, Gate),
     (
         "viviani_union",
         Body(4_868.239_583_435_96, 1_539.380_400_258_998_6),
-        Target("S3"),
+        Gate,
     ),
     (
         "wedge_a_millionth_steep",
