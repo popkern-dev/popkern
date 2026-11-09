@@ -152,3 +152,53 @@ fn a_meridian_touching_a_cone_far_from_the_origin_lands_on_the_touch() {
         points[0].distance_to(&touch)
     );
 }
+
+/// A NURBS circle (the general solver's, not the analytic arm's) of
+/// radius 4 poking past the plane x = 4 − δ: half a tolerance past it,
+/// one touch at the extreme, as the analytic circle × plane arm decides
+/// it; two tolerances past, two crossings (PK-1128: a ball's seam
+/// meridian half a tolerance past a plate's side face read as two
+/// crossings 4e-3 apart and the boolean declined non-manifold).
+#[test]
+fn a_sub_tolerance_bulge_of_a_nurbs_circle_is_one_touch() {
+    let tol = Tolerance::default();
+    let circle = CurveGeometry::Nurbs(super::super::circle_of_revolution::nurbs_circle(
+        Point3::new(0.0, 0.0, 0.0),
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+        4.0,
+    ));
+    let range = (0.0, 1.0);
+    for (k, want) in [(0.5, 1usize), (2.0, 2)] {
+        let plane = SurfaceGeometry::Plane {
+            origin: Point3::new(4.0 - k * tol.linear(), 0.0, 0.0),
+            normal: Vec3::new(1.0, 0.0, 0.0),
+            u_axis: Vec3::new(0.0, 1.0, 0.0),
+            v_axis: Vec3::new(0.0, 0.0, 1.0),
+        };
+        let found = intersect_surface_curve_dense(
+            &plane,
+            (-10.0, 10.0),
+            (-10.0, 10.0),
+            &circle,
+            range,
+            &tol,
+        )
+        .expect("intersects");
+        let points: Vec<Point3> = found
+            .intersections
+            .iter()
+            .filter_map(|i| match i {
+                SurfaceCurveIntersection::Point { point, .. } => Some(*point),
+                SurfaceCurveIntersection::Overlap { .. } => None,
+            })
+            .collect();
+        assert_eq!(points.len(), want, "{k} tol past: {points:?}");
+        if want == 1 {
+            assert!(
+                points[0].distance_to(&Point3::new(4.0, 0.0, 0.0)) < 1e-9,
+                "{points:?}"
+            );
+        }
+    }
+}

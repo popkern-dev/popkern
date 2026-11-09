@@ -51,11 +51,13 @@ pub(crate) fn intersect_line_sphere(
     // line (an ice-cream cone's seam ruling, tangent to its ball at the
     // rim; the union's loops then failed to close, PK-1133). A tangent
     // amplifies a gap error δ to √(2Rδ) along the line; the tolerance
-    // is the gap's.
+    // is the gap's, its band open at a whole tolerance as every
+    // distance-decided touch's (`Tolerance::tangency_band`).
     let h = (r * r - disc / (4.0 * a)).max(0.0).sqrt();
+    let scale = super::coordinate_scale(&[*line_origin, *sphere_center]) + r;
     let candidates: Vec<f64> = if h > r + tolerance.linear() {
         return Vec::new();
-    } else if r - h <= tolerance.linear() {
+    } else if r - h < tolerance.tangency_band(scale) {
         // Tangent: the foot of the perpendicular from the centre.
         vec![-b / (2.0 * a)]
     } else {

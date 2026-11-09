@@ -42,10 +42,15 @@ fn distance(
     Some((surface.point_at(u, v).distance_to(&p), (u, v), p))
 }
 
+/// The magnitude of `p`'s coordinates (1 near the origin).
+fn scale(p: &Point3) -> f64 {
+    p.x.abs().max(p.y.abs()).max(p.z.abs()).max(1.0)
+}
+
 /// The rounding in a distance evaluated at `p`: a few hundred ulps of
-/// its largest coordinate (of 1 near the origin).
+/// its largest coordinate.
 fn rounding(p: &Point3) -> f64 {
-    256.0 * f64::EPSILON * p.x.abs().max(p.y.abs()).max(p.z.abs()).max(1.0)
+    256.0 * f64::EPSILON * scale(p)
 }
 
 /// The curve's parameter window, closed or not.
@@ -124,19 +129,25 @@ fn band_edge(
 /// The closest approach of the curve to the surface over `[a, b]`
 /// (golden section on the distance, refined to the distance's
 /// stationary point; `a`, `b` may run past the window on a closed
-/// curve). The root itself when the approach is farther from the
-/// surface than the root by more than rounding: at a touch both gaps
-/// are rounding (1e-13 against 1e-13 a thousand units out), and a plain
-/// "closer than the root" decided by a coin toss whether the
-/// refinement was kept; but accepting any point within the band moved
-/// a seam meridian's crossings of a lens thinner than the tolerance
-/// together and the lens served empty (the scripted thin-lens gate).
+/// curve). The approach replaces the root when it is no farther from
+/// the surface than the root beyond rounding (at a touch both gaps are
+/// rounding, 1e-13 against 1e-13 a thousand units out, and a plain
+/// "closer than the root" decided by a coin toss), or when it lies
+/// inside the tangency band: the curve then never leaves the surface
+/// by the tolerance between its two roots, which are one touch at that
+/// apex, as the analytic circle × plane and line × sphere arms decide it
+/// (a ball's seam meridian 5e-7 past a plate's side face read as two
+/// crossings 4e-3 apart, and the dimple touching the plate's edge,
+/// moved half a tolerance, declined non-manifold). A bulge one whole
+/// tolerance deep stays two crossings (the scripted thin lens, two
+/// balls overlapping 1e-6).
 fn closest_approach(
     curve: &CurveGeometry,
     surface: &SurfaceGeometry,
     root: &Root,
     window: Window,
     (a, b): (f64, f64),
+    tolerance: &Tolerance,
 ) -> Root {
     let uv = (root.1, root.2);
     let d = |t: f64| distance(curve, surface, window.wrap(t), uv).map_or(f64::INFINITY, |r| r.0);
@@ -162,7 +173,11 @@ fn closest_approach(
     }
     let t = stationary_point(curve, surface, uv, window, (a, b), 0.5 * (lo + hi));
     match distance(curve, surface, t, uv) {
-        Some((gap, (u, v), p)) if gap <= d(root.0) + rounding(&p) => (t, u, v, p),
+        Some((gap, (u, v), p))
+            if gap <= d(root.0) + rounding(&p) || gap < tolerance.tangency_band(scale(&p)) =>
+        {
+            (t, u, v, p)
+        }
         _ => *root,
     }
 }
@@ -241,7 +256,7 @@ pub(super) fn consolidate_touches(
     for root in roots {
         let left = band_edge(curve, surface, &root, window, band, -1.0);
         let right = band_edge(curve, surface, &root, window, band, 1.0);
-        let touch = closest_approach(curve, surface, &root, window, (left, right));
+        let touch = closest_approach(curve, surface, &root, window, (left, right), tolerance);
         // One contact: a root landing on one already kept (in space —
         // a seam touch lands at either window end).
         if !out
