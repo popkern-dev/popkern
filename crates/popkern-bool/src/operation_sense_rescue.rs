@@ -62,6 +62,12 @@ pub(crate) fn execute_boolean_full(
         }
         Err(e) => return Err(e),
     };
+    // A face whose loops touch at a vertex is one disc there, its
+    // boundary one loop through the vertex twice: canonical form, so the
+    // neighbourhoods below read the pinch use as the manifold it is
+    // (PK-1129).
+    let mut served = served;
+    served.join_loops_sharing_vertices();
     // Whatever route served it, a result that touches itself (two
     // vertices or two edges in one place: bodies meeting along an
     // edge or at a point; two shells meeting anywhere) is non-manifold

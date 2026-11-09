@@ -57,7 +57,21 @@ pub(crate) fn split_vertices(c: &CellComplex, kept_face: &[bool]) -> Vec<VertexI
                 }
             }
         }
-        for ks in by_edge.values() {
+        // Corners of one face in different loops through the vertex are
+        // one fan: the face's region joins them (a face touching itself
+        // there, a pinch use; its loops are one loop through the vertex
+        // twice once served, `BRep::join_loops_sharing_vertices`). The
+        // dimple touching a plate's edge, moved half a tolerance past
+        // it, arrived with the plate's boundary and the dimple's rim as
+        // two loops of the top face there and read as two fans (PK-1129).
+        let mut by_face: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+        for (k, &(arrive, _)) in list.iter().enumerate() {
+            by_face
+                .entry(c.fins[arrive.index()].face.index())
+                .or_default()
+                .push(k);
+        }
+        for ks in by_edge.values().chain(by_face.values()) {
             for w in ks.windows(2) {
                 let (a, b) = (find(&mut parent, w[0]), find(&mut parent, w[1]));
                 if a != b {
