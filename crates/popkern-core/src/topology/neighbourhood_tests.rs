@@ -79,3 +79,45 @@ fn cubes_glued_at_a_corner_have_two_fans_there() {
         VertexNeighbourhood::Fans { count: 2 }
     );
 }
+
+/// The one-pass query answers as asking vertex by vertex, on a cube, a
+/// sphere, an open box, and two cubes glued at a corner (whose glue
+/// removed a vertex, leaving a gap in the vertex handles).
+#[test]
+fn every_vertex_at_once_answers_as_one_at_a_time() {
+    use crate::geometry::Transform3;
+    let tol = Tolerance::default();
+    let mut glued = BRep::unit_cube(tol).expect("cube");
+    glued.append_body(
+        &BRep::unit_cube(tol)
+            .expect("cube")
+            .transform(&Transform3::translation(1.0, 1.0, 1.0))
+            .expect("moves"),
+    );
+    assert!(glued.glue_coincident().is_ok());
+    for body in [
+        BRep::unit_cube(tol).expect("cube"),
+        BRep::sphere(2.0, tol).expect("sphere"),
+        BRep::open_box(tol).expect("open box"),
+        glued,
+    ] {
+        let all = body.vertex_neighbourhoods();
+        assert_eq!(all.len(), body.vertices.len());
+        for (v, n) in all {
+            assert_eq!(n, body.vertex_neighbourhood(v));
+        }
+    }
+}
+
+/// A cylinder's lateral face meets its rim vertices on both sides of its
+/// seam: one run round the fan, crossing the seam into itself, not a
+/// pinch use (read as one, every fillet and shell of a cylinder
+/// declined).
+#[test]
+fn a_seam_crossing_is_no_pinch_use() {
+    let rod = BRep::cylinder(2.0, 5.0, Tolerance::default()).expect("cylinder");
+    for (v, n) in rod.vertex_neighbourhoods() {
+        assert_eq!(n, VertexNeighbourhood::Disc { pinch_uses: vec![] }, "{v:?}");
+    }
+    assert!(rod.pinch_uses().is_empty());
+}

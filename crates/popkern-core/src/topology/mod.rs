@@ -26,6 +26,7 @@ pub use face::Face;
 pub use half_edge::{HalfEdge, RadialLinks};
 pub use handles::*;
 pub use loop_::Loop;
+pub use neighbourhood::{EdgeNeighbourhood, VertexNeighbourhood};
 pub use region::{Region, RegionKind};
 pub use role::TopologyRole;
 pub use shell::Shell;
