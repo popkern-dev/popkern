@@ -227,7 +227,7 @@ fn nurbs_circle(c: Point3, a1: Vec3, a2: Vec3, r: f64) -> NurbsCurve {
 /// degree-1 line at constant v sweeping one signed period in u,
 /// anchored and oriented by projecting the curve's 0 and quarter
 /// points into the chart.
-fn uv_hline_of(surface: &SurfaceGeometry, circle: &NurbsCurve) -> Option<NurbsCurve> {
+pub(super) fn uv_hline_of(surface: &SurfaceGeometry, circle: &NurbsCurve) -> Option<NurbsCurve> {
     let p0 = circle.point_at(0.0);
     let pq = circle.point_at(0.25);
     let (u0, v0) = project_point_to_uv(surface, &p0)?;

@@ -10,7 +10,8 @@ use crate::geometry::intersection::coincident_analytic::are_surfaces_coincident_
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::{
     cone_cone_apex, cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_cylinder,
-    plane_sphere, plane_torus, radial_level_curve, sphere_sphere, torus_coaxial,
+    plane_sphere, plane_torus, radial_level_curve, revolved_nurbs, sphere_cone, sphere_sphere,
+    torus_coaxial,
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
@@ -125,6 +126,15 @@ pub(super) fn try_analytic_pair(
         return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
     }
 
+    // Fast path: a sphere centred on a cone's axis → exact circles
+    // (PK-1133: the marcher's trace of an ice-cream cone's tangent
+    // circle drifted off far from the origin).
+    if let Some(intersections) =
+        sphere_cone::try_sphere_cone(surface1, surface2, (v1_range, v2_range), tolerance)
+    {
+        return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
+    }
+
     // Fast path: plane-cylinder pair → analytic solver.
     if let Some(intersections) = plane_cylinder::try_plane_cylinder(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
@@ -175,6 +185,19 @@ pub(super) fn try_analytic_pair(
     // lines through the apex (PK-1127; the marcher fitted them with
     // over a thousand control points bent at the apex).
     if let Some(intersections) = cone_cone_apex::try_cone_cone_apex(
+        surface1,
+        (u1_range, v1_range),
+        surface2,
+        (u2_range, v2_range),
+        tolerance,
+    ) {
+        return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
+    }
+
+    // Fast path: a NURBS surface of revolution against a coaxial plane,
+    // cylinder, cone or sphere → exact iso-circles (PK-1126: the
+    // marcher left holes near chart poles and coincident seams).
+    if let Some(intersections) = revolved_nurbs::try_revolved_nurbs(
         surface1,
         (u1_range, v1_range),
         surface2,

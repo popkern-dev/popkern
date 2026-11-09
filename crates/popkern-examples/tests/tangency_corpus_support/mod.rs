@@ -281,7 +281,7 @@ pub fn cases() -> Vec<Case> {
             },
             general: None,
             turns: viviani_turns(),
-            status: Status::Target("PK-1136"),
+            status: Status::Target("PK-1140"),
             general_status: Status::Gate,
         },
         Case {
@@ -295,7 +295,7 @@ pub fn cases() -> Vec<Case> {
             }),
             turns: viviani_turns(),
             status: Status::Target("S3"),
-            general_status: Status::Target("PK-1136"),
+            general_status: Status::Target("PK-1140"),
         },
         // A torus (R 5, r 3) cut by the bitangent plane 3x − 4z = 0,
         // keeping z ≤ 3x/4: Villarceau's two circles cross at the two
@@ -346,7 +346,7 @@ pub fn cases() -> Vec<Case> {
                 turn(0, (0.0, 0.0, 0.0), (1.0, 0.7, 0.3), 0.645_771_823_237_9),
                 turn(1, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 0.7),
             ],
-            status: Status::Target("PK-1133"),
+            status: Status::Gate,
             general_status: Status::Gate,
         },
         // A spherical dimple whose rim touches the plate's top edge at

@@ -104,3 +104,51 @@ fn a_touch_at_the_closed_curves_seam_is_one_root() {
         .count();
     assert_eq!(at_seam, 1, "{found:?}");
 }
+
+/// A ball's seam meridian touching an ice-cream cone at its rim, a
+/// thousand units from the origin: one root, at the touch to 1e-9, not
+/// the 1.7e-6 off it a minimum located from distance values gave
+/// (PK-1133).
+#[test]
+fn a_meridian_touching_a_cone_far_from_the_origin_lands_on_the_touch() {
+    use crate::geometry::Transform3;
+    let tol = Tolerance::default();
+    let o = Vec3::new(1234.5, -678.25, 910.125);
+    let ball = crate::topology::BRep::sphere(15.0, tol)
+        .and_then(|b| b.transform(&Transform3::translation(o.x, o.y, o.z)))
+        .expect("ball");
+    let seam = ball
+        .edges
+        .values()
+        .find_map(|e| e.curve.clone())
+        .expect("seam");
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(o.x, o.y, o.z - 25.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        half_angle: 0.75f64.atan(),
+    };
+    let found = intersect_surface_curve_dense(
+        &cone,
+        (0.0, std::f64::consts::TAU),
+        (-8.0, 24.0),
+        &seam.geometry,
+        (seam.t_start, seam.t_end),
+        &tol,
+    )
+    .expect("intersects");
+    let touch = Point3::new(o.x + 12.0, o.y, o.z - 9.0);
+    let points: Vec<Point3> = found
+        .intersections
+        .iter()
+        .filter_map(|i| match i {
+            SurfaceCurveIntersection::Point { point, .. } => Some(*point),
+            SurfaceCurveIntersection::Overlap { .. } => None,
+        })
+        .collect();
+    assert_eq!(points.len(), 1, "{points:?}");
+    assert!(
+        points[0].distance_to(&touch) < 1e-9,
+        "{:e}",
+        points[0].distance_to(&touch)
+    );
+}
