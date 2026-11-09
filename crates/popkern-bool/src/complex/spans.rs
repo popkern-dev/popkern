@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cellular::assemble_edge_geometry::span_sample_points;
-use crate::cellular::assemble_span_unify::SpanRegistry;
+use crate::cellular::assemble_span_unify::{SpanRegistry, runs_same_way};
 use crate::merge::graph::IntersectionGraph;
 use crate::merge::walk::Fragment;
 
@@ -48,17 +48,10 @@ pub(crate) fn unify_spans(
         let sample = span_sample_points(graph, key);
         let rep = match spans.prior_for(graph, key, sample) {
             // A registered span is its own representative.
-            Some(prior) => {
-                let start = |k: usize| graph.nodes[graph.half_edges[k].origin].position;
-                let end = |k: usize| {
-                    graph.nodes[graph.half_edges[graph.half_edges[k].twin].origin].position
-                };
-                let here = start(key);
-                SpanRep {
-                    key: prior,
-                    same_dir: here.distance_to(&start(prior)) <= here.distance_to(&end(prior)),
-                }
-            }
+            Some(prior) => SpanRep {
+                key: prior,
+                same_dir: runs_same_way(graph, key, prior, linear * 10.0),
+            },
             None => {
                 let (nodes, a, b, mid) = sample;
                 spans.register(nodes, a, b, mid, key);
