@@ -252,7 +252,7 @@ pub fn cases() -> Vec<Case> {
             },
             general: None,
             turns: ball_turns(1, (0.0, 0.0, 0.0)),
-            status: Status::Target("S3"),
+            status: Status::Gate,
             general_status: Status::Gate,
         },
         // A ball of radius 10 and a cylinder of radius 5 on x = 5,
@@ -319,8 +319,8 @@ pub fn cases() -> Vec<Case> {
                 area: 408.438_242_912_009_2,
             }),
             turns: vec![turn(0, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), 0.4)],
-            status: Status::Target("S3"),
-            general_status: Status::Target("S3"),
+            status: Status::Gate,
+            general_status: Status::Gate,
         },
         // A cone of radius 12 tangent to a ball of radius 15 along its
         // base rim: the ice-cream cone.

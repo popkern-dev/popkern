@@ -75,6 +75,9 @@ pub(crate) enum SourceKind {
     EdgeFaceHit,
     /// A face-face record's end.
     RecordEndpoint,
+    /// Two records meeting inside at least one of them, or a record
+    /// meeting itself (`meetings`).
+    RecordMeeting,
 }
 
 /// A point some interference produced, before any vertex is committed.
@@ -125,7 +128,7 @@ fn chart_uv(
     (surface.point_at(p.x, p.y).distance_to(&position) <= radius).then_some((p.x, p.y))
 }
 
-fn handle_bits(k: impl Key) -> u64 {
+pub(super) fn handle_bits(k: impl Key) -> u64 {
     k.data().as_ffi()
 }
 
@@ -332,6 +335,7 @@ fn collect_sites(
             });
         }
     }
+    out.extend(super::meetings::meeting_candidates((a, b), records, linear));
 }
 
 /// Whether `hit` lies within `reach` of an end of a record on its

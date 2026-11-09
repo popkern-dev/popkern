@@ -140,3 +140,16 @@ fn only_face_sharing_operands_share_area() {
     assert!(!shares_area(&unit, &ball, &tol));
     assert!(!shares_area(&ball, &unit, &tol));
 }
+
+/// A failed union of face-sharing cubes keeps the pipeline's own error:
+/// the touching-union fallback answers only for operands that touch
+/// without sharing area (PK-1124). Edge-touching cubes still get their
+/// contact.
+#[test]
+fn the_union_fallback_names_contacts_only_for_operands_that_do_not_share_area() {
+    let tol = Tolerance::default();
+    let unit = cube_at(0.0, 0.0, 0.0);
+    assert!(touching_union_contacts(&unit, &cube_at(1.0, 0.0, 0.0), &tol).is_none());
+    let edge = touching_union_contacts(&unit, &cube_at(1.0, 1.0, 0.0), &tol).expect("contacts");
+    assert!(!edge.is_empty());
+}

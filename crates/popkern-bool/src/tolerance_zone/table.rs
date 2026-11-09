@@ -103,7 +103,48 @@ pub(crate) fn build(
     if resolution.is_err() {
         emit_decline_artifact(&cands, &resolution, records);
     }
+    if let Ok(res) = &resolution
+        && popkern_core::trace::trace_enabled("arrangement")
+    {
+        trace_meeting_groups(&cands, res);
+    }
     VertexTable { cands, resolution }
+}
+
+/// Each record meeting's group: its anchor and every member's source
+/// and position (the `arrangement` trace topic).
+fn trace_meeting_groups(cands: &[CandidateVertex], res: &Resolution) {
+    for (i, c) in cands.iter().enumerate() {
+        if c.source != SourceKind::RecordMeeting {
+            continue;
+        }
+        let g = &res.groups[res.group_of[i]];
+        let members: Vec<String> = g
+            .members
+            .iter()
+            .map(|&m| format!("{:?}@{:?}", cands[m].source, cands[m].position))
+            .collect();
+        eprintln!(
+            "  [arrangement] meeting {i} at {:?} in group of {}: {}",
+            c.position,
+            members.len(),
+            members.join(", ")
+        );
+        for (k, o) in cands.iter().enumerate() {
+            let d = o.position.distance_to(&c.position);
+            if res.group_of[k] != res.group_of[i] && d <= c.zone.max(1e-4) {
+                eprintln!(
+                    "    nearby in another group: {:?} at {d:.2e}, radius {:.1e}, zone {:.1e}",
+                    o.source, o.radius, o.zone
+                );
+                for (p, q, why) in &res.separations {
+                    if (*p == i || *q == i || *p == k || *q == k) && p != q {
+                        eprintln!("      separation {p} {q}: {why:?}");
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// With `POPKERN_COMPLEX_ARTIFACT=<dir>`, write a declined resolution's
@@ -185,18 +226,30 @@ impl VertexTable {
         let mut paves: Vec<Vec<(f64, Point3)>> = vec![Vec::new(); records];
         for (i, c) in self.cands.iter().enumerate() {
             let group = res.group_of[i];
+            let anchor = self.cands[res.groups[group].anchor].position;
+            let interior = |record: usize| {
+                c.incidence.iter().filter_map(move |inc| match *inc {
+                    Incidence::Record {
+                        record: r,
+                        s,
+                        end: None,
+                    } if r == record => Some(s),
+                    _ => None,
+                })
+            };
             for inc in &c.incidence {
-                if let &Incidence::Record {
-                    record,
-                    s,
-                    end: None,
+                let &Incidence::Record {
+                    record, end: None, ..
                 } = inc
-                    && record < records
-                    && seen.insert((record, group))
-                {
-                    let anchor = self.cands[res.groups[group].anchor].position;
-                    paves[record].push((s, anchor));
+                else {
+                    continue;
+                };
+                if record >= records || !seen.insert((record, group)) {
+                    continue;
                 }
+                // A record meeting itself (a figure eight) passes the
+                // vertex twice: a pave at each of its parameters there.
+                paves[record].extend(interior(record).map(|s| (s, anchor)));
             }
         }
         for p in &mut paves {

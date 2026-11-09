@@ -40,7 +40,6 @@
 //! becomes one vertex. A component the pass cannot prove minimal is
 //! searched exactly, or declined when too large (`partition`).
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::topology::BRep;
 
@@ -159,32 +158,7 @@ pub(crate) struct ResolutionContext<'a> {
     pub records: &'a [IntersectionRecord],
 }
 
-/// Arc length of `curve` between `t0` and `t1`, by 32 chords.
-fn arc_between(point_at: impl Fn(f64) -> Point3, t0: f64, t1: f64) -> f64 {
-    const CHORDS: usize = 32;
-    let mut prev = point_at(t0);
-    let mut sum = 0.0;
-    for k in 1..=CHORDS {
-        let p = point_at(t0 + (t1 - t0) * k as f64 / CHORDS as f64);
-        sum += prev.distance_to(&p);
-        prev = p;
-    }
-    sum
-}
-
-/// Arc length between two parameters of a curve over `(lo, hi)`; on a
-/// closed curve the shorter way round.
-fn separation(point_at: impl Fn(f64) -> Point3 + Copy, (lo, hi): (f64, f64), t: (f64, f64)) -> f64 {
-    let (t0, t1) = (t.0.min(t.1), t.0.max(t.1));
-    let inner = arc_between(point_at, t0, t1);
-    let closed = point_at(lo).distance_to(&point_at(hi)) <= 1e-12 * (1.0 + inner);
-    if closed {
-        let outer = arc_between(point_at, lo, t0) + arc_between(point_at, t1, hi);
-        inner.min(outer)
-    } else {
-        inner
-    }
-}
+use super::resolve_record::{near_on_record, on_both, separation};
 
 pub(super) fn incompatibility(
     ctx: &ResolutionContext<'_>,
@@ -226,7 +200,12 @@ pub(super) fn incompatibility(
                         continue;
                     };
                     let range = (c.t_start.min(c.t_end), c.t_start.max(c.t_end));
-                    let arc = separation(|t| c.geometry.point_at(t), range, (ta, tb));
+                    let arc = separation(
+                        |t| c.geometry.point_at(t),
+                        range,
+                        (ta, tb),
+                        p.radius + q.radius,
+                    );
                     if arc > p.zone + q.zone {
                         return Some(Incompatibility::SeparatedAlongEdge { arc });
                     }
@@ -243,8 +222,16 @@ pub(super) fn incompatibility(
                         continue;
                     };
                     let curve = &r.curve.curve_3d;
-                    let arc = separation(|s| curve.point_at(s), curve.parameter_range(), (sa, sb));
-                    if arc > p.zone + q.zone {
+                    let arc = separation(
+                        |s| curve.point_at(s),
+                        curve.parameter_range(),
+                        (sa, sb),
+                        p.radius + q.radius,
+                    );
+                    // A record meeting itself puts one candidate at two
+                    // of its parameters: separated only if every pair
+                    // of the two candidates' parameters on it is.
+                    if arc > p.zone + q.zone && !near_on_record(ctx, p, q, ra) {
                         return Some(Incompatibility::SeparatedAlongRecord { arc });
                     }
                 }
@@ -260,8 +247,13 @@ pub(super) fn incompatibility(
                         ..
                     },
                 ) if (ea.is_none() || eb.is_none())
-                    && super::branches::same_pair(ctx.records, ra, rb) =>
+                    && super::branches::same_pair(ctx.records, ra, rb)
+                    && !on_both(p, ra, rb)
+                    && !on_both(q, ra, rb) =>
                 {
+                    // Two branches passing close are two vertices, unless
+                    // either candidate is where the two meet (a record
+                    // meeting, PK-1127): then they are one.
                     return Some(Incompatibility::DistinctBranches);
                 }
                 _ => {}

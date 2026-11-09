@@ -150,7 +150,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "sectors_sharing_an_apex",
         Body(146.516_406_055_211_18, 179.057_093_587_771_33),
-        Target("S3"),
+        Target("PK-1138"),
     ),
     (
         "tangent_tee_common",
@@ -177,7 +177,7 @@ const CASES: &[(&str, Expect, Status)] = &[
         Body(2_388.751_667_405_912_7, 1_777.260_264_867_049_4),
         Gate,
     ),
-    ("villarceau_half_torus", NonManifold, Target("S3")),
+    ("villarceau_half_torus", NonManifold, Gate),
     (
         "viviani_common",
         Body(1_205.506_213_504_306_5, 628.318_530_717_958_7),
