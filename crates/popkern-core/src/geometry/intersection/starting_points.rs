@@ -34,9 +34,22 @@ pub(crate) fn find_starting_points(
     v2_range: (f64, f64),
     tolerance: &Tolerance,
 ) -> Vec<StartingPoint> {
-    // Step 1: Promote both surfaces to NURBS over the given parameter ranges.
-    let nurbs1 = surface1.to_nurbs_in_range(u1_range, v1_range);
-    let nurbs2 = surface2.to_nurbs_in_range(u2_range, v2_range);
+    // Step 1: Promote both surfaces to NURBS over the given parameter
+    // ranges. The seeds' patch parameters go to the marcher as surface
+    // parameters, so cylinders, cones and spheres keep the sampled net,
+    // whose parameters follow the chart's: their exact rational
+    // conversions (PK-1142) match the chart only at their knots, and
+    // seeding on them moved records (a sphere-pole rod's loop opened by
+    // 1.004e-6, a countersink offset found a self-intersection at its
+    // maximum). The torus keeps its exact conversion (PK-310).
+    let promote = |s: &SurfaceGeometry, u: (f64, f64), v: (f64, f64)| match s {
+        SurfaceGeometry::Cylinder { .. }
+        | SurfaceGeometry::Cone { .. }
+        | SurfaceGeometry::Sphere { .. } => s.approximate_to_nurbs_in_range(u, v),
+        _ => s.to_nurbs_in_range(u, v),
+    };
+    let nurbs1 = promote(surface1, u1_range, v1_range);
+    let nurbs2 = promote(surface2, u2_range, v2_range);
 
     // Step 2: Decompose both into patches at internal knots.
     let patches1 = decompose_to_patches(&nurbs1, u1_range, v1_range);

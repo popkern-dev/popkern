@@ -29,16 +29,18 @@ use popkern_math::PortableMath;
 /// One axis's rational-arc pattern: control-point plane coordinates
 /// `(cos·scale, sin·scale)`, weights, and the clamped quadratic knot
 /// vector over the requested range.
-struct AxisArcPattern {
+pub(super) struct AxisArcPattern {
     /// `(cos(θ)·scale, sin(θ)·scale)` per control point.
-    plane: Vec<(f64, f64)>,
-    weights: Vec<f64>,
-    knots: Vec<f64>,
+    pub(super) plane: Vec<(f64, f64)>,
+    /// The rational weights.
+    pub(super) weights: Vec<f64>,
+    /// The clamped quadratic knot vector over the range.
+    pub(super) knots: Vec<f64>,
 }
 
 /// Decompose `[range.0, range.1]` (span ≤ 2π + 1e-9) into equal
 /// rational-quadratic arcs of at most 90° each.
-fn axis_arc_pattern(range: (f64, f64)) -> AxisArcPattern {
+pub(super) fn axis_arc_pattern(range: (f64, f64)) -> AxisArcPattern {
     let (a, b) = range;
     let span = b - a;
     let arcs = (span / std::f64::consts::FRAC_PI_2 - 1.0e-12)
