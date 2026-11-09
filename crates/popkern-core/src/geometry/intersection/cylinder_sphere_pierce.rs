@@ -50,6 +50,10 @@ pub(super) fn pierce(
     swapped: bool,
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
     let a = axis.normalized()?;
+    let SurfaceGeometry::Sphere { axis: pole, .. } = sphere_surface else {
+        return None;
+    };
+    let pole_axis = pole.normalized()?;
     let (e1, e2) = orthonormal_basis(a);
     let (rc, rs) = (rc.abs(), rs.abs());
     let foot = |theta: f64| origin + e1 * (rc * theta.pcos()) + e2 * (rc * theta.psin());
@@ -92,10 +96,12 @@ pub(super) fn pierce(
             }
             let mut samples = Vec::with_capacity(pts.len());
             let (mut uc, mut us) = (None, None);
-            for &(theta, t) in &pts {
-                let p = foot(theta) + a * t;
+            let points: Vec<Point3> = pts.iter().map(|&(theta, t)| foot(theta) + a * t).collect();
+            let longitudes = pole_safe_longitudes(&points, (center, pole_axis), sphere_chart)?;
+            for (k, &p) in points.iter().enumerate() {
                 let (cu, cv) = cyl_chart(p, uc);
-                let (su, sv) = sphere_chart(p, us)?;
+                let (raw_u, sv) = sphere_chart(p, us)?;
+                let su = longitudes[k].map_or(raw_u, |u| unwrap(u, us));
                 // Near the sphere chart's pole a loop sweeps longitude
                 // faster than θ steps: the fit there is not this
                 // scan's to make (a rod beside a sphere's poles lost
@@ -152,6 +158,54 @@ pub(super) fn pierce(
         }
         density *= 2;
     }
+}
+
+/// For each point, its longitude when it lies on a pole of the sphere,
+/// taken from the nearest point off it; `None` elsewhere. At a pole
+/// the chart's longitude is `atan2(0, 0)`, arbitrary: a branch ending
+/// there (Viviani's curve with the ball's pole at its double point)
+/// jumped by it, read as a sweep round the pole and declined to the
+/// marcher, which stopped 7.5e-5 short of the point and served
+/// pcurves 3.1e-4 off (PK-1139). Approaching a pole along a branch the
+/// longitude has a limit, its neighbour's. "On the pole" is relative
+/// to the branch's own motion: within a thousandth of the step to the
+/// next sample of the axis (a crossing refined by golden section lies
+/// 1e-7 off it, its longitude noise).
+fn pole_safe_longitudes(
+    points: &[Point3],
+    axis: (Point3, Vec3),
+    chart: impl Fn(Point3, Option<f64>) -> Option<(f64, f64)>,
+) -> Option<Vec<Option<f64>>> {
+    let (centre, pole) = axis;
+    let off_axis = |p: &Point3| {
+        let d = *p - centre;
+        (d - pole * d.dot(&pole)).length()
+    };
+    let step = |k: usize| {
+        let next = if k + 1 < points.len() {
+            k + 1
+        } else {
+            k.saturating_sub(1)
+        };
+        points[k].distance_to(&points[next])
+    };
+    let on_pole: Vec<bool> = (0..points.len())
+        .map(|k| off_axis(&points[k]) <= 1e-3 * step(k))
+        .collect();
+    if on_pole.iter().all(|&b| b) {
+        return None;
+    }
+    let mut out = vec![None; points.len()];
+    for k in (0..points.len()).filter(|&k| on_pole[k]) {
+        let neighbour = (1..points.len()).find_map(|d| {
+            [k.checked_sub(d), Some(k + d)]
+                .into_iter()
+                .flatten()
+                .find(|&j| j < points.len() && !on_pole[j])
+        })?;
+        out[k] = Some(chart(points[neighbour], None)?.0);
+    }
+    Some(out)
 }
 
 /// `u` on the branch nearest `prev` (charts are periodic in u).
