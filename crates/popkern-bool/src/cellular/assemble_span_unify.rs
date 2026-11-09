@@ -147,6 +147,59 @@ impl SpanRegistry {
     }
 }
 
+/// Whether graph pair `key` runs the same way along its span as `prior`,
+/// the span's registered pair. An open span's ends say so: `key`'s
+/// start lies at `prior`'s start or at its end. A closed span (a ring
+/// through one node, the circle where an ice-cream cone's rim meets its
+/// ball tangentially when both seams pass through one point of it) has
+/// its start at both ends, and the ends always read "the same way": the
+/// ball's copy of the circle ran opposite the cone's, its fins lifted
+/// reversed, the radial order wired every shell across the wrong faces
+/// and the union served the sliver between cone and ball (PK-1133). There
+/// the curves' leaving tangents decide. `gate` is the distance within
+/// which two points are one.
+pub(crate) fn runs_same_way(
+    graph: &IntersectionGraph,
+    key: usize,
+    prior: usize,
+    gate: f64,
+) -> bool {
+    let start = |k: usize| graph.nodes[graph.half_edges[k].origin].position;
+    let end = |k: usize| graph.nodes[graph.half_edges[graph.half_edges[k].twin].origin].position;
+    let here = start(key);
+    let (to_start, to_end) = (
+        here.distance_to(&start(prior)),
+        here.distance_to(&end(prior)),
+    );
+    let closed = |k: usize| start(k).distance_to(&end(k)) <= gate;
+    if !(closed(key) && closed(prior)) {
+        return to_start <= to_end;
+    }
+    match (leaving_tangent(graph, key), leaving_tangent(graph, prior)) {
+        (Some(a), Some(b)) => a.dot(&b) >= 0.0,
+        _ => to_start <= to_end,
+    }
+}
+
+/// The unit tangent with which graph pair `key` leaves its start: its
+/// curve's (stored on either half, running from the pair's first half's
+/// origin) derivative at `t_start`, taken towards `t_end`.
+fn leaving_tangent(graph: &IntersectionGraph, key: usize) -> Option<popkern_core::geometry::Vec3> {
+    use popkern_core::geometry::curve::CurveEval;
+    let he = &graph.half_edges[key];
+    let curve = he
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[he.twin].curve.as_ref())?;
+    let d = curve.geometry.derivative_at(curve.t_start, 1);
+    let d = if curve.t_end < curve.t_start {
+        d * -1.0
+    } else {
+        d
+    };
+    d.normalized()
+}
+
 /// The distance from `p` to graph pair `key`'s curve PIECE (its own
 /// parameter window); a curveless pair is its straight chord.
 fn piece_distance(graph: &IntersectionGraph, key: usize, p: &Point3) -> f64 {
@@ -171,3 +224,7 @@ fn piece_distance(graph: &IntersectionGraph, key: usize, p: &Point3) -> f64 {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "assemble_span_unify_tests.rs"]
+mod tests;

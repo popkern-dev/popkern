@@ -141,13 +141,14 @@ pub(crate) fn cellular_assemble(
             // forward half-edge produced direction conflicts and the
             // resolver minted duplicates — undoing the unification.
             let prior_pair = edge_he_map[&prior_key];
-            // Compare POSITIONS, not node indices: the unified pairs
+            // Compared by POSITIONS, not node indices: the unified pairs
             // may reference near-coincident but distinct nodes.
-            let p_key = graph.nodes[graph.half_edges[key].origin].position;
-            let p_prior_start = graph.nodes[graph.half_edges[prior_key].origin].position;
-            let p_prior_end =
-                graph.nodes[graph.half_edges[graph.half_edges[prior_key].twin].origin].position;
-            let same_dir = p_key.distance_to(&p_prior_start) <= p_key.distance_to(&p_prior_end);
+            let same_dir = super::assemble_span_unify::runs_same_way(
+                graph,
+                key,
+                prior_key,
+                tolerance.linear() * 10.0,
+            );
             let pair = if same_dir {
                 prior_pair
             } else {
