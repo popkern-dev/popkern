@@ -26,6 +26,7 @@ mod glue_face;
 mod glue_vertex;
 mod imprint_edge;
 mod pieces;
+mod pinch_loop;
 mod shells;
 mod touch;
 mod touch_detect;

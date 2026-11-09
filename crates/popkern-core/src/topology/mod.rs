@@ -11,6 +11,7 @@ pub mod half_edge;
 pub mod handles;
 /// Loop topology entity.
 pub mod loop_;
+pub mod neighbourhood;
 /// Region topology entity: a solid or void 3-cell of space.
 pub mod region;
 /// Semantic ownership role for topology entities.
