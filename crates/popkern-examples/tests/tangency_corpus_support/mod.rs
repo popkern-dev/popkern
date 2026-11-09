@@ -12,6 +12,8 @@ use popkern_core::geometry::{Point3, Transform3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
+mod more;
+
 /// What a boolean should give.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expect {
@@ -392,6 +394,9 @@ pub fn cases() -> Vec<Case> {
             general_status: Status::Gate,
         },
     ]
+    .into_iter()
+    .chain(more::more_cases())
+    .collect()
 }
 
 /// Viviani's operands, the ball's poles on the y axis and its seam
