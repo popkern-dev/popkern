@@ -84,8 +84,9 @@ pub(crate) fn tessellate_fine(brep: &BRep) -> Result<popkern_mesh::TriMesh, Meas
     // Capped at the historical 0.001: the quadrature's trim slivers
     // are not chord-independent yet (PK-818), and a 200 mm tee read
     // 1.3e-4 of its volume at the coarser relative chord.
+    let cap = 0.001 * (diagonal / crate::body_origin::TUNED_EXTENT).max(1.0);
     let chord = if diagonal > 0.0 {
-        (FINE_CHORD_PER_DIAGONAL * diagonal).min(0.001)
+        (FINE_CHORD_PER_DIAGONAL * diagonal).min(cap)
     } else {
         0.001
     };

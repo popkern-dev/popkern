@@ -44,21 +44,11 @@ fn judge(
             if let Some(first) = issues.first() {
                 return Err(format!("validate_all: {first}"));
             }
-            // The measures' fine chord is an absolute 0.001 (PK-1132):
-            // a kilometre-scale body is measured scaled back to the
-            // case's own size, where volume and area scale exactly.
-            let shrink = if scale > 1.0 { scale } else { 1.0 };
-            let measured = body
-                .transform(&popkern_core::geometry::Transform3::scale_uniform(
-                    1.0 / shrink,
-                ))
-                .map_err(|e| format!("rescale: {e}"))?;
-            let v = popkern_measure::body_volume(&measured, tol)
-                .map_err(|e| format!("volume: {e}"))?
-                * shrink.powi(3);
-            let a = popkern_measure::body_surface_area(&measured, tol)
-                .map_err(|e| format!("area: {e}"))?
-                * shrink.powi(2);
+            let measured = body;
+            let v =
+                popkern_measure::body_volume(measured, tol).map_err(|e| format!("volume: {e}"))?;
+            let a = popkern_measure::body_surface_area(measured, tol)
+                .map_err(|e| format!("area: {e}"))?;
             let (want_v, want_a) = (volume * scale.powi(3), area * scale * scale);
             let (ev, ea) = ((v - want_v).abs() / want_v, (a - want_a).abs() / want_a);
             // The boundary is known to the tolerance, so the volume is
@@ -71,8 +61,7 @@ fn judge(
             if (v - want_v).abs() > bound_v || (a - want_a).abs() > bound_a {
                 return Err(format!(
                     "volume {v} (want {want_v}, rel {ev:.1e}; mesh reads {}), area {a} (want {want_a}, rel {ea:.1e})",
-                    mesh_volume(&measured)
-                        .map_or("?".into(), |m| format!("{}", m * shrink.powi(3)))
+                    mesh_volume(measured).map_or("?".into(), |m| format!("{m}"))
                 ));
             }
             Ok(ev.max(ea))
@@ -108,8 +97,9 @@ fn judge(
     }
 }
 
-/// Seconds a run may take before it counts as failed.
-const RUN_LIMIT_S: u64 = 60;
+/// Seconds a run may take before it counts as failed: a hang, not a
+/// slow run (a kilometre-scale run under full-suite load took over 60).
+const RUN_LIMIT_S: u64 = 300;
 
 /// One boolean and its verdict, in a thread with a deadline: a run that
 /// does not finish fails its row (the thread is left to the process's

@@ -38,7 +38,10 @@ fn tessellate_area(
     tolerance: &Tolerance,
 ) -> Result<f64, MeasureError> {
     let opts = TessellationOptions {
-        chord_height: tolerance.linear().max(1e-4),
+        chord_height: tolerance.linear().max(1e-4).max(
+            1e-4 * crate::body_origin::face_vertex_diagonal(brep, face)
+                / crate::body_origin::TUNED_EXTENT,
+        ),
         ..TessellationOptions::default()
     };
     let face_mesh = measuring_mesh(brep, face, &opts)?;
@@ -328,7 +331,10 @@ pub fn face_centroid(
         .ok_or_else(|| MeasureError::InvalidHandle("face".into()))?;
 
     let opts = TessellationOptions {
-        chord_height: tolerance.linear().max(1e-4),
+        chord_height: tolerance.linear().max(1e-4).max(
+            1e-4 * crate::body_origin::face_vertex_diagonal(brep, face)
+                / crate::body_origin::TUNED_EXTENT,
+        ),
         ..TessellationOptions::default()
     };
     let face_mesh = measuring_mesh(brep, face, &opts)?;
