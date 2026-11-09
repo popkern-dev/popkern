@@ -207,6 +207,15 @@ pub enum EulerError {
         /// Why.
         reason: String,
     },
+    /// Loops cannot be joined or parted at the vertex (a pinch use,
+    /// PK-1129).
+    #[error("face {face:?}: the loops cannot be joined or parted there: {reason}")]
+    NotJoinable {
+        /// The face.
+        face: FaceHandle,
+        /// Why.
+        reason: String,
+    },
     /// The edge is not one an imprint made: it has more than two fins,
     /// or its fins do not bound one face or two faces of one surface.
     #[error("edge {edge:?} is not an imprinted edge: {reason}")]
