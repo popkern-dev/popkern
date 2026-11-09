@@ -110,7 +110,19 @@ pub(super) fn collapse_crossing_reports(
                         j - i
                     );
                 }
-                deduped.extend_from_slice(&crossings[i..j]);
+                // Parity must agree with the verdict: a group that does
+                // not flip in/out keeps an even number of reports. Kept
+                // whole, an odd run (nine reports along a cone dimple's
+                // rim grazing a plate's edge, the scene turned) flipped
+                // every window after it, the clip kept only the 3.9e-3
+                // between two graze groups and the plate served uncut
+                // (PK-1143). Its outermost two keep the graze's extent.
+                if (j - i) % 2 == 1 {
+                    deduped.push(crossings[i].clone());
+                    deduped.push(crossings[j - 1].clone());
+                } else {
+                    deduped.extend_from_slice(&crossings[i..j]);
+                }
             }
         } else {
             deduped.push(crossings[i].clone());
