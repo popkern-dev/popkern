@@ -58,17 +58,6 @@ pub(super) fn separation(
     }
 }
 
-/// Whether candidate `c` lies on both records `ra` and `rb`: a meeting
-/// of the two.
-pub(super) fn on_both(c: &CandidateVertex, ra: usize, rb: usize) -> bool {
-    let on = |r: usize| {
-        c.incidence
-            .iter()
-            .any(|i| matches!(i, Incidence::Record { record, .. } if *record == r))
-    };
-    ra != rb && on(ra) && on(rb)
-}
-
 /// Whether some parameter of `p` on `record` and some of `q` on it lie
 /// within their zones of each other along it.
 pub(super) fn near_on_record(

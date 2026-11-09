@@ -61,10 +61,6 @@ pub(crate) enum Incompatibility {
         /// Arc length between them.
         arc: f64,
     },
-    /// They lie on two records of one face pair, one of them in its
-    /// record's interior: a branch the SSI marched through, seeing no
-    /// branch point, passing within tolerance of another (`branches`).
-    DistinctBranches,
     /// Both lie on one face, on opposite sides of a boundary edge of it
     /// (`face_side`).
     OppositeFaceSides,
@@ -158,7 +154,7 @@ pub(crate) struct ResolutionContext<'a> {
     pub records: &'a [IntersectionRecord],
 }
 
-use super::resolve_record::{near_on_record, on_both, separation};
+use super::resolve_record::{near_on_record, separation};
 
 pub(super) fn incompatibility(
     ctx: &ResolutionContext<'_>,
@@ -234,27 +230,6 @@ pub(super) fn incompatibility(
                     if arc > p.zone + q.zone && !near_on_record(ctx, p, q, ra) {
                         return Some(Incompatibility::SeparatedAlongRecord { arc });
                     }
-                }
-                (
-                    Incidence::Record {
-                        record: ra,
-                        end: ea,
-                        ..
-                    },
-                    Incidence::Record {
-                        record: rb,
-                        end: eb,
-                        ..
-                    },
-                ) if (ea.is_none() || eb.is_none())
-                    && super::branches::same_pair(ctx.records, ra, rb)
-                    && !on_both(p, ra, rb)
-                    && !on_both(q, ra, rb) =>
-                {
-                    // Two branches passing close are two vertices, unless
-                    // either candidate is where the two meet (a record
-                    // meeting, PK-1127): then they are one.
-                    return Some(Incompatibility::DistinctBranches);
                 }
                 _ => {}
             }
