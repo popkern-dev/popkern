@@ -22,6 +22,15 @@ use super::types::CoincidenceOrientation;
 /// outward direction is resolved by which side the operand's solid
 /// material lies on, so it is correct regardless of how the cap plane's
 /// normal and `orientation` flag were stored at construction.
+///
+/// The two are compared at ONE point, the middle of face A: each face's
+/// outward normal is known at its own middle, which on a curved surface
+/// says nothing about the other's (two half balls of one sphere about
+/// perpendicular axes have outward normals at their middles a right
+/// angle apart, and read `Opposite`; PK-1147). A face's outward side is
+/// one side of its surface throughout, so each outward normal is kept
+/// as a sign against its surface's normal and both surfaces' normals
+/// are taken at the common point.
 pub(crate) fn classify_face_orientation(
     a: &BRep,
     face_a: FaceHandle,
@@ -31,9 +40,42 @@ pub(crate) fn classify_face_orientation(
     aabbs_b: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> CoincidenceOrientation {
-    let normal_a = face_outward_normal(a, face_a, aabbs_a, tolerance);
-    let normal_b = face_outward_normal(b, face_b, aabbs_b, tolerance);
+    let outward_a = face_outward_normal(a, face_a, aabbs_a, tolerance);
+    let outward_b = face_outward_normal(b, face_b, aabbs_b, tolerance);
+    let (normal_a, normal_b) = match (outward_a.at, outward_b.at) {
+        (Some(pa), Some(pb)) => {
+            let (Some(sa), Some(sb)) = (surface_of(a, face_a), surface_of(b, face_b)) else {
+                return orientation_of(outward_a.normal, outward_b.normal);
+            };
+            // Each outward normal as a sign on its surface's normal.
+            let sign = |s: &popkern_core::geometry::SurfaceGeometry, p: &Point3, n: Vec3| {
+                s.closest_point(p)
+                    .map(|(u, v)| s.normal_at(u, v).dot(&n).signum())
+            };
+            let (Some(ka), Some(kb)) = (
+                sign(sa, &pa, outward_a.normal),
+                sign(sb, &pb, outward_b.normal),
+            ) else {
+                return orientation_of(outward_a.normal, outward_b.normal);
+            };
+            let at = |s: &popkern_core::geometry::SurfaceGeometry| {
+                s.closest_point(&pa).map(|(u, v)| s.normal_at(u, v))
+            };
+            match (at(sa), at(sb)) {
+                (Some(na), Some(nb)) => (na * ka, nb * kb),
+                _ => (outward_a.normal, outward_b.normal),
+            }
+        }
+        _ => (outward_a.normal, outward_b.normal),
+    };
+    orientation_of(normal_a, normal_b)
+}
 
+fn surface_of(brep: &BRep, face: FaceHandle) -> Option<&popkern_core::geometry::SurfaceGeometry> {
+    brep.faces.get(face)?.surface.as_ref().map(|s| &s.geometry)
+}
+
+fn orientation_of(normal_a: Vec3, normal_b: Vec3) -> CoincidenceOrientation {
     if normal_a.dot(&normal_b) >= 0.0 {
         CoincidenceOrientation::Same
     } else {
@@ -60,10 +102,11 @@ fn face_outward_normal(
     face: FaceHandle,
     aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
-) -> Vec3 {
+) -> Outward {
+    let fallback = |normal| Outward { normal, at: None };
     let sof = match brep.faces[face].surface.as_ref() {
         Some(s) => s,
-        None => return Vec3::new(0.0, 0.0, 1.0),
+        None => return fallback(Vec3::new(0.0, 0.0, 1.0)),
     };
 
     // Boundary positions sampled along edge CURVES, not just vertices:
@@ -76,7 +119,7 @@ fn face_outward_normal(
     // luck). Curve samples put the centroid at the true face middle.
     let positions = brep.face_outer_loop_sample_positions(face, 8);
     if positions.is_empty() {
-        return Vec3::new(0.0, 0.0, 1.0);
+        return fallback(Vec3::new(0.0, 0.0, 1.0));
     }
 
     // Find UV centroid
@@ -91,7 +134,7 @@ fn face_outward_normal(
     }
     let axis_len = normal.length();
     if axis_len < 1.0e-12 {
-        return normal;
+        return fallback(normal);
     }
     let axis = normal * (1.0 / axis_len);
 
@@ -123,9 +166,20 @@ fn face_outward_normal(
         crate::classify::point_in_solid(&probe_minus, brep, aabbs, tolerance),
         Ok(PointClassification::Outside)
     );
+    let at = Some(sof.geometry.point_at(u_mid, v_mid));
     match (plus_out, minus_out) {
-        (true, false) => axis,  // material on -axis side; outward is +axis
-        (false, true) => -axis, // material on +axis side; outward is -axis
-        _ => normal,            // inconclusive — keep the flag-adjusted normal
+        // Material on the -axis side: outward is +axis.
+        (true, false) => Outward { normal: axis, at },
+        // Material on the +axis side: outward is -axis.
+        (false, true) => Outward { normal: -axis, at },
+        // Inconclusive: keep the flag-adjusted normal.
+        _ => Outward { normal, at },
     }
+}
+
+/// A face's outward normal and the surface point it was taken at
+/// (`None` when the face gave no point: no surface or no boundary).
+struct Outward {
+    normal: Vec3,
+    at: Option<Point3>,
 }
