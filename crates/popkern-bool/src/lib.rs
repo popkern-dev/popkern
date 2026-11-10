@@ -51,6 +51,7 @@ pub(crate) mod complex;
 pub mod complex_shadow;
 pub mod csg;
 mod curve_projection;
+mod diagnostics_contacts;
 mod entity_lineage;
 mod entity_lineage_carry;
 mod entity_naming;
@@ -132,6 +133,7 @@ pub use partition::{
     nary_boolean_where, nary_boolean_where_bodies, partition, split,
 };
 
+pub use diagnostics_contacts::OperandContact;
 pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, ContactKind, NonManifoldContact,
     PointClassification, Stage,
@@ -383,7 +385,7 @@ pub fn subtraction_ref(
 ///
 /// Identical to [`boolean`] but populates a [`BoolDiagnostics`] with
 /// [`PhaseMetric`](crate::error::PhaseMetric) samples for each pipeline stage
-/// (intersection, merge, validation). Use
+/// (intersection, merge, validation) and the operands' touches. Use
 /// this entry point for performance regression detection and tooling that
 /// needs to attribute time to specific phases.
 ///
@@ -402,6 +404,7 @@ pub fn boolean_with_diagnostics(
     let result = operation::execute_boolean_with_metrics(op, a, b, &tol, &mut metrics)?;
     let diagnostics = BoolDiagnostics {
         phase_metrics: metrics,
+        contacts: diagnostics_contacts::operand_contacts(a, b, &tol),
         ..BoolDiagnostics::default()
     };
     Ok((result, diagnostics))

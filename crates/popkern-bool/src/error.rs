@@ -276,6 +276,8 @@ pub struct BoolDiagnostics {
     pub entries: Vec<DiagnosticEntry>,
     /// Per-phase timing and counters (§16 telemetry).
     pub phase_metrics: Vec<PhaseMetric>,
+    /// Where the operands touch without crossing (tangency design §7.3).
+    pub contacts: Vec<crate::diagnostics_contacts::OperandContact>,
 }
 
 impl BoolDiagnostics {
@@ -401,6 +403,7 @@ impl BoolDiagnostics {
                 remediation: Some(hint),
             }],
             phase_metrics: Vec::new(),
+            contacts: Vec::new(),
         }
     }
 }
