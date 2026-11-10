@@ -22,12 +22,13 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::geometry::intersection::{SurfaceCurveIntersection, intersect_surface_curve};
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceEval as _, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv_near;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::clip_endpoint_far::{far_junction, project_onto_curve_dense, retrim_piece_to_junction};
+use crate::clip_reauthor::reauthor_pinned_run;
 
 /// Refine both endpoints of `piece` onto exact boundary junctions
 /// where they lie within the record-fit slop band of a face-boundary
@@ -363,7 +364,7 @@ pub(crate) fn clone_curve_geometry(g: &CurveGeometry) -> CurveGeometry {
 ///
 /// A LARGE move (beyond 50× linear) re-authors the whole piece by
 /// interpolation through on-curve samples with the corrected end
-/// sample instead: the bare end-control-point move shifts every
+/// sample instead (as densely as the piece needs, `clip_reauthor`): the bare end-control-point move shifts every
 /// point of the final span by the endpoint's delta VECTOR, whose
 /// direction rotates off the local tangent along the span — a
 /// 6.2e-4 tangential end correction on a 0.44-rad circle arc bent
@@ -402,7 +403,6 @@ pub(crate) fn set_endpoint_3d_uv(
     // assembly stranded 4 record sides). Unwrap each projected
     // coordinate onto the branch of the uv sample it replaces.
     let unwrap_toward = |surf: &SurfaceGeometry, p: (f64, f64), near: (f64, f64)| -> (f64, f64) {
-        use popkern_core::geometry::surface::SurfaceEval as _;
         let (pu, pv) = surf.parameter_periodicity();
         let fold = |x: f64, anchor: f64, period: Option<f64>| match period {
             Some(pp) if pp.is_finite() && pp > 0.0 => x + ((anchor - x) / pp).round() * pp,
@@ -412,49 +412,48 @@ pub(crate) fn set_endpoint_3d_uv(
     };
     let move_d = endpoint(piece, end).distance_to(&r);
     if move_d > tolerance.linear() * 50.0 {
-        let n = 17usize;
-        let (t0, t1) = piece.curve_3d.parameter_range();
-        let mut pts: Vec<Point3> = (0..n)
-            .map(|k| {
-                piece
-                    .curve_3d
-                    .point_at(t0 + (t1 - t0) * k as f64 / (n - 1) as f64)
-            })
-            .collect();
-        let idx = if end { n - 1 } else { 0 };
-        pts[idx] = r;
+        let budget = 0.1 * tolerance.linear();
+        let source = piece.clone();
+        let pin_at = |p: Point3| {
+            move |pts: &mut [Point3]| {
+                let slot = if end { pts.last_mut() } else { pts.first_mut() };
+                if let Some(q) = slot {
+                    *q = p;
+                }
+            }
+        };
         // Keep the piece's parameter domain: downstream bookkeeping
         // (window t ranges, node parameters, closure flags) reads it.
-        let params: Vec<f64> = (0..n)
-            .map(|k| t0 + (t1 - t0) * k as f64 / (n - 1) as f64)
-            .collect();
-        if let Ok(fitted) = popkern_core::geometry::fitting::fit_curve(&pts, &params, 3, n) {
-            piece.curve_3d = fitted;
-        } else {
-            set_cp(&mut piece.curve_3d, r);
+        match reauthor_pinned_run(
+            source.curve_3d.parameter_range(),
+            &|ts: &[f64]| ts.iter().map(|&t| source.curve_3d.point_at(t)).collect(),
+            &pin_at(r),
+            &|p: &Point3| *p,
+            budget,
+        ) {
+            Some(fitted) => piece.curve_3d = fitted,
+            None => set_cp(&mut piece.curve_3d, r),
         }
-        for (uv_curve, surf) in [
-            (&mut piece.curve_uv1, surf_a),
-            (&mut piece.curve_uv2, surf_b),
+        for (uv_curve, src_uv, surf) in [
+            (&mut piece.curve_uv1, &source.curve_uv1, surf_a),
+            (&mut piece.curve_uv2, &source.curve_uv2, surf_b),
         ] {
-            let (u0, u1) = uv_curve.parameter_range();
-            let mut uv_pts: Vec<Point3> = (0..n)
-                .map(|k| uv_curve.point_at(u0 + (u1 - u0) * k as f64 / (n - 1) as f64))
-                .collect();
-            let uv_params: Vec<f64> = (0..n)
-                .map(|k| u0 + (u1 - u0) * k as f64 / (n - 1) as f64)
-                .collect();
-            let near = uv_pts[idx];
-            if let Some((nu, nv)) = project_point_to_uv_near(surf, &r, near.x, near.y) {
-                let (nu, nv) = unwrap_toward(surf, (nu, nv), (near.x, near.y));
-                uv_pts[idx] = Point3::new(nu, nv, 0.0);
-                if let Ok(fitted) =
-                    popkern_core::geometry::fitting::fit_curve(&uv_pts, &uv_params, 3, n)
-                {
-                    *uv_curve = fitted;
-                } else {
-                    set_cp(uv_curve, Point3::new(nu, nv, 0.0));
-                }
+            let range = src_uv.parameter_range();
+            let near = src_uv.point_at(if end { range.1 } else { range.0 });
+            let Some((nu, nv)) = project_point_to_uv_near(surf, &r, near.x, near.y) else {
+                continue;
+            };
+            let (nu, nv) = unwrap_toward(surf, (nu, nv), (near.x, near.y));
+            let pinned = Point3::new(nu, nv, 0.0);
+            match reauthor_pinned_run(
+                range,
+                &|ts: &[f64]| ts.iter().map(|&t| src_uv.point_at(t)).collect(),
+                &pin_at(pinned),
+                &|q: &Point3| surf.point_at(q.x, q.y),
+                budget,
+            ) {
+                Some(fitted) => *uv_curve = fitted,
+                None => set_cp(uv_curve, pinned),
             }
         }
         return;

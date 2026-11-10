@@ -15,6 +15,7 @@
 //! image-preserving on a geometrically closed chart.
 
 use crate::geometry::pcurve::{Pcurve, PcurveGeometry};
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::topology::{BRep, FaceHandle};
 
 /// Translate a pcurve by `(du, dv)` in chart space.
@@ -53,6 +54,30 @@ fn translate_pcurve(pc: &mut Pcurve, du: f64, dv: f64) {
         }
     }
 }
+
+/// Whether chart points `a` and `b` lie on one pole: a line of the
+/// chart along u that images one point (`S_u` vanishes there against
+/// `S_v`), both points imaging it. Shifting a pcurve by a period to
+/// close a u-gap on a pole moved a sphere face's second seam side onto
+/// the first, and the face's loop then enclosed the strip between its
+/// trims and the pole instead of the face (Viviani's cut with the ball's
+/// pole at the double point meshed 3.0 short and measured 33.7 low,
+/// PK-1139).
+fn on_one_pole(surface: &SurfaceGeometry, a: (f64, f64), b: (f64, f64)) -> bool {
+    let degenerate = |(u, v): (f64, f64)| {
+        surface.partial_u(u, v).length() <= POLE_RATIO * surface.partial_v(u, v).length()
+    };
+    degenerate(a)
+        && degenerate(b)
+        && surface
+            .point_at(a.0, a.1)
+            .distance_to(&surface.point_at(b.0, b.1))
+            <= POLE_RATIO * surface.partial_v(a.0, a.1).length()
+}
+
+/// `S_u` against `S_v` at a pole (a sphere's reads ~1e-16), and the
+/// coincidence of the two points relative to the chart's scale.
+const POLE_RATIO: f64 = 1e-9;
 
 impl BRep {
     /// Make every loop of `faces` chart-continuous on geometrically
@@ -104,7 +129,13 @@ impl BRep {
                                     _ => 0.0,
                                 }
                             };
-                            du = wrap(pe.0 - s.x, period_u);
+                            // A gap along a pole line is no gap: every
+                            // u there is one point, and the loop moves
+                            // along it freely (a sphere face's seam
+                            // sides meet the pole a period apart).
+                            if !on_one_pole(&surface.geometry, pe, (s.x, s.y)) {
+                                du = wrap(pe.0 - s.x, period_u);
+                            }
                             dv = wrap(pe.1 - s.y, period_v);
                         }
                         if du != 0.0 || dv != 0.0 {
@@ -141,10 +172,7 @@ impl BRep {
                         .faces
                         .get(fh)
                         .and_then(|f| f.surface.as_ref())
-                        .map(|s| {
-                            use crate::geometry::surface::SurfaceEval;
-                            s.geometry.parameter_range()
-                        });
+                        .map(|s| s.geometry.parameter_range());
                     if let Some(((cu0, cu1), (cv0, cv1))) = range {
                         let (mut lo_u, mut hi_u) = (f64::MAX, f64::MIN);
                         let (mut lo_v, mut hi_v) = (f64::MAX, f64::MIN);

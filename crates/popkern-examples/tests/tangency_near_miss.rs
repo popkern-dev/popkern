@@ -38,14 +38,11 @@ const OFFSETS: [f64; 6] = [0.5, -0.5, 2.0, -2.0, 10.0, -10.0];
 
 /// Runs known to fail, with the follow-up that owns them: they must
 /// keep failing until it lands (a target that starts passing fails the
-/// test, asking for it to be removed here). The dimple moved half a
-/// tolerance past the plate's edge: its rim record, a circle starting
-/// at the bulge's apex, is clipped at the two grazing reports either
-/// side of its parameter closure (y = 10 ± 2e-3) and its ends dragged
-/// onto the touch (PK-1141; dropping such reports breaks the tangent
-/// boss castings 1e-7 and 5e-7 off their wall, whose excursions the
-/// clip serves as crossings).
-const KNOWN: &[(&str, f64, &str)] = &[("dimple-touching-edge", 0.5, "PK-1141")];
+/// test, asking for it to be removed here). None now: the dimple moved
+/// half a tolerance past the plate's edge (PK-1141) serves since a
+/// touch at a curve's own end is placed on the end and the clip
+/// re-authors pieces as densely as they need (PK-1139).
+const KNOWN: &[(&str, f64, &str)] = &[];
 
 /// Seconds a run may take: a hang, not a slow run.
 const RUN_LIMIT_S: u64 = 300;

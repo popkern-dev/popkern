@@ -334,7 +334,8 @@ pub(crate) fn balance_and_duplicates(sub: &mut FaceChartSubdivision, _u_period: 
             }
         }
     }
-    // I5: duplicate departures (same direction, same far point).
+    // I5: duplicate departures (same direction, same far point, one
+    // segment: `chart_run_overlay`).
     let departures = sub.departures.clone();
     for (_, deps) in departures {
         for i in 0..deps.len() {
@@ -361,7 +362,13 @@ pub(crate) fn balance_and_duplicates(sub: &mut FaceChartSubdivision, _u_period: 
                 ) {
                     let cross = da.0 * db.1 - da.1 * db.0;
                     let dot = da.0 * db.0 + da.1 * db.1;
-                    if cross.abs() < 1e-9 && dot > 0.0 {
+                    let overlay = || {
+                        crate::merge::walk::chart_run_overlay::chart_runs_overlay(
+                            &sub.embeddings[&a],
+                            &sub.embeddings[&b],
+                        )
+                    };
+                    if cross.abs() < 1e-9 && dot > 0.0 && overlay() {
                         sub.report
                             .issues
                             .push(SubdivisionIssue::DuplicateChartSegment(a, b));
