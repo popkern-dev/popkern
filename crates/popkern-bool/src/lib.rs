@@ -87,6 +87,7 @@ pub(crate) mod periodic_chart_parity;
 pub(crate) mod periodic_chart_parity_torus;
 pub mod pieces;
 mod split_serve;
+pub mod sub_tolerance;
 mod wire_boolean;
 pub use kind_gate::require_operand as require_operand_kind;
 pub use wire_boolean::boolean_with_wire;

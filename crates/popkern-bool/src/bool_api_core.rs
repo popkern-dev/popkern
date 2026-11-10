@@ -53,6 +53,21 @@ pub(crate) fn boolean_under(
         }
     }
 
+    // An operand thinner than the tolerance has no inside at its
+    // resolution: the result is the other operand or empty (PK-1131),
+    // reported as a sub-tolerance feature.
+    for (operand, body) in [&a, &b].into_iter().enumerate() {
+        if let Some(thin) = crate::sub_tolerance::thin_operand(body, &tol) {
+            crate::sub_tolerance::record(crate::sub_tolerance::SubToleranceFeature {
+                kind: crate::sub_tolerance::SubToleranceKind::OperandVanished { operand },
+                location: thin.location,
+                measured_width: thin.width,
+                tolerance: tol.linear(),
+            });
+            return Ok(crate::sub_tolerance::resolve(op, &a, &b, operand));
+        }
+    }
+
     // No perturbation retry: plan Stage 7d retired it after it fired on
     // no boolean over three whole-suite runs (`boolean_with_perturbation`
     // remains an explicit opt-in).
