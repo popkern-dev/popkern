@@ -38,7 +38,7 @@ const REFINED_SEEDS: usize = 4;
 const ROUNDS: usize = 24;
 
 /// The closest point of `face`'s surface to `p`, with its uv.
-fn foot(surface: &SurfaceGeometry, p: &Point3) -> Option<(Point3, (f64, f64))> {
+pub(super) fn foot(surface: &SurfaceGeometry, p: &Point3) -> Option<(Point3, (f64, f64))> {
     let (u, v) = project_point_to_uv(surface, p)?;
     Some((surface.point_at(u, v), (u, v)))
 }
@@ -47,7 +47,12 @@ fn surface_of(brep: &BRep, face: FaceHandle) -> Option<&SurfaceGeometry> {
     Some(&brep.faces.get(face)?.surface.as_ref()?.geometry)
 }
 
-fn within_trim(brep: &BRep, face: FaceHandle, surface: &SurfaceGeometry, uv: (f64, f64)) -> bool {
+pub(super) fn within_trim(
+    brep: &BRep,
+    face: FaceHandle,
+    surface: &SurfaceGeometry,
+    uv: (f64, f64),
+) -> bool {
     brep.face_uv_trim_containment(face, surface, uv.0, uv.1)
         .is_some_and(|c| c != FaceUvContainment::Outside)
 }
@@ -196,7 +201,9 @@ fn face_contact(brep: &BRep, f: FaceHandle, g: FaceHandle, linear: f64) -> Optio
             return Some(p + (q - p) * 0.5);
         }
     }
-    None
+    // A touch on a face's boundary: an edge of one against the other.
+    super::shell_contact_edge::edge_contact(brep, f, (g, sg), linear)
+        .or_else(|| super::shell_contact_edge::edge_contact(brep, g, (f, sf), linear))
 }
 
 /// Every place two different shells of `brep` touch, in face-handle

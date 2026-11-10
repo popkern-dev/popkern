@@ -1,5 +1,6 @@
 //! More tangency corpus cases (the file-size rule): the cylinder
-//! inscribed through a cube, and the dimple family's cone member.
+//! inscribed through a cube, the dimple family's cone member, and a
+//! ball resting on a cube's edge.
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
@@ -7,7 +8,9 @@ use popkern_bool::BoolOperation;
 use popkern_core::geometry::Transform3;
 use popkern_core::topology::BRep;
 
-use super::{Case, Expect, Status, box_at, moved, turn};
+use popkern_core::geometry::Point3;
+
+use super::{Case, Expect, Status, ball, ball_turns, box_at, moved, sphere_volume, turn};
 
 pub(super) fn more_cases() -> Vec<Case> {
     use BoolOperation::*;
@@ -75,5 +78,50 @@ pub(super) fn more_cases() -> Vec<Case> {
             status: Status::Gate,
             general_status: Status::Gate,
         },
+        // A ball of radius 3 resting on the cube's top edge along y at
+        // (10, 5, 10): it touches the top and side faces only at their
+        // common edge, where the surfaces pass through each other
+        // beyond it (an edge grazing a face, R5.8). Its union served
+        // the two shells touching at a point.
+        Case {
+            name: "ball-resting-on-an-edge-union",
+            op: Union,
+            build: ball_on_edge,
+            decline: NonManifold(vec![Point3::new(10.0, 5.0, 10.0)]),
+            general: Some(Body {
+                volume: 1000.0 + sphere_volume(3.0),
+                area: 600.0 + 36.0 * PI,
+            }),
+            turns: ball_turns(1, ball_on_edge_centre()),
+            status: Status::Gate,
+            // The glued body fails validation: the validator reads the
+            // plane x sphere circle touching the top edge from outside
+            // as a crossing (PK-1153).
+            general_status: Status::Target("PK-1153"),
+        },
+        Case {
+            name: "ball-resting-on-an-edge-common",
+            op: Intersection,
+            build: ball_on_edge,
+            decline: Empty,
+            general: None,
+            turns: ball_turns(1, ball_on_edge_centre()),
+            status: Status::Gate,
+            general_status: Status::Gate,
+        },
     ]
+}
+
+/// The centre of a ball of radius 3 touching the edge y-wise at x = z
+/// = 10 from outside, off both faces at 45°.
+fn ball_on_edge_centre() -> (f64, f64, f64) {
+    let d = 3.0 / std::f64::consts::SQRT_2;
+    (10.0 + d, 5.0, 10.0 + d)
+}
+
+fn ball_on_edge(tol: popkern_core::tolerance::Tolerance) -> (BRep, BRep) {
+    (
+        box_at((0.0, 0.0, 0.0), (10.0, 10.0, 10.0), tol),
+        ball(3.0, ball_on_edge_centre(), tol),
+    )
 }

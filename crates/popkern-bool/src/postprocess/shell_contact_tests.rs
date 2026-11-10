@@ -125,3 +125,24 @@ fn an_area_touch_is_not_accepted_as_a_split() {
         .is_err()
     );
 }
+
+/// A ball resting on a cube's edge touches its two faces only at their
+/// common boundary: the surfaces pass through each other beyond it, so
+/// the touch is an edge against a face (R5.8). Lifted ten tolerances
+/// off the edge it is clear.
+#[test]
+fn a_ball_resting_on_an_edge_is_a_contact() {
+    let r = 0.4;
+    let at = |gap: f64| {
+        let d = (r + gap) / std::f64::consts::SQRT_2;
+        combine_breps(cube_at(0.0, 0.0, 0.0), ball(r, (1.0 + d, 0.5, 1.0 + d))).expect("combines")
+    };
+    let contacts = shell_contacts(&at(0.0), &tol());
+    assert_eq!(contacts.len(), 1, "{contacts:?}");
+    let p = contacts[0].location;
+    assert!(
+        p.distance_to(&popkern_core::geometry::Point3::new(1.0, 0.5, 1.0)) < 1e-5,
+        "{p:?}"
+    );
+    assert!(shell_contacts(&at(1e-5), &tol()).is_empty());
+}
