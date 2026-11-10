@@ -83,7 +83,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "cube_turned_a_hair",
         Body(1_000.008_726_493_952_7, 600.005_235_896_371_7),
-        Target("PK-1137"),
+        Gate,
     ),
     (
         "cylinder_inscribed_through_a_cube",
@@ -99,7 +99,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "half_balls_overlapping",
         Body(392.699_081_698_724_15, 314.159_265_358_979_3),
-        Target("PK-1138"),
+        Gate,
     ),
     (
         "half_tori_overlapping",
@@ -192,7 +192,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "wedge_a_millionth_steep",
         Body(0.000_125, 100.000_075_000_025),
-        Target("PK-1137"),
+        Target("PK-1131"),
     ),
 ];
 
