@@ -32,7 +32,6 @@ fn plug_on_host(
     plug: FaceHandle,
     tolerance: &Tolerance,
 ) -> Option<(HalfEdgeHandle, FaceHandle, LoopHandle)> {
-    use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
     let face = brep.faces.get(plug)?;
     if !face.inner_loops.is_empty() {
         return None;
@@ -63,9 +62,7 @@ fn plug_on_host(
         return None;
     }
     let (sa, sb) = (host_data.surface.as_ref()?, face.surface.as_ref()?);
-    if !are_surfaces_coincident_analytic(&sa.geometry, &sb.geometry, tolerance)
-        || !super::merge_rechart::same_chart(&sa.geometry, &sb.geometry, tolerance)
-    {
+    if !super::merge_rechart::faces_share_surface(brep, host_face, plug, tolerance) {
         return None;
     }
     let edge = brep.half_edges.get(ring_he)?.edge;

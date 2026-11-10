@@ -16,7 +16,6 @@
 //! interior corner with each neighbour; the x-only stagger, whose
 //! pieces share single edges, merged to six faces.
 
-use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use std::collections::BTreeMap;
@@ -41,8 +40,7 @@ fn mergeable_face_pair(
     }
     let surf_a = brep.faces.get(face_a)?.surface.as_ref()?;
     let surf_b = brep.faces.get(face_b)?.surface.as_ref()?;
-    if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance)
-        || !super::merge_rechart::same_chart(&surf_a.geometry, &surf_b.geometry, tolerance)
+    if !super::merge_rechart::faces_share_surface(brep, face_a, face_b, tolerance)
         || !super::redundant_edge::outward_normals_agree(brep, eh, surf_a, surf_b)?
     {
         return None;

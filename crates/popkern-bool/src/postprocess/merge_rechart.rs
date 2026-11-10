@@ -104,3 +104,113 @@ pub(crate) fn same_chart(
         _ => false,
     }
 }
+
+/// Stations per boundary edge at which [`faces_share_surface`] measures
+/// a face's boundary against the other surface (the ends and three
+/// interior points: a plane face's distance to another plane is affine
+/// along a line, and a curved edge's deviation peaks between its ends).
+const BOUNDARY_STATIONS: usize = 4;
+
+/// Whether faces `fa` and `fb` lie on one surface over their extent, so
+/// a merge may serve them as one face: their surfaces coincide
+/// analytically and share a chart ([`same_chart`]), and every boundary
+/// of each face lies within the linear tolerance of the other's
+/// surface. The surface comparison alone is scale-blind: two planes
+/// whose normals are within the angular tolerance (up to 0.8 degrees)
+/// and one of whose origins lies on the other read coincident, and a
+/// box united with a block whose top rises from the box's top edge by
+/// 1e-3 to 0.1 over 10 served the two tops merged into one face, its
+/// far edge 0.1 off its plane (PK-1148). Coincidence is decided by
+/// distance over the faces, as plane x plane decides it (PK-1137).
+pub(crate) fn faces_share_surface(
+    brep: &BRep,
+    fa: popkern_core::topology::FaceHandle,
+    fb: popkern_core::topology::FaceHandle,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    let surface = |f| {
+        brep.faces
+            .get(f)
+            .and_then(|d| d.surface.as_ref())
+            .map(|s| &s.geometry)
+    };
+    let (Some(sa), Some(sb)) = (surface(fa), surface(fb)) else {
+        return false;
+    };
+    same_chart(sa, sb, tolerance) && faces_coincide(brep, (fa, sa), (fb, sb), tolerance)
+}
+
+/// [`faces_share_surface`] without the chart condition: the surfaces
+/// coincide analytically and each face's boundary lies within the
+/// linear tolerance of the other's surface.
+pub(crate) fn faces_coincide(
+    brep: &BRep,
+    (fa, sa): (
+        popkern_core::topology::FaceHandle,
+        &popkern_core::geometry::SurfaceGeometry,
+    ),
+    (fb, sb): (
+        popkern_core::topology::FaceHandle,
+        &popkern_core::geometry::SurfaceGeometry,
+    ),
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
+    are_surfaces_coincident_analytic(sa, sb, tolerance)
+        && boundary_on_surface(brep, fa, sb, tolerance)
+        && boundary_on_surface(brep, fb, sa, tolerance)
+}
+
+/// Whether every edge bounding `face` lies within the linear tolerance
+/// of `surface` at [`BOUNDARY_STATIONS`] stations (a vertex where the
+/// edge has no curve). An edge whose stations project nowhere fails.
+fn boundary_on_surface(
+    brep: &BRep,
+    face: popkern_core::topology::FaceHandle,
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    use popkern_core::geometry::curve::CurveEval as _;
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let Some(f) = brep.faces.get(face) else {
+        return false;
+    };
+    let off = |p: &popkern_core::geometry::Point3| -> bool {
+        surface
+            .closest_point(p)
+            .is_none_or(|(u, v)| surface.point_at(u, v).distance_to(p) > tolerance.linear())
+    };
+    for &lh in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
+        let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
+            return false;
+        };
+        let mut he = start;
+        for _ in 0..=brep.half_edges.len() {
+            let Some(h) = brep.half_edges.get(he) else {
+                return false;
+            };
+            let curve = brep.edges.get(h.edge).and_then(|e| e.curve.as_ref());
+            match curve {
+                Some(c) => {
+                    for i in 0..=BOUNDARY_STATIONS {
+                        let t =
+                            c.t_start + (c.t_end - c.t_start) * i as f64 / BOUNDARY_STATIONS as f64;
+                        if off(&c.geometry.point_at(t)) {
+                            return false;
+                        }
+                    }
+                }
+                None => {
+                    if brep.vertices.get(h.origin).is_none_or(|v| off(&v.position)) {
+                        return false;
+                    }
+                }
+            }
+            he = h.next;
+            if he == start {
+                break;
+            }
+        }
+    }
+    true
+}

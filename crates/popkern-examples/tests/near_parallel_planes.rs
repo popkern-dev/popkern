@@ -110,3 +110,59 @@ fn a_cube_united_with_itself_turned_a_hair() {
     let want = 1_000.008_726_493_952_7;
     assert!((v - want).abs() < 1e-9 * want, "volume {v} for {want}");
 }
+
+/// A box `[0, 10]² × [0, 1]` united with a block beside it whose top
+/// rises from the box's top edge by `rise` over its 10, the scene
+/// turned by `place`.
+fn creased_union(rise: f64, place: &Transform3) -> Result<BRep, popkern_bool::BoolError> {
+    let tol = Tolerance::default();
+    let quad = |x0: f64, x1: f64, z0: f64, z1: f64| {
+        vec![
+            Point3::new(x0, 0.0, z0),
+            Point3::new(x1, 0.0, z1),
+            Point3::new(x1, 10.0, z1),
+            Point3::new(x0, 10.0, z0),
+        ]
+    };
+    let solid = |bottom: Vec<Point3>, top: Vec<Point3>| {
+        BRep::polygon_frustum(&bottom, &top, tol)
+            .and_then(|b| b.transform(place))
+            .expect("solid")
+    };
+    let a = solid(quad(0.0, 10.0, 0.0, 0.0), quad(0.0, 10.0, 1.0, 1.0));
+    let b = solid(
+        quad(10.0, 20.0, 0.0, 0.0),
+        quad(10.0, 20.0, 1.0, 1.0 + rise),
+    );
+    boolean(BoolOperation::Union, a, b, tol, None)
+}
+
+/// Two tops meeting at a crease too shallow for the surface comparison
+/// (normals within the angular tolerance, one plane's origin on the
+/// other) stay two faces; they merged into one, its far edge `rise` off
+/// its plane, validate_all failing on a pcurve 10 off (PK-1148). A rise
+/// under the tolerance still merges.
+#[test]
+fn a_shallow_crease_keeps_both_faces() {
+    let tol = Tolerance::default();
+    let turned =
+        Transform3::rotation_around_axis(Point3::new(0.0, 0.0, 0.0), Vec3::new(1.0, 0.7, 0.3), 0.6)
+            .expect("axis");
+    for place in [Transform3::identity(), turned] {
+        for (rise, faces) in [(1e-3, 7), (0.01, 7), (0.1, 7), (1e-8, 6)] {
+            let body = creased_union(rise, &place).expect("union");
+            assert!(
+                body.validate_all().is_empty(),
+                "rise {rise}: {:?}",
+                body.validate_all()
+            );
+            assert_eq!(body.faces.len(), faces, "rise {rise}");
+            let v = popkern_measure::body_volume(&body, &tol).expect("volume");
+            let want = 200.0 + 50.0 * rise;
+            // Exact but for a merged top: within the tolerance times
+            // its area.
+            let bound = 1e-9 * want + tol.linear() * 200.0;
+            assert!((v - want).abs() < bound, "rise {rise}: volume {v}");
+        }
+    }
+}
