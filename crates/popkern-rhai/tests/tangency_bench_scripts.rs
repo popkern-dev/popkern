@@ -192,7 +192,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "wedge_a_millionth_steep",
         Body(0.000_125, 100.000_075_000_025),
-        Target("PK-1131"),
+        Gate,
     ),
 ];
 

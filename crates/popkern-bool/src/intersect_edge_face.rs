@@ -263,8 +263,13 @@ fn detect_edges_vs_faces(
                         // open loop).
                         let eps = tolerance.linear();
                         let (t_lo, t_hi) = (t_range.0.min(t_range.1), t_range.0.max(t_range.1));
-                        if t < t_lo + eps
-                            || t > t_hi - eps
+                        // At an end within the linear tolerance as a
+                        // length: a parameter gap of eps on an edge 10
+                        // long read a hit 5 tolerances from its corner
+                        // as the corner (PK-1131).
+                        let p_hit = edge_curve.point_at(t);
+                        if p_hit.distance_to(&edge_curve.point_at(t_lo)) < eps
+                            || p_hit.distance_to(&edge_curve.point_at(t_hi)) < eps
                             || crate::intersect_edge_face_coincident::touches_at_endpoint(
                                 &edge_curve,
                                 (t_lo, t_hi),
