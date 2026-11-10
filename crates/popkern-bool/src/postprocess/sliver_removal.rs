@@ -80,8 +80,11 @@ pub(crate) fn remove_slivers_in(
     // 2400 in area — was merged into a face 600 away; the served
     // "solid" carried 3 watertightness gaps and edge curves 6.0e2
     // off their wired faces, the same silent-deletion family as the
-    // PK-150 cylinder wall).
-    let absorb_distance = tolerance.linear() * 50.0;
+    // PK-150 cylinder wall). "Contains" is the tolerance band itself:
+    // a band of 50 tolerances absorbed a wedge's end faces, real
+    // material 5e-5 thick at linear 1e-6, into the top face, and the
+    // served edges sat 10 off their faces (PK-1137).
+    let absorb_distance = tolerance.linear();
 
     // Snapshot detected slivers up front. Detection during the pass
     // would race with the topology mutations.

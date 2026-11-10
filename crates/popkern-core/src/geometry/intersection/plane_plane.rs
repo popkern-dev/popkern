@@ -40,25 +40,50 @@ pub(crate) fn try_plane_plane(
 ) -> Result<Vec<SurfaceSurfaceIntersection>, CoreError> {
     // d = n1 × n2
     let d = normal1.cross(&normal2);
-    let d_len_sq = d.length_squared();
 
-    // Check for parallel planes: |d|² < sin²(angular_tol) ≈ angular_tol² for small angles.
-    let sin_tol = tolerance.angular().psin();
-    if d_len_sq < sin_tol * sin_tol {
-        // Planes are parallel (or anti-parallel). Measure the signed distance
-        // from origin2 to plane 1: dist = (origin2 - origin1) · n1.
-        let diff = origin2 - origin1;
-        let dist = diff.dot(&normal1).abs();
-        if dist < tolerance.linear() {
-            // Coincident planes.
-            return Ok(vec![SurfaceSurfaceIntersection::CoincidentRegion {
-                u1_range,
-                v1_range,
-                u2_range,
-                v2_range,
-            }]);
-        }
-        // Parallel but separated — no intersection.
+    // Coincident: within the linear tolerance of each other over both
+    // parameter boxes. Decided by distance, not by the angle between
+    // the normals: planes 1e-4 rad apart through a common line sit
+    // 5e-4 apart across a face 10 wide, yet passed the angular
+    // tolerance (1e-4) as parallel and, sharing a point, as coincident:
+    // a wedge a ten-thousandth steep lost its cut along the top face
+    // and declined, and a millionth steep served EMPTY (PK-1137).
+    let gap_over =
+        |o: Point3, u: Vec3, v: Vec3, ur: (f64, f64), vr: (f64, f64), on: Point3, n: Vec3| {
+            [(ur.0, vr.0), (ur.0, vr.1), (ur.1, vr.0), (ur.1, vr.1)]
+                .iter()
+                .map(|&(a, b)| (o + u * a + v * b - on).dot(&n).abs())
+                .fold(0.0, f64::max)
+        };
+    let bounded = [u1_range, v1_range, u2_range, v2_range]
+        .iter()
+        .all(|r| r.0.is_finite() && r.1.is_finite());
+    let coincident = if bounded {
+        gap_over(
+            origin1, u_axis1, v_axis1, u1_range, v1_range, origin2, normal2,
+        ) < tolerance.linear()
+            && gap_over(
+                origin2, u_axis2, v_axis2, u2_range, v2_range, origin1, normal1,
+            ) < tolerance.linear()
+    } else {
+        // Unbounded boxes: the old reading, parallel within the angular
+        // tolerance and one origin on the other plane.
+        let sin_tol = tolerance.angular().psin();
+        d.length_squared() < sin_tol * sin_tol
+            && (origin2 - origin1).dot(&normal1).abs() < tolerance.linear()
+    };
+    if coincident {
+        return Ok(vec![SurfaceSurfaceIntersection::CoincidentRegion {
+            u1_range,
+            v1_range,
+            u2_range,
+            v2_range,
+        }]);
+    }
+    // Parallel (no direction to a line) and apart: no intersection. A
+    // pair merely near parallel crosses in a line, met in the boxes or
+    // clipped away below.
+    if d.length() <= 1e-12 {
         return Ok(vec![]);
     }
 
@@ -75,7 +100,12 @@ pub(crate) fn try_plane_plane(
     let d1 = normal1.dot(&Vec3::new(origin1.x, origin1.y, origin1.z));
     let d2 = normal2.dot(&Vec3::new(origin2.x, origin2.y, origin2.z));
 
-    let point_on_line = solve_point_on_line(normal1, d1, normal2, d2, direction)?;
+    // A system too near singular to place the line: the planes are so
+    // near parallel that, apart beyond the tolerance somewhere in the
+    // boxes, they are apart everywhere in them.
+    let Ok(point_on_line) = solve_point_on_line(normal1, d1, normal2, d2, direction) else {
+        return Ok(vec![]);
+    };
 
     // Clip the line to the parameter ranges of both planes.
     // We express the line parameter t in terms of the 3D point:
