@@ -183,14 +183,17 @@ pub(crate) fn intersect_curve_with_segment(
 /// the D profile's flat side at both ends (PK-769), and the
 /// single-seed [`intersect_curve_with_segment`] returned the same
 /// crossing for both strip ends. Each local minimum of the sampled
-/// distance seeds a refinement; exact crossings (≤ 1e-6 off the
-/// segment, inside it) compete on `|s − s_hint|`. With no exact
-/// crossing this is [`intersect_curve_with_segment`].
+/// distance seeds a refinement; exact crossings (within `linear` of
+/// the segment, and inside it by more than `linear` from either end:
+/// a crossing nearer an end is that end's vertex) compete on
+/// `|s − s_hint|`. With no exact crossing this is
+/// [`intersect_curve_with_segment`].
 pub(crate) fn intersect_curve_with_segment_nearest(
     curve: &NurbsCurve,
     p0: Point3,
     p1: Point3,
     s_hint: f64,
+    linear: f64,
 ) -> Option<(f64, Point3)> {
     let dir = p1 - p0;
     let len_sq = dir.dot(&dir);
@@ -211,7 +214,10 @@ pub(crate) fn intersect_curve_with_segment_nearest(
     let best = (0..=N)
         .filter(|&i| (i == 0 || d[i] <= d[i - 1]) && (i == N || d[i] <= d[i + 1]))
         .filter_map(|i| refine_crossing(curve, p0, p1, ts[i]))
-        .filter(|&(s, p)| (0.001..0.999).contains(&s) && perp(p) <= 1e-6)
+        .filter(|&(s, p)| {
+            let margin = linear / len_sq.sqrt();
+            s > margin && s < 1.0 - margin && perp(p) <= linear
+        })
         .min_by(|a, b| (a.0 - s_hint).abs().total_cmp(&(b.0 - s_hint).abs()));
     best.or_else(|| intersect_curve_with_segment(curve, p0, p1))
 }

@@ -210,19 +210,34 @@ fn cube_extreme_binonic_promotion_serves_an_honest_exact_ring() {
 // convex-quad loop.
 
 #[test]
-fn cube_tiny_radii_declines_transactionally_on_perp_split_gap() {
-    // Honesty re-pin (PK-140 transactional gate): the previous green
-    // measured a 2-of-3 PARTIAL body — one tiny-radius leg has
-    // always failed the anchor-split stage ("no perpendicular edge found at
-    // v_start") and was silently dropped. Until the tiny-radius perp
-    // split lands, the operation must decline naming the class.
-    let err = try_fillet_cube_result(&[0.001, 0.002, 0.003], true)
-        .expect_err("tiny-radius corner has a known the anchor-split stage gap and must decline");
-    let msg = format!("{err:?}");
-    assert!(
-        msg.contains("no perpendicular edge found"),
-        "decline must name the tiny-radius perp-split class: {}",
-        &msg[..msg.len().min(240)]
+fn cube_tiny_radii_serves_every_leg() {
+    // PK-140 pinned a decline here: one tiny-radius leg always failed
+    // the anchor-split stage ("no perpendicular edge found at
+    // v_start"), and the earlier green had measured a 2-of-3 partial
+    // body. The anchors of radii 0.001..0.003 on unit edges sat at the
+    // anchor insertion's fixed thousandth margin; with the margin the
+    // linear tolerance (PK-1152) every leg anchors and the corner
+    // serves whole: three blends, a cap, every cube face, valid.
+    let result = try_fillet_cube_result(&[0.001, 0.002, 0.003], true)
+        .expect("every tiny-radius leg anchors");
+    let issues = result.brep.validate_all();
+    assert!(issues.is_empty(), "{:?}", issues.first());
+    let cylinders = result
+        .brep
+        .faces
+        .values()
+        .filter(|f| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. })
+            )
+        })
+        .count();
+    assert_eq!(cylinders, 3, "a blend per leg, none dropped");
+    assert_eq!(
+        result.brep.faces.len(),
+        12,
+        "6 cube faces, 3 blends, 3 cap patches"
     );
 }
 
@@ -233,7 +248,7 @@ fn cube_tiny_radii_declines_transactionally_on_perp_split_gap() {
 // serving route is pinned by the active
 // `cube_extreme_*_accepts_vertex_blend_route_instead_of_kp_ring` tests
 // above (route == VertexBlend read from the dispatch record) and by
-// `cube_tiny_radii_declines_transactionally_on_perp_split_gap`.
+// `cube_tiny_radii_serves_every_leg`.
 // Reintroduce a binonic gate for a fixture only when dispatch
 // actually selects the K-P rung for it.
 

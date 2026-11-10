@@ -136,8 +136,12 @@ impl BRep {
                 match (trim_a_contains, trim_b_contains) {
                     (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside)) => {}
                     (Some(TrimContainment::Boundary), Some(TrimContainment::Boundary)) => {
-                        if !faces_share_topology {
-                            boundary_contacts.push(surface_a.point_at(uv_a.x, uv_a.y));
+                        let p = surface_a.point_at(uv_a.x, uv_a.y);
+                        if !faces_share_topology
+                            && self.point_near_face_boundary(face_a, &p, 2.0 * linear_tol)
+                            && self.point_near_face_boundary(face_b, &p, 2.0 * linear_tol)
+                        {
+                            boundary_contacts.push(p);
                         }
                     }
                     _ => return true,
@@ -260,7 +264,10 @@ impl BRep {
             match (trim_a_contains, trim_b_contains) {
                 (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside)) => {}
                 (Some(TrimContainment::Boundary), Some(TrimContainment::Boundary)) => {
-                    if !self.faces_share_vertex_at_point(face_a, face_b, point, linear_tol) {
+                    if !self.faces_share_vertex_at_point(face_a, face_b, point, linear_tol)
+                        && self.point_near_face_boundary(face_a, point, 2.0 * linear_tol)
+                        && self.point_near_face_boundary(face_b, point, 2.0 * linear_tol)
+                    {
                         boundary_contacts.push(*point);
                     }
                 }
