@@ -63,7 +63,9 @@ fn plug_on_host(
         return None;
     }
     let (sa, sb) = (host_data.surface.as_ref()?, face.surface.as_ref()?);
-    if !are_surfaces_coincident_analytic(&sa.geometry, &sb.geometry, tolerance) {
+    if !are_surfaces_coincident_analytic(&sa.geometry, &sb.geometry, tolerance)
+        || !super::merge_rechart::same_chart(&sa.geometry, &sb.geometry, tolerance)
+    {
         return None;
     }
     let edge = brep.half_edges.get(ring_he)?.edge;
