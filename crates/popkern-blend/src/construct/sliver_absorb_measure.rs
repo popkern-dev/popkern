@@ -10,7 +10,7 @@
 //! closed edges (hole rims, closed-fillet contact circles), whose
 //! endpoint span is 0 by construction rather than by collapse.
 
-use popkern_core::topology::{BRep, FaceHandle};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 /// True when the outer loop of `face` walks a topologically CLOSED
 /// edge (half-edge origin == twin origin — a full circle such as a
@@ -118,4 +118,84 @@ pub(super) fn sampled_boundary_area(brep: &BRep, face: FaceHandle) -> f64 {
         area += v1.cross(&v2).length() * 0.5;
     }
     area
+}
+
+/// Every edge of `fh`'s outer loop lies, at its midpoint, within
+/// `tol` of the surface of every face across the loop.
+pub(super) fn edges_on_neighbours(brep: &BRep, fh: FaceHandle, tol: f64) -> bool {
+    use popkern_core::geometry::curve::CurveEval as _;
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let Some(start) = brep
+        .faces
+        .get(fh)
+        .and_then(|f| brep.loops.get(f.outer_loop))
+    else {
+        return false;
+    };
+    let (mut mids, mut across) = (Vec::new(), Vec::new());
+    let mut cursor = start.half_edge;
+    for _ in 0..=brep.half_edges.len() {
+        let Some(he) = brep.half_edges.get(cursor) else {
+            return false;
+        };
+        let Some(c) = brep.edges.get(he.edge).and_then(|e| e.curve.as_ref()) else {
+            return false;
+        };
+        mids.push(c.geometry.point_at(0.5 * (c.t_start + c.t_end)));
+        if let Some(face) = he
+            .mate()
+            .and_then(|m| brep.half_edges.get(m))
+            .and_then(|t| brep.loops.get(t.loop_))
+            .map(|l| l.face)
+            .filter(|&f| f != fh)
+        {
+            across.push(face);
+        }
+        cursor = he.next;
+        if cursor == start.half_edge {
+            break;
+        }
+    }
+    across.iter().all(|&face| {
+        let Some(s) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
+            return false;
+        };
+        mids.iter().all(|p| {
+            s.geometry
+                .closest_point(p)
+                .is_some_and(|(u, v)| s.geometry.point_at(u, v).distance_to(p) <= tol)
+        })
+    })
+}
+
+/// A half-edge on `fh`'s outer loop whose twin lies on another face:
+/// the TWIN half-edge, so the neighbour survives the merge.
+pub(super) fn neighbour_side(brep: &BRep, fh: FaceHandle) -> Option<HalfEdgeHandle> {
+    let face_data = &brep.faces[fh];
+    let start_he = brep.loops[face_data.outer_loop].half_edge;
+    let mut cursor = start_he;
+    let walk_cap = brep.half_edges.len() + 1;
+    for _ in 0..walk_cap {
+        let he = &brep.half_edges[cursor];
+        let Some((twin_h, twin)) = he
+            .mate()
+            .and_then(|t| brep.half_edges.get(t).map(|d| (t, d)))
+        else {
+            cursor = he.next;
+            continue;
+        };
+        let Some(twin_loop) = brep.loops.get(twin.loop_) else {
+            cursor = he.next;
+            continue;
+        };
+        let twin_face = twin_loop.face;
+        if twin_face != fh {
+            return Some(twin_h);
+        }
+        cursor = he.next;
+        if cursor == start_he {
+            break;
+        }
+    }
+    None
 }

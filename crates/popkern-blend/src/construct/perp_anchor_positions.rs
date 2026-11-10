@@ -224,9 +224,6 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                     // on-surface) anchor for non-perpendicular
                     // faces, but downstream the face-trim stage/C/apex stages
                     // currently assume perp-walk positions.
-                    // Promoting to true on-cyl anchors requires
-                    // updating those stages — out of scope for
-                    // this slice (#136 multi-session work).
                     let t_perp = if forward {
                         (radius / edge_len).min(0.999)
                     } else {
@@ -249,6 +246,14 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                     // Perp-walk math stays as the fallback when the
                     // trim doesn't cross this edge (or wasn't
                     // computed).
+                    if let Some(far) = rail_through_far_vertex(
+                        analytic_curve.filter(|_| anchor_on_trim),
+                        if forward { p1 } else { p0 },
+                        _tolerance,
+                    ) {
+                        *slot = Some((far, 2));
+                        return;
+                    }
                     if anchor_on_trim
                         && let Some(curve) = analytic_curve
                         && let Some((s, _)) =
@@ -490,5 +495,5 @@ pub(super) fn compute_perp_anchor_positions_for_face(
 use super::perp_anchor_collinear_chain::collinear_chain_anchor;
 use super::perp_anchor_rail_proximity::{
     BevelReflexEnd, ReflexMitreQuery, bevel_plane_crossing, bevel_reflex_end,
-    closest_point_on_curve, distance_to_curve, reflex_mitre,
+    closest_point_on_curve, distance_to_curve, rail_through_far_vertex, reflex_mitre,
 };
