@@ -14,6 +14,8 @@ mod interior_overlap_samples;
 mod self_intersection_trim_trace;
 #[path = "self_intersection_uv_containment.rs"]
 mod self_intersection_uv_containment;
+#[path = "self_intersection_uv_pole_runs.rs"]
+mod self_intersection_uv_pole_runs;
 #[path = "self_intersection_uv_polygon.rs"]
 mod self_intersection_uv_polygon;
 pub use interior_overlap_samples::InteriorOverlapSample;

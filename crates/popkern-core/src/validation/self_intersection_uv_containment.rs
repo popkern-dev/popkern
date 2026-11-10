@@ -114,7 +114,11 @@ pub(super) fn point_in_uv_loop_periodic(
     strongest
 }
 
-fn point_in_uv_loop(point: UvPoint, loop_polygon: &[UvPoint], tolerance: f64) -> TrimContainment {
+pub(super) fn point_in_uv_loop(
+    point: UvPoint,
+    loop_polygon: &[UvPoint],
+    tolerance: f64,
+) -> TrimContainment {
     if loop_polygon.len() < 3 {
         return TrimContainment::Outside;
     }
