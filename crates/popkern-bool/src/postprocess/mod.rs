@@ -17,6 +17,7 @@ pub mod redundant_edge;
 pub(crate) mod redundant_ring;
 pub mod self_twin_stub;
 pub(crate) mod shell_contact;
+mod shell_contact_edge;
 pub mod slit_retire;
 pub mod slit_seam;
 pub mod sliver_removal;

@@ -1,7 +1,8 @@
 //! Tangency corpus (PK-1124): operands that touch, are tangent, or meet
 //! in curves that cross, under scene placements (turns, a far
-//! translation, millimetre and kilometre scales) and self-turns that
-//! move each operand's seams and poles off and onto its contacts.
+//! translation, millimetre and kilometre scales), self-turns that
+//! move each operand's seams and poles off and onto its contacts, and
+//! for a union or common the operands swapped.
 //!
 //! Every run is judged against the case's closed form for its policy:
 //! a served body must pass `validate_all` and measure its volume and
@@ -22,7 +23,7 @@ use popkern_bool::{BoolError, BoolOptions, NonManifoldPolicy, boolean_with_optio
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use tangency_corpus_support::{Case, Expect, Status, apply_turn, cases, placements};
+use tangency_corpus_support::{Case, Expect, SelfTurn, Status, apply_turn, cases, placements};
 
 /// Relative volume and area error a served body may carry.
 const MEASURE_REL: f64 = 1e-6;
@@ -178,20 +179,30 @@ fn run_case(case: &Case, policy: NonManifoldPolicy, expect: &Expect) -> RowResul
         first_failure: None,
     };
     let base = Tolerance::default();
-    let turns = std::iter::once(None).chain(case.turns.iter().map(Some));
-    let turns: Vec<_> = turns.collect();
+    // Each self-turn, and for a symmetric operation the operands
+    // swapped (the plan's 8.2 probe: the answer cannot depend on which
+    // operand is first).
+    let symmetric = matches!(
+        case.op,
+        popkern_bool::BoolOperation::Union | popkern_bool::BoolOperation::Intersection
+    );
+    let turns: Vec<(Option<&SelfTurn>, bool)> = std::iter::once((None, false))
+        .chain(case.turns.iter().map(|t| (Some(t), false)))
+        .chain(symmetric.then_some((None, true)))
+        .collect();
     let only_place = std::env::var("TANGENCY_CORPUS_PLACE").ok();
     for (pname, place, scale) in placements() {
         if only_place.as_deref().is_some_and(|o| o != pname) {
             continue;
         }
         let tol = base.with_linear(base.linear() * scale.max(1.0));
-        for turn in &turns {
+        for &(turn, swapped) in &turns {
             let pair = (case.build)(base);
             let pair = match turn {
                 Some(t) => apply_turn(pair, t),
                 None => pair,
             };
+            let pair = if swapped { (pair.1, pair.0) } else { pair };
             let a = pair.0.transform(&place).expect("place a");
             let b = pair.1.transform(&place).expect("place b");
             let options = BoolOptions {
@@ -202,7 +213,7 @@ fn run_case(case: &Case, policy: NonManifoldPolicy, expect: &Expect) -> RowResul
                 run_with_watchdog(case.op, a, b, tol, options, expect.clone(), place, scale);
             if std::env::var_os("TANGENCY_CORPUS_TRACE").is_some() {
                 eprintln!(
-                    "  {} {pname} {turn:?}: {:.0} ms {}",
+                    "  {} {pname} {turn:?} swapped {swapped}: {:.0} ms {}",
                     row.name,
                     started.elapsed().as_secs_f64() * 1e3,
                     verdict.as_ref().map_or_else(|e| e.as_str(), |_| "ok")
@@ -216,7 +227,8 @@ fn run_case(case: &Case, policy: NonManifoldPolicy, expect: &Expect) -> RowResul
                 }
                 Err(why) => {
                     if row.first_failure.is_none() {
-                        row.first_failure = Some(format!("{pname} turn {turn:?}: {why}"));
+                        row.first_failure =
+                            Some(format!("{pname} turn {turn:?} swapped {swapped}: {why}"));
                     }
                 }
             }

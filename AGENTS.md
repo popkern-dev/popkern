@@ -403,7 +403,13 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   meeting a vertex twice round one fan is a pinch use, still a
   manifold; the boolean's pinched-vertex test is its client); fillets,
   chamfers at a pinch vertex, shells, offsets and thickens decline
-  `CoreError::PinchUse` before building. Corpora:
+  `CoreError::PinchUse` before building. Separate shells touching are
+  found by alternating projection between face surfaces and by each
+  edge walked against the other face (`postprocess/shell_contact*.rs`:
+  an edge resting on a face is a contact). A shell whose result
+  touches itself (a wall closed exactly) declines
+  `ShellError::SelfContact` (`popkern-shell/src/self_contact.rs`,
+  tangent contacts of faces sharing no vertex). Corpora:
   `popkern-examples/tests/tangency_corpus.rs` (placements, scales,
   self-turns, per policy, closed forms) and
   `popkern-rhai/tests/tangency_bench_scripts.rs`; both ratchet (a gate

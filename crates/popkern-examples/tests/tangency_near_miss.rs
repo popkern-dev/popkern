@@ -31,6 +31,16 @@ const SWEPT: &[(&str, usize, (f64, f64, f64))] = &[
     ("ball-resting-union", 1, (0.0, 0.0, 1.0)),
     ("dimple-touching-edge", 1, (1.0, 0.0, 0.0)),
     ("ice-cream-cone", 1, (0.0, 0.0, 1.0)),
+    (
+        "ball-resting-on-an-edge-union",
+        1,
+        (0.707_106_781_186_547_5, 0.0, 0.707_106_781_186_547_5),
+    ),
+    (
+        "ball-resting-on-an-edge-common",
+        1,
+        (0.707_106_781_186_547_5, 0.0, 0.707_106_781_186_547_5),
+    ),
 ];
 
 /// Offsets in units of the linear tolerance.
@@ -38,11 +48,11 @@ const OFFSETS: [f64; 6] = [0.5, -0.5, 2.0, -2.0, 10.0, -10.0];
 
 /// Runs known to fail, with the follow-up that owns them: they must
 /// keep failing until it lands (a target that starts passing fails the
-/// test, asking for it to be removed here). None now: the dimple moved
-/// half a tolerance past the plate's edge (PK-1141) serves since a
-/// touch at a curve's own end is placed on the end and the clip
-/// re-authors pieces as densely as they need (PK-1139).
-const KNOWN: &[(&str, f64, &str)] = &[];
+/// test, asking for it to be removed here). The ball two tolerances
+/// clear of the cube's edge serves the two shells, but validate_all
+/// reads the plane x sphere circle touching the top edge from outside
+/// as a crossing (PK-1153).
+const KNOWN: &[(&str, f64, &str)] = &[("ball-resting-on-an-edge-union", 2.0, "PK-1153")];
 
 /// Seconds a run may take: a hang, not a slow run.
 const RUN_LIMIT_S: u64 = 300;
