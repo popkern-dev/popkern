@@ -199,3 +199,106 @@ fn coincidence_map_lookup() {
     let orient = map.face_orientation(fa, fb);
     assert_eq!(orient, Some(CoincidenceOrientation::Same));
 }
+
+/// The half of a ball of radius 5 above z = 0, turned by `turn`.
+fn half_ball(turn: &popkern_core::geometry::Transform3) -> BRep {
+    use popkern_core::geometry::Point3;
+    let rect = |z: f64| {
+        vec![
+            Point3::new(-10.0, -10.0, z),
+            Point3::new(10.0, -10.0, z),
+            Point3::new(10.0, 10.0, z),
+            Point3::new(-10.0, 10.0, z),
+        ]
+    };
+    let slab = BRep::polygon_frustum(&rect(0.0), &rect(10.0), tol()).unwrap();
+    let ball = BRep::sphere(5.0, tol()).unwrap();
+    crate::boolean(crate::BoolOperation::Intersection, ball, slab, tol(), None)
+        .unwrap()
+        .transform(turn)
+        .unwrap()
+}
+
+/// Two half balls of one sphere, charted about different axes, meet on
+/// it with their material on one side: their sphere faces are `Same`
+/// however the second is turned. Their outward normals at each face's
+/// own middle are up to a right angle or more apart (PK-1147).
+#[test]
+fn half_balls_of_one_sphere_are_same_oriented_on_it() {
+    use popkern_core::geometry::SurfaceGeometry;
+    use popkern_core::geometry::{Point3, Transform3};
+    let a = half_ball(&Transform3::identity());
+    let bt = BoolTolerance::from(tol());
+    let aabbs_a = compute_face_aabbs(&a);
+    let o = Point3::new(0.0, 0.0, 0.0);
+    for (axis, angle) in [
+        (Vec3::new(0.0, 1.0, 0.0), 0.5 * std::f64::consts::PI),
+        (Vec3::new(1.0, 0.0, 0.0), 0.75 * std::f64::consts::PI),
+        (Vec3::new(1.0, 1.0, 0.0), 2.5),
+        (Vec3::new(0.0, 1.0, 0.0), 0.3),
+    ] {
+        let b = half_ball(&Transform3::rotation_around_axis(o, axis, angle).unwrap());
+        let aabbs_b = compute_face_aabbs(&b);
+        let map = detect_coincidences(&a, &b, &aabbs_a, &aabbs_b, &bt);
+        let sphere = |brep: &BRep, f| {
+            matches!(
+                brep.faces[f].surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Sphere { .. })
+            )
+        };
+        let on_sphere: Vec<_> = map
+            .face_overlaps
+            .iter()
+            .filter(|fo| sphere(&a, fo.face_a) && sphere(&b, fo.face_b))
+            .collect();
+        assert!(
+            !on_sphere.is_empty(),
+            "turn {angle} about {axis:?}: no sphere overlap"
+        );
+        for fo in on_sphere {
+            assert_eq!(
+                fo.orientation,
+                CoincidenceOrientation::Same,
+                "turn {angle} about {axis:?}"
+            );
+        }
+    }
+}
+
+/// The control: a half ball against the slab it was cut from, hollowed
+/// by the ball, meets it on the sphere with material on either side:
+/// `Opposite`.
+#[test]
+fn a_half_ball_and_its_hollow_are_opposite_on_the_sphere() {
+    use popkern_core::geometry::{Point3, SurfaceGeometry, Transform3};
+    let rect = |z: f64| {
+        vec![
+            Point3::new(-10.0, -10.0, z),
+            Point3::new(10.0, -10.0, z),
+            Point3::new(10.0, 10.0, z),
+            Point3::new(-10.0, 10.0, z),
+        ]
+    };
+    let a = half_ball(&Transform3::identity());
+    let slab = BRep::polygon_frustum(&rect(0.0), &rect(10.0), tol()).unwrap();
+    let ball = BRep::sphere(5.0, tol()).unwrap();
+    let b = crate::boolean(crate::BoolOperation::Subtraction, slab, ball, tol(), None).unwrap();
+    let bt = BoolTolerance::from(tol());
+    let (aabbs_a, aabbs_b) = (compute_face_aabbs(&a), compute_face_aabbs(&b));
+    let map = detect_coincidences(&a, &b, &aabbs_a, &aabbs_b, &bt);
+    let sphere = |brep: &BRep, f| {
+        matches!(
+            brep.faces[f].surface.as_ref().map(|s| &s.geometry),
+            Some(SurfaceGeometry::Sphere { .. })
+        )
+    };
+    let on_sphere: Vec<_> = map
+        .face_overlaps
+        .iter()
+        .filter(|fo| sphere(&a, fo.face_a) && sphere(&b, fo.face_b))
+        .collect();
+    assert!(!on_sphere.is_empty(), "no sphere overlap");
+    for fo in on_sphere {
+        assert_eq!(fo.orientation, CoincidenceOrientation::Opposite);
+    }
+}
