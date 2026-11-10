@@ -72,7 +72,7 @@ pub(super) fn more_cases() -> Vec<Case> {
                 turn(1, (16.0, 10.0, 5.0), (0.0, 0.0, 1.0), 0.7),
                 turn(1, (16.0, 10.0, 5.0), (0.0, 0.0, 1.0), PI),
             ],
-            status: Status::Target("PK-1143"),
+            status: Status::Gate,
             general_status: Status::Gate,
         },
     ]
