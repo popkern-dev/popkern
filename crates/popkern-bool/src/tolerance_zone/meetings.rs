@@ -48,6 +48,11 @@ const REFINE_STEPS: usize = 60;
 /// A meeting whose zone covers more than this fraction of the shorter
 /// curve is an overlap of the two, not a meeting.
 const OVERLAP_FRACTION: f64 = 0.05;
+/// Stations of the other record per pruning group.
+const GROUP: usize = 8;
+/// Records leaving a shared end at more than this sine of an angle
+/// (about 6 degrees) cannot meet again within a station of it.
+const END_ANGLE_SIN: f64 = 0.1;
 
 /// Two records meeting inside at least one of them.
 #[derive(Debug, Clone, PartialEq)]
@@ -198,17 +203,53 @@ fn meetings_between(
         let gap = k.abs_diff(m).min(SAMPLES - k.abs_diff(m).min(SAMPLES));
         gap > SAMPLES / 10
     };
-    // Per station of ci, its nearest station of cj.
+    // Per station of ci, its nearest station of cj, among those within
+    // `chord + radius` (only those can start a meeting): cj's stations
+    // in groups whose boxes lie farther are never measured, and a
+    // station with none near reads infinitely far, which decides the
+    // local-minimum tests below as its true distance would (both lie
+    // past the bound every candidate is within).
+    let reach = chord + radius;
+    let groups: Vec<(usize, usize, [f64; 3], [f64; 3])> = (0..pj.len())
+        .step_by(GROUP)
+        .map(|g0| {
+            let g1 = (g0 + GROUP).min(pj.len());
+            let (mut lo, mut hi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
+            for (_, q) in &pj[g0..g1] {
+                for (k, v) in [q.x, q.y, q.z].into_iter().enumerate() {
+                    lo[k] = lo[k].min(v);
+                    hi[k] = hi[k].max(v);
+                }
+            }
+            (g0, g1, lo, hi)
+        })
+        .collect();
     let nearest: Vec<(usize, f64)> = pi
         .iter()
         .enumerate()
         .map(|(k, (_, p))| {
-            pj.iter()
-                .enumerate()
-                .filter(|(m, _)| far(k, *m))
-                .map(|(m, (_, q))| (m, p.distance_to(q)))
-                .min_by(|x, y| x.1.total_cmp(&y.1))
-                .unwrap_or((0, f64::INFINITY))
+            let mut best = (0, f64::INFINITY);
+            for &(g0, g1, lo, hi) in &groups {
+                let gap = [p.x, p.y, p.z]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(a, v)| (lo[a] - v).max(v - hi[a]).max(0.0))
+                    .fold(0.0_f64, |acc, x| acc + x * x)
+                    .sqrt();
+                if gap > reach {
+                    continue;
+                }
+                for (m, (_, q)) in pj.iter().enumerate().take(g1).skip(g0) {
+                    if !far(k, m) {
+                        continue;
+                    }
+                    let d = p.distance_to(q);
+                    if d < best.1 {
+                        best = (m, d);
+                    }
+                }
+            }
+            best
         })
         .collect();
     let mut out: Vec<(f64, f64, f64, f64, f64)> = Vec::new();
@@ -227,12 +268,26 @@ fn meetings_between(
             continue;
         }
         let m = nearest[k].0;
+        // Two records leaving one shared end at an angle meet there
+        // and nowhere else within a station of it: their end meeting is
+        // dropped below (at an end of both), so it is not refined
+        // (records of a box meet so at every corner; refining each cost
+        // a box union most of its time).
+        let last = |pts: &[(f64, Point3)]| pts.len() - 1;
+        if !same && (k == 0 || k == last(pi)) && (m == 0 || m == last(pj)) && d <= radius {
+            let (ti, tj) = (ci.tangent_at(pi[k].0), cj.tangent_at(pj[m].0));
+            let sin = ti.cross(&tj).length() / (ti.length() * tj.length()).max(1e-300);
+            if sin > END_ANGLE_SIN {
+                continue;
+            }
+        }
         let lo = pi[k.saturating_sub(1)].0;
         let hi = pi[(k + 1).min(pi.len() - 1)].0;
         let (wj0, wj1) = (pj[m.saturating_sub(2)].0, pj[(m + 2).min(pj.len() - 1)].0);
+        let seed = std::cell::Cell::new(pj[m].0);
         let dist = |s: f64| {
             let p = ci.point_at(s);
-            let t = closest_point_in_window(cj, &p, wj0, wj1);
+            let t = super::meetings_foot::warm_foot(cj, &p, (wj0, wj1), &seed);
             (p.distance_to(&cj.point_at(t)), t)
         };
         let s = golden_min(lo, hi, |s| dist(s).0);
