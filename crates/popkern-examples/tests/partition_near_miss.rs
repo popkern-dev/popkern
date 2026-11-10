@@ -99,3 +99,60 @@ fn the_tangent_records_fixture_moved_off_its_touch() {
     }
     assert!(problems.is_empty(), "{problems:#?}");
 }
+
+/// The same runs through the partition alone, with no fallback to
+/// pairwise unions: each serves a valid body to the bound. At half a
+/// tolerance of overlap the partition cut the two equators at both of
+/// their crossings, 2.4e-3 apart with the curves within 5e-7 of each
+/// other between, and joined both sides of the sliver (SidesJoined);
+/// turned at two tolerances an edge's curve and trims disagreed by
+/// 5.6e-3. A pass within the tolerance is now one meeting.
+#[test]
+fn the_partition_serves_the_fixture_moved_off_its_touch() {
+    use popkern_bool::partition;
+    let tol = Tolerance::default();
+    let rect = |z: f64| {
+        vec![
+            Point3::new(-10.0, -10.0, z),
+            Point3::new(10.0, -10.0, z),
+            Point3::new(10.0, 10.0, z),
+            Point3::new(-10.0, 10.0, z),
+        ]
+    };
+    let turned = Transform3::rotation_around_axis(
+        Point3::new(0.0, 0.0, 0.0),
+        Vec3::new(1.0, 0.7, 0.3),
+        0.645_771_823_237_9,
+    )
+    .expect("axis");
+    let want = 2000.0 + 36.0 * PI;
+    let area = 1200.0 + 2.0 * 36.0 * PI;
+    let mut problems = Vec::new();
+    for (name, place) in [("identity", Transform3::identity()), ("turned", turned)] {
+        for g in [0.5e-6, -0.5e-6, 2e-6, -2e-6, 1e-5, -1e-5] {
+            let bx = BRep::polygon_frustum(&rect(-5.0), &rect(0.0), tol)
+                .and_then(|b| b.transform(&place))
+                .expect("box");
+            let ball = |x: f64| {
+                BRep::sphere(3.0, tol)
+                    .and_then(|b| b.transform(&Transform3::translation(x, 0.0, 0.0)))
+                    .and_then(|b| b.transform(&place))
+                    .expect("ball")
+            };
+            let (a, b) = (ball(-3.0 - g / 2.0), ball(3.0 + g / 2.0));
+            let served = partition(&[&bx, &a, &b], tol)
+                .and_then(|p| p.select(&SetExpr::Any, &BoolOptions::default()));
+            match served {
+                Ok(body) if body.validate_all().is_empty() => {
+                    let v = popkern_measure::body_volume(&body, &tol).expect("volume");
+                    if (v - want).abs() > 1e-6 * want + g.abs() * area {
+                        problems.push(format!("{name} g={g}: volume {v} for {want}"));
+                    }
+                }
+                Ok(body) => problems.push(format!("{name} g={g}: {:?}", body.validate_all())),
+                Err(e) => problems.push(format!("{name} g={g}: {e:?}")),
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{problems:#?}");
+}
