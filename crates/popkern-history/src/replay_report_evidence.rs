@@ -135,6 +135,20 @@ impl FeatureEvidence {
         }
     }
 
+    /// Record what a boolean resolved under the linear tolerance
+    /// (PK-1131), drained from [`popkern_bool::sub_tolerance`].
+    pub fn record_sub_tolerance(
+        &mut self,
+        events: Vec<popkern_bool::sub_tolerance::SubToleranceFeature>,
+    ) {
+        for event in events {
+            self.warnings.push(KernelWarning {
+                source: RecordSource::Boolean,
+                message: event.to_string(),
+            });
+        }
+    }
+
     /// Evidence for a served pattern: transform warnings, per-instance
     /// geometry fallbacks, suppressed instances, and instances that
     /// could not be produced.

@@ -41,3 +41,13 @@ impl FeatureLog {
         self.entries.extend(other.entries.iter().cloned());
     }
 }
+
+/// What the last boolean resolved under the linear tolerance (PK-1131),
+/// drained from the kernel's registry, as a note for the feature's
+/// summary: empty when nothing was absorbed.
+pub(crate) fn sub_tolerance_note() -> String {
+    popkern_bool::sub_tolerance::take_sub_tolerance_events()
+        .iter()
+        .map(|e| format!("; warning: {e}"))
+        .collect()
+}

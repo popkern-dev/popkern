@@ -38,7 +38,7 @@ const REFINED_SEEDS: usize = 4;
 const ROUNDS: usize = 24;
 
 /// The closest point of `face`'s surface to `p`, with its uv.
-pub(super) fn foot(surface: &SurfaceGeometry, p: &Point3) -> Option<(Point3, (f64, f64))> {
+pub(crate) fn foot(surface: &SurfaceGeometry, p: &Point3) -> Option<(Point3, (f64, f64))> {
     let (u, v) = project_point_to_uv(surface, p)?;
     Some((surface.point_at(u, v), (u, v)))
 }
@@ -47,7 +47,7 @@ fn surface_of(brep: &BRep, face: FaceHandle) -> Option<&SurfaceGeometry> {
     Some(&brep.faces.get(face)?.surface.as_ref()?.geometry)
 }
 
-pub(super) fn within_trim(
+pub(crate) fn within_trim(
     brep: &BRep,
     face: FaceHandle,
     surface: &SurfaceGeometry,

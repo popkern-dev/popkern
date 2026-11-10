@@ -416,7 +416,12 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   face serves their ridge (`popkern-draft/src/ridge.rs`: the strip's
   short edges contracted, the strip merged into a side, the draft run
   again; `DraftWarning::FaceConsumedToRidge`); another consumed face
-  declines `DraftError::FaceConsumed`.
+  declines `DraftError::FaceConsumed`. The linear tolerance is the
+  resolution (PK-1131): an operand thinner than it everywhere has no
+  inside, so the boolean returns the other operand or empty and
+  records a `popkern_bool::sub_tolerance::SubToleranceFeature`
+  (history and Part report it as a warning); tolerance tests on edges
+  are lengths, never parameter fractions.
   `boolean_with_diagnostics` reports where the operands touch
   (`BoolDiagnostics::contacts`, each `OperandContact` classified);
   a declined vertex resolution's candidates, record meetings among
