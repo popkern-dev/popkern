@@ -99,6 +99,12 @@ pub struct ShellOptions {
     /// How globally self-intersecting offset regions are handled.
     /// Defaults to [`TrimPolicy::Trim`] (Minkowski-faithful).
     pub trim_policy: TrimPolicy,
+    /// What a shell whose result touches itself does (a wall closed
+    /// exactly): [`popkern_bool::NonManifoldPolicy::General`] serves
+    /// one general body glued along the contact; otherwise it declines
+    /// [`crate::error::ShellError::SelfContact`] (the default; a solid
+    /// touching itself has no separate bodies to split into).
+    pub non_manifold: popkern_bool::NonManifoldPolicy,
 }
 
 impl Default for ShellOptions {
@@ -107,6 +113,7 @@ impl Default for ShellOptions {
             allow_partial: true,
             join_style: JoinStyle::default(),
             trim_policy: TrimPolicy::default(),
+            non_manifold: popkern_bool::NonManifoldPolicy::Decline,
         }
     }
 }
@@ -134,6 +141,13 @@ impl ShellOptions {
     #[must_use]
     pub fn with_trim_policy(mut self, trim_policy: TrimPolicy) -> Self {
         self.trim_policy = trim_policy;
+        self
+    }
+
+    /// Builder: set what a result touching itself does.
+    #[must_use]
+    pub fn with_non_manifold(mut self, policy: popkern_bool::NonManifoldPolicy) -> Self {
+        self.non_manifold = policy;
         self
     }
 }

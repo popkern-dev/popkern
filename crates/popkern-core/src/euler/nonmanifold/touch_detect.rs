@@ -361,6 +361,22 @@ impl BRep {
                 }
             }
         }
+        // A piece touching itself: two of its faces sharing no vertex
+        // tangent along a ruling or at a point (a shell's wall closed
+        // exactly, its hole's offset cylinder lying on the floor's
+        // offset plane).
+        for faces in &faces_of {
+            for (k, &f) in faces.iter().enumerate() {
+                let fv = self.face_vertices(f);
+                for &g in &faces[k + 1..] {
+                    if boxes[&f].meets(&boxes[&g])
+                        && !self.face_vertices(g).iter().any(|v| fv.contains(v))
+                    {
+                        self.tangent_contacts(f, g, &boxes, &mut plan);
+                    }
+                }
+            }
+        }
         plan
     }
 }

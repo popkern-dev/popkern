@@ -68,11 +68,25 @@ pub(crate) fn shell_impl(
         tracker,
         naming_sink,
     )?;
-    if let Some(c) = first_self_contact(&result.brep, &tolerance) {
-        return Err(crate::ShellError::SelfContact {
-            location: c.location,
-            faces: c.faces,
-        });
+    let Some(c) = first_self_contact(&result.brep, &tolerance) else {
+        return Ok(result);
+    };
+    let declined = crate::ShellError::SelfContact {
+        location: c.location,
+        faces: c.faces,
+    };
+    if options.non_manifold != popkern_bool::NonManifoldPolicy::General {
+        return Err(declined);
+    }
+    // One general body: the contact imprinted on both faces and glued
+    // (`BRep::glue_touching`, a piece touching itself), served only
+    // when the glued body validates and no longer touches itself.
+    let mut result = result;
+    if result.brep.glue_touching().is_err()
+        || !result.brep.validate_all().is_empty()
+        || first_self_contact(&result.brep, &tolerance).is_some()
+    {
+        return Err(declined);
     }
     Ok(result)
 }

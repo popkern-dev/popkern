@@ -409,7 +409,10 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   an edge resting on a face is a contact). A shell whose result
   touches itself (a wall closed exactly) declines
   `ShellError::SelfContact` (`popkern-shell/src/self_contact.rs`,
-  tangent contacts of faces sharing no vertex).
+  tangent contacts of faces sharing no vertex); under
+  `ShellOptions::with_non_manifold(General)` it serves one general
+  body glued along the contact (`glue_touching` also glues a piece
+  touching itself).
   `boolean_with_diagnostics` reports where the operands touch
   (`BoolDiagnostics::contacts`, each `OperandContact` classified);
   a declined vertex resolution's candidates, record meetings among
