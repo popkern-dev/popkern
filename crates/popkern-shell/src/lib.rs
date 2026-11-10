@@ -34,6 +34,8 @@ mod midplane;
 pub mod offset;
 mod parallel_dispatch;
 pub mod preview;
+mod self_contact;
+pub(crate) use self_contact::shell_impl;
 mod shell_naming;
 pub mod side_walls;
 mod skin_ladder;
@@ -175,13 +177,15 @@ pub fn shell_variable(
 /// (PK-276).
 pub(crate) const SHELL_STAGE_COUNT: usize = 8;
 
-/// Shared implementation for [`shell`] and [`shell_variable`].
+/// The shell as built, before the self-contact check
+/// (`self_contact::shell_impl` wraps it for [`shell`] and
+/// [`shell_variable`]).
 ///
 /// `tracker` threads PK-276 interactive control: a cancellation poll
 /// before every stage (`ShellError::Cancelled`, model untouched — the
 /// working skins are private) and one progress event per stage.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn shell_impl(
+pub(crate) fn shell_impl_unchecked(
     brep: &BRep,
     thickness: f64,
     direction: ShellDirection,
