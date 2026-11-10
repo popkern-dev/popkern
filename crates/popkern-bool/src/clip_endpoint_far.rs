@@ -13,6 +13,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::clip_endpoint_refine::{endpoint, trim_boundary_edges};
+use crate::clip_reauthor::reauthor_pinned_run;
 use crate::closed_source_window::{SourceWindow, fold_toward};
 use popkern_core::geometry::surface::SurfaceEval as _;
 
@@ -309,45 +310,68 @@ pub(crate) fn retrim_piece_to_junction(
     ) {
         return true;
     }
-    let (idx_this, idx_other) = if end {
-        (16usize, 0usize)
-    } else {
-        (0usize, 16usize)
-    };
-    let n = 17usize;
-    let params: Vec<f64> = (0..n)
-        .map(|k| n0 + (n1 - n0) * k as f64 / (n - 1) as f64)
-        .collect();
     // The refit keeps the PIECE's endpoints authoritative: the far
     // end stays exactly where it is (it may itself sit on a refined
-    // junction), the near end lands exactly on the junction.
-    let mut pts: Vec<Point3> = params
-        .iter()
-        .map(|&t| window.point_at(&source.curve_3d, t))
-        .collect();
-    pts[idx_this] = j;
-    pts[idx_other] = other_p;
-    let Ok(fitted_3d) = popkern_core::geometry::fitting::fit_curve(&pts, &params, 3, n) else {
+    // junction), the near end lands exactly on the junction. As many
+    // samples as reproduce the source (`clip_reauthor`).
+    let budget = 0.1 * tolerance.linear();
+    let pin_ends = |pts: &mut [Point3], this: Point3, other: Point3| {
+        let (first, last) = if end { (other, this) } else { (this, other) };
+        if let Some(q) = pts.first_mut() {
+            *q = first;
+        }
+        if let Some(q) = pts.last_mut() {
+            *q = last;
+        }
+    };
+    let Some(fitted_3d) = reauthor_pinned_run(
+        (n0, n1),
+        &|ts: &[f64]| {
+            ts.iter()
+                .map(|&t| window.point_at(&source.curve_3d, t))
+                .collect()
+        },
+        &|pts: &mut [Point3]| pin_ends(pts, j, other_p),
+        &|p: &Point3| *p,
+        budget,
+    ) else {
         return false;
     };
     let mut fitted_uv = Vec::with_capacity(2);
     for (src_uv, surf) in [(&source.curve_uv1, surf_a), (&source.curve_uv2, surf_b)] {
-        let mut uv_pts: Vec<Point3> = params.iter().map(|&t| window.point_at(src_uv, t)).collect();
-        window.unwrap_chart_run(&mut uv_pts, surf);
         // Analytic projections return the canonical period branch;
         // pin each end on the branch of the sample it replaces.
         let (pu, pv) = surf.parameter_periodicity();
-        for (idx, q) in [(idx_this, &j), (idx_other, &other_p)] {
-            let near = uv_pts[idx];
-            if let Some((nu, nv)) = project_point_to_uv_near(surf, q, near.x, near.y) {
-                uv_pts[idx] = Point3::new(
+        let on_branch = |q: &Point3, near: Point3| {
+            project_point_to_uv_near(surf, q, near.x, near.y).map_or(near, |(nu, nv)| {
+                Point3::new(
                     fold_toward(nu, near.x, pu),
                     fold_toward(nv, near.y, pv),
                     0.0,
+                )
+            })
+        };
+        let Some(f) = reauthor_pinned_run(
+            (n0, n1),
+            &|ts: &[f64]| {
+                let mut run: Vec<Point3> = ts.iter().map(|&t| window.point_at(src_uv, t)).collect();
+                window.unwrap_chart_run(&mut run, surf);
+                run
+            },
+            &|pts: &mut [Point3]| {
+                let (Some(&first), Some(&last)) = (pts.first(), pts.last()) else {
+                    return;
+                };
+                let (near_this, near_other) = if end { (last, first) } else { (first, last) };
+                pin_ends(
+                    pts,
+                    on_branch(&j, near_this),
+                    on_branch(&other_p, near_other),
                 );
-            }
-        }
-        let Ok(f) = popkern_core::geometry::fitting::fit_curve(&uv_pts, &params, 3, n) else {
+            },
+            &|q: &Point3| surf.point_at(q.x, q.y),
+            budget,
+        ) else {
             return false;
         };
         fitted_uv.push(f);

@@ -125,7 +125,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "midsphere_common",
         Body(965.068_858_214_997_2, 547.466_718_050_061_6),
-        Target("S3"),
+        Gate,
     ),
     (
         "napkin_ring_poles_on_its_rims",

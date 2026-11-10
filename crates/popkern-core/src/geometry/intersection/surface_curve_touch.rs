@@ -112,8 +112,18 @@ fn band_edge(
             break;
         }
     }
-    let Some(mut out) = outside else {
-        return root.0 + dir * inside;
+    let mut out = match outside {
+        Some(out) => out,
+        // A closed window stops at its quarter turn.
+        None if window.closed => return root.0 + dir * inside,
+        // The doubling passed an open window's end inside the band: the
+        // band runs to the end when the end itself is within, returned
+        // exactly (a touch at a curve's own end is found there,
+        // `stationary_point`).
+        None if within(root.0 + dir * reach) => {
+            return if dir > 0.0 { window.hi } else { window.lo };
+        }
+        None => reach,
     };
     for _ in 0..40 {
         let mid = 0.5 * (inside + out);
@@ -217,7 +227,7 @@ fn stationary_point(
         return window.wrap(seed);
     };
     if h_lo * h_hi > 0.0 {
-        return window.wrap(seed);
+        return end_touch(window, (lo, h_lo), (hi, h_hi)).unwrap_or_else(|| window.wrap(seed));
     }
     let (mut lo, mut hi, mut h_lo) = (lo, hi, h_lo);
     for _ in 0..100 {
@@ -231,6 +241,30 @@ fn stationary_point(
         }
     }
     window.wrap(0.5 * (lo + hi))
+}
+
+/// A touch at an open window's end: the band reaches the end and `h`
+/// vanishes there against its value at the band's other edge, without
+/// changing sign between (a ball's seam meridian ends at its pole, and
+/// Viviani's cylinder touches the ball there: the touch is the curve's
+/// own end, where no sign change brackets it, and the golden-section
+/// seed sat 7.5e-5 off; the clip pinned the record's end to it and the
+/// re-authored record missed both surfaces, PK-1139). A transversal
+/// crossing near the end has `h` about its crossing sine at both edges
+/// and keeps its seed. The ratio leaves rounding in `h` (relative to
+/// the relative curvature times the band) far below it.
+fn end_touch(window: Window, (lo, h_lo): (f64, f64), (hi, h_hi): (f64, f64)) -> Option<f64> {
+    const VANISHING: f64 = 1e-2;
+    if window.closed {
+        return None;
+    }
+    if lo == window.lo && h_lo.abs() <= VANISHING * h_hi.abs() {
+        return Some(lo);
+    }
+    if hi == window.hi && h_hi.abs() <= VANISHING * h_lo.abs() {
+        return Some(hi);
+    }
+    None
 }
 
 /// Move each root to its band's closest approach and collapse roots

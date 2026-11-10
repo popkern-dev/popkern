@@ -19,6 +19,7 @@ pub(crate) mod chart_embedding;
 pub(crate) mod chart_graze_filter;
 mod chart_period_axes;
 pub(crate) mod chart_poles;
+pub(crate) mod chart_run_overlay;
 pub(crate) mod chart_seam_axes;
 pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;

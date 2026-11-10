@@ -41,7 +41,7 @@ pub(super) fn more_cases() -> Vec<Case> {
                 turn(1, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), FRAC_PI_2),
                 turn(1, (0.0, 0.0, 0.0), (1.0, 0.0, 0.0), 0.3),
             ],
-            status: Status::Target("PK-1144"),
+            status: Status::Gate,
             general_status: Status::Gate,
         },
         // A conical dimple (rim radius 4 on the plate's top face, apex

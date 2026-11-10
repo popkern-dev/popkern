@@ -119,3 +119,27 @@ fn a_continuous_loop_is_untouched() {
     let down_pc = brep.half_edges[down].pcurve.as_ref().unwrap();
     assert!(down_pc.point_at(down_pc.t_start).x.abs() < 1e-12);
 }
+
+/// A whole sphere's loop runs down one seam side, along the far pole a
+/// period, and up the other: the gap between the sides lies on a pole,
+/// where every u is one point, and normalizing leaves the sides a
+/// period apart (shifting the second onto the first left the loop
+/// enclosing nothing, PK-1139).
+#[test]
+fn seam_sides_meeting_at_a_pole_stay_a_period_apart() {
+    let tol = crate::tolerance::Tolerance::default();
+    let mut ball = crate::topology::BRep::sphere(10.0, tol).expect("sphere");
+    let faces: Vec<_> = ball.faces.keys().collect();
+    ball.normalize_loop_chart_continuity(&faces);
+    let us: Vec<f64> = ball
+        .half_edges
+        .values()
+        .filter_map(|h| h.pcurve.as_ref())
+        .map(|pc| pc.point_at(pc.t_start).x)
+        .collect();
+    assert_eq!(us.len(), 2);
+    assert!(
+        ((us[0] - us[1]).abs() - std::f64::consts::TAU).abs() < 1e-12,
+        "seam sides at u {us:?}"
+    );
+}

@@ -270,7 +270,7 @@ pub fn cases() -> Vec<Case> {
             },
             general: None,
             turns: viviani_turns(),
-            status: Status::Target("S3"),
+            status: Status::Gate,
             general_status: Status::Gate,
         },
         Case {
@@ -283,7 +283,7 @@ pub fn cases() -> Vec<Case> {
             },
             general: None,
             turns: viviani_turns(),
-            status: Status::Target("PK-1140"),
+            status: Status::Gate,
             general_status: Status::Gate,
         },
         Case {
@@ -296,8 +296,8 @@ pub fn cases() -> Vec<Case> {
                 area: 1_428.318_530_717_958_5,
             }),
             turns: viviani_turns(),
-            status: Status::Target("S3"),
-            general_status: Status::Target("PK-1140"),
+            status: Status::Gate,
+            general_status: Status::Gate,
         },
         // A torus (R 5, r 3) cut by the bitangent plane 3x − 4z = 0,
         // keeping z ≤ 3x/4: Villarceau's two circles cross at the two

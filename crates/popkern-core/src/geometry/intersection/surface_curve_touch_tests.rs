@@ -202,3 +202,100 @@ fn a_sub_tolerance_bulge_of_a_nurbs_circle_is_one_touch() {
         }
     }
 }
+
+/// Viviani's cylinder: r = 5 about the line x = 5, y = 0.
+fn viviani_cylinder() -> SurfaceGeometry {
+    SurfaceGeometry::Cylinder {
+        origin: Point3::new(5.0, 0.0, -12.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 5.0,
+    }
+}
+
+/// A ball's seam meridian (radius 10, a rational half circle) from its
+/// pole at (10, 0, 0), where Viviani's cylinder touches the ball: the
+/// touch is the curve's own start, found at t = 0 exactly (PK-1139: no
+/// sign change of C′ · N brackets a root at a window's end, and the
+/// golden-section seed sat 2.6e-6 along, 7.5e-5 off the pole).
+#[test]
+fn a_touch_at_a_curves_own_end_lands_on_the_end() {
+    let w = std::f64::consts::FRAC_1_SQRT_2;
+    let meridian = CurveGeometry::Nurbs(crate::geometry::nurbs_curve::NurbsCurve {
+        degree: 2,
+        knots: vec![0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(10.0, 0.0, 0.0),
+            Point3::new(10.0, -10.0, 0.0),
+            Point3::new(0.0, -10.0, 0.0),
+            Point3::new(-10.0, -10.0, 0.0),
+            Point3::new(-10.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0, w, 1.0, w, 1.0],
+    });
+    let tol = Tolerance::default();
+    for range in [(0.0, 1.0), (0.0, 0.05)] {
+        let found = intersect_surface_curve_dense(
+            &viviani_cylinder(),
+            (0.0, std::f64::consts::TAU),
+            (0.0, 24.0),
+            &meridian,
+            range,
+            &tol,
+        )
+        .expect("intersects");
+        let points: Vec<(f64, Point3)> = found
+            .intersections
+            .iter()
+            .filter_map(|i| match i {
+                SurfaceCurveIntersection::Point { t, point, .. } => Some((*t, *point)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(points.len(), 1, "{range:?}: {points:?}");
+        assert!(
+            points[0].0.abs() < 1e-15,
+            "{range:?}: the touch is the curve's start, t {}",
+            points[0].0
+        );
+        assert!(points[0].1.distance_to(&Point3::new(10.0, 0.0, 0.0)) < 1e-12);
+    }
+}
+
+/// A transversal crossing a ten-millionth of a unit inside a line's
+/// start, at 30 degrees: the band reaches the window's end but the
+/// crossing keeps its place (C′ · N is the crossing's sine at both of
+/// the band's edges, never vanishing at the end).
+#[test]
+fn a_crossing_just_inside_a_window_end_keeps_its_place() {
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let d = Vec3::new(0.75_f64.sqrt(), 0.0, 0.5);
+    let start = Point3::new(0.0, 0.0, 0.0) - d * 1e-7;
+    let line = CurveGeometry::Line {
+        origin: start,
+        direction: d,
+    };
+    let found = intersect_surface_curve_dense(
+        &plane,
+        (-10.0, 10.0),
+        (-10.0, 10.0),
+        &line,
+        (0.0, 5.0),
+        &Tolerance::default(),
+    )
+    .expect("intersects");
+    let t: Vec<f64> = found
+        .intersections
+        .iter()
+        .filter_map(|i| match i {
+            SurfaceCurveIntersection::Point { t, .. } => Some(*t),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(t.len(), 1, "{t:?}");
+    assert!((t[0] - 1e-7).abs() < 1e-12, "the crossing at {:.3e}", t[0]);
+}
