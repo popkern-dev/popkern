@@ -51,24 +51,27 @@ fn a_drafted_pocket_widens_toward_its_opening() {
 /// brep-bench draft/box-top-drafted-away: a 30 × 10 × 10 box's sides
 /// drafted 30° meet at 5√3 < 10, consuming the top. That face's loop
 /// turned inside out and the body served unclosed (1135 for 1154.7);
-/// it now declines naming the face. At 20° they meet at 13.7, above the
-/// top, and the draft serves.
+/// then it declined naming the face; now the long sides meet in a ridge
+/// at height H = b / 2t and the drafted ends meet the ridge (PK-1159):
+/// a hip roof, sections (a − 2zt)(b − 2zt) to H. At 20° they meet at
+/// 13.7, above the top, and the draft serves the frustum.
 #[test]
-fn a_draft_consuming_a_face_declines() {
+fn a_draft_consuming_a_face_serves_the_ridge() {
     let box_drafted = |deg: f64| {
         format!(
             "let m = model();\nlet b = m.profile(xy()).rect(30.0, 10.0).at(15.0, 5.0).sketch(\"box\").extrude(blind(10.0));\nb = b.draft(faces().except(faces().facing(\"z\").or(faces().facing_neg(\"z\"))), {deg:?}, xy());\nm\n"
         )
     };
-    let mut host = ScriptHost::with_options(Default::default());
-    match host.run(&box_drafted(30.0), "draft") {
-        Ok(_) => panic!("served a consumed top"),
-        Err(e) => assert!(e.to_string().contains("consumes face"), "{e}"),
-    }
+    let (a, b) = (30.0, 10.0);
+    let t = (30.0f64.to_radians()).tan();
+    let ridge = b / (2.0 * t);
+    let roof = a * b * ridge - (a + b) * t * ridge * ridge + 4.0 / 3.0 * t * t * ridge.powi(3);
+    let v = volume(&box_drafted(30.0));
+    assert!((v - roof).abs() < 1e-9 * roof, "{v} vs {roof}");
     let v = volume(&box_drafted(20.0));
     // Each side's lean takes a wedge; the four wedges overlap at the
     // corners in pyramids: V = abh − (a + b)h²t + (4/3)h³t².
-    let (a, b, h, t) = (30.0, 10.0, 10.0, (20.0f64.to_radians()).tan());
+    let (h, t) = (10.0, (20.0f64.to_radians()).tan());
     let exact = a * b * h - (a + b) * h * h * t + 4.0 / 3.0 * h * h * h * t * t;
     assert!((v - exact).abs() < 1e-9 * exact, "{v} vs {exact}");
 }

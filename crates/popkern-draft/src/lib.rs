@@ -12,6 +12,7 @@ pub mod modify;
 pub mod neutral;
 pub mod parting;
 pub mod recompute;
+mod ridge;
 pub mod surface;
 pub mod topology;
 pub mod transition;
@@ -96,10 +97,29 @@ pub fn draft_faces(
 
     // Stages 3-4: Apply topology modifications (clone, surface replacement,
     // vertex/edge recomputation, adjacent face handling).
-    let (mut result_brep, warnings) =
+    let (mut result_brep, mut warnings) =
         topology::apply_draft_topology(brep, &drafted_surfaces, options, &tolerance)?;
     if let Some(face) = consumed_face(brep, &result_brep) {
-        return Err(DraftError::FaceConsumed { face });
+        // A strip between two drafted faces that meet across it: the
+        // draft of the body with the strip collapsed to their ridge.
+        let ridged =
+            ridge::collapse_consumed_strip(brep, face, &drafted_surfaces).and_then(|collapsed| {
+                let (body, more) = topology::apply_draft_topology(
+                    &collapsed,
+                    &drafted_surfaces,
+                    options,
+                    &tolerance,
+                )
+                .ok()?;
+                (consumed_face(&collapsed, &body).is_none() && body.validate_all().is_empty())
+                    .then_some((body, more))
+            });
+        let Some((body, more)) = ridged else {
+            return Err(DraftError::FaceConsumed { face });
+        };
+        result_brep = body;
+        warnings = more;
+        warnings.push(DraftWarning::FaceConsumedToRidge { face });
     }
 
     // Assign stable names when tracking is active.

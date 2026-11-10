@@ -412,7 +412,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   tangent contacts of faces sharing no vertex); under
   `ShellOptions::with_non_manifold(General)` it serves one general
   body glued along the contact (`glue_touching` also glues a piece
-  touching itself).
+  touching itself). A draft whose drafted faces meet across a strip
+  face serves their ridge (`popkern-draft/src/ridge.rs`: the strip's
+  short edges contracted, the strip merged into a side, the draft run
+  again; `DraftWarning::FaceConsumedToRidge`); another consumed face
+  declines `DraftError::FaceConsumed`.
   `boolean_with_diagnostics` reports where the operands touch
   (`BoolDiagnostics::contacts`, each `OperandContact` classified);
   a declined vertex resolution's candidates, record meetings among

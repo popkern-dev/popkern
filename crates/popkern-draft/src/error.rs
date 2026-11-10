@@ -60,6 +60,13 @@ pub enum DraftError {
 /// Non-fatal warnings produced during draft operations.
 #[derive(Debug, Clone)]
 pub enum DraftWarning {
+    /// The drafted faces beside a strip face met across it: the strip
+    /// is gone and they meet in a ridge (its short edges' end faces
+    /// meet the ridge at apexes).
+    FaceConsumedToRidge {
+        /// The consumed face of the input.
+        face: FaceHandle,
+    },
     /// Adjacent face mode fell back to transition surface generation.
     AdjacentFallbackToTransition {
         /// The face where fallback occurred.

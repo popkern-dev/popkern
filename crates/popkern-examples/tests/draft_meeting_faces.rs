@@ -5,15 +5,16 @@
 //! the base. Drafted apart or together short of the top, the rib
 //! serves its closed-form volume; drafted until the sides meet before
 //! the top, or exactly at its top edge (where the top face shrinks to
-//! a line), the draft declines naming the consumed top face rather
-//! than serving a body whose top crosses itself.
+//! a line), the top face is consumed and the sides meet in a ridge: a
+//! triangular prism of the meeting height, with a FaceConsumedToRidge
+//! warning naming the face (it declined FaceConsumed before PK-1159).
 
 use popkern_core::geometry::surface::SurfaceEval as _;
 use popkern_core::geometry::{Point3, PortableMath, Transform3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_draft::{
-    AngleVariation, DraftError, DraftOptions, DraftSpec, NeutralReference, draft_faces,
+    AngleVariation, DraftOptions, DraftSpec, DraftWarning, NeutralReference, draft_faces,
 };
 
 fn rib(place: &Transform3, tol: Tolerance) -> BRep {
@@ -82,21 +83,35 @@ fn drafted_faces_serve_apart_and_decline_where_they_meet() {
                 })
                 .collect();
             let served = draft_faces(&body, &specs, &DraftOptions::default(), tol, None);
-            let meets = 10.0 * a.ptan() >= 0.5 - 1e-12;
-            match (served, meets) {
-                (Err(DraftError::FaceConsumed { .. }), true) => {}
-                (Ok(r), false) => {
+            // The sides meet at height 1 / (2 tan a); at or below the
+            // top the rib is a triangular prism of that height, its
+            // top face gone: base, two ends, two sides.
+            let meet = 0.5 / a.ptan();
+            let meets = a > 0.0 && meet <= 10.0 + 1e-12;
+            let (want_volume, want_faces) = if meets {
+                (10.0 * 0.5 * meet, 5)
+            } else {
+                (volume(a), 6)
+            };
+            match served {
+                Ok(r) => {
                     let v = popkern_measure::body_volume(&r.brep, &tol).expect("volume");
+                    let ridge = r
+                        .warnings
+                        .iter()
+                        .any(|w| matches!(w, DraftWarning::FaceConsumedToRidge { .. }));
                     if let Some(first) = r.brep.validate_all().first() {
                         problems.push(format!("{name} a={a}: {first}"));
-                    } else if (v - volume(a)).abs() > 1e-9 * volume(a) {
-                        problems.push(format!("{name} a={a}: volume {v} for {}", volume(a)));
+                    } else if (v - want_volume).abs() > 1e-9 * want_volume {
+                        problems.push(format!("{name} a={a}: volume {v} for {want_volume}"));
+                    } else if r.brep.faces.len() != want_faces || ridge != meets {
+                        problems.push(format!(
+                            "{name} a={a}: {} faces, ridge {ridge}",
+                            r.brep.faces.len()
+                        ));
                     }
                 }
-                (other, _) => problems.push(format!(
-                    "{name} a={a}: {:?}",
-                    other.map(|r| r.brep.faces.len())
-                )),
+                Err(e) => problems.push(format!("{name} a={a}: declined {e}")),
             }
         }
     }
