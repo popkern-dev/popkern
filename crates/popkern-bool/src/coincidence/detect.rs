@@ -4,6 +4,7 @@
 //! Uses analytic O(1) comparison for same-type surfaces and sample-based
 //! detection as fallback.
 
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::geometry::surface::SurfaceEval;
@@ -237,8 +238,14 @@ fn detect_face_coincidences(
                 None => continue,
             };
 
-            // Tier A: analytic O(1) comparison for same-type surfaces
-            if are_surfaces_coincident_analytic(surf_a, surf_b, &tol.core) {
+            // Tier A: analytic O(1) comparison for same-type surfaces;
+            // for planes, decided over the faces too (planes within the
+            // angular tolerance through a common line part beyond the
+            // linear tolerance across a face: a wedge a millionth steep
+            // read its cut plane as the cube's top, PK-1131).
+            if are_surfaces_coincident_analytic(surf_a, surf_b, &tol.core)
+                && planes_meet_over_faces((a, *face_a, surf_a), (b, *face_b, surf_b), &tol.core)
+            {
                 let orientation =
                     classify_face_orientation(a, *face_a, aabbs_a, b, *face_b, aabbs_b, &tol.core);
                 if popkern_core::trace::trace_enabled("boolean") {
@@ -257,8 +264,18 @@ fn detect_face_coincidences(
                 continue;
             }
 
-            // Tier B: sample-based detection for near-coincident surfaces
-            if is_near_coincident(surf_a, a, *face_a, surf_b, b, *face_b, tol) {
+            // Tier B: sample-based detection for near-coincident surfaces.
+            // Two planes are decided exactly above, over their faces: the
+            // samples (ten tolerances, three in four) would read planes
+            // apart by up to ten tolerances across a face as one.
+            let both_planes = matches!(
+                (surf_a, surf_b),
+                (
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. },
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+                )
+            );
+            if !both_planes && is_near_coincident(surf_a, a, *face_a, surf_b, b, *face_b, tol) {
                 let orientation =
                     classify_face_orientation(a, *face_a, aabbs_a, b, *face_b, aabbs_b, &tol.core);
                 if popkern_core::trace::trace_enabled("boolean") {
@@ -352,4 +369,48 @@ fn compute_overlap_center(
     let sum_y: f64 = all.iter().map(|p| p.y).sum();
     let sum_z: f64 = all.iter().map(|p| p.z).sum();
     popkern_core::geometry::Point3::new(sum_x / n, sum_y / n, sum_z / n)
+}
+
+/// Boundary samples per edge when two planar faces' coincidence is
+/// decided over their extent.
+const PLANE_SPREAD_SAMPLES: usize = 5;
+
+/// For two planar faces, whether each one's boundary lies within the
+/// linear tolerance of the other's plane; other surface pairs pass.
+fn planes_meet_over_faces(
+    (a, fa, sa): (
+        &BRep,
+        FaceHandle,
+        &popkern_core::geometry::surface::SurfaceGeometry,
+    ),
+    (b, fb, sb): (
+        &BRep,
+        FaceHandle,
+        &popkern_core::geometry::surface::SurfaceGeometry,
+    ),
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let (
+        SurfaceGeometry::Plane {
+            origin: oa,
+            normal: na,
+            ..
+        },
+        SurfaceGeometry::Plane {
+            origin: ob,
+            normal: nb,
+            ..
+        },
+    ) = (sa, sb)
+    else {
+        return true;
+    };
+    let within = |brep: &BRep, face: FaceHandle, o: &Point3, n: &popkern_core::geometry::Vec3| {
+        let n = n.normalized().unwrap_or(*n);
+        brep.face_outer_loop_sample_positions(face, PLANE_SPREAD_SAMPLES)
+            .iter()
+            .all(|p| (*p - *o).dot(&n).abs() <= tolerance.linear())
+    };
+    within(a, fa, ob, nb) && within(b, fb, oa, na)
 }

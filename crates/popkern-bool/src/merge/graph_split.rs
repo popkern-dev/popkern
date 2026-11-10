@@ -96,8 +96,12 @@ pub(super) fn point_on_segment(
     let to_point = *point - *p0;
     let t = to_point.dot(&seg) / seg_len_sq;
 
-    // Exclude endpoints (those should match as vertices).
-    if t <= tolerance || t >= 1.0 - tolerance {
+    // Exclude endpoints (those should match as vertices): within the
+    // tolerance of one as a length along the segment, not as a
+    // fraction of it (a node 5 tolerances from the end of an edge 10
+    // long lay inside 1 - tolerance and went unsplit, PK-1131).
+    let len = seg_len_sq.sqrt();
+    if t * len <= tolerance || (1.0 - t) * len <= tolerance {
         return None;
     }
 
