@@ -80,27 +80,30 @@ impl BRep {
             let (p0, p1) = (c.geometry.point_at(c.t_start), c.geometry.point_at(c.t_end));
             let m = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
             for faces in by_piece(&work) {
-                let Some(f) = faces
+                // Every face of the piece the curve lies across: one
+                // for a piece touching another, two for a piece
+                // touching itself.
+                let across: Vec<FaceHandle> = faces
                     .iter()
                     .copied()
-                    .find(|&f| work.face_interior_holds(f, &m, tol))
-                else {
-                    continue;
-                };
-                let end = |b: &BRep, p: Point3| -> Result<VertexHandle, EulerError> {
-                    b.face_vertices(f)
-                        .into_iter()
-                        .find(|&v| b.vertices[v].position.distance_to(&p) <= tol)
-                        .ok_or_else(|| EulerError::NotImprintable {
-                            face: f,
-                            reason: format!(
-                                "no vertex of the face at the contact curve's end {p:?}"
-                            ),
-                        })
-                };
-                let (v0, v1) = (end(&work, p0)?, end(&work, p1)?);
-                work.imprint_edge(f, v0, v1, c.clone())?;
-                out.imprinted += 1;
+                    .filter(|&f| work.face_interior_holds(f, &m, tol))
+                    .collect();
+                for f in across {
+                    let end = |b: &BRep, p: Point3| -> Result<VertexHandle, EulerError> {
+                        b.face_vertices(f)
+                            .into_iter()
+                            .find(|&v| b.vertices[v].position.distance_to(&p) <= tol)
+                            .ok_or_else(|| EulerError::NotImprintable {
+                                face: f,
+                                reason: format!(
+                                    "no vertex of the face at the contact curve's end {p:?}"
+                                ),
+                            })
+                    };
+                    let (v0, v1) = (end(&work, p0)?, end(&work, p1)?);
+                    work.imprint_edge(f, v0, v1, c.clone())?;
+                    out.imprinted += 1;
+                }
             }
         }
         out.glued = work.glue_coincident()?;
@@ -111,9 +114,12 @@ impl BRep {
         Ok(out)
     }
 
-    /// Give the piece of faces `faces` a vertex at `p` when it touches
-    /// `p`: its vertex there, else its edge split there, else a vertex
-    /// loop of its face.
+    /// Give the piece of faces `faces` a vertex at `p` wherever it
+    /// touches `p`: each of its edges holding `p` inside is split there,
+    /// and each face holding it inside, with no vertex there, gets a
+    /// vertex loop. A piece touching another holds `p` once (a vertex,
+    /// an edge or a face); a piece touching itself holds it on two of
+    /// its edges or faces, and each gets the vertex the glue joins.
     fn vertex_for(
         &mut self,
         faces: &[FaceHandle],
@@ -121,19 +127,14 @@ impl BRep {
         tol: f64,
         out: &mut TouchGlue,
     ) -> Result<(), EulerError> {
-        let has_vertex = faces.iter().any(|&f| {
-            self.face_vertices(f)
-                .into_iter()
-                .any(|v| self.vertices[v].position.distance_to(&p) <= tol)
-        });
-        if has_vertex {
-            return Ok(());
-        }
-        let edge = faces
+        let mut edges: Vec<_> = faces
             .iter()
             .flat_map(|&f| self.face_edges(f))
-            .find(|&e| self.edge_interior_holds(e, &p, tol));
-        if let Some(edge) = edge {
+            .filter(|&e| self.edge_interior_holds(e, &p, tol))
+            .collect();
+        edges.sort_unstable();
+        edges.dedup();
+        for edge in edges {
             let tolerance = self.tolerance;
             self.split_edge_at_point(edge, p, &tolerance)
                 .map_err(|e| EulerError::EdgeSplit {
@@ -141,12 +142,20 @@ impl BRep {
                     reason: e.to_string(),
                 })?;
             out.edges_split += 1;
-            return Ok(());
         }
-        if let Some(&f) = faces
+        let holding: Vec<FaceHandle> = faces
             .iter()
-            .find(|&&f| self.face_interior_holds(f, &p, tol))
-        {
+            .copied()
+            .filter(|&f| self.faces.contains_key(f))
+            .filter(|&f| {
+                self.face_interior_holds(f, &p, tol)
+                    && !self
+                        .face_vertices(f)
+                        .into_iter()
+                        .any(|v| self.vertices[v].position.distance_to(&p) <= tol)
+            })
+            .collect();
+        for f in holding {
             self.make_vertex_loop(f, p)?;
             out.vertex_loops += 1;
         }

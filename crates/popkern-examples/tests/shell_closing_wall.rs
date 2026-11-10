@@ -8,11 +8,14 @@
 //! two lines, the cavity split in two with the material meeting itself
 //! there. That body touches itself with no shared topology; it was
 //! served as a plain solid, validate_all clean. It now declines with
-//! the contact (`ShellError::SelfContact`), at identity and turned.
+//! the contact (`ShellError::SelfContact`), at identity and turned;
+//! under `NonManifoldPolicy::General` it serves one general body glued
+//! along the two lines.
 
+use popkern_bool::NonManifoldPolicy;
 use popkern_core::geometry::{Point3, Transform3, Vec3};
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, BodyKind};
 use popkern_shell::{ShellDirection, ShellError, ShellOptions, shell};
 use std::f64::consts::{FRAC_PI_2, PI};
 
@@ -52,18 +55,19 @@ fn a_shell_whose_wall_closes_exactly_declines_with_the_contact() {
     let mut problems = Vec::new();
     for (name, place) in [("identity", Transform3::identity()), ("turned", turned)] {
         let input = holed_box(&place, tol);
-        let run = |t: f64| {
+        let run_with = |t: f64, options: &ShellOptions| {
             shell(
                 &input,
                 t,
                 ShellDirection::Inward,
                 &[],
                 &[],
-                &ShellOptions::default(),
+                options,
                 tol,
                 None,
             )
         };
+        let run = |t: f64| run_with(t, &ShellOptions::default());
         match run(0.9) {
             Ok(r) => {
                 let v = popkern_measure::body_volume(&r.brep, &tol).expect("volume");
@@ -86,6 +90,27 @@ fn a_shell_whose_wall_closes_exactly_declines_with_the_contact() {
                 "{name} 1.0: {:?}",
                 other.map(|r| r.brep.faces.len())
             )),
+        }
+        // Under the general policy: one general body glued along the
+        // two contact lines, valid, its material the closed form.
+        let general = ShellOptions::default().with_non_manifold(NonManifoldPolicy::General);
+        match run_with(1.0, &general) {
+            Ok(r) => {
+                if let Some(first) = r.brep.validate_all().first() {
+                    problems.push(format!("{name} 1.0 general: {first}"));
+                }
+                if r.brep.body_kind() != BodyKind::General {
+                    problems.push(format!("{name} 1.0 general: {:?}", r.brep.body_kind()));
+                }
+                let v = popkern_measure::body_volume(&r.brep, &tol).expect("volume");
+                if (v - shelled(1.0)).abs() > 1e-9 * shelled(1.0) {
+                    problems.push(format!(
+                        "{name} 1.0 general: volume {v} for {}",
+                        shelled(1.0)
+                    ));
+                }
+            }
+            Err(e) => problems.push(format!("{name} 1.0 general: declined {e}")),
         }
     }
     assert!(problems.is_empty(), "{problems:#?}");
