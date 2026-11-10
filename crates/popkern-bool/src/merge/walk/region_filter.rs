@@ -105,9 +105,14 @@ pub(super) fn drop_hole_interior_record_pieces(
     }
     let periodic = u_period.is_some();
     let mut polygons: Vec<Vec<(f64, f64)>> = Vec::new();
+    // The holes the exact rim test may consult (non-periodic charts).
+    let mut exact_holes: Vec<popkern_core::topology::LoopHandle> = Vec::new();
     for contour in &contours {
         if !contour_box_holds_any(brep, contour, &mids, periodic, tolerance) {
             continue;
+        }
+        if !periodic && let Some(h) = contour.first().and_then(|(he, _)| brep.half_edges.get(*he)) {
+            exact_holes.push(h.loop_);
         }
         let mut polygon = Vec::new();
         for (_he, pcurve) in contour {
@@ -180,6 +185,22 @@ pub(super) fn drop_hole_interior_record_pieces(
         }
         false
     };
+    // Within the band the polygon cannot say, and its chords sit up to
+    // their sagitta inside a curved rim. On a non-periodic chart the
+    // rim is decided exactly (`loop_side_exact`): a piece whose
+    // midpoint lies inside a
+    // hole beyond the linear tolerance of its rim is off the face
+    // however near the rim it runs (PK-1149: two balls overlapping by
+    // two tolerances on a box's top face, the second ball's equator
+    // crossing the first's hole rim at 1.6e-3 rad, its arc in the hole
+    // 2e-6 deep; kept, both its sides registered to the top face and
+    // the union declined, SidesJoined).
+    let in_hole_beyond_rim = |u: f64, v: f64| -> bool {
+        exact_holes.iter().any(|&lh| {
+            crate::classify_uv_loops::loop_side_exact(brep, lh, u, v)
+                == Some(crate::classify_uv_loops::LoopSide::Inside)
+        })
+    };
     let mut kept: Vec<usize> = Vec::with_capacity(he_indices.len());
     let mut dropped = 0usize;
     for &idx in he_indices {
@@ -198,7 +219,7 @@ pub(super) fn drop_hole_interior_record_pieces(
             kept.push(idx);
             continue;
         };
-        if strictly_in_hole(u, v) {
+        if strictly_in_hole(u, v) || in_hole_beyond_rim(u, v) {
             dropped += 1;
             if popkern_core::trace::trace_enabled("fragment-walk") {
                 eprintln!(

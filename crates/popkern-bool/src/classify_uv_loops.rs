@@ -141,6 +141,30 @@ pub(crate) fn point_in_loop_exact(
     u: f64,
     v: f64,
 ) -> Option<bool> {
+    loop_side_exact(brep, lh, u, v).map(|side| side != LoopSide::Outside)
+}
+
+/// Where a chart point lies against a loop's rim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopSide {
+    /// Inside the loop, beyond the linear tolerance of a curved rim.
+    Inside,
+    /// Within the linear tolerance of a curved rim (decided exactly
+    /// near curved pcurves; a ring of linear pieces reads only inside
+    /// or outside).
+    OnRim,
+    /// Outside the loop.
+    Outside,
+}
+
+/// [`point_in_loop_exact`] with the rim told apart: a point within the
+/// linear tolerance of a curved rim is [`LoopSide::OnRim`].
+pub(crate) fn loop_side_exact(
+    brep: &BRep,
+    lh: popkern_core::topology::LoopHandle,
+    u: f64,
+    v: f64,
+) -> Option<LoopSide> {
     let start = brep.loops.get(lh)?.half_edge;
     if !brep.half_edges.contains_key(start) {
         return None;
@@ -226,9 +250,13 @@ pub(crate) fn point_in_loop_exact(
         })
         .count();
     let polygon_inside = crossings % 2 == 1;
-    if sagitta <= 0.0 {
-        return Some(polygon_inside); // linear ring: exact
-    }
+    let side = |inside: bool| {
+        if inside {
+            LoopSide::Inside
+        } else {
+            LoopSide::Outside
+        }
+    };
     // Nearest segment; outside the sampling band the polygon decides.
     let tol = brep.tolerance.linear();
     let band = 2.0 * sagitta + tol;
@@ -244,10 +272,17 @@ pub(crate) fn point_in_loop_exact(
         }
     }
     if near_d >= band {
-        return Some(polygon_inside);
+        return Some(side(polygon_inside));
     }
     let Some((pc, ta, tb)) = chained[near].curve else {
-        return Some(polygon_inside); // nearest is an exact linear piece
+        // The nearest piece is exact: within the tolerance of it is on
+        // the rim (a straight hole rim's own record pieces, whose
+        // midpoints the crossing count puts either side by rounding).
+        return Some(if near_d <= tol {
+            LoopSide::OnRim
+        } else {
+            side(polygon_inside)
+        });
     };
     // Exact foot on the pcurve over the segment's window widened by one
     // segment each side (ternary search on a locally unimodal distance).
@@ -269,7 +304,7 @@ pub(crate) fn point_in_loop_exact(
     }
     let tf = 0.5 * (lo + hi);
     if dist(tf) <= tol {
-        return Some(true); // on the rim within tolerance: abstain (keep)
+        return Some(LoopSide::OnRim);
     }
     // Side of the hit against the ring's traversal: the segment's
     // traversal direction (ring order) and the ring's winding.
@@ -283,7 +318,7 @@ pub(crate) fn point_in_loop_exact(
             x0 * y1 - x1 * y0
         })
         .sum();
-    Some(left == (area2 > 0.0))
+    Some(side(left == (area2 > 0.0)))
 }
 
 /// Exact REGION containment on a non-periodic chart: inside the outer
@@ -448,3 +483,7 @@ pub(crate) fn hit_in_periodic_hole(
         _ => false,
     }
 }
+
+#[cfg(test)]
+#[path = "classify_uv_loops_tests.rs"]
+mod tests;
