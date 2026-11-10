@@ -4,7 +4,6 @@
 //! surface with the same orientation. These edges are geometrically
 //! unnecessary and can be removed to simplify the result.
 
-use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
@@ -89,9 +88,8 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
         // Same surface in one chart (analytic comparison only; the
         // locus whatever its normal sign, a curved one about the same
         // axis: `same_chart`)
-        if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance)
-            || !super::merge_rechart::same_chart(&surf_a.geometry, &surf_b.geometry, tolerance)
-        {
+        // over both faces' extent (`faces_share_surface`, PK-1148)
+        if !super::merge_rechart::faces_share_surface(brep, face_a, face_b, tolerance) {
             return Some(false);
         }
 

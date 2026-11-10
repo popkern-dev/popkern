@@ -8,7 +8,6 @@
 //! Sphere, Torus) where co-surfacial detection is exact. NURBS faces
 //! are not merged because approximate comparison is unreliable.
 
-use popkern_core::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -160,10 +159,13 @@ fn find_merge_candidates_in(
                 };
 
                 // Same surface, same orientation
+                // Over both faces' extent, not the surfaces alone
+                // (PK-1148: `faces_coincide`).
                 if surf.orientation == neighbor_surf.orientation
-                    && are_surfaces_coincident_analytic(
-                        &surf.geometry,
-                        &neighbor_surf.geometry,
+                    && super::merge_rechart::faces_coincide(
+                        brep,
+                        (fh, &surf.geometry),
+                        (neighbor, &neighbor_surf.geometry),
                         tolerance,
                     )
                 {
