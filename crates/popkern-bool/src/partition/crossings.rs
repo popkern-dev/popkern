@@ -81,10 +81,16 @@ pub(super) fn split_at_record_crossings(
                         graph.nodes[graph.half_edges[he.twin].origin].position,
                     ]
                 };
-                for hit in found.intersections {
-                    let CurveIntersection::Point { point, t1, t2 } = hit else {
-                        continue;
-                    };
+                let hits: Vec<(f64, f64, popkern_core::geometry::Point3)> = found
+                    .intersections
+                    .iter()
+                    .filter_map(|hit| match *hit {
+                        CurveIntersection::Point { point, t1, t2 } => Some((t1, t2, point)),
+                        _ => None,
+                    })
+                    .collect();
+                let hits = one_per_pass((c1, r1), (c2, r2), hits, tolerance.linear());
+                for (t1, t2, point) in hits {
                     let at_end = ends(k1)
                         .iter()
                         .chain(ends(k2).iter())
@@ -136,4 +142,94 @@ pub(super) fn split_at_record_crossings(
     let records: Vec<(usize, &[(f64, popkern_core::geometry::Point3)])> =
         on_record.iter().map(|(&k, v)| (k, &v[..])).collect();
     crate::merge::graph_paves::split_records_at_paves(graph, &records, snap)
+}
+
+/// The crossings of curves `c1` (over `r1`) and `c2` (over `r2`), as
+/// `(t1, t2, point)`, with every pair joined by a stretch of `c1` lying
+/// within `linear` of `c2` taken as ONE meeting at the stretch's
+/// middle: the curves pass within the tolerance there, so the two
+/// crossings are one place (plan §5.4: a pass within ε is one vertex).
+/// Two balls overlapping by half a tolerance on a box's top face have
+/// equators crossing twice 2.4e-3 apart, at most 5e-7 apart between;
+/// cut at both, the records bounded a lens the partition joined both
+/// sides of (SidesJoined), and it fell back. A closed `c1` is also
+/// tried the other way round its seam.
+fn one_per_pass(
+    (c1, r1): (&CurveOnEdge, (f64, f64)),
+    (c2, r2): (&CurveOnEdge, (f64, f64)),
+    mut hits: Vec<(f64, f64, popkern_core::geometry::Point3)>,
+    linear: f64,
+) -> Vec<(f64, f64, popkern_core::geometry::Point3)> {
+    use popkern_core::geometry::curve::{CurveEval, closest_point_in_window};
+    const STATIONS: usize = 16;
+    let g1: &dyn CurveEval = &c1.geometry;
+    let g2: &dyn CurveEval = &c2.geometry;
+    let period = r1.1 - r1.0;
+    let closed = g1.point_at(r1.0).distance_to(&g1.point_at(r1.1)) <= linear;
+    // c1 at parameter `t` folded into its window (a closed curve wraps).
+    let at = |t: f64| {
+        let t = if closed && t > r1.1 { t - period } else { t };
+        g1.point_at(t.clamp(r1.0, r1.1))
+    };
+    let foot = |p: &popkern_core::geometry::Point3| {
+        let t = closest_point_in_window(g2, p, r2.0, r2.1);
+        (t, g2.point_at(t))
+    };
+    // The stretch of c1 from `a` up to `b` (b > a) within `linear` of c2.
+    let within = |a: f64, b: f64| {
+        (1..STATIONS).all(|k| {
+            let p = at(a + (b - a) * k as f64 / STATIONS as f64);
+            foot(&p).1.distance_to(&p) <= linear
+        })
+    };
+    hits.sort_by(|x, y| x.0.total_cmp(&y.0));
+    if hits.len() < 2 {
+        return hits;
+    }
+    // Clusters of consecutive crossings, each as its first and last
+    // parameter on c1 (the last may pass the window's end on a closed
+    // c1) and the hits it holds.
+    let mut clusters: Vec<(f64, f64, usize)> = Vec::new();
+    for h in &hits {
+        match clusters.last_mut() {
+            Some(c) if within(c.1, h.0) => {
+                c.1 = h.0;
+                c.2 += 1;
+            }
+            _ => clusters.push((h.0, h.0, 1)),
+        }
+    }
+    if closed && clusters.len() > 1 {
+        let (first, last) = (clusters[0], clusters[clusters.len() - 1]);
+        if within(last.1, first.0 + period) {
+            clusters[0] = (last.0, first.1 + period, first.2 + last.2);
+            clusters.pop();
+        }
+    }
+    let mut out = Vec::with_capacity(clusters.len());
+    let mut k = 0;
+    for &(a, b, n) in &clusters {
+        if n == 1 {
+            // A lone crossing keeps its exact point.
+            if let Some(h) = hits.iter().find(|h| h.0 == a) {
+                out.push(*h);
+            }
+            k += 1;
+            continue;
+        }
+        // The middle of the stretch, between the curves.
+        let tm = 0.5 * (a + b);
+        let p = at(tm);
+        let (t2, q) = foot(&p);
+        let t1 = if closed && tm > r1.1 { tm - period } else { tm };
+        let mid = popkern_core::geometry::Point3::new(
+            0.5 * (p.x + q.x),
+            0.5 * (p.y + q.y),
+            0.5 * (p.z + q.z),
+        );
+        out.push((t1, t2, mid));
+        k += n;
+    }
+    debug_assert!(k == hits.len());
+    out
 }
