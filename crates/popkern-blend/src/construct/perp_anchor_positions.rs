@@ -258,9 +258,9 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                         && let Some(curve) = analytic_curve
                         && let Some((s, _)) =
                             crate::construct::cyl_plane_intersect::intersect_curve_with_segment_nearest(
-                                curve, p0, p1, t_perp,
+                                curve, p0, p1, t_perp, _tolerance.linear(),
                             )
-                        && (0.001..0.999).contains(&s)
+                        && (s * edge_len).min((1.0 - s) * edge_len) > _tolerance.linear()
                     {
                         if trace {
                             let delta = (s - t_perp).abs();

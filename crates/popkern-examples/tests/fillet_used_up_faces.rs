@@ -9,7 +9,8 @@
 //! width: the full round and the slot kept their front face and floor
 //! as faces of two coincident edges, and the plate filleted at its
 //! thickness stopped its rail a thousandth of the edge short, leaving
-//! a strip 2e-3 wide (the anchor walk kept to the open edge).
+//! a strip 2e-3 wide (the anchor walk kept to the open edge). Short of
+//! the thickness, the strip left is as wide as the shortfall.
 
 use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::curve::CurveEval as _;
@@ -106,7 +107,7 @@ fn a_fillet_using_a_face_up_removes_it() {
     for (name, place) in placements() {
         // The full round: the front face goes, the two blends (one
         // cylinder) remain beside top, bottom, back and the ends.
-        let cases: [Case; 4] = [
+        let cases: [Case; 7] = [
             (
                 "full round",
                 &plate,
@@ -129,6 +130,32 @@ fn a_fillet_using_a_face_up_removes_it() {
                 &front[1..],
                 2.0 + 0.5e-6,
                 (200.0 - corner(2.0 + 0.5e-6), 6),
+            ),
+            // Short of its thickness by a thousandth, a hundred and
+            // ten tolerances: the front face stays as a strip that
+            // wide (PK-1152: it was 2e-3 wide in each; at ten
+            // tolerances turned, the validator's boundary band read
+            // the blend against the bottom face across it, PK-1154).
+            (
+                "a thousandth short of its thickness",
+                &plate,
+                &front[1..],
+                1.999,
+                (200.0 - corner(1.999), 7),
+            ),
+            (
+                "a hundred tolerances short of its thickness",
+                &plate,
+                &front[1..],
+                2.0 - 1.0e-4,
+                (200.0 - corner(2.0 - 1.0e-4), 7),
+            ),
+            (
+                "ten tolerances short of its thickness",
+                &plate,
+                &front[1..],
+                2.0 - 1.0e-5,
+                (200.0 - corner(2.0 - 1.0e-5), 7),
             ),
             // The slot's floor goes; its two blends (one cylinder)
             // join the walls.
