@@ -9,10 +9,13 @@
 //! fails `validate_all`, a slicer opens it — and under decision D1 the
 //! boolean declines with the contacts instead of serving it.
 //!
-//! Detection is direct and route-independent: distinct vertices within
-//! the linear tolerance of each other that no edge joins, and distinct
-//! edges whose end points and midpoints coincide, and one vertex
-//! shared by separate fans (`pinched_vertex`).
+//! Detection is route-independent and read off the neighbourhoods:
+//! where the body holds coincident copies (distinct vertices within the
+//! linear tolerance that no edge joins, distinct edges whose end points
+//! and midpoints coincide) they are glued on a clone, and the contacts
+//! are where the glued body touches itself (`BRep::contacts`); a body
+//! without copies has its pinch uses (`pinched_vertex`), one vertex
+//! shared by separate fans.
 //!
 //! Contacts that share no topology at all leave the result as separate
 //! shells that merely touch, which neither test sees: those are
@@ -62,7 +65,54 @@ pub(crate) fn zero_thickness_contacts(
 }
 
 /// [`zero_thickness_contacts`] with the entities that meet at each.
+///
+/// Decided on the neighbourhoods (PK-1130, the plan's §6.1): where the
+/// body holds coincident copies (`copy_findings`, the trigger), the
+/// copies are glued on a clone and the contacts are where the glued
+/// body touches itself (`BRep::contacts`: rings of more than two face
+/// uses, vertices of more than one use, a contact edge's ends), its
+/// entities the glued body's. A body manifold once glued has no
+/// contact (an identity defect, `repair_identity_copies` serves it
+/// glued). Where the glue declines the copies stand as the contacts.
+/// A body with no copies has only its pinch uses.
 pub(crate) fn zero_thickness_findings(
+    brep: &BRep,
+    tolerance: &Tolerance,
+) -> Vec<(NonManifoldContact, Vec<ContactEntity>)> {
+    let copies = copy_findings(brep, tolerance);
+    if copies.is_empty() {
+        return super::pinched_vertex::pinched_vertices(brep);
+    }
+    let mut glued = brep.clone();
+    if glued.glue_coincident().is_err() {
+        let mut out = copies;
+        out.extend(super::pinched_vertex::pinched_vertices(brep));
+        return out;
+    }
+    glued
+        .contacts()
+        .into_iter()
+        .map(|c| {
+            let kind = match c.kind {
+                popkern_core::topology::TopologyContactKind::Edge => ContactKind::Edge,
+                popkern_core::topology::TopologyContactKind::Vertex => ContactKind::Vertex,
+            };
+            (
+                NonManifoldContact {
+                    kind,
+                    location: c.location,
+                },
+                c.entities,
+            )
+        })
+        .collect()
+}
+
+/// The coincident copies in `brep`: clusters of vertices within the
+/// linear tolerance that no edge joins, and edges whose end points and
+/// midpoints coincide, each with the copies that meet there. The
+/// trigger for gluing, not the verdict.
+fn copy_findings(
     brep: &BRep,
     tolerance: &Tolerance,
 ) -> Vec<(NonManifoldContact, Vec<ContactEntity>)> {
@@ -174,10 +224,6 @@ pub(crate) fn zero_thickness_findings(
             }
         }
     }
-    copy_test_shadow(brep, out.len());
-    // One vertex shared by separate fans: the contact the result
-    // carries without a coincident copy.
-    out.extend(super::pinched_vertex::pinched_vertices(brep));
     out
 }
 
@@ -209,10 +255,7 @@ fn glued_if_manifold(brep: &BRep) -> Option<BRep> {
 /// 299 firings, 298 real contacts, 1 glue declined, no identity defect.
 /// Returns whether it repaired.
 pub(crate) fn repair_identity_copies(brep: &mut BRep, tolerance: &Tolerance) -> bool {
-    let copies = zero_thickness_findings(brep, tolerance)
-        .iter()
-        .filter(|(_, entities)| entities.len() > 1)
-        .count();
+    let copies = copy_findings(brep, tolerance).len();
     if copies == 0 {
         return false;
     }
@@ -226,23 +269,14 @@ pub(crate) fn repair_identity_copies(brep: &mut BRep, tolerance: &Tolerance) -> 
     }
 }
 
-fn copy_test_shadow(brep: &BRep, copies: usize) {
-    if copies == 0 || std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG").is_none() {
-        return;
-    }
-    let verdict = if glued_if_manifold(brep).is_some() {
-        "repairable"
-    } else {
-        "contact"
-    };
-    crate::complex_shadow::append_log_line(&format!("CopyTest {copies} {verdict}"));
-}
-
 /// Each zero-thickness finding of `brep` with, for every vertex in it,
 /// its incident edges and where they lead (the `contacts` trace topic):
 /// what to read when a result declines on a contact it should not have.
 pub(crate) fn trace_findings(brep: &BRep, tolerance: &Tolerance) {
-    for (contact, entities) in zero_thickness_findings(brep, tolerance) {
+    for (contact, entities) in copy_findings(brep, tolerance)
+        .into_iter()
+        .chain(super::pinched_vertex::pinched_vertices(brep))
+    {
         eprintln!("  [contacts] {:?} at {:?}", contact.kind, contact.location);
         for e in entities {
             let ContactEntity::Vertex(v) = e else {
