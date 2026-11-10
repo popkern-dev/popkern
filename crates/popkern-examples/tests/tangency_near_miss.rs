@@ -48,11 +48,8 @@ const OFFSETS: [f64; 6] = [0.5, -0.5, 2.0, -2.0, 10.0, -10.0];
 
 /// Runs known to fail, with the follow-up that owns them: they must
 /// keep failing until it lands (a target that starts passing fails the
-/// test, asking for it to be removed here). The ball two tolerances
-/// clear of the cube's edge serves the two shells, but validate_all
-/// reads the plane x sphere circle touching the top edge from outside
-/// as a crossing (PK-1153).
-const KNOWN: &[(&str, f64, &str)] = &[("ball-resting-on-an-edge-union", 2.0, "PK-1153")];
+/// test, asking for it to be removed here).
+const KNOWN: &[(&str, f64, &str)] = &[];
 
 /// Seconds a run may take: a hang, not a slow run.
 const RUN_LIMIT_S: u64 = 300;

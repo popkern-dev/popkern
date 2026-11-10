@@ -94,10 +94,7 @@ pub(super) fn more_cases() -> Vec<Case> {
             }),
             turns: ball_turns(1, ball_on_edge_centre()),
             status: Status::Gate,
-            // The glued body fails validation: the validator reads the
-            // plane x sphere circle touching the top edge from outside
-            // as a crossing (PK-1153).
-            general_status: Status::Target("PK-1153"),
+            general_status: Status::Gate,
         },
         Case {
             name: "ball-resting-on-an-edge-common",

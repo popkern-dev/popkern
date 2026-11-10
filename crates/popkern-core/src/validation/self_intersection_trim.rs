@@ -10,6 +10,8 @@ use self_intersection_uv_containment::{TrimContainment, UvPoint, point_in_uv_loo
 
 #[path = "interior_overlap_samples.rs"]
 mod interior_overlap_samples;
+#[path = "self_intersection_trim_touch.rs"]
+mod self_intersection_trim_touch;
 #[path = "self_intersection_trim_trace.rs"]
 mod self_intersection_trim_trace;
 #[path = "self_intersection_uv_containment.rs"]
@@ -38,8 +40,26 @@ impl BRep {
                 && !surface_uses_iterative_projection(surface_b)
             {
                 let points = intersection_sample_points(surface_a, intersection);
-                return self.sampled_points_overlap_faces(
-                    face_a, surface_a, face_b, surface_b, &points, linear_tol,
+                let touch = |i: usize, boundary_on_a: bool| {
+                    let (face, surface) = if boundary_on_a {
+                        (face_a, surface_a)
+                    } else {
+                        (face_b, surface_b)
+                    };
+                    self.curve_touches_trim_from_outside(
+                        face,
+                        surface,
+                        &curve.curve_3d,
+                        i as f64 / (points.len().max(2) - 1) as f64,
+                        linear_tol,
+                    )
+                };
+                return self.sampled_points_overlap_faces_with(
+                    (face_a, surface_a),
+                    (face_b, surface_b),
+                    &points,
+                    linear_tol,
+                    Some(&touch),
                 );
             }
 
@@ -201,8 +221,29 @@ impl BRep {
         points: &[Point3],
         linear_tol: f64,
     ) -> bool {
+        self.sampled_points_overlap_faces_with(
+            (face_a, surface_a),
+            (face_b, surface_b),
+            points,
+            linear_tol,
+            None,
+        )
+    }
+
+    /// [`Self::sampled_points_overlap_faces`], where a sample on one
+    /// face's boundary and inside the other is no overlap when `touch`
+    /// (the sample's index, whether the boundary is face A's) says the
+    /// curve touches that boundary from outside (PK-1153).
+    fn sampled_points_overlap_faces_with(
+        &self,
+        (face_a, surface_a): (FaceHandle, &SurfaceGeometry),
+        (face_b, surface_b): (FaceHandle, &SurfaceGeometry),
+        points: &[Point3],
+        linear_tol: f64,
+        touch: Option<&dyn Fn(usize, bool) -> bool>,
+    ) -> bool {
         let mut boundary_contacts = Vec::new();
-        for point in points {
+        for (i, point) in points.iter().enumerate() {
             let trim_a_contains =
                 self.face_trim_classify_point(face_a, surface_a, point, linear_tol);
             let trim_b_contains =
@@ -223,6 +264,10 @@ impl BRep {
                         boundary_contacts.push(*point);
                     }
                 }
+                (Some(TrimContainment::Boundary), Some(TrimContainment::Interior))
+                    if touch.is_some_and(|t| t(i, true)) => {}
+                (Some(TrimContainment::Interior), Some(TrimContainment::Boundary))
+                    if touch.is_some_and(|t| t(i, false)) => {}
                 _ => return true,
             }
         }
