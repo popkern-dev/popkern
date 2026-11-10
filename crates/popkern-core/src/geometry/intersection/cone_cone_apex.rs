@@ -81,7 +81,13 @@ pub(crate) fn try_cone_cone_apex(
 }
 
 /// The ruling through `apex` along `d`, clipped to both cones' v
-/// windows, as an exact line on both charts.
+/// windows, as an exact line on both charts. A cone face lies on one
+/// nappe (a face on both would pass through its own apex), so each
+/// window is first cut back to the nappe its middle lies on: a window
+/// padded past the apex reaches the other nappe's sheet, where the face
+/// never is, and a ruling kept there ran from the apex vertex, where
+/// the face has no edge for the clip to cut it at, out to the padding:
+/// two spherical sectors' common declined on it (PK-1138).
 fn ruling(
     apex: Point3,
     d: Vec3,
@@ -96,7 +102,7 @@ fn ruling(
         if k.abs() <= 1e-12 {
             return None;
         }
-        let (v0, v1) = (w.1.0.min(w.1.1), w.1.0.max(w.1.1));
+        let (v0, v1) = one_nappe(w.1);
         let (t0, t1) = (v0 / k, v1 / k);
         Some((t0.min(t1), t0.max(t1)))
     };
@@ -105,6 +111,28 @@ fn ruling(
     if t1 - t0 <= tolerance.linear() {
         return None;
     }
+    ruling_piece(apex, d, (t0, t1), (s1, a1), (s2, a2))
+}
+
+/// The v window `(v0, v1)` (either order) cut back to the nappe its
+/// middle lies on.
+fn one_nappe((v0, v1): (f64, f64)) -> (f64, f64) {
+    let (lo, hi) = (v0.min(v1), v0.max(v1));
+    if lo + hi >= 0.0 {
+        (lo.max(0.0), hi)
+    } else {
+        (lo, hi.min(0.0))
+    }
+}
+
+/// The piece `t0..t1` of the ruling through `apex` along unit `d`.
+fn ruling_piece(
+    apex: Point3,
+    d: Vec3,
+    (t0, t1): (f64, f64),
+    (s1, a1): (&SurfaceGeometry, Vec3),
+    (s2, a2): (&SurfaceGeometry, Vec3),
+) -> Option<SurfaceSurfaceIntersection> {
     let line = |a: Point3, b: Point3| NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
