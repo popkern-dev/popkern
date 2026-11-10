@@ -177,7 +177,22 @@ pub(super) fn sliver_term(
     // Within a thousandth of the chord, and never past the caller's
     // gate: the trim across a narrow face (a fillet's other rim at a
     // coarse tolerance) is a strip width away, far more than that.
+    let caller_gate = gate;
     let gate = gate.min(ON_TRIM * pa.distance_to(&pb));
+    // The located parameter itself must image at the chord end: the
+    // edge's own closest point says the end is ON the trim, not that
+    // the parameter found in (u, v) is that point. In a chart whose
+    // axes differ in scale the uv band admits another branch of the
+    // trim: a kilometre Viviani lobe's two branches mirror each other
+    // in u, 0.083 rad apart (416 units in space) while its chords run
+    // 4.8 along v, and every chord near the pinch fanned over the
+    // mirror branch (the common read 2.3e-4 high, PK-1146).
+    let branch = UV_BRANCH * pa.distance_to(&pb) + caller_gate;
+    let at = |trim: &Trim<'_>, t: f64, q: (f64, f64)| {
+        let c = trim.pcurve.point_at(t);
+        let c = aligned((c.x, c.y), q, periods);
+        surface.point_at(c.0, c.1)
+    };
     // Off the trim in space: from the EDGE curve when the trim has one
     // (exact; a fitted pcurve sits up to ~1e-4 off it, PK-826, and the
     // hub of the propeller declined every blade-root chord on the
@@ -208,12 +223,17 @@ pub(super) fn sliver_term(
     for trim in trims {
         let (ta, uva) = locate(trim, a, periods);
         let da = off(trim, ta, a, pa);
-        if da > gate || uva > uv_band(trim) {
+        if da > gate || uva > uv_band(trim) || at(trim, ta, a).distance_to(&pa) > branch {
             continue;
         }
         let (tb, uvb) = locate(trim, b, periods);
         let worst = da.max(off(trim, tb, b, pb));
-        if worst <= gate && uvb <= uv_band(trim) && ta != tb && best.is_none_or(|x| worst < x.3) {
+        if worst <= gate
+            && uvb <= uv_band(trim)
+            && at(trim, tb, b).distance_to(&pb) <= branch
+            && ta != tb
+            && best.is_none_or(|x| worst < x.3)
+        {
             best = Some((trim, ta, tb, worst));
         }
     }
