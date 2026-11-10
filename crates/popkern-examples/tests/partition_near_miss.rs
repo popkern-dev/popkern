@@ -12,6 +12,12 @@
 //! the surfaces stay within the tolerance of each other throughout, and
 //! the record, cut across a seam it grazed, lost both domes. A touch is
 //! now judged by depth.
+//!
+//! At two tolerances of overlap, turned, the union declined: the
+//! partition fell back and the pairwise union kept the second ball's
+//! equator arc lying 2e-6 inside the first ball's hole rim on the
+//! box's top face (PK-1149). The walk's hole filter now decides a
+//! piece near a rim exactly.
 
 use std::f64::consts::PI;
 
@@ -21,7 +27,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 /// (placement, g) runs that fail today, each with its task.
-const KNOWN: &[(&str, f64, &str)] = &[("turned", -2e-6, "PK-1149")];
+const KNOWN: &[(&str, f64, &str)] = &[];
 
 #[test]
 fn the_tangent_records_fixture_moved_off_its_touch() {
