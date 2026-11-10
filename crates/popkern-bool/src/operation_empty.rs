@@ -92,7 +92,64 @@ fn verify_disjoint_interiors(a: &BRep, b: &BRep) -> bool {
             }
         }
     }
-    outside
+    outside && !interiors_meet(a, b)
+}
+
+/// Whether some point just off a face of either operand, on either
+/// side, lies strictly inside both: their interiors share volume.
+///
+/// Probes on the operands' boundaries alone cannot see it when the
+/// shared volume is bounded by their coincident faces: two half balls
+/// of one sphere, about perpendicular axes, share a quarter ball, yet
+/// every boundary probe of each lies on the other's sphere or outside
+/// it, and their union declined as operands that only touch (PK-1138).
+/// Stepped off a face both ways the probe finds the side holding both
+/// materials; operands that touch (at a point, along a line, over a
+/// face) hold material on opposite sides, so no probe is in both.
+fn interiors_meet(a: &BRep, b: &BRep) -> bool {
+    use crate::classify::point_in_solid_final;
+    use crate::error::PointClassification;
+    use crate::intersect::compute_face_aabbs;
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let (aabbs_a, aabbs_b) = (compute_face_aabbs(a), compute_face_aabbs(b));
+    let strictly_inside = |p: &popkern_core::geometry::Point3, body: &BRep, aabbs| {
+        let tol = body.tolerance;
+        !crate::postprocess::zero_thickness::on_body_boundary(p, body, aabbs, &tol)
+            && matches!(
+                point_in_solid_final(p, body, aabbs, &tol),
+                Ok(PointClassification::Inside)
+            )
+    };
+    for body in [a, b] {
+        let Some(size) = crate::face_box::hull(compute_face_aabbs(body).iter().map(|(_, f)| f))
+            .map(|h| h.min.distance_to(&h.max))
+        else {
+            continue;
+        };
+        let step = (1e-3 * size).max(100.0 * body.tolerance.linear());
+        for face in body.faces.keys() {
+            let Some(surface) = body.faces[face].surface.as_ref() else {
+                continue;
+            };
+            for p in super::relation_probes::face_interior_points(body, face, 5) {
+                let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(
+                    &surface.geometry,
+                    &p,
+                ) else {
+                    continue;
+                };
+                let Some(n) = surface.geometry.normal_at(u, v).normalized() else {
+                    continue;
+                };
+                for q in [p + n * step, p - n * step] {
+                    if strictly_inside(&q, a, &aabbs_a) && strictly_inside(&q, b, &aabbs_b) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
 }
 
 /// EMPTY-SERVE LIE GATE (PK-465): an empty subtraction result is

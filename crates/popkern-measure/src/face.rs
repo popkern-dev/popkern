@@ -57,7 +57,11 @@ fn tessellate_area(
 /// The face's uv bounding rectangle when its outer loop bounds exactly
 /// that rectangle and the face has no holes; `None` otherwise. The closed-form areas integrate the
 /// rectangle, so any other region (a notched cone wall read 8.78 for a
-/// lateral area of at most 7.03; PK-934) is tessellated instead.
+/// lateral area of at most 7.03; PK-934) is tessellated instead. A
+/// box of no extent in u or v bounds no rectangle: a loop running once
+/// round a sphere's chart along one row encloses a pole, a cap the
+/// closed form read as nothing (PK-1138: a half ball's hemisphere,
+/// bounded by its equator alone, measured 3.5e-14 for 50 pi).
 fn rectangle(brep: &BRep, face: FaceHandle) -> Option<((f64, f64), (f64, f64))> {
     let holed = brep
         .faces
@@ -66,7 +70,9 @@ fn rectangle(brep: &BRep, face: FaceHandle) -> Option<((f64, f64), (f64, f64))> 
     if holed {
         return None;
     }
+    let extent = |(lo, hi): (f64, f64)| (hi - lo).abs() > 1e-12 * (1.0 + lo.abs().max(hi.abs()));
     pcurve_uv_range(brep, face)
+        .filter(|&(u, v)| extent(u) && extent(v))
         .filter(|r| crate::face_helpers::outer_loop_matches_uv_rectangle(brep, face, *r))
 }
 

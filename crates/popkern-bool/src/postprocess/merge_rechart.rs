@@ -75,3 +75,32 @@ pub(crate) fn rechart_inherited(
     }
     let _ = brep.recompute_face_pcurves(kept.0);
 }
+
+/// Whether two coincident surfaces share one chart, so faces on them
+/// can merge into one face on either's surface. Planes always do (a
+/// merged plane face's pcurves are re-derived, and a plane has no seam
+/// or pole). A sphere, cylinder, cone or torus does when its axis is
+/// the same: the chart's angle is measured from a direction its axis
+/// fixes, and its poles and seam lie where the axis puts them. Two
+/// faces of one sphere about different axes are the same locus in
+/// different charts: merged, the face enclosed the survivor's pole and
+/// crossed its seam with no seam edge, its pcurves 0.1 off its edges,
+/// and the union of two half balls declined (PK-1138).
+pub(crate) fn same_chart(
+    a: &popkern_core::geometry::SurfaceGeometry,
+    b: &popkern_core::geometry::SurfaceGeometry,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    use popkern_core::geometry::SurfaceGeometry as S;
+    let same_axis = |x: &popkern_core::geometry::Vec3, y: &popkern_core::geometry::Vec3| {
+        x.dot(y) > 1.0 - tolerance.angular()
+    };
+    match (a, b) {
+        (S::Plane { .. }, S::Plane { .. }) => true,
+        (S::Sphere { axis: x, .. }, S::Sphere { axis: y, .. })
+        | (S::Cylinder { axis: x, .. }, S::Cylinder { axis: y, .. })
+        | (S::Cone { axis: x, .. }, S::Cone { axis: y, .. })
+        | (S::Torus { axis: x, .. }, S::Torus { axis: y, .. }) => same_axis(x, y),
+        _ => false,
+    }
+}

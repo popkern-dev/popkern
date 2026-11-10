@@ -153,3 +153,71 @@ fn the_union_fallback_names_contacts_only_for_operands_that_do_not_share_area() 
     let edge = touching_union_contacts(&unit, &cube_at(1.0, 1.0, 0.0), &tol).expect("contacts");
     assert!(!edge.is_empty());
 }
+
+/// The half ball `z >= 0` and the half ball `x >= 0` of one sphere,
+/// each charted about its own pole axis.
+fn half_balls() -> (BRep, BRep) {
+    use popkern_core::geometry::{Point3, Vec3};
+    let tol = Tolerance::default();
+    let slab = |lo: (f64, f64, f64), hi: (f64, f64, f64)| {
+        let rect = |z: f64| {
+            vec![
+                Point3::new(lo.0, lo.1, z),
+                Point3::new(hi.0, lo.1, z),
+                Point3::new(hi.0, hi.1, z),
+                Point3::new(lo.0, hi.1, z),
+            ]
+        };
+        BRep::polygon_frustum(&rect(lo.2), &rect(hi.2), tol).expect("slab")
+    };
+    let ball = || BRep::sphere(5.0, tol).expect("ball");
+    let top = crate::boolean(
+        BoolOperation::Subtraction,
+        ball(),
+        slab((-6.0, -6.0, -6.0), (6.0, 6.0, 0.0)),
+        tol,
+        None,
+    )
+    .expect("top half");
+    let turn = Transform3::rotation_around_axis(
+        Point3::new(0.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        std::f64::consts::FRAC_PI_2,
+    )
+    .expect("turn");
+    let side = crate::boolean(
+        BoolOperation::Subtraction,
+        ball().transform(&turn).expect("turned"),
+        slab((-6.0, -6.0, -6.0), (0.0, 6.0, 6.0)),
+        tol,
+        None,
+    )
+    .expect("side half");
+    (top, side)
+}
+
+/// Two half balls sharing a quarter ball: every boundary probe of each
+/// lies on the other's sphere or outside it, so only probes stepped off
+/// the faces see the shared volume (PK-1138: their union declined as
+/// operands that only touch).
+#[test]
+fn half_balls_sharing_a_quarter_are_not_disjoint() {
+    let (top, side) = half_balls();
+    assert!(interiors_meet(&top, &side));
+    assert!(!verify_disjoint_interiors(&top, &side));
+    assert!(touching_union_contacts(&top, &side, &Tolerance::default()).is_none());
+}
+
+/// Controls: operands that touch over a face, along an edge or at a
+/// corner hold their material on opposite sides of the contact.
+#[test]
+fn touching_cubes_have_no_interior_in_common() {
+    let unit = cube_at(0.0, 0.0, 0.0);
+    for other in [
+        cube_at(1.0, 0.0, 0.0),
+        cube_at(1.0, 1.0, 0.0),
+        cube_at(1.0, 1.0, 1.0),
+    ] {
+        assert!(!interiors_meet(&unit, &other));
+    }
+}

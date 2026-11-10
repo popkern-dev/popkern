@@ -42,6 +42,7 @@ fn mergeable_face_pair(
     let surf_a = brep.faces.get(face_a)?.surface.as_ref()?;
     let surf_b = brep.faces.get(face_b)?.surface.as_ref()?;
     if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance)
+        || !super::merge_rechart::same_chart(&surf_a.geometry, &surf_b.geometry, tolerance)
         || !super::redundant_edge::outward_normals_agree(brep, eh, surf_a, surf_b)?
     {
         return None;

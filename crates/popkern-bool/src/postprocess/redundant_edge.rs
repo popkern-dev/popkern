@@ -86,9 +86,12 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
         let surf_a = brep.faces.get(face_a).and_then(|f| f.surface.as_ref())?;
         let surf_b = brep.faces.get(face_b).and_then(|f| f.surface.as_ref())?;
 
-        // Check same surface (analytic comparison only; the locus,
-        // whatever its parameterisation or normal sign)
-        if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance) {
+        // Same surface in one chart (analytic comparison only; the
+        // locus whatever its normal sign, a curved one about the same
+        // axis: `same_chart`)
+        if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance)
+            || !super::merge_rechart::same_chart(&surf_a.geometry, &surf_b.geometry, tolerance)
+        {
             return Some(false);
         }
 
