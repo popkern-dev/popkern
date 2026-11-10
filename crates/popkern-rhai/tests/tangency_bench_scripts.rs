@@ -150,7 +150,7 @@ const CASES: &[(&str, Expect, Status)] = &[
     (
         "sectors_sharing_an_apex",
         Body(146.516_406_055_211_18, 179.057_093_587_771_33),
-        Target("PK-1138"),
+        Gate,
     ),
     (
         "tangent_tee_common",

@@ -357,9 +357,16 @@ fn face_quadrature(
                 // an M6 flank's triangles fell back to facets whose
                 // errors no longer cancelled (0.7% of a tapped
                 // block, PK-901).
+                //
+                // A triangle collinear in (u, v) covers no surface: its
+                // term is its slivers alone. The mesher closes a curved
+                // rim with such triangles (three rim vertices on one
+                // chart row), whose facets span the arc's sagitta off
+                // the surface: taken flat, two spherical sectors'
+                // common read 1.6e-3 low with its area exact (PK-1138).
                 let signed_area = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
                 let uv_sign = winding?;
-                if signed_area * uv_sign <= 0.0 {
+                if signed_area * uv_sign <= 0.0 && !collinear_uv([a, b, c], signed_area) {
                     return None;
                 }
                 let corners = [a, b, c];
@@ -399,6 +406,20 @@ fn face_quadrature(
     out
 }
 
+/// Whether the (u, v) triangle `uv` of doubled signed area
+/// `signed_area` is collinear up to rounding: its area under 64 ulps of
+/// its longest edge's square.
+fn collinear_uv(uv: [(f64, f64); 3], signed_area: f64) -> bool {
+    let edge = |p: (f64, f64), q: (f64, f64)| (q.0 - p.0).powi(2) + (q.1 - p.1).powi(2);
+    let longest = edge(uv[0], uv[1])
+        .max(edge(uv[1], uv[2]))
+        .max(edge(uv[2], uv[0]));
+    let scale = uv
+        .iter()
+        .fold(1.0_f64, |m, q| m.max(q.0.abs()).max(q.1.abs()));
+    signed_area.abs() <= 64.0 * f64::EPSILON * scale * longest.sqrt()
+}
+
 /// Area of the flat facet `a b c`.
 fn facet_area(a: Point3, b: Point3, c: Point3) -> f64 {
     0.5 * (b - a).cross(&(c - a)).length()
@@ -418,3 +439,7 @@ pub(crate) fn quadrature_face_area(
         .map(|s| &s.geometry);
     face_quadrature(brep, fm, surface, gate, Integrand::Area)
 }
+
+#[cfg(test)]
+#[path = "body_quadrature_tests.rs"]
+mod tests;
