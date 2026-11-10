@@ -7,7 +7,8 @@
 //! the marcher, which on two balls whose circle runs through a pole of
 //! each returned 196,069 curves.
 //!
-//! A touch (the circle's radius under the tolerance) emits nothing, as
+//! A touch (one sphere passing into the other by less than the tangency
+//! band) emits nothing, as
 //! every arm does: contacts are typed by contact discovery beside the
 //! curves. Coincident spheres fall through to the coincidence detector.
 
@@ -50,14 +51,21 @@ pub(crate) fn try_sphere_sphere(
     if d > r1 + r2 + lin || d < (r1 - r2).abs() - lin {
         return Some(Vec::new());
     }
+    // A touch: the spheres pass into each other by less than the
+    // tangency band, so their surfaces stay within the tolerance of
+    // each other over the whole lens between them, however wide its
+    // circle (balls overlapping by half a tolerance meet in a circle of
+    // radius 1.2e-3; read as a crossing it was cut across a seam it
+    // grazed and a three-ball union lost both domes, PK-1130). Outside
+    // (`r₁ + r₂ − d`) or inside (`d − |r₁ − r₂|`), as the other arms
+    // judge a touch by `Tolerance::tangency_band`.
+    let band = tolerance.tangency_band(super::coordinate_scale(&[*c1, *c2]) + r1.max(*r2));
+    if r1 + r2 - d < band || d - (r1 - r2).abs() < band {
+        return Some(Vec::new());
+    }
     let axis = line * (1.0 / d);
     let a = (d * d + r1 * r1 - r2 * r2) / (2.0 * d);
     let rho_sq = r1 * r1 - a * a;
-    // A touch: the circle is no wider than the tolerance (the points of
-    // a circle of radius ρ lie within ρ of its centre).
-    if rho_sq <= lin * lin {
-        return Some(Vec::new());
-    }
     let rho = rho_sq.sqrt();
     let centre: Point3 = *c1 + axis * a;
     let (e1, e2) = frame(axis);

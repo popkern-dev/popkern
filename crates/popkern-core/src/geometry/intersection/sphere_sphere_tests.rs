@@ -57,3 +57,23 @@ fn touching_apart_and_coincident_spheres() {
     }
     assert!(try_sphere_sphere(&a, &ball((0.0, 0.0, 0.0), 5.0), &tol).is_none());
 }
+
+/// Balls passing into each other by less than the tangency band touch:
+/// their surfaces stay within the tolerance over the whole lens, though
+/// its circle is far wider than the tolerance (half a tolerance deep,
+/// radius 1.2e-3). Deeper they cross; outside and inside alike.
+#[test]
+fn balls_passing_into_each_other_by_under_the_tolerance_touch() {
+    let tol = Tolerance::default();
+    let curves = |d: f64, r2: f64| {
+        try_sphere_sphere(&ball((0.0, 0.0, 0.0), 3.0), &ball((d, 0.0, 0.0), r2), &tol)
+            .expect("two spheres")
+            .len()
+    };
+    // Outside: centres 6 apart less the overlap.
+    assert_eq!(curves(6.0 - 0.5e-6, 3.0), 0);
+    assert_eq!(curves(6.0 - 2e-6, 3.0), 1);
+    // Inside: a ball of radius 1 against the inside of radius 3.
+    assert_eq!(curves(2.0 + 0.5e-6, 1.0), 0);
+    assert_eq!(curves(2.0 + 2e-6, 1.0), 1);
+}
