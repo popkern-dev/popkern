@@ -91,6 +91,7 @@ impl PairFailure {
                 }),
             }],
             phase_metrics: Vec::new(),
+            contacts: Vec::new(),
         }
     }
 }

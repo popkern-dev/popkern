@@ -123,23 +123,26 @@ impl BoolOperationRecord {
 /// per-phase metrics into a [`BoolOperationRecord`] suitable for
 /// an application-level history list.
 ///
-/// Wraps [`crate::boolean_with_diagnostics`] so the per-phase
-/// timing samples are captured for replay observability. On
-/// failure returns the same `BoolError` the wrapped call would.
+/// Runs the pipeline as [`crate::boolean_with_diagnostics`] does, so
+/// the per-phase timing samples are captured for replay
+/// observability, without its contact search (the record keeps only
+/// the metrics). On failure returns the same `BoolError`.
 pub fn boolean_recorded(
     op: BoolOperation,
     a: &BRep,
     b: &BRep,
     tolerance: Tolerance,
 ) -> Result<BoolOperationRecord, BoolError> {
-    let (result, diagnostics) = crate::boolean_with_diagnostics(op, a, b, tolerance)?;
+    let mut phase_metrics = Vec::new();
+    let result =
+        crate::operation::execute_boolean_with_metrics(op, a, b, &tolerance, &mut phase_metrics)?;
     Ok(BoolOperationRecord {
         op,
         input_a: a.clone(),
         input_b: b.clone(),
         tolerance,
         result,
-        phase_metrics: diagnostics.phase_metrics,
+        phase_metrics,
     })
 }
 
