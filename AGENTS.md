@@ -404,9 +404,16 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   manifold; the boolean's pinched-vertex test is its client); fillets,
   chamfers at a pinch vertex, shells, offsets and thickens decline
   `CoreError::PinchUse` before building. Separate shells touching are
-  found by alternating projection between face surfaces and by each
-  edge walked against the other face (`postprocess/shell_contact*.rs`:
-  an edge resting on a face is a contact). A shell whose result
+  found by alternating projection between face surfaces, as critical
+  points of the signed gap where projection stalls at a tangent touch
+  (`find_surface_contacts` over each face's window, a face closed round
+  a seam spanning its period whole), and by each edge walked against
+  the other face (`postprocess/shell_contact*.rs`: an edge resting on a
+  face is a contact). Naming scheme 6 (PK-1160): an edgeless contact (a
+  vertex loop) is `RoleCategory::Contact`, named by the faces it lies
+  on; a general two-operand boolean is named after its glue; a face
+  lying on several operand faces is confirmed on each at a second
+  point (one point cannot tell a coincidence from a touch). A shell whose result
   touches itself (a wall closed exactly) declines
   `ShellError::SelfContact` (`popkern-shell/src/self_contact.rs`,
   tangent contacts of faces sharing no vertex); under
