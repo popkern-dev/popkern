@@ -213,9 +213,58 @@ fn face_contact(brep: &BRep, f: FaceHandle, g: FaceHandle, linear: f64) -> Optio
             return Some(p + (q - p) * 0.5);
         }
     }
+    // Alternating projection stalls at a tangent touch (between a
+    // plane and a ball of radius r a seed s off the touch moves by
+    // s^3 / 2r^2 a round), so a touch no seed lands near is located as
+    // a critical point of the signed gap, by Newton on its gradient
+    // (`find_surface_contacts`): a turned ball set off the middle of a
+    // face, with no vertex or seed at its touch, served touching as one
+    // solid.
+    if let Some(at) = gap_critical_contact(brep, (f, sf), (g, sg), linear) {
+        return Some(at);
+    }
     // A touch on a face's boundary: an edge of one against the other.
     super::shell_contact_edge::edge_contact(brep, f, (g, sg), linear)
         .or_else(|| super::shell_contact_edge::edge_contact(brep, g, (f, sf), linear))
+}
+
+/// A touch of `f` and `g` located as a critical point of their signed
+/// gap within `linear`, with both feet on their faces.
+fn gap_critical_contact(
+    brep: &BRep,
+    (f, sf): (FaceHandle, &SurfaceGeometry),
+    (g, sg): (FaceHandle, &SurfaceGeometry),
+    linear: f64,
+) -> Option<Point3> {
+    use popkern_core::geometry::intersection::contact_classify::ContactScale;
+    use popkern_core::geometry::intersection::contact_discovery::find_surface_contacts;
+    let boxes = crate::face_bounding_boxes(brep);
+    let size = |h: FaceHandle| {
+        boxes
+            .iter()
+            .find(|(b, _)| *b == h)
+            .map_or(1.0, |(_, b)| b.diagonal())
+    };
+    let window = |h, s| crate::diagnostics_contacts::window(brep, h, s);
+    let found = find_surface_contacts(
+        sf,
+        window(f, sf),
+        sg,
+        window(g, sg),
+        ContactScale {
+            linear,
+            extent: size(f).max(size(g)),
+        },
+    );
+    found
+        .contacts
+        .into_iter()
+        .find(|c| {
+            c.gap.abs() <= linear
+                && on_trim(brep, f, sf, c.uv1, linear)
+                && on_trim(brep, g, sg, c.uv2, linear)
+        })
+        .map(|c| c.point)
 }
 
 /// Every place two different shells of `brep` touch, in face-handle
