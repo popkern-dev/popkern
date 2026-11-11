@@ -172,7 +172,7 @@ pub(crate) fn rejoin_own_holes(
     operands: &[&BRep],
     linear: f64,
 ) -> Option<Vec<Fragment>> {
-    let reps = super::spans::unify_spans(graph, fragments, linear);
+    let reps = super::spans::unify_spans(operands, graph, fragments, linear);
     let rim_only = hole_filling_fragments(graph, fragments, operands, &reps);
     let hosts = own_hole_hosts(graph, fragments, &rim_only);
     if hosts.iter().all(Option::is_none) {

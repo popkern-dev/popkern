@@ -38,6 +38,9 @@ pub enum SubToleranceKind {
     /// Facing faces of the operands lay a gap at or under the tolerance
     /// apart: the union fused them across it.
     SlotClosed,
+    /// Two faces of the result facing the same way lay a step at or
+    /// under the tolerance apart: the boolean made them one face.
+    StepFlattened,
 }
 
 /// A feature at or under the linear tolerance the boolean resolved as
@@ -76,6 +79,12 @@ impl std::fmt::Display for SubToleranceFeature {
                  tolerance {:.1e}: the union closed the gap (tighten the tolerance to keep it)",
                 self.measured_width, self.location, self.tolerance
             ),
+            SubToleranceKind::StepFlattened => write!(
+                f,
+                "two faces lay a step {:.1e} apart at {:?}, under the linear tolerance \
+                 {:.1e}: the boolean made them one face (tighten the tolerance to keep it)",
+                self.measured_width, self.location, self.tolerance
+            ),
         }
     }
 }
@@ -88,6 +97,119 @@ pub(crate) fn record(feature: SubToleranceFeature) {
     crate::complex_shadow::append_log_line(&format!("SubTolerance {feature}"));
     if let Ok(mut events) = EVENTS.lock() {
         events.push(feature);
+    }
+}
+
+/// Record each slot a selection closed as
+/// [`SubToleranceKind::SlotClosed`].
+pub(crate) fn record_closed_slots(slots: &[slot::Slot], tolerance: &Tolerance) {
+    for s in slots {
+        record(SubToleranceFeature {
+            kind: SubToleranceKind::SlotClosed,
+            location: s.location,
+            measured_width: s.width,
+            tolerance: tolerance.linear(),
+        });
+    }
+}
+
+/// The steps a pass of face merges flattened, gathered so that one
+/// step is reported once: two merges across one step (the tops of
+/// blocks overlapping, the coincident piece between them merged into
+/// each side in turn) are one feature, the faces they joined one face
+/// (PK-1163).
+#[derive(Default)]
+pub(crate) struct FlattenedSteps {
+    /// Each merge: the two faces it joined and the step between them,
+    /// if one above rounding.
+    merges: Vec<(
+        [popkern_core::topology::FaceHandle; 2],
+        Option<SubToleranceFeature>,
+    )>,
+}
+
+impl FlattenedSteps {
+    /// Note the merge about to join the faces of `edge`, measured before
+    /// it (`commit` once it has succeeded).
+    pub(crate) fn measure(
+        brep: &BRep,
+        edge: popkern_core::topology::EdgeHandle,
+        tolerance: &Tolerance,
+    ) -> Option<(
+        [popkern_core::topology::FaceHandle; 2],
+        Option<SubToleranceFeature>,
+    )> {
+        let he = brep.half_edges.get(brep.edges.get(edge)?.half_edge)?;
+        let twin = brep.half_edges.get(he.mate()?)?;
+        let (fa, fb) = (
+            brep.loops.get(he.loop_)?.face,
+            brep.loops.get(twin.loop_)?.face,
+        );
+        let rounding = tolerance.linear_reach() - tolerance.linear();
+        let step = crate::postprocess::merge_rechart::faces_offset(brep, fa, fb)
+            .filter(|&(d, _)| d > rounding && tolerance.within_linear(d))
+            .map(|(d, at)| SubToleranceFeature {
+                kind: SubToleranceKind::StepFlattened,
+                location: at,
+                measured_width: d,
+                tolerance: tolerance.linear(),
+            });
+        Some(([fa, fb], step))
+    }
+
+    /// Keep a measured merge that succeeded.
+    pub(crate) fn commit(
+        &mut self,
+        merge: Option<(
+            [popkern_core::topology::FaceHandle; 2],
+            Option<SubToleranceFeature>,
+        )>,
+    ) {
+        if let Some(m) = merge {
+            self.merges.push(m);
+        }
+    }
+
+    /// Record the widest step of each set of faces the merges joined.
+    pub(crate) fn record(self) {
+        use popkern_core::topology::FaceHandle;
+        let mut parent: std::collections::HashMap<FaceHandle, FaceHandle> = Default::default();
+        fn find(
+            parent: &mut std::collections::HashMap<
+                popkern_core::topology::FaceHandle,
+                popkern_core::topology::FaceHandle,
+            >,
+            f: popkern_core::topology::FaceHandle,
+        ) -> popkern_core::topology::FaceHandle {
+            let p = *parent.entry(f).or_insert(f);
+            if p == f {
+                return f;
+            }
+            let root = find(parent, p);
+            parent.insert(f, root);
+            root
+        }
+        for ([a, b], _) in &self.merges {
+            let (ra, rb) = (find(&mut parent, *a), find(&mut parent, *b));
+            if ra != rb {
+                parent.insert(ra, rb);
+            }
+        }
+        let mut widest: std::collections::BTreeMap<FaceHandle, SubToleranceFeature> =
+            Default::default();
+        for ([a, _], step) in self.merges {
+            let Some(step) = step else {
+                continue;
+            };
+            let root = find(&mut parent, a);
+            let slot = widest.entry(root).or_insert(step);
+            if step.measured_width > slot.measured_width {
+                *slot = step;
+            }
+        }
+        for step in widest.into_values() {
+            record(step);
+        }
     }
 }
 
@@ -115,6 +237,19 @@ pub(crate) struct ThinOperand {
 /// Whether `brep` (a solid) is thinner than the linear tolerance
 /// everywhere, by the face test above.
 pub(crate) fn thin_operand(brep: &BRep, tolerance: &Tolerance) -> Option<ThinOperand> {
+    thin_operand_in(brep, &crate::face_bounding_boxes(brep), tolerance)
+}
+
+/// [`thin_operand`] with `brep`'s face boxes given (the boolean builds
+/// each operand's once for its sub-tolerance tests, PK-1161).
+pub(crate) fn thin_operand_in(
+    brep: &BRep,
+    face_boxes: &[(
+        FaceHandle,
+        popkern_core::geometry::intersection::surface_subdivision::Aabb,
+    )],
+    tolerance: &Tolerance,
+) -> Option<ThinOperand> {
     // At the tolerance, allowing its rounding (walls placed 1e-6 apart
     // at x = 5 measure 1.00000000014e-6, faces 1e-6 apart on a turned
     // block 1.0000000018e-6): `Tolerance::within_linear`.
@@ -124,7 +259,7 @@ pub(crate) fn thin_operand(brep: &BRep, tolerance: &Tolerance) -> Option<ThinOpe
         return None;
     }
     let boxes: std::collections::HashMap<FaceHandle, _> =
-        crate::face_bounding_boxes(brep).into_iter().collect();
+        face_boxes.iter().map(|(f, b)| (*f, b)).collect();
     let mut widest: f64 = 0.0;
     let mut location = None;
     for &f in &faces {
@@ -217,4 +352,4 @@ mod probes;
 
 #[path = "sub_tolerance_slot.rs"]
 mod slot;
-pub(crate) use slot::closed_slot;
+pub(crate) use slot::{closed_slot_in, closed_slots_among};

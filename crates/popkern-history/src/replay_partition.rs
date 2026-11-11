@@ -94,6 +94,7 @@ pub(crate) fn execute(
     // Drain stale registry entries so the firings taken after the call
     // belong to this feature.
     let _ = popkern_bool::merge_fallback::take_merge_fallback_events();
+    let _ = popkern_bool::sub_tolerance::take_sub_tolerance_events();
     let mut classes = Vec::new();
     let (mut result, touching_pieces) = match feature {
         Feature::Split { keep, .. } => (split(brep, &refs, keep, tolerance)?, false),
@@ -131,6 +132,8 @@ pub(crate) fn execute(
         evidence.imprint = Some(crate::replay_report::ImprintRecord { classes });
     }
     evidence.record_boolean_fallbacks(popkern_bool::merge_fallback::take_merge_fallback_events());
+    // A gap at or under the tolerance the selection closed (PK-1162).
+    evidence.record_sub_tolerance(popkern_bool::sub_tolerance::take_sub_tolerance_events());
     // Named as one, then served as its pieces: a split serves a body
     // per kept piece, an N-ary boolean a body per touching piece
     // (PK-1120); an imprint changes its body in place.

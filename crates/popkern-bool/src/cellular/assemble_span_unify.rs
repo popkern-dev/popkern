@@ -37,6 +37,7 @@
 use std::collections::HashMap;
 
 use popkern_core::geometry::Point3;
+use popkern_core::topology::BRep;
 
 use crate::merge::graph::IntersectionGraph;
 use crate::merge::graph_duplicates::closest_on_piece;
@@ -81,6 +82,7 @@ impl SpanRegistry {
     pub(crate) fn prior_for(
         &self,
         graph: &IntersectionGraph,
+        operands: &[&BRep],
         key: usize,
         (nodes, a, b, mid): ((usize, usize), Point3, Point3, Point3),
     ) -> Option<usize> {
@@ -112,10 +114,16 @@ impl SpanRegistry {
             .find(|(pa, pb, pm, prior)| {
                 let same_ends = (pa.distance_to(&a) <= g && pb.distance_to(&b) <= g)
                     || (pa.distance_to(&b) <= g && pb.distance_to(&a) <= g);
+                // A record carries its fit's deviation off its surfaces
+                // on top of the tolerance, as its ends do in the vertex
+                // table (`candidates::record_fit_deviation`).
+                let band = on
+                    + record_deviation(graph, operands, key, &mid)
+                        .max(record_deviation(graph, operands, *prior, pm));
                 same_ends
-                    && (pm.distance_to(&mid) <= 2.0 * on
-                        || (piece_distance(graph, *prior, &mid) <= on
-                            && piece_distance(graph, key, pm) <= on))
+                    && (pm.distance_to(&mid) <= band
+                        || (piece_distance(graph, *prior, &mid) <= band
+                            && piece_distance(graph, key, pm) <= band))
             })
             .map(|(_, _, _, prior)| *prior)
     }
@@ -202,6 +210,33 @@ fn leaving_tangent(graph: &IntersectionGraph, key: usize) -> Option<popkern_core
 
 /// The distance from `p` to graph pair `key`'s curve PIECE (its own
 /// parameter window); a curveless pair is its straight chord.
+/// How far point `p` of graph pair `key` lies off the farther of the
+/// two faces' surfaces it was intersected from, when it is a record (an
+/// operand's own edge: zero).
+fn record_deviation(graph: &IntersectionGraph, operands: &[&BRep], key: usize, p: &Point3) -> f64 {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let crate::merge::graph::EdgeSource::Shared {
+        face_a,
+        face_b,
+        operands: [oa, ob],
+    } = graph.half_edges[key].source
+    else {
+        return 0.0;
+    };
+    let off = |operand: crate::merge::graph::Operand, face| {
+        operands
+            .get(operand.index())
+            .and_then(|b| b.faces.get(face))
+            .and_then(|f| f.surface.as_ref())
+            .and_then(|s| {
+                let (u, v) = s.geometry.closest_point(p)?;
+                Some(s.geometry.point_at(u, v).distance_to(p))
+            })
+            .unwrap_or(0.0)
+    };
+    off(oa, face_a).max(off(ob, face_b))
+}
+
 fn piece_distance(graph: &IntersectionGraph, key: usize, p: &Point3) -> f64 {
     let he = &graph.half_edges[key];
     match he

@@ -427,10 +427,18 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   resolution (PK-1131): within it is inclusive with a rounding
   allowance (`Tolerance::within_linear`, `linear_reach`), everywhere
   two things are decided one place. An operand or a result thinner
-  than it everywhere has no inside (the other operand or empty), and a
-  union closes a gap at or under it between facing faces; each is
-  recorded as a `popkern_bool::sub_tolerance::SubToleranceFeature`
-  (history and Part report it as a warning). Tolerance tests on edges
+  than it everywhere has no inside (the other operand or empty), a
+  union closes a gap at or under it between facing faces (an N-ary
+  selection too, wherever it keeps both sides), and a merge flattens a
+  step at or under it between faces facing one way; each is recorded
+  as a `popkern_bool::sub_tolerance::SubToleranceFeature` (history and
+  Part report it as a warning). Vertex identity reads the same
+  tolerance (PK-1165): an operand vertex or an edge-face hit has half
+  the linear reach as its radius (two are one place within the
+  tolerance), a record end its faces' tolerances plus its fit
+  deviation, a candidate joins the nearest compatible vertex, and the
+  graph's snap and the assembler's coincident-span band are the reach
+  (a record's band plus its fit deviation). Tolerance tests on edges
   are lengths, never parameter fractions, and a trim test's boundary
   band (ten tolerances) is not "on the face": contacts confirm it in
   space (`point_near_face_boundary`).

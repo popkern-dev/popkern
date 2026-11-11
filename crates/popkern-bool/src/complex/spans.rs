@@ -9,6 +9,7 @@
 //! has none (measured: the shadow harness's first suite run, 210 of 253
 //! complex declines, every flush family).
 
+use popkern_core::topology::BRep;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cellular::assemble_edge_geometry::span_sample_points;
@@ -32,6 +33,7 @@ pub(crate) struct SpanRep {
 /// representative. Keys are visited in canonical (ascending) order, as
 /// the assembler visits them, so both pick the same representative.
 pub(crate) fn unify_spans(
+    operands: &[&BRep],
     graph: &IntersectionGraph,
     fragments: &[Fragment],
     linear: f64,
@@ -42,11 +44,14 @@ pub(crate) fn unify_spans(
         .map(|&h| h.min(graph.half_edges[h].twin))
         .filter(|&k| !is_degenerate_key(graph, k))
         .collect();
-    let mut spans = SpanRegistry::new(linear * 10.0, linear);
+    let reach = popkern_core::tolerance::Tolerance::default()
+        .with_linear(linear)
+        .linear_reach();
+    let mut spans = SpanRegistry::new(linear * 10.0, reach);
     let mut out = BTreeMap::new();
     for key in keys {
         let sample = span_sample_points(graph, key);
-        let rep = match spans.prior_for(graph, key, sample) {
+        let rep = match spans.prior_for(graph, operands, key, sample) {
             // A registered span is its own representative.
             Some(prior) => SpanRep {
                 key: prior,

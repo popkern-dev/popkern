@@ -110,7 +110,20 @@ impl Partition {
             self.built.fragments.len(),
         );
         let nothing_kept = !self.built.regions.iter().any(|r| keep(&r.bodies));
-        self.extract(&selection, options.non_manifold, nothing_kept)
+        let served = self.extract(&selection, options.non_manifold, nothing_kept)?;
+        // Facing bodies a gap at or under the tolerance apart, both
+        // sides kept: the selection fused them across it (PK-1131,
+        // PK-1162), reported as a two-operand union reports it.
+        if !served.faces.is_empty() {
+            let bodies: Vec<&BRep> = self.bodies.iter().collect();
+            let slots = crate::sub_tolerance::closed_slots_among(
+                &bodies,
+                |m| keep(&BodySet::of(m)),
+                &self.tolerance,
+            );
+            crate::sub_tolerance::record_closed_slots(&slots, &self.tolerance);
+        }
+        Ok(served)
     }
 
     /// Assemble `selection` into a body: a non-manifold selection
