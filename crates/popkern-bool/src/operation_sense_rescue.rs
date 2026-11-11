@@ -33,8 +33,11 @@ pub(crate) fn execute_boolean_full(
     cancel: Option<&CancellationToken>,
     progress: Option<&mut dyn ProgressReporter>,
     policy: NonManifoldPolicy,
+    boxes: Option<super::OperandBoxes<'_>>,
 ) -> Result<BRep, BoolError> {
-    let routes = execute_boolean_routes(op, a, b, tolerance, metrics, cancel, progress, policy);
+    let routes = execute_boolean_routes(
+        op, a, b, tolerance, metrics, cancel, progress, policy, boxes,
+    );
     let served = match routes {
         Ok(served) => served,
         // A union of operands that only touch fails inside the pipeline
@@ -103,6 +106,7 @@ fn execute_boolean_routes(
     cancel: Option<&CancellationToken>,
     progress: Option<&mut dyn ProgressReporter>,
     policy: NonManifoldPolicy,
+    boxes: Option<super::OperandBoxes<'_>>,
 ) -> Result<BRep, BoolError> {
     // PK-478 stage 4: MIXED-sense rescue retry. A mixed operand pair
     // (one majority-inward — every blend-rebuilt body; one
@@ -133,7 +137,9 @@ fn execute_boolean_routes(
 
     // `progress` is consumed by the primary run; the rescue run is
     // internal and reports no progress.
-    let primary = execute_boolean_pipeline(op, a, b, tolerance, metrics, cancel, progress, policy);
+    let primary = execute_boolean_pipeline(
+        op, a, b, tolerance, metrics, cancel, progress, policy, boxes,
+    );
     let err = match primary {
         Ok(result) => return Ok(result),
         Err(BoolError::Cancelled) => return Err(BoolError::Cancelled),
@@ -181,6 +187,7 @@ fn execute_boolean_routes(
         cancel,
         None,
         policy,
+        None,
     ) {
         Ok(rescued) => {
             // Tear bar: a divergence at 1% of the body extent is a

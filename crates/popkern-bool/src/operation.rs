@@ -36,7 +36,7 @@ use popkern_core::{tolerance::Tolerance, topology::BRep};
 
 use crate::cancellation::CancellationToken;
 use crate::error::{BoolDiagnostics, BoolError, BoolOperation, PhaseMetric, Stage};
-use crate::intersect::find_intersections;
+use crate::intersect::find_intersections_with_aabbs;
 use crate::progress::{ProgressEvent, ProgressReporter};
 
 const TOTAL_PHASES: usize = 6;
@@ -124,8 +124,38 @@ pub(crate) fn execute_boolean_with_policy(
     tolerance: &Tolerance,
     policy: crate::options::NonManifoldPolicy,
 ) -> Result<BRep, BoolError> {
-    execute_boolean_full(op, a, b, tolerance, &mut Vec::new(), None, None, policy)
+    execute_boolean_with_boxes(op, a, b, tolerance, policy, None)
 }
+
+/// [`execute_boolean_with_policy`] given each operand's face boxes
+/// (`compute_face_aabbs`), already built by the caller for its own
+/// tests, so the intersection stage does not build them again.
+pub(crate) fn execute_boolean_with_boxes(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+    policy: crate::options::NonManifoldPolicy,
+    boxes: Option<OperandBoxes<'_>>,
+) -> Result<BRep, BoolError> {
+    execute_boolean_full(
+        op,
+        a,
+        b,
+        tolerance,
+        &mut Vec::new(),
+        None,
+        None,
+        policy,
+        boxes,
+    )
+}
+
+/// Each operand's face boxes, as `compute_face_aabbs` builds them.
+pub(crate) type OperandBoxes<'a> = [&'a [(
+    popkern_core::topology::FaceHandle,
+    popkern_core::geometry::intersection::surface_subdivision::Aabb,
+)]; 2];
 
 /// Execute a boolean and populate `metrics` with per-stage timing samples.
 ///
@@ -137,15 +167,31 @@ pub(crate) fn execute_boolean_with_metrics(
     tolerance: &Tolerance,
     metrics: &mut Vec<PhaseMetric>,
 ) -> Result<BRep, BoolError> {
+    execute_boolean_observed(op, a, b, tolerance, metrics, None, None)
+}
+
+/// [`execute_boolean`] observed: per-stage `metrics`, polled for
+/// `cancel` and reported to `progress` (the public cancellable and
+/// progress entry points).
+pub(crate) fn execute_boolean_observed(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+    metrics: &mut Vec<PhaseMetric>,
+    cancel: Option<&CancellationToken>,
+    progress: Option<&mut dyn ProgressReporter>,
+) -> Result<BRep, BoolError> {
     execute_boolean_full(
         op,
         a,
         b,
         tolerance,
         metrics,
-        None,
-        None,
+        cancel,
+        progress,
         crate::options::NonManifoldPolicy::Decline,
+        None,
     )
 }
 
@@ -165,6 +211,7 @@ pub(super) fn execute_boolean_pipeline(
     cancel: Option<&CancellationToken>,
     mut progress: Option<&mut dyn ProgressReporter>,
     policy: crate::options::NonManifoldPolicy,
+    boxes: Option<OperandBoxes<'_>>,
 ) -> Result<BRep, BoolError> {
     check_cancel(cancel)?;
     if popkern_core::trace::trace_enabled("boolean") {
@@ -178,7 +225,8 @@ pub(super) fn execute_boolean_pipeline(
     // Stage 1: Intersect — compute face-face intersection curves.
     let t_intersect = popkern_core::time::Stopwatch::start();
     let intersection_result =
-        find_intersections(a, b, tolerance).map_err(|diag| diag.into_error())?;
+        find_intersections_with_aabbs(a, b, boxes.map(|x| x[0]), boxes.map(|x| x[1]), tolerance)
+            .map_err(|diag| diag.into_error())?;
     let elapsed_intersect = t_intersect.elapsed();
     let count_intersect = intersection_result.records.len();
     metrics.push(PhaseMetric {

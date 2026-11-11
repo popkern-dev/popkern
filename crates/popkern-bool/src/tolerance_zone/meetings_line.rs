@@ -7,7 +7,11 @@
 //! pass and a golden-section refinement per local minimum) cost a box
 //! union 0.17 ms of its 1.3, and a 50-face prism 0.26 of 2.4. Parallel
 //! segments, which meet along a stretch or not at all, are left to the
-//! sampled search and its overlap rule.
+//! sampled search and its overlap rule. A meeting's zone, the stretch
+//! within the radius of the other segment, and a straight record's
+//! length between two parameters are closed form too: measured by
+//! doubling and bisection and by quadrature they still cost the prism
+//! 0.05 ms for its five T-junctions.
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -76,13 +80,14 @@ pub(super) fn line_meeting(
     if gap > radius {
         return Some(None);
     }
-    // The distance from a point of ci to the segment cj.
+    // The distance from a point of ci to the segment cj (the overlap
+    // rule below).
     let dist = |x: f64| {
         let p = ci.point_at(x);
         let w = ((p - q0).dot(&d2) / l2).clamp(0.0, 1.0);
         p.distance_to(&(q0 + d2 * w))
     };
-    let zone = super::meetings_foot::zone_along(ci, s, (a, b), dist, radius);
+    let zone = segment_zone((p0, d1), u, (q0, d2), radius);
     // Within the radius a twentieth of the range either side is a
     // stretch the two share, not a meeting (the sampled search's rule).
     let step = super::meetings::OVERLAP_FRACTION * (b - a);
@@ -91,6 +96,79 @@ pub(super) fn line_meeting(
         return Some(None);
     }
     Some(Some((s, t, gap, zone, sin_angle)))
+}
+
+/// The arc length of segment `p0 + u d1` about fraction `u` within
+/// `radius` of segment `q0 + v d2`, the larger of its two sides, `u`
+/// itself within it (the closed form of the sampled search's zone).
+/// The distance from a point moving along the first to the second is
+/// convex, and quadratic in each piece the moving foot passes (before
+/// the second's start, along it, past its end): along each side the
+/// zone ends at the first piece's exit root, or at the first segment's
+/// end.
+fn segment_zone(
+    (p0, d1): (Point3, popkern_core::geometry::Vec3),
+    u: f64,
+    (q0, d2): (Point3, popkern_core::geometry::Vec3),
+    radius: f64,
+) -> f64 {
+    use popkern_core::geometry::Vec3;
+    let (l1, l2) = (d1.dot(&d1), d2.dot(&d2));
+    let x = p0 + d1 * u;
+    let q1 = q0 + d2;
+    let r2 = radius * radius;
+    // The larger root of |c + t e|² = r² (t from 0, starting inside),
+    // or None when the distance does not grow along e.
+    let exit = |c: Vec3, e: Vec3| {
+        let (ee, ce, cc) = (e.dot(&e), c.dot(&e), c.dot(&c));
+        (ee > 0.0).then(|| (-ce + (ce * ce - ee * (cc - r2)).max(0.0).sqrt()) / ee)
+    };
+    let mut widest: f64 = 0.0;
+    for dir in [1.0_f64, -1.0] {
+        let room = if dir > 0.0 { 1.0 - u } else { u };
+        let e = d1 * dir;
+        // The foot's fraction on the second segment, linear in t.
+        let v0 = (x - q0).dot(&d2) / l2;
+        let dv = e.dot(&d2) / l2;
+        let mut cuts: Vec<f64> = [-v0 / dv, (1.0 - v0) / dv]
+            .into_iter()
+            .filter(|t| t.is_finite() && *t > 0.0 && *t < room)
+            .collect();
+        cuts.sort_by(f64::total_cmp);
+        cuts.push(room);
+        let mut start = 0.0;
+        let mut reached = room;
+        for end in cuts {
+            let mid = 0.5 * (start + end);
+            let v = v0 + dv * mid;
+            let (c, e_piece) = if v < 0.0 {
+                (x - q0, e)
+            } else if v > 1.0 {
+                (x - q1, e)
+            } else {
+                let off = x - q0;
+                (off - d2 * (off.dot(&d2) / l2), e - d2 * dv)
+            };
+            if let Some(t) = exit(c, e_piece)
+                && t <= end
+            {
+                reached = t.max(start);
+                break;
+            }
+            start = end;
+        }
+        widest = widest.max(reached * l1.sqrt());
+    }
+    widest
+}
+
+/// The length of a record between parameters `s0` and `s1`: exact for a
+/// straight record (its point moves linearly), else the curve's own.
+pub(super) fn length_between(c: &NurbsCurve, s0: f64, s1: f64) -> f64 {
+    match straight(c) {
+        Some(((a, b), p, q)) if b != a => ((s1 - s0) / (b - a)).abs() * p.distance_to(&q),
+        _ => c.length_between(s0, s1),
+    }
 }
 
 /// The fractions `(u, v)` along segments `p0 + u d1` and `q0 + v d2`,
@@ -145,6 +223,47 @@ mod tests {
         assert!((sin - 1.0).abs() < 1e-12);
         // Within 1e-6 of the other segment over sqrt(1e-12 - 1.6e-13).
         assert!((zone - (1e-12_f64 - 1.6e-13).sqrt()).abs() < 1e-9, "{zone}");
+    }
+
+    /// The closed-form zone against the doubling-and-bisection search it
+    /// replaces, over crossings, shallow crossings, T-junctions at and
+    /// near either end, and zones cut short by the first segment's end.
+    #[test]
+    fn the_segment_zone_is_the_searched_zone() {
+        let x = segment(Point3::new(-1.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0));
+        let r = 1e-6;
+        let cases = [
+            (Point3::new(0.5, -1.0, 4e-7), Point3::new(0.5, 1.0, 4e-7)),
+            (Point3::new(-0.7, -1e-4, 3e-7), Point3::new(0.9, 1e-4, 3e-7)),
+            (Point3::new(0.2, 0.0, 5e-7), Point3::new(0.2, 1.0, 5e-7)),
+            (Point3::new(0.2, 3e-7, 0.0), Point3::new(0.2, 1.0, 0.0)),
+            (Point3::new(0.2, -3e-7, 0.0), Point3::new(0.2, 1.0, 0.0)),
+            (
+                Point3::new(1.0 - 2e-7, -1.0, 0.0),
+                Point3::new(1.0 - 2e-7, 1.0, 0.0),
+            ),
+            (Point3::new(-1.0, -1e-7, 0.0), Point3::new(0.0, 1e-7, 0.0)),
+        ];
+        let mut measured = 0;
+        for (q0, q1) in cases {
+            let y = segment(q0, q1);
+            let Some(Some((s, _, _, zone, _))) = line_meeting(&x, &y, r) else {
+                continue;
+            };
+            let d2 = q1 - q0;
+            let dist = |t: f64| {
+                let p = x.point_at(t);
+                let w = ((p - q0).dot(&d2) / d2.dot(&d2)).clamp(0.0, 1.0);
+                p.distance_to(&(q0 + d2 * w))
+            };
+            let searched = super::super::meetings_foot::zone_along(&x, s, (0.0, 2.0), dist, r);
+            measured += 1;
+            assert!(
+                (zone - searched).abs() <= 1e-9 * searched.max(1e-6),
+                "{q0:?}-{q1:?}: closed {zone:e}, searched {searched:e}"
+            );
+        }
+        assert!(measured >= 5, "{measured} cases measured");
     }
 
     #[test]

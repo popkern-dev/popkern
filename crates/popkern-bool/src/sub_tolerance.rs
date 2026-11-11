@@ -237,11 +237,13 @@ pub(crate) struct ThinOperand {
 /// Whether `brep` (a solid) is thinner than the linear tolerance
 /// everywhere, by the face test above.
 pub(crate) fn thin_operand(brep: &BRep, tolerance: &Tolerance) -> Option<ThinOperand> {
-    thin_operand_in(brep, &crate::face_bounding_boxes(brep), tolerance)
+    thin_operand_in(brep, &[], tolerance)
 }
 
-/// [`thin_operand`] with `brep`'s face boxes given (the boolean builds
-/// each operand's once for its sub-tolerance tests, PK-1161).
+/// [`thin_operand`] with whatever of `brep`'s face boxes are built (the
+/// boolean builds each operand's once for its sub-tolerance tests and
+/// intersection stage, PK-1161); a face on a surface with no closed
+/// form whose box is not given has it built when a probe asks.
 pub(crate) fn thin_operand_in(
     brep: &BRep,
     face_boxes: &[(
@@ -254,12 +256,24 @@ pub(crate) fn thin_operand_in(
     // at x = 5 measure 1.00000000014e-6, faces 1e-6 apart on a turned
     // block 1.0000000018e-6): `Tolerance::within_linear`.
     let within = |d: f64| tolerance.within_linear(d);
-    let faces: Vec<FaceHandle> = brep.faces.keys().collect();
+    let mut faces: Vec<FaceHandle> = brep.faces.keys().collect();
     if faces.len() < 2 {
         return None;
     }
-    let boxes: std::collections::HashMap<FaceHandle, _> =
-        face_boxes.iter().map(|(f, b)| (*f, b)).collect();
+    // A body with an inside ends the test at its first face's interior
+    // point, whose cost grows with the face's loops (a 48-gon cap's
+    // took 0.05 ms, the whole test on a prism): faces of fewest
+    // half-edges first (PK-1161). A thin body tests every face, so the
+    // order changes only which point reports it.
+    let mut sides: std::collections::HashMap<FaceHandle, usize> = std::collections::HashMap::new();
+    for he in brep.half_edges.values() {
+        if let Some(l) = brep.loops.get(he.loop_) {
+            *sides.entry(l.face).or_default() += 1;
+        }
+    }
+    faces.sort_by_key(|f| sides.get(f).copied().unwrap_or(0));
+    let near_faces = near::NearFaces::new(brep, face_boxes);
+    let reach = tolerance.linear_reach();
     let mut widest: f64 = 0.0;
     let mut location = None;
     for &f in &faces {
@@ -268,14 +282,14 @@ pub(crate) fn thin_operand_in(
             return None;
         }
         // A probe with no other face within the tolerance gives the
-        // solid an inside; boxes farther than it from the probe cannot
-        // hold one.
+        // solid an inside; a face whose surface or box is farther than
+        // it from the probe cannot be within it.
         let clear = probes.find_map(
             |_| true,
             |p| {
                 let near = faces
                     .iter()
-                    .filter(|&&g| g != f && boxes.get(&g).is_some_and(|b| within(box_gap(b, &p))))
+                    .filter(|&&g| g != f && near_faces.may_reach(g, &p, reach))
                     .map(|&g| trimmed_distance(brep, g, &p, tolerance))
                     .find(|&d| within(d));
                 match near {
@@ -296,17 +310,6 @@ pub(crate) fn thin_operand_in(
         location: location?,
         width: widest,
     })
-}
-
-/// The distance from `p` to box `b` (zero inside it).
-fn box_gap(b: &popkern_core::geometry::intersection::surface_subdivision::Aabb, p: &Point3) -> f64 {
-    let gap = |lo: f64, hi: f64, v: f64| (lo - v).max(v - hi).max(0.0);
-    let (dx, dy, dz) = (
-        gap(b.min.x, b.max.x, p.x),
-        gap(b.min.y, b.max.y, p.y),
-        gap(b.min.z, b.max.z, p.z),
-    );
-    (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
 /// The distance from `p` to face `g` within its trim (an upper bound
@@ -349,6 +352,10 @@ mod tests;
 
 #[path = "sub_tolerance_probes.rs"]
 mod probes;
+
+#[path = "sub_tolerance_near.rs"]
+mod near;
+use near::box_gap;
 
 #[path = "sub_tolerance_slot.rs"]
 mod slot;

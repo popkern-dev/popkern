@@ -150,31 +150,60 @@ impl BRep {
         joined
     }
 
-    /// Two loops of `face` and a vertex each passes through once.
+    /// Two loops of `face` and a vertex each passes through once: the
+    /// first pair in loop order, and the first such vertex in the first
+    /// loop's order. Each loop is walked once and its vertices indexed,
+    /// so a face of many holes costs its fins, not their pairs (a disc
+    /// top of 64 loops took 0.1 ms a boolean, PK-1161).
     fn first_shared_vertex(
         &self,
         face: FaceHandle,
     ) -> Option<(LoopHandle, LoopHandle, VertexHandle)> {
         let f = self.faces.get(face)?;
+        if f.inner_loops.is_empty() {
+            return None;
+        }
         let loops: Vec<LoopHandle> = std::iter::once(f.outer_loop)
             .chain(f.inner_loops.iter().copied())
             .collect();
-        let origins = |l: LoopHandle| -> Vec<VertexHandle> {
-            self.loop_fins(l)
-                .into_iter()
-                .map(|h| self.half_edges[h].origin)
-                .collect()
-        };
-        for (i, &a) in loops.iter().enumerate() {
-            let va = origins(a);
-            for &b in &loops[i + 1..] {
-                let vb = origins(b);
-                if let Some(&v) = va.iter().find(|v| {
-                    va.iter().filter(|x| x == v).count() == 1
-                        && vb.iter().filter(|x| x == v).count() == 1
-                }) {
-                    return Some((a, b, v));
+        let origins: Vec<Vec<VertexHandle>> = loops
+            .iter()
+            .map(|&l| {
+                self.loop_fins(l)
+                    .into_iter()
+                    .map(|h| self.half_edges[h].origin)
+                    .collect()
+            })
+            .collect();
+        // Each vertex's passes per loop, as (loop index, passes).
+        let mut passes: std::collections::HashMap<VertexHandle, Vec<(usize, usize)>> =
+            std::collections::HashMap::new();
+        for (i, vs) in origins.iter().enumerate() {
+            for &v in vs {
+                let entry = passes.entry(v).or_default();
+                match entry.last_mut() {
+                    Some((k, n)) if *k == i => *n += 1,
+                    _ => entry.push((i, 1)),
                 }
+            }
+        }
+        let once_in = |v: &VertexHandle, i: usize| passes[v].iter().any(|&(k, n)| k == i && n == 1);
+        for (i, va) in origins.iter().enumerate() {
+            // The nearest later loop through a vertex of this one once
+            // each, then that vertex first in this loop's order.
+            let found = va
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| once_in(v, i))
+                .flat_map(|(pos, v)| {
+                    passes[v]
+                        .iter()
+                        .filter(move |&&(k, n)| k > i && n == 1)
+                        .map(move |&(k, _)| (k, pos, *v))
+                })
+                .min_by_key(|&(k, pos, _)| (k, pos));
+            if let Some((k, _, v)) = found {
+                return Some((loops[i], loops[k], v));
             }
         }
         None
