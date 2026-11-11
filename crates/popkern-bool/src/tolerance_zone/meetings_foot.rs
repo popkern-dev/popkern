@@ -60,3 +60,59 @@ pub(super) fn warm_foot(
     seed.set(t);
     t
 }
+
+/// The minimiser of `f` on `[lo, hi]` by golden section.
+pub(super) fn golden_min(mut lo: f64, mut hi: f64, f: impl Fn(f64) -> f64) -> f64 {
+    let g = 0.5 * (5.0_f64.sqrt() - 1.0);
+    let (mut x1, mut x2) = (hi - g * (hi - lo), lo + g * (hi - lo));
+    let (mut f1, mut f2) = (f(x1), f(x2));
+    for _ in 0..super::meetings::REFINE_STEPS {
+        if f1 <= f2 {
+            hi = x2;
+            (x2, f2) = (x1, f1);
+            x1 = hi - g * (hi - lo);
+            f1 = f(x1);
+        } else {
+            lo = x1;
+            (x1, f1) = (x2, f2);
+            x2 = lo + g * (hi - lo);
+            f2 = f(x2);
+        }
+    }
+    0.5 * (lo + hi)
+}
+
+/// The arc length of `c` about `s` over which `dist` stays within
+/// `radius`, the larger of its two sides, found by doubling then
+/// bisecting the parameter step.
+pub(super) fn zone_along(
+    c: &dyn CurveEval,
+    s: f64,
+    (a, b): (f64, f64),
+    dist: impl Fn(f64) -> f64,
+    radius: f64,
+) -> f64 {
+    let span = (b - a).abs();
+    let mut widest: f64 = 0.0;
+    for dir in [1.0_f64, -1.0] {
+        let inside = |h: f64| {
+            let x = s + dir * h;
+            (a.min(b)..=a.max(b)).contains(&x) && dist(x) <= radius
+        };
+        let mut h = 1e-9 * span.max(1e-300);
+        while h < span && inside(2.0 * h) {
+            h *= 2.0;
+        }
+        let (mut lo, mut hi) = (h, 2.0 * h);
+        for _ in 0..40 {
+            let mid = 0.5 * (lo + hi);
+            if inside(mid) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        widest = widest.max(c.length_between(s, s + dir * lo).abs());
+    }
+    widest
+}
