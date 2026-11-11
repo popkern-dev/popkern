@@ -29,7 +29,7 @@ pub(crate) fn closed_slot(a: &BRep, b: &BRep, tolerance: &Tolerance) -> Option<(
         crate::intersect::compute_face_aabbs(b),
     );
     for (fa, box_a) in &boxes_a {
-        let mut probes: Option<Vec<Point3>> = None;
+        let mut probes = super::probes::FaceProbes::new(a, *fa);
         for (fb, box_b) in &boxes_b {
             if !box_a.overlaps(box_b, reach) {
                 continue;
@@ -37,25 +37,26 @@ pub(crate) fn closed_slot(a: &BRep, b: &BRep, tolerance: &Tolerance) -> Option<(
             let Some(surface) = b.faces.get(*fb).and_then(|f| f.surface.as_ref()) else {
                 continue;
             };
-            let probes =
-                probes.get_or_insert_with(|| super::probe_points(a, *fa).unwrap_or_default());
-            // A probe farther than the tolerance from the other face's
-            // box cannot lie within it of the face: no projection.
-            let gap = probes
-                .iter()
-                .filter(|p| super::box_gap(box_b, p) <= reach)
-                .find_map(|&p| {
-                    let (q, uv) = crate::postprocess::shell_contact::foot(&surface.geometry, &p)?;
+            let geometry = &surface.geometry;
+            // A slot's probe lies within the tolerance and above
+            // rounding of the other face's surface: a probe farther
+            // than the tolerance from its box, or off that band, is
+            // rejected before its own trim is tested.
+            let foot = |p: &Point3| {
+                crate::postprocess::shell_contact::foot(geometry, p).map(|(q, uv)| {
                     let d = p.distance_to(&q);
-                    let on_face = crate::postprocess::shell_contact::on_trim(
-                        b,
-                        *fb,
-                        &surface.geometry,
-                        uv,
-                        reach,
-                    );
-                    (d > rounding && d <= reach && on_face).then_some((p, q, d))
-                });
+                    (q, uv, d)
+                })
+            };
+            let in_band = |p: &Point3| {
+                super::box_gap(box_b, p) <= reach
+                    && foot(p).is_some_and(|(_, _, d)| d > rounding && d <= reach)
+            };
+            let gap = probes.find_map(in_band, |p| {
+                let (q, uv, d) = foot(&p)?;
+                crate::postprocess::shell_contact::on_trim(b, *fb, geometry, uv, reach)
+                    .then_some((p, q, d))
+            });
             let Some((p, q, d)) = gap else {
                 continue;
             };
