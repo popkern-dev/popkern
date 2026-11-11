@@ -438,7 +438,7 @@ pub fn boolean_cancellable(
     let (worker_a, worker_b, worker_token) = (a.clone(), b.clone(), cancel.clone());
     match popkern_core::cancellation::run_detach_on_cancel(cancel, move || {
         let mut metrics = Vec::new();
-        operation::execute_boolean_full(
+        operation::execute_boolean_observed(
             op,
             &worker_a,
             &worker_b,
@@ -446,7 +446,6 @@ pub fn boolean_cancellable(
             &mut metrics,
             Some(&worker_token),
             None,
-            options::NonManifoldPolicy::Decline,
         )
     }) {
         popkern_core::cancellation::DetachOutcome::Completed(result) => result,
@@ -468,16 +467,7 @@ pub fn boolean_with_progress(
     reporter: &mut dyn progress::ProgressReporter,
 ) -> Result<BRep, BoolError> {
     let mut metrics = Vec::new();
-    operation::execute_boolean_full(
-        op,
-        a,
-        b,
-        &tol,
-        &mut metrics,
-        None,
-        Some(reporter),
-        options::NonManifoldPolicy::Decline,
-    )
+    operation::execute_boolean_observed(op, a, b, &tol, &mut metrics, None, Some(reporter))
 }
 
 /// Wedge-matching trace gate (fragment-walk successor diagnostics).

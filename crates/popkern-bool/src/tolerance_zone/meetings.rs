@@ -123,9 +123,10 @@ pub(crate) fn record_meetings(records: &[IntersectionRecord], radius: f64) -> Ve
                 // that branch.
                 let at_end = |c: &NurbsCurve, s: f64| {
                     let (a, b) = c.parameter_range();
-                    [a, b]
-                        .iter()
-                        .any(|&e| c.length_between(e.min(s), e.max(s)) <= zone.max(radius) + radius)
+                    [a, b].iter().any(|&e| {
+                        super::meetings_line::length_between(c, e.min(s), e.max(s))
+                            <= zone.max(radius) + radius
+                    })
                 };
                 if at_end(ci, si) && at_end(cj, sj) {
                     continue;
@@ -402,9 +403,9 @@ pub(super) fn meeting_candidates(
             let c = &r.curve.curve_3d;
             let (lo, hi) = c.parameter_range();
             let reach = m.zone.max(radius) + radius;
-            if c.length_between(lo, s).abs() <= reach {
+            if super::meetings_line::length_between(c, lo, s).abs() <= reach {
                 Some(false)
-            } else if c.length_between(s, hi).abs() <= reach {
+            } else if super::meetings_line::length_between(c, s, hi).abs() <= reach {
                 Some(true)
             } else {
                 None

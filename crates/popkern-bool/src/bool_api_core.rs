@@ -56,7 +56,8 @@ pub(crate) fn boolean_under(
     // An operand thinner than the tolerance has no inside at its
     // resolution: the result is the other operand or empty (PK-1131),
     // reported as a sub-tolerance feature.
-    // Each operand's face boxes, built once for the tests here (PK-1161).
+    // Each operand's face boxes, built once for the tests here and the
+    // intersection stage (PK-1161).
     let boxes = [
         crate::face_bounding_boxes(&a),
         crate::face_bounding_boxes(&b),
@@ -76,7 +77,14 @@ pub(crate) fn boolean_under(
     // No perturbation retry: plan Stage 7d retired it after it fired on
     // no boolean over three whole-suite runs (`boolean_with_perturbation`
     // remains an explicit opt-in).
-    let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, policy)?;
+    let mut result = operation::execute_boolean_with_boxes(
+        op,
+        &a,
+        &b,
+        &tol,
+        policy,
+        Some([&boxes[0], &boxes[1]]),
+    )?;
     // A result thinner than the tolerance everywhere has no inside
     // either (a lens a tolerance deep): it is empty, and reported. A
     // union holds both operands, each found above to have an inside, so
