@@ -54,6 +54,27 @@ pub(crate) fn find_uv_crossings(
     if (curve_range.1 - curve_range.0).abs() < tolerance.numerical_floor() {
         return Some(crossings);
     }
+    // A plane's chart has no period (a lift by one finds nothing true
+    // there), so a record no boundary edge can reach crosses none:
+    // decided before any edge is converted (PK-1168).
+    let on_plane = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .is_some_and(|s| {
+            matches!(
+                s.geometry,
+                popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+            )
+        });
+    let pad = super::clip_rim_reach::RIM_REACH_TOLERANCES * tolerance.linear();
+    if on_plane
+        && boundary
+            .iter()
+            .all(|(_, pc)| super::clip_rim_reach::rim_clear_of_query(pc, curve_uv, pad))
+    {
+        return Some(crossings);
+    }
 
     let in_periodic_range = |curve: &NurbsCurve| -> bool {
         curve
