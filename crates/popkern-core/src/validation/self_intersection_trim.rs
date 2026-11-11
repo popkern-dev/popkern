@@ -155,9 +155,17 @@ impl BRep {
             });
         }
 
-        let points = intersection_sample_points(surface_a, intersection);
+        let mut points = intersection_sample_points(surface_a, intersection);
         if points.is_empty() {
             return true;
+        }
+        points = self_intersection_trim_touch::region_samples_within(
+            surface_b,
+            &points,
+            self.tolerance.linear_reach(),
+        );
+        if points.is_empty() {
+            return false;
         }
 
         self.sampled_points_overlap_faces(face_a, surface_a, face_b, surface_b, &points, linear_tol)

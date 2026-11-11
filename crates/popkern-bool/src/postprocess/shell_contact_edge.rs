@@ -54,7 +54,7 @@ pub(super) fn edge_contact(
                     .map(|i| (dist(i as f64 / STATIONS as f64), i))
                     .collect();
                 if let Some(p) = run_middle(&coarse, linear, &at, &gap, &|uv| {
-                    super::shell_contact::within_trim(brep, g, sg, uv)
+                    super::shell_contact::on_trim(brep, g, sg, uv, linear)
                 }) {
                     return Some(p);
                 }
@@ -76,7 +76,7 @@ pub(super) fn edge_contact(
                     let p = at(0.5 * (lo + hi));
                     if let Some((d, q, uv)) = gap(&p)
                         && d <= linear
-                        && super::shell_contact::within_trim(brep, g, sg, uv)
+                        && super::shell_contact::on_trim(brep, g, sg, uv, linear)
                     {
                         return Some(p + (q - p) * 0.5);
                     }

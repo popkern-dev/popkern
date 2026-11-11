@@ -47,14 +47,26 @@ fn surface_of(brep: &BRep, face: FaceHandle) -> Option<&SurfaceGeometry> {
     Some(&brep.faces.get(face)?.surface.as_ref()?.geometry)
 }
 
-pub(crate) fn within_trim(
+/// Whether the surface point at `uv` lies on `face` to within `reach`:
+/// inside its trim, or within `reach` in space of a boundary curve. The
+/// trim test's boundary band is ten tolerances wide, so a uv in it
+/// is not yet on the face: a coplanar neighbour five tolerances past
+/// the trim read as touching it (two blocks 1e-5 apart, turned,
+/// declined as non-manifold).
+pub(crate) fn on_trim(
     brep: &BRep,
     face: FaceHandle,
     surface: &SurfaceGeometry,
     uv: (f64, f64),
+    reach: f64,
 ) -> bool {
-    brep.face_uv_trim_containment(face, surface, uv.0, uv.1)
-        .is_some_and(|c| c != FaceUvContainment::Outside)
+    match brep.face_uv_trim_containment(face, surface, uv.0, uv.1) {
+        Some(FaceUvContainment::Interior) => true,
+        Some(FaceUvContainment::Boundary) => {
+            brep.point_near_face_boundary(face, &surface.point_at(uv.0, uv.1), reach)
+        }
+        _ => false,
+    }
 }
 
 /// Seed points on `face`: its loop samples and an interior uv grid.
@@ -153,8 +165,8 @@ fn contact_extent(
                 return false;
             };
             p.distance_to(&q) <= linear
-                && within_trim(brep, f, sf, uv_f)
-                && within_trim(brep, g, sg, uv_g)
+                && on_trim(brep, f, sf, uv_f, linear)
+                && on_trim(brep, g, sg, uv_g, linear)
         })
         .collect();
     let count = on_both.iter().filter(|&&b| b).count();
@@ -195,8 +207,8 @@ fn face_contact(brep: &BRep, f: FaceHandle, g: FaceHandle, linear: f64) -> Optio
             }
         }
         if p.distance_to(&q) <= linear
-            && within_trim(brep, f, sf, uv_f)
-            && within_trim(brep, g, sg, uv_g)
+            && on_trim(brep, f, sf, uv_f, linear)
+            && on_trim(brep, g, sg, uv_g, linear)
         {
             return Some(p + (q - p) * 0.5);
         }
@@ -230,7 +242,7 @@ pub(crate) fn shell_findings(brep: &BRep, tolerance: &Tolerance) -> Vec<ShellFin
     if brep.back_shell_count() < 2 {
         return Vec::new();
     }
-    let linear = tolerance.linear();
+    let linear = tolerance.linear_reach();
     let mut faces: Vec<(FaceHandle, Aabb)> = crate::intersect::compute_face_aabbs(brep);
     faces.sort_by_key(|(f, _)| *f);
     let shell = |f: FaceHandle| brep.faces.get(f).map(|face| face.back);

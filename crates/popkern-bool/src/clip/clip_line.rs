@@ -102,14 +102,15 @@ pub(crate) fn clip_line_to_face(
     curve: &NurbsCurve,
 ) -> Option<(f64, f64)> {
     let vertex_polygon = face_vertex_positions(brep, face_handle);
-    match clip_line_to_polygon(&vertex_polygon, curve, face_handle) {
+    let on_edge = brep.tolerance.linear_reach();
+    match clip_line_to_polygon(&vertex_polygon, curve, face_handle, on_edge) {
         Some((s_enter, s_exit)) if s_exit - s_enter < 1.0e-3 => {
             // Degenerate window — retry on the curve-sampled outline
             // (identical to the vertex polygon when every boundary
             // edge is straight, so only curved boundaries re-clip).
             let sampled = face_outline_sample_positions(brep, face_handle, 8);
             let rescued = if sampled.len() > vertex_polygon.len() {
-                clip_line_to_polygon(&sampled, curve, face_handle)
+                clip_line_to_polygon(&sampled, curve, face_handle, on_edge)
             } else {
                 None
             };
@@ -132,11 +133,13 @@ pub(crate) fn clip_line_to_face(
 }
 
 /// Cyrus-Beck clip of the line against one polygon; returns the
-/// `[0, 1]` line-parameter window.
+/// `[0, 1]` line-parameter window. A line parallel to an edge and
+/// within `on_edge` of it lies on it.
 fn clip_line_to_polygon(
     positions: &[Point3],
     curve: &NurbsCurve,
     face_handle: FaceHandle,
+    on_edge: f64,
 ) -> Option<(f64, f64)> {
     if positions.len() < 3 {
         return None;
@@ -199,10 +202,14 @@ fn clip_line_to_polygon(
             // remaining edges, not vanish (measured: the flush
             // relief's cutter-top × flank-wall record was silently
             // discarded and the wall never split at the relief
-            // depth).
+            // depth). Within the linear tolerance of the edge is on
+            // it: two blocks set a tolerance apart meet in lines a
+            // tolerance off each other's edges, and an absolute 1e-9
+            // here dropped every one, so the slot between them stayed
+            // open (PK-1131).
             let inward_len = inward.length().max(1e-30);
-            if numer / inward_len > 1e-9 {
-                return None; // strictly outside this edge
+            if numer / inward_len > on_edge {
+                return None; // outside this edge
             }
             continue;
         }

@@ -44,7 +44,7 @@ pub fn are_surfaces_coincident_analytic(
                 (o2.x, o2.y, o2.z),
                 (o1.x, o1.y, o1.z),
                 (n1.x, n1.y, n1.z),
-                tolerance.linear() * (1.0 + crate::tolerance::LINEAR_ROUNDING),
+                tolerance.linear_reach(),
             );
             normals_parallel && origin_on_plane
         }
