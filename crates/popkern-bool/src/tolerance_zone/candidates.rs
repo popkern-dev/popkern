@@ -5,12 +5,24 @@
 //! edge-face hits, and the ends of the face-face records. Each
 //! candidate carries its incidence signature (the vertices, edges,
 //! faces and records it lies on, with local parameters) and a
-//! tolerance radius, the sum of its sources' tolerances (Jackson
-//! §3.2): an operand vertex its own tolerance; an edge-face hit the
-//! edge's plus the face's; a record end the two faces' plus the
-//! record's own fit deviation there, its 3D end's distance off either
-//! surface (a record fit off its surfaces is that much less certain
-//! where it ends).
+//! tolerance radius (Jackson §3.2). An operand vertex is a given
+//! point, and an edge-face hit is fixed across the edge by the face it
+//! crosses: each takes its sources' own tolerances, a precise source
+//! (no tolerance of its own) nothing, and at least half the linear
+//! reach ([`precise_radius`]), so two of them are one place exactly
+//! when they lie within the linear tolerance of each other, rounding
+//! allowed, as everywhere two things are decided one place (PK-1131).
+//! A record end is where a fitted curve stops, its place along the
+//! record decided by a third surface at whatever angle and its fit
+//! off its surfaces: it keeps the two faces' tolerances, a precise
+//! face the whole linear tolerance, plus the record's own fit deviation
+//! there, its 3D end's distance off either surface (records ending at
+//! a tangent touch measured 7e-7 off it). Each vertex and hit counted
+//! the whole tolerance a source before, so two operand vertices merged
+//! under twice the tolerance and a hit with a vertex under three:
+//! blocks united with tops a step of 1.5e-6 apart made their corners
+//! one, and the higher top was served tilted down to the lower's edge,
+//! 1.5e-6 off its own plane (PK-1165).
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -179,10 +191,11 @@ pub(crate) fn collect_candidates(
             if !sites.iter().any(|s| s.holds(&v.position)) {
                 continue;
             }
+            let radius = v.tolerance.unwrap_or(0.0).max(precise_radius(linear));
             out.push(CandidateVertex {
                 position: v.position,
-                radius: v.tolerance.unwrap_or(linear),
-                zone: v.tolerance.unwrap_or(linear),
+                radius,
+                zone: radius,
                 source: SourceKind::OperandVertex,
                 incidence: vec![Incidence::Vertex {
                     operand,
@@ -223,20 +236,31 @@ pub(crate) fn interfering_hits(
         .collect()
 }
 
-/// A hit's tolerance radius: its edge's plus its face's.
+/// The radius of a candidate whose sources carry no tolerance of their
+/// own: half the linear reach, so that two such candidates' balls
+/// overlap exactly when they lie within the tolerance of each other,
+/// rounding allowed (`Tolerance::linear_reach`).
+pub(crate) fn precise_radius(linear: f64) -> f64 {
+    0.5 * popkern_core::tolerance::Tolerance::default()
+        .with_linear(linear)
+        .linear_reach()
+}
+
+/// A hit's tolerance radius: its edge's own plus its face's own, at
+/// least [`precise_radius`].
 fn hit_radius(operands: [&BRep; 2], hit: &EdgeFaceHit, linear: f64) -> f64 {
     let (edge_op, face_op) = if hit.edge_of_a { (0, 1) } else { (1, 0) };
     let edge_tol = operands[edge_op]
         .edges
         .get(hit.edge)
         .and_then(|e| e.tolerance)
-        .unwrap_or(linear);
+        .unwrap_or(0.0);
     let face_tol = operands[face_op]
         .faces
         .get(hit.face)
         .and_then(|f| f.tolerance)
-        .unwrap_or(linear);
-    edge_tol + face_tol
+        .unwrap_or(0.0);
+    (edge_tol + face_tol).max(precise_radius(linear))
 }
 
 /// The interference sites of a boolean: its interfering edge-face hits

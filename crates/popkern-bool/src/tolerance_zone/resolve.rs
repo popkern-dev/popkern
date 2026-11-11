@@ -336,7 +336,21 @@ pub(crate) fn resolve(
             let cand = &cands[c];
             let mut joined = false;
             let mut capped: Option<(usize, f64)> = None;
-            for g in first_group..res.groups.len() {
+            // The groups by their anchors' distance, nearest first (ties
+            // in group order): a candidate overlapping two vertices
+            // joins the one it lies at, not the one minted first (a
+            // record end on a hit, 1.5e-6 below an operand vertex its
+            // wider ball also reaches, joined the vertex, PK-1165).
+            let mut order: Vec<usize> = (first_group..res.groups.len()).collect();
+            order.sort_by(|&x, &y| {
+                let d = |g: usize| {
+                    cands[res.groups[g].anchor]
+                        .position
+                        .distance_to(&cand.position)
+                };
+                d(x).total_cmp(&d(y)).then(x.cmp(&y))
+            });
+            for g in order {
                 let group = &res.groups[g];
                 let touches = group.members.iter().any(|&m| linked(&cands[m], cand));
                 if !touches {

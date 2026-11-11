@@ -52,7 +52,7 @@ pub(crate) fn cellular_graph_merge(
     scopes: Option<&crate::scope::OperandScopes>,
     source: SelectionSource,
 ) -> Result<(BRep, crate::serve_region::Carried), BoolDiagnostics> {
-    let snap_tol = tolerance.linear() * 2.0;
+    let snap_tol = tolerance.linear_reach();
     let mut graph = IntersectionGraph::new();
 
     // Process edge-face hits.

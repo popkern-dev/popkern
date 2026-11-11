@@ -163,48 +163,55 @@ pub(crate) fn faces_coincide(
 
 /// Whether every edge bounding `face` lies within the linear tolerance
 /// of `surface` at [`BOUNDARY_STATIONS`] stations (a vertex where the
-/// edge has no curve). An edge whose stations project nowhere fails.
+/// edge has no curve), rounding allowed. An edge whose stations project
+/// nowhere fails.
 fn boundary_on_surface(
     brep: &BRep,
     face: popkern_core::topology::FaceHandle,
     surface: &popkern_core::geometry::SurfaceGeometry,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> bool {
+    boundary_offset(brep, face, surface).is_some_and(|(d, _)| tolerance.within_linear(d))
+}
+
+/// The farthest any boundary station of `face` lies from `surface`,
+/// and where: `None` when a station projects nowhere or a loop is
+/// broken.
+fn boundary_offset(
+    brep: &BRep,
+    face: popkern_core::topology::FaceHandle,
+    surface: &popkern_core::geometry::SurfaceGeometry,
+) -> Option<(f64, popkern_core::geometry::Point3)> {
     use popkern_core::geometry::curve::CurveEval as _;
     use popkern_core::geometry::surface::SurfaceEval as _;
-    let Some(f) = brep.faces.get(face) else {
-        return false;
-    };
-    let off = |p: &popkern_core::geometry::Point3| -> bool {
+    let f = brep.faces.get(face)?;
+    let off = |p: &popkern_core::geometry::Point3| -> Option<f64> {
         surface
             .closest_point(p)
-            .is_none_or(|(u, v)| surface.point_at(u, v).distance_to(p) > tolerance.linear())
+            .map(|(u, v)| surface.point_at(u, v).distance_to(p))
+    };
+    let mut worst = (0.0_f64, None);
+    let mut take = |p: popkern_core::geometry::Point3| -> Option<()> {
+        let d = off(&p)?;
+        if d >= worst.0 || worst.1.is_none() {
+            worst = (d.max(worst.0), Some(p));
+        }
+        Some(())
     };
     for &lh in std::iter::once(&f.outer_loop).chain(f.inner_loops.iter()) {
-        let Some(start) = brep.loops.get(lh).map(|l| l.half_edge) else {
-            return false;
-        };
+        let start = brep.loops.get(lh)?.half_edge;
         let mut he = start;
         for _ in 0..=brep.half_edges.len() {
-            let Some(h) = brep.half_edges.get(he) else {
-                return false;
-            };
-            let curve = brep.edges.get(h.edge).and_then(|e| e.curve.as_ref());
-            match curve {
+            let h = brep.half_edges.get(he)?;
+            match brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()) {
                 Some(c) => {
                     for i in 0..=BOUNDARY_STATIONS {
                         let t =
                             c.t_start + (c.t_end - c.t_start) * i as f64 / BOUNDARY_STATIONS as f64;
-                        if off(&c.geometry.point_at(t)) {
-                            return false;
-                        }
+                        take(c.geometry.point_at(t))?;
                     }
                 }
-                None => {
-                    if brep.vertices.get(h.origin).is_none_or(|v| off(&v.position)) {
-                        return false;
-                    }
-                }
+                None => take(brep.vertices.get(h.origin)?.position)?,
             }
             he = h.next;
             if he == start {
@@ -212,5 +219,26 @@ fn boundary_on_surface(
             }
         }
     }
-    true
+    Some((worst.0, worst.1?))
+}
+
+/// How far apart faces `fa` and `fb` lie: the farther of each one's
+/// boundary from the other's surface, and where. Two faces a merge
+/// joins lie within the tolerance; one above rounding is a step the
+/// merge flattened (PK-1163).
+pub(crate) fn faces_offset(
+    brep: &BRep,
+    fa: popkern_core::topology::FaceHandle,
+    fb: popkern_core::topology::FaceHandle,
+) -> Option<(f64, popkern_core::geometry::Point3)> {
+    let surface = |f| {
+        brep.faces
+            .get(f)
+            .and_then(|d| d.surface.as_ref())
+            .map(|s| &s.geometry)
+    };
+    let (sa, sb) = (surface(fa)?, surface(fb)?);
+    let x = boundary_offset(brep, fa, sb)?;
+    let y = boundary_offset(brep, fb, sa)?;
+    Some(if x.0 >= y.0 { x } else { y })
 }

@@ -56,8 +56,13 @@ pub(crate) fn boolean_under(
     // An operand thinner than the tolerance has no inside at its
     // resolution: the result is the other operand or empty (PK-1131),
     // reported as a sub-tolerance feature.
+    // Each operand's face boxes, built once for the tests here (PK-1161).
+    let boxes = [
+        crate::face_bounding_boxes(&a),
+        crate::face_bounding_boxes(&b),
+    ];
     for (operand, body) in [&a, &b].into_iter().enumerate() {
-        if let Some(thin) = crate::sub_tolerance::thin_operand(body, &tol) {
+        if let Some(thin) = crate::sub_tolerance::thin_operand_in(body, &boxes[operand], &tol) {
             crate::sub_tolerance::record(crate::sub_tolerance::SubToleranceFeature {
                 kind: crate::sub_tolerance::SubToleranceKind::OperandVanished { operand },
                 location: thin.location,
@@ -73,8 +78,12 @@ pub(crate) fn boolean_under(
     // remains an explicit opt-in).
     let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, policy)?;
     // A result thinner than the tolerance everywhere has no inside
-    // either (a lens a tolerance deep): it is empty, and reported.
-    if !result.faces.is_empty()
+    // either (a lens a tolerance deep): it is empty, and reported. A
+    // union holds both operands, each found above to have an inside, so
+    // it has one too and is not tested (PK-1161: the test cost every
+    // union a tenth of a millisecond on a 50-face prism).
+    if op != BoolOperation::Union
+        && !result.faces.is_empty()
         && let Some(thin) = crate::sub_tolerance::thin_operand(&result, &tol)
     {
         crate::sub_tolerance::record(crate::sub_tolerance::SubToleranceFeature {
@@ -86,14 +95,10 @@ pub(crate) fn boolean_under(
         return Ok(BRep::new(tol));
     }
     if op == BoolOperation::Union
-        && let Some((location, width)) = crate::sub_tolerance::closed_slot(&a, &b, &tol)
+        && let Some(slot) =
+            crate::sub_tolerance::closed_slot_in((&a, &boxes[0]), (&b, &boxes[1]), &tol)
     {
-        crate::sub_tolerance::record(crate::sub_tolerance::SubToleranceFeature {
-            kind: crate::sub_tolerance::SubToleranceKind::SlotClosed,
-            location,
-            measured_width: width,
-            tolerance: tol.linear(),
-        });
+        crate::sub_tolerance::record_closed_slots(&[slot], &tol);
     }
     if let Some(ctx) = tracking {
         entity_naming_result::name_result(&mut result, &a, &[&b], ctx, &tol);
