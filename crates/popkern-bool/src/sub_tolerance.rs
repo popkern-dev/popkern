@@ -18,6 +18,7 @@
 //! than the tolerance from every other face gives the solid an inside.
 
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -262,16 +263,30 @@ pub(crate) fn thin_operand_in(
     }
     // A body with an inside ends the test at its first face's interior
     // point, whose cost grows with the face's loops (a 48-gon cap's
-    // took 0.05 ms, the whole test on a prism): faces of fewest
-    // half-edges first (PK-1161). A thin body tests every face, so the
-    // order changes only which point reports it.
-    let mut sides: std::collections::HashMap<FaceHandle, usize> = std::collections::HashMap::new();
+    // took 0.05 ms, the whole test on a prism) and on a curved face
+    // with its chart (a filleted cube's spherical corner, three
+    // half-edges, 0.03 ms: its loop's uv centroid can miss the trim):
+    // planes first, each kind by fewest half-edges (PK-1161). A thin
+    // body tests every face, so the order changes only which point
+    // reports it. (Counted in a secondary map: hashing every half-edge
+    // cost as much as the test on a 255-face disc.)
+    let mut sides: slotmap::SecondaryMap<FaceHandle, usize> =
+        slotmap::SecondaryMap::with_capacity(faces.len());
     for he in brep.half_edges.values() {
-        if let Some(l) = brep.loops.get(he.loop_) {
-            *sides.entry(l.face).or_default() += 1;
+        if let Some(l) = brep.loops.get(he.loop_)
+            && let Some(n) = sides.entry(l.face)
+        {
+            *n.or_default() += 1;
         }
     }
-    faces.sort_by_key(|f| sides.get(f).copied().unwrap_or(0));
+    let curved = |f: FaceHandle| {
+        !brep
+            .faces
+            .get(f)
+            .and_then(|face| face.surface.as_ref())
+            .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }))
+    };
+    faces.sort_by_key(|&f| (curved(f), sides.get(f).copied().unwrap_or(0)));
     let near_faces = near::NearFaces::new(brep, face_boxes);
     let reach = tolerance.linear_reach();
     let mut widest: f64 = 0.0;

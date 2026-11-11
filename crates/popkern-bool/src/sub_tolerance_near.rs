@@ -10,29 +10,35 @@
 //! of 0.1 ms on a filleted cube less a pocket, and its test ends at its
 //! first face's interior point as often as not).
 
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cell::{OnceCell, RefCell};
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
+use slotmap::SecondaryMap;
 
 /// The faces of `brep` that may lie near a point, by their surfaces
 /// and, for a surface with no closed form, their boxes.
 pub(super) struct NearFaces<'a> {
     brep: &'a BRep,
-    boxes: RefCell<HashMap<FaceHandle, Option<Aabb>>>,
+    /// The boxes the caller built, indexed when a face with no closed
+    /// form is first asked for (most bodies never ask).
+    known: &'a [(FaceHandle, Aabb)],
+    index: OnceCell<SecondaryMap<FaceHandle, usize>>,
+    /// The boxes built here, of faces `known` leaves out.
+    built: RefCell<SecondaryMap<FaceHandle, Option<Aabb>>>,
 }
 
 impl<'a> NearFaces<'a> {
     /// The prefilter over `brep`, with whatever face boxes are already
     /// built (`compute_face_aabbs`).
-    pub(super) fn new(brep: &'a BRep, known: &[(FaceHandle, Aabb)]) -> Self {
-        let boxes = known.iter().map(|(f, b)| (*f, Some(b.clone()))).collect();
+    pub(super) fn new(brep: &'a BRep, known: &'a [(FaceHandle, Aabb)]) -> Self {
         Self {
             brep,
-            boxes: RefCell::new(boxes),
+            known,
+            index: OnceCell::new(),
+            built: RefCell::new(SecondaryMap::new()),
         }
     }
 
@@ -46,11 +52,24 @@ impl<'a> NearFaces<'a> {
         if let Some(d) = surface_gap(&surface.geometry, p) {
             return d <= reach;
         }
-        let mut boxes = self.boxes.borrow_mut();
-        let b = boxes
-            .entry(g)
-            .or_insert_with(|| crate::face_box::face_aabb(self.brep, g));
-        b.as_ref().is_some_and(|b| box_gap(b, p) <= reach)
+        let index = self.index.get_or_init(|| {
+            let mut index = SecondaryMap::with_capacity(self.known.len());
+            for (i, (f, _)) in self.known.iter().enumerate() {
+                index.insert(*f, i);
+            }
+            index
+        });
+        if let Some(&i) = index.get(g) {
+            return box_gap(&self.known[i].1, p) <= reach;
+        }
+        let mut built = self.built.borrow_mut();
+        if !built.contains_key(g) {
+            built.insert(g, crate::face_box::face_aabb(self.brep, g));
+        }
+        built
+            .get(g)
+            .and_then(Option::as_ref)
+            .is_some_and(|b| box_gap(b, p) <= reach)
     }
 }
 
