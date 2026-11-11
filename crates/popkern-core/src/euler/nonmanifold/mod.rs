@@ -25,6 +25,7 @@ mod glue_edge;
 mod glue_face;
 mod glue_vertex;
 mod imprint_edge;
+mod imprint_edge_pinch;
 mod pieces;
 mod pinch_loop;
 mod shells;
