@@ -22,6 +22,9 @@ enum Expect {
     NonManifold,
     /// A valid body, its measures not known in closed form.
     Valid,
+    /// An empty result: what the operands share is thinner than the
+    /// linear tolerance, and the report warns of it (PK-1131).
+    Vanished,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,8 +168,11 @@ const CASES: &[(&str, Expect, Status)] = &[
         Gate,
     ),
     (
+        // A lens a tolerance deep at its middle: no inside at the
+        // tolerance's resolution, empty with a warning (PK-1131; the
+        // lens itself, 7.85e-12, served before).
         "thin_lens",
-        Body(7.853_981_372_175_095e-12, 3.141_592_653_589_793_5e-5),
+        Vanished,
         Gate,
     ),
     (
@@ -222,6 +228,20 @@ fn run(name: &str, expect: Expect) -> Result<f64, String> {
         (Ok(o), _) => o,
     };
     let mut model = outcome.model.ok_or("no model")?;
+    if matches!(expect, Vanished) {
+        let warned = model
+            .report()
+            .warnings()
+            .any(|(_, w)| w.message.contains("under the linear tolerance"));
+        let empty = model.to_part().map_or(true, |p| p.brep().faces.is_empty());
+        return if warned && empty {
+            Ok(0.0)
+        } else {
+            Err(format!(
+                "expected empty with a warning: warned {warned}, empty {empty}"
+            ))
+        };
+    }
     let part = model.to_part().map_err(|e| format!("part: {e:?}"))?;
     let brep = part.brep();
     if brep.faces.is_empty() {
@@ -232,7 +252,7 @@ fn run(name: &str, expect: Expect) -> Result<f64, String> {
     }
     let (want_v, want_a) = match expect {
         NonManifold => return Err("served, expected a non-manifold decline".into()),
-        Valid => return Ok(0.0),
+        Valid | Vanished => return Ok(0.0),
         Body(v, a) => (v, a),
     };
     let v = popkern_measure::body_volume(brep, &brep.tolerance).map_err(|e| format!("{e}"))?;

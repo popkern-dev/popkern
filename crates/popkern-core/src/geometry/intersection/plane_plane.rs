@@ -59,18 +59,17 @@ pub(crate) fn try_plane_plane(
         .iter()
         .all(|r| r.0.is_finite() && r.1.is_finite());
     let coincident = if bounded {
-        gap_over(
+        tolerance.within_linear(gap_over(
             origin1, u_axis1, v_axis1, u1_range, v1_range, origin2, normal2,
-        ) < tolerance.linear()
-            && gap_over(
-                origin2, u_axis2, v_axis2, u2_range, v2_range, origin1, normal1,
-            ) < tolerance.linear()
+        )) && tolerance.within_linear(gap_over(
+            origin2, u_axis2, v_axis2, u2_range, v2_range, origin1, normal1,
+        ))
     } else {
         // Unbounded boxes: the old reading, parallel within the angular
         // tolerance and one origin on the other plane.
         let sin_tol = tolerance.angular().psin();
         d.length_squared() < sin_tol * sin_tol
-            && (origin2 - origin1).dot(&normal1).abs() < tolerance.linear()
+            && tolerance.within_linear((origin2 - origin1).dot(&normal1).abs())
     };
     if coincident {
         return Ok(vec![SurfaceSurfaceIntersection::CoincidentRegion {

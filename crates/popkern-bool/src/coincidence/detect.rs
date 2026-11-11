@@ -410,7 +410,7 @@ fn planes_meet_over_faces(
         let n = n.normalized().unwrap_or(*n);
         brep.face_outer_loop_sample_positions(face, PLANE_SPREAD_SAMPLES)
             .iter()
-            .all(|p| (*p - *o).dot(&n).abs() <= tolerance.linear())
+            .all(|p| tolerance.within_linear((*p - *o).dot(&n).abs()))
     };
     within(a, fa, ob, nb) && within(b, fb, oa, na)
 }

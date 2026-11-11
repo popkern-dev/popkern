@@ -274,3 +274,16 @@ fn serde_old_format_compat() {
     assert_eq!(tol.solver(), 1e-10);
     assert_eq!(tol.approximation(), 1e-5);
 }
+
+/// PK-1131: "within the tolerance" is inclusive and allows rounding: a
+/// width measured a few ulps over the tolerance is within it, one a
+/// part in a million over is not.
+#[test]
+fn within_linear_is_inclusive_with_rounding() {
+    let tol = Tolerance::default();
+    let linear = tol.linear();
+    assert!(tol.within_linear(linear));
+    assert!(tol.within_linear(5.000001 - 5.0));
+    assert!(tol.within_linear(0.0));
+    assert!(!tol.within_linear(linear * (1.0 + 1e-6)));
+}

@@ -38,12 +38,13 @@ pub fn are_surfaces_coincident_analytic(
             // on plane 1, i.e. the signed distance from o2 to plane 1
             // must be within linear tolerance. Routed through the
             // adaptive predicate so cancellation in `o1 - o2` is
-            // captured at the tolerance boundary.
+            // captured at the tolerance boundary; inclusive, with the
+            // rounding allowance, as every coincidence decision (PK-1131).
             let origin_on_plane = crate::adaptive_precision::adaptive_abs_plane_distance_lt(
                 (o2.x, o2.y, o2.z),
                 (o1.x, o1.y, o1.z),
                 (n1.x, n1.y, n1.z),
-                tolerance.linear(),
+                tolerance.linear() * (1.0 + crate::tolerance::LINEAR_ROUNDING),
             );
             normals_parallel && origin_on_plane
         }
@@ -62,18 +63,14 @@ pub fn are_surfaces_coincident_analytic(
             },
         ) => {
             let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular();
-            let same_radius = (r1 - r2).abs() < tolerance.linear();
+            let same_radius = tolerance.within_linear((r1 - r2).abs());
             // Colinear axes: perpendicular component of origin separation < tolerance
             let d = *o1 - *o2;
             let along = d.dot(a1);
             let perp = d - *a1 * along;
-            // `perp.length() < linear` rewritten as adaptive squared-
-            // distance check from the origin to the perp tip.
-            let axes_colinear = crate::adaptive_precision::adaptive_dist_sq_lt(
-                (0.0, 0.0, 0.0),
-                (perp.x, perp.y, perp.z),
-                tolerance.linear() * tolerance.linear(),
-            );
+            // The axes within the linear tolerance of each other,
+            // inclusively (as every coincidence decision, PK-1131).
+            let axes_colinear = tolerance.within_linear(perp.length());
             axes_parallel && same_radius && axes_colinear
         }
 
@@ -90,7 +87,7 @@ pub fn are_surfaces_coincident_analytic(
                 half_angle: ha2,
             },
         ) => {
-            let same_apex = apex1.distance_to(apex2) < tolerance.linear();
+            let same_apex = tolerance.within_linear(apex1.distance_to(apex2));
             let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular();
             let same_half_angle = (ha1 - ha2).abs() < tolerance.angular();
             same_apex && axes_parallel && same_half_angle
@@ -109,8 +106,8 @@ pub fn are_surfaces_coincident_analytic(
                 ..
             },
         ) => {
-            let same_center = c1.distance_to(c2) < tolerance.linear();
-            let same_radius = (r1 - r2).abs() < tolerance.linear();
+            let same_center = tolerance.within_linear(c1.distance_to(c2));
+            let same_radius = tolerance.within_linear((r1 - r2).abs());
             same_center && same_radius
         }
 
@@ -129,10 +126,10 @@ pub fn are_surfaces_coincident_analytic(
                 minor_radius: min2,
             },
         ) => {
-            let same_center = c1.distance_to(c2) < tolerance.linear();
+            let same_center = tolerance.within_linear(c1.distance_to(c2));
             let axes_parallel = a1.dot(a2).abs() > 1.0 - tolerance.angular();
-            let same_major = (maj1 - maj2).abs() < tolerance.linear();
-            let same_minor = (min1 - min2).abs() < tolerance.linear();
+            let same_major = tolerance.within_linear((maj1 - maj2).abs());
+            let same_minor = tolerance.within_linear((min1 - min2).abs());
             same_center && axes_parallel && same_major && same_minor
         }
 
