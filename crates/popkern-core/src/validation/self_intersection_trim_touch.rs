@@ -39,13 +39,10 @@ const EDGE_ROUNDS: usize = 40;
 
 impl BRep {
     /// Whether `point` lies within `reach` of one of `face`'s boundary
-    /// curves (its outer loop and holes).
-    pub(super) fn point_near_face_boundary(
-        &self,
-        face: FaceHandle,
-        point: &Point3,
-        reach: f64,
-    ) -> bool {
+    /// curves (its outer loop and holes), measured in space: what a
+    /// uv in the trim test's boundary band (ten tolerances wide) needs
+    /// before it counts as on the face to the tolerance.
+    pub fn point_near_face_boundary(&self, face: FaceHandle, point: &Point3, reach: f64) -> bool {
         let Some(face_data) = self.faces.get(face) else {
             return true;
         };
@@ -155,6 +152,28 @@ impl BRep {
         }
         false
     }
+}
+
+/// The samples of a coincidence region that lie within `reach` of
+/// `other`. The pair scan finds coincidence at twice the tolerance, so
+/// a region it reports may be two faces up to that far apart: faces
+/// between one and two tolerances apart are distinct (PK-1131), and
+/// two blocks set 1.5e-6 apart, turned, failed validation as one face
+/// lying on the other.
+pub(super) fn region_samples_within(
+    other: &SurfaceGeometry,
+    points: &[Point3],
+    reach: f64,
+) -> Vec<Point3> {
+    use crate::geometry::surface::SurfaceEval;
+    points
+        .iter()
+        .filter(|p| {
+            crate::geometry::uv_projection::project_point_to_uv(other, p)
+                .is_some_and(|(u, v)| other.point_at(u, v).distance_to(p) <= reach)
+        })
+        .copied()
+        .collect()
 }
 
 #[cfg(test)]

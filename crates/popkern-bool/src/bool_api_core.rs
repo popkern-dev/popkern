@@ -85,6 +85,16 @@ pub(crate) fn boolean_under(
         });
         return Ok(BRep::new(tol));
     }
+    if op == BoolOperation::Union
+        && let Some((location, width)) = crate::sub_tolerance::closed_slot(&a, &b, &tol)
+    {
+        crate::sub_tolerance::record(crate::sub_tolerance::SubToleranceFeature {
+            kind: crate::sub_tolerance::SubToleranceKind::SlotClosed,
+            location,
+            measured_width: width,
+            tolerance: tol.linear(),
+        });
+    }
     if let Some(ctx) = tracking {
         entity_naming_result::name_result(&mut result, &a, &[&b], ctx, &tol);
     }

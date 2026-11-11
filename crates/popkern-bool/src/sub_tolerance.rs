@@ -35,6 +35,9 @@ pub enum SubToleranceKind {
     /// The result was thinner than the tolerance everywhere (a lens a
     /// tolerance deep): it is empty.
     ResultVanished,
+    /// Facing faces of the operands lay a gap at or under the tolerance
+    /// apart: the union fused them across it.
+    SlotClosed,
 }
 
 /// A feature at or under the linear tolerance the boolean resolved as
@@ -65,6 +68,12 @@ impl std::fmt::Display for SubToleranceFeature {
                 f,
                 "the result is {:.1e} thick at {:?}, under the linear tolerance {:.1e}: \
                  it has no inside and is empty (tighten the tolerance to keep it)",
+                self.measured_width, self.location, self.tolerance
+            ),
+            SubToleranceKind::SlotClosed => write!(
+                f,
+                "the operands face each other {:.1e} apart at {:?}, under the linear \
+                 tolerance {:.1e}: the union closed the gap (tighten the tolerance to keep it)",
                 self.measured_width, self.location, self.tolerance
             ),
         }
@@ -110,7 +119,8 @@ pub(crate) struct ThinOperand {
 /// everywhere, by the face test above.
 pub(crate) fn thin_operand(brep: &BRep, tolerance: &Tolerance) -> Option<ThinOperand> {
     // At the tolerance, allowing its rounding (walls placed 1e-6 apart
-    // at x = 5 measure 1.00000000014e-6): `Tolerance::within_linear`.
+    // at x = 5 measure 1.00000000014e-6, faces 1e-6 apart on a turned
+    // block 1.0000000018e-6): `Tolerance::within_linear`.
     let within = |d: f64| tolerance.within_linear(d);
     let faces: Vec<FaceHandle> = brep.faces.keys().collect();
     if faces.len() < 2 {
@@ -127,7 +137,7 @@ pub(crate) fn thin_operand(brep: &BRep, tolerance: &Tolerance) -> Option<ThinOpe
             let near = faces
                 .iter()
                 .filter(|&&g| g != f && boxes.get(&g).is_some_and(|b| within(box_gap(b, &p))))
-                .map(|&g| trimmed_distance(brep, g, &p))
+                .map(|&g| trimmed_distance(brep, g, &p, tolerance))
                 .find(|&d| within(d))?;
             widest = widest.max(near);
             location.get_or_insert(p);
@@ -191,12 +201,18 @@ fn probe_points(brep: &BRep, face: FaceHandle) -> Option<Vec<Point3>> {
 
 /// The distance from `p` to face `g` within its trim (an upper bound
 /// off the trim: the nearest boundary sample).
-fn trimmed_distance(brep: &BRep, g: FaceHandle, p: &Point3) -> f64 {
+fn trimmed_distance(brep: &BRep, g: FaceHandle, p: &Point3, tolerance: &Tolerance) -> f64 {
     let Some(surface) = brep.faces.get(g).and_then(|f| f.surface.as_ref()) else {
         return f64::INFINITY;
     };
     if let Some((q, uv)) = crate::postprocess::shell_contact::foot(&surface.geometry, p)
-        && crate::postprocess::shell_contact::within_trim(brep, g, &surface.geometry, uv)
+        && crate::postprocess::shell_contact::on_trim(
+            brep,
+            g,
+            &surface.geometry,
+            uv,
+            tolerance.linear_reach(),
+        )
     {
         return p.distance_to(&q);
     }
@@ -220,3 +236,7 @@ pub(crate) fn resolve(op: BoolOperation, a: &BRep, b: &BRep, thin: usize) -> BRe
 #[cfg(test)]
 #[path = "sub_tolerance_tests.rs"]
 mod tests;
+
+#[path = "sub_tolerance_slot.rs"]
+mod slot;
+pub(crate) use slot::closed_slot;

@@ -9,8 +9,12 @@ use crate::geometry::Point3;
 use serde::{Deserialize, Serialize};
 
 /// Relative allowance for rounding when a distance is compared with the
-/// linear tolerance ([`Tolerance::within_linear`]).
-pub(crate) const LINEAR_ROUNDING: f64 = 1e-9;
+/// linear tolerance ([`Tolerance::within_linear`]). A distance between
+/// points carries the rounding of their coordinates, not of the
+/// tolerance: a gap of 1e-6 set at x = 10^4 measures a relative 3.4e-7
+/// off, and faces 1e-6 apart on a turned 10 unit block 1.8e-9 over.
+/// A part in a million of the tolerance covers coordinates to 10^4.
+pub(crate) const LINEAR_ROUNDING: f64 = 1e-6;
 
 /// Named tolerance presets for common workflows.
 ///
@@ -115,13 +119,20 @@ impl Tolerance {
     }
 
     /// Whether `distance` is within the linear tolerance: at or under
-    /// it, allowing its rounding (a relative 1e-9, so walls placed a
-    /// tolerance apart, which measure a few ulps over it, are within
-    /// it). Every decision that two things are one place reads the
+    /// it, allowing its rounding (a relative 1e-6, so walls placed a
+    /// tolerance apart, which measure some ulps of their coordinates
+    /// over it, are within it). Every decision that two things are one place reads the
     /// tolerance this way, inclusively, so no stage absorbs what
     /// another keeps (PK-1131).
     pub fn within_linear(&self, distance: f64) -> bool {
-        distance <= self.linear * (1.0 + LINEAR_ROUNDING)
+        distance <= self.linear_reach()
+    }
+
+    /// The largest distance [`Self::within_linear`] accepts: the linear
+    /// tolerance with its rounding allowance, for searches that take a
+    /// reach rather than a predicate.
+    pub fn linear_reach(&self) -> f64 {
+        self.linear * (1.0 + LINEAR_ROUNDING)
     }
 
     /// The open band inside which a contact decided by DISTANCE is a

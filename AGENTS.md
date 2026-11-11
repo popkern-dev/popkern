@@ -417,11 +417,16 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   short edges contracted, the strip merged into a side, the draft run
   again; `DraftWarning::FaceConsumedToRidge`); another consumed face
   declines `DraftError::FaceConsumed`. The linear tolerance is the
-  resolution (PK-1131): an operand thinner than it everywhere has no
-  inside, so the boolean returns the other operand or empty and
-  records a `popkern_bool::sub_tolerance::SubToleranceFeature`
-  (history and Part report it as a warning); tolerance tests on edges
-  are lengths, never parameter fractions.
+  resolution (PK-1131): within it is inclusive with a rounding
+  allowance (`Tolerance::within_linear`, `linear_reach`), everywhere
+  two things are decided one place. An operand or a result thinner
+  than it everywhere has no inside (the other operand or empty), and a
+  union closes a gap at or under it between facing faces; each is
+  recorded as a `popkern_bool::sub_tolerance::SubToleranceFeature`
+  (history and Part report it as a warning). Tolerance tests on edges
+  are lengths, never parameter fractions, and a trim test's boundary
+  band (ten tolerances) is not "on the face": contacts confirm it in
+  space (`point_near_face_boundary`).
   `boolean_with_diagnostics` reports where the operands touch
   (`BoolDiagnostics::contacts`, each `OperandContact` classified);
   a declined vertex resolution's candidates, record meetings among
