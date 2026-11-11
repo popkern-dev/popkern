@@ -81,12 +81,41 @@ fn surface(brep: &BRep, face: FaceHandle) -> Option<&SurfaceGeometry> {
     Some(&brep.faces.get(face)?.surface.as_ref()?.geometry)
 }
 
-/// The face's parameter box, from samples along its outer loop.
-fn window(brep: &BRep, face: FaceHandle, s: &SurfaceGeometry) -> ((f64, f64), (f64, f64)) {
-    tight_bounded_parameter_range(
+/// The face's parameter box, from samples along its outer loop. A face
+/// closed round a seam (a ball's, a cylinder's band) spans its periodic
+/// directions whole: its loop samples lie along the seam alone, so
+/// their box is a sliver beside it (a turned ball's touch lay outside
+/// it). A box too wide only searches more: contacts are kept on the
+/// trims.
+pub(crate) fn window(
+    brep: &BRep,
+    face: FaceHandle,
+    s: &SurfaceGeometry,
+) -> ((f64, f64), (f64, f64)) {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let (mut u, mut v) = tight_bounded_parameter_range(
         &brep.face_outer_loop_sample_positions(face, LOOP_SAMPLES),
         s,
-    )
+    );
+    if has_seam(brep, face) {
+        let (pu, pv) = s.parameter_periodicity();
+        if let Some(p) = pu {
+            u = (u.0, u.0 + p);
+        }
+        if let Some(p) = pv {
+            v = (v.0, v.0 + p);
+        }
+    }
+    (u, v)
+}
+
+/// Whether an edge of `face` is used twice by its own loops: a seam.
+fn has_seam(brep: &BRep, face: FaceHandle) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    brep.half_edges
+        .values()
+        .filter(|he| brep.loops.get(he.loop_).is_some_and(|l| l.face == face))
+        .any(|he| !seen.insert(he.edge))
 }
 
 fn on_trim(brep: &BRep, face: FaceHandle, s: &SurfaceGeometry, uv: (f64, f64)) -> bool {
