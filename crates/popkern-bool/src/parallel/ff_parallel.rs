@@ -21,6 +21,8 @@ use crate::intersect::{IntersectionRecord, bounded_parameter_range};
 
 #[path = "ff_parallel_clip.rs"]
 mod ff_parallel_clip;
+#[path = "ff_parallel_reach.rs"]
+mod ff_parallel_reach;
 #[path = "ff_parallel_residue.rs"]
 mod ff_parallel_residue;
 #[path = "ff_parallel_trace.rs"]
@@ -40,6 +42,9 @@ pub(crate) struct FacePairTask {
     /// SSI as march seeds (rescues narrow near-tangent lenses the
     /// interior seeding misses — PK-465).
     pub seeds: Vec<popkern_core::geometry::Point3>,
+    /// Each face's box (`compute_face_aabbs`): a curve provably clear
+    /// of an analytic face's box is not clipped (PK-1166).
+    pub boxes: [popkern_core::geometry::intersection::surface_subdivision::Aabb; 2],
 }
 
 /// A surface-surface intersection failure on one face pair.
@@ -114,9 +119,20 @@ pub(crate) fn process_pairs(
 ) -> Vec<Result<Vec<IntersectionRecord>, PairFailure>> {
     // Phase 1 (sequential, cheap): resolve each pair's surfaces and
     // bounded UV windows.
+    // A pair whose faces provably lie apart is not solved (PK-1166,
+    // `ff_parallel_reach`).
+    let pad = ff_parallel_reach::REACH_TOLERANCES * tolerance.linear();
     let inputs: Vec<Option<PairInputs<'_>>> = tasks
         .iter()
-        .map(|task| resolve_pair_inputs(task, a, b, trace))
+        .map(|task| {
+            resolve_pair_inputs(task, a, b, trace).filter(|inp| {
+                !ff_parallel_reach::faces_apart(
+                    (inp.surf_a, &task.boxes[0]),
+                    (inp.surf_b, &task.boxes[1]),
+                    pad,
+                )
+            })
+        })
         .collect();
 
     // SSI memo over EXACTLY-equal inputs (PK-304). Analytic
