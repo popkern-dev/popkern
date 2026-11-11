@@ -235,8 +235,7 @@ pub fn boolean_with_options(
     tracking: Option<&mut TrackingContext>,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    let pieces = bool_api_core::boolean_under(op, a, b, tol, tracking, options.non_manifold);
-    split_serve::serve_one(pieces, options.non_manifold, &tol)
+    bool_api_core::boolean_one(op, a, b, tol, tracking, options)
 }
 
 /// Concatenate two solids into ONE multi-solid [`BRep`] with NO

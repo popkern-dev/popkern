@@ -41,6 +41,7 @@ pub(crate) fn lineage_of(sources: &[Source<'_>]) -> Vec<EntityName> {
 pub(crate) struct FaceSources<'a> {
     inputs: Vec<(&'a BRep, Vec<(FaceHandle, Aabb)>)>,
     on: f64,
+    confirm: bool,
 }
 
 impl<'a> FaceSources<'a> {
@@ -69,7 +70,21 @@ impl<'a> FaceSources<'a> {
                 (brep, boxes)
             })
             .collect();
-        Self { inputs, on }
+        Self {
+            inputs,
+            on,
+            confirm: false,
+        }
+    }
+
+    /// These sources, a face lying on several operand faces confirmed
+    /// on each at a second point (naming scheme 6, PK-1160): one
+    /// interior point cannot tell a coincidence from a tangent touch
+    /// there (the cube's top, its middle where a ball rests, read as a
+    /// piece of the ball's face too).
+    pub(crate) fn confirming(mut self, confirm: bool) -> Self {
+        self.confirm = confirm;
+        self
     }
 
     /// The named operand faces `face` of `result` is a piece of.
@@ -96,11 +111,35 @@ impl<'a> FaceSources<'a> {
                 if let Some(id) = input.faces.get(*candidate).and_then(|f| f.name) {
                     let aligned =
                         facing(input, *candidate, &point).is_none_or(|m| m.dot(&normal) > 0.0);
-                    out.push(((*input, id), aligned));
+                    out.push(((*input, id), aligned, *candidate));
                 }
             }
         }
-        out
+        if self.confirm && out.len() > 1 {
+            // A second point a twentieth of the face away: a coincident
+            // face lies on its source there too, a tangent one does not
+            // (it parts as the square of the distance). A face too
+            // small to hold one keeps every source.
+            let samples = result.face_outer_loop_sample_positions(face, 4);
+            let away = 0.05 * spread(&samples);
+            if let Some((second, n2)) =
+                crate::entity_lineage::interior_point_where(result, face, |q| {
+                    q.distance_to(&point) > away
+                })
+            {
+                let confirmed: Vec<_> = out
+                    .iter()
+                    .filter(|(s, _, candidate)| lies_on(s.0, *candidate, &second, &n2, self.on))
+                    .cloned()
+                    .collect();
+                if !confirmed.is_empty() {
+                    out = confirmed;
+                }
+            }
+        }
+        out.into_iter()
+            .map(|(s, aligned, _)| (s, aligned))
+            .collect()
     }
 }
 
@@ -179,4 +218,17 @@ fn facing(input: &BRep, face: FaceHandle, p: &popkern_core::geometry::Point3) ->
     let raw = surface.geometry.normal_at(u, v);
     let n = raw.normalized().unwrap_or(raw);
     Some(if surface.orientation { n } else { -n })
+}
+
+/// The diagonal of the box of `points` (zero for none).
+fn spread(points: &[popkern_core::geometry::Point3]) -> f64 {
+    let Some(first) = points.first() else {
+        return 0.0;
+    };
+    let (mut lo, mut hi) = (*first, *first);
+    for p in points {
+        lo = popkern_core::geometry::Point3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
+        hi = popkern_core::geometry::Point3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+    }
+    lo.distance_to(&hi)
 }

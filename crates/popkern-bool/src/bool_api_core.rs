@@ -117,6 +117,45 @@ pub fn boolean_bodies(
     tracking: Option<&mut TrackingContext>,
     options: &crate::BoolOptions,
 ) -> Result<Vec<BRep>, BoolError> {
+    if names_after_glue(options, tracking.as_deref()) {
+        return boolean_one(op, a, b, tol, tracking, options).map(|body| vec![body]);
+    }
     let pieces = boolean_under(op, a, b, tol, tracking, options.non_manifold);
     crate::split_serve::serve_bodies(pieces, options.non_manifold, &tol)
+}
+
+/// [`crate::boolean_with_options`]: the pipeline's answer served as one
+/// body under `options`, named after `a` and `b` under `tracking`.
+pub(crate) fn boolean_one(
+    op: BoolOperation,
+    a: BRep,
+    b: BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    options: &crate::BoolOptions,
+) -> Result<BRep, BoolError> {
+    let policy = options.non_manifold;
+    if names_after_glue(options, tracking.as_deref())
+        && let Some(ctx) = tracking
+    {
+        // Naming scheme 6 (PK-1160): a general result is named once its
+        // pieces are glued, so the vertices and edges the glue makes
+        // (a contact point, the pieces of an edge split there, a
+        // contact curve) are named with the rest; scheme 5 named the
+        // pieces and left those unnamed.
+        let (target, tool) = (a.clone(), b.clone());
+        let pieces = boolean_under(op, a, b, tol, None, policy);
+        let mut body = crate::split_serve::serve_one(pieces, policy, &tol)?;
+        entity_naming_result::name_result(&mut body, &target, &[&tool], ctx, &tol);
+        return Ok(body);
+    }
+    let pieces = boolean_under(op, a, b, tol, tracking, policy);
+    crate::split_serve::serve_one(pieces, policy, &tol)
+}
+
+/// Whether the result is named after the general policy's glue: under
+/// that policy, at naming scheme 6 or later.
+fn names_after_glue(options: &crate::BoolOptions, tracking: Option<&TrackingContext>) -> bool {
+    options.non_manifold == options::NonManifoldPolicy::General
+        && tracking.is_some_and(|c| c.naming_scheme >= 6)
 }

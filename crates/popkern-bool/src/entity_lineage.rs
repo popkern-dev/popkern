@@ -29,6 +29,16 @@ use popkern_core::validation::FaceUvContainment;
 /// A point strictly inside `face` (inside its own trim) and the
 /// surface normal there, with the face's orientation applied.
 pub(crate) fn interior_point(brep: &BRep, face: FaceHandle) -> Option<(Point3, Vec3)> {
+    interior_point_where(brep, face, |_| true)
+}
+
+/// [`interior_point`]'s first candidate inside the trim that `keep`
+/// accepts (a second point away from the first).
+pub(crate) fn interior_point_where(
+    brep: &BRep,
+    face: FaceHandle,
+    keep: impl Fn(&Point3) -> bool,
+) -> Option<(Point3, Vec3)> {
     let surface = brep.faces.get(face)?.surface.as_ref()?;
     let geometry = &surface.geometry;
     let samples = brep.face_outer_loop_sample_positions(face, 4);
@@ -65,7 +75,9 @@ pub(crate) fn interior_point(brep: &BRep, face: FaceHandle) -> Option<(Point3, V
         )
     }));
     for (u, v) in candidates {
-        if brep.face_uv_trim_containment(face, geometry, u, v) == Some(FaceUvContainment::Interior)
+        if keep(&geometry.point_at(u, v))
+            && brep.face_uv_trim_containment(face, geometry, u, v)
+                == Some(FaceUvContainment::Interior)
         {
             // normal_at is not unit on every surface (a cylinder's is
             // radius-scaled): normalise before comparing directions.

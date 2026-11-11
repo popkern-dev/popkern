@@ -18,6 +18,7 @@ fn category_name(category: RoleCategory) -> &'static str {
         RoleCategory::Cap => "Cap",
         RoleCategory::Intersection => "Intersection",
         RoleCategory::Junction => "Junction",
+        RoleCategory::Contact => "Contact",
     }
 }
 
@@ -29,6 +30,7 @@ fn parse_category(text: &str) -> Option<RoleCategory> {
         "Cap" => RoleCategory::Cap,
         "Intersection" => RoleCategory::Intersection,
         "Junction" => RoleCategory::Junction,
+        "Contact" => RoleCategory::Contact,
         _ => return None,
     })
 }
