@@ -8,6 +8,10 @@
 use crate::geometry::Point3;
 use serde::{Deserialize, Serialize};
 
+/// Relative allowance for rounding when a distance is compared with the
+/// linear tolerance ([`Tolerance::within_linear`]).
+pub(crate) const LINEAR_ROUNDING: f64 = 1e-9;
+
 /// Named tolerance presets for common workflows.
 ///
 /// Use with [`Tolerance::preset`] to create a tolerance scaled to model size.
@@ -108,6 +112,16 @@ impl Tolerance {
     /// Distance tolerance for point coincidence.
     pub fn linear(&self) -> f64 {
         self.linear
+    }
+
+    /// Whether `distance` is within the linear tolerance: at or under
+    /// it, allowing its rounding (a relative 1e-9, so walls placed a
+    /// tolerance apart, which measure a few ulps over it, are within
+    /// it). Every decision that two things are one place reads the
+    /// tolerance this way, inclusively, so no stage absorbs what
+    /// another keeps (PK-1131).
+    pub fn within_linear(&self, distance: f64) -> bool {
+        distance <= self.linear * (1.0 + LINEAR_ROUNDING)
     }
 
     /// The open band inside which a contact decided by DISTANCE is a

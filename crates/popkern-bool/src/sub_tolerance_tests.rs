@@ -32,7 +32,7 @@ fn a_slab_a_tolerance_thick_has_no_inside() {
     let tol = Tolerance::default();
     for place in places() {
         let thin = thin_operand(&slab(1e-6, &place), &tol).expect("thin");
-        assert!(thin.width <= tol.linear(), "{thin:?}");
+        assert!(tol.within_linear(thin.width), "{thin:?}");
         assert!(thin_operand(&slab(0.5e-6, &place), &tol).is_some());
         // Ten tolerances thick, and a unit cube, have an inside.
         assert!(thin_operand(&slab(1e-5, &place), &tol).is_none());
@@ -69,4 +69,41 @@ fn a_thin_operand_resolves_to_the_other_or_empty() {
         0
     );
     let _ = tol;
+}
+
+/// A body touching itself at points is not thin: a cube 0.01 wide less
+/// its inscribed ball has each face's middle where the ball touches it
+/// (within the tolerance of the ball), but the corners between are far
+/// from it (one probe a face read it as thin and emptied it).
+#[test]
+fn a_cube_less_its_inscribed_ball_has_an_inside() {
+    let tol = Tolerance::default();
+    let cube = BRep::unit_cube(tol)
+        .and_then(|c| c.transform(&Transform3::scale_uniform(0.01)))
+        .expect("cube");
+    // The ball turned a quarter about x through its centre (the
+    // corpus placement that read it as thin: its interior point moves).
+    let c = Point3::new(0.005, 0.005, 0.005);
+    let ball = BRep::sphere(0.005, tol)
+        .and_then(|b| b.transform(&Transform3::translation(c.x, c.y, c.z)))
+        .and_then(|b| {
+            b.transform(
+                &Transform3::rotation_around_axis(
+                    c,
+                    Vec3::new(1.0, 0.0, 0.0),
+                    std::f64::consts::FRAC_PI_2,
+                )
+                .expect("axis"),
+            )
+        })
+        .expect("ball");
+    let general = crate::BoolOptions {
+        non_manifold: crate::NonManifoldPolicy::General,
+    };
+    let cut =
+        crate::boolean_with_options(BoolOperation::Subtraction, cube, ball, tol, None, &general)
+            .expect("serves the general body");
+    // Not emptied by the result check, and not thin by the test itself.
+    assert!(!cut.faces.is_empty());
+    assert!(thin_operand(&cut, &tol).is_none());
 }

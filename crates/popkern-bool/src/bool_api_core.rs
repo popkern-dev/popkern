@@ -72,6 +72,19 @@ pub(crate) fn boolean_under(
     // no boolean over three whole-suite runs (`boolean_with_perturbation`
     // remains an explicit opt-in).
     let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, policy)?;
+    // A result thinner than the tolerance everywhere has no inside
+    // either (a lens a tolerance deep): it is empty, and reported.
+    if !result.faces.is_empty()
+        && let Some(thin) = crate::sub_tolerance::thin_operand(&result, &tol)
+    {
+        crate::sub_tolerance::record(crate::sub_tolerance::SubToleranceFeature {
+            kind: crate::sub_tolerance::SubToleranceKind::ResultVanished,
+            location: thin.location,
+            measured_width: thin.width,
+            tolerance: tol.linear(),
+        });
+        return Ok(BRep::new(tol));
+    }
     if let Some(ctx) = tracking {
         entity_naming_result::name_result(&mut result, &a, &[&b], ctx, &tol);
     }
