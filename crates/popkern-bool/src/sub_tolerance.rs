@@ -99,9 +99,6 @@ pub fn take_sub_tolerance_events() -> Vec<SubToleranceFeature> {
         .unwrap_or_default()
 }
 
-/// Grid stations per parameter direction probed inside each face.
-const GRID: usize = 4;
-
 /// Boundary samples per edge for a face's trimmed distance.
 const EDGE_SAMPLES: usize = 32;
 
@@ -131,16 +128,33 @@ pub(crate) fn thin_operand(brep: &BRep, tolerance: &Tolerance) -> Option<ThinOpe
     let mut widest: f64 = 0.0;
     let mut location = None;
     for &f in &faces {
-        for p in probe_points(brep, f)? {
-            // The first other face within the tolerance, if any: boxes
-            // farther than it from `p` cannot hold one.
-            let near = faces
-                .iter()
-                .filter(|&&g| g != f && boxes.get(&g).is_some_and(|b| within(box_gap(b, &p))))
-                .map(|&g| trimmed_distance(brep, g, &p, tolerance))
-                .find(|&d| within(d))?;
-            widest = widest.max(near);
-            location.get_or_insert(p);
+        let mut probes = probes::FaceProbes::new(brep, f);
+        if probes.is_empty() {
+            return None;
+        }
+        // A probe with no other face within the tolerance gives the
+        // solid an inside; boxes farther than it from the probe cannot
+        // hold one.
+        let clear = probes.find_map(
+            |_| true,
+            |p| {
+                let near = faces
+                    .iter()
+                    .filter(|&&g| g != f && boxes.get(&g).is_some_and(|b| within(box_gap(b, &p))))
+                    .map(|&g| trimmed_distance(brep, g, &p, tolerance))
+                    .find(|&d| within(d));
+                match near {
+                    Some(d) => {
+                        widest = widest.max(d);
+                        location.get_or_insert(p);
+                        None
+                    }
+                    None => Some(()),
+                }
+            },
+        );
+        if clear.is_some() {
+            return None;
         }
     }
     Some(ThinOperand {
@@ -158,45 +172,6 @@ fn box_gap(b: &popkern_core::geometry::intersection::surface_subdivision::Aabb, 
         gap(b.min.z, b.max.z, p.z),
     );
     (dx * dx + dy * dy + dz * dz).sqrt()
-}
-
-/// Points inside `face`: its interior point and the stations of a grid
-/// over its parameter box that lie inside its trim, or the middle of
-/// its boundary samples when it is too narrow to hold any. One point a
-/// face is not enough: a cube less its inscribed ball has its faces'
-/// middles where the ball touches them, each within the tolerance of
-/// the ball, though the corners between are far from it.
-fn probe_points(brep: &BRep, face: FaceHandle) -> Option<Vec<Point3>> {
-    use popkern_core::geometry::surface::SurfaceEval;
-    let mut out = Vec::new();
-    if let Some((p, _)) = crate::entity_lineage::interior_point(brep, face) {
-        out.push(p);
-    }
-    let samples = brep.face_outer_loop_sample_positions(face, 4);
-    if let Some(surface) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) {
-        let s = &surface.geometry;
-        let ((u0, u1), (v0, v1)) =
-            popkern_core::geometry::uv_projection::exact_bounded_parameter_range(&samples, s);
-        for i in 0..GRID {
-            for j in 0..GRID {
-                let u = u0 + (u1 - u0) * (i as f64 + 0.5) / GRID as f64;
-                let v = v0 + (v1 - v0) * (j as f64 + 0.5) / GRID as f64;
-                if brep.face_uv_trim_containment(face, s, u, v)
-                    == Some(popkern_core::validation::FaceUvContainment::Interior)
-                {
-                    out.push(s.point_at(u, v));
-                }
-            }
-        }
-    }
-    if out.is_empty() && !samples.is_empty() {
-        let n = samples.len() as f64;
-        let sum = samples.iter().fold(Point3::new(0.0, 0.0, 0.0), |acc, q| {
-            Point3::new(acc.x + q.x, acc.y + q.y, acc.z + q.z)
-        });
-        out.push(Point3::new(sum.x / n, sum.y / n, sum.z / n));
-    }
-    (!out.is_empty()).then_some(out)
 }
 
 /// The distance from `p` to face `g` within its trim (an upper bound
@@ -236,6 +211,9 @@ pub(crate) fn resolve(op: BoolOperation, a: &BRep, b: &BRep, thin: usize) -> BRe
 #[cfg(test)]
 #[path = "sub_tolerance_tests.rs"]
 mod tests;
+
+#[path = "sub_tolerance_probes.rs"]
+mod probes;
 
 #[path = "sub_tolerance_slot.rs"]
 mod slot;
