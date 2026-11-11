@@ -44,10 +44,10 @@ use crate::intersect::IntersectionRecord;
 /// Polyline stations per record.
 const SAMPLES: usize = 128;
 /// Golden-section iterations per refinement.
-const REFINE_STEPS: usize = 60;
+pub(super) const REFINE_STEPS: usize = 60;
 /// A meeting whose zone covers more than this fraction of the shorter
 /// curve is an overlap of the two, not a meeting.
-const OVERLAP_FRACTION: f64 = 0.05;
+pub(super) const OVERLAP_FRACTION: f64 = 0.05;
 /// Stations of the other record per pruning group.
 const GROUP: usize = 8;
 /// Records leaving a shared end at more than this sine of an angle
@@ -82,8 +82,10 @@ fn faces_of(r: &IntersectionRecord) -> [(usize, u64); 2] {
 /// lies inside at least one of the two (meetings at both records' ends
 /// are their end candidates already).
 pub(crate) fn record_meetings(records: &[IntersectionRecord], radius: f64) -> Vec<RecordMeeting> {
-    let samples: Vec<Vec<(f64, Point3)>> =
-        records.iter().map(|r| sample(&r.curve.curve_3d)).collect();
+    // Sampled only for a pair the closed form leaves (PK-1161).
+    let samples: Vec<std::cell::OnceCell<Vec<(f64, Point3)>>> =
+        records.iter().map(|_| std::cell::OnceCell::new()).collect();
+    let sampled = |k: usize| samples[k].get_or_init(|| sample(&records[k].curve.curve_3d));
     let mut out = Vec::new();
     for i in 0..records.len() {
         if records[i].residue_owner_a.is_some() {
@@ -101,10 +103,19 @@ pub(crate) fn record_meetings(records: &[IntersectionRecord], radius: f64) -> Ve
             }
             let (ci, cj): (&NurbsCurve, &NurbsCurve) =
                 (&records[i].curve.curve_3d, &records[j].curve.curve_3d);
-            if i != j && !boxes_meet(&samples[i], &samples[j], radius) {
+            // A segment never meets itself.
+            if i == j && super::meetings_line::straight(ci).is_some() {
                 continue;
             }
-            for m in meetings_between(ci, &samples[i], cj, &samples[j], i == j, radius) {
+            let found = match (i != j)
+                .then(|| super::meetings_line::line_meeting(ci, cj, radius))
+                .flatten()
+            {
+                Some(line) => line.into_iter().collect(),
+                None if i != j && !boxes_meet(sampled(i), sampled(j), radius) => Vec::new(),
+                None => meetings_between(ci, sampled(i), cj, sampled(j), i == j, radius),
+            };
+            for m in found {
                 let (si, sj, gap, zone, sin_angle) = m;
                 // At an end along the curve, not merely where its end is:
                 // a closed record's end lies on it, and a crossing there
@@ -290,14 +301,14 @@ fn meetings_between(
             let t = super::meetings_foot::warm_foot(cj, &p, (wj0, wj1), &seed);
             (p.distance_to(&cj.point_at(t)), t)
         };
-        let s = golden_min(lo, hi, |s| dist(s).0);
+        let s = super::meetings_foot::golden_min(lo, hi, |s| dist(s).0);
         let (gap, t) = dist(s);
         // A record meeting itself is found from both of its sides: keep
         // the one with the first parameter lower.
         if gap > radius || (same && s > t) {
             continue;
         }
-        let zone = zone_along(ci, s, (a, b), |x| dist(x).0, radius);
+        let zone = super::meetings_foot::zone_along(ci, s, (a, b), |x| dist(x).0, radius);
         // A stretch where the curves coincide (a record lying along a
         // boundary edge, cubes sharing an edge) is an overlap, a common
         // block of the two, not a vertex: every sampled minimum on it
@@ -331,62 +342,6 @@ fn meetings_between(
         out.push((s, t, gap, zone, sin_angle));
     }
     out
-}
-
-/// The minimiser of `f` on `[lo, hi]` by golden section.
-fn golden_min(mut lo: f64, mut hi: f64, f: impl Fn(f64) -> f64) -> f64 {
-    let g = 0.5 * (5.0_f64.sqrt() - 1.0);
-    let (mut x1, mut x2) = (hi - g * (hi - lo), lo + g * (hi - lo));
-    let (mut f1, mut f2) = (f(x1), f(x2));
-    for _ in 0..REFINE_STEPS {
-        if f1 <= f2 {
-            hi = x2;
-            (x2, f2) = (x1, f1);
-            x1 = hi - g * (hi - lo);
-            f1 = f(x1);
-        } else {
-            lo = x1;
-            (x1, f1) = (x2, f2);
-            x2 = lo + g * (hi - lo);
-            f2 = f(x2);
-        }
-    }
-    0.5 * (lo + hi)
-}
-
-/// The arc length of `c` about `s` over which `dist` stays within
-/// `radius`, the larger of its two sides, found by doubling then
-/// bisecting the parameter step.
-fn zone_along(
-    c: &dyn CurveEval,
-    s: f64,
-    (a, b): (f64, f64),
-    dist: impl Fn(f64) -> f64,
-    radius: f64,
-) -> f64 {
-    let span = (b - a).abs();
-    let mut widest: f64 = 0.0;
-    for dir in [1.0_f64, -1.0] {
-        let inside = |h: f64| {
-            let x = s + dir * h;
-            (a.min(b)..=a.max(b)).contains(&x) && dist(x) <= radius
-        };
-        let mut h = 1e-9 * span.max(1e-300);
-        while h < span && inside(2.0 * h) {
-            h *= 2.0;
-        }
-        let (mut lo, mut hi) = (h, 2.0 * h);
-        for _ in 0..40 {
-            let mid = 0.5 * (lo + hi);
-            if inside(mid) {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-        }
-        widest = widest.max(c.length_between(s, s + dir * lo).abs());
-    }
-    widest
 }
 
 /// A face's tolerance, the model's linear where it has none.
