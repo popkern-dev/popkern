@@ -4,7 +4,8 @@
 //! whose dimple's rim touches the plate's top edge at (20, 10, 5). The
 //! top face is one disc there, its boundary one loop through the vertex
 //! twice. Each consumer carries it (validation, tessellation, measures,
-//! STEP both ways, a boolean with it as an operand) or declines with a
+//! STEP both ways, a boolean with it as an operand, an edge imprinted
+//! from it into the wedge it enters) or declines with a
 //! structured error (fillets and shells at the pinch), never serving a
 //! body that fails validation.
 
@@ -238,4 +239,92 @@ fn fillets_chamfers_and_shells_decline_at_the_pinch() {
         Err(ShellError::Core(e)) => assert!(pinch_named(&e), "{e}"),
         other => panic!("shell: {:?}", other.map(|r| r.brep.faces.len())),
     }
+}
+
+/// A quadratic arc on the plate's top from `a` through control `b` to `c`.
+fn arc(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> popkern_core::geometry::curve::CurveOnEdge {
+    use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+    use popkern_core::geometry::nurbs_curve::NurbsCurve;
+    CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: [a, b, c]
+                .iter()
+                .map(|&(x, y)| Point3::new(x, y, 5.0))
+                .collect(),
+            weights: vec![1.0; 3],
+        }),
+        t_start: 0.0,
+        t_end: 1.0,
+    }
+}
+
+/// An edge imprinted from the pinch into the top face enters one of
+/// the two cusps between the dimple's rim and the plate's edge, both
+/// leaving the vertex along the edge's line: an arc into either cusp,
+/// less curved than the rim (0.1 against 0.25), to the far corner on
+/// its side splits the face, the piece it cuts off its control
+/// triangle's third (100 / 3), and is removed again; leaving into the
+/// dimple, it enters no wedge and declines with the body unchanged.
+#[test]
+fn an_edge_is_imprinted_from_the_pinch_into_the_wedge_it_enters() {
+    let tol = Tolerance::default();
+    let body = pinched(tol);
+    let vertex_at = |b: &BRep, p: Point3| {
+        b.vertices
+            .iter()
+            .find(|(_, v)| v.position.distance_to(&p) < 1e-9)
+            .map(|(h, _)| h)
+            .expect("vertex")
+    };
+    let top = body
+        .faces
+        .keys()
+        .find(|&f| {
+            body.face_point_trim_containment(f, &Point3::new(2.0, 2.0, 5.0))
+                .is_some_and(|c| c.distance < 1e-9)
+        })
+        .expect("top");
+    let top_area = 400.0 - 16.0 * PI;
+    let pinch = vertex_at(&body, PINCH);
+    for (corner, control) in [((0.0, 20.0), (20.0, 20.0)), ((0.0, 0.0), (20.0, 0.0))] {
+        let mut cut = body.clone();
+        let far = vertex_at(&cut, Point3::new(corner.0, corner.1, 5.0));
+        let made = cut
+            .imprint_edge(top, pinch, far, arc((20.0, 10.0), control, corner))
+            .unwrap_or_else(|e| panic!("into the cusp towards {corner:?}: {e}"));
+        let errors = cut.validate_all();
+        assert!(errors.is_empty(), "{corner:?}: {errors:?}");
+        let new = made.new_face.expect("the face splits");
+        let area = |f| popkern_measure::face_area(&cut, f, &tol).expect("area");
+        let (a_new, a_top) = (area(new), area(top));
+        let (small, large) = (a_new.min(a_top), a_new.max(a_top));
+        assert!(
+            (small - 100.0 / 3.0).abs() < 1e-9 * top_area,
+            "{corner:?}: {small}"
+        );
+        assert!(
+            (large - (top_area - 100.0 / 3.0)).abs() < 1e-9 * top_area,
+            "{corner:?}: {large}"
+        );
+        assert_measures(&cut, &tol, "imprinted");
+        cut.kill_imprinted_edge(made.edge).expect("the inverse");
+        assert!(cut.validate_all().is_empty(), "{corner:?} removed");
+        assert_eq!(cut.faces.len(), body.faces.len());
+        assert_measures(&cut, &tol, "removed");
+    }
+    // Straight into the dimple: no wedge holds it.
+    let mut into = body.clone();
+    let corner = vertex_at(&into, Point3::new(0.0, 0.0, 5.0));
+    let line = arc((20.0, 10.0), (10.0, 5.0), (0.0, 0.0));
+    let declined = into.imprint_edge(top, pinch, corner, line);
+    assert!(
+        matches!(
+            declined,
+            Err(popkern_core::euler::EulerError::NotImprintable { .. })
+        ),
+        "{declined:?}"
+    );
+    assert_eq!(into.edges.len(), body.edges.len());
 }

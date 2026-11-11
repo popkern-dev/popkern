@@ -17,6 +17,10 @@
 //!   loop, the vertex loop absorbed;
 //! - on two vertex loops: a slit, one inner loop of the edge's two fins.
 //!
+//! At a pinch use, where the face's boundary passes through an end
+//! twice, the edge is spliced into the wedge it enters
+//! (`imprint_edge_pinch`).
+//!
 //! Counts move as those Euler steps do (a spur and a slit: edges +1,
 //! fins +2, loops −1). `kill_imprinted_edge` is the inverse of each.
 
@@ -91,7 +95,10 @@ impl BRep {
         if v0 == v1 {
             return Err(decline("the two ends are one vertex"));
         }
-        let (s0, s1) = (self.stand(face, v0)?, self.stand(face, v1)?);
+        let (s0, s1) = (
+            self.stand(face, v0, &curve, true)?,
+            self.stand(face, v1, &curve, false)?,
+        );
         let (edge, from_v0, new_face) = match (s0, s1) {
             (Stand::Fin(h0, l0), Stand::Fin(h1, l1)) if l0 == l1 => {
                 if l0 != outer {
@@ -135,9 +142,16 @@ impl BRep {
         Ok(ImprintedEdge { edge, new_face })
     }
 
-    /// Where `v` stands on `face`: the one fin of a boundary loop
-    /// leaving it, or the vertex loop at it.
-    fn stand(&self, face: FaceHandle, v: VertexHandle) -> Result<Stand, EulerError> {
+    /// Where `v` stands on `face`: the fin of a boundary loop leaving it
+    /// (at a pinch use, where two leave, the one whose wedge `curve`
+    /// enters from its start or end), or the vertex loop at it.
+    fn stand(
+        &self,
+        face: FaceHandle,
+        v: VertexHandle,
+        curve: &CurveOnEdge,
+        at_start: bool,
+    ) -> Result<Stand, EulerError> {
         let decline = |reason: &str| EulerError::NotImprintable {
             face,
             reason: reason.into(),
@@ -155,7 +169,10 @@ impl BRep {
                 .find(|&l| self.loops[l].vertex == Some(v))
                 .map(Stand::Lone)
                 .ok_or(decline("a vertex is not on the face")),
-            _ => Err(decline("a vertex is visited twice by the face's loops")),
+            many => {
+                let h = self.pinch_wedge_fin(face, v, many, curve, at_start)?;
+                Ok(Stand::Fin(h, self.half_edges[h].loop_))
+            }
         }
     }
 

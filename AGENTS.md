@@ -401,7 +401,10 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   sphere (`revolved_nurbs.rs`). Manifoldness has one authority,
   `BRep::vertex_neighbourhood(s)` / `edge_neighbourhood` (a face
   meeting a vertex twice round one fan is a pinch use, still a
-  manifold; the boolean's pinched-vertex test is its client); fillets,
+  manifold; the boolean's pinched-vertex test is its client;
+  `imprint_edge` from a pinch vertex splices into the wedge the curve
+  enters, read off chords since a tangency pinch's wedges are cusps,
+  and declines when no single wedge holds it); fillets,
   chamfers at a pinch vertex, shells, offsets and thickens decline
   `CoreError::PinchUse` before building. Separate shells touching are
   found by alternating projection between face surfaces, as critical
