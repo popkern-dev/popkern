@@ -1,6 +1,7 @@
 //! More tangency corpus cases (the file-size rule): the cylinder
-//! inscribed through a cube, the dimple family's cone member, and a
-//! ball resting on a cube's edge.
+//! inscribed through a cube, the dimple family's cone member, a ball
+//! resting on a cube's edge, and Viviani's operands with the ball's
+//! poles on the curve.
 
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI};
 
@@ -10,7 +11,7 @@ use popkern_core::topology::BRep;
 
 use popkern_core::geometry::Point3;
 
-use super::{Case, Expect, Status, ball, ball_turns, box_at, moved, sphere_volume, turn};
+use super::{Case, Expect, Status, ball, ball_turns, box_at, moved, sphere_volume, turn, viviani};
 
 pub(super) fn more_cases() -> Vec<Case> {
     use BoolOperation::*;
@@ -106,6 +107,71 @@ pub(super) fn more_cases() -> Vec<Case> {
             status: Status::Gate,
             general_status: Status::Gate,
         },
+    ]
+    .into_iter()
+    .chain(viviani_poles_on_the_curve())
+    .collect()
+}
+
+/// Viviani's operands (`viviani`) with the ball as built, its poles at
+/// (0, 0, ±10) on the curve and its seam meridian through the double
+/// point: each lobe of the figure eight passes through a pole, where
+/// the sphere chart's longitude turns half a turn. The scan declined
+/// such a branch to the marching path, which ran past two minutes and
+/// at kilometre scale served an empty cut (PK-1169). The turns keep
+/// the poles on the curve with the seam turned off the double point and
+/// to the far side, and turn the rod's seam (the line through both
+/// poles) off them.
+fn viviani_poles_on_the_curve() -> Vec<Case> {
+    use BoolOperation::*;
+    use Expect::*;
+    let build: fn(popkern_core::tolerance::Tolerance) -> (BRep, BRep) =
+        |tol| (BRep::sphere(10.0, tol).expect("sphere"), viviani(tol).1);
+    let turns = || {
+        vec![
+            turn(0, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), FRAC_PI_2),
+            turn(0, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), PI),
+            turn(1, (5.0, 0.0, 0.0), (0.0, 0.0, 1.0), FRAC_PI_2),
+        ]
+    };
+    let row = |name, op, decline, general| Case {
+        name,
+        op,
+        build,
+        decline,
+        general,
+        turns: turns(),
+        status: Status::Gate,
+        general_status: Status::Gate,
+    };
+    vec![
+        row(
+            "viviani-common-poles-on-the-curve",
+            Intersection,
+            Body {
+                volume: 1_205.506_213_504_306_5,
+                area: 628.318_530_717_958_7,
+            },
+            None,
+        ),
+        row(
+            "viviani-union-poles-on-the-curve",
+            Union,
+            Body {
+                volume: 4_868.239_583_435_96,
+                area: 1_539.380_400_258_998_6,
+            },
+            None,
+        ),
+        row(
+            "viviani-cut-poles-on-the-curve",
+            Subtraction,
+            NonManifold(vec![Point3::new(10.0, 0.0, 0.0)]),
+            Some(Body {
+                volume: 2_983.283_991_282_084_6,
+                area: 1_428.318_530_717_958_5,
+            }),
+        ),
     ]
 }
 
