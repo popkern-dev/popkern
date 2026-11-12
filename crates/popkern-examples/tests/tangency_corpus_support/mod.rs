@@ -13,6 +13,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 mod more;
+mod one_shell;
 
 /// What a boolean should give.
 #[derive(Debug, Clone, PartialEq)]
@@ -396,6 +397,7 @@ pub fn cases() -> Vec<Case> {
     ]
     .into_iter()
     .chain(more::more_cases())
+    .chain(one_shell::one_shell_cases())
     .collect()
 }
 

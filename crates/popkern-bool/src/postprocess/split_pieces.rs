@@ -29,6 +29,10 @@ fn findings(brep: &BRep, tolerance: &Tolerance) -> (Vec<NonManifoldContact>, boo
         area |= finding.extent == ContactExtent::Area;
         all.push(finding.contact);
     }
+    if all.is_empty() {
+        // One shell touching itself (PK-1155).
+        all = super::self_contact::self_contacts(brep, tolerance);
+    }
     (all, area)
 }
 

@@ -84,6 +84,31 @@ fn pns_toms_heavy_step_outputs_round_trip_through_generic_import() {
     run_roundtrip_fixtures(HEAVY_FIXTURES);
 }
 
+/// The welded cylinder's caps close at poles, each a fan of collapsed
+/// edges that end where they start: the fan reading takes a closed edge
+/// by its curve's length, not by its ends alone (a pole's fins read by
+/// sense split its fan in two, contacts at its poles, and its STEP
+/// re-imported as 9 bodies).
+#[test]
+fn the_welded_cylinders_poles_are_one_fan_each() {
+    let options = PolyhedralCoverageOptions::default();
+    let obj = include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cylinder.obj");
+    let net = ControlNet::from_obj_str(obj).unwrap();
+    let complex = build_control_net_surface_complex(&net, options).unwrap();
+    let welded = weld_clean_surface_complex_boundaries(&complex, options).unwrap();
+    let brep = &welded.brep;
+    let collapsed = brep
+        .edges
+        .keys()
+        .filter(|&e| brep.edge_vertices(e).is_some_and(|(a, b)| a == b))
+        .count();
+    assert!(collapsed > 0, "the fixture's poles carry collapsed edges");
+    assert!(brep.contacts().is_empty(), "{:?}", brep.contacts());
+    for (v, uses) in brep.vertex_uses_all() {
+        assert!(uses.len() <= 1, "{v:?}: {uses:?}");
+    }
+}
+
 fn run_roundtrip_fixtures(fixtures: &[Fixture]) {
     let options = PolyhedralCoverageOptions::default();
     let validation = StepRoundTripValidationOptions::default();

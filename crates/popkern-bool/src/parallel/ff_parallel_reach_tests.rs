@@ -184,7 +184,8 @@ fn a_cleared_curve_never_comes_within_the_pad() {
     assert!(cleared > 50 && kept > 50, "cleared {cleared}, kept {kept}");
 }
 
-/// The distance from `p` to the whole of a plane, sphere or cylinder.
+/// The distance from `p` to the whole of a plane, sphere, cylinder, cone
+/// or torus.
 fn surface_distance(s: &SurfaceGeometry, p: &Point3) -> f64 {
     match s {
         SurfaceGeometry::Plane { origin, normal, .. } => (*p - *origin)
@@ -200,13 +201,44 @@ fn surface_distance(s: &SurfaceGeometry, p: &Point3) -> f64 {
             let d = *p - *origin;
             ((d - a * d.dot(&a)).length() - radius).abs()
         }
+        // The nearer of the two generator rays in the half-plane through
+        // the axis, each foot clamped to its ray.
+        SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle,
+        } => {
+            let a = axis.normalized().expect("axis");
+            let v = *p - *apex;
+            let (h, rho) = (v.dot(&a), (v - a * v.dot(&a)).length());
+            [1.0, -1.0]
+                .iter()
+                .map(|side: &f64| {
+                    let (dh, dr) = (side * half_angle.cos(), half_angle.sin());
+                    let t = (h * dh + rho * dr).max(0.0);
+                    (h - t * dh).hypot(rho - t * dr)
+                })
+                .fold(f64::MAX, f64::min)
+        }
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let a = axis.normalized().expect("axis");
+            let v = *p - *center;
+            let (h, rho) = (v.dot(&a), (v - a * v.dot(&a)).length());
+            ((rho - major_radius).hypot(h) - minor_radius).abs()
+        }
         _ => unreachable!(),
     }
 }
 
 /// Whatever box is cleared of a surface lies farther than the pad from
 /// it at every point of a dense lattice; boxes inside, outside and
-/// across a turned plane, sphere and cylinder are each cleared and kept.
+/// across a turned plane, sphere, cylinder, cone (both nappes) and
+/// torus are each cleared and kept.
 #[test]
 fn a_box_cleared_of_a_surface_never_comes_within_the_pad() {
     let pad = 0.05;
@@ -228,6 +260,17 @@ fn a_box_cleared_of_a_surface_never_comes_within_the_pad() {
             origin: o,
             axis,
             radius: 2.0,
+        },
+        SurfaceGeometry::Cone {
+            apex: o,
+            axis,
+            half_angle: 0.6,
+        },
+        SurfaceGeometry::Torus {
+            center: o,
+            axis,
+            major_radius: 2.5,
+            minor_radius: 0.8,
         },
     ];
     for s in &surfaces {

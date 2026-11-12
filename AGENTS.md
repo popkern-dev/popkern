@@ -412,7 +412,17 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   (`find_surface_contacts` over each face's window, a face closed round
   a seam spanning its period whole), and by each edge walked against
   the other face (`postprocess/shell_contact*.rs`: an edge resting on a
-  face is a contact). Naming scheme 6 (PK-1160): an edgeless contact (a
+  face is a contact); one shell touching itself, two faces sharing no
+  vertex meeting, by the same search over pairs no bound clears
+  (`postprocess/self_contact.rs`, PK-1155: a ball on a box's edge or
+  face inside a union kept one shell; NURBS faces held by their trim's
+  Bézier patches, subdivided where near; planes and cylinders whose
+  normals cannot be parallel cleared by their edges, planar faces of
+  segments by their exact gap, faces on one surface by their edges), and `glue_touching` gives an
+  edge resting on a face, of another piece or its own, a vertex at the
+  root of `C′ · N` (`touch_points.rs`). A closed edge's fins leave
+  its vertex at opposite ends: fans and `contacts()` read them by sense
+  (`BRep::ring_use_at`), as the neighbourhood walk does. Naming scheme 6 (PK-1160): an edgeless contact (a
   vertex loop) is `RoleCategory::Contact`, named by the faces it lies
   on; a general two-operand boolean is named after its glue; a face
   lying on several operand faces is confirmed on each at a second

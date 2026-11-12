@@ -59,7 +59,7 @@ fn box_contains_face(surface: &SurfaceGeometry) -> bool {
 /// Whether `curve` lies farther than `pad` from the box `face_box` of a
 /// face on `surface`: true only when proved (false for a surface whose
 /// box is not known to contain its face, or a weight not positive).
-pub(super) fn curve_clear_of_face(
+pub(crate) fn curve_clear_of_face(
     curve: &NurbsCurve,
     surface: &SurfaceGeometry,
     face_box: &Aabb,
@@ -87,7 +87,7 @@ fn touches(curve: &NurbsCurve, face_box: &Aabb, pad: f64) -> bool {
 /// Whether two faces, each on its surface with its box, provably lie
 /// farther than `pad` apart: one face's box, known to contain it, is
 /// farther than that from the other's whole surface.
-pub(super) fn faces_apart(
+pub(crate) fn faces_apart(
     (surface_a, box_a): (&SurfaceGeometry, &Aabb),
     (surface_b, box_b): (&SurfaceGeometry, &Aabb),
     pad: f64,
@@ -96,8 +96,22 @@ pub(super) fn faces_apart(
         || (box_contains_face(surface_b) && box_clear_of_surface(box_b, surface_a, pad))
 }
 
+/// Whether box `b` lies farther than `pad` from a face on `surface`
+/// whose box is `face_box`: from the whole surface in closed form, or
+/// from the face's box when that box is known to hold the face.
+pub(crate) fn box_clear_of_face(
+    b: &Aabb,
+    surface: &SurfaceGeometry,
+    face_box: &Aabb,
+    pad: f64,
+) -> bool {
+    box_clear_of_surface(b, surface, pad)
+        || (box_contains_face(surface) && box_gap(b, face_box) > pad)
+}
+
 /// Whether box `b` lies farther than `pad` from the whole of `surface`:
-/// true only when proved (closed form for a plane, sphere or cylinder).
+/// true only when proved (closed form for a plane, sphere, cylinder,
+/// cone or torus).
 fn box_clear_of_surface(b: &Aabb, surface: &SurfaceGeometry, pad: f64) -> bool {
     use popkern_core::geometry::Point3;
     let corners: [Point3; 8] = std::array::from_fn(|i| {
@@ -150,15 +164,73 @@ fn box_clear_of_surface(b: &Aabb, surface: &SurfaceGeometry, pad: f64) -> bool {
             let farthest = corners.iter().map(off_axis).fold(0.0, f64::max);
             farthest < radius - pad || off_axis(&middle) - half_diagonal > radius + pad
         }
+        // The distance to a surface is 1-Lipschitz: the box's middle
+        // farther than its half-diagonal and the pad clears it.
+        SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle,
+        } => {
+            use popkern_core::geometry::PortableMath;
+            let Some(a) = axis.normalized() else {
+                return false;
+            };
+            // In the half-plane through the axis, (|h|, rho) lies
+            // |rho cos - |h| sin| from the nearer nappe's generator, its
+            // foot on the ray (rho sin + |h| cos >= 0).
+            let v = middle - *apex;
+            let h = v.dot(&a);
+            let rho = (v - a * h).length();
+            let d = (rho * half_angle.pcos() - h.abs() * half_angle.psin()).abs();
+            d - half_diagonal > pad
+        }
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let Some(a) = axis.normalized() else {
+                return false;
+            };
+            let v = middle - *center;
+            let h = v.dot(&a);
+            let rho = (v - a * h).length();
+            let tube = ((rho - major_radius.abs()).powi(2) + h * h).sqrt();
+            (tube - minor_radius.abs()).abs() - half_diagonal > pad
+        }
         _ => false,
     }
 }
 
 fn clear(curve: &NurbsCurve, face_box: &Aabb, pad: f64, depth: usize) -> bool {
+    clear_by(curve, depth, &|hull| box_gap(hull, face_box) > pad)
+}
+
+/// Whether `curve`, of positive weights, lies farther than `pad` from a
+/// face on `surface` with box `face_box`: each piece's control box,
+/// halved up to `DEPTH` times, is ([`box_clear_of_face`]: the whole
+/// surface in closed form, or the box when it is known to hold the
+/// face).
+pub(crate) fn curve_clear_of_surface_face(
+    curve: &NurbsCurve,
+    surface: &SurfaceGeometry,
+    face_box: &Aabb,
+    pad: f64,
+) -> bool {
+    curve.weights.iter().all(|&w| w > 0.0)
+        && clear_by(curve, DEPTH + 2, &|hull| {
+            box_clear_of_face(hull, surface, face_box, pad)
+        })
+}
+
+/// Whether every piece of `curve`, halved up to `depth` times, has a
+/// control box `apart` accepts.
+fn clear_by(curve: &NurbsCurve, depth: usize, apart: &dyn Fn(&Aabb) -> bool) -> bool {
     let Some(hull) = Aabb::from_points(&curve.control_points) else {
         return false;
     };
-    if box_gap(&hull, face_box) > pad {
+    if apart(&hull) {
         return true;
     }
     if depth == 0 {
@@ -177,14 +249,14 @@ fn clear(curve: &NurbsCurve, face_box: &Aabb, pad: f64, depth: usize) -> bool {
     };
     match curve.split_at(0.5 * (t0 + t1)) {
         Ok((left, right)) => {
-            clear(&left, face_box, pad, depth - 1) && clear(&right, face_box, pad, depth - 1)
+            clear_by(&left, depth - 1, apart) && clear_by(&right, depth - 1, apart)
         }
         Err(_) => false,
     }
 }
 
 /// The distance between two boxes (zero when they overlap).
-fn box_gap(a: &Aabb, b: &Aabb) -> f64 {
+pub(crate) fn box_gap(a: &Aabb, b: &Aabb) -> f64 {
     let gap = |alo: f64, ahi: f64, blo: f64, bhi: f64| (blo - ahi).max(alo - bhi).max(0.0);
     let (dx, dy, dz) = (
         gap(a.min.x, a.max.x, b.min.x, b.max.x),

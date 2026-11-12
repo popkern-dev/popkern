@@ -85,6 +85,11 @@ pub(crate) fn execute_boolean_full(
         contacts = crate::postprocess::shell_contact::shell_contacts(&served, tolerance);
     }
     if contacts.is_empty() {
+        // One shell touching itself where none of its topology stands
+        // (PK-1155).
+        contacts = crate::postprocess::self_contact::self_contacts(&served, tolerance);
+    }
+    if contacts.is_empty() {
         return Ok(served);
     }
     match policy {

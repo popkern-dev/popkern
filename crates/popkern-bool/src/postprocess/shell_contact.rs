@@ -143,10 +143,7 @@ fn contact_extent(
     };
     let normal = sf.normal_at(u, v);
     let (t1, t2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(normal);
-    let size = crate::intersect::compute_face_aabbs(brep)
-        .into_iter()
-        .find(|(h, _)| *h == f)
-        .map_or(1.0, |(_, b)| b.diagonal());
+    let size = crate::intersect::face_aabb(brep, f).map_or(1.0, |b| b.diagonal());
     // At the face's own scale: an area touch coincides over a
     // neighbourhood that size, while a tangency separates there by the
     // curvature term (a 5 mm rod 1e-4 off its contact line sits 1e-6
@@ -180,8 +177,29 @@ fn contact_extent(
 }
 
 /// The contact point of faces `f` and `g`, if they touch.
-fn face_contact(brep: &BRep, f: FaceHandle, g: FaceHandle, linear: f64) -> Option<Point3> {
-    let (sf, sg) = (surface_of(brep, f)?, surface_of(brep, g)?);
+pub(crate) fn face_contact(
+    brep: &BRep,
+    f: FaceHandle,
+    g: FaceHandle,
+    linear: f64,
+) -> Option<Point3> {
+    face_contact_on(
+        brep,
+        (f, surface_of(brep, f)?),
+        (g, surface_of(brep, g)?),
+        linear,
+    )
+}
+
+/// [`face_contact`] with each face read on `sf` and `sg`: its surface,
+/// or a piece of it holding the face with the same parameters (a NURBS
+/// face's knot spans, so projections do not search the whole surface).
+pub(crate) fn face_contact_on(
+    brep: &BRep,
+    (f, sf): (FaceHandle, &SurfaceGeometry),
+    (g, sg): (FaceHandle, &SurfaceGeometry),
+    linear: f64,
+) -> Option<Point3> {
     let mut starts: Vec<(f64, Point3, Point3)> = Vec::new();
     for p in seeds(brep, f, sf) {
         if let Some((q, _)) = foot(sg, &p) {
@@ -238,13 +256,9 @@ fn gap_critical_contact(
 ) -> Option<Point3> {
     use popkern_core::geometry::intersection::contact_classify::ContactScale;
     use popkern_core::geometry::intersection::contact_discovery::find_surface_contacts;
-    let boxes = crate::face_bounding_boxes(brep);
-    let size = |h: FaceHandle| {
-        boxes
-            .iter()
-            .find(|(b, _)| *b == h)
-            .map_or(1.0, |(_, b)| b.diagonal())
-    };
+    // The two faces' boxes alone (every face's box per pair cost the
+    // body's face count each time).
+    let size = |h: FaceHandle| crate::intersect::face_aabb(brep, h).map_or(1.0, |b| b.diagonal());
     let window = |h, s| crate::diagnostics_contacts::window(brep, h, s);
     let found = find_surface_contacts(
         sf,

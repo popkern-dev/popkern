@@ -22,7 +22,7 @@ use crate::intersect::{IntersectionRecord, bounded_parameter_range};
 #[path = "ff_parallel_clip.rs"]
 mod ff_parallel_clip;
 #[path = "ff_parallel_reach.rs"]
-mod ff_parallel_reach;
+pub(crate) mod ff_parallel_reach;
 #[path = "ff_parallel_residue.rs"]
 mod ff_parallel_residue;
 #[path = "ff_parallel_trace.rs"]
