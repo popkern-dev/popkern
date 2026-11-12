@@ -28,12 +28,14 @@ const ROUNDS: usize = 60;
 /// A point's distance to a surface, its foot there and the foot's uv.
 type Gap = Option<(f64, Point3, (f64, f64))>;
 
-/// Where an edge of `f` touches face `g` (surface `sg`), if anywhere.
+/// Where an edge of `f` touches face `g` (surface `sg`), if anywhere;
+/// an edge `clear` proves apart from `g` is not walked.
 pub(super) fn edge_contact(
     brep: &BRep,
     f: FaceHandle,
     (g, sg): (FaceHandle, &SurfaceGeometry),
     linear: f64,
+    clear: Option<&super::shell_contact::EdgeClear>,
 ) -> Option<Point3> {
     let face = brep.faces.get(f)?;
     let mut loops = vec![face.outer_loop];
@@ -47,7 +49,12 @@ pub(super) fn edge_contact(
         let mut he = start;
         for _ in 0..=brep.half_edges.len() {
             let h = brep.half_edges.get(he)?;
-            if let Some(c) = brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()) {
+            if let Some(c) = brep
+                .edges
+                .get(h.edge)
+                .and_then(|e| e.curve.as_ref())
+                .filter(|c| !clear.is_some_and(|clear| clear(f, c)))
+            {
                 let at = |s: f64| c.geometry.point_at(c.t_start + (c.t_end - c.t_start) * s);
                 let dist = |s: f64| gap(&at(s)).map_or(f64::INFINITY, |(d, ..)| d);
                 let mut coarse: Vec<(f64, usize)> = (0..=STATIONS)

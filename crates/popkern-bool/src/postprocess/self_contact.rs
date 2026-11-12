@@ -37,6 +37,7 @@
 //! torus's pieces, whose boxes lie on each other's surface). Faces
 //! meeting near a vertex they share elsewhere are not searched.
 
+use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
@@ -44,6 +45,10 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::error::{ContactKind, NonManifoldContact};
+
+/// Halvings of an edge curve tested against a NURBS face's patches
+/// before its walk is left to run.
+const CURVE_DEPTH: usize = 8;
 use clear::{
     cylinders_clear, edges_clear_of_plane, plane_crosses_cylinder_clear, plane_of, straight,
 };
@@ -201,11 +206,31 @@ pub(crate) fn self_contacts(brep: &BRep, tolerance: &Tolerance) -> Vec<NonManifo
                     _ => None,
                 };
                 let (pf, pg) = (piece(*f, &sf.geometry), piece(*g, &sg.geometry));
+                // An edge walked against the other face is skipped where
+                // its control hull, halved while near, is apart from that
+                // face's patches or its analytic surface and box: a slot
+                // wall walked against a thread flank beside it cost 1.5 s
+                // a pair (PK-1172).
+                let clear = |walked: FaceHandle, c: &CurveOnEdge| {
+                    let (other, surface, bx) = if walked == *f {
+                        (patches_g.as_deref(), &sg.geometry, box_g)
+                    } else {
+                        (patches_f.as_deref(), &sf.geometry, box_f)
+                    };
+                    let curve = c.geometry.to_nurbs_in_range((c.t_start, c.t_end));
+                    match other {
+                        Some(theirs) => patches::curve_apart(&curve, theirs, linear, CURVE_DEPTH),
+                        None => crate::parallel::ff_parallel::ff_parallel_reach::curve_clear_of_surface_face(
+                            &curve, surface, bx, linear,
+                        ),
+                    }
+                };
                 super::shell_contact::face_contact_on(
                     brep,
                     (*f, pf.as_ref().unwrap_or(&sf.geometry)),
                     (*g, pg.as_ref().unwrap_or(&sg.geometry)),
                     linear,
+                    Some(&clear),
                 )
             };
             let Some(at) = found else {

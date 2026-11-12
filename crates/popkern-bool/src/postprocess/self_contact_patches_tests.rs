@@ -255,3 +255,44 @@ fn the_piece_over_a_window_is_the_surface_there() {
         }
     }
 }
+
+/// A window cutting across spans keeps only the part of each span
+/// inside it: each patch is the surface over its part to 1e-12 and its
+/// box holds those points; and two windows either side of a cut through
+/// one span (u 0.3 to 0.55) are apart at the tolerance, where with
+/// whole spans both held the span and were never apart (PK-1172: a
+/// thread flank either side of a slot).
+#[test]
+fn a_window_across_a_span_keeps_its_part_of_it() {
+    let s = wavy(Vec3::new(0.0, 0.0, 0.0));
+    let surface = SurfaceGeometry::Nurbs(s.clone());
+    let window = ((0.1, 0.42), (0.25, 0.6));
+    let patches = window_patches(&s, &window).expect("patches");
+    // u parts [0.1, 0.3] and [0.3, 0.42], v part [0.25, 0.6] of [0.2, 0.7].
+    assert_eq!(patches.len(), 2);
+    let parts = [((0.1, 0.3), (0.25, 0.6)), ((0.3, 0.42), (0.25, 0.6))];
+    for (p, ((u0, u1), (v0, v1))) in patches.iter().zip(parts) {
+        for i in 0..=6 {
+            for j in 0..=6 {
+                let (a, b) = (f64::from(i) / 6.0, f64::from(j) / 6.0);
+                let want = surface.point_at(u0 + a * (u1 - u0), v0 + b * (v1 - v0));
+                assert!(
+                    patch_at(p, a, b).distance_to(&want) < 1e-12,
+                    "at ({a}, {b})"
+                );
+                let inside = |lo: f64, x: f64, hi: f64| x >= lo - 1e-12 && x <= hi + 1e-12;
+                assert!(
+                    inside(p.bx.min.x, want.x, p.bx.max.x)
+                        && inside(p.bx.min.y, want.y, p.bx.max.y)
+                        && inside(p.bx.min.z, want.z, p.bx.max.z)
+                );
+            }
+        }
+    }
+    let left = window_patches(&s, &((0.0, 0.4), (0.0, 1.0))).expect("left");
+    let right = window_patches(&s, &((0.45, 1.0), (0.0, 1.0))).expect("right");
+    assert!(patches_apart(&left, &Other::Patches(&right), 1e-6));
+    // Overlapping windows are not apart.
+    let over = window_patches(&s, &((0.35, 1.0), (0.0, 1.0))).expect("over");
+    assert!(!patches_apart(&left, &Other::Patches(&over), 1e-6));
+}

@@ -188,17 +188,26 @@ pub(crate) fn face_contact(
         (f, surface_of(brep, f)?),
         (g, surface_of(brep, g)?),
         linear,
+        None,
     )
 }
 
+/// Whether an edge curve of the face named, walked against the pair's
+/// other face, provably lies farther than the band from it: its walk is
+/// then skipped.
+pub(crate) type EdgeClear<'a> =
+    dyn Fn(FaceHandle, &popkern_core::geometry::curve::CurveOnEdge) -> bool + 'a;
+
 /// [`face_contact`] with each face read on `sf` and `sg`: its surface,
 /// or a piece of it holding the face with the same parameters (a NURBS
-/// face's knot spans, so projections do not search the whole surface).
+/// face's knot spans, so projections do not search the whole surface),
+/// and the edges `clear` proves apart from the other face not walked.
 pub(crate) fn face_contact_on(
     brep: &BRep,
     (f, sf): (FaceHandle, &SurfaceGeometry),
     (g, sg): (FaceHandle, &SurfaceGeometry),
     linear: f64,
+    clear: Option<&EdgeClear>,
 ) -> Option<Point3> {
     let mut starts: Vec<(f64, Point3, Point3)> = Vec::new();
     for p in seeds(brep, f, sf) {
@@ -242,8 +251,8 @@ pub(crate) fn face_contact_on(
         return Some(at);
     }
     // A touch on a face's boundary: an edge of one against the other.
-    super::shell_contact_edge::edge_contact(brep, f, (g, sg), linear)
-        .or_else(|| super::shell_contact_edge::edge_contact(brep, g, (f, sf), linear))
+    super::shell_contact_edge::edge_contact(brep, f, (g, sg), linear, clear)
+        .or_else(|| super::shell_contact_edge::edge_contact(brep, g, (f, sf), linear, clear))
 }
 
 /// A touch of `f` and `g` located as a critical point of their signed
