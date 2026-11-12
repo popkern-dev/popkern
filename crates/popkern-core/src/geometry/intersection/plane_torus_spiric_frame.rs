@@ -9,8 +9,6 @@ use crate::geometry::{Point3, Vec3};
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
-use super::plane_torus_spiric::SCAN_SAMPLES;
-
 /// Precomputed frame and coefficients for one plane×torus pair.
 pub(super) struct SpiricFrame {
     plane_origin: Point3,
@@ -90,56 +88,72 @@ impl SpiricFrame {
         -2.0 * m_prime * (self.big_r * a + self.r * self.r * m)
     }
 
-    /// All roots of `F` on `[0, TAU)`, by dense sign-change bracketing
-    /// plus Newton–bisection refinement.
+    /// All roots of `F` on `[0, TAU)`, in closed form. `F` is a
+    /// quadratic in the radial normal component `m`,
+    /// `(R² − r²)·m² − 2·d0·R·m + d0² − r²·na²`, and `m(u) = M·cos(u − ψ)`
+    /// with `M = |(n1, n2)|`, `ψ = atan2(n2, n1)`: each real root `m_k`
+    /// with `|m_k| ≤ M` is met at `u = ψ ± acos(m_k / M)`. A dense sign
+    /// scan missed root pairs closer than its step: a plane parallel to
+    /// the axis at `c` from a meridian plane is feasible on an arc of
+    /// `2rc / (R² − r²)` only, under the 2048-sample step for `c` under
+    /// 0.023 on a torus (5, 1.5), which then read as missing the torus,
+    /// and a slab there was not subtracted at all (PK-1173).
     pub(super) fn feasibility_roots(&self) -> Vec<f64> {
-        let mut roots = Vec::new();
-        let dt = TAU / SCAN_SAMPLES as f64;
-        let mut prev_u = 0.0;
-        let mut prev_f = self.f_at(0.0);
-        for i in 1..=SCAN_SAMPLES {
-            let u = i as f64 * dt;
-            let f = self.f_at(u);
-            if prev_f == 0.0 {
-                roots.push(prev_u);
-            } else if f != 0.0
-                && prev_f.is_sign_positive() != f.is_sign_positive()
-                && let Some(root) = self.refine_root(prev_u, u)
-            {
-                roots.push(root);
+        let big_m = self.n1.phypot(self.n2);
+        let psi = self.n2.patan2(self.n1);
+        let a2 = self.big_r * self.big_r - self.r * self.r;
+        let b1 = -2.0 * self.d0 * self.big_r;
+        let c0 = self.d0 * self.d0 - self.r * self.r * self.na * self.na;
+        let mut ms: Vec<f64> = Vec::new();
+        if a2.abs() <= f64::EPSILON * self.big_r * self.big_r {
+            // A horn torus: linear in m.
+            if b1 != 0.0 {
+                ms.push(-c0 / b1);
             }
-            prev_u = u;
-            prev_f = f;
+        } else {
+            let disc = b1 * b1 - 4.0 * a2 * c0;
+            if disc >= 0.0 {
+                // The stable pair of roots.
+                let q = -0.5 * (b1 + b1.signum() * disc.sqrt());
+                if q != 0.0 {
+                    ms.push(q / a2);
+                    ms.push(c0 / q);
+                } else {
+                    ms.push(0.0);
+                }
+            }
+        }
+        let mut roots = Vec::new();
+        for m in ms {
+            let x = m / big_m;
+            if !x.is_finite() || x.abs() > 1.0 + 1.0e-12 {
+                continue;
+            }
+            let half = x.clamp(-1.0, 1.0).pacos();
+            for u in [psi + half, psi - half] {
+                roots.push(self.polish_root(u.rem_euclid(TAU)));
+            }
         }
         roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         roots.dedup_by(|a, b| (*a - *b).abs() < 1.0e-10);
         roots
     }
 
-    fn refine_root(&self, mut lo: f64, mut hi: f64) -> Option<f64> {
-        let mut f_lo = self.f_at(lo);
-        let mut u = 0.5 * (lo + hi);
-        for _ in 0..80 {
-            let f = self.f_at(u);
-            if f == 0.0 || (hi - lo) < 1.0e-13 {
-                return Some(u);
+    /// `u` refined by Newton steps on `F` while each lowers `|F|` (the
+    /// closed form's `acos` loses digits where `m` nears `±M`).
+    fn polish_root(&self, mut u: f64) -> f64 {
+        for _ in 0..4 {
+            let (f, df) = (self.f_at(u), self.f_deriv_at(u));
+            if f == 0.0 || df == 0.0 || !df.is_finite() {
+                break;
             }
-            if f.is_sign_positive() == f_lo.is_sign_positive() {
-                lo = u;
-                f_lo = f;
-            } else {
-                hi = u;
+            let next = u - f / df;
+            if !next.is_finite() || self.f_at(next).abs() >= f.abs() {
+                break;
             }
-            // Newton step when it stays inside the bracket, else bisect.
-            let df = self.f_deriv_at(u);
-            let newton = if df != 0.0 { u - f / df } else { f64::NAN };
-            u = if newton.is_finite() && newton > lo && newton < hi {
-                newton
-            } else {
-                0.5 * (lo + hi)
-            };
+            u = next.rem_euclid(TAU);
         }
-        Some(u)
+        u
     }
 
     /// Maximal `F < 0` arcs between consecutive roots (cyclic; the

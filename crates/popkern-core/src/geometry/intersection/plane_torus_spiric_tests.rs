@@ -387,3 +387,105 @@ fn closed_chain_count(curves: &[crate::geometry::curve_on_surface::CurveOnSurfac
     }
     loops
 }
+
+/// A plane parallel to the axis at `c` from a meridian plane is
+/// feasible on two arcs of the axis circle `2rc / (R² − r²)` wide, each
+/// closing a loop round the tube: the dense scan stepped over arcs
+/// under its step (0.012 for this torus, 0.023 for a torus (5, 1.5))
+/// and read the plane as missing the torus (PK-1173). Both loops serve,
+/// on both surfaces, at offsets down to 1e-5 and turned about the axis.
+#[test]
+fn a_plane_beside_a_meridian_plane_meets_the_tube_twice() {
+    let tol = Tolerance::default();
+    for turn in [0.0, 0.3, 1.9] {
+        let (s, c) = (f64::sin(turn), f64::cos(turn));
+        for offset in [1.0e-5, 1.0e-4, 1.0e-3, 5.0e-3, 0.02] {
+            let normal = Vec3::new(c, s, 0.0);
+            let plane = SurfaceGeometry::Plane {
+                origin: Point3::new(0.0, 0.0, 0.0) + normal * offset,
+                normal,
+                u_axis: Vec3::new(-s, c, 0.0),
+                v_axis: Vec3::new(0.0, 0.0, 1.0),
+            };
+            let found = curves_of(
+                try_plane_torus(
+                    &plane,
+                    (-5.0, 5.0),
+                    (-5.0, 5.0),
+                    &torus(),
+                    full(),
+                    full(),
+                    &tol,
+                )
+                .expect("claimed"),
+            );
+            assert_eq!(found.len(), 2, "turn {turn} offset {offset}");
+            for curve in &found {
+                let (t0, t1) = curve.curve_3d.parameter_range();
+                let mut lo = f64::INFINITY;
+                let mut hi = f64::NEG_INFINITY;
+                for k in 0..=400 {
+                    let p = curve
+                        .curve_3d
+                        .point_at(t0 + (t1 - t0) * f64::from(k) / 400.0);
+                    assert!(torus_residual(&p) < 1e-6, "off the torus");
+                    let height = (p - Point3::new(0.0, 0.0, 0.0)).dot(&normal) - offset;
+                    assert!(height.abs() < 1e-6, "off the plane by {height}");
+                    lo = lo.min(p.z);
+                    hi = hi.max(p.z);
+                }
+                // Round the tube: from its bottom to its top.
+                assert!(hi - lo > 0.99, "a loop {} high", hi - lo);
+            }
+        }
+    }
+}
+
+/// The closed-form roots of `F` are its zeros and its every sign
+/// change: over a sweep of planes, each root has `F` within rounding of
+/// nought, and every sign change of `F` sampled at 20000 points round
+/// the axis circle brackets a root.
+#[test]
+fn the_feasibility_roots_are_every_sign_change() {
+    let mut seed = 17u64;
+    let mut next = || {
+        seed = seed
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (seed >> 11) as f64 / (1u64 << 53) as f64
+    };
+    let mut changes = 0;
+    for _ in 0..300 {
+        let n = Vec3::new(next() - 0.5, next() - 0.5, 0.6 * (next() - 0.5));
+        let Some(n) = n.normalized() else { continue };
+        let origin = Point3::new(0.0, 0.0, 0.0) + n * (3.0 * (next() - 0.5));
+        let Some(frame) = SpiricFrame::new(
+            origin,
+            n,
+            n.cross(&Vec3::new(0.0, 0.0, 1.0)),
+            Vec3::new(0.0, 0.0, 1.0),
+            Point3::new(0.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+            2.0,
+            0.5,
+        ) else {
+            continue;
+        };
+        let roots = frame.feasibility_roots();
+        for &u in &roots {
+            assert!(frame.f_at(u).abs() < 1e-9, "F({u}) = {}", frame.f_at(u));
+        }
+        let m = 20_000;
+        for i in 0..m {
+            let (a, b) = (TAU * i as f64 / m as f64, TAU * (i + 1) as f64 / m as f64);
+            if (frame.f_at(a) > 0.0) != (frame.f_at(b) > 0.0) {
+                changes += 1;
+                assert!(
+                    roots.iter().any(|&u| u >= a - 1e-9 && u <= b + 1e-9),
+                    "a sign change in [{a}, {b}] with roots {roots:?}"
+                );
+            }
+        }
+    }
+    assert!(changes > 100, "{changes} sign changes");
+}

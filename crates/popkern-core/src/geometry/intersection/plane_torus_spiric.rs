@@ -13,9 +13,9 @@
 //!
 //! giving closed-form tube angles `v±(u) = φ ± acos(A/K)` wherever the
 //! feasibility function `F(u) = A² − K²` is non-positive. Branch
-//! enumeration is therefore COMPLETE by construction: the maximal
-//! `F ≤ 0` arcs of the axis circle are found by dense sampling plus
-//! Newton–bisection root refinement (the `line_torus` pattern), each
+//! enumeration is therefore COMPLETE by construction: `F` is a
+//! quadratic in `m(u)`, so the maximal `F ≤ 0` arcs of the axis circle
+//! end at closed-form roots (`SpiricFrame::feasibility_roots`), each
 //! arc closes into exactly one loop (the `v+` and `v−` branches meet
 //! at the arc ends where `|A| = K`), and a root-free negative `F`
 //! yields the two-loop section. The marching path, by contrast, finds
@@ -37,12 +37,6 @@ use crate::tolerance::Tolerance;
 use std::f64::consts::TAU;
 
 use super::plane_torus_spiric_frame::SpiricFrame;
-
-/// Feasibility scan resolution around the axis circle. 2048 matches
-/// the `line_torus` quartic bracketing density; `F` is a degree-2
-/// trigonometric polynomial, so consecutive same-sign samples at this
-/// density cannot hide a sign-change pair.
-pub(super) const SCAN_SAMPLES: usize = 2048;
 
 /// Per-branch sample counts tried in order until the fitted loop
 /// passes the serving verification gate. The ladder starts at 513:
