@@ -9,8 +9,10 @@
 //!
 //! The samples are exact surface points; the fit through them is
 //! densified until it lies on both surfaces within a tenth of the
-//! linear tolerance. A loop sweeping the sphere chart's longitude near
-//! a pole (a rod beside the pole axis) declines to the marching path.
+//! linear tolerance. A branch through a pole of the sphere's chart is
+//! cut there, each piece ending at the pole at its own limit longitude
+//! (`split_at_poles`); a loop sweeping the longitude near a pole (a rod
+//! beside the pole axis) declines to the marching path.
 
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
@@ -83,6 +85,17 @@ pub(super) fn pierce(
         let (u, v) = project_point_to_uv(sphere_surface, &p)?;
         Some((unwrap(u, prev), v))
     };
+    // The sphere's poles lying on the cylinder: a branch through one
+    // is split there (`split_at_poles`).
+    let poles: Vec<Point3> = [1.0, -1.0]
+        .into_iter()
+        .map(|s| center + pole_axis * (s * rs))
+        .filter(|p| {
+            let rel = *p - origin;
+            let off = (rel - a * rel.dot(&a)).length();
+            (off - rc).abs() <= tolerance.linear()
+        })
+        .collect();
     let pad = (cyl_v.1 - cyl_v.0).abs() * 0.5 + tolerance.linear();
     let mut density = LOOP_SAMPLES;
     loop {
@@ -90,14 +103,26 @@ pub(super) fn pierce(
             super::ruling_pierce::ruling_loops(&quad, &discs, 1.0, &crossings, density);
         let mut worst = 0.0_f64;
         let mut results = Vec::new();
-        for pts in loops {
-            if pts.len() < 4 {
+        let pieces = loops.iter().flat_map(|pts| {
+            let points: Vec<Point3> = pts.iter().map(|&(theta, t)| foot(theta) + a * t).collect();
+            split_at_poles(points, !open, &poles)
+        });
+        for (points, closed) in pieces {
+            if points.len() < 4 {
                 continue;
             }
-            let mut samples = Vec::with_capacity(pts.len());
+            let mut samples = Vec::with_capacity(points.len());
             let (mut uc, mut us) = (None, None);
-            let points: Vec<Point3> = pts.iter().map(|&(theta, t)| foot(theta) + a * t).collect();
-            let longitudes = pole_safe_longitudes(&points, (center, pole_axis), sphere_chart)?;
+            // The branch's tangent at a pole: across both normals,
+            // the sphere's the pole axis and the cylinder's radial.
+            let tangent_at = |p: Point3| -> Option<Vec3> {
+                let rel = p - origin;
+                let radial = (rel - a * rel.dot(&a)).normalized()?;
+                let t = pole_axis.cross(&radial);
+                (t.length() > 1e-3).then_some(t)
+            };
+            let longitudes =
+                pole_safe_longitudes(&points, (center, pole_axis), sphere_chart, tangent_at)?;
             for (k, &p) in points.iter().enumerate() {
                 let (cu, cv) = cyl_chart(p, uc);
                 let (raw_u, sv) = sphere_chart(p, us)?;
@@ -140,12 +165,19 @@ pub(super) fn pierce(
             {
                 continue;
             }
-            match fit_march_samples(&samples, !open) {
+            match fit_march_samples(&samples, closed) {
                 Ok(curve) => {
+                    // The fit's first pcurve is the caller's first
+                    // surface's: the sphere's when `swapped`.
+                    let (first, second) = if swapped {
+                        (sphere_surface, cyl_surface)
+                    } else {
+                        (cyl_surface, sphere_surface)
+                    };
                     worst = worst.max(super::ruling_pierce::fit_deviation(
                         &curve,
-                        cyl_surface,
-                        sphere_surface,
+                        first,
+                        second,
                         samples.len(),
                     ));
                     results.push(SurfaceSurfaceIntersection::Curve(curve));
@@ -160,21 +192,27 @@ pub(super) fn pierce(
     }
 }
 
-/// For each point, its longitude when it lies on a pole of the sphere,
-/// taken from the nearest point off it; `None` elsewhere. At a pole
-/// the chart's longitude is `atan2(0, 0)`, arbitrary: a branch ending
-/// there (Viviani's curve with the ball's pole at its double point)
-/// jumped by it, read as a sweep round the pole and declined to the
-/// marcher, which stopped 7.5e-5 short of the point and served
-/// pcurves 3.1e-4 off (PK-1139). Approaching a pole along a branch the
-/// longitude has a limit, its neighbour's. "On the pole" is relative
-/// to the branch's own motion: within a thousandth of the step to the
-/// next sample of the axis (a crossing refined by golden section lies
-/// 1e-7 off it, its longitude noise).
+/// For each point, its longitude when it lies on a pole of the sphere;
+/// `None` elsewhere. At a pole the chart's longitude is `atan2(0, 0)`,
+/// arbitrary: a branch ending there (Viviani's curve with the ball's
+/// pole at its double point) jumped by it, read as a sweep round the
+/// pole and declined to the marcher, which stopped 7.5e-5 short of the
+/// point and served pcurves 3.1e-4 off (PK-1139). Approaching a pole
+/// along a branch the longitude has a limit, the direction the branch
+/// leaves the pole in: `tangent_at` the pole, turned toward the nearest
+/// point off it, where the surfaces cross there; that point's own
+/// longitude where they are tangent (no tangent across the normals).
+/// The neighbour's longitude is a step's turn off the limit, a kink in
+/// the pcurve its fit converged to at second order (PK-1169: 1.7e-7 at
+/// 16384 samples a turn). "On the pole" is relative to the branch's
+/// own motion: within a thousandth of the step to the next sample of
+/// the axis (a crossing refined by golden section lies 1e-7 off it,
+/// its longitude noise).
 fn pole_safe_longitudes(
     points: &[Point3],
     axis: (Point3, Vec3),
     chart: impl Fn(Point3, Option<f64>) -> Option<(f64, f64)>,
+    tangent_at: impl Fn(Point3) -> Option<Vec3>,
 ) -> Option<Vec<Option<f64>>> {
     let (centre, pole) = axis;
     let off_axis = |p: &Point3| {
@@ -203,9 +241,110 @@ fn pole_safe_longitudes(
                 .flatten()
                 .find(|&j| j < points.len() && !on_pole[j])
         })?;
-        out[k] = Some(chart(points[neighbour], None)?.0);
+        let toward = points[neighbour] - points[k];
+        let along = match tangent_at(points[k]) {
+            Some(t) if t.dot(&toward) < 0.0 => points[k] - t * toward.length(),
+            Some(t) => points[k] + t * toward.length(),
+            None => points[neighbour],
+        };
+        out[k] = Some(chart(along, None)?.0);
     }
     Some(out)
+}
+
+/// The branch `points` (closed when `closed`) cut at each of `poles` it
+/// passes through, the pole itself ending both pieces: a branch through
+/// a pole of the sphere's chart leaves it at the longitude half a turn
+/// from the one it arrived at, a jump no single pcurve makes, and the
+/// scan declined it to the marching path as a sweep round the pole,
+/// which traced Viviani's curve with the ball's poles on it as nine
+/// records, near-duplicate arcs 2e-3 apart and loops at the double
+/// point among them (PK-1169). Each piece's end at the pole takes the
+/// longitude of its own side (`pole_safe_longitudes`). A branch passes
+/// through a pole where the pole lies within a sample step of a chord
+/// of the branch; the sample nearest it within a thousandth of the step
+/// is replaced, otherwise the pole is put in between.
+fn split_at_poles(
+    mut points: Vec<Point3>,
+    closed: bool,
+    poles: &[Point3],
+) -> Vec<(Vec<Point3>, bool)> {
+    let mut cuts: Vec<usize> = Vec::new();
+    for pole in poles {
+        let n = points.len();
+        if n < 2 {
+            break;
+        }
+        let Some((k, d)) = (0..n - 1)
+            .map(|k| {
+                let (p, q) = (points[k], points[k + 1]);
+                let w = q - p;
+                let s = if w.length_squared() > 0.0 {
+                    ((*pole - p).dot(&w) / w.length_squared()).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                (k, pole.distance_to(&(p + w * s)))
+            })
+            .min_by(|x, y| x.1.total_cmp(&y.1))
+        else {
+            continue;
+        };
+        let step = points[k].distance_to(&points[k + 1]);
+        if d > step {
+            continue;
+        }
+        let at = if points[k].distance_to(pole) <= 1e-3 * step {
+            points[k] = *pole;
+            k
+        } else if points[k + 1].distance_to(pole) <= 1e-3 * step {
+            points[k + 1] = *pole;
+            k + 1
+        } else {
+            points.insert(k + 1, *pole);
+            for c in &mut cuts {
+                if *c > k {
+                    *c += 1;
+                }
+            }
+            k + 1
+        };
+        cuts.push(at);
+    }
+    let n = points.len();
+    // A cut at an end of an open branch, or at the closing sample of a
+    // closed one, cuts nothing.
+    cuts.retain(|&c| c > 0 && c + 1 < n);
+    cuts.sort_unstable();
+    cuts.dedup();
+    if cuts.is_empty() {
+        return vec![(points, closed)];
+    }
+    if closed {
+        // The closed branch's samples run round once, the last
+        // repeating the first: start it at the first cut.
+        let first = cuts[0];
+        let mut ring: Vec<Point3> = points[first..n - 1].to_vec();
+        ring.extend_from_slice(&points[..=first]);
+        let shifted: Vec<usize> = cuts.iter().map(|&c| c - first).collect();
+        return pieces_between(&ring, &shifted[1..]);
+    }
+    pieces_between(&points, &cuts)
+}
+
+/// The open pieces of `points` between consecutive `cuts` (interior
+/// indices, ascending), each cut sample ending one piece and starting
+/// the next.
+fn pieces_between(points: &[Point3], cuts: &[usize]) -> Vec<(Vec<Point3>, bool)> {
+    let mut out = Vec::new();
+    let mut start = 0;
+    for &c in cuts.iter().chain(std::iter::once(&(points.len() - 1))) {
+        if c > start {
+            out.push((points[start..=c].to_vec(), false));
+        }
+        start = c;
+    }
+    out
 }
 
 /// `u` on the branch nearest `prev` (charts are periodic in u).

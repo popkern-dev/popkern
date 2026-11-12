@@ -1,6 +1,7 @@
 use super::*;
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::Transform3;
 use popkern_core::geometry::pcurve::PcurveGeometry;
 
 /// PK-938: `locate` refines by Newton on `|pc(t) − q|²`, a step of
@@ -47,5 +48,42 @@ fn locate_converges_on_a_fast_nurbs_trim() {
         let (t, distance) = locate(&trim, q, (None, None));
         assert!((t - foot).abs() < 1e-10, "foot {foot}: located {t}");
         assert!((distance - 0.01).abs() < 1e-10, "foot {foot}: {distance}");
+    }
+}
+
+/// Viviani's common of a ball of radius 10 (poles on z, as built, then
+/// turned about z) and a cylinder of radius 5 on x = 5, the ball's poles
+/// on the caps' rims, has the
+/// volume (2/9)(3π − 4)R³: a boundary chord from a pole vertex stands
+/// under its other end (the pole row is the pole), the trim reaching
+/// the pole at its own longitude, and its sliver is found on the trim
+/// in space and fanned along the pole row. Located in (u, v) the chord's
+/// pole end lay a longitude step off the trim, no trim carried it, and
+/// the triangle between was lost: 5.7e-7 of the volume (PK-1169).
+#[test]
+fn a_chord_from_a_pole_vertex_keeps_its_sliver() {
+    let want = 2.0 / 9.0 * (3.0 * std::f64::consts::PI - 4.0) * 1000.0;
+    let tol = popkern_core::tolerance::Tolerance::default();
+    for turn in [0.0, 0.7] {
+        let ball = BRep::sphere(10.0, tol)
+            .and_then(|b| b.transform(&Transform3::rotation_z(turn)))
+            .expect("ball");
+        let rod = BRep::cylinder(5.0, 24.0, tol)
+            .and_then(|b| b.transform(&Transform3::rotation_z(std::f64::consts::PI)))
+            .and_then(|b| b.transform(&Transform3::translation(5.0, 0.0, -12.0)))
+            .expect("rod");
+        let body = popkern_bool::boolean(
+            popkern_bool::BoolOperation::Intersection,
+            ball,
+            rod,
+            tol,
+            None,
+        )
+        .expect("Viviani's common");
+        let v = crate::body_volume(&body, &tol).expect("a volume");
+        assert!(
+            (v - want).abs() < 1e-9 * want,
+            "turn {turn}: {v} for {want}"
+        );
     }
 }

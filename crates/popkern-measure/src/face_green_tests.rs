@@ -131,3 +131,59 @@ fn torus_bands_measure_their_winding_loops() {
         "v in [{c}, {d}]: {got} vs {want}"
     );
 }
+
+/// Viviani's common of a ball of radius 10 (poles on z, as built) and
+/// a cylinder of radius 5 on x = 5, the ball first turned `turn` about
+/// z: the poles stay on the curve, the rims of both caps running
+/// through them.
+fn viviani_common_poles_on_the_rim(turn: f64) -> BRep {
+    let tol = Tolerance::default();
+    let ball = BRep::sphere(10.0, tol)
+        .and_then(|b| b.transform(&Transform3::rotation_z(turn)))
+        .expect("ball");
+    let rod = BRep::cylinder(5.0, 24.0, tol)
+        .and_then(|b| b.transform(&Transform3::rotation_z(PI)))
+        .and_then(|b| b.transform(&Transform3::translation(5.0, 0.0, -12.0)))
+        .expect("rod");
+    popkern_bool::boolean(
+        popkern_bool::BoolOperation::Intersection,
+        ball,
+        rod,
+        tol,
+        None,
+    )
+    .expect("Viviani's common")
+}
+
+/// Each cap of Viviani's common has the area R²(π − 2) with its rim
+/// through a pole of the ball: an edge leaving the pole is integrated
+/// along its curve, whose longitude there is the branch's limit, not
+/// its pcurve's end (4e-7 off it), and the travel between them is
+/// closed along the pole row, which bounds nothing. Closed at the
+/// edge's far end, at the equator, it read each cap 1.9e-5 short
+/// (PK-1169).
+#[test]
+fn a_cap_with_its_rim_through_a_pole_measures_its_closed_form() {
+    let want = 100.0 * (PI - 2.0);
+    for turn in [0.0, 0.7] {
+        let body = viviani_common_poles_on_the_rim(turn);
+        let caps: Vec<f64> = body
+            .faces
+            .iter()
+            .filter(|(_, f)| {
+                matches!(
+                    f.surface.as_ref().map(|s| &s.geometry),
+                    Some(SurfaceGeometry::Sphere { .. })
+                )
+            })
+            .map(|(h, _)| boundary_integral_area(&body, h).expect("an area"))
+            .collect();
+        assert_eq!(caps.len(), 2, "turn {turn}");
+        for a in caps {
+            assert!(
+                (a - want).abs() < 1e-9 * want,
+                "turn {turn}: {a} for {want}"
+            );
+        }
+    }
+}
