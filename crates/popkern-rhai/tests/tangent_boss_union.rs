@@ -165,15 +165,7 @@ fn the_tangent_boss_casting_serves_through_tangency() {
 fn the_near_tangent_cap_casting_serves_through_the_rim_extreme() {
     let mut failures = Vec::new();
     for cap_x in [
-        -368.0,
-        -367.5,
-        -367.3,
-        -367.1,
-        -367.05,
-        -367.0 + 1e-6,
-        -367.001,
-        -366.999,
-        -366.9,
+        -368.0, -367.5, -367.3, -367.1, -367.05, -367.001, -366.999, -366.9,
     ] {
         if let Err(e) = serves(&near_tangent_cap(cap_x), &format!("cap_{cap_x}")) {
             failures.push(e);
@@ -187,9 +179,91 @@ fn the_near_tangent_cap_casting_serves_through_the_rim_extreme() {
     // exact lens lines' starts, 0.22 apart, were welded onto a point off
     // the ring wall; 1e-5 inside, the ring disc's 0.068 lens chord
     // sat inside the clip's chart-relative tangent band and dropped.
-    for cap_x in [-367.0 - 1e-6, -367.0, -367.00001, -367.0001] {
+    // At the extreme itself, or a tolerance short of it, the cap rests
+    // on the ring: `the_cap_on_the_ring_extreme_touches_itself`.
+    for cap_x in [-367.0 - 1e-6, -367.00001, -367.0001] {
         if let Err(e) = serves_near_extreme(cap_x) {
             failures.push(e);
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// At the ring's extreme, or a tolerance short of it (the linear
+/// tolerance is inclusive, PK-1131), the boss's end face rests on the
+/// ring wall along x = -367, z = 162.5, and the web (y -11..-3) leaves
+/// that line bare at y -12..-11 and -3..-2.5: the union touches itself
+/// there inside one shell (PK-1155; it served one valid solid touching
+/// itself before). By default it declines; under the general policy it
+/// serves one valid general body holding each contact on those
+/// stretches in topology, its volume the gap side's OCC fuse
+/// extrapolated (as `serves_near_extreme` reads it). A tolerance short,
+/// the glue may decline instead (`GeneralBodyDeclined`, never a wrong
+/// body): the contact is found against the ring's surface, 1.00000000003e-6
+/// off, but the curve's end against the ring face's boundary arc, built
+/// 1.7e-11 off the ring's axis and 1.0000041e-6 off, past the rounding
+/// allowance (PK-1170).
+#[test]
+fn the_cap_on_the_ring_extreme_touches_itself() {
+    let tol = popkern_core::tolerance::Tolerance::default();
+    let mut failures = Vec::new();
+    for cap_x in [-367.0, -367.0 + 1e-6] {
+        let c = near_tangent_cap(cap_x);
+        let name = format!("cap_touch_{cap_x}");
+        match union_oracle::run("", &union_script(&c), &format!("{name}.rhai")) {
+            Err(e) if e.contains("non-manifold") => {}
+            other => failures.push(format!(
+                "{name}: expected a non-manifold decline, got {:?}",
+                other.map(|_| "a body")
+            )),
+        }
+        let general = union_script(&c)
+            .replace(
+                r#"#{ label: "boss" }"#,
+                r#"#{ label: "boss", non_manifold: "general" }"#,
+            )
+            .replace("\nm.assert_watertight();", "");
+        let mut model = match union_oracle::run("", &general, &format!("{name}_general.rhai")) {
+            Ok(m) => m,
+            Err(e) if cap_x != -367.0 && e.contains("could not be glued into one general body") => {
+                continue;
+            }
+            Err(e) => {
+                failures.push(format!("{name} general: {e}"));
+                continue;
+            }
+        };
+        let part = model.to_part().expect("part");
+        let brep = part.brep();
+        let errors = brep.validate_all();
+        if !errors.is_empty() {
+            failures.push(format!("{name} general: invalid {errors:?}"));
+        }
+        let contacts = brep.contacts();
+        let on_line = |p: &popkern_core::geometry::Point3| {
+            let bare = (-12.0 - 1e-4..=-11.0 + 1e-4).contains(&p.y)
+                || (-3.0 - 1e-4..=-2.5 + 1e-4).contains(&p.y);
+            (p.x + 367.0).abs() < 1e-4 && (p.z - 162.5).abs() < 1e-4 && bare
+        };
+        if contacts.is_empty() || !contacts.iter().all(|c| on_line(&c.location)) {
+            failures.push(format!("{name} general: contacts {contacts:?}"));
+        }
+        let served = popkern_measure::body_volume(brep, &tol).expect("volume");
+        let fused_at = |x: f64| {
+            served_and_fused(&near_tangent_cap(x), &format!("cap_ref_{x}"))
+                .ok()
+                .flatten()
+                .map(|(_, fused)| fused)
+        };
+        let (x1, x2) = (-367.0 + 1e-3, -367.0 + 2e-3);
+        if let (Some(f1), Some(f2)) = (fused_at(x1), fused_at(x2)) {
+            let want = f1 + (cap_x - x1) * (f1 - f2) / (x1 - x2);
+            let rel = (served - want).abs() / want;
+            if rel > 1e-8 {
+                failures.push(format!(
+                    "{name} general: volume {served} vs extrapolated OCC fuse {want} (rel {rel:.2e})"
+                ));
+            }
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");

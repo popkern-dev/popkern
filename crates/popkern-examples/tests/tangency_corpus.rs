@@ -32,10 +32,12 @@ const MEASURE_REL: f64 = 1e-6;
 fn judge(
     outcome: &Result<BRep, BoolError>,
     expect: &Expect,
+    glued: &[Point3],
     place: &popkern_core::geometry::Transform3,
     scale: f64,
     tol: &Tolerance,
 ) -> Result<f64, String> {
+    let near = |p: &Point3, q: &Point3| p.distance_to(q) <= 1e-5 * scale.max(1.0);
     match (outcome, expect) {
         (Ok(body), Expect::Body { volume, area }) => {
             if body.faces.is_empty() {
@@ -44,6 +46,17 @@ fn judge(
             let issues = body.validate_all();
             if let Some(first) = issues.first() {
                 return Err(format!("validate_all: {first}"));
+            }
+            // A general body holds each contact as topology: pieces
+            // touching unglued validate and measure the same.
+            let held = body.contacts();
+            let unglued: Vec<Point3> = glued
+                .iter()
+                .map(|p| place.apply_point(p))
+                .filter(|w| !held.iter().any(|c| near(&c.location, w)))
+                .collect();
+            if !unglued.is_empty() {
+                return Err(format!("contacts not glued: {unglued:?}"));
             }
             let measured = body;
             let v =
@@ -70,7 +83,6 @@ fn judge(
         (Ok(body), Expect::Empty) if body.faces.is_empty() => Ok(0.0),
         (Err(BoolError::NonManifoldResult { contacts }), Expect::NonManifold(at)) => {
             let want: Vec<Point3> = at.iter().map(|p| place.apply_point(p)).collect();
-            let near = |p: &Point3, q: &Point3| p.distance_to(q) <= 1e-5 * scale.max(1.0);
             let missing: Vec<_> = want
                 .iter()
                 .filter(|w| !contacts.iter().any(|c| near(&c.location, w)))
@@ -112,14 +124,14 @@ fn run_with_watchdog(
     b: BRep,
     tol: Tolerance,
     options: BoolOptions,
-    expect: Expect,
+    (expect, glued): (Expect, Vec<Point3>),
     place: popkern_core::geometry::Transform3,
     scale: f64,
 ) -> Result<f64, String> {
     let (send, receive) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let outcome = boolean_with_options(op, a, b, tol, None, &options);
-        let _ = send.send(judge(&outcome, &expect, &place, scale, &tol));
+        let _ = send.send(judge(&outcome, &expect, &glued, &place, scale, &tol));
     });
     receive
         .recv_timeout(std::time::Duration::from_secs(RUN_LIMIT_S))
@@ -190,6 +202,12 @@ fn run_case(case: &Case, policy: NonManifoldPolicy, expect: &Expect) -> RowResul
         .chain(case.turns.iter().map(|t| (Some(t), false)))
         .chain(symmetric.then_some((None, true)))
         .collect();
+    // Under the general policy the contacts the default declines with
+    // are held as topology.
+    let glued: Vec<Point3> = match (&case.decline, policy) {
+        (Expect::NonManifold(at), NonManifoldPolicy::General) => at.clone(),
+        _ => Vec::new(),
+    };
     let only_place = std::env::var("TANGENCY_CORPUS_PLACE").ok();
     for (pname, place, scale) in placements() {
         if only_place.as_deref().is_some_and(|o| o != pname) {
@@ -209,8 +227,16 @@ fn run_case(case: &Case, policy: NonManifoldPolicy, expect: &Expect) -> RowResul
                 non_manifold: policy,
             };
             let started = std::time::Instant::now();
-            let verdict =
-                run_with_watchdog(case.op, a, b, tol, options, expect.clone(), place, scale);
+            let verdict = run_with_watchdog(
+                case.op,
+                a,
+                b,
+                tol,
+                options,
+                (expect.clone(), glued.clone()),
+                place,
+                scale,
+            );
             if std::env::var_os("TANGENCY_CORPUS_TRACE").is_some() {
                 eprintln!(
                     "  {} {pname} {turn:?} swapped {swapped}: {:.0} ms {}",
