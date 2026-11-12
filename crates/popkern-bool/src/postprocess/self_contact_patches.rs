@@ -14,7 +14,8 @@
 //! the surface's domain (a pcurve lifted across a seam) that direction
 //! is not restricted. Each span's patch comes from its own p + 1
 //! control points and 2p + 2 knots, its end knots raised to
-//! multiplicity p (Boehm's insertion, in homogeneous coordinates).
+//! multiplicity p (Boehm's insertion, in homogeneous coordinates), and
+//! is cut to the part of the span inside the box (de Casteljau).
 //!
 //! Two hulls are apart when some axis separates their points by more
 //! than the band: the box axes, an axis across either patch (the cross
@@ -94,6 +95,27 @@ impl Patch {
 
     /// The two halves at the parameter middle, along u when `in_u`.
     fn halves(&self, in_u: bool) -> Option<(Patch, Patch)> {
+        self.split(in_u, 0.5)
+    }
+
+    /// The part over `[t0, t1]` of its parameter range, along u when
+    /// `in_u` (itself when that is the whole range).
+    fn clipped(self, in_u: bool, (t0, t1): (f64, f64)) -> Option<Patch> {
+        let below = if t1 < 1.0 {
+            self.split(in_u, t1)?.0
+        } else {
+            self
+        };
+        if t0 > 0.0 && t1 > 0.0 {
+            Some(below.split(in_u, t0 / t1)?.1)
+        } else {
+            Some(below)
+        }
+    }
+
+    /// The two parts either side of the parameter `t` (de Casteljau),
+    /// along u when `in_u`.
+    fn split(&self, in_u: bool, t: f64) -> Option<(Patch, Patch)> {
         let (nu, nv) = (self.nu, self.nv);
         let (mut lo, mut hi) = (self.net.clone(), self.net.clone());
         let lines = if in_u { nv } else { nu };
@@ -105,7 +127,7 @@ impl Patch {
                 lo[index(line, k)] = row[0];
                 hi[index(line, len - 1 - k)] = row[len - 1 - k];
                 for m in 0..len - 1 - k {
-                    row[m] = std::array::from_fn(|c| 0.5 * (row[m][c] + row[m + 1][c]));
+                    row[m] = std::array::from_fn(|c| row[m][c] + t * (row[m + 1][c] - row[m][c]));
                 }
             }
         }
@@ -161,7 +183,25 @@ fn window_patches(s: &NurbsSurface, window: &((f64, f64), (f64, f64))) -> Option
                     net[a * (q + 1) + b] = x;
                 }
             }
-            out.push(Patch::new(p + 1, q + 1, net)?);
+            // Only the part of the span inside the window: a face cut
+            // across a span holds that part alone (a thread flank either
+            // side of a slot through one span, each face holding the
+            // whole span, was never apart from the other, PK-1172).
+            let part = |knots: &[f64], k: usize, (lo, hi): (f64, f64)| {
+                let (a, b) = (knots[k], knots[k + 1]);
+                (
+                    ((lo - a) / (b - a)).clamp(0.0, 1.0),
+                    ((hi - a) / (b - a)).clamp(0.0, 1.0),
+                )
+            };
+            let (tu, tv) = (part(&s.knots_u, i, window.0), part(&s.knots_v, j, window.1));
+            if tu.1 <= tu.0 || tv.1 <= tv.0 {
+                continue;
+            }
+            let patch = Patch::new(p + 1, q + 1, net)?
+                .clipped(true, tu)?
+                .clipped(false, tv)?;
+            out.push(patch);
         }
     }
     (!out.is_empty()).then_some(out)
@@ -409,6 +449,10 @@ fn hulls_apart(a: &Patch, b: &Patch, pad: f64) -> bool {
         b0 - a1 > pad || a0 - b1 > pad
     })
 }
+
+#[path = "self_contact_patches_curve.rs"]
+mod curve;
+pub(super) use curve::curve_apart;
 
 #[cfg(test)]
 #[path = "self_contact_patches_tests.rs"]

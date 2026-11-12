@@ -416,7 +416,8 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   vertex meeting, by the same search over pairs no bound clears
   (`postprocess/self_contact.rs`, PK-1155: a ball on a box's edge or
   face inside a union kept one shell; NURBS faces held by their trim's
-  Bézier patches, subdivided where near; planes and cylinders whose
+  Bézier patches cut to its uv box, subdivided where near, edges
+  proved apart from the other face not walked; planes and cylinders whose
   normals cannot be parallel cleared by their edges, planar faces of
   segments by their exact gap, faces on one surface by their edges), and `glue_touching` gives an
   edge resting on a face, of another piece or its own, a vertex at the
