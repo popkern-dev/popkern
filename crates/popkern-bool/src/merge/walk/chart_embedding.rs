@@ -222,28 +222,11 @@ pub(crate) fn build_embedding(
         run = Some((samples, EmbeddingSource::Projection));
     }
     if run.is_none() {
-        // No curve geometry at all: project the two node positions
-        // (same nearest-branch snap as `projection_run` — the `_near`
-        // helper ignores hints on analytic surfaces).
-        let a = graph.nodes[graph.half_edges[h].origin].position;
-        let b = graph.nodes[graph.half_edges[graph.half_edges[h].twin].origin].position;
-        // Sheet-correct anchor (same rationale as `projection_run`).
-        let ua = project_point_to_uv_multisheet(surface, &a)?;
-        let (mut ub, mut vb) = project_point_to_uv_near(surface, &b, ua.0, ua.1)
-            .or_else(|| project_point_to_uv_multisheet(surface, &b))?;
-        let (pp_u, pp_v) = surface.parameter_periodicity();
-        if let Some(pp) = pp_u {
-            ub += ((ua.0 - ub) / pp).round() * pp;
-        }
-        if let Some(pv) = pp_v {
-            vb += ((ua.1 - vb) / pv).round() * pv;
-        }
         run = Some((
-            (vec![ua, (ub, vb)], None, None),
+            super::chart_embedding_endpoints::endpoint_projection(graph, h, surface)?,
             EmbeddingSource::EndpointProjection,
         ));
     }
-
     if run.is_none() && popkern_core::trace::trace_enabled("chart-dump") {
         let a = graph.nodes[graph.half_edges[raw].origin].position;
         let b = graph.nodes[graph.half_edges[twin].origin].position;
@@ -308,7 +291,12 @@ pub(crate) fn build_embedding(
         uv.reverse();
         std::mem::swap(&mut refined_first, &mut refined_last);
     }
-    super::chart_poles::snap_pole_end_azimuths(surface, &mut uv, refined_first, refined_last);
+    super::chart_embedding_endpoints::snap_end_azimuths(
+        surface,
+        &mut uv,
+        (p_start, p_end),
+        (refined_first, refined_last),
+    );
     if popkern_core::trace::trace_enabled("branch-pairing") {
         let (ulo, uhi) = uv.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &(u, _)| {
             (lo.min(u), hi.max(u))

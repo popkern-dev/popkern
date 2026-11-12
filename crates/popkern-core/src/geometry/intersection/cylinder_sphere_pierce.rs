@@ -35,6 +35,16 @@ const FIT_BUDGET: f64 = 0.1;
 /// The largest step in sphere-chart longitude between consecutive
 /// samples the scan fits (radians); a larger one is a pole sweep.
 const POLE_SWEEP: f64 = 0.25;
+/// The largest step in sphere-chart longitude the refinement beside a
+/// pole leaves (radians): the fit's cubic through coarser steps
+/// overshoots the longitude between them, 8e-5 off the ball at points
+/// 1e-3 from the axis under quarter-radian steps.
+const REFINED_SWEEP: f64 = 0.005;
+/// The longitude step of a scan gap (radians) that marks it a pole's
+/// sweep, to be refined.
+const POLE_SWEEP_GAP: f64 = 0.0625;
+/// Bisections of one gap between samples beside a pole.
+const MAX_POLE_DEPTH: usize = 48;
 
 /// The pierce of the cylinder `(origin, axis, rc)` and the sphere
 /// `(center, rs)`; `swapped` when the caller's first surface is the
@@ -103,11 +113,42 @@ pub(super) fn pierce(
             super::ruling_pierce::ruling_loops(&quad, &discs, 1.0, &crossings, density);
         let mut worst = 0.0_f64;
         let mut results = Vec::new();
+        let (p1, p2) = orthonormal_basis(pole_axis);
+        let longitude = |p: Point3| {
+            let d = p - center;
+            d.dot(&p2).patan2(d.dot(&p1))
+        };
+        let floor = 1e-3 * tolerance.linear();
+        let off_axis = |p: Point3| {
+            let d = p - center;
+            (d - pole_axis * d.dot(&pole_axis)).length()
+        };
+        let root_near = |theta: f64, near: f64| {
+            let (disc, b, _) = quad(theta);
+            let s = disc.max(0.0).sqrt();
+            let (lo, hi) = (0.5 * (-b - s), 0.5 * (-b + s));
+            if (lo - near).abs() <= (hi - near).abs() {
+                lo
+            } else {
+                hi
+            }
+        };
         let pieces = loops.iter().flat_map(|pts| {
+            let before = pts.len();
+            let pts = refine_pole_sweeps(
+                pts,
+                &|theta, t| foot(theta) + a * t,
+                &longitude,
+                &root_near,
+                (floor, tolerance.linear(), &off_axis),
+            );
+            let refined = pts.len() > before;
             let points: Vec<Point3> = pts.iter().map(|&(theta, t)| foot(theta) + a * t).collect();
             split_at_poles(points, !open, &poles)
+                .into_iter()
+                .map(move |(piece, closed)| (piece, closed, refined))
         });
-        for (points, closed) in pieces {
+        for (points, closed, refined) in pieces {
             if points.len() < 4 {
                 continue;
             }
@@ -151,9 +192,19 @@ pub(super) fn pierce(
                 });
             }
             // A loop round the chart's pole winds its longitude a whole
-            // turn: the marching path's too (PK-1055 traces it).
+            // turn, its sphere pcurve closing a period on as a latitude
+            // circle's does. Passing close enough to the pole that its
+            // steps there were refined (`refine_pole_sweeps`), it is
+            // fitted here: left to the marching path, a rod whose wall
+            // passed 2e-6 beside a ball's pole lost half its loop as a
+            // duplicate record and the union served the rod alone
+            // (PK-1176). Farther off, the marching path's records (cut
+            // at the chart's seam) keep a rod holding the poles at one
+            // volume through every turn to 3e-9, where the fitted ring,
+            // cut at the face's seam and joined again, read 2.7e-6 off.
             let sphere_u = |s: &MarchSample| if swapped { s.u1 } else { s.u2 };
-            if let (Some(first), Some(last)) = (samples.first(), samples.last())
+            if !refined
+                && let (Some(first), Some(last)) = (samples.first(), samples.last())
                 && (sphere_u(last) - sphere_u(first)).abs() > std::f64::consts::PI
             {
                 return None;
@@ -250,6 +301,69 @@ fn pole_safe_longitudes(
         out[k] = Some(chart(along, None)?.0);
     }
     Some(out)
+}
+
+/// The branch's `(θ, t)` samples with more between any two whose
+/// sphere longitudes differ by more than `POLE_SWEEP`, while their
+/// chord exceeds `floor`: a branch passing beside a pole of the ball
+/// sweeps half a turn of longitude over a stretch as short as its
+/// distance from the pole, which the scan's uniform θ steps jump, and
+/// the scan declined it to the marching path, whose records a rod
+/// 3e-4 or less beside a ball's pole failed to assemble (PK-1176).
+/// Each sample added at the middle θ takes the ruling root nearer the
+/// two it falls between (the branch's own). A sample within `tol` of
+/// the pole axis is at the pole, its longitude the pole handling's
+/// (`split_at_poles`, `pole_safe_longitudes`): a gap reaching one is
+/// not refined.
+fn refine_pole_sweeps(
+    pts: &[(f64, f64)],
+    at: &dyn Fn(f64, f64) -> Point3,
+    longitude: &dyn Fn(Point3) -> f64,
+    root_near: &dyn Fn(f64, f64) -> f64,
+    (floor, tol, off_axis): (f64, f64, &dyn Fn(Point3) -> f64),
+) -> Vec<(f64, f64)> {
+    let step = |x: (f64, f64), y: (f64, f64)| {
+        let (p, q) = (at(x.0, x.1), at(y.0, y.1));
+        let d = longitude(q) - longitude(p);
+        let d = d - TAU * (d / TAU).round();
+        let open = p.distance_to(&q) > floor && off_axis(p) > tol && off_axis(q) > tol;
+        (d.abs(), open)
+    };
+    let sweep = |x: (f64, f64), y: (f64, f64)| {
+        let (d, open) = step(x, y);
+        d > REFINED_SWEEP && open
+    };
+    let mut out = Vec::with_capacity(pts.len());
+    for w in pts.windows(2) {
+        out.push(w[0]);
+        // Only a gap stepping a pole's sweep (a sixteenth of a radian or
+        // more: a loop far from the poles steps a hundredth at 512 a
+        // turn) is refined, down to `REFINED_SWEEP`.
+        if !matches!(step(w[0], w[1]), (d, true) if d > POLE_SWEEP_GAP) {
+            continue;
+        }
+        // Depth-first bisection of this gap, emitted in order.
+        let mut stack = vec![(w[0], w[1], 0usize)];
+        let mut pending: Vec<(f64, f64)> = Vec::new();
+        while let Some((x, y, depth)) = stack.pop() {
+            if depth >= MAX_POLE_DEPTH || !sweep(x, y) {
+                pending.push(y);
+                continue;
+            }
+            let theta = 0.5 * (x.0 + y.0);
+            let m = (theta, root_near(theta, 0.5 * (x.1 + y.1)));
+            stack.push((m, y, depth + 1));
+            stack.push((x, m, depth + 1));
+        }
+        // The gap's end is pushed last of all; the samples before it
+        // came in order.
+        pending.pop();
+        out.extend(pending);
+    }
+    if let Some(&last) = pts.last() {
+        out.push(last);
+    }
+    out
 }
 
 /// The branch `points` (closed when `closed`) cut at each of `poles` it

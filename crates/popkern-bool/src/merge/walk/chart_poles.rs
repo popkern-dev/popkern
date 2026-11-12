@@ -66,11 +66,18 @@ pub(crate) fn snap_pole_end_azimuths(
     }
     let off_pole = |q: &(f64, f64)| !row_collapses(surface, q.0, q.1);
     let period = surface.parameter_periodicity().0;
-    for (end, inner, refined) in [(0, 1, refined_first), (n - 1, n - 2, refined_last)] {
+    for (end, inward, refined) in [(0, true, refined_first), (n - 1, false, refined_last)] {
         if off_pole(&uv[end]) {
             continue;
         }
-        let neighbour = Some(uv[inner]).filter(off_pole);
+        // The nearest sample off the pole along the run: on a seam stub
+        // 1e-5 long the next sample can sit on the pole row too (a rod's
+        // rim crossing a ball's seam that close to its pole, PK-1176).
+        let neighbour = if inward {
+            uv[1..].iter().copied().find(off_pole)
+        } else {
+            uv[..n - 1].iter().rev().copied().find(off_pole)
+        };
         let toward = match (refined.filter(off_pole), neighbour, period) {
             (Some((u, v)), Some((u_in, _)), Some(p)) if p > 0.0 => {
                 Some((u + ((u_in - u) / p).round() * p, v))

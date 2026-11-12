@@ -16,6 +16,7 @@ mod chart_cut_domain_tests;
 pub(crate) mod chart_duplicate_cover;
 mod chart_edge_substitute;
 pub(crate) mod chart_embedding;
+mod chart_embedding_endpoints;
 pub(crate) mod chart_graze_filter;
 mod chart_period_axes;
 pub(crate) mod chart_poles;
