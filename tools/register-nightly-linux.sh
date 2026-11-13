@@ -4,6 +4,13 @@
 # tools/register-nightly-windows.ps1 and tools/register-nightly-macos.sh.
 # Safe to re-run: it replaces the job.
 #
+# The job runs an installed copy of tools/nightly-bootstrap.sh
+# (<nightly home>/bootstrap.sh), which runs origin/main's tools/nightly.sh
+# from a runner worktree: a night never depends on what this checkout has
+# checked out. Re-run this script when the bootstrap changes on main (a
+# night's log says so); the checkout must stay where it is, since the
+# runner and build worktrees share its repository.
+#
 #   tools/register-nightly-linux.sh                 # daily 03:00 local time
 #   tools/register-nightly-linux.sh --at 04:15      # another local start time
 #   tools/register-nightly-linux.sh --unregister
@@ -50,10 +57,12 @@ for tool in crontab flock timeout; do
   command -v "$tool" >/dev/null || { echo "missing $tool (install cron / util-linux / coreutils)" >&2; exit 1; }
 done
 
-SCRIPT=$(cd "$(dirname "$0")" && pwd)/nightly.sh
-[[ -x $SCRIPT ]] || { echo "missing $SCRIPT" >&2; exit 1; }
-# Where tools/nightly.sh keeps its worktree and logs (its own default).
+TOOLS=$(cd "$(dirname "$0")" && pwd)
+REPO=$(dirname "$TOOLS")
+[[ -f $TOOLS/nightly-bootstrap.sh ]] || { echo "missing $TOOLS/nightly-bootstrap.sh" >&2; exit 1; }
+# Where tools/nightly.sh keeps its worktrees and logs (its own default).
 NIGHTLY_HOME=${POPKERN_NIGHTLY_HOME:-${XDG_STATE_HOME:-$HOME/.local/state}/popkern-nightly}
+BOOTSTRAP=$NIGHTLY_HOME/bootstrap.sh
 
 # The crontab without our lines; an empty or missing crontab is no error.
 others=$(crontab -l 2>/dev/null | grep -vF "$TAG" || true)
@@ -69,15 +78,16 @@ fi
 # single-quoted for sh, and cron reads a bare % as a newline.
 q() { printf "'%s'" "${1//\'/\'\\\'\'}"; }
 # The default route from /proc, not ip(8), which cron's PATH may not reach.
-WAIT_FOR_NETWORK='for _ in $(seq 60); do awk '"'"'$2 == "00000000" { up = 1 } END { exit !up }'"'"' /proc/net/route && break; sleep 5; done; exec "$0"'
+WAIT_FOR_NETWORK='for _ in $(seq 60); do awk '"'"'$2 == "00000000" { up = 1 } END { exit !up }'"'"' /proc/net/route && break; sleep 5; done; exec "$0" "$@"'
 COMMAND="POPKERN_NIGHTLY_HOME=$(q "$NIGHTLY_HOME") flock -n $(q "$NIGHTLY_HOME/lock")"
-COMMAND+=" timeout --kill-after=5m ${LIMIT_HOURS}h /bin/bash -c $(q "$WAIT_FOR_NETWORK") $(q "$SCRIPT")"
+COMMAND+=" timeout --kill-after=5m ${LIMIT_HOURS}h /bin/bash -c $(q "$WAIT_FOR_NETWORK") $(q "$BOOTSTRAP") $(q "$REPO")"
 # tools/nightly.sh tees its own log into logs/; cron.log catches only
 # what fails before that starts.
 COMMAND+=" >/dev/null 2>>$(q "$NIGHTLY_HOME/logs/cron.log")"
 [[ $COMMAND != *%* ]] || { echo "a path contains %, which cron cannot run" >&2; exit 1; }
 
 mkdir -p "$NIGHTLY_HOME/logs"
+install -m 755 "$TOOLS/nightly-bootstrap.sh" "$BOOTSTRAP"
 {
   [[ -n $others ]] && printf '%s\n' "$others"
   printf '%d %d * * * %s %s\n' "$MINUTE" "$HOUR" "$COMMAND" "$TAG"
@@ -86,5 +96,5 @@ mkdir -p "$NIGHTLY_HOME/logs"
 pgrep -x cron >/dev/null || pgrep -x crond >/dev/null ||
   echo "warning: no cron daemon is running, so the job will not start" >&2
 echo "registered popkern-nightly: daily $AT ($(date +%Z)) and at boot, as $(id -un), logged in or not"
-echo "run now:  $SCRIPT"
+echo "run now:  $BOOTSTRAP $REPO"
 echo "logs:     $NIGHTLY_HOME/logs"

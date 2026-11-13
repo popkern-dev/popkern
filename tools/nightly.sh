@@ -49,7 +49,10 @@
 # CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID in the user environment.
 # Scheduling: tools/register-nightly-windows.ps1 on Windows,
 # tools/register-nightly-macos.sh on macOS, tools/register-nightly-linux.sh
-# on Linux.
+# on Linux. The schedulers start tools/nightly-bootstrap.sh (an installed
+# copy), which runs this script from a runner worktree at origin/main, so a
+# night uses main's nightly scripts whatever the registering checkout has
+# checked out. Run from a checkout by hand, it is that checkout's copy.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
