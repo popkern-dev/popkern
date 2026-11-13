@@ -455,7 +455,13 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   tolerance), a record end its faces' tolerances plus its fit
   deviation, a candidate joins the nearest compatible vertex, and the
   graph's snap and the assembler's coincident-span band are the reach
-  (a record's band plus its fit deviation). Tolerance tests on edges
+  (a record's band plus its fit deviation). An entity's own tolerance
+  widens it only past the reach (a result carries the linear on every
+  entity, PK-1180); a candidate lies on a record's interior, and two
+  records meet, within the reach plus the records' fit deviation; a
+  clip's uv boundary crossing is one only where the curves come within
+  the reach in space (`clip/clip_crossing_gap.rs`: a near miss under the
+  tolerance in a stretched chart is past it in space). Tolerance tests on edges
   are lengths, never parameter fractions, and a trim test's boundary
   band (ten tolerances) is not "on the face": contacts confirm it in
   space (`point_near_face_boundary`).

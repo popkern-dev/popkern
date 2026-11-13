@@ -191,7 +191,7 @@ pub(crate) fn collect_candidates(
             if !sites.iter().any(|s| s.holds(&v.position)) {
                 continue;
             }
-            let radius = v.tolerance.unwrap_or(0.0).max(precise_radius(linear));
+            let radius = own_tolerance(v.tolerance, linear).max(precise_radius(linear));
             out.push(CandidateVertex {
                 position: v.position,
                 radius,
@@ -246,20 +246,40 @@ pub(crate) fn precise_radius(linear: f64) -> f64 {
         .linear_reach()
 }
 
+/// An entity's own tolerance as it widens identity: none at or under
+/// the linear reach. A result carries the model's linear tolerance on
+/// every vertex, edge and face; read as a radius, a vertex of a union
+/// joined a hit 1.5e-6 up its edge in the next boolean (2e-6 a hit's,
+/// 1e-6 the vertex's), where the same pair as operands stays two, and
+/// a closed record was pulled 1.5e-6 off its surfaces onto the vertex
+/// (PK-1180). Within the resolution an entity is as placed as precise
+/// data; a tolerance recorded past it (a curve end off its vertex, an
+/// imported file's precision) is its own.
+pub(crate) fn own_tolerance(tolerance: Option<f64>, linear: f64) -> f64 {
+    let reach = popkern_core::tolerance::Tolerance::default()
+        .with_linear(linear)
+        .linear_reach();
+    tolerance.filter(|&t| t > reach).unwrap_or(0.0)
+}
+
 /// A hit's tolerance radius: its edge's own plus its face's own, at
 /// least [`precise_radius`].
 fn hit_radius(operands: [&BRep; 2], hit: &EdgeFaceHit, linear: f64) -> f64 {
     let (edge_op, face_op) = if hit.edge_of_a { (0, 1) } else { (1, 0) };
-    let edge_tol = operands[edge_op]
-        .edges
-        .get(hit.edge)
-        .and_then(|e| e.tolerance)
-        .unwrap_or(0.0);
-    let face_tol = operands[face_op]
-        .faces
-        .get(hit.face)
-        .and_then(|f| f.tolerance)
-        .unwrap_or(0.0);
+    let edge_tol = own_tolerance(
+        operands[edge_op]
+            .edges
+            .get(hit.edge)
+            .and_then(|e| e.tolerance),
+        linear,
+    );
+    let face_tol = own_tolerance(
+        operands[face_op]
+            .faces
+            .get(hit.face)
+            .and_then(|f| f.tolerance),
+        linear,
+    );
     (edge_tol + face_tol).max(precise_radius(linear))
 }
 
@@ -423,7 +443,7 @@ pub(crate) fn edge_parameter(brep: &BRep, edge: EdgeHandle, p: &Point3) -> Optio
 /// record's own fit deviation there. (The 3D curve carries the clipped
 /// parameter window while the pcurves keep their own domains, so the
 /// surfaces, not the pcurve ends, are the reference.)
-fn record_fit_deviation(
+pub(super) fn record_fit_deviation(
     a: &BRep,
     b: &BRep,
     record: &IntersectionRecord,

@@ -61,14 +61,31 @@ pub(crate) fn add_interior_incidences(
             {
                 continue;
             }
-            let reach = c.radius + linear;
-            if ends.iter().any(|e| e.distance_to(&c.position) < reach) {
+            // Off its ends a record is placed across by its two
+            // surfaces: as a precise source, plus its own fit deviation
+            // there, so a candidate lies on it exactly where identity
+            // would make them one place (PK-1180: a vertex 1.5e-6 off a
+            // record split it, read within its radius plus the whole
+            // tolerance).
+            let reach = c.radius + super::candidates::precise_radius(linear);
+            if ends
+                .iter()
+                .any(|e| e.distance_to(&c.position) < c.radius + linear)
+            {
                 continue;
             }
             let Some(s) = curve.closest_point(&c.position) else {
                 continue;
             };
-            if curve.point_at(s).distance_to(&c.position) < reach {
+            let foot = curve.point_at(s);
+            let deviation = super::candidates::record_fit_deviation(
+                operands[0],
+                operands[1],
+                record,
+                false,
+                &foot,
+            );
+            if foot.distance_to(&c.position) < reach + deviation {
                 c.incidence.push(Incidence::Record {
                     record: ri,
                     s,
