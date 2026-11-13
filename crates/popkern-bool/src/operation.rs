@@ -82,7 +82,7 @@ use self::no_intersection::handle_no_intersection;
 
 #[path = "operation_sense_rescue.rs"]
 mod sense_rescue;
-pub(crate) use sense_rescue::execute_boolean_full;
+pub(crate) use sense_rescue::{answer_contacts, execute_boolean_full};
 
 /// Execute a boolean operation on two BRep solids.
 ///

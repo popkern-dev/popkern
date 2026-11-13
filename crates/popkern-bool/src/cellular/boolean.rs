@@ -446,6 +446,8 @@ pub(crate) fn cellular_graph_merge(
         }
         diag
     })?;
+    let mut result = result;
+    super::vertex_reach::record_vertex_reaches(&mut result, &identity.reaches);
 
     // Build provenance map (available via boolean_with_provenance).
     let _provenance =

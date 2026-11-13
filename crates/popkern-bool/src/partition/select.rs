@@ -206,7 +206,11 @@ impl Partition {
         if plan.is_some() {
             return crate::postprocess::split_pieces::accept_split(body, &self.tolerance, policy);
         }
-        Ok(body)
+        // Where the complex saw no contact the body may still touch
+        // itself (three records touching pairwise at one point pinch
+        // the space outside there, PK-1181): it answers as a
+        // two-operand result does.
+        crate::operation::answer_contacts(body, &self.tolerance, policy)
     }
 }
 

@@ -30,6 +30,8 @@ pub(super) struct VertexIdentity {
     pub operand_paves: Vec<(usize, EdgeHandle, Point3)>,
     /// Records, or pieces, along operand edges (partial-overlap scenes).
     pub common_blocks: Vec<RecordEdgeBlock>,
+    /// Each decided vertex's anchor and grown tolerance.
+    pub reaches: Vec<(Point3, f64)>,
 }
 
 impl VertexIdentity {
@@ -114,6 +116,7 @@ pub(super) fn decide(
             Vec::new()
         },
         ends: Some(ends),
+        reaches: table.vertex_reaches(),
         hits,
     };
     (records, identity)
