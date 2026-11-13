@@ -175,21 +175,32 @@ pub(super) fn ring_pattern(
 /// A parameter beside `uv` where the chart is regular (the pole itself
 /// has no Jacobian for Newton).
 fn off_pole(s: &SurfaceGeometry, uv: (f64, f64)) -> (f64, f64) {
+    beside_pole(s, uv, 1e-3).unwrap_or(uv)
+}
+
+/// A parameter `fraction` of the v range beside `uv` (into the range),
+/// where a chart singular at `uv` (a pole) is read; `None` at a regular
+/// `uv`.
+pub(super) fn beside_pole(
+    s: &SurfaceGeometry,
+    uv: (f64, f64),
+    fraction: f64,
+) -> Option<(f64, f64)> {
     if regular(s, uv) {
-        return uv;
+        return None;
     }
     let ((_, _), (v0, v1)) = s.parameter_range();
     let step = if v0.is_finite() && v1.is_finite() {
-        1e-3 * (v1 - v0)
+        fraction * (v1 - v0)
     } else {
-        1e-3
+        fraction
     };
     let v = if uv.1 - step >= v0 {
         uv.1 - step
     } else {
         uv.1 + step
     };
-    (uv.0, v)
+    Some((uv.0, v))
 }
 
 /// The height along `n` at which the line through `q` along `n` meets

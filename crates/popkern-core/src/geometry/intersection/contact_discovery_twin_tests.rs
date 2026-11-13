@@ -224,11 +224,11 @@ fn touching_balls_are_found_on_a_twin() {
 }
 
 /// The paraboloid z = x²/2 (a quadratic Bézier profile revolved, its
-/// tip's curvature radius 1) touching the plane under its tip: the
-/// normal-cone subdivision finds the touch from the paraboloid's side
-/// and classifies it, no box left undecided (the plan's E4). A ball of
-/// radius 1 in the cup (a fourth-order touch) and the plane searched
-/// from the plane's side are filed with their evidence (PK-1179).
+/// tip's curvature radius 1) touching the plane under its tip, and a
+/// ball of radius 1 resting in the cup (a fourth-order touch: the gap
+/// is x⁴/8, the relative curvature zero): in either order one contact
+/// at the tip, a touch (the plan's E4). Searched from the plane's side
+/// the touch was missed, and from the ball's read undecided (PK-1179).
 #[test]
 fn the_paraboloid_tip_on_a_plane_is_decided() {
     use crate::geometry::NurbsCurve;
@@ -257,19 +257,39 @@ fn the_paraboloid_tip_on_a_plane_is_decided() {
         u_axis: Vec3::new(1.0, 0.0, 0.0),
         v_axis: Vec3::new(0.0, 1.0, 0.0),
     };
-    let found = find_surface_contacts(
-        &cup,
-        cup.parameter_range(),
-        &floor,
-        ((0.0, 6.0), (0.0, 6.0)),
-        SCALE,
-    );
-    assert_eq!(found.contacts.len(), 1, "{:?}", found.contacts);
-    let c = &found.contacts[0];
-    assert!(
-        c.point.distance_to(&Point3::new(0.0, 0.0, 0.0)) < 1e-6,
-        "{:?}",
-        c.point
-    );
-    assert_eq!(kind_of(c), "touch", "{:?}", c.classification);
+    let ball = sphere((0.0, 0.0, 1.0), 1.0);
+    let floor_w = ((0.0, 6.0), (0.0, 6.0));
+    let cases = [
+        (
+            "cup on the floor",
+            (&cup, cup.parameter_range()),
+            (&floor, floor_w),
+        ),
+        (
+            "floor under the cup",
+            (&floor, floor_w),
+            (&cup, cup.parameter_range()),
+        ),
+        (
+            "cup round the ball",
+            (&cup, cup.parameter_range()),
+            (&ball, ball.parameter_range()),
+        ),
+        (
+            "ball in the cup",
+            (&ball, ball.parameter_range()),
+            (&cup, cup.parameter_range()),
+        ),
+    ];
+    for (name, (a, wa), (b, wb)) in cases {
+        let found = find_surface_contacts(a, wa, b, wb, SCALE);
+        assert_eq!(found.contacts.len(), 1, "{name}: {:?}", found.contacts);
+        let c = &found.contacts[0];
+        assert!(
+            c.point.distance_to(&Point3::new(0.0, 0.0, 0.0)) < 1e-6,
+            "{name}: {:?}",
+            c.point
+        );
+        assert_eq!(kind_of(c), "touch", "{name}: {:?}", c.classification);
+    }
 }
