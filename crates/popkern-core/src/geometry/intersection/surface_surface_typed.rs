@@ -55,3 +55,7 @@ pub fn intersect_surfaces_typed(
     );
     Ok(TypedSurfaceIntersection { curves, contacts })
 }
+
+#[cfg(test)]
+#[path = "surface_surface_typed_tests.rs"]
+mod tests;

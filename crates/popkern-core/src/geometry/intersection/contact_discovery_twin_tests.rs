@@ -134,3 +134,142 @@ fn the_ice_cream_cone_is_tangent_along_its_rim_on_the_twin() {
         (p.z + 9.0).abs() < 1e-4 && (p.x.hypot(p.y) - 12.0).abs() < 1e-4
     });
 }
+
+/// The cylinder inscribed through a cube, tangent to a face along a
+/// ruling (z = -5 under the axis), from the face's twin and the
+/// cylinder's: tangent-curve points on that line either way.
+#[test]
+fn the_inscribed_cylinder_is_tangent_along_a_ruling_on_both_twins() {
+    let rod = SurfaceGeometry::Cylinder {
+        origin: Point3::new(-10.0, 0.0, 0.0),
+        axis: Vec3::new(1.0, 0.0, 0.0),
+        radius: 5.0,
+    };
+    let floor = SurfaceGeometry::Plane {
+        origin: Point3::new(-5.0, -5.0, -5.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let on_ruling = |p: &Point3| p.y.abs() < 1e-4 && (p.z + 5.0).abs() < 1e-4;
+    assert_twins_agree(&floor, ((0.0, 10.0), (0.0, 10.0)), &rod, on_ruling);
+    assert_twins_agree(&rod, ((0.0, TAU), (5.0, 15.0)), &floor, on_ruling);
+}
+
+/// Villarceau's bitangent plane 3x - 4z = 0 through a torus (5, 3):
+/// its two circles cross at (±16/5, 0, ±12/5), from the plane's twin.
+#[test]
+fn villarceaus_crossings_are_found_on_the_planes_twin() {
+    let torus = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 5.0,
+        minor_radius: 3.0,
+    };
+    let n = Vec3::new(3.0, 0.0, -4.0) * 0.2;
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0)
+            - (Vec3::new(4.0, 0.0, 3.0) * 0.2) * 9.0
+            - Vec3::new(0.0, 1.0, 0.0) * 9.0,
+        normal: n,
+        u_axis: Vec3::new(4.0, 0.0, 3.0) * 0.2,
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    assert_twins_agree(&plane, ((0.0, 18.0), (0.0, 18.0)), &torus, |_| false);
+    let analytic = find_surface_contacts(
+        &plane,
+        ((0.0, 18.0), (0.0, 18.0)),
+        &torus,
+        torus.parameter_range(),
+        SCALE,
+    );
+    for want in [Point3::new(3.2, 0.0, 2.4), Point3::new(-3.2, 0.0, -2.4)] {
+        assert!(
+            analytic
+                .contacts
+                .iter()
+                .any(|c| c.point.distance_to(&want) < 1e-5),
+            "{want:?} in {:?}",
+            analytic.contacts
+        );
+    }
+}
+
+/// A torus (5, 1) inside a drum of radius 6, tangent along its outer
+/// equator, from the drum's twin.
+#[test]
+fn the_torus_in_its_drum_is_tangent_along_its_equator_on_the_twin() {
+    let torus = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 5.0,
+        minor_radius: 1.0,
+    };
+    let drum = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, -3.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 6.0,
+    };
+    assert_twins_agree(&drum, ((0.0, TAU), (0.0, 6.0)), &torus, |p| {
+        p.z.abs() < 1e-4 && (p.x.hypot(p.y) - 6.0).abs() < 1e-4
+    });
+}
+
+/// Two balls of radius 3 touching at the origin, from one's twin.
+#[test]
+fn touching_balls_are_found_on_a_twin() {
+    let a = sphere((-3.0, 0.0, 0.0), 3.0);
+    let b = sphere((3.0, 0.0, 0.0), 3.0);
+    assert_twins_agree(&a, a.parameter_range(), &b, |_| false);
+}
+
+/// The paraboloid z = x²/2 (a quadratic Bézier profile revolved, its
+/// tip's curvature radius 1) touching the plane under its tip: the
+/// normal-cone subdivision finds the touch from the paraboloid's side
+/// and classifies it, no box left undecided (the plan's E4). A ball of
+/// radius 1 in the cup (a fourth-order touch) and the plane searched
+/// from the plane's side are filed with their evidence (PK-1179).
+#[test]
+fn the_paraboloid_tip_on_a_plane_is_decided() {
+    use crate::geometry::NurbsCurve;
+    let profile = NurbsCurve {
+        degree: 2,
+        knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(2.0, 0.0, 2.0),
+        ],
+        weights: vec![1.0, 1.0, 1.0],
+    };
+    let cup = SurfaceGeometry::Nurbs(
+        crate::geometry::revolution::revolution_surface(
+            &profile,
+            &Point3::new(0.0, 0.0, 0.0),
+            &Vec3::new(0.0, 0.0, 1.0),
+            TAU,
+        )
+        .expect("paraboloid"),
+    );
+    let floor = SurfaceGeometry::Plane {
+        origin: Point3::new(-3.0, -3.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let found = find_surface_contacts(
+        &cup,
+        cup.parameter_range(),
+        &floor,
+        ((0.0, 6.0), (0.0, 6.0)),
+        SCALE,
+    );
+    assert_eq!(found.contacts.len(), 1, "{:?}", found.contacts);
+    let c = &found.contacts[0];
+    assert!(
+        c.point.distance_to(&Point3::new(0.0, 0.0, 0.0)) < 1e-6,
+        "{:?}",
+        c.point
+    );
+    assert_eq!(kind_of(c), "touch", "{:?}", c.classification);
+}
