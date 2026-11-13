@@ -304,7 +304,11 @@ impl BRep {
 
     /// Every point and curve where two pieces touch.
     pub(super) fn touch_plan(&self) -> TouchPlan {
-        let tol = self.tolerance.linear();
+        // The reach the contact detection decides by (PK-1131): a gap a
+        // ten-millionth of a tolerance over it was a contact to the
+        // detection and none to the glue, and a body declined by default
+        // served unglued under the general policy (PK-1170).
+        let tol = self.tolerance.linear_reach();
         let pieces = self.face_pieces();
         let count = pieces.values().max().map_or(0, |m| m + 1);
         let mut faces_of: Vec<Vec<FaceHandle>> = vec![Vec::new(); count];
