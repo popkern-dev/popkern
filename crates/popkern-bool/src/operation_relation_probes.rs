@@ -83,14 +83,15 @@ pub(crate) fn probe_relation(
     outer_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> Result<ProbeTally, BoolError> {
-    let probes = probe_points(inner);
-    if probes.is_empty() {
+    let mut probes = ProbeStream::new(inner).take(PROBE_BUDGET).peekable();
+    if probes.peek().is_none() {
         return Err(BoolError::DegenerateInput(
             "solid has no vertices".to_string(),
         ));
     }
     let mut tally = ProbeTally::default();
-    for p in probes.iter().take(PROBE_BUDGET) {
+    for p in probes {
+        let p = &p;
         // Boolean operands are FINAL bodies: a ray hit inside one of a
         // face's holes is a void and must not count (PK-722).
         tally.probes += 1;
@@ -116,27 +117,71 @@ pub(crate) fn probe_relation(
     Ok(tally)
 }
 
-/// Probe points of `body`: face-interior points first, round-robin over
-/// the faces so a budget covers every face, then the vertices, then
-/// outer-loop samples.
-fn probe_points(body: &BRep) -> Vec<Point3> {
-    let mut faces: Vec<FaceHandle> = body.faces.keys().collect();
-    faces.sort();
-    let per_face: Vec<Vec<Point3>> = faces
-        .iter()
-        .map(|&f| face_interior_points(body, f, INTERIOR_PER_FACE))
-        .collect();
-    let mut out = Vec::new();
-    for k in 0..INTERIOR_PER_FACE {
-        out.extend(per_face.iter().filter_map(|pts| pts.get(k).copied()));
+/// Probe points of `body`, made as they are asked for: face-interior
+/// points first, round-robin over the faces so a budget covers every
+/// face, then the vertices, then outer-loop samples. A face's interior
+/// points are found the first time the stream reaches it: the verdict
+/// usually settles within a few probes, and finding every face's
+/// points up front cost a body of many faces (a threaded part) more
+/// than its probes did.
+struct ProbeStream<'a> {
+    body: &'a BRep,
+    faces: Vec<FaceHandle>,
+    interior: Vec<Option<Vec<Point3>>>,
+    /// The next probe's place: (round, face) while `round` is under
+    /// [`INTERIOR_PER_FACE`], then the vertices and loop samples.
+    round: usize,
+    face: usize,
+    rest: Option<std::vec::IntoIter<Point3>>,
+}
+
+impl<'a> ProbeStream<'a> {
+    fn new(body: &'a BRep) -> Self {
+        let mut faces: Vec<FaceHandle> = body.faces.keys().collect();
+        faces.sort();
+        Self {
+            body,
+            interior: vec![None; faces.len()],
+            faces,
+            round: 0,
+            face: 0,
+            rest: None,
+        }
     }
-    let mut vertices: Vec<_> = body.vertices.iter().collect();
-    vertices.sort_by_key(|(v, _)| *v);
-    out.extend(vertices.iter().map(|(_, v)| v.position));
-    for &f in &faces {
-        out.extend(body.face_outer_loop_sample_positions(f, 3));
+}
+
+impl Iterator for ProbeStream<'_> {
+    type Item = Point3;
+
+    fn next(&mut self) -> Option<Point3> {
+        while self.round < INTERIOR_PER_FACE {
+            if self.face == self.faces.len() {
+                (self.round, self.face) = (self.round + 1, 0);
+                continue;
+            }
+            let (body, face) = (self.body, self.faces[self.face]);
+            let points = self.interior[self.face]
+                .get_or_insert_with(|| face_interior_points(body, face, INTERIOR_PER_FACE));
+            let p = points.get(self.round).copied();
+            self.face += 1;
+            if p.is_some() {
+                return p;
+            }
+        }
+        let body = self.body;
+        let faces = &self.faces;
+        self.rest
+            .get_or_insert_with(|| {
+                let mut vertices: Vec<_> = body.vertices.iter().collect();
+                vertices.sort_by_key(|(v, _)| *v);
+                let mut out: Vec<Point3> = vertices.iter().map(|(_, v)| v.position).collect();
+                for &f in faces {
+                    out.extend(body.face_outer_loop_sample_positions(f, 3));
+                }
+                out.into_iter()
+            })
+            .next()
     }
-    out
 }
 
 /// Up to `max` points strictly inside `face`'s trim: its outer loop's
