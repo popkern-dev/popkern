@@ -54,6 +54,9 @@ fn the_whole_arm_has_no_interfering_pair() {
     // certification re-meshed only each pair's near faces (56.5 s on
     // whole bodies) and the tap flanks meshed within their chord (a
     // flank sampled by phase luck sagged 16x it, and the gripper screws
-    // descended to the finest level, 23 s each; PK-900).
+    // descended to the finest level, 23 s each; PK-900). 38.9 s quiet
+    // before the no-curve relation probes (PK-1124), which found every
+    // face's interior points up front and read 49.6 s; made as the
+    // verdict asks for them, 36.7 s (PK-1174).
     assert!(took < 60.0, "whole-arm interference took {took:.1} s");
 }
