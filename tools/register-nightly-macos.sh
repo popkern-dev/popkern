@@ -3,6 +3,13 @@
 # as the current user. The macOS counterpart of
 # tools/register-nightly-windows.ps1. Safe to re-run: it replaces the job.
 #
+# The job runs an installed copy of tools/nightly-bootstrap.sh
+# (<nightly home>/bootstrap.sh), which runs origin/main's tools/nightly.sh
+# from a runner worktree: a night never depends on what this checkout has
+# checked out. Re-run this script when the bootstrap changes on main (a
+# night's log says so); the checkout must stay where it is, since the
+# runner and build worktrees share its repository.
+#
 #   tools/register-nightly-macos.sh                 # runs while you are logged in
 #   sudo tools/register-nightly-macos.sh            # runs whether or not you are logged in
 #   tools/register-nightly-macos.sh --at 03:15      # another local start time
@@ -46,8 +53,9 @@ done
 [[ $AT =~ ^([01][0-9]|2[0-3]):([0-5][0-9])$ ]] || { echo "--at takes a 24-hour HH:MM, not '$AT'" >&2; exit 2; }
 HOUR=$((10#${BASH_REMATCH[1]})); MINUTE=$((10#${BASH_REMATCH[2]}))
 
-SCRIPT=$(cd "$(dirname "$0")" && pwd)/nightly.sh
-[[ -x $SCRIPT ]] || { echo "missing $SCRIPT" >&2; exit 1; }
+TOOLS=$(cd "$(dirname "$0")" && pwd)
+REPO=$(dirname "$TOOLS")
+[[ -f $TOOLS/nightly-bootstrap.sh ]] || { echo "missing $TOOLS/nightly-bootstrap.sh" >&2; exit 1; }
 
 # Who the job runs as: you, also under sudo.
 if [[ $EUID == 0 ]]; then
@@ -61,8 +69,9 @@ RUN_UID=$(id -u "$RUN_USER")
 RUN_HOME=$(dscl . -read "/Users/$RUN_USER" NFSHomeDirectory | awk '{print $2}')
 AGENT_PLIST=$RUN_HOME/Library/LaunchAgents/$LABEL.plist
 DAEMON_PLIST=/Library/LaunchDaemons/$LABEL.plist
-# Where tools/nightly.sh keeps its worktree and logs (its own default).
+# Where tools/nightly.sh keeps its worktrees and logs (its own default).
 NIGHTLY_HOME=${POPKERN_NIGHTLY_HOME:-$RUN_HOME/.local/state/popkern-nightly}
+BOOTSTRAP=$NIGHTLY_HOME/bootstrap.sh
 
 # The wake event: 2 minutes before the start, as pmset sets and prints it.
 WAKE=$(( (HOUR * 60 + MINUTE + 1440 - 2) % 1440 ))
@@ -98,9 +107,9 @@ xml() { printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/
 # perl's alarm outlives its exec, so the time limit covers the whole run;
 # the route check waits up to 5 minutes for the network a boot or wake
 # brings up only after launchd starts the job.
-WAIT_FOR_NETWORK='for _ in $(seq 60); do /sbin/route -n get default >/dev/null 2>&1 && break; sleep 5; done; exec "$0"'
+WAIT_FOR_NETWORK='for _ in $(seq 60); do /sbin/route -n get default >/dev/null 2>&1 && break; sleep 5; done; exec "$0" "$@"'
 ARGS=(/usr/bin/perl -e 'alarm shift; exec @ARGV or die "exec: $!\n"' $((LIMIT_HOURS * 3600))
-      /usr/bin/caffeinate -i /bin/bash -c "$WAIT_FOR_NETWORK" "$SCRIPT")
+      /usr/bin/caffeinate -i /bin/bash -c "$WAIT_FOR_NETWORK" "$BOOTSTRAP" "$REPO")
 
 plist() {
   local arg user_keys=''
@@ -126,7 +135,7 @@ $(for arg in "${ARGS[@]}"; do printf '    <string>%s</string>\n' "$(xml "$arg")"
     <key>PATH</key><string>/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>POPKERN_NIGHTLY_HOME</key><string>$(xml "$NIGHTLY_HOME")</string>
   </dict>
-  <key>WorkingDirectory</key><string>$(xml "$(dirname "$(dirname "$SCRIPT")")")</string>
+  <key>WorkingDirectory</key><string>$(xml "$REPO")</string>
   <key>StandardOutPath</key><string>/dev/null</string>
   <key>StandardErrorPath</key><string>$(xml "$NIGHTLY_HOME/logs/launchd.log")</string>
 </dict>
@@ -138,6 +147,7 @@ EOF
 
 if [[ $MODE == daemon ]]; then
   sudo -u "$RUN_USER" mkdir -p "$NIGHTLY_HOME/logs"
+  sudo -u "$RUN_USER" install -m 755 "$TOOLS/nightly-bootstrap.sh" "$BOOTSTRAP"
   remove_agent
   tmp=$(mktemp)
   plist > "$tmp"
@@ -159,6 +169,7 @@ if [[ $MODE == daemon ]]; then
   echo "run now:  sudo launchctl kickstart system/$LABEL"
 else
   mkdir -p "$NIGHTLY_HOME/logs" "$(dirname "$AGENT_PLIST")"
+  install -m 755 "$TOOLS/nightly-bootstrap.sh" "$BOOTSTRAP"
   plist > "$AGENT_PLIST"
   plutil -lint -s "$AGENT_PLIST"
   launchctl bootout "gui/$RUN_UID/$LABEL" 2>/dev/null || true
