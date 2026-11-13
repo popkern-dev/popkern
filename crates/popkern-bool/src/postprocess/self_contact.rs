@@ -106,10 +106,44 @@ pub(crate) fn self_contacts(brep: &BRep, tolerance: &Tolerance) -> Vec<NonManifo
             let (Some(bf), Some(bg)) = (&bounds[i], &bounds[j]) else {
                 continue;
             };
+            let Some(sg) = surface(*g) else { continue };
             if shares_any(&bf.vertices, &bg.vertices) {
+                // Faces meeting only at a vertex where they face each
+                // other (normals opposed) can touch beside it: a ball
+                // resting on a box's top 1e-3 from where a rod's rim,
+                // the rod fused to the ball, met the ball's own rim
+                // under the tolerance served touching itself (PK-1177).
+                // The touch counts farther than ten tolerances from the
+                // shared vertices; nearer, it is theirs.
+                if shares_any(&bf.edges, &bg.edges) {
+                    continue;
+                }
+                let shared: Vec<Point3> = bf
+                    .vertices
+                    .iter()
+                    .filter(|v| bg.vertices.binary_search(v).is_ok())
+                    .filter_map(|&v| brep.vertices.get(v).map(|x| x.position))
+                    .collect();
+                if !shared.iter().any(|&p| facing_at(sf, sg, p)) {
+                    continue;
+                }
+                if let Some(at) = super::shell_contact::face_contact_avoiding(
+                    brep,
+                    (*f, &sf.geometry),
+                    (*g, &sg.geometry),
+                    linear,
+                    (&shared, 10.0 * linear),
+                ) && out
+                    .iter()
+                    .all(|c| c.location.distance_to(&at) > 10.0 * linear)
+                {
+                    out.push(NonManifoldContact {
+                        kind: ContactKind::Vertex,
+                        location: at,
+                    });
+                }
                 continue;
             }
-            let Some(sg) = surface(*g) else { continue };
             if crate::parallel::ff_parallel::ff_parallel_reach::faces_apart(
                 (&sf.geometry, box_f),
                 (&sg.geometry, box_g),
@@ -366,6 +400,27 @@ fn face_boundary(brep: &BRep, face: FaceHandle, lone: &[(FaceHandle, VertexHandl
     out.edges.sort_unstable();
     out.edges.dedup();
     out
+}
+
+/// Whether the faces on `a` and `b` face each other at `p`: their
+/// outward normals there opposed within a hundredth of a radian's
+/// cosine (a tangent pinch, the faces' interiors on either side of one
+/// tangent plane).
+fn facing_at(
+    a: &popkern_core::geometry::surface::SurfaceOnFace,
+    b: &popkern_core::geometry::surface::SurfaceOnFace,
+    p: Point3,
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let outward = |s: &popkern_core::geometry::surface::SurfaceOnFace| {
+        let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(&s.geometry, &p)?;
+        let n = s.geometry.normal_at(u, v);
+        Some(if s.orientation { n } else { n * -1.0 })
+    };
+    match (outward(a), outward(b)) {
+        (Some(x), Some(y)) => x.dot(&y) < -0.99995,
+        _ => false,
+    }
 }
 
 /// Whether two sorted lists share an element.
