@@ -251,8 +251,15 @@ pub fn weld_clean_surface_complex_boundaries(
             total_ms: span_ms(started_at, actions_at),
         },
     };
+    // The assembly gives every face a solid region behind it; a surface
+    // the weld leaves open (free edges) is a sheet, its faces void on
+    // both sides. Unsettled it read General (the welded PnS cylinder,
+    // 120 free edges, every vertex of one use, PK-1171), which every
+    // kind gate turns away.
+    let mut brep = result.brep;
+    brep.settle_open_shells();
     Ok(PolyhedralWeldedSurfaceComplex {
-        brep: result.brep,
+        brep,
         report,
         repair_actions,
     })
