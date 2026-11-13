@@ -283,7 +283,13 @@ pub(crate) fn find_uv_crossings(
                 }
                 let b = working_boundary.point_at(t1);
                 let gap = (wrap(w.x - b.x).powi(2) + (w.y - b.y).powi(2)).sqrt();
-                (gap > COINCIDENCE_BAND * tolerance.linear()).then_some("apart")
+                if gap > COINCIDENCE_BAND * tolerance.linear() {
+                    return Some("apart");
+                }
+                // Within the linear reach in space (the shift moves both).
+                let curves = (&working_boundary, &working_curve);
+                super::clip_crossing_gap::afar(face_surface, curves, (t1, t2), applied, tolerance)
+                    .then_some("afar")
             };
             if let Ok(result) = result {
                 use popkern_core::geometry::intersection::CurveIntersection;
@@ -383,13 +389,24 @@ pub(crate) fn find_uv_crossings(
             .collect();
         crossings.extend(extra);
     }
-    // Loops on multi-turn charts: crossings on every lift (PK-673).
+    // Loops on multi-turn charts: crossings on every lift (PK-673),
+    // each one place in space (the passes above judge their own).
+    let direct = crossings.len();
     extend_with_lifted_loop_crossings(
         &mut crossings,
         brep,
         &boundary_nurbs,
         curve_uv,
         period_of(),
+        tolerance,
+    );
+    let (lifted, surface) = ((&boundary_nurbs, curve_uv), face_surface);
+    super::clip_crossing_gap::keep_one_place(
+        surface,
+        lifted.0,
+        lifted.1,
+        &mut crossings,
+        direct,
         tolerance,
     );
     if crossings.is_empty() && surface_is_periodic {

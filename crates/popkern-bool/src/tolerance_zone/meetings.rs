@@ -390,7 +390,18 @@ pub(super) fn meeting_candidates(
     out.extend(found.into_iter().filter_map(|m| {
         let [i, j] = m.records;
         let radius = radius_of(&records[i]).max(radius_of(&records[j]));
-        if m.gap > radius {
+        // Two records meet where they are one place: within the linear
+        // reach of each other, plus each record's own fit deviation
+        // there (its point off its two surfaces), as an edge meets a
+        // face within the reach (PK-1180).
+        let deviation = |k: usize, s: f64| {
+            let r = &records[k];
+            super::candidates::record_fit_deviation(a, b, r, false, &r.curve.curve_3d.point_at(s))
+        };
+        let reach = popkern_core::tolerance::Tolerance::default()
+            .with_linear(linear)
+            .linear_reach();
+        if m.gap > radius.min(reach + deviation(i, m.params[0]) + deviation(j, m.params[1])) {
             return None;
         }
         // A meeting at one record's end (another record passing
