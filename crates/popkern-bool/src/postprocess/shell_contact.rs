@@ -255,6 +255,56 @@ pub(crate) fn face_contact_on(
         .or_else(|| super::shell_contact_edge::edge_contact(brep, g, (f, sf), linear, clear))
 }
 
+/// A touch of faces `f` and `g` (each read on its surface) farther than
+/// `radius` from every point of `avoid`, by alternating projection from
+/// both faces' seeds and the signed gap's critical points: two faces
+/// meeting at a shared vertex can touch elsewhere too, and there the
+/// plain search, finding the shared vertex first, would stop.
+pub(crate) fn face_contact_avoiding(
+    brep: &BRep,
+    (f, sf): (FaceHandle, &SurfaceGeometry),
+    (g, sg): (FaceHandle, &SurfaceGeometry),
+    linear: f64,
+    (avoid, radius): (&[Point3], f64),
+) -> Option<Point3> {
+    let away = |p: &Point3| avoid.iter().all(|a| a.distance_to(p) > radius);
+    let mut starts: Vec<(f64, Point3, Point3)> = Vec::new();
+    for p in seeds(brep, f, sf) {
+        if let Some((q, _)) = foot(sg, &p) {
+            starts.push((p.distance_to(&q), p, q));
+        }
+    }
+    for q in seeds(brep, g, sg) {
+        if let Some((p, _)) = foot(sf, &q) {
+            starts.push((p.distance_to(&q), p, q));
+        }
+    }
+    starts.retain(|(_, p, _)| away(p));
+    starts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for &(_, p0, q0) in starts.iter().take(REFINED_SEEDS) {
+        let (mut p, mut q) = (p0, q0);
+        let (mut uv_f, mut uv_g) = (project_point_to_uv(sf, &p)?, project_point_to_uv(sg, &q)?);
+        for _ in 0..ROUNDS {
+            let (np, nuv_f) = foot(sf, &q)?;
+            let (nq, nuv_g) = foot(sg, &np)?;
+            let moved = np.distance_to(&p).max(nq.distance_to(&q));
+            (p, q, uv_f, uv_g) = (np, nq, nuv_f, nuv_g);
+            if moved < 0.1 * linear {
+                break;
+            }
+        }
+        let at = p + (q - p) * 0.5;
+        if p.distance_to(&q) <= linear
+            && away(&at)
+            && on_trim(brep, f, sf, uv_f, linear)
+            && on_trim(brep, g, sg, uv_g, linear)
+        {
+            return Some(at);
+        }
+    }
+    gap_critical_contacts(brep, (f, sf), (g, sg), linear).find(away)
+}
+
 /// A touch of `f` and `g` located as a critical point of their signed
 /// gap within `linear`, with both feet on their faces.
 fn gap_critical_contact(
@@ -263,6 +313,17 @@ fn gap_critical_contact(
     (g, sg): (FaceHandle, &SurfaceGeometry),
     linear: f64,
 ) -> Option<Point3> {
+    gap_critical_contacts(brep, (f, sf), (g, sg), linear).next()
+}
+
+/// Every touch of `f` and `g` found as a critical point of their signed
+/// gap within `linear`, with both feet on their faces.
+fn gap_critical_contacts<'a>(
+    brep: &'a BRep,
+    (f, sf): (FaceHandle, &'a SurfaceGeometry),
+    (g, sg): (FaceHandle, &'a SurfaceGeometry),
+    linear: f64,
+) -> impl Iterator<Item = Point3> + 'a {
     use popkern_core::geometry::intersection::contact_classify::ContactScale;
     use popkern_core::geometry::intersection::contact_discovery::find_surface_contacts;
     // The two faces' boxes alone (every face's box per pair cost the
@@ -282,7 +343,7 @@ fn gap_critical_contact(
     found
         .contacts
         .into_iter()
-        .find(|c| {
+        .filter(move |c| {
             c.gap.abs() <= linear
                 && on_trim(brep, f, sf, c.uv1, linear)
                 && on_trim(brep, g, sg, c.uv2, linear)
