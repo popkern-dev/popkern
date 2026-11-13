@@ -206,6 +206,8 @@ pub(crate) fn self_contacts(brep: &BRep, tolerance: &Tolerance) -> Vec<NonManifo
             if plane_crosses_cylinder_clear(brep, side_f, side_g, linear)
                 || plane_crosses_cylinder_clear(brep, side_g, side_f, linear)
                 || cylinders_clear(brep, side_f, side_g, linear)
+                || plane_torus_clear(brep, side_f, side_g, linear)
+                || plane_torus_clear(brep, side_g, side_f, linear)
             {
                 continue;
             }
@@ -259,12 +261,27 @@ pub(crate) fn self_contacts(brep: &BRep, tolerance: &Tolerance) -> Vec<NonManifo
                         ),
                     }
                 };
+                // A cylinder and a NURBS face none of whose normals is
+                // across the axis have no parallel normals: only their
+                // edges can meet the other face (PK-1175: a rod's core
+                // against a thread flank cost 0.12 s a pair in the
+                // signed gap's critical-point search).
+                let across = |s: &SurfaceGeometry, theirs: Option<&[patches::Patch]>| match s {
+                    SurfaceGeometry::Cylinder { axis, .. } => axis
+                        .normalized()
+                        .zip(theirs)
+                        .is_some_and(|(a, theirs)| patches::normals_never_across(theirs, a)),
+                    _ => false,
+                };
+                let interior = !(across(&sf.geometry, patches_g.as_deref())
+                    || across(&sg.geometry, patches_f.as_deref()));
                 super::shell_contact::face_contact_on(
                     brep,
                     (*f, pf.as_ref().unwrap_or(&sf.geometry)),
                     (*g, pg.as_ref().unwrap_or(&sg.geometry)),
                     linear,
                     Some(&clear),
+                    interior,
                 )
             };
             let Some(at) = found else {
@@ -438,6 +455,9 @@ fn shares_any<T: Ord>(a: &[T], b: &[T]) -> bool {
 
 #[path = "self_contact_clear.rs"]
 mod clear;
+#[path = "self_contact_torus.rs"]
+mod torus;
+use torus::plane_torus_clear;
 #[path = "self_contact_patches.rs"]
 mod patches;
 #[path = "self_contact_polygon.rs"]

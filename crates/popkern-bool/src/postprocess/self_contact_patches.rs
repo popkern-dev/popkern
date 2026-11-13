@@ -302,15 +302,24 @@ fn piece_over(
     Some(piece)
 }
 
-/// The face's parameter window `((u0, u1), (v0, v1))`: its boundary's
-/// uv box, each direction the whole domain where that box runs past it.
-fn trim_window(
-    brep: &BRep,
-    face: FaceHandle,
-    s: &NurbsSurface,
-) -> Option<((f64, f64), (f64, f64))> {
+/// The uv box of `face`'s boundary loops' pcurves (closed form, each
+/// pcurve's conservative box): the face, the region its outer loop
+/// bounds in the chart less its holes, lies inside it.
+pub(super) fn face_uv_box(brep: &BRep, face: FaceHandle) -> Option<UvBox> {
+    let boxes = face_pcurve_boxes(brep, face)?;
+    let first = *boxes.first()?;
+    Some(boxes.iter().fold(first, |(a, b), &(lo, hi)| {
+        (
+            (a.0.min(lo.0), a.1.min(lo.1)),
+            (b.0.max(hi.0), b.1.max(hi.1)),
+        )
+    }))
+}
+
+/// The conservative uv box of each pcurve of `face`'s boundary loops.
+pub(super) fn face_pcurve_boxes(brep: &BRep, face: FaceHandle) -> Option<Vec<UvBox>> {
     let f = brep.faces.get(face)?;
-    let mut pcurves = Vec::new();
+    let mut out = Vec::new();
     for l in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
         let lp = brep.loops.get(l)?;
         if lp.vertex.is_some() {
@@ -320,14 +329,24 @@ fn trim_window(
         let mut h = start;
         for _ in 0..=brep.half_edges.len() {
             let fin = brep.half_edges.get(h)?;
-            pcurves.push(fin.pcurve.as_ref()?);
+            out.push(contour_uv_box(std::iter::once(fin.pcurve.as_ref()?))?);
             h = fin.next;
             if h == start {
                 break;
             }
         }
     }
-    let uv: UvBox = contour_uv_box(pcurves)?;
+    Some(out)
+}
+
+/// The face's parameter window `((u0, u1), (v0, v1))`: its boundary's
+/// uv box, each direction the whole domain where that box runs past it.
+fn trim_window(
+    brep: &BRep,
+    face: FaceHandle,
+    s: &NurbsSurface,
+) -> Option<((f64, f64), (f64, f64))> {
+    let uv: UvBox = face_uv_box(brep, face)?;
     let domain = |knots: &[f64], degree: usize, count: usize| (knots[degree], knots[count]);
     let (du, dv) = (
         domain(&s.knots_u, s.degree_u, s.num_u),
@@ -453,6 +472,10 @@ fn hulls_apart(a: &Patch, b: &Patch, pad: f64) -> bool {
 #[path = "self_contact_patches_curve.rs"]
 mod curve;
 pub(super) use curve::curve_apart;
+
+#[path = "self_contact_patches_normals.rs"]
+mod normals;
+pub(super) use normals::normals_never_across;
 
 #[cfg(test)]
 #[path = "self_contact_patches_tests.rs"]

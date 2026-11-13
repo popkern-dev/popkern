@@ -189,6 +189,7 @@ pub(crate) fn face_contact(
         (g, surface_of(brep, g)?),
         linear,
         None,
+        true,
     )
 }
 
@@ -202,13 +203,21 @@ pub(crate) type EdgeClear<'a> =
 /// or a piece of it holding the face with the same parameters (a NURBS
 /// face's knot spans, so projections do not search the whole surface),
 /// and the edges `clear` proves apart from the other face not walked.
+/// With `interior` false the faces are known to have no parallel normals
+/// (PK-1175), so they touch only where an edge of one meets the other,
+/// and only the edges are walked.
 pub(crate) fn face_contact_on(
     brep: &BRep,
     (f, sf): (FaceHandle, &SurfaceGeometry),
     (g, sg): (FaceHandle, &SurfaceGeometry),
     linear: f64,
     clear: Option<&EdgeClear>,
+    interior: bool,
 ) -> Option<Point3> {
+    if !interior {
+        return super::shell_contact_edge::edge_contact(brep, f, (g, sg), linear, clear)
+            .or_else(|| super::shell_contact_edge::edge_contact(brep, g, (f, sf), linear, clear));
+    }
     let mut starts: Vec<(f64, Point3, Point3)> = Vec::new();
     for p in seeds(brep, f, sf) {
         if let Some((q, _)) = foot(sg, &p) {

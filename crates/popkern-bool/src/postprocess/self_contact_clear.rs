@@ -55,6 +55,7 @@ pub(super) fn edges_clear_of_plane(
             .is_some_and(|c| {
                 curve_clear_of_plane(c, (origin, n), near, tol)
                     || stretch_off_face(brep, face, c, (origin, n), tol)
+                    || curve_off_face(brep, face, c, (origin, n), tol)
             })
     })
 }
@@ -77,6 +78,77 @@ fn stretch_off_face(
         return true;
     };
     ball_off_face(brep, face, a + (b - a) * 0.5, tol + 0.5 * a.distance_to(&b))
+}
+
+/// Halvings of a curved edge whose pieces lie in the plane's band.
+const OFF_FACE_DEPTH: usize = 8;
+
+/// Whether the curved edge `c` lies farther than `tol` from the planar
+/// `face` (on the plane `(origin, n)`): each piece of its NURBS form, of
+/// positive weights, halved while undecided, lies beyond the band on
+/// one side (its control points do), or within the ball about its
+/// control box's middle of its half-diagonal, off the face by `tol`
+/// ([`ball_off_face`]). A torus's meridian lying in the plane beside
+/// the planar face is in the band everywhere, off the face throughout.
+fn curve_off_face(
+    brep: &BRep,
+    face: FaceHandle,
+    c: &CurveOnEdge,
+    (origin, n): (Point3, Vec3),
+    tol: f64,
+) -> bool {
+    use popkern_core::geometry::nurbs_curve::NurbsCurve;
+    fn piece_off(
+        brep: &BRep,
+        face: FaceHandle,
+        curve: &NurbsCurve,
+        (origin, n): (Point3, Vec3),
+        tol: f64,
+        depth: usize,
+    ) -> bool {
+        let Some(hull) = Aabb::from_points(&curve.control_points) else {
+            return false;
+        };
+        let side = |p: &Point3| (*p - origin).dot(&n);
+        if curve.control_points.iter().all(|p| side(p) > tol)
+            || curve.control_points.iter().all(|p| side(p) < -tol)
+        {
+            return true;
+        }
+        let middle = hull.min + (hull.max - hull.min) * 0.5;
+        if ball_off_face(
+            brep,
+            face,
+            middle,
+            tol + 0.5 * hull.min.distance_to(&hull.max),
+        ) {
+            return true;
+        }
+        if depth == 0 {
+            return false;
+        }
+        let p = curve.degree;
+        let (Some(&t0), Some(&t1)) = (
+            curve.knots.get(p),
+            curve
+                .knots
+                .len()
+                .checked_sub(p + 1)
+                .and_then(|i| curve.knots.get(i)),
+        ) else {
+            return false;
+        };
+        curve.split_at(0.5 * (t0 + t1)).is_ok_and(|(a, b)| {
+            piece_off(brep, face, &a, (origin, n), tol, depth - 1)
+                && piece_off(brep, face, &b, (origin, n), tol, depth - 1)
+        })
+    }
+    if straight(c) {
+        return false;
+    }
+    let sub = c.geometry.to_nurbs_in_range((c.t_start, c.t_end));
+    sub.weights.iter().all(|&w| w > 0.0)
+        && piece_off(brep, face, &sub, (origin, n), tol, OFF_FACE_DEPTH)
 }
 
 /// Whether every point within `reach - pad` of `centre` lies farther
