@@ -29,6 +29,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::clip_endpoint_far::{far_junction, project_onto_curve_dense, retrim_piece_to_junction};
 use crate::clip_reauthor::reauthor_pinned_run;
+use crate::clip_retrim_on_source::{drag_bends, retrim_on_source};
 
 /// Refine both endpoints of `piece` onto exact boundary junctions
 /// where they lie within the record-fit slop band of a face-boundary
@@ -161,6 +162,15 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
                     r.z,
                     r.distance_to(&p)
                 );
+            }
+            // A short move onto the source a drag would bend: a re-trim.
+            if r.distance_to(&p) <= 50.0 * tolerance.linear()
+                && let Some(t) = project_onto_curve_dense(&source.curve_3d, &r)
+                && source.curve_3d.point_at(t).distance_to(&r) <= tolerance.linear()
+                && drag_bends(&piece.curve_3d, end, r, 0.5 * tolerance.linear())
+                && retrim_on_source(piece, source, (end, t, r), (surf_a, surf_b), tolerance)
+            {
+                continue;
             }
             set_endpoint_3d_uv(piece, end, r, surf_a, surf_b, tolerance);
             continue;

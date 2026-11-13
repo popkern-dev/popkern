@@ -7,6 +7,9 @@ use crate::geometry::{Point3, Vec3};
 #[path = "analytic_curve_primitives.rs"]
 mod analytic_curve_primitives;
 
+#[path = "analytic_curve_box.rs"]
+mod analytic_curve_box;
+
 #[cfg(test)]
 pub(crate) use analytic_curve_primitives::arbitrary_perpendicular;
 pub use analytic_curve_primitives::circle_basis;

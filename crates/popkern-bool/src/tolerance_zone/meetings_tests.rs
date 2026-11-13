@@ -149,3 +149,22 @@ fn a_refit_closed_record_closes_within_the_radius() {
     let open = super::super::resolve_record::separation(point_at, (a, b), (0.0, 1.0), 0.0);
     assert!(open > 31.0, "{open}");
 }
+
+/// Circles of radius 5 about (0, 0) and (0, 10 - 1e-6) cross twice,
+/// 3.2e-3 apart, at most the overlap apart between: within the radius
+/// one place, met once where they run parallel, (0, 5 - 5e-7), not at
+/// either crossing (the distance is flat between them, PK-1182).
+#[test]
+fn circles_crossing_twice_within_the_radius_meet_once_where_parallel() {
+    let records = [
+        record(circle((0.0, 0.0), 5.0)),
+        record(circle((0.0, 10.0 - 1e-6), 5.0)),
+    ];
+    let m = record_meetings(&records, R);
+    assert_eq!(m.len(), 1, "{m:?}");
+    assert!(
+        m[0].point.distance_to(&Point3::new(0.0, 5.0 - 5e-7, 0.0)) < 1e-7,
+        "{:?}",
+        m[0]
+    );
+}

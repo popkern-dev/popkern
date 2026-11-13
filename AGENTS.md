@@ -465,8 +465,18 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   record's lone pair of crossings grazing the boundary within the reach
   (the same side beyond both) is none (`clip/clip_crossing_graze.rs`).
   Two curves passing within the tolerance meet where they run parallel
-  in their stretch within it, never at the stretch's middle
-  (`partition/crossings.rs`, PK-1181); a decided vertex records how far
+  in their stretch within it, else where they come nearest (a shallow
+  crossing), never at the stretch's middle or a minimum of a flat
+  distance; a pass running into an open record's end is that end's
+  vertex, into a closed one's closure the closure
+  (`tolerance_zone/meetings_foot.rs` `pass_place`, `parallel_point`;
+  `partition/crossings.rs`; PK-1181, PK-1182). A clipped end refined
+  a short way onto a junction on its source, where dragging its end
+  control point would bend it off itself, is a re-trim of the source
+  on the piece's own domain (`clip_retrim_on_source.rs`), and
+  circle, arc and ellipse boxes are exact, never sampled (a sampled
+  rim box missed its extreme and the hole filter kept a piece in the
+  hole, `geometry/analytic_curve_box.rs`). A decided vertex records how far
   its edges' ends lie from it, up to its group's grown tolerance
   (`cellular/vertex_reach.rs`); and the partition's selection answers
   contacts as a two-operand result does (`operation::answer_contacts`:

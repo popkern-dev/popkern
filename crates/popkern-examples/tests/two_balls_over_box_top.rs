@@ -76,7 +76,8 @@ fn both_paths([cube, a, b]: &[BRep; 3], policy: NonManifoldPolicy) -> [Result<BR
     ]
 }
 
-/// Within the tolerance the rims are one place at P, where the space
+/// Within the tolerance (apart or overlapping) the rims are one place
+/// at P, where the space
 /// outside the three pinches (its channels either side of P meet only
 /// there): a point contact, as a ball resting on a face within the
 /// tolerance is. Both paths decline by default with the contact at P,
@@ -97,7 +98,7 @@ fn within_the_tolerance_the_unions_touch_at_one_point() {
     for (own, turn) in [(0.0, 0.0), (0.9, 0.0), (0.0, 0.4)] {
         let past = both_paths(&scene(1.2e-6, own, turn), NonManifoldPolicy::Decline);
         let past = volume(past[0].as_ref().expect("1.2e-6 serves"));
-        for gap in [0.0, 5e-7, 9e-7] {
+        for gap in [0.0, 5e-7, 9e-7, -5e-7] {
             let what = format!("gap {gap:e} own {own} turn {turn}");
             let scene = scene(gap, own, turn);
             for (path, r) in ["two-body", "N-ary"]
@@ -186,4 +187,53 @@ fn the_unions_serve_from_just_past_the_tolerance() {
             );
         }
     }
+}
+
+/// Overlapping from 1.5 tolerances to a hundredth, the rims cross at
+/// two shallow triple points (A, B and the top meet there, the rims at
+/// 2 sqrt(overlap / sqrt 3) rad): both paths serve one valid solid at
+/// every placement, of one volume (to 1e-7) falling as the overlap
+/// disk's area, pi, per unit of overlap. They declined (PK-1182): a
+/// circle's box was sampled and missed the rim's extreme by 0.0114
+/// with its seam turned away, so the hole filter kept the second rim's
+/// piece inside the first's hole; a clipped end refined 4.75e-5 onto
+/// its junction dragged a control point and bent the overlap circle
+/// 5.5e-6 off both spheres; and the partition placed a shallow
+/// crossing at its reports' middle, 1.7e-5 along the rims.
+#[test]
+fn overlapping_balls_serve_one_solid_on_both_paths() {
+    let gaps = [-1.5e-6, -1e-5, -1e-4, -1e-3, -1e-2];
+    let mut first: Vec<f64> = Vec::new();
+    for (own, turn) in [(0.0, 0.0), (0.3, 0.0), (0.9, 0.0), (2.0, 0.0), (0.0, 0.4)] {
+        for (k, gap) in gaps.iter().enumerate() {
+            let what = format!("overlap {:e} own {own} turn {turn}", -gap);
+            let mut volumes = Vec::new();
+            for (path, r) in ["two-body", "N-ary"].iter().zip(both_paths(
+                &scene(*gap, own, turn),
+                NonManifoldPolicy::Decline,
+            )) {
+                let body = r.unwrap_or_else(|e| panic!("{what}: {path} declined: {e}"));
+                let issues = body.validate_all();
+                assert!(issues.is_empty(), "{what}: {path} invalid: {issues:?}");
+                volumes.push(volume(&body));
+            }
+            assert!(
+                (volumes[0] - volumes[1]).abs() < 1e-7,
+                "{what}: volumes {volumes:?}"
+            );
+            match first.get(k) {
+                Some(&v) => assert!(
+                    (volumes[0] - v).abs() < 1e-7,
+                    "{what}: {} against {v}",
+                    volumes[0]
+                ),
+                None => first.push(volumes[0]),
+            }
+        }
+    }
+    let slope = (first[0] - first[1]) / (gaps[0] - gaps[1]);
+    assert!(
+        (slope / std::f64::consts::PI - 1.0).abs() < 1e-2,
+        "slope {slope}"
+    );
 }

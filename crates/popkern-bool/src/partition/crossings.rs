@@ -263,9 +263,17 @@ fn one_per_pass(
             continue;
         }
         // Where the curves run parallel within the stretch, between
-        // them; its middle if they never turn there.
+        // them (a touch); where they come nearest if they never turn
+        // there (a shallow crossing, whose distance falls to it like a
+        // V: the reports' middle lay 1.7e-5 along two rims crossing at
+        // 0.026 rad, PK-1182).
         let (lo, hi) = (stretch(a, -1.0), stretch(b, 1.0));
-        let tm = parallel_point(&turn, lo, hi).unwrap_or(0.5 * (a + b));
+        let gap = |t: f64| {
+            let p = at(t);
+            foot(&p).1.distance_to(&p)
+        };
+        let tm = crate::tolerance_zone::meetings_foot::parallel_point(&turn, lo, hi)
+            .unwrap_or_else(|| nearest(&gap, lo, hi));
         let p = at(tm);
         let (t2, q) = foot(&p);
         let t1 = fold(tm);
@@ -281,40 +289,23 @@ fn one_per_pass(
     out
 }
 
-/// Halvings of a pass's stretch: to rounding.
-const PARALLEL_STEPS: usize = 60;
-/// Doublings (then halvings) finding a pass's stretch's ends.
-const STRETCH_STEPS: usize = 40;
+/// Golden-section steps locating a crossing's nearest approach.
+const NEAREST_STEPS: usize = 80;
 
-/// Where in `[a, b]` two curves passing within the tolerance run
-/// parallel, given `turn(t)`, the cross product of their unit tangents
-/// at `t`: the one place of the pass (a touch's point, the turn between
-/// two crossings a tolerance apart), well posed where distances are not
-/// (the gap of a touch is flat to second order, so a minimum of
-/// distances or the stretch's middle lands anywhere along it: three
-/// records touching pairwise at one point, each pass placed at its
-/// stretch's middle, met 4e-13, 4.2e-5 and 1.9e-4 from it, PK-1181).
-/// The cross product turns linearly through the point, so its sign
-/// against the turn at `a` brackets it. `None` when it does not turn
-/// within the stretch.
-fn parallel_point(
-    turn: &dyn Fn(f64) -> popkern_core::geometry::Vec3,
-    a: f64,
-    b: f64,
-) -> Option<f64> {
-    let axis = turn(a).normalized()?;
-    let side = |t: f64| turn(t).dot(&axis);
-    if side(b) >= 0.0 {
-        return None;
-    }
+/// The parameter in `[a, b]` minimising `gap` (unimodal there: the
+/// stretch of a crossing within the tolerance), by golden section.
+fn nearest(gap: &dyn Fn(f64) -> f64, a: f64, b: f64) -> f64 {
+    let ratio = 0.5 * (5f64.sqrt() - 1.0);
     let (mut lo, mut hi) = (a, b);
-    for _ in 0..PARALLEL_STEPS {
-        let mid = 0.5 * (lo + hi);
-        if side(mid) > 0.0 {
-            lo = mid;
+    for _ in 0..NEAREST_STEPS {
+        let (m1, m2) = (hi - ratio * (hi - lo), lo + ratio * (hi - lo));
+        if gap(m1) <= gap(m2) {
+            hi = m2;
         } else {
-            hi = mid;
+            lo = m1;
         }
     }
-    Some(0.5 * (lo + hi))
+    0.5 * (lo + hi)
 }
+/// Doublings (then halvings) finding a pass's stretch's ends.
+const STRETCH_STEPS: usize = 40;

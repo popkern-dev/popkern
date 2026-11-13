@@ -43,6 +43,7 @@ mod clip_endpoint_far;
 mod clip_endpoint_refine;
 mod clip_far_junction;
 mod clip_reauthor;
+mod clip_retrim_on_source;
 mod clip_triple_junction;
 mod closed_source_window;
 pub mod coincidence;
