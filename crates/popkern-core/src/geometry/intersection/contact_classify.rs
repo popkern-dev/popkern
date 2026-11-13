@@ -143,10 +143,21 @@ pub fn classify_contact(
             scale.linear
         )));
     }
-    let n = unit_normal(s1, uv1)
-        .or_else(|| unit_normal(s2, uv2))
+    // At a pole of a chart its evaluated normal (a sphere's, exact),
+    // where the chart's own is none: else the parallel test below was
+    // skipped there and a ball's pole lying on a cylinder it crosses
+    // read as a contact (PK-1179).
+    let normal = |s: &SurfaceGeometry, uv: (f64, f64)| {
+        unit_normal(s, uv)
+            .or_else(|| s.normal_at(uv.0, uv.1).normalized())
+            .or_else(|| {
+                ring::beside_pole(s, uv, 1e-9).and_then(|w| s.normal_at(w.0, w.1).normalized())
+            })
+    };
+    let n = normal(s1, uv1)
+        .or_else(|| normal(s2, uv2))
         .ok_or_else(|| CoreError::PreconditionFailed("no normal at the contact".into()))?;
-    if let Some(n2) = unit_normal(s2, uv2) {
+    if let Some(n2) = normal(s2, uv2) {
         // Parallel within the angle a gap of ε subtends over the extent.
         let sin = n.cross(&n2).length();
         if sin > 4.0 * scale.linear / scale.extent + 1e-9 {
@@ -157,10 +168,26 @@ pub fn classify_contact(
     }
     let (e1, e2) = frame(s1, uv1, n);
     let floor = scale.curvature_floor();
-    let eigen = match (
+    let (form1, form2) = (
         frame_form(s1, uv1, n, e1, e2),
         frame_form(s2, uv2, n, e1, e2),
-    ) {
+    );
+    // The surfaces' own sharpest bending there: a ring wider than a
+    // quarter of its radius leaves the surface's neighbourhood (a ball
+    // of radius 1 in a cup, read on a ring of radius 2.5, PK-1179).
+    // At a pole the forms are none: the bending is read just beside it.
+    let beside = |s: &SurfaceGeometry, uv: (f64, f64), f: Option<[[f64; 2]; 2]>| {
+        f.or_else(|| ring::beside_pole(s, uv, 1e-3).and_then(|w| frame_form(s, w, n, e1, e2)))
+    };
+    let bending = [beside(s1, uv1, form1), beside(s2, uv2, form2)]
+        .into_iter()
+        .flatten()
+        .map(|f| {
+            let ([lo, hi], _) = symmetric_eigen(f);
+            lo.abs().max(hi.abs())
+        })
+        .fold(0.0_f64, f64::max);
+    let eigen = match (form1, form2) {
         (Some(f1), Some(f2)) => Some([
             [f1[0][0] - f2[0][0], f1[0][1] - f2[0][1]],
             [f1[1][0] - f2[1][0], f1[1][1] - f2[1][1]],
@@ -210,6 +237,11 @@ pub fn classify_contact(
             .min(0.25 * scale.extent)
     } else {
         0.25 * scale.extent
+    };
+    let rho = if bending > 0.0 {
+        rho.min(0.25 / bending)
+    } else {
+        rho
     };
     let outer = ring_pattern(s1, uv1, s2, uv2, (n, e1, e2), p1, rho, scale.linear);
     let inner = ring_pattern(s1, uv1, s2, uv2, (n, e1, e2), p1, 0.5 * rho, scale.linear);

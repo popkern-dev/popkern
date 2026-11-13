@@ -75,8 +75,86 @@ const NEWTON_STEPS: usize = 40;
 /// Gaps up to this many tolerances are reported as near misses.
 const NEAR_MISS_FACTOR: f64 = 100.0;
 
-/// Find where `s1` over `w1` touches `s2` over `w2`.
+/// Find where `s1` over `w1` touches `s2` over `w2`: the same contacts
+/// in either order. The search is seeded from both surfaces (a grid
+/// over one surface's window can step over a contact the other's finds:
+/// a plane's grid missed a paraboloid's tip resting on it, PK-1179),
+/// each contact expressed on `s1` and classified in this order, one per
+/// place.
 pub fn find_surface_contacts(
+    s1: &SurfaceGeometry,
+    w1: ParamWindow,
+    s2: &SurfaceGeometry,
+    w2: ParamWindow,
+    scale: ContactScale,
+) -> ContactSearch {
+    let mut out = one_sided(s1, w1, s2, w2, scale);
+    let back = one_sided(s2, w2, s1, w1, scale);
+    let near = 10.0 * scale.linear;
+    for c in back.contacts {
+        // Its foot on s1 is the contact there, read off the search's own
+        // parameters (a closest point onto s2 fails at its pole).
+        let (uv1, uv2) = (c.uv2, c.uv1);
+        let point = s1.point_at(uv1.0, uv1.1);
+        if out
+            .contacts
+            .iter()
+            .any(|o| o.point.distance_to(&point) <= near)
+        {
+            continue;
+        }
+        // Along s2's normal, or s1's where s2's chart has none (a
+        // revolved cup's tip): parallel at a contact.
+        let Some(n2) = s2
+            .normal_at(uv2.0, uv2.1)
+            .normalized()
+            .or_else(|| s1.normal_at(uv1.0, uv1.1).normalized())
+        else {
+            continue;
+        };
+        let g0 = (point - s2.point_at(uv2.0, uv2.1)).dot(&n2);
+        if g0.abs() > scale.linear {
+            continue;
+        }
+        let Ok(classification) = classify_contact(s1, uv1, s2, uv2, scale) else {
+            continue;
+        };
+        out.contacts.push(SurfaceContact {
+            point,
+            uv1,
+            uv2,
+            gap: g0,
+            classification,
+        });
+    }
+    for m in back.near_misses {
+        // On s1, at the foot of the point found on s2.
+        let Some(point) = s1
+            .closest_point(&m.point)
+            .and_then(|c| into_window(s1, c, w1))
+            .map(|c| s1.point_at(c.0, c.1))
+        else {
+            continue;
+        };
+        if !out
+            .near_misses
+            .iter()
+            .any(|o| o.point.distance_to(&point) <= near)
+        {
+            out.near_misses.push(NearMiss { point, gap: m.gap });
+        }
+    }
+    out.contacts.sort_by(|a, b| {
+        a.uv1
+            .0
+            .total_cmp(&b.uv1.0)
+            .then(a.uv1.1.total_cmp(&b.uv1.1))
+    });
+    out
+}
+
+/// [`find_surface_contacts`] seeded from `s1` alone.
+fn one_sided(
     s1: &SurfaceGeometry,
     w1: ParamWindow,
     s2: &SurfaceGeometry,

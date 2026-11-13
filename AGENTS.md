@@ -382,7 +382,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   with its branch directions, a tangent curve, or `Undecided`, an
   eigenvalue under `2ε/L²` decided by the gap on a ring), and
   `intersect_surfaces_typed` reports `contacts` beside the unchanged
-  curves (`contact_discovery`: critical points of the signed gap). An
+  curves (`contact_discovery`: critical points of the signed gap,
+  seeded from both surfaces and merged by place, so either order finds
+  the same contacts; at a chart's pole the normal and bending are read
+  just beside it, and the ring is no wider than a quarter of either
+  surface's sharpest radius there, PK-1179). An
   arm meeting a touch emits no curve, as every arm does: contacts are
   typed beside. A boolean whose operands meet in no curve classifies
   only by probes that agree off the other body's boundary and declines
