@@ -13,7 +13,10 @@
 //! seam's vertex 1.5e-6 down it; a vertex 1.5e-6 off a record split it,
 //! and two records 1.5e-6 apart met.
 
-use popkern_bool::{BoolOperation, BoolOptions, SetExpr, nary_boolean};
+use popkern_bool::{
+    BoolError, BoolOperation, BoolOptions, NonManifoldPolicy, SetExpr, boolean_with_options,
+    nary_boolean,
+};
 use popkern_core::geometry::{Point3, Transform3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -57,12 +60,91 @@ fn volume(body: &BRep) -> f64 {
     popkern_measure::body_volume(body, &Tolerance::default()).expect("volume")
 }
 
+/// The box united with one ball and then the other, and the three
+/// united at once, under `policy`.
+fn both_paths([cube, a, b]: &[BRep; 3], policy: NonManifoldPolicy) -> [Result<BRep, BoolError>; 2] {
+    let tol = Tolerance::default();
+    let options = BoolOptions {
+        non_manifold: policy,
+    };
+    let union = |x: BRep, y: &BRep| {
+        boolean_with_options(BoolOperation::Union, x, y.clone(), tol, None, &options)
+    };
+    [
+        union(cube.clone(), a).and_then(|x| union(x, b)),
+        nary_boolean(&[cube, a, b], &SetExpr::Any, tol, &options),
+    ]
+}
+
+/// Within the tolerance the rims are one place at P, where the space
+/// outside the three pinches (its channels either side of P meet only
+/// there): a point contact, as a ball resting on a face within the
+/// tolerance is. Both paths decline by default with the contact at P,
+/// and under the general policy serve one valid general body holding
+/// it, of one volume, continuous with the gap just past the tolerance.
+/// The N-ary path placed each of the three records' pairwise touches at
+/// the middle of its stretch within the tolerance (4e-13, 4.2e-5 and
+/// 1.9e-4 from P) and served a solid whose rims shared a span; the
+/// two-body path, with the seams turned, kept a point of the overlap
+/// circle against the first ball's cap (the stretch's ends read as an
+/// exit and a re-entry) and served both caps whole, the lens counted
+/// twice (PK-1181). Exactly at the tolerance the gap measures within
+/// the reach by less than the records' fit, and is not tested here
+/// (PK-1183).
+#[test]
+fn within_the_tolerance_the_unions_touch_at_one_point() {
+    let p = Point3::new(5.0, 5.0, 10.0);
+    for (own, turn) in [(0.0, 0.0), (0.9, 0.0), (0.0, 0.4)] {
+        let past = both_paths(&scene(1.2e-6, own, turn), NonManifoldPolicy::Decline);
+        let past = volume(past[0].as_ref().expect("1.2e-6 serves"));
+        for gap in [0.0, 5e-7, 9e-7] {
+            let what = format!("gap {gap:e} own {own} turn {turn}");
+            let scene = scene(gap, own, turn);
+            for (path, r) in ["two-body", "N-ary"]
+                .iter()
+                .zip(both_paths(&scene, NonManifoldPolicy::Decline))
+            {
+                match r {
+                    Err(BoolError::NonManifoldResult { contacts }) => {
+                        assert!(
+                            contacts.len() == 1 && contacts[0].location.distance_to(&p) < 1e-5,
+                            "{what}: {path} contacts {contacts:?}"
+                        );
+                    }
+                    other => panic!("{what}: {path} by default: {:?}", other.map(|_| "served")),
+                }
+            }
+            let general = both_paths(&scene, NonManifoldPolicy::General);
+            let mut volumes = Vec::new();
+            for (path, r) in ["two-body", "N-ary"].iter().zip(general) {
+                let body = r.unwrap_or_else(|e| panic!("{what}: {path} general declined: {e}"));
+                let issues = body.validate_all();
+                assert!(issues.is_empty(), "{what}: {path} invalid: {issues:?}");
+                let contacts = body.contacts();
+                assert!(
+                    contacts.len() == 1 && contacts[0].location.distance_to(&p) < 1e-5,
+                    "{what}: {path} contacts {contacts:?}"
+                );
+                volumes.push(volume(&body));
+            }
+            assert!(
+                (volumes[0] - volumes[1]).abs() < 1e-6,
+                "{what}: volumes {volumes:?}"
+            );
+            assert!(
+                (volumes[0] - past).abs() < 1e-5,
+                "{what}: {} against {past}",
+                volumes[0]
+            );
+        }
+    }
+}
+
 /// From 1.2 to 100 tolerances apart, at each placement, the box united
 /// with one ball and then the other, and the three united at once, serve
 /// one valid solid; the two agree in volume and the volume runs linear
 /// in the gap (each ball's cap over the top grows as the overlap lens
-/// shrinks). Within the tolerance the circles are one place at P and the
-/// paths differ (filed as PK-1181).
+/// shrinks).
 #[test]
 fn the_unions_serve_from_just_past_the_tolerance() {
     let tol = Tolerance::default();

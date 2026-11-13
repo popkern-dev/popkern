@@ -281,6 +281,21 @@ impl VertexTable {
         out
     }
 
+    /// Each vertex the resolution decided: its group's anchor and the
+    /// tolerance it grew to (the reach its members lie within). Empty
+    /// when the resolution declined.
+    pub(crate) fn vertex_reaches(&self) -> Vec<(Point3, f64)> {
+        self.resolution.as_ref().map_or_else(
+            |_| Vec::new(),
+            |res| {
+                res.groups
+                    .iter()
+                    .map(|g| (self.cands[g.anchor].position, g.tolerance))
+                    .collect()
+            },
+        )
+    }
+
     /// Every operand edge a record node lies on mid-span: (operand,
     /// edge, the group's anchor) for each group holding a record
     /// incidence (an end, or a pave the record is split at) and an

@@ -166,11 +166,13 @@ fn one_per_pass(
     let g2: &dyn CurveEval = &c2.geometry;
     let period = r1.1 - r1.0;
     let closed = g1.point_at(r1.0).distance_to(&g1.point_at(r1.1)) <= linear;
-    // c1 at parameter `t` folded into its window (a closed curve wraps).
-    let at = |t: f64| {
-        let t = if closed && t > r1.1 { t - period } else { t };
-        g1.point_at(t.clamp(r1.0, r1.1))
+    // `t` folded into c1's window (a closed curve wraps either way).
+    let fold = |t: f64| match closed {
+        true if t > r1.1 => t - period,
+        true if t < r1.0 => t + period,
+        _ => t,
     };
+    let at = |t: f64| g1.point_at(fold(t).clamp(r1.0, r1.1));
     let foot = |p: &popkern_core::geometry::Point3| {
         let t = closest_point_in_window(g2, p, r2.0, r2.1);
         (t, g2.point_at(t))
@@ -181,6 +183,49 @@ fn one_per_pass(
             let p = at(a + (b - a) * k as f64 / STATIONS as f64);
             foot(&p).1.distance_to(&p) <= linear
         })
+    };
+    // The cross product of the unit tangents at c1(t) and its foot on
+    // c2, c2's turned to run c1's way.
+    let turn = |t: f64| {
+        let p = at(t);
+        let d1 = g1.tangent_at(fold(t).clamp(r1.0, r1.1));
+        let d2 = g2.tangent_at(foot(&p).0);
+        let d2 = if d1.dot(&d2) < 0.0 { -d2 } else { d2 };
+        match (d1.normalized(), d2.normalized()) {
+            (Some(u), Some(v)) => u.cross(&v),
+            _ => popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0),
+        }
+    };
+    // The far end of the stretch within `linear` of c2 from `t` (inside
+    // it) in direction `dir`: the pass's closest approach lies in the
+    // stretch wherever its reports fell (all five of one touch on one
+    // side of it, PK-1181). Steps double out to its end, then halve
+    // onto it; a closed c1 is searched no farther than half round.
+    let stretch = |t: f64, dir: f64| {
+        let near = |u: f64| {
+            let p = at(u);
+            foot(&p).1.distance_to(&p) <= linear
+        };
+        let inside =
+            |u: f64| (closed && (u - t).abs() <= 0.5 * period) || (r1.0..=r1.1).contains(&u);
+        let mut step = period * 1e-9;
+        let mut end = t;
+        for _ in 0..STRETCH_STEPS {
+            let next = end + dir * step;
+            if !inside(next) || !near(next) {
+                break;
+            }
+            end = next;
+            step *= 2.0;
+        }
+        for _ in 0..STRETCH_STEPS {
+            step *= 0.5;
+            let next = end + dir * step;
+            if inside(next) && near(next) {
+                end = next;
+            }
+        }
+        end
     };
     hits.sort_by(|x, y| x.0.total_cmp(&y.0));
     if hits.len() < 2 {
@@ -217,11 +262,13 @@ fn one_per_pass(
             k += 1;
             continue;
         }
-        // The middle of the stretch, between the curves.
-        let tm = 0.5 * (a + b);
+        // Where the curves run parallel within the stretch, between
+        // them; its middle if they never turn there.
+        let (lo, hi) = (stretch(a, -1.0), stretch(b, 1.0));
+        let tm = parallel_point(&turn, lo, hi).unwrap_or(0.5 * (a + b));
         let p = at(tm);
         let (t2, q) = foot(&p);
-        let t1 = if closed && tm > r1.1 { tm - period } else { tm };
+        let t1 = fold(tm);
         let mid = popkern_core::geometry::Point3::new(
             0.5 * (p.x + q.x),
             0.5 * (p.y + q.y),
@@ -232,4 +279,42 @@ fn one_per_pass(
     }
     debug_assert!(k == hits.len());
     out
+}
+
+/// Halvings of a pass's stretch: to rounding.
+const PARALLEL_STEPS: usize = 60;
+/// Doublings (then halvings) finding a pass's stretch's ends.
+const STRETCH_STEPS: usize = 40;
+
+/// Where in `[a, b]` two curves passing within the tolerance run
+/// parallel, given `turn(t)`, the cross product of their unit tangents
+/// at `t`: the one place of the pass (a touch's point, the turn between
+/// two crossings a tolerance apart), well posed where distances are not
+/// (the gap of a touch is flat to second order, so a minimum of
+/// distances or the stretch's middle lands anywhere along it: three
+/// records touching pairwise at one point, each pass placed at its
+/// stretch's middle, met 4e-13, 4.2e-5 and 1.9e-4 from it, PK-1181).
+/// The cross product turns linearly through the point, so its sign
+/// against the turn at `a` brackets it. `None` when it does not turn
+/// within the stretch.
+fn parallel_point(
+    turn: &dyn Fn(f64) -> popkern_core::geometry::Vec3,
+    a: f64,
+    b: f64,
+) -> Option<f64> {
+    let axis = turn(a).normalized()?;
+    let side = |t: f64| turn(t).dot(&axis);
+    if side(b) >= 0.0 {
+        return None;
+    }
+    let (mut lo, mut hi) = (a, b);
+    for _ in 0..PARALLEL_STEPS {
+        let mid = 0.5 * (lo + hi);
+        if side(mid) > 0.0 {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Some(0.5 * (lo + hi))
 }

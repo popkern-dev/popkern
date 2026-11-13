@@ -461,7 +461,16 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   records meet, within the reach plus the records' fit deviation; a
   clip's uv boundary crossing is one only where the curves come within
   the reach in space (`clip/clip_crossing_gap.rs`: a near miss under the
-  tolerance in a stretched chart is past it in space). Tolerance tests on edges
+  tolerance in a stretched chart is past it in space), and a closed
+  record's lone pair of crossings grazing the boundary within the reach
+  (the same side beyond both) is none (`clip/clip_crossing_graze.rs`).
+  Two curves passing within the tolerance meet where they run parallel
+  in their stretch within it, never at the stretch's middle
+  (`partition/crossings.rs`, PK-1181); a decided vertex records how far
+  its edges' ends lie from it, up to its group's grown tolerance
+  (`cellular/vertex_reach.rs`); and the partition's selection answers
+  contacts as a two-operand result does (`operation::answer_contacts`:
+  three records touching pairwise at a point pinch the space outside). Tolerance tests on edges
   are lengths, never parameter fractions, and a trim test's boundary
   band (ten tolerances) is not "on the face": contacts confirm it in
   space (`point_near_face_boundary`).

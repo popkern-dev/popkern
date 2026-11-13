@@ -9,6 +9,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::clip_branch_normalize;
+use super::clip_crossing_graze::drop_grazes;
 use super::clip_crossing_reports::{collapse_crossing_reports, resolve_contact_runs};
 use super::clip_crossings_rescue::sampled_uv_crossings;
 use super::clip_lift_crossings::extend_with_lifted_loop_crossings;
@@ -473,7 +474,9 @@ pub(crate) fn find_uv_crossings(
     });
 
     let crossings = collapse_crossing_reports(brep, face, curve_uv, crossings, tolerance);
-    let mut crossings = resolve_contact_runs(brep, face, curve_uv, crossings, tolerance);
+    let crossings = resolve_contact_runs(brep, face, curve_uv, crossings, tolerance);
+    let on = (face_surface, &boundary_nurbs[..]);
+    let mut crossings = drop_grazes(on, curve_uv, crossings, tolerance);
     // A closed query on the boundary at its closure point (PK-775).
     let period = surface_is_periodic.then(period_of);
     let period_v = {

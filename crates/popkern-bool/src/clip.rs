@@ -13,6 +13,7 @@ mod clip_boundary_gaps;
 mod clip_boundary_riding;
 mod clip_branch_normalize;
 mod clip_crossing_gap;
+mod clip_crossing_graze;
 mod clip_crossing_reports;
 mod clip_crossings_rescue;
 mod clip_dispatch;
