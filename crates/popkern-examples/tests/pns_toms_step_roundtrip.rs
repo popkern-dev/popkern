@@ -107,6 +107,9 @@ fn the_welded_cylinders_poles_are_one_fan_each() {
     for (v, uses) in brep.vertex_uses_all() {
         assert!(uses.len() <= 1, "{v:?}: {uses:?}");
     }
+    // An open welded surface is a sheet: its faces void on both sides
+    // (it read General, its faces solid behind with free edges, PK-1171).
+    assert_eq!(brep.body_kind(), popkern_core::topology::BodyKind::Sheet);
 }
 
 fn run_roundtrip_fixtures(fixtures: &[Fixture]) {
