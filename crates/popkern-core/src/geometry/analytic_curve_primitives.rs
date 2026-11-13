@@ -147,7 +147,12 @@ impl CurveEval for Circle {
     }
 
     fn curve_bounding_box(&self, t_range: (f64, f64)) -> Aabb {
-        curve_bounding_box_by_sampling(self, t_range)
+        super::analytic_curve_box::trig_curve_box(
+            self.center,
+            self.u * self.radius,
+            self.v * self.radius,
+            t_range,
+        )
     }
 }
 
@@ -217,7 +222,12 @@ impl CurveEval for Arc {
     }
 
     fn curve_bounding_box(&self, t_range: (f64, f64)) -> Aabb {
-        curve_bounding_box_by_sampling(self, t_range)
+        super::analytic_curve_box::trig_curve_box(
+            self.center,
+            self.u * self.radius,
+            self.v * self.radius,
+            t_range,
+        )
     }
 }
 
@@ -300,7 +310,7 @@ impl CurveEval for Ellipse {
     }
 
     fn curve_bounding_box(&self, t_range: (f64, f64)) -> Aabb {
-        curve_bounding_box_by_sampling(self, t_range)
+        super::analytic_curve_box::trig_curve_box(self.center, self.u_basis, self.v_basis, t_range)
     }
 }
 

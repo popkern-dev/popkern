@@ -309,6 +309,11 @@ fn meetings_between(
         if gap > radius || (same && s > t) {
             continue;
         }
+        let other = (cj, (pj[0].0, pj[pj.len() - 1].0));
+        let Some(s) = super::meetings_foot::pass_place(ci, other, s, (a, b), dist, radius) else {
+            continue;
+        };
+        let (gap, t) = dist(s);
         let zone = super::meetings_foot::zone_along(ci, s, (a, b), |x| dist(x).0, radius);
         // A stretch where the curves coincide (a record lying along a
         // boundary edge, cubes sharing an edge) is an overlap, a common
