@@ -177,8 +177,10 @@ fn a_rod_round_a_balls_pole_unites_at_every_seam_turn() {
 /// placed the arc between the crossings a period off on a balanced but
 /// wrong branch and served an invalid body. Every union is valid with
 /// the closed-form areas of its sphere and cylinder faces to 1e-7
-/// relative (the volume the measuring mesh reads beside the pole is
-/// PK-1186's).
+/// relative, and its volume the closed form's to 1e-6: the measuring
+/// mesh beside the pole read it up to 4.8e-2 off from 3e-5 down (the
+/// sphere face on the fallback grid), and a sphere face's volume term
+/// is now exact from its area and its loops' vector area (PK-1186).
 #[test]
 fn a_rod_beside_a_balls_pole_unites_at_every_seam_turn() {
     let tol = Tolerance::default();
@@ -208,6 +210,7 @@ fn a_rod_beside_a_balls_pole_unites_at_every_seam_turn() {
                     "delta {delta} seam {seam}: area {area} for {want}"
                 );
             }
+            assert_right(&body, delta, seam);
         }
     }
 }

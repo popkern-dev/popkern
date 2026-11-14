@@ -27,6 +27,8 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_mesh::TriMesh;
 
+#[path = "body_quadrature_analytic.rs"]
+mod analytic;
 #[path = "body_quadrature_pole.rs"]
 mod pole;
 #[path = "body_quadrature_sliver.rs"]
@@ -275,10 +277,19 @@ pub(crate) fn quadrature_face_volumes(
             out.push((fm.face, term));
             continue;
         }
-        out.push((
-            fm.face,
-            face_quadrature(brep, fm, surface, gate, Integrand::Volume),
-        ));
+        // A sphere, cylinder or cone face the mesh misread takes its
+        // exact term (`body_quadrature_analytic`).
+        let exact = brep
+            .faces
+            .get(fm.face)
+            .and_then(|f| f.surface.as_ref())
+            .and_then(|sof| {
+                let mesh_area = || face_quadrature(brep, fm, surface, gate, Integrand::Area);
+                analytic::misread_face_term(brep, fm, sof, &mesh_area)
+            });
+        let term =
+            exact.unwrap_or_else(|| face_quadrature(brep, fm, surface, gate, Integrand::Volume));
+        out.push((fm.face, term));
     }
     out
 }
