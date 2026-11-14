@@ -289,6 +289,7 @@ impl Part {
         run: impl FnOnce(BRep, BRep, Tolerance) -> Result<BRep, popkern_bool::BoolError>,
     ) -> Result<Part, PartError> {
         let tolerance = finer(self.tolerance, other.tolerance);
+        let _stale = crate::feature::sub_tolerance_note();
         let result = run(self.brep.clone(), other.brep.clone(), tolerance).map_err(|source| {
             PartError::Boolean {
                 operation: name,
@@ -300,9 +301,10 @@ impl Part {
             tolerance,
             name,
             format!(
-                "{name}: {} faces ⊕ {} faces",
+                "{name}: {} faces ⊕ {} faces{}",
                 self.face_count(),
-                other.face_count()
+                other.face_count(),
+                crate::feature::sub_tolerance_note()
             ),
         )?;
         let mut log = self.features.clone();

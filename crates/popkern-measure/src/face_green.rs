@@ -248,6 +248,17 @@ fn misfits(
     Some((on_pcurve, on_curve))
 }
 
+/// Whether the chart point `q` lies on a pole of `surface`: its `u`
+/// partial vanishes beside its `v` partial (a sphere's pole, a cone's
+/// apex), to the ratio the volume quadrature reads a pole corner by.
+fn at_pole(surface: &SurfaceGeometry, q: Point3) -> bool {
+    let (su, sv) = (
+        surface.partial_u(q.x, q.y).length(),
+        surface.partial_v(q.x, q.y).length(),
+    );
+    su <= 1e-4 * sv
+}
+
 /// The face's area by its boundary integral, or `None` when its surface
 /// has no v-only area element (plane, NURBS) or a half-edge has no
 /// pcurve.
@@ -312,10 +323,22 @@ pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f6
                 let forward = traverses_forward(brep, h, curve, from, to);
                 let near = |f: f64, v: f64| v + v_lift(v, pc.point_at(t0 + (t1 - t0) * f).y + lift);
                 let (value, travel) = edge_integral(&surface.geometry, curve, forward, &g, &near)?;
-                let pcurve_travel = pc.point_at(t1).x - pc.point_at(t0).x;
+                let (start, end) = (pc.point_at(t0), pc.point_at(t1));
+                let pcurve_travel = end.x - start.x;
                 // The next gap runs from the pcurve's end: the curve's
-                // own end is `pcurve_travel − travel` short of it.
-                let closure = g(pc.point_at(t1).y + lift) * (pcurve_travel - travel);
+                // own end is `pcurve_travel − travel` short of it. Run
+                // along the row at the start instead when the edge
+                // leaves a pole: the curve leaves it at its limit
+                // longitude, not the pcurve's, and a row at the pole
+                // bounds no area, where one at the end does (Viviani's
+                // cap with the ball's poles on its rim read 1.9e-5
+                // short, its pole ends' longitude 4e-7 off, PK-1169).
+                let at = if at_pole(&surface.geometry, start) && !at_pole(&surface.geometry, end) {
+                    start
+                } else {
+                    end
+                };
+                let closure = g(at.y + lift) * (pcurve_travel - travel);
                 ((travel - pcurve_travel).abs() < TRAVEL_AGREEMENT).then_some(value + closure)
             });
             total -= on_curve.unwrap_or_else(|| pcurve_integral(pc, lift, &g));

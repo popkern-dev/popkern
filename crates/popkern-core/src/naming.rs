@@ -47,7 +47,16 @@ use crate::naming_store::ChunkedVec;
 ///   Scheme 4 matched by centroid or midpoint within a hundred
 ///   tolerances and numbered the rest in slot order, so a tool moved
 ///   upstream renumbered the faces and edges it cut.
-pub const NAMING_SCHEME_VERSION: u32 = 5;
+/// - **6** (PK-1160): a contact that survives with no edges (a vertex
+///   loop of a face, where a general body's pieces touch at a point) is
+///   [`RoleCategory::Contact`], named by the faces it lies on; scheme 5
+///   named it a `Junction` of no edges, or (a general boolean's result
+///   named before its pieces were glued) left it unnamed. A general
+///   two-operand boolean names its result after the glue, as the
+///   partition's operations do, so the entities the glue makes (a
+///   contact vertex, the pieces of an edge split there, a contact
+///   curve imprinted on a face) are named with the rest.
+pub const NAMING_SCHEME_VERSION: u32 = 6;
 
 /// The oldest naming scheme this kernel still replays.
 pub const OLDEST_NAMING_SCHEME: u32 = 1;
@@ -89,6 +98,9 @@ pub enum RoleCategory {
     Intersection,
     /// An entity produced where three or more entities meet.
     Junction,
+    /// Where pieces of a general body touch with no edge to meet at: a
+    /// vertex loop of a face, named by the faces it lies on (scheme 6).
+    Contact,
 }
 
 /// Role of an entity within a single operation.

@@ -93,6 +93,7 @@ pub(crate) fn thicken_impl(
             popkern_core::topology::BodyKind::Empty,
         ],
     )?;
+    brep.require_no_pinch_use("thicken", None)?;
     // Normalize the open-boundary representation: constructors register
     // sheet rims as null-sentinel twins (`boundary_edges`), while the
     // skin pipeline works in the loopless-twin form (both half-edges

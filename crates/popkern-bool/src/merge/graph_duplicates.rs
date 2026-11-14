@@ -45,6 +45,7 @@ const MIDPOINT_FRACTION: f64 = 0.05;
 pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph, linear: f64) {
     let mut to_remove: Vec<(usize, usize)> = Vec::new();
     let mut seam_substitutes: Vec<(super::graph::FaceRef, usize)> = Vec::new();
+    let mut withdrawn = Vec::new();
 
     for (face, he_indices) in &graph.face_edges {
         let ends = |idx: usize| -> (Point3, Point3) {
@@ -92,12 +93,50 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph, linear:
                 let twin = graph.half_edges[idx].twin;
                 if graph.half_edges[twin].face.as_ref() == Some(face) {
                     seam_substitutes.push((*face, s));
+                } else if let Some(other) = record_other_face(graph, s, face) {
+                    // As for a common block: the record's half running
+                    // against the piece lies off the face (PK-1150).
+                    withdrawn.push((*face, running_against(graph, idx, s), other));
                 }
             }
         }
     }
 
     mark_duplicates(graph, &to_remove, seam_substitutes);
+    withdraw(graph, withdrawn);
+}
+
+/// The face of record pair `s` other than `face`, which must be one of
+/// its two; `None` for a pair whose faces do not tell them apart.
+fn record_other_face(
+    graph: &IntersectionGraph,
+    s: usize,
+    face: &super::graph::FaceRef,
+) -> Option<super::graph::FaceRef> {
+    use super::graph::FaceRef;
+    let EdgeSource::Shared {
+        face_a,
+        face_b,
+        operands: [oa, ob],
+    } = graph.half_edges[s].source
+    else {
+        return None;
+    };
+    let (ra, rb) = (
+        FaceRef {
+            operand: oa,
+            face: face_a,
+        },
+        FaceRef {
+            operand: ob,
+            face: face_b,
+        },
+    );
+    match (ra == *face, rb == *face) {
+        (true, false) => Some(rb),
+        (false, true) => Some(ra),
+        _ => None,
+    }
 }
 
 /// Mark each `(operand half-edge, shared half-edge)` of `pairs` as one
@@ -237,30 +276,47 @@ pub(crate) fn remove_common_block_duplicates(
             // (measured: a ring flush on a shaft, turned, walked the
             // shaft's end disc out and back along the record on its
             // rim, a doubled ring the radial order could not place).
-            // Which way runs with the piece: by its end nodes, or for a
-            // closed block (both ends one node) along the curves.
-            let ts = graph.half_edges[s].twin;
-            let along = match (
-                na == nb,
-                quarter_along(graph, idx),
-                quarter_along(graph, s),
-                quarter_along(graph, ts),
-            ) {
-                (true, Some(p), Some(q), Some(r)) => {
-                    if p.distance_to(&q) <= p.distance_to(&r) {
-                        s
-                    } else {
-                        ts
-                    }
-                }
-                _ if graph.half_edges[s].origin == graph.half_edges[idx].origin => s,
-                _ => ts,
-            };
-            withdrawn.push((face, graph.half_edges[along].twin, other));
+            withdrawn.push((face, running_against(graph, idx, s), other));
         }
     }
     let n = pairs.len();
     mark_duplicates(graph, &pairs, seams);
+    withdraw(graph, withdrawn);
+    n
+}
+
+/// The half of record pair `s` running against operand piece `idx`
+/// (which it duplicates): by their end nodes, or for a closed pair
+/// (both ends one node) along the curves.
+fn running_against(graph: &IntersectionGraph, idx: usize, s: usize) -> usize {
+    let ts = graph.half_edges[s].twin;
+    let closed = graph.half_edges[s].origin == graph.half_edges[ts].origin;
+    let along = match (
+        closed,
+        quarter_along(graph, idx),
+        quarter_along(graph, s),
+        quarter_along(graph, ts),
+    ) {
+        (true, Some(p), Some(q), Some(r)) => {
+            if p.distance_to(&q) <= p.distance_to(&r) {
+                s
+            } else {
+                ts
+            }
+        }
+        _ if graph.half_edges[s].origin == graph.half_edges[idx].origin => s,
+        _ => ts,
+    };
+    graph.half_edges[along].twin
+}
+
+/// Take each `(face, record half-edge, the record's other face)` out
+/// of the face's walk: the half runs against an operand piece that
+/// bounds the face on one side only, so it lies off the face.
+fn withdraw(
+    graph: &mut IntersectionGraph,
+    withdrawn: Vec<(super::graph::FaceRef, usize, super::graph::FaceRef)>,
+) {
     for (face, h, other) in withdrawn {
         if let Some(list) = graph.face_edges.get_mut(&face) {
             list.retain(|&e| e != h);
@@ -269,7 +325,6 @@ pub(crate) fn remove_common_block_duplicates(
             graph.half_edges[h].face = Some(other);
         }
     }
-    n
 }
 
 /// The point a quarter of the way along half-edge `idx` of a CLOSED

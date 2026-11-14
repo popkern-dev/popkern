@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use popkern_core::geometry::curve::CurveOnEdge;
+use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::intersection::{CurveIntersection, intersect_curves};
 use popkern_core::tolerance::Tolerance;
 
@@ -81,17 +81,57 @@ pub(super) fn split_at_record_crossings(
                         graph.nodes[graph.half_edges[he.twin].origin].position,
                     ]
                 };
-                for hit in found.intersections {
-                    let CurveIntersection::Point { point, t1, t2 } = hit else {
-                        continue;
-                    };
-                    let at_end = ends(k1)
-                        .iter()
-                        .chain(ends(k2).iter())
-                        .any(|e| e.distance_to(&point) <= snap);
-                    if !at_end {
-                        on_record.entry(k1).or_default().push((t1, point));
-                        on_record.entry(k2).or_default().push((t2, point));
+                let mut hits: Vec<(f64, f64, popkern_core::geometry::Point3)> = found
+                    .intersections
+                    .iter()
+                    .filter_map(|hit| match *hit {
+                        CurveIntersection::Point { point, t1, t2 } => Some((t1, t2, point)),
+                        _ => None,
+                    })
+                    .collect();
+                // The intersector decides to the bare tolerance; two
+                // records passing within the reach meet too (as the
+                // vertex table's meetings do), where no hit marks it.
+                if !found
+                    .intersections
+                    .iter()
+                    .any(|h| matches!(h, CurveIntersection::Overlap { .. }))
+                {
+                    let reach = tolerance.linear_reach();
+                    for (t1, t2, _) in crate::tolerance_zone::meetings::passes_between(
+                        (&c1.geometry, r1),
+                        (&c2.geometry, r2),
+                        reach,
+                    ) {
+                        let (p, q) = (c1.geometry.point_at(t1), c2.geometry.point_at(t2));
+                        let point = popkern_core::geometry::Point3::new(
+                            0.5 * (p.x + q.x),
+                            0.5 * (p.y + q.y),
+                            0.5 * (p.z + q.z),
+                        );
+                        if !hits.iter().any(|h| h.2.distance_to(&point) <= snap) {
+                            hits.push((t1, t2, point));
+                        }
+                    }
+                }
+                let hits = one_per_pass((c1, r1), (c2, r2), hits, tolerance.linear());
+                for (t1, t2, point) in hits {
+                    // A meeting at one record's end is that end: the other
+                    // record alone is split, there (as the vertex table's
+                    // meetings are). Left to the graph's split of edges at
+                    // nodes, a rim passing a seam vertex on the other rim
+                    // exactly a tolerance off (1.0000006e-6, the reach
+                    // 1.000001e-6) was cut or not by rounding (PK-1183).
+                    let end_of =
+                        |k: usize| ends(k).into_iter().find(|e| e.distance_to(&point) <= snap);
+                    match (end_of(k1), end_of(k2)) {
+                        (Some(_), Some(_)) => {}
+                        (Some(e), None) => on_record.entry(k2).or_default().push((t2, e)),
+                        (None, Some(e)) => on_record.entry(k1).or_default().push((t1, e)),
+                        (None, None) => {
+                            on_record.entry(k1).or_default().push((t1, point));
+                            on_record.entry(k2).or_default().push((t2, point));
+                        }
                     }
                 }
             }
@@ -137,3 +177,169 @@ pub(super) fn split_at_record_crossings(
         on_record.iter().map(|(&k, v)| (k, &v[..])).collect();
     crate::merge::graph_paves::split_records_at_paves(graph, &records, snap)
 }
+
+/// The crossings of curves `c1` (over `r1`) and `c2` (over `r2`), as
+/// `(t1, t2, point)`, with every pair joined by a stretch of `c1` lying
+/// within `linear` of `c2` taken as ONE meeting at the stretch's
+/// middle: the curves pass within the tolerance there, so the two
+/// crossings are one place (plan §5.4: a pass within ε is one vertex).
+/// Two balls overlapping by half a tolerance on a box's top face have
+/// equators crossing twice 2.4e-3 apart, at most 5e-7 apart between;
+/// cut at both, the records bounded a lens the partition joined both
+/// sides of (SidesJoined), and it fell back. A closed `c1` is also
+/// tried the other way round its seam.
+fn one_per_pass(
+    (c1, r1): (&CurveOnEdge, (f64, f64)),
+    (c2, r2): (&CurveOnEdge, (f64, f64)),
+    mut hits: Vec<(f64, f64, popkern_core::geometry::Point3)>,
+    linear: f64,
+) -> Vec<(f64, f64, popkern_core::geometry::Point3)> {
+    use popkern_core::geometry::curve::{CurveEval, closest_point_in_window};
+    const STATIONS: usize = 16;
+    let g1: &dyn CurveEval = &c1.geometry;
+    let g2: &dyn CurveEval = &c2.geometry;
+    let period = r1.1 - r1.0;
+    let closed = g1.point_at(r1.0).distance_to(&g1.point_at(r1.1)) <= linear;
+    // `t` folded into c1's window (a closed curve wraps either way).
+    let fold = |t: f64| match closed {
+        true if t > r1.1 => t - period,
+        true if t < r1.0 => t + period,
+        _ => t,
+    };
+    let at = |t: f64| g1.point_at(fold(t).clamp(r1.0, r1.1));
+    let foot = |p: &popkern_core::geometry::Point3| {
+        let t = closest_point_in_window(g2, p, r2.0, r2.1);
+        (t, g2.point_at(t))
+    };
+    // The stretch of c1 from `a` up to `b` (b > a) within `linear` of c2.
+    let within = |a: f64, b: f64| {
+        (1..STATIONS).all(|k| {
+            let p = at(a + (b - a) * k as f64 / STATIONS as f64);
+            foot(&p).1.distance_to(&p) <= linear
+        })
+    };
+    // The cross product of the unit tangents at c1(t) and its foot on
+    // c2, c2's turned to run c1's way.
+    let turn = |t: f64| {
+        let p = at(t);
+        let d1 = g1.tangent_at(fold(t).clamp(r1.0, r1.1));
+        let d2 = g2.tangent_at(foot(&p).0);
+        let d2 = if d1.dot(&d2) < 0.0 { -d2 } else { d2 };
+        match (d1.normalized(), d2.normalized()) {
+            (Some(u), Some(v)) => u.cross(&v),
+            _ => popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0),
+        }
+    };
+    // The far end of the stretch within `linear` of c2 from `t` (inside
+    // it) in direction `dir`: the pass's closest approach lies in the
+    // stretch wherever its reports fell (all five of one touch on one
+    // side of it, PK-1181). Steps double out to its end, then halve
+    // onto it; a closed c1 is searched no farther than half round.
+    let stretch = |t: f64, dir: f64| {
+        let near = |u: f64| {
+            let p = at(u);
+            foot(&p).1.distance_to(&p) <= linear
+        };
+        let inside =
+            |u: f64| (closed && (u - t).abs() <= 0.5 * period) || (r1.0..=r1.1).contains(&u);
+        let mut step = period * 1e-9;
+        let mut end = t;
+        for _ in 0..STRETCH_STEPS {
+            let next = end + dir * step;
+            if !inside(next) || !near(next) {
+                break;
+            }
+            end = next;
+            step *= 2.0;
+        }
+        for _ in 0..STRETCH_STEPS {
+            step *= 0.5;
+            let next = end + dir * step;
+            if inside(next) && near(next) {
+                end = next;
+            }
+        }
+        end
+    };
+    hits.sort_by(|x, y| x.0.total_cmp(&y.0));
+    if hits.len() < 2 {
+        return hits;
+    }
+    // Clusters of consecutive crossings, each as its first and last
+    // parameter on c1 (the last may pass the window's end on a closed
+    // c1) and the hits it holds.
+    let mut clusters: Vec<(f64, f64, usize)> = Vec::new();
+    for h in &hits {
+        match clusters.last_mut() {
+            Some(c) if within(c.1, h.0) => {
+                c.1 = h.0;
+                c.2 += 1;
+            }
+            _ => clusters.push((h.0, h.0, 1)),
+        }
+    }
+    if closed && clusters.len() > 1 {
+        let (first, last) = (clusters[0], clusters[clusters.len() - 1]);
+        if within(last.1, first.0 + period) {
+            clusters[0] = (last.0, first.1 + period, first.2 + last.2);
+            clusters.pop();
+        }
+    }
+    let mut out = Vec::with_capacity(clusters.len());
+    let mut k = 0;
+    for &(a, b, n) in &clusters {
+        if n == 1 {
+            // A lone crossing keeps its exact point.
+            if let Some(h) = hits.iter().find(|h| h.0 == a) {
+                out.push(*h);
+            }
+            k += 1;
+            continue;
+        }
+        // Where the curves run parallel within the stretch, between
+        // them (a touch); where they come nearest if they never turn
+        // there (a shallow crossing, whose distance falls to it like a
+        // V: the reports' middle lay 1.7e-5 along two rims crossing at
+        // 0.026 rad, PK-1182).
+        let (lo, hi) = (stretch(a, -1.0), stretch(b, 1.0));
+        let gap = |t: f64| {
+            let p = at(t);
+            foot(&p).1.distance_to(&p)
+        };
+        let tm = crate::tolerance_zone::meetings_foot::parallel_point(&turn, lo, hi)
+            .unwrap_or_else(|| nearest(&gap, lo, hi));
+        let p = at(tm);
+        let (t2, q) = foot(&p);
+        let t1 = fold(tm);
+        let mid = popkern_core::geometry::Point3::new(
+            0.5 * (p.x + q.x),
+            0.5 * (p.y + q.y),
+            0.5 * (p.z + q.z),
+        );
+        out.push((t1, t2, mid));
+        k += n;
+    }
+    debug_assert!(k == hits.len());
+    out
+}
+
+/// Golden-section steps locating a crossing's nearest approach.
+const NEAREST_STEPS: usize = 80;
+
+/// The parameter in `[a, b]` minimising `gap` (unimodal there: the
+/// stretch of a crossing within the tolerance), by golden section.
+fn nearest(gap: &dyn Fn(f64) -> f64, a: f64, b: f64) -> f64 {
+    let ratio = 0.5 * (5f64.sqrt() - 1.0);
+    let (mut lo, mut hi) = (a, b);
+    for _ in 0..NEAREST_STEPS {
+        let (m1, m2) = (hi - ratio * (hi - lo), lo + ratio * (hi - lo));
+        if gap(m1) <= gap(m2) {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
+    }
+    0.5 * (lo + hi)
+}
+/// Doublings (then halvings) finding a pass's stretch's ends.
+const STRETCH_STEPS: usize = 40;

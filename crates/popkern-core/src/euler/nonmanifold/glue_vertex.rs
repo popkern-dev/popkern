@@ -111,10 +111,22 @@ impl BRep {
                 l.vertex = Some(keep);
             }
         }
+        // The kept vertex holds every end the glued-away one held, so
+        // its tolerance as well: a split piece's copy of a vertex whose
+        // edges end off it by a recorded reach (`vertex_reach`), glued
+        // back as the other copy, left a loop open by 1.0000006e-6
+        // (PK-1183).
+        let gone_tolerance = self.vertices[gone].tolerance;
         self.vertices.remove(gone);
-        if distance > self.tolerance.linear() {
-            let t = self.vertices[keep].tolerance.unwrap_or(0.0).max(distance);
-            self.vertices[keep].tolerance = Some(t);
+        let carried = gone_tolerance
+            .unwrap_or(0.0)
+            .max(if distance > self.tolerance.linear() {
+                distance
+            } else {
+                0.0
+            });
+        if carried > self.vertices[keep].tolerance.unwrap_or(0.0) && carried > 0.0 {
+            self.vertices[keep].tolerance = Some(carried);
         }
         if !self.half_edges.contains_key(self.vertices[keep].outgoing) {
             let first = self

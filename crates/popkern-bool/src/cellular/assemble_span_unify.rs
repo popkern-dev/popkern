@@ -37,6 +37,7 @@
 use std::collections::HashMap;
 
 use popkern_core::geometry::Point3;
+use popkern_core::topology::BRep;
 
 use crate::merge::graph::IntersectionGraph;
 use crate::merge::graph_duplicates::closest_on_piece;
@@ -81,6 +82,7 @@ impl SpanRegistry {
     pub(crate) fn prior_for(
         &self,
         graph: &IntersectionGraph,
+        operands: &[&BRep],
         key: usize,
         (nodes, a, b, mid): ((usize, usize), Point3, Point3, Point3),
     ) -> Option<usize> {
@@ -112,10 +114,16 @@ impl SpanRegistry {
             .find(|(pa, pb, pm, prior)| {
                 let same_ends = (pa.distance_to(&a) <= g && pb.distance_to(&b) <= g)
                     || (pa.distance_to(&b) <= g && pb.distance_to(&a) <= g);
+                // A record carries its fit's deviation off its surfaces
+                // on top of the tolerance, as its ends do in the vertex
+                // table (`candidates::record_fit_deviation`).
+                let band = on
+                    + record_deviation(graph, operands, key, &mid)
+                        .max(record_deviation(graph, operands, *prior, pm));
                 same_ends
-                    && (pm.distance_to(&mid) <= 2.0 * on
-                        || (piece_distance(graph, *prior, &mid) <= on
-                            && piece_distance(graph, key, pm) <= on))
+                    && (pm.distance_to(&mid) <= band
+                        || (piece_distance(graph, *prior, &mid) <= band
+                            && piece_distance(graph, key, pm) <= band))
             })
             .map(|(_, _, _, prior)| *prior)
     }
@@ -147,8 +155,88 @@ impl SpanRegistry {
     }
 }
 
+/// Whether graph pair `key` runs the same way along its span as `prior`,
+/// the span's registered pair. An open span's ends say so: `key`'s
+/// start lies at `prior`'s start or at its end. A closed span (a ring
+/// through one node, the circle where an ice-cream cone's rim meets its
+/// ball tangentially when both seams pass through one point of it) has
+/// its start at both ends, and the ends always read "the same way": the
+/// ball's copy of the circle ran opposite the cone's, its fins lifted
+/// reversed, the radial order wired every shell across the wrong faces
+/// and the union served the sliver between cone and ball (PK-1133). There
+/// the curves' leaving tangents decide. `gate` is the distance within
+/// which two points are one.
+pub(crate) fn runs_same_way(
+    graph: &IntersectionGraph,
+    key: usize,
+    prior: usize,
+    gate: f64,
+) -> bool {
+    let start = |k: usize| graph.nodes[graph.half_edges[k].origin].position;
+    let end = |k: usize| graph.nodes[graph.half_edges[graph.half_edges[k].twin].origin].position;
+    let here = start(key);
+    let (to_start, to_end) = (
+        here.distance_to(&start(prior)),
+        here.distance_to(&end(prior)),
+    );
+    let closed = |k: usize| start(k).distance_to(&end(k)) <= gate;
+    if !(closed(key) && closed(prior)) {
+        return to_start <= to_end;
+    }
+    match (leaving_tangent(graph, key), leaving_tangent(graph, prior)) {
+        (Some(a), Some(b)) => a.dot(&b) >= 0.0,
+        _ => to_start <= to_end,
+    }
+}
+
+/// The unit tangent with which graph pair `key` leaves its start: its
+/// curve's (stored on either half, running from the pair's first half's
+/// origin) derivative at `t_start`, taken towards `t_end`.
+fn leaving_tangent(graph: &IntersectionGraph, key: usize) -> Option<popkern_core::geometry::Vec3> {
+    use popkern_core::geometry::curve::CurveEval;
+    let he = &graph.half_edges[key];
+    let curve = he
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[he.twin].curve.as_ref())?;
+    let d = curve.geometry.derivative_at(curve.t_start, 1);
+    let d = if curve.t_end < curve.t_start {
+        d * -1.0
+    } else {
+        d
+    };
+    d.normalized()
+}
+
 /// The distance from `p` to graph pair `key`'s curve PIECE (its own
 /// parameter window); a curveless pair is its straight chord.
+/// How far point `p` of graph pair `key` lies off the farther of the
+/// two faces' surfaces it was intersected from, when it is a record (an
+/// operand's own edge: zero).
+fn record_deviation(graph: &IntersectionGraph, operands: &[&BRep], key: usize, p: &Point3) -> f64 {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let crate::merge::graph::EdgeSource::Shared {
+        face_a,
+        face_b,
+        operands: [oa, ob],
+    } = graph.half_edges[key].source
+    else {
+        return 0.0;
+    };
+    let off = |operand: crate::merge::graph::Operand, face| {
+        operands
+            .get(operand.index())
+            .and_then(|b| b.faces.get(face))
+            .and_then(|f| f.surface.as_ref())
+            .and_then(|s| {
+                let (u, v) = s.geometry.closest_point(p)?;
+                Some(s.geometry.point_at(u, v).distance_to(p))
+            })
+            .unwrap_or(0.0)
+    };
+    off(oa, face_a).max(off(ob, face_b))
+}
+
 fn piece_distance(graph: &IntersectionGraph, key: usize, p: &Point3) -> f64 {
     let he = &graph.half_edges[key];
     match he
@@ -171,3 +259,7 @@ fn piece_distance(graph: &IntersectionGraph, key: usize, p: &Point3) -> f64 {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "assemble_span_unify_tests.rs"]
+mod tests;

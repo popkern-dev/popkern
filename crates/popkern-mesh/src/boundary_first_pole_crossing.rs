@@ -78,7 +78,17 @@ pub(in crate::boundary_first) fn resolve_pole_crossings(
         })
         .collect();
     let crossings: Vec<usize> = (0..pairs.len()).filter(|&k| pairs[k].3.is_some()).collect();
-    if crossings.is_empty() || crossings.len() > 3 {
+    if crossings.is_empty() {
+        return false;
+    }
+    if let Some((resolved, degen)) =
+        ruled_pole_runs(ring, degenerate, surface, &pairs, &crossings, orientation)
+    {
+        *ring = resolved;
+        *degenerate = degen;
+        return true;
+    }
+    if crossings.len() > 3 {
         return false;
     }
     // Every choice of short/long way at each crossing; keep the one
@@ -126,6 +136,57 @@ pub(in crate::boundary_first) fn resolve_pole_crossings(
         }
         None => false,
     }
+}
+
+/// The pole runs the face flag fixes: along a pole row the ring keeps
+/// the face on its left, so counter-clockwise it runs toward −u on the
+/// top row (v = π) and toward +u on the bottom one (reversed when
+/// clockwise), each run within one period of its sense. Only a run
+/// with no azimuth gap (a seam pair over the pole, or a cusp) stays a
+/// choice, a slit or a whole period that way, kept when the ring then
+/// winds 0 with the flag's area sign. The enumeration below tried the
+/// short or long way at each crossing and kept the first closing with
+/// the right sign, which a ring winding the face's tongues twice also
+/// does, and gave up past three crossings: Viviani's cut with the
+/// ball's pole at its double point visits one pole three times and the
+/// other once, and its sphere face meshed 3.0 short (PK-1139).
+fn ruled_pole_runs(
+    ring: &BoundaryRing,
+    degenerate: &[bool],
+    surface: &SurfaceGeometry,
+    pairs: &[(usize, usize, f64, Option<f64>)],
+    crossings: &[usize],
+    orientation: bool,
+) -> Option<(BoundaryRing, Vec<bool>)> {
+    use std::f64::consts::TAU;
+    /// Most zero-gap runs whose slit-or-period choices are enumerated.
+    const MAX_FREE_RUNS: u32 = 6;
+    let mut turns = vec![0i32; pairs.len()];
+    let mut free = Vec::new();
+    for &k in crossings {
+        let (_, _, d, pole) = pairs[k];
+        let toward_plus = (pole? == 0.0) == orientation;
+        let sense = if toward_plus { 1 } else { -1 };
+        if d.abs() <= POLE_VERTEX_GAP {
+            free.push((k, sense));
+        } else if (d > 0.0) != toward_plus {
+            turns[k] = sense;
+        }
+    }
+    if free.len() as u32 > MAX_FREE_RUNS {
+        return None;
+    }
+    (0..1u32 << free.len()).find_map(|code| {
+        let mut turns = turns.clone();
+        for (bit, &(k, sense)) in free.iter().enumerate() {
+            if code >> bit & 1 == 1 {
+                turns[k] = sense;
+            }
+        }
+        let (candidate, degen, total) = assemble_turns(ring, degenerate, surface, pairs, &turns);
+        ((total / TAU).round() as i64 == 0 && (signed_area(&candidate.uv) > 0.0) == orientation)
+            .then_some((candidate, degen))
+    })
 }
 
 /// A cone ring that wraps a full period through its APEX vertex and

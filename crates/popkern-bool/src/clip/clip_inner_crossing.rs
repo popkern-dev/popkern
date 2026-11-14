@@ -36,12 +36,17 @@ pub(super) fn crosses_inner_loop(
         .map(|s| &s.geometry);
     let curve = CurveGeometry::Nurbs(curve_uv.clone());
     let curve_range = curve_uv.parameter_range();
-    crate::clip::face_uv_inner_boundaries(brep, face)
+    let pad = super::clip_rim_reach::RIM_REACH_TOLERANCES * tolerance.linear();
+    crate::clip::face_uv_inner_boundary_refs(brep, face)
         .iter()
         .flatten()
         .any(|(_, pc)| {
             let (a, b) = pc.parameter_range();
             if !(a.is_finite() && b.is_finite()) {
+                return false;
+            }
+            // A rim the record cannot reach is not converted (PK-1168).
+            if super::clip_rim_reach::rim_clear_of_query(pc, curve_uv, pad) {
                 return false;
             }
             let rim = match surface {

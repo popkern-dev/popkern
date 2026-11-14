@@ -181,6 +181,55 @@ impl BRep {
             .collect()
     }
 
+    /// The face use about `vertex` ring fin `r` stands for at the end of
+    /// its edge where fin `reference` leaves the vertex (`leaves`) or
+    /// arrives at it: `r` itself when it leaves there, its loop successor
+    /// when it arrives. On an open edge the end is the vertex's; on a
+    /// closed edge both ends are, and a fin leaves at the reference's end
+    /// when it runs the edge the reference's way (its mate in a ring of
+    /// two arrives there). Read by origin alone, every fin of a closed
+    /// edge left at both ends, and the two lobes of a figure eight
+    /// meeting at its double point read as one fan though the
+    /// neighbourhood walk ([`BRep::vertex_neighbourhood`]) finds two.
+    pub(crate) fn ring_use_at(
+        &self,
+        vertex: VertexHandle,
+        r: HalfEdgeHandle,
+        reference: HalfEdgeHandle,
+        leaves: bool,
+    ) -> Option<HalfEdgeHandle> {
+        let fin = self.half_edges.get(r)?;
+        // Closed: the fin ends where it starts (its successor leaves its
+        // origin) round a curve of length, its middle off the vertex. A
+        // degenerate edge (a pole's) leaves and arrives through no arc,
+        // read by origin: a pole's fan of collapsed fins is one fan.
+        let closed = self.half_edges.get(fin.next).map(|n| n.origin) == Some(fin.origin)
+            && self.closed_round_curve(fin.edge, fin.origin);
+        let leaves_here = if closed {
+            (self.fin_sense(r)? == self.fin_sense(reference)?) == leaves
+        } else {
+            fin.origin == vertex
+        };
+        Some(if leaves_here { r } else { fin.next })
+    }
+
+    /// Whether `edge`, whose ends are both `vertex`, runs round a curve
+    /// whose middle lies farther than the linear tolerance from it (a
+    /// circle's, not a pole's collapsed edge).
+    fn closed_round_curve(&self, edge: EdgeHandle, vertex: VertexHandle) -> bool {
+        use crate::geometry::curve::CurveEval;
+        let (Some(c), Some(v)) = (
+            self.edges.get(edge).and_then(|e| e.curve.as_ref()),
+            self.vertices.get(vertex),
+        ) else {
+            return false;
+        };
+        c.geometry
+            .point_at(0.5 * (c.t_start + c.t_end))
+            .distance_to(&v.position)
+            > self.tolerance.linear()
+    }
+
     /// The face uses `fins` leaving `vertex`, grouped into fans: two
     /// fins are in one fan when one follows the other's loop predecessor
     /// across an edge ring, or they share an edge's ring. Each group is
@@ -200,24 +249,23 @@ impl BRep {
             }
             i
         }
-        // The face use about `vertex` a ring fin `r` stands for: itself
-        // when it leaves the vertex, its loop successor when it arrives.
-        let leaving_use = |r: HalfEdgeHandle| -> Option<usize> {
-            let fin = self.half_edges.get(r)?;
-            if fin.origin == vertex {
-                index.get(&r).copied()
-            } else {
-                index.get(&fin.next).copied()
-            }
+        let leaving_use = |r: HalfEdgeHandle, reference: HalfEdgeHandle, leaves: bool| {
+            index
+                .get(&self.ring_use_at(vertex, r, reference, leaves)?)
+                .copied()
         };
         for (i, &h) in fins.iter().enumerate() {
             let Some(fin) = self.half_edges.get(h) else {
                 continue;
             };
-            let prev_edge = self.half_edges.get(fin.prev).map(|p| p.edge);
-            for edge in [Some(fin.edge), prev_edge].into_iter().flatten() {
+            let along = [(fin.edge, h, true)].into_iter().chain(
+                self.half_edges
+                    .get(fin.prev)
+                    .map(|p| (p.edge, fin.prev, false)),
+            );
+            for (edge, reference, leaves) in along {
                 for r in self.radial_fins(edge) {
-                    if let Some(j) = leaving_use(r) {
+                    if let Some(j) = leaving_use(r, reference, leaves) {
                         let (a, b) = (root(&mut parent, i), root(&mut parent, j));
                         parent[a] = b;
                     }

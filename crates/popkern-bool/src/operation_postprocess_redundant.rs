@@ -19,12 +19,26 @@ pub(crate) fn remove_redundant_edges_safe(
     tolerance: &Tolerance,
     region: &ServeRegion,
 ) -> usize {
+    // Steps under the tolerance the merges flatten, one report per face
+    // they make (PK-1163).
+    let mut steps = crate::sub_tolerance::FlattenedSteps::default();
+    let edits = remove_redundant_edges_noting(result, tolerance, region, &mut steps);
+    steps.record();
+    edits
+}
+
+fn remove_redundant_edges_noting(
+    result: &mut BRep,
+    tolerance: &Tolerance,
+    region: &ServeRegion,
+    steps: &mut crate::sub_tolerance::FlattenedSteps,
+) -> usize {
     use crate::postprocess::redundant_edge::find_redundant_edges_in;
 
     let report = find_redundant_edges_in(result, tolerance, region);
 
     if report.redundant_edges.is_empty() {
-        return dissolve_redundant_chains(result, tolerance, region)
+        return dissolve_redundant_chains(result, tolerance, region, steps)
             + crate::postprocess::redundant_ring::dissolve_filled_holes(result, tolerance, region);
     }
 
@@ -54,6 +68,7 @@ pub(crate) fn remove_redundant_edges_safe(
         let pre_f = result.faces.len();
 
         let sides = crate::postprocess::merge_rechart::merge_sides(result, he);
+        let step = crate::sub_tolerance::FlattenedSteps::measure(result, *eh, tolerance);
         if let Ok(kef) = result.kef(he) {
             edits += 1;
             crate::postprocess::merge_rechart::rechart_inherited(result, &sides, kef.removed_face);
@@ -69,6 +84,7 @@ pub(crate) fn remove_redundant_edges_safe(
                 break;
             }
             removed += 1;
+            steps.commit(step);
         }
     }
 
@@ -76,7 +92,7 @@ pub(crate) fn remove_redundant_edges_safe(
         eprintln!("[boolean] post-processing: removed {removed} redundant edge(s)");
     }
     edits
-        + dissolve_redundant_chains(result, tolerance, region)
+        + dissolve_redundant_chains(result, tolerance, region, steps)
         + crate::postprocess::redundant_ring::dissolve_filled_holes(result, tolerance, region)
 }
 
@@ -89,6 +105,7 @@ fn dissolve_redundant_chains(
     result: &mut BRep,
     tolerance: &Tolerance,
     region: &ServeRegion,
+    steps: &mut crate::sub_tolerance::FlattenedSteps,
 ) -> usize {
     use crate::postprocess::redundant_chain::{dissolve_chain, shared_coplanar_chain};
     let mut merged = 0usize;
@@ -111,9 +128,11 @@ fn dissolve_redundant_chains(
             ) {
                 continue;
             }
+            let step = crate::sub_tolerance::FlattenedSteps::measure(result, chain[0], tolerance);
             let mut staged = result.clone();
             if dissolve_chain(&mut staged, &chain).is_ok() && staged.validate().is_ok() {
                 *result = staged;
+                steps.commit(step);
                 merged += 1;
                 progressed = true;
                 break;

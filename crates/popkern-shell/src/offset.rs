@@ -102,6 +102,7 @@ pub(crate) fn offset_solid_impl(
             popkern_core::topology::BodyKind::Empty,
         ],
     )?;
+    brep.require_no_pinch_use("offset", None)?;
     macro_rules! stage_gate {
         () => {
             if tracker.cancelled() {

@@ -38,7 +38,7 @@ const REFINED_SEEDS: usize = 4;
 const ROUNDS: usize = 24;
 
 /// The closest point of `face`'s surface to `p`, with its uv.
-fn foot(surface: &SurfaceGeometry, p: &Point3) -> Option<(Point3, (f64, f64))> {
+pub(crate) fn foot(surface: &SurfaceGeometry, p: &Point3) -> Option<(Point3, (f64, f64))> {
     let (u, v) = project_point_to_uv(surface, p)?;
     Some((surface.point_at(u, v), (u, v)))
 }
@@ -47,9 +47,26 @@ fn surface_of(brep: &BRep, face: FaceHandle) -> Option<&SurfaceGeometry> {
     Some(&brep.faces.get(face)?.surface.as_ref()?.geometry)
 }
 
-fn within_trim(brep: &BRep, face: FaceHandle, surface: &SurfaceGeometry, uv: (f64, f64)) -> bool {
-    brep.face_uv_trim_containment(face, surface, uv.0, uv.1)
-        .is_some_and(|c| c != FaceUvContainment::Outside)
+/// Whether the surface point at `uv` lies on `face` to within `reach`:
+/// inside its trim, or within `reach` in space of a boundary curve. The
+/// trim test's boundary band is ten tolerances wide, so a uv in it
+/// is not yet on the face: a coplanar neighbour five tolerances past
+/// the trim read as touching it (two blocks 1e-5 apart, turned,
+/// declined as non-manifold).
+pub(crate) fn on_trim(
+    brep: &BRep,
+    face: FaceHandle,
+    surface: &SurfaceGeometry,
+    uv: (f64, f64),
+    reach: f64,
+) -> bool {
+    match brep.face_uv_trim_containment(face, surface, uv.0, uv.1) {
+        Some(FaceUvContainment::Interior) => true,
+        Some(FaceUvContainment::Boundary) => {
+            brep.point_near_face_boundary(face, &surface.point_at(uv.0, uv.1), reach)
+        }
+        _ => false,
+    }
 }
 
 /// Seed points on `face`: its loop samples and an interior uv grid.
@@ -126,10 +143,7 @@ fn contact_extent(
     };
     let normal = sf.normal_at(u, v);
     let (t1, t2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(normal);
-    let size = crate::intersect::compute_face_aabbs(brep)
-        .into_iter()
-        .find(|(h, _)| *h == f)
-        .map_or(1.0, |(_, b)| b.diagonal());
+    let size = crate::intersect::face_aabb(brep, f).map_or(1.0, |b| b.diagonal());
     // At the face's own scale: an area touch coincides over a
     // neighbourhood that size, while a tangency separates there by the
     // curvature term (a 5 mm rod 1e-4 off its contact line sits 1e-6
@@ -148,8 +162,8 @@ fn contact_extent(
                 return false;
             };
             p.distance_to(&q) <= linear
-                && within_trim(brep, f, sf, uv_f)
-                && within_trim(brep, g, sg, uv_g)
+                && on_trim(brep, f, sf, uv_f, linear)
+                && on_trim(brep, g, sg, uv_g, linear)
         })
         .collect();
     let count = on_both.iter().filter(|&&b| b).count();
@@ -163,8 +177,47 @@ fn contact_extent(
 }
 
 /// The contact point of faces `f` and `g`, if they touch.
-fn face_contact(brep: &BRep, f: FaceHandle, g: FaceHandle, linear: f64) -> Option<Point3> {
-    let (sf, sg) = (surface_of(brep, f)?, surface_of(brep, g)?);
+pub(crate) fn face_contact(
+    brep: &BRep,
+    f: FaceHandle,
+    g: FaceHandle,
+    linear: f64,
+) -> Option<Point3> {
+    face_contact_on(
+        brep,
+        (f, surface_of(brep, f)?),
+        (g, surface_of(brep, g)?),
+        linear,
+        None,
+        true,
+    )
+}
+
+/// Whether an edge curve of the face named, walked against the pair's
+/// other face, provably lies farther than the band from it: its walk is
+/// then skipped.
+pub(crate) type EdgeClear<'a> =
+    dyn Fn(FaceHandle, &popkern_core::geometry::curve::CurveOnEdge) -> bool + 'a;
+
+/// [`face_contact`] with each face read on `sf` and `sg`: its surface,
+/// or a piece of it holding the face with the same parameters (a NURBS
+/// face's knot spans, so projections do not search the whole surface),
+/// and the edges `clear` proves apart from the other face not walked.
+/// With `interior` false the faces are known to have no parallel normals
+/// (PK-1175), so they touch only where an edge of one meets the other,
+/// and only the edges are walked.
+pub(crate) fn face_contact_on(
+    brep: &BRep,
+    (f, sf): (FaceHandle, &SurfaceGeometry),
+    (g, sg): (FaceHandle, &SurfaceGeometry),
+    linear: f64,
+    clear: Option<&EdgeClear>,
+    interior: bool,
+) -> Option<Point3> {
+    if !interior {
+        return super::shell_contact_edge::edge_contact(brep, f, (g, sg), linear, clear)
+            .or_else(|| super::shell_contact_edge::edge_contact(brep, g, (f, sf), linear, clear));
+    }
     let mut starts: Vec<(f64, Point3, Point3)> = Vec::new();
     for p in seeds(brep, f, sf) {
         if let Some((q, _)) = foot(sg, &p) {
@@ -190,13 +243,121 @@ fn face_contact(brep: &BRep, f: FaceHandle, g: FaceHandle, linear: f64) -> Optio
             }
         }
         if p.distance_to(&q) <= linear
-            && within_trim(brep, f, sf, uv_f)
-            && within_trim(brep, g, sg, uv_g)
+            && on_trim(brep, f, sf, uv_f, linear)
+            && on_trim(brep, g, sg, uv_g, linear)
         {
             return Some(p + (q - p) * 0.5);
         }
     }
-    None
+    // Alternating projection stalls at a tangent touch (between a
+    // plane and a ball of radius r a seed s off the touch moves by
+    // s^3 / 2r^2 a round), so a touch no seed lands near is located as
+    // a critical point of the signed gap, by Newton on its gradient
+    // (`find_surface_contacts`): a turned ball set off the middle of a
+    // face, with no vertex or seed at its touch, served touching as one
+    // solid.
+    if let Some(at) = gap_critical_contact(brep, (f, sf), (g, sg), linear) {
+        return Some(at);
+    }
+    // A touch on a face's boundary: an edge of one against the other.
+    super::shell_contact_edge::edge_contact(brep, f, (g, sg), linear, clear)
+        .or_else(|| super::shell_contact_edge::edge_contact(brep, g, (f, sf), linear, clear))
+}
+
+/// A touch of faces `f` and `g` (each read on its surface) farther than
+/// `radius` from every point of `avoid`, by alternating projection from
+/// both faces' seeds and the signed gap's critical points: two faces
+/// meeting at a shared vertex can touch elsewhere too, and there the
+/// plain search, finding the shared vertex first, would stop.
+pub(crate) fn face_contact_avoiding(
+    brep: &BRep,
+    (f, sf): (FaceHandle, &SurfaceGeometry),
+    (g, sg): (FaceHandle, &SurfaceGeometry),
+    linear: f64,
+    (avoid, radius): (&[Point3], f64),
+) -> Option<Point3> {
+    let away = |p: &Point3| avoid.iter().all(|a| a.distance_to(p) > radius);
+    let mut starts: Vec<(f64, Point3, Point3)> = Vec::new();
+    for p in seeds(brep, f, sf) {
+        if let Some((q, _)) = foot(sg, &p) {
+            starts.push((p.distance_to(&q), p, q));
+        }
+    }
+    for q in seeds(brep, g, sg) {
+        if let Some((p, _)) = foot(sf, &q) {
+            starts.push((p.distance_to(&q), p, q));
+        }
+    }
+    starts.retain(|(_, p, _)| away(p));
+    starts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    for &(_, p0, q0) in starts.iter().take(REFINED_SEEDS) {
+        let (mut p, mut q) = (p0, q0);
+        let (mut uv_f, mut uv_g) = (project_point_to_uv(sf, &p)?, project_point_to_uv(sg, &q)?);
+        for _ in 0..ROUNDS {
+            let (np, nuv_f) = foot(sf, &q)?;
+            let (nq, nuv_g) = foot(sg, &np)?;
+            let moved = np.distance_to(&p).max(nq.distance_to(&q));
+            (p, q, uv_f, uv_g) = (np, nq, nuv_f, nuv_g);
+            if moved < 0.1 * linear {
+                break;
+            }
+        }
+        let at = p + (q - p) * 0.5;
+        if p.distance_to(&q) <= linear
+            && away(&at)
+            && on_trim(brep, f, sf, uv_f, linear)
+            && on_trim(brep, g, sg, uv_g, linear)
+        {
+            return Some(at);
+        }
+    }
+    gap_critical_contacts(brep, (f, sf), (g, sg), linear).find(away)
+}
+
+/// A touch of `f` and `g` located as a critical point of their signed
+/// gap within `linear`, with both feet on their faces.
+fn gap_critical_contact(
+    brep: &BRep,
+    (f, sf): (FaceHandle, &SurfaceGeometry),
+    (g, sg): (FaceHandle, &SurfaceGeometry),
+    linear: f64,
+) -> Option<Point3> {
+    gap_critical_contacts(brep, (f, sf), (g, sg), linear).next()
+}
+
+/// Every touch of `f` and `g` found as a critical point of their signed
+/// gap within `linear`, with both feet on their faces.
+fn gap_critical_contacts<'a>(
+    brep: &'a BRep,
+    (f, sf): (FaceHandle, &'a SurfaceGeometry),
+    (g, sg): (FaceHandle, &'a SurfaceGeometry),
+    linear: f64,
+) -> impl Iterator<Item = Point3> + 'a {
+    use popkern_core::geometry::intersection::contact_classify::ContactScale;
+    use popkern_core::geometry::intersection::contact_discovery::find_surface_contacts;
+    // The two faces' boxes alone (every face's box per pair cost the
+    // body's face count each time).
+    let size = |h: FaceHandle| crate::intersect::face_aabb(brep, h).map_or(1.0, |b| b.diagonal());
+    let window = |h, s| crate::diagnostics_contacts::window(brep, h, s);
+    let found = find_surface_contacts(
+        sf,
+        window(f, sf),
+        sg,
+        window(g, sg),
+        ContactScale {
+            linear,
+            extent: size(f).max(size(g)),
+        },
+    );
+    found
+        .contacts
+        .into_iter()
+        .filter(move |c| {
+            c.gap.abs() <= linear
+                && on_trim(brep, f, sf, c.uv1, linear)
+                && on_trim(brep, g, sg, c.uv2, linear)
+        })
+        .map(|c| c.point)
 }
 
 /// Every place two different shells of `brep` touch, in face-handle
@@ -223,7 +384,7 @@ pub(crate) fn shell_findings(brep: &BRep, tolerance: &Tolerance) -> Vec<ShellFin
     if brep.back_shell_count() < 2 {
         return Vec::new();
     }
-    let linear = tolerance.linear();
+    let linear = tolerance.linear_reach();
     let mut faces: Vec<(FaceHandle, Aabb)> = crate::intersect::compute_face_aabbs(brep);
     faces.sort_by_key(|(f, _)| *f);
     let shell = |f: FaceHandle| brep.faces.get(f).map(|face| face.back);

@@ -252,11 +252,55 @@ fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64, region: &ServeRegion) 
         })
         .collect();
     for he_into_tip in candidates {
-        if brep.half_edges.contains_key(he_into_tip) && brep.kev(he_into_tip).is_ok() {
+        if brep.half_edges.contains_key(he_into_tip)
+            && !tip_at_chart_pole(brep, he_into_tip)
+            && brep.kev(he_into_tip).is_ok()
+        {
             return true;
         }
     }
     false
+}
+
+/// Whether the tip a spur half-edge points into is a pole of its face's
+/// chart (one partial vanishing beside the other: a sphere's pole, a
+/// cone's apex). A seam meeting its pole runs out and back with the
+/// pole at valence one: that is how a chart pole is held, not walk
+/// residue. Retired, a ball's seam stub 1e-5 long, where a rod's rim
+/// crossed the seam that far from the pole, took the pole with it, and
+/// the face's chart lost the pole the mesher closes it through (the
+/// ball meshed as slivers, its volume read 7.13 for 120.22, PK-1176).
+fn tip_at_chart_pole(brep: &BRep, he_into_tip: popkern_core::topology::HalfEdgeHandle) -> bool {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let Some(he) = brep.half_edges.get(he_into_tip) else {
+        return false;
+    };
+    let Some(tip) = he
+        .mate()
+        .and_then(|t| brep.half_edges.get(t))
+        .and_then(|t| brep.vertices.get(t.origin))
+        .map(|v| v.position)
+    else {
+        return false;
+    };
+    let Some(surface) = brep
+        .loops
+        .get(he.loop_)
+        .and_then(|l| brep.faces.get(l.face))
+        .and_then(|f| f.surface.as_ref())
+    else {
+        return false;
+    };
+    let Some((u, v)) =
+        popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &tip)
+    else {
+        return false;
+    };
+    let (su, sv) = (
+        surface.geometry.partial_u(u, v).length(),
+        surface.geometry.partial_v(u, v).length(),
+    );
+    su <= 1e-6 * sv || sv <= 1e-6 * su
 }
 
 /// Excise ONE degenerate self-twinned stub half-edge from its loop

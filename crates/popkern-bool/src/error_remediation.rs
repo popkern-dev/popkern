@@ -240,6 +240,13 @@ impl BoolError {
                 "Too many bodies for one operation. Combine some first \
                  (union groups of them), then run it on the results.",
             ),
+            BoolError::RelationUndecided { .. } => Remediation::new(
+                RemediationAction::RetryWithPerturbation,
+                "The bodies only touch, or cross where no intersection \
+                 was found, so it is unknown whether one lies inside the \
+                 other. Move one body slightly so they clearly overlap \
+                 or clearly separate.",
+            ),
         }
     }
 }

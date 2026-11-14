@@ -180,7 +180,7 @@ fn intersect_plane_sphere(
 ///
 /// The circle lies in the plane spanned by `axis1` and `axis2`, centred at
 /// `center`, with the given `radius`.
-fn nurbs_circle_3d(center: Point3, axis1: Vec3, axis2: Vec3, radius: f64) -> NurbsCurve {
+pub(super) fn nurbs_circle_3d(center: Point3, axis1: Vec3, axis2: Vec3, radius: f64) -> NurbsCurve {
     nurbs_ellipse_3d(center, axis1, axis2, radius, radius)
 }
 
@@ -224,7 +224,7 @@ fn nurbs_ellipse_3d(center: Point3, axis1: Vec3, axis2: Vec3, ra: f64, rb: f64) 
 /// Pole guard: a sample within the chart singularity keeps its
 /// neighbor's longitude (`atan2(0, 0)` is meaningless there and any
 /// value evaluates back to the pole).
-fn fit_sphere_uv_curve(
+pub(super) fn fit_sphere_uv_curve(
     curve_3d: &NurbsCurve,
     (sphere_center, sphere_radius, sphere_axis): (Point3, f64, Vec3),
     tolerance: &Tolerance,

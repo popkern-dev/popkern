@@ -91,7 +91,8 @@ pub(crate) fn assign_topological_names(
 ) {
     let band = tol.linear() * 100.0;
     // Faces.
-    let sources = FaceSources::new(ops.a, ops.tools, tol, ops.carry);
+    let sources =
+        FaceSources::new(ops.a, ops.tools, tol, ops.carry).confirming(ctx.naming_scheme >= 6);
     let mut piece_of: HashMap<FaceHandle, Vec<NameId>> = HashMap::new();
     let mut pending = Vec::new();
     let faces: Vec<FaceHandle> = result.faces.keys().collect();
@@ -231,12 +232,19 @@ pub(crate) fn assign_topological_names(
             from = Some(input.clone());
         }
         let edges = incident.get(&v).into_iter().flatten().copied();
-        let (category, signature) = if ancestors.is_empty() {
-            ancestors.extend(edges.map(NameId));
-            (RoleCategory::Junction, Vec::new())
-        } else {
-            (RoleCategory::Modified, edges.collect())
-        };
+        let (category, signature) =
+            if ancestors.is_empty() && ctx.naming_scheme >= 6 && !incident.contains_key(&v) {
+                // Naming scheme 6 (PK-1160): a contact with no edges to
+                // meet at, a vertex loop where pieces touch, is named by
+                // the faces it lies on.
+                ancestors.extend(vertex_face_names(result, v));
+                (RoleCategory::Contact, Vec::new())
+            } else if ancestors.is_empty() {
+                ancestors.extend(edges.map(NameId));
+                (RoleCategory::Junction, Vec::new())
+            } else {
+                (RoleCategory::Modified, edges.collect())
+            };
         pending.push(Pending {
             handle: v,
             category,
@@ -297,6 +305,27 @@ fn ranked<H: Copy>(
     out
 }
 
+/// The names of the faces vertex `v` lies on, sorted, once each.
+fn vertex_face_names(result: &BRep, v: VertexHandle) -> Vec<NameId> {
+    use popkern_core::topology::VertexUse;
+    let face_of_loop = |l| result.loops.get(l).map(|lp| lp.face);
+    let names: BTreeSet<u32> = result
+        .vertex_uses(v)
+        .into_iter()
+        .filter_map(|u| match u {
+            VertexUse::Loop(l) => face_of_loop(l),
+            VertexUse::Fan(he) => result
+                .half_edges
+                .get(he)
+                .and_then(|h| face_of_loop(h.loop_)),
+            VertexUse::Wire(_) | VertexUse::Isolated(_) => None,
+        })
+        .filter_map(|f| result.faces.get(f).and_then(|face| face.name))
+        .map(|id| id.0)
+        .collect();
+    names.into_iter().map(NameId).collect()
+}
+
 fn category_rank(c: RoleCategory) -> u8 {
     match c {
         RoleCategory::Modified => 0,
@@ -305,6 +334,7 @@ fn category_rank(c: RoleCategory) -> u8 {
         RoleCategory::Cap => 3,
         RoleCategory::Intersection => 4,
         RoleCategory::Junction => 5,
+        RoleCategory::Contact => 6,
     }
 }
 

@@ -16,10 +16,13 @@ mod chart_cut_domain_tests;
 pub(crate) mod chart_duplicate_cover;
 mod chart_edge_substitute;
 pub(crate) mod chart_embedding;
+mod chart_embedding_endpoints;
 pub(crate) mod chart_graze_filter;
 mod chart_period_axes;
 pub(crate) mod chart_poles;
+pub(crate) mod chart_run_overlay;
 pub(crate) mod chart_seam_axes;
+mod chart_seam_reach;
 pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;
 #[cfg(test)]
@@ -32,6 +35,7 @@ mod identity;
 mod identity_peel;
 mod next_edge;
 mod region_filter;
+mod split_chain;
 pub(crate) mod walk_geometry;
 mod walk_loop_measures;
 pub(crate) use fragment::Fragment;
@@ -653,15 +657,11 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
     // starved a result piece of its cap (measured on the
     // solid-by-plane splitter).
     let face_on_workpiece = matches!(face_ref.operand, super::graph::Operand::A);
+    // A loop sharing an edge with the outer, or with a loop that does
+    // in turn, is a face-split boundary, not a hole (`split_chain`).
+    let split = split_chain::split_from_outer(graph, &outer_he_set, &loops);
     for (i, lp) in loops.into_iter().enumerate() {
-        // A loop whose half-edges share an underlying graph edge
-        // with the outer loop is a face-split boundary, not a hole.
-        // Detect this by checking if any half-edge in the loop has
-        // its twin in the outer loop.
-        let shares_edge_with_outer = lp.iter().any(|&he_idx| {
-            let twin = graph.half_edges[he_idx].twin;
-            outer_he_set.contains(&twin)
-        });
+        let shares_edge_with_outer = split[i];
         // Winding RESCUE for large PAIRED holes: the 0.5·area
         // threshold alone called a 76 mm seat ring on a small
         // block face a "separate fragment" purely because the

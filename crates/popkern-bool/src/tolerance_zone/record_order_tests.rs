@@ -5,7 +5,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::topology::VertexHandle;
 
 use super::candidates::{CandidateVertex, Incidence, SourceKind};
-use super::resolve::{Incompatibility, ResolutionContext, VertexGroup, resolve};
+use super::resolve::{ResolutionContext, VertexGroup, resolve};
 use super::tests::{TOL, cube, line, options, record, vertex};
 
 /// `c` lying on record 0 at `s` too.
@@ -37,6 +37,9 @@ fn interior(s: f64, at: Point3) -> CandidateVertex {
 /// Two vertices of one operand 0.6 tol apart on a record, and a third
 /// point 0.6 tol beyond the second, within reach of both: joining the
 /// first vertex would run the record V → W → V, so it joins the second.
+/// The partition offers a candidate the vertex nearest it first
+/// (PK-1165), so the point joins the second without trying the first;
+/// the order rule itself is the next test's.
 #[test]
 fn a_point_never_joins_a_vertex_across_another_along_a_record() {
     let c = cube();
@@ -61,12 +64,6 @@ fn a_point_never_joins_a_vertex_across_another_along_a_record() {
     let res = resolve(&cands, &ctx, options(10.0 * TOL)).expect("resolves");
     assert_eq!(res.groups.len(), 2, "{res:?}");
     assert_eq!(res.group_of[2], res.group_of[1], "{res:?}");
-    assert!(
-        res.separations
-            .contains(&(1, 2, Incompatibility::OutOfRecordOrder { record: 0 })),
-        "{:?}",
-        res.separations
-    );
     assert!(res.order_conflicts.is_empty(), "{:?}", res.order_conflicts);
 }
 
