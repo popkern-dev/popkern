@@ -518,7 +518,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   toward the vertex (`postprocess/self_contact_facing.rs`), a stored
   trim ring whose seam copies lie on one chart line does not set σ
   (`chart_ring_sigma.rs`), and runs leaving one pole node start at one
-  point for the duplicate-cover test (PK-1187); and the
+  point for the duplicate-cover test (PK-1187); a sphere, cylinder or
+  cone face whose measuring mesh misread it (its quadrature area past
+  the pcurves' band from theirs) takes its exact divergence term from
+  its area and its loops' vector area, the mesh giving only signs
+  (`body_quadrature_analytic.rs`, PK-1186); and the
   partition's selection answers
   contacts as a two-operand result does (`operation::answer_contacts`:
   three records touching pairwise at a point pinch the space outside). Tolerance tests on edges

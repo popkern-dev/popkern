@@ -51,3 +51,68 @@ fn a_triangle_collinear_in_uv_adds_only_its_slivers() {
         );
     }
 }
+
+/// Sphere, cylinder and cone primitives far from the origin, their
+/// meshes reading their faces, measure their closed forms to 1e-10
+/// relative (PK-1186: the exact term stands in only for a misread face).
+#[test]
+fn analytic_faces_far_from_the_origin_read_their_exact_volume() {
+    let tol = Tolerance::default();
+    let pi = std::f64::consts::PI;
+    let place = |b: BRep| {
+        b.transform(&Transform3::rotation_x(0.7))
+            .and_then(|b| b.transform(&Transform3::translation(100.0, -60.0, 35.0)))
+            .expect("placed")
+    };
+    let cases = [
+        (BRep::sphere(3.0, tol).expect("ball"), 4.0 / 3.0 * pi * 27.0),
+        (BRep::cylinder(1.5, 4.0, tol).expect("rod"), pi * 2.25 * 4.0),
+        (
+            BRep::cone(2.0, 5.0, tol).expect("cone"),
+            pi * 4.0 * 5.0 / 3.0,
+        ),
+    ];
+    for (body, want) in cases {
+        let v = crate::body_volume(&place(body), &tol).expect("volume");
+        assert!((v - want).abs() < 1e-10 * want, "volume {v} for {want}");
+    }
+}
+
+/// A measuring mesh that covers part of a sphere face twice (as the
+/// fallback grid did beside a pole) moves the mesh's quadrature, and the
+/// face takes its exact term, which reads only the mesh's orientation
+/// (PK-1186).
+#[test]
+fn a_double_covering_mesh_leaves_the_exact_term() {
+    let tol = Tolerance::default();
+    let body = BRep::sphere(3.0, tol)
+        .and_then(|b| b.transform(&Transform3::translation(5.0, 5.0, 13.0)))
+        .expect("ball");
+    let mut mesh = crate::body::tessellate_fine(&body).expect("mesh");
+    let fm = &mut mesh.face_meshes[0];
+    let extra: Vec<[usize; 3]> = fm
+        .triangles
+        .iter()
+        .take(fm.triangles.len() / 10)
+        .copied()
+        .collect();
+    fm.triangles.extend(extra);
+    let fm = &mesh.face_meshes[0];
+    let sof = body
+        .faces
+        .get(fm.face)
+        .and_then(|f| f.surface.as_ref())
+        .expect("surface");
+    let mesh_area = || face_quadrature(&body, fm, Some(&sof.geometry), 1e-4, Integrand::Area);
+    let exact = analytic::misread_face_term(&body, fm, sof, &mesh_area).expect("exact term");
+    let quad = face_quadrature(&body, fm, Some(&sof.geometry), 1e-4, Integrand::Volume);
+    let want = 4.0 / 3.0 * std::f64::consts::PI * 27.0;
+    assert!(
+        (exact.abs() - want).abs() < 1e-10 * want,
+        "exact {exact} for {want}"
+    );
+    assert!(
+        (quad.abs() - want).abs() > 1e-3 * want,
+        "quadrature {quad} unmoved"
+    );
+}
