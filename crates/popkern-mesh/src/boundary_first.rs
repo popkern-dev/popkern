@@ -175,7 +175,7 @@ pub(crate) fn tessellate_face_boundary_first(
                 let (period_u, period_v) = surface.parameter_periodicity();
                 // Chart-degenerate samples (poles, apexes); sphere pole crossings.
                 let mut u_degenerate =
-                    boundary_first_unwrap::chart_degenerate(&ring, surface, period_u);
+                    boundary_first_unwrap::chart_degenerate(&ring, surface, period_u, options);
                 resolve_pole_crossings(&mut ring, &mut u_degenerate, surface, orientation);
                 if let Some(p) = period_u
                     && !boundary_first_unwrap::unwrap_dir(

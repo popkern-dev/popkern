@@ -180,7 +180,8 @@ fn a_rod_round_a_balls_pole_unites_at_every_seam_turn() {
 /// relative, and its volume the closed form's to 1e-6: the measuring
 /// mesh beside the pole read it up to 4.8e-2 off from 3e-5 down (the
 /// sphere face on the fallback grid), and a sphere face's volume term
-/// is now exact from its area and its loops' vector area (PK-1186).
+/// is now exact from its area and its loops' vector area (PK-1186);
+/// the sphere face now meshes once at both chords (PK-1188).
 #[test]
 fn a_rod_beside_a_balls_pole_unites_at_every_seam_turn() {
     let tol = Tolerance::default();
@@ -211,6 +212,49 @@ fn a_rod_beside_a_balls_pole_unites_at_every_seam_turn() {
                 );
             }
             assert_right(&body, delta, seam);
+            assert_meshes_its_sphere(&body, sphere, delta, seam);
+        }
+    }
+}
+
+/// The sphere face's mesh, at the default chord and the measuring
+/// mesh's, covers it once (PK-1188): its facet area is the exact area
+/// less the facets' chord deficit, under 3e-3 relative. A ring
+/// charting its samples just past the pole's own row, where its turn
+/// past the pole was still 0.33 rad, folded against the pole row and
+/// the face fell to the fallback grid, its mesh 1.7e-2 over.
+fn assert_meshes_its_sphere(body: &BRep, sphere: f64, delta: f64, seam: f64) {
+    let fine = popkern_mesh::TessellationOptions {
+        chord_height: 0.001,
+        min_subdivisions: 8,
+        max_subdivisions: 128,
+        ..Default::default()
+    };
+    for options in [popkern_mesh::TessellationOptions::default(), fine] {
+        let mesh = popkern_mesh::tessellate(body, &options).expect("mesh");
+        for fm in &mesh.face_meshes {
+            let on_sphere = body
+                .faces
+                .get(fm.face)
+                .and_then(|f| f.surface.as_ref())
+                .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Sphere { .. }));
+            if !on_sphere {
+                continue;
+            }
+            let area: f64 = fm
+                .triangles
+                .iter()
+                .map(|t| {
+                    let [a, b, c] = t.map(|i| fm.vertices[i].position);
+                    0.5 * (b - a).cross(&(c - a)).length()
+                })
+                .sum();
+            let rel = (area - sphere) / sphere;
+            assert!(
+                (-3e-3..1e-6).contains(&rel),
+                "delta {delta} seam {seam} chord {}: sphere mesh {area} for {sphere}",
+                options.chord_height
+            );
         }
     }
 }

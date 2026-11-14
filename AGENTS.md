@@ -522,7 +522,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   cone face whose measuring mesh misread it (its quadrature area past
   the pcurves' band from theirs) takes its exact divergence term from
   its area and its loops' vector area, the mesh giving only signs
-  (`body_quadrature_analytic.rs`, PK-1186); and the
+  (`body_quadrature_analytic.rs`, PK-1186); a mesh ring passing
+  beside a sphere's pole within a twentieth of the chord height charts
+  its samples within half the chord height of the pole at the pole, so
+  the pole row's run meets the curve past its turn
+  (`boundary_first_unwrap.rs`, PK-1188); and the
   partition's selection answers
   contacts as a two-operand result does (`operation::answer_contacts`:
   three records touching pairwise at a point pinch the space outside). Tolerance tests on edges
