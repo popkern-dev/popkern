@@ -81,11 +81,9 @@ pub(super) fn resolve_floating_and_cluster(
             // the union declined). The sample one step inside the run
             // carries the body's side; off-border endpoints cluster
             // identically either way.
-            let n = emb.uv.len();
-            let s_idx = if n > 2 { 1 } else { 0 };
-            let e_idx = if n > 2 { n - 2 } else { n - 1 };
-            u_start.insert(h, emb.uv[s_idx].0);
-            u_end.insert(h, emb.uv[e_idx].0);
+            let (us, ue) = end_keys(&emb.uv, period);
+            u_start.insert(h, us);
+            u_end.insert(h, ue);
         }
         for &fi in bumped {
             for &h in &components[floating[fi]] {
@@ -159,6 +157,31 @@ pub(super) fn resolve_floating_and_cluster(
             .map(|(bp, (a, d))| (bp, a, d))
             .collect()
     };
+    // The seam's low border copy: the face's chart domain runs from it
+    // a period up. How far a config leaves the floating members' runs
+    // outside that window, summed over the members (0 without a seam).
+    let low_border = seam_hes
+        .iter()
+        .filter_map(|h| sub.embeddings.get(h))
+        .flat_map(|e| e.uv.iter().map(|p| p.0))
+        .reduce(f64::min);
+    let stray_of = |members: &[usize], trial: &BTreeSet<usize>| -> f64 {
+        let Some(lo) = low_border else {
+            return 0.0;
+        };
+        members
+            .iter()
+            .map(|&fi| {
+                let bump = if trial.contains(&fi) { period } else { 0.0 };
+                components[floating[fi]]
+                    .iter()
+                    .filter_map(|h| sub.embeddings.get(h))
+                    .flat_map(|e| e.uv.iter())
+                    .map(|p| (lo - (p.0 + bump)).max(p.0 + bump - lo - period).max(0.0))
+                    .fold(0.0, f64::max)
+            })
+            .sum()
+    };
     let mut exhausted = false;
     let bumped: BTreeSet<usize> = {
         let mut bumped: BTreeSet<usize> = BTreeSet::new();
@@ -176,6 +199,12 @@ pub(super) fn resolve_floating_and_cluster(
                 .collect();
             let n_configs = 1usize << members.len();
             let mut group_ok = false;
+            // Among balanced configs, the one whose components lie
+            // between the seam's border copies: two can balance (a ring
+            // crossing the seam 2.7e-6 beside a pole and again far off,
+            // its arc between the crossings balanced on either copy at
+            // both nodes), and the face's chart domain decides (PK-1185).
+            let mut chosen: Option<(f64, BTreeSet<usize>)> = None;
             for config in 0..n_configs {
                 let mut trial = bumped.clone();
                 for (bit, &fi) in members.iter().enumerate() {
@@ -185,10 +214,19 @@ pub(super) fn resolve_floating_and_cluster(
                 }
                 let clustered = cluster_with(&trial);
                 if balanced_at(&clustered, &group_nodes) {
-                    bumped = trial;
+                    let stray = stray_of(members, &trial);
+                    let inside = stray <= period * 1e-6;
+                    if chosen.as_ref().is_none_or(|c| stray < c.0) {
+                        chosen = Some((stray, trial));
+                    }
                     group_ok = true;
-                    break;
+                    if inside {
+                        break;
+                    }
                 }
+            }
+            if let Some((_, trial)) = chosen {
+                bumped = trial;
             }
             // No balanced config for this group: the historical JOINT
             // search declared the whole chart exhausted in this state
@@ -244,12 +282,9 @@ pub(super) fn resolve_floating_and_cluster(
         let mut u_start: BTreeMap<usize, f64> = BTreeMap::new();
         let mut u_end: BTreeMap<usize, f64> = BTreeMap::new();
         for &h in hes {
-            let emb = &sub.embeddings[&h];
-            let n = emb.uv.len();
-            let s_idx = if n > 2 { 1 } else { 0 };
-            let e_idx = if n > 2 { n - 2 } else { n - 1 };
-            u_start.insert(h, emb.uv[s_idx].0);
-            u_end.insert(h, emb.uv[e_idx].0);
+            let (us, ue) = end_keys(&sub.embeddings[&h].uv, period);
+            u_start.insert(h, us);
+            u_end.insert(h, ue);
         }
         Some(cluster_branches(
             hes, ends, &u_start, &u_end, period, &sub.poles, wrap_nodes, v_split,
@@ -353,4 +388,33 @@ pub(super) fn resolve_floating_and_cluster(
     }
     sub.start_bp = start_bp;
     sub.end_bp = end_bp;
+}
+
+/// The u a run's start and end cluster by: the sample one step inside
+/// the run, which carries the body's side of an end lying on the chart
+/// border (see `base_maps`). The run's samples are continued from one
+/// another in steps of at most a quarter period
+/// (`chart_embedding_follow`), so an end a whole period off its inner
+/// sample is the exact-seeded border copy that sample corrects; but a
+/// first step turning between a quarter and three quarters of a period
+/// is the run sweeping round a pole within the step (a ring passing
+/// 1e-4 round a sphere's pole, its end on the seam 2e-3 from the pole,
+/// turned 3.19 rad by its next sample), whose inner sample no longer
+/// reads the end's side, and the end's own u keys it (PK-1185: the
+/// sample put the ring's low-border end on the high branch, and the
+/// sphere face walked its cap and its rest as one orbit).
+fn end_keys(uv: &[(f64, f64)], period: f64) -> (f64, f64) {
+    let n = uv.len();
+    if n <= 2 {
+        return (uv[0].0, uv[n - 1].0);
+    }
+    let key = |end: f64, inner: f64| {
+        let turn = (inner - end).abs();
+        if turn > 0.25 * period && turn < 0.75 * period {
+            end
+        } else {
+            inner
+        }
+    };
+    (key(uv[0].0, uv[1].0), key(uv[n - 1].0, uv[n - 2].0))
 }

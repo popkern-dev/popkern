@@ -10,6 +10,7 @@
 //! retired the seam's stub to the pole with the pole.
 
 use popkern_bool::{BoolOperation, boolean};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Transform3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -125,6 +126,88 @@ fn a_rod_round_a_turned_balls_pole_unites_with_it() {
             let body =
                 united(delta, turn).unwrap_or_else(|e| panic!("delta {delta} turn {turn}: {e}"));
             assert_right(&body, delta, turn);
+        }
+    }
+}
+
+/// The ball alone turned by `seam` about its axis (its chart seam at
+/// `seam` from the rod's side of the pole), the rod in place: the turns
+/// above move ball and rod together and so leave the seam at 0, −0.4
+/// and −2.0 from the rod.
+fn united_at_seam(delta: f64, seam: f64) -> Result<BRep, popkern_bool::BoolError> {
+    let tol = Tolerance::default();
+    let ball = BRep::sphere(3.0, tol)
+        .and_then(|b| b.transform(&Transform3::rotation_z(seam)))
+        .and_then(|b| b.transform(&Transform3::translation(5.0, 5.0, 13.0)))
+        .expect("ball");
+    let rod = BRep::cylinder(1.0, 5.5, tol)
+        .and_then(|b| b.transform(&Transform3::translation(6.0 + delta, 5.0, 8.0)))
+        .expect("rod");
+    boolean(BoolOperation::Union, ball, rod, tol, None)
+}
+
+/// Sixteen seam turns, none on a symmetry of the scene.
+fn seams() -> impl Iterator<Item = f64> {
+    (0..16).map(|k| k as f64 * std::f64::consts::FRAC_PI_8 + 0.05)
+}
+
+/// Round the pole at every seam turn (PK-1185): the ring's sphere
+/// pcurve was left 1e-2 off where uniform doubling could not move it
+/// (refined locally only after a doubling helped, now also on a chart
+/// with a singular row, its stall rule waiting while a straying
+/// interval still turns past a quarter period), and the chart walk
+/// misread the seam beside the pole (its border window's slack a chart
+/// fraction where the chart is stretched; a run end keyed by a sample
+/// the sweep had turned half a period) and kept the polar cap or
+/// declined. Every union is valid, its volume the closed form's to 1e-6.
+#[test]
+fn a_rod_round_a_balls_pole_unites_at_every_seam_turn() {
+    for delta in [-2e-6, -1e-4, -1e-3] {
+        for seam in seams() {
+            let body = united_at_seam(delta, seam)
+                .unwrap_or_else(|e| panic!("delta {delta} seam {seam}: {e}"));
+            assert_right(&body, delta, seam);
+        }
+    }
+}
+
+/// Beside the pole at every seam turn (PK-1185): the seam crossing the
+/// ring both beside the pole and far off misfit its border window (the
+/// window's own bound read at the stretched end) and kept the cap, or
+/// placed the arc between the crossings a period off on a balanced but
+/// wrong branch and served an invalid body. Every union is valid with
+/// the closed-form areas of its sphere and cylinder faces to 1e-7
+/// relative (the volume the measuring mesh reads beside the pole is
+/// PK-1186's).
+#[test]
+fn a_rod_beside_a_balls_pole_unites_at_every_seam_turn() {
+    let tol = Tolerance::default();
+    let pi = std::f64::consts::PI;
+    for delta in [1e-3, 1e-4, 1e-5, 3e-6, 2e-6] {
+        let d = 1.0 + delta;
+        let rho2 = |r: f64, t: f64| d * d + r * r + 2.0 * d * r * t.cos();
+        let sphere = 36.0 * pi
+            - integrate(0.0, 1.0, 4, |r| {
+                r * integrate(0.0, 2.0 * pi, 8, |t| 3.0 / (9.0 - rho2(r, t)).sqrt())
+            });
+        let wall = integrate(0.0, 2.0 * pi, 8, |t| 5.0 - (9.0 - rho2(1.0, t)).sqrt());
+        for seam in seams() {
+            let body = united_at_seam(delta, seam)
+                .unwrap_or_else(|e| panic!("delta {delta} seam {seam}: {e}"));
+            let issues = body.validate_all();
+            assert!(issues.is_empty(), "delta {delta} seam {seam}: {issues:?}");
+            for (fh, f) in body.faces.iter() {
+                let want = match f.surface.as_ref().map(|s| &s.geometry) {
+                    Some(SurfaceGeometry::Sphere { .. }) => sphere,
+                    Some(SurfaceGeometry::Cylinder { .. }) => wall,
+                    _ => pi,
+                };
+                let area = popkern_measure::face_area(&body, fh, &tol).expect("area");
+                assert!(
+                    (area - want).abs() < 1e-7 * want,
+                    "delta {delta} seam {seam}: area {area} for {want}"
+                );
+            }
         }
     }
 }
