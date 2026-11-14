@@ -53,10 +53,61 @@ pub(crate) fn boolean_under(
         }
     }
 
+    // An operand thinner than the tolerance has no inside at its
+    // resolution: the result is the other operand or empty (PK-1131),
+    // reported as a sub-tolerance feature.
+    // Each operand's face boxes, built once for the tests here and the
+    // intersection stage (PK-1161).
+    let boxes = [
+        crate::face_bounding_boxes(&a),
+        crate::face_bounding_boxes(&b),
+    ];
+    for (operand, body) in [&a, &b].into_iter().enumerate() {
+        if let Some(thin) = crate::sub_tolerance::thin_operand_in(body, &boxes[operand], &tol) {
+            crate::sub_tolerance::record(crate::sub_tolerance::SubToleranceFeature {
+                kind: crate::sub_tolerance::SubToleranceKind::OperandVanished { operand },
+                location: thin.location,
+                measured_width: thin.width,
+                tolerance: tol.linear(),
+            });
+            return Ok(crate::sub_tolerance::resolve(op, &a, &b, operand));
+        }
+    }
+
     // No perturbation retry: plan Stage 7d retired it after it fired on
     // no boolean over three whole-suite runs (`boolean_with_perturbation`
     // remains an explicit opt-in).
-    let mut result = operation::execute_boolean_with_policy(op, &a, &b, &tol, policy)?;
+    let mut result = operation::execute_boolean_with_boxes(
+        op,
+        &a,
+        &b,
+        &tol,
+        policy,
+        Some([&boxes[0], &boxes[1]]),
+    )?;
+    // A result thinner than the tolerance everywhere has no inside
+    // either (a lens a tolerance deep): it is empty, and reported. A
+    // union holds both operands, each found above to have an inside, so
+    // it has one too and is not tested (PK-1161: the test cost every
+    // union a tenth of a millisecond on a 50-face prism).
+    if op != BoolOperation::Union
+        && !result.faces.is_empty()
+        && let Some(thin) = crate::sub_tolerance::thin_operand(&result, &tol)
+    {
+        crate::sub_tolerance::record(crate::sub_tolerance::SubToleranceFeature {
+            kind: crate::sub_tolerance::SubToleranceKind::ResultVanished,
+            location: thin.location,
+            measured_width: thin.width,
+            tolerance: tol.linear(),
+        });
+        return Ok(BRep::new(tol));
+    }
+    if op == BoolOperation::Union
+        && let Some(slot) =
+            crate::sub_tolerance::closed_slot_in((&a, &boxes[0]), (&b, &boxes[1]), &tol)
+    {
+        crate::sub_tolerance::record_closed_slots(&[slot], &tol);
+    }
     if let Some(ctx) = tracking {
         entity_naming_result::name_result(&mut result, &a, &[&b], ctx, &tol);
     }
@@ -79,6 +130,45 @@ pub fn boolean_bodies(
     tracking: Option<&mut TrackingContext>,
     options: &crate::BoolOptions,
 ) -> Result<Vec<BRep>, BoolError> {
+    if names_after_glue(options, tracking.as_deref()) {
+        return boolean_one(op, a, b, tol, tracking, options).map(|body| vec![body]);
+    }
     let pieces = boolean_under(op, a, b, tol, tracking, options.non_manifold);
     crate::split_serve::serve_bodies(pieces, options.non_manifold, &tol)
+}
+
+/// [`crate::boolean_with_options`]: the pipeline's answer served as one
+/// body under `options`, named after `a` and `b` under `tracking`.
+pub(crate) fn boolean_one(
+    op: BoolOperation,
+    a: BRep,
+    b: BRep,
+    tol: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    options: &crate::BoolOptions,
+) -> Result<BRep, BoolError> {
+    let policy = options.non_manifold;
+    if names_after_glue(options, tracking.as_deref())
+        && let Some(ctx) = tracking
+    {
+        // Naming scheme 6 (PK-1160): a general result is named once its
+        // pieces are glued, so the vertices and edges the glue makes
+        // (a contact point, the pieces of an edge split there, a
+        // contact curve) are named with the rest; scheme 5 named the
+        // pieces and left those unnamed.
+        let (target, tool) = (a.clone(), b.clone());
+        let pieces = boolean_under(op, a, b, tol, None, policy);
+        let mut body = crate::split_serve::serve_one(pieces, policy, &tol)?;
+        entity_naming_result::name_result(&mut body, &target, &[&tool], ctx, &tol);
+        return Ok(body);
+    }
+    let pieces = boolean_under(op, a, b, tol, tracking, policy);
+    crate::split_serve::serve_one(pieces, policy, &tol)
+}
+
+/// Whether the result is named after the general policy's glue: under
+/// that policy, at naming scheme 6 or later.
+fn names_after_glue(options: &crate::BoolOptions, tracking: Option<&TrackingContext>) -> bool {
+    options.non_manifold == options::NonManifoldPolicy::General
+        && tracking.is_some_and(|c| c.naming_scheme >= 6)
 }

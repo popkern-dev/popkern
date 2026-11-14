@@ -1,7 +1,7 @@
 //! Line-cone intersection algorithm.
 
 use crate::geometry::analytic_surfaces::orthonormal_basis;
-use crate::geometry::intersection::SurfaceCurveIntersection;
+use crate::geometry::intersection::{SurfaceCurveIntersection, coordinate_scale};
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use popkern_math::PortableMath;
@@ -52,7 +52,9 @@ pub(crate) fn intersect_line_cone(
     // Threshold for treating as degenerate quadratic
     let eps2 = tolerance.linear() * tolerance.linear();
 
-    let candidates: Vec<f64> = if qa.abs() < eps2 {
+    let candidates: Vec<f64> = if qa < 0.0 && qa.abs() >= eps2 {
+        crossing_or_touch(&w, &d, cone_half_angle, (qa, qb, qc), cone_apex, tolerance)
+    } else if qa.abs() < eps2 {
         // Degenerate: linear in t (or no solution)
         if qb.abs() < eps2 {
             // qc must also be ~0 for a solution; no isolated t
@@ -123,6 +125,50 @@ pub(crate) fn intersect_line_cone(
     results
 }
 
+/// The line parameters where a line meeting the cone across its
+/// outside (`qa < 0`: the cone's form `F = (Q·A)² − cos²α|Q|²` peaks
+/// along the line, positive inside) meets it: none when the peak stays
+/// outside past rounding, the peak alone when it reaches inside by less
+/// than the tangency band (a touch), else the two crossings. Decided by
+/// distance, as the cylinder decides it (PK-789): the peak's depth is
+/// `F / |∇F|`, `|∇F| = 2|Q| sin α cos α` on the cone. The discriminant
+/// band it replaces (`linear²` in the form's units, which grow as the
+/// square of the scale) read a plate edge touching a kilometre dimple's
+/// rim as a miss and the cut declined (PK-1143).
+fn crossing_or_touch(
+    w: &Vec3,
+    d: &Vec3,
+    half_angle: f64,
+    (qa, qb, qc): (f64, f64, f64),
+    apex: &Point3,
+    tolerance: &Tolerance,
+) -> Vec<f64> {
+    let t_peak = -qb / (2.0 * qa);
+    let q = *w + *d * t_peak;
+    let peak = qa * t_peak * t_peak + qb * t_peak + qc;
+    let grad = 2.0 * q.length() * half_angle.psin() * half_angle.pcos();
+    let scale = coordinate_scale(&[*apex + *w, *apex]);
+    if grad <= f64::EPSILON * scale {
+        // The peak at the apex: no tangent plane to measure from.
+        let disc = qb * qb - 4.0 * qa * qc;
+        return if disc < 0.0 {
+            Vec::new()
+        } else {
+            let root = disc.sqrt();
+            vec![(-qb + root) / (2.0 * qa), (-qb - root) / (2.0 * qa)]
+        };
+    }
+    let depth = peak / grad;
+    if depth < -64.0 * f64::EPSILON * scale {
+        Vec::new()
+    } else if depth < tolerance.tangency_band(scale) {
+        vec![t_peak]
+    } else {
+        let root = (qb * qb - 4.0 * qa * qc).max(0.0).sqrt();
+        vec![(-qb + root) / (2.0 * qa), (-qb - root) / (2.0 * qa)]
+    }
+}
+
 /// Returns true if `u` is within the given u_range (handles full-circle wrap-around).
 fn u_in_range(u: f64, u_range: (f64, f64), angular_tol: f64) -> bool {
     let tau = std::f64::consts::TAU;
@@ -149,297 +195,5 @@ impl TVal for SurfaceCurveIntersection {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::f64::consts::{FRAC_PI_4, TAU};
-
-    fn default_tol() -> Tolerance {
-        Tolerance::default()
-    }
-
-    /// Cone: apex at origin, axis = +Z, half_angle = π/4 (45°)
-    fn std_cone() -> (Point3, Vec3, f64) {
-        (
-            Point3::new(0.0, 0.0, 0.0),
-            Vec3::new(0.0, 0.0, 1.0),
-            FRAC_PI_4,
-        )
-    }
-
-    #[test]
-    fn secant_two_intersections() {
-        // Line through the cone at two points.
-        // Cone: apex=(0,0,0), axis=Z, half_angle=π/4 → r = v at height v.
-        // At v=1, r=1; at v=2, r=2.
-        // Line: origin=(−3, 1, 1), direction=(1, 0, 0).
-        // Cone condition: x² + y² = z² (since tan(π/4)=1).
-        // x² + 1 = 1 → x = 0, but we want intersections with the line y=1, z=1:
-        // (x²+ 1) = 1 → x=0 only, that's one point. Let's use a better setup.
-        //
-        // Line: origin=(−3, 0, 2), dir=(1, 0, 0), z=2 throughout.
-        // Cone at z=2: r=2. So intersection where x²+0²=4 → x=±2.
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(-3.0, 0.0, 2.0);
-        let dir = Vec3::new(1.0, 0.0, 0.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (-10.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        assert_eq!(
-            results.len(),
-            2,
-            "expected 2 intersections, got {:?}",
-            results
-        );
-        // Verify the points lie on the cone: x²+y²=z²
-        for r in &results {
-            if let SurfaceCurveIntersection::Point { point, .. } = r {
-                let radial = (point.x * point.x + point.y * point.y).sqrt();
-                assert!(
-                    (radial - point.z.abs()).abs() < 1e-6,
-                    "point not on cone: {:?}",
-                    point
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn tangent_one_intersection() {
-        // Line tangent to cone surface.
-        // Cone apex=(0,0,0), axis=Z, half_angle=π/4.
-        // Line in the plane y=1, z=1: origin=(0,1,1), dir=(1,0,0).
-        // Cone at z=1: r=1. y=1 is exactly the tangent point at x=0, y=1.
-        // x²+1 = 1 → x=0 only (disc=0).
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(0.0, 1.0, 1.0);
-        let dir = Vec3::new(1.0, 0.0, 0.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (-10.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        assert_eq!(
-            results.len(),
-            1,
-            "expected 1 tangent intersection, got {:?}",
-            results
-        );
-    }
-
-    #[test]
-    fn miss_no_intersection() {
-        // Line that misses the cone entirely.
-        // Cone at z=1: r=1. Line at z=1, y=3 — too far from axis.
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(-5.0, 3.0, 1.0);
-        let dir = Vec3::new(1.0, 0.0, 0.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (-10.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        assert!(
-            results.is_empty(),
-            "expected no intersection, got {:?}",
-            results
-        );
-    }
-
-    #[test]
-    fn behind_apex_filtered() {
-        // Line intersects the backward nappe (v < 0), should be filtered.
-        // Line at z=−1: origin=(−2, 0, −1), dir=(1,0,0).
-        // z=−1 < 0 → v = Q·Z = −1 < 0 → filtered.
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(-2.0, 0.0, -1.0);
-        let dir = Vec3::new(1.0, 0.0, 0.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (-10.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        assert!(
-            results.is_empty(),
-            "expected no intersection (behind apex), got {:?}",
-            results
-        );
-    }
-
-    #[test]
-    fn through_apex() {
-        // Line through the apex — should produce either 0 or 1 result at the apex.
-        // Line: origin=(0,0,−1), dir=(0,0,1) along axis. At apex Q·A=0 → tangential.
-        // Degenerate: the line is along the axis. All points on axis satisfy Q perpendicular=0,
-        // but only at apex itself does the cone equation hold (v=0, r=0).
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(0.0, 0.0, -1.0);
-        let dir = Vec3::new(0.0, 0.0, 1.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (-10.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        // Acceptable: 0 or 1 intersection at the apex (v=0)
-        assert!(
-            results.len() <= 1,
-            "expected 0 or 1 apex intersections, got {:?}",
-            results
-        );
-    }
-
-    #[test]
-    fn surface_params_match_point_at() {
-        use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(-3.0, 0.0, 2.0);
-        let dir = Vec3::new(1.0, 0.0, 0.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (-10.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        let cone = SurfaceGeometry::Cone {
-            apex,
-            axis,
-            half_angle: ha,
-        };
-        for r in &results {
-            if let SurfaceCurveIntersection::Point { point, u, v, .. } = r {
-                let surface_pt = cone.point_at(*u, *v);
-                assert!(
-                    point.distance_to(&surface_pt) < 1e-5,
-                    "surface params don't reproduce point: pt={:?}, surface_pt={:?}, u={}, v={}",
-                    point,
-                    surface_pt,
-                    u,
-                    v
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn degenerate_linear_case() {
-        // When qa ≈ 0 (line lies on the cone surface), we get the linear case (line 56-60).
-        // A line along a generator of the cone should produce a degenerate quadratic.
-        let (apex, axis, ha) = std_cone();
-        // Generator direction: at angle=0, the generator is (sin(ha), 0, cos(ha)) = (1/sqrt2, 0, 1/sqrt2)
-        let s = ha.sin();
-        let c = ha.cos();
-        let dir = Vec3::new(s, 0.0, c);
-        let origin = apex; // start at apex
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (0.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        // May return 0 or more points; the degenerate path was exercised
-        let _ = results;
-    }
-
-    #[test]
-    fn t_range_filters_cone() {
-        // Line intersects cone but t_range excludes the hits (line 83)
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(-3.0, 0.0, 2.0);
-        let dir = Vec3::new(1.0, 0.0, 0.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (10.0, 20.0), // far beyond the intersection points
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn v_range_filters_cone() {
-        // Line intersects cone at z=2 but v_range excludes it (line 96)
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(-3.0, 0.0, 2.0);
-        let dir = Vec3::new(1.0, 0.0, 0.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (-10.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (0.0, TAU),
-            (5.0, 10.0), // v_range excludes v=2
-            &default_tol(),
-        );
-        assert!(results.is_empty());
-    }
-
-    #[test]
-    fn u_range_filters_cone() {
-        // Line intersects cone but u_range excludes the azimuth (line 108)
-        let (apex, axis, ha) = std_cone();
-        let origin = Point3::new(-3.0, 0.0, 2.0);
-        let dir = Vec3::new(1.0, 0.0, 0.0);
-        let results = intersect_line_cone(
-            &origin,
-            &dir,
-            (-10.0, 10.0),
-            &apex,
-            &axis,
-            ha,
-            (1.0, 2.0), // restricted u_range
-            (0.0, f64::INFINITY),
-            &default_tol(),
-        );
-        // Should filter out at least some intersections
-        assert!(results.len() < 2);
-    }
-}
+#[path = "line_cone_tests.rs"]
+mod tests;

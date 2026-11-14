@@ -6,6 +6,8 @@ use super::{IntersectionRecord, endpoint_of, set_endpoint};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
+#[path = "intersect_consolidate_covered.rs"]
+mod covered;
 #[path = "intersect_consolidate_gap.rs"]
 mod gap;
 
@@ -116,75 +118,7 @@ pub(super) fn consolidate_records(
                 }
             }
         }
-        // COVERED records: junction-adjacent marching can deliver a
-        // span AND overlapping micro-fragments of the same span from
-        // different seeds (measured on the rotated torus × torus
-        // union: pair (9v1,7v1) carried [0→0.025], [0→0.003] and
-        // [0.005→0.025] of one junction arc — the walk chewed the
-        // overlap into duplicate edge pairs and stranded halves).
-        // A record whose start, mid and end all lie ON another
-        // record's sampled polyline, with smaller-or-equal extent, is
-        // duplicate authority and drops.
-        for a in 0..idxs.len() {
-            if drop[idxs[a]] {
-                continue;
-            }
-            let poly_a: Vec<popkern_core::geometry::Point3> = {
-                let c = &records[idxs[a]].curve.curve_3d;
-                let (t0, t1) = c.parameter_range();
-                (0..=32)
-                    .map(|k| c.point_at(t0 + (t1 - t0) * k as f64 / 32.0))
-                    .collect()
-            };
-            // Arc-length position of `p`'s closest on-polyline witness
-            // within the gate, or None when off the polyline.
-            let arc_pos = |p: &popkern_core::geometry::Point3| -> Option<f64> {
-                let mut best: Option<(f64, f64)> = None; // (dist, arc)
-                let mut acc = 0.0;
-                for w in poly_a.windows(2) {
-                    let d = w[1] - w[0];
-                    let l = d.dot(&d).max(1e-300).sqrt();
-                    let t = ((*p - w[0]).dot(&d) / (l * l)).clamp(0.0, 1.0);
-                    let q = w[0] + d * t;
-                    let dist = q.distance_to(p);
-                    if dist < gate && best.is_none_or(|(bd, _)| dist < bd) {
-                        best = Some((dist, acc + t * l));
-                    }
-                    acc += l;
-                }
-                best.map(|(_, arc)| arc)
-            };
-            for b in 0..idxs.len() {
-                if a == b || drop[idxs[b]] {
-                    continue;
-                }
-                if info[b].3 > info[a].3 + gate {
-                    continue;
-                }
-                let (Some(p0), Some(p2), Some(p1)) = (
-                    arc_pos(&info[b].0),
-                    arc_pos(&info[b].2),
-                    arc_pos(&info[b].1),
-                ) else {
-                    continue;
-                };
-                if !on_curve(idxs[a], &info[b].2) {
-                    continue;
-                }
-                // A duplicate OVERLAPS the polyline: its projections
-                // spread along it comparably to its own extent. A
-                // CHAINED continuation shorter than the gate projects
-                // all three points onto one clamped endpoint (spread
-                // ≈ 0) — dropping it severed a seam-sliver record and
-                // stranded the assembly (measured: the spring-grind
-                // section arc's 5.6e-4 piece across the wall seam,
-                // PK-443).
-                let spread = p0.max(p1).max(p2) - p0.min(p1).min(p2);
-                if spread + tolerance.linear() >= 0.5 * info[b].3 {
-                    drop[idxs[b]] = true;
-                }
-            }
-        }
+        covered::drop_covered(records, idxs, &info, gate, &on_curve, &mut drop, tolerance);
         // Loop-level dedupe: the walker can deliver the SAME closed
         // intersection loop several times, split at different
         // parameter offsets (piecewise dedupe can't see those).

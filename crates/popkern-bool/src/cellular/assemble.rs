@@ -127,7 +127,7 @@ pub(crate) fn cellular_assemble(
     // directions. Judged at the tolerance: `assemble_span_unify.rs`.
     let mut spans = super::assemble_span_unify::SpanRegistry::new(
         tolerance.linear() * 10.0,
-        tolerance.linear(),
+        tolerance.linear_reach(),
     );
     let span_points = |key: usize| super::assemble_edge_geometry::span_sample_points(graph, key);
     for (&key, &sample_ghe) in &canonical_edges {
@@ -135,19 +135,20 @@ pub(crate) fn cellular_assemble(
             continue;
         }
         let (nodes, pa, pb, mid) = span_points(key);
-        if let Some(prior_key) = spans.prior_for(graph, key, (nodes, pa, pb, mid)) {
+        if let Some(prior_key) = spans.prior_for(graph, operands, key, (nodes, pa, pb, mid)) {
             // Align directions: the two graph pairs may run opposite
             // ways along the same span. Handing both sides the same
             // forward half-edge produced direction conflicts and the
             // resolver minted duplicates — undoing the unification.
             let prior_pair = edge_he_map[&prior_key];
-            // Compare POSITIONS, not node indices: the unified pairs
+            // Compared by POSITIONS, not node indices: the unified pairs
             // may reference near-coincident but distinct nodes.
-            let p_key = graph.nodes[graph.half_edges[key].origin].position;
-            let p_prior_start = graph.nodes[graph.half_edges[prior_key].origin].position;
-            let p_prior_end =
-                graph.nodes[graph.half_edges[graph.half_edges[prior_key].twin].origin].position;
-            let same_dir = p_key.distance_to(&p_prior_start) <= p_key.distance_to(&p_prior_end);
+            let same_dir = super::assemble_span_unify::runs_same_way(
+                graph,
+                key,
+                prior_key,
+                tolerance.linear() * 10.0,
+            );
             let pair = if same_dir {
                 prior_pair
             } else {

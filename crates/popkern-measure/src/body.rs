@@ -84,8 +84,9 @@ pub(crate) fn tessellate_fine(brep: &BRep) -> Result<popkern_mesh::TriMesh, Meas
     // Capped at the historical 0.001: the quadrature's trim slivers
     // are not chord-independent yet (PK-818), and a 200 mm tee read
     // 1.3e-4 of its volume at the coarser relative chord.
+    let cap = 0.001 * (diagonal / crate::body_origin::TUNED_EXTENT).max(1.0);
     let chord = if diagonal > 0.0 {
-        (FINE_CHORD_PER_DIAGONAL * diagonal).min(0.001)
+        (FINE_CHORD_PER_DIAGONAL * diagonal).min(cap)
     } else {
         0.001
     };
@@ -141,6 +142,20 @@ pub fn body_volume(brep: &BRep, tol: &Tolerance) -> Result<f64, MeasureError> {
             popkern_core::topology::BodyKind::Empty,
         ],
     )?;
+    // The divergence terms r · n are taken about the origin; for a body
+    // far from it they are large and cancel to the small volume, and
+    // the quadrature's error on them swamps it (a pole cap 1e-4 high at
+    // z = 5 read 4.6 times its volume, PK-1135). About a point inside
+    // the body's box the sum is the same (∮ c · n dA = 0 on a closed
+    // boundary) without the cancellation: measure the body moved there.
+    if let Some(offset) = crate::body_origin::far_from_origin(brep) {
+        let moved = brep
+            .transform(&popkern_core::geometry::Transform3::translation(
+                -offset.x, -offset.y, -offset.z,
+            ))
+            .map_err(|e| MeasureError::DegenerateGeometry(e.to_string()))?;
+        return body_volume(&moved, tol);
+    }
     if kind == popkern_core::topology::BodyKind::General {
         return Ok(crate::region_volumes(brep, tol)?.iter().map(|r| r.1).sum());
     }

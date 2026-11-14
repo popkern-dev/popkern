@@ -151,6 +151,29 @@ fn a_declined_partition_falls_back_to_pairwise_booleans() {
     assert!(matches!(answer, Err(BoolError::Cancelled)));
 }
 
+/// A declined partition whose fold answers (a non-manifold result: two
+/// cubes touching along an edge) serves the fold's answer, not the
+/// partition's decline (PK-1183).
+#[test]
+fn a_declined_partition_answers_as_its_fold_does() {
+    let tol = Tolerance::default();
+    let (a, b) = (cube_at(0.0, 0.0, 0.0), cube_at(1.0, 1.0, 0.0));
+    let answer = super::nary::or_fold(
+        Err(BoolError::MergeFailed {
+            stage: "complex".into(),
+            reason: "a declined stage".into(),
+        }),
+        &[&a, &b],
+        &super::SetExpr::Any,
+        tol,
+        &crate::BoolOptions::default(),
+    );
+    assert!(
+        matches!(answer, Err(BoolError::NonManifoldResult { .. })),
+        "{answer:?}"
+    );
+}
+
 /// The six-rod star cuts the same regions in other body orders (a
 /// shift and a reversal): crowded crossings resolve the same way
 /// whichever pair reaches them first.

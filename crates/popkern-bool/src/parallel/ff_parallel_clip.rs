@@ -31,8 +31,17 @@ pub(super) fn clip_and_classify(
     // this pair (PK-511): the inventory is record-independent and a
     // multi-wrap pair carries one record per wrap.
     let mut pierce_cache = crate::clip::PierceInventoryCache::default();
+    // A curve clear of either face yields no record and no residue:
+    // its clip is skipped (PK-1166, `ff_parallel_reach`).
+    let pad = super::ff_parallel_reach::REACH_TOLERANCES * tolerance.linear();
     for isect in &result.intersections {
         match isect {
+            SurfaceSurfaceIntersection::Curve(curve)
+                if [(inp.surf_a, &task.boxes[0]), (inp.surf_b, &task.boxes[1])]
+                    .into_iter()
+                    .any(|(s, b)| {
+                        super::ff_parallel_reach::curve_clear_of_face(&curve.curve_3d, s, b, pad)
+                    }) => {}
             SurfaceSurfaceIntersection::Curve(curve) => {
                 let mut residues: Vec<crate::clip::TrimResidue> = Vec::new();
                 let clipped_list = clip_curve_to_faces_cached(

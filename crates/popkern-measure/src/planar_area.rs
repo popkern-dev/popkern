@@ -73,6 +73,23 @@ pub(crate) fn planar_face_vector_area(brep: &BRep, face: FaceHandle) -> Option<V
     Some(normal * (0.5 * net))
 }
 
+/// Half the sum of a face's loop moments `∮ (p − o) × p′ dt`, each
+/// loop traversed as stored: `∬ n dA` over the face for the normal its
+/// loops run interior-left about (the folded chart normal of a valid
+/// body), on any surface (Stokes). The moment of a closed loop does not
+/// depend on `o`; a tolerant edge's curve ending off its vertex leaves
+/// the loop open by that gap, so `o` is taken near the face, where the
+/// gap's moment is its size times the face's. `None` where a loop is
+/// not a ring.
+pub(crate) fn face_vector_area(brep: &BRep, face: FaceHandle, origin: Point3) -> Option<Vec3> {
+    let face_data = brep.faces.get(face)?;
+    let mut sum = loop_moment(brep, face_data.outer_loop, origin)?;
+    for &inner in &face_data.inner_loops {
+        sum = sum + loop_moment(brep, inner, origin)?;
+    }
+    Some(sum * 0.5)
+}
+
 /// A planar face's divergence-theorem volume term `⅓ ∬ p · n dA`:
 /// every point of the plane has the same `p · n`, so the term is
 /// `⅓ (o · A)` for any vertex `o` and the face's vector area `A`

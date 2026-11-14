@@ -40,7 +40,6 @@
 //! becomes one vertex. A component the pass cannot prove minimal is
 //! searched exactly, or declined when too large (`partition`).
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::topology::BRep;
 
@@ -62,10 +61,6 @@ pub(crate) enum Incompatibility {
         /// Arc length between them.
         arc: f64,
     },
-    /// They lie on two records of one face pair, one of them in its
-    /// record's interior: a branch the SSI marched through, seeing no
-    /// branch point, passing within tolerance of another (`branches`).
-    DistinctBranches,
     /// Both lie on one face, on opposite sides of a boundary edge of it
     /// (`face_side`).
     OppositeFaceSides,
@@ -159,32 +154,7 @@ pub(crate) struct ResolutionContext<'a> {
     pub records: &'a [IntersectionRecord],
 }
 
-/// Arc length of `curve` between `t0` and `t1`, by 32 chords.
-fn arc_between(point_at: impl Fn(f64) -> Point3, t0: f64, t1: f64) -> f64 {
-    const CHORDS: usize = 32;
-    let mut prev = point_at(t0);
-    let mut sum = 0.0;
-    for k in 1..=CHORDS {
-        let p = point_at(t0 + (t1 - t0) * k as f64 / CHORDS as f64);
-        sum += prev.distance_to(&p);
-        prev = p;
-    }
-    sum
-}
-
-/// Arc length between two parameters of a curve over `(lo, hi)`; on a
-/// closed curve the shorter way round.
-fn separation(point_at: impl Fn(f64) -> Point3 + Copy, (lo, hi): (f64, f64), t: (f64, f64)) -> f64 {
-    let (t0, t1) = (t.0.min(t.1), t.0.max(t.1));
-    let inner = arc_between(point_at, t0, t1);
-    let closed = point_at(lo).distance_to(&point_at(hi)) <= 1e-12 * (1.0 + inner);
-    if closed {
-        let outer = arc_between(point_at, lo, t0) + arc_between(point_at, t1, hi);
-        inner.min(outer)
-    } else {
-        inner
-    }
-}
+use super::resolve_record::{near_on_record, separation};
 
 pub(super) fn incompatibility(
     ctx: &ResolutionContext<'_>,
@@ -226,7 +196,12 @@ pub(super) fn incompatibility(
                         continue;
                     };
                     let range = (c.t_start.min(c.t_end), c.t_start.max(c.t_end));
-                    let arc = separation(|t| c.geometry.point_at(t), range, (ta, tb));
+                    let arc = separation(
+                        |t| c.geometry.point_at(t),
+                        range,
+                        (ta, tb),
+                        p.radius + q.radius,
+                    );
                     if arc > p.zone + q.zone {
                         return Some(Incompatibility::SeparatedAlongEdge { arc });
                     }
@@ -243,26 +218,18 @@ pub(super) fn incompatibility(
                         continue;
                     };
                     let curve = &r.curve.curve_3d;
-                    let arc = separation(|s| curve.point_at(s), curve.parameter_range(), (sa, sb));
-                    if arc > p.zone + q.zone {
+                    let arc = separation(
+                        |s| curve.point_at(s),
+                        curve.parameter_range(),
+                        (sa, sb),
+                        p.radius + q.radius,
+                    );
+                    // A record meeting itself puts one candidate at two
+                    // of its parameters: separated only if every pair
+                    // of the two candidates' parameters on it is.
+                    if arc > p.zone + q.zone && !near_on_record(ctx, p, q, ra) {
                         return Some(Incompatibility::SeparatedAlongRecord { arc });
                     }
-                }
-                (
-                    Incidence::Record {
-                        record: ra,
-                        end: ea,
-                        ..
-                    },
-                    Incidence::Record {
-                        record: rb,
-                        end: eb,
-                        ..
-                    },
-                ) if (ea.is_none() || eb.is_none())
-                    && super::branches::same_pair(ctx.records, ra, rb) =>
-                {
-                    return Some(Incompatibility::DistinctBranches);
                 }
                 _ => {}
             }
@@ -369,7 +336,21 @@ pub(crate) fn resolve(
             let cand = &cands[c];
             let mut joined = false;
             let mut capped: Option<(usize, f64)> = None;
-            for g in first_group..res.groups.len() {
+            // The groups by their anchors' distance, nearest first (ties
+            // in group order): a candidate overlapping two vertices
+            // joins the one it lies at, not the one minted first (a
+            // record end on a hit, 1.5e-6 below an operand vertex its
+            // wider ball also reaches, joined the vertex, PK-1165).
+            let mut order: Vec<usize> = (first_group..res.groups.len()).collect();
+            order.sort_by(|&x, &y| {
+                let d = |g: usize| {
+                    cands[res.groups[g].anchor]
+                        .position
+                        .distance_to(&cand.position)
+                };
+                d(x).total_cmp(&d(y)).then(x.cmp(&y))
+            });
+            for g in order {
                 let group = &res.groups[g];
                 let touches = group.members.iter().any(|&m| linked(&cands[m], cand));
                 if !touches {

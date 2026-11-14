@@ -92,12 +92,10 @@ impl BRep {
         let mut seen: SecondaryMap<HalfEdgeHandle, ()> = SecondaryMap::new();
         let mut stack = Vec::new();
         for (vertex, &(count, start)) in &leaving {
-            // The face use about `vertex` a ring fin stands for: itself
-            // when it leaves the vertex, its loop successor when it
-            // arrives.
-            let leaving_use = |r: HalfEdgeHandle| -> Option<HalfEdgeHandle> {
-                let fin = self.half_edges.get(r)?;
-                let u = if fin.origin == vertex { r } else { fin.next };
+            // The face use about `vertex` a ring fin stands for at the
+            // reference fin's end (`BRep::ring_use_at`).
+            let leaving_use = |r: HalfEdgeHandle, reference, leaves| -> Option<HalfEdgeHandle> {
+                let u = self.ring_use_at(vertex, r, reference, leaves)?;
                 let use_ = self.half_edges.get(u)?;
                 (use_.origin == vertex && self.loops.contains_key(use_.loop_)).then_some(u)
             };
@@ -109,11 +107,15 @@ impl BRep {
                 let Some(fin) = self.half_edges.get(h) else {
                     continue;
                 };
-                let prev_edge = self.half_edges.get(fin.prev).map(|p| p.edge);
-                for edge in [Some(fin.edge), prev_edge].into_iter().flatten() {
+                let along = [(fin.edge, h, true)].into_iter().chain(
+                    self.half_edges
+                        .get(fin.prev)
+                        .map(|p| (p.edge, fin.prev, false)),
+                );
+                for (edge, reference, leaves) in along {
                     let ring = self.ring_summary(edge);
                     for &r in &ring.fins[..ring.count.min(2)] {
-                        if let Some(u) = leaving_use(r)
+                        if let Some(u) = leaving_use(r, reference, leaves)
                             && seen.insert(u, ()).is_none()
                         {
                             reached += 1;

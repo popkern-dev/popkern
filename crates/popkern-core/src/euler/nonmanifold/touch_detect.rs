@@ -6,7 +6,8 @@
 //! two pieces:
 //!
 //! - a point contact where a vertex of one lies within the linear
-//!   tolerance of the other: at a vertex, on an edge, or on a face;
+//!   tolerance of the other: at a vertex, on an edge, or on a face, or
+//!   where an edge of one touches a face of the other (`touch_points`);
 //! - a curve contact where an edge of one lies on a face of the other
 //!   (every sample on the surface), clipped to the runs inside the
 //!   face's trim, each run's ends point contacts too; a run is kept only
@@ -303,7 +304,11 @@ impl BRep {
 
     /// Every point and curve where two pieces touch.
     pub(super) fn touch_plan(&self) -> TouchPlan {
-        let tol = self.tolerance.linear();
+        // The reach the contact detection decides by (PK-1131): a gap a
+        // ten-millionth of a tolerance over it was a contact to the
+        // detection and none to the glue, and a body declined by default
+        // served unglued under the general policy (PK-1170).
+        let tol = self.tolerance.linear_reach();
         let pieces = self.face_pieces();
         let count = pieces.values().max().map_or(0, |m| m + 1);
         let mut faces_of: Vec<Vec<FaceHandle>> = vec![Vec::new(); count];
@@ -356,7 +361,31 @@ impl BRep {
                     for &g in &faces_of[j] {
                         if boxes[&f].meets(&boxes[&g]) {
                             self.tangent_contacts(f, g, &boxes, &mut plan);
+                            // An edge of one resting on the other: a
+                            // ball on a box's edge (PK-1155).
+                            self.edge_touch_points(f, g, false, &mut plan);
+                            self.edge_touch_points(g, f, false, &mut plan);
                         }
+                    }
+                }
+            }
+        }
+        // A piece touching itself: two of its faces sharing no vertex
+        // tangent along a ruling or at a point (a shell's wall closed
+        // exactly, its hole's offset cylinder lying on the floor's
+        // offset plane), or an edge of one touching the other
+        // (`touch_points`).
+        for faces in &faces_of {
+            for (k, &f) in faces.iter().enumerate() {
+                let fv = self.face_vertices(f);
+                for &g in &faces[k + 1..] {
+                    if boxes[&f].meets(&boxes[&g])
+                        && !self.face_vertices(g).iter().any(|v| fv.contains(v))
+                    {
+                        self.tangent_contacts(f, g, &boxes, &mut plan);
+                        // An edge of one resting on the other (PK-1155).
+                        self.edge_touch_points(f, g, true, &mut plan);
+                        self.edge_touch_points(g, f, true, &mut plan);
                     }
                 }
             }
@@ -398,5 +427,7 @@ impl TouchPlan {
     }
 }
 
+#[path = "touch_points.rs"]
+mod points;
 #[path = "touch_runs.rs"]
 mod runs;

@@ -291,11 +291,13 @@ pub(crate) fn find_intersections_with_aabbs(
             } else {
                 return None;
             };
-            let face_a = aabbs_a[a_idx].0;
-            let face_b = aabbs_b[b_idx].0;
+            let (face_a, box_a) = &aabbs_a[a_idx];
+            let (face_b, box_b) = &aabbs_b[b_idx];
+            let (face_a, face_b) = (*face_a, *face_b);
             Some(crate::parallel::ff_parallel::FacePairTask {
                 face_a,
                 face_b,
+                boxes: [box_a.clone(), box_b.clone()],
                 seeds: pair_seeds
                     .get(&(face_a, face_b))
                     .cloned()

@@ -137,6 +137,23 @@ pub enum ShellError {
         declines: Vec<JoinDecline>,
     },
 
+    /// The result would touch itself: two of its faces meet without
+    /// sharing topology (a thin wall closed exactly at this
+    /// thickness). Non-manifold in fact, so the shell declines with the
+    /// contact as a boolean declines a non-manifold result; a smaller
+    /// thickness keeps the wall, a larger one trims it away.
+    #[error(
+        "the result touches itself at ({:.6}, {:.6}, {:.6}) between faces {:?} and {:?} \
+         (a wall closes exactly at this thickness)",
+        location.x, location.y, location.z, faces.0, faces.1
+    )]
+    SelfContact {
+        /// A point of the contact.
+        location: popkern_core::geometry::Point3,
+        /// The two faces of the result that touch there.
+        faces: (FaceHandle, FaceHandle),
+    },
+
     /// A topological inconsistency was encountered.
     #[error("topology: {0}")]
     Topology(String),

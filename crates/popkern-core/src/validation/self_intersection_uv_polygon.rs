@@ -7,6 +7,7 @@ use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::topology::{BRep, LoopHandle};
 
 use super::self_intersection_uv_containment::{RawLoopSample, UvPoint, assemble_periodic_polygon};
+use super::self_intersection_uv_pole_runs::ruled_pole_polygon;
 
 impl BRep {
     pub(in crate::validation) fn loop_uv_polygon(
@@ -104,6 +105,21 @@ impl BRep {
             current = he.next;
             if current == start_he {
                 break;
+            }
+        }
+
+        // A loop running along a pole row: its runs in the sense the
+        // face flag fixes (`ruled_pole_polygon`), when that closes.
+        if periodic_u
+            && let Some(ccw) = self
+                .faces
+                .get(loop_.face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| s.orientation)
+        {
+            let on_row = |v: f64| degenerate_row_witness(surface, v, true, linear);
+            if let Some(polygon) = ruled_pole_polygon(&raw_samples, &on_row, ccw) {
+                return Some(polygon);
             }
         }
 
