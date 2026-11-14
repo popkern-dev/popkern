@@ -32,6 +32,7 @@ mod angle;
 pub use angle::{dihedral_angle, edge_angle};
 
 mod body;
+mod body_origin;
 mod body_quadrature;
 mod region_volume;
 pub use region_volume::region_volumes;

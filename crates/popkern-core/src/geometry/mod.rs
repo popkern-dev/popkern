@@ -12,6 +12,7 @@ pub mod bernstein_poly;
 pub mod certify;
 pub mod chart_pcurve;
 pub mod chart_periods;
+pub mod chart_singularity;
 pub mod circle_recognition;
 pub mod curve;
 pub mod curve_inversion;

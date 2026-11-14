@@ -40,6 +40,7 @@ pub(super) fn chart_degenerate(
     ring: &BoundaryRing,
     surface: &SurfaceGeometry,
     period_u: Option<f64>,
+    options: &crate::TessellationOptions,
 ) -> Vec<bool> {
     let ring_scale = ring
         .pos
@@ -48,17 +49,55 @@ pub(super) fn chart_degenerate(
         .map(|(a, b)| a.distance_to(b))
         .fold(0.0_f64, f64::max)
         .max(1e-9);
-    match period_u {
-        Some(p) => ring
-            .uv
-            .iter()
-            .zip(ring.pos.iter())
-            .map(|((u, v), pos)| {
-                surface.point_at(u + 0.5 * p, *v).distance_to(pos) < 1.0e-4 * ring_scale
-            })
-            .collect(),
-        None => Vec::new(),
-    }
+    let Some(p) = period_u else {
+        return Vec::new();
+    };
+    // Each sample's half-period shift: twice its distance from the pole.
+    let shifts: Vec<f64> = ring
+        .uv
+        .iter()
+        .zip(ring.pos.iter())
+        .map(|(&(u, v), pos)| surface.point_at(u + 0.5 * p, v).distance_to(pos))
+        .collect();
+    let gate = 1.0e-4 * ring_scale;
+    let gate = gate.max(pole_pass_gate(&shifts, gate, options.chord_height));
+    shifts.iter().map(|&s| s < gate).collect()
+}
+
+/// A wider gate for a ring passing beside a pole within a twentieth of
+/// the chord height: its samples within half the chord height of the pole
+/// (a half-period shift under the chord height) are charted at the
+/// pole, the chart's error there under the chord height, positions
+/// kept. Such a pass turns its azimuth by up to half a period within
+/// its distance `d` of the pole, at a chart height `d / R` against a
+/// lattice cell; at distance `r` it has all but `asin(d / r)` of that
+/// turn behind it, so past ten times `d` (half the chord height here)
+/// the run along the pole row
+/// meets the curve leaving it within a tenth of a radian. Gated at the
+/// chord fraction alone, a ring passing 1e-5 beside a sphere's pole
+/// with chords up to 1 charted only the samples within 5e-5 of it, and
+/// the curve's turn just past them (0.33 rad at a chart height of
+/// 1e-5) folded against the pole row's run: the face fell to the
+/// fallback grid, covering part of itself twice (PK-1188). A pass is
+/// a dip in the shift along the ring: a sample off the pole (a shift
+/// past a millionth of the gate, rounding at the pole itself reading
+/// 1e-17) no farther from it than either neighbour. An edge running
+/// into the pole falls to its pole sample without a dip, its samples
+/// halved toward the pole (a die's pip caps, their seams meeting the
+/// pole at 3e-6 then 1e-18): gated at its nearest sample it charted
+/// that edge's last stretch at the pole and left the cap open. A pass
+/// farther out keeps the chord-fraction gate (its sweep the lattice
+/// follows), as does a ring meeting the pole only at a vertex.
+fn pole_pass_gate(shifts: &[f64], gate: f64, chord: f64) -> f64 {
+    let n = shifts.len();
+    let nearest = (0..n)
+        .filter(|&i| {
+            let s = shifts[i];
+            s > 1.0e-6 * gate && s <= shifts[(i + n - 1) % n] && s <= shifts[(i + 1) % n]
+        })
+        .map(|i| shifts[i])
+        .fold(f64::INFINITY, f64::min);
+    if 10.0 * nearest <= chord { chord } else { 0.0 }
 }
 
 pub(super) fn unwrap_dir(

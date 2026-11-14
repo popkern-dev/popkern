@@ -285,7 +285,7 @@ pub(crate) fn lift_fragments(
     tol: &popkern_core::tolerance::Tolerance,
 ) -> Result<Lift, LiftDecline> {
     let tolerance = tol.linear();
-    let reps = unify_spans(graph, fragments, tolerance);
+    let reps = unify_spans(operands, graph, fragments, tolerance);
     // A sheet has no material: its faces' sense is a convention the
     // complex never reads as material (lamina faces join no volume).
     let is_sheet = |k: usize| laminae.get(k).copied().unwrap_or(false);

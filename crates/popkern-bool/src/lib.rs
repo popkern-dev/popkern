@@ -42,6 +42,8 @@ mod clip_boundary_edges;
 mod clip_endpoint_far;
 mod clip_endpoint_refine;
 mod clip_far_junction;
+mod clip_reauthor;
+mod clip_retrim_on_source;
 mod clip_triple_junction;
 mod closed_source_window;
 pub mod coincidence;
@@ -50,6 +52,7 @@ pub(crate) mod complex;
 pub mod complex_shadow;
 pub mod csg;
 mod curve_projection;
+mod diagnostics_contacts;
 mod entity_lineage;
 mod entity_lineage_carry;
 mod entity_naming;
@@ -85,6 +88,7 @@ pub(crate) mod periodic_chart_parity;
 pub(crate) mod periodic_chart_parity_torus;
 pub mod pieces;
 mod split_serve;
+pub mod sub_tolerance;
 mod wire_boolean;
 pub use kind_gate::require_operand as require_operand_kind;
 pub use wire_boolean::boolean_with_wire;
@@ -131,6 +135,7 @@ pub use partition::{
     nary_boolean_where, nary_boolean_where_bodies, partition, split,
 };
 
+pub use diagnostics_contacts::OperandContact;
 pub use error::{
     BoolDiagnostics, BoolError, BoolOperation, Classification, ContactKind, NonManifoldContact,
     PointClassification, Stage,
@@ -231,8 +236,7 @@ pub fn boolean_with_options(
     tracking: Option<&mut TrackingContext>,
     options: &BoolOptions,
 ) -> Result<BRep, BoolError> {
-    let pieces = bool_api_core::boolean_under(op, a, b, tol, tracking, options.non_manifold);
-    split_serve::serve_one(pieces, options.non_manifold, &tol)
+    bool_api_core::boolean_one(op, a, b, tol, tracking, options)
 }
 
 /// Concatenate two solids into ONE multi-solid [`BRep`] with NO
@@ -382,7 +386,7 @@ pub fn subtraction_ref(
 ///
 /// Identical to [`boolean`] but populates a [`BoolDiagnostics`] with
 /// [`PhaseMetric`](crate::error::PhaseMetric) samples for each pipeline stage
-/// (intersection, merge, validation). Use
+/// (intersection, merge, validation) and the operands' touches. Use
 /// this entry point for performance regression detection and tooling that
 /// needs to attribute time to specific phases.
 ///
@@ -401,6 +405,7 @@ pub fn boolean_with_diagnostics(
     let result = operation::execute_boolean_with_metrics(op, a, b, &tol, &mut metrics)?;
     let diagnostics = BoolDiagnostics {
         phase_metrics: metrics,
+        contacts: diagnostics_contacts::operand_contacts(a, b, &tol),
         ..BoolDiagnostics::default()
     };
     Ok((result, diagnostics))
@@ -434,7 +439,7 @@ pub fn boolean_cancellable(
     let (worker_a, worker_b, worker_token) = (a.clone(), b.clone(), cancel.clone());
     match popkern_core::cancellation::run_detach_on_cancel(cancel, move || {
         let mut metrics = Vec::new();
-        operation::execute_boolean_full(
+        operation::execute_boolean_observed(
             op,
             &worker_a,
             &worker_b,
@@ -442,7 +447,6 @@ pub fn boolean_cancellable(
             &mut metrics,
             Some(&worker_token),
             None,
-            options::NonManifoldPolicy::Decline,
         )
     }) {
         popkern_core::cancellation::DetachOutcome::Completed(result) => result,
@@ -464,16 +468,7 @@ pub fn boolean_with_progress(
     reporter: &mut dyn progress::ProgressReporter,
 ) -> Result<BRep, BoolError> {
     let mut metrics = Vec::new();
-    operation::execute_boolean_full(
-        op,
-        a,
-        b,
-        &tol,
-        &mut metrics,
-        None,
-        Some(reporter),
-        options::NonManifoldPolicy::Decline,
-    )
+    operation::execute_boolean_observed(op, a, b, &tol, &mut metrics, None, Some(reporter))
 }
 
 /// Wedge-matching trace gate (fragment-walk successor diagnostics).

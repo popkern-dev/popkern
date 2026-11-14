@@ -42,6 +42,17 @@ fn distance(
     Some((surface.point_at(u, v).distance_to(&p), (u, v), p))
 }
 
+/// The magnitude of `p`'s coordinates (1 near the origin).
+fn scale(p: &Point3) -> f64 {
+    p.x.abs().max(p.y.abs()).max(p.z.abs()).max(1.0)
+}
+
+/// The rounding in a distance evaluated at `p`: a few hundred ulps of
+/// its largest coordinate.
+fn rounding(p: &Point3) -> f64 {
+    256.0 * f64::EPSILON * scale(p)
+}
+
 /// The curve's parameter window, closed or not.
 #[derive(Clone, Copy)]
 struct Window {
@@ -101,8 +112,18 @@ fn band_edge(
             break;
         }
     }
-    let Some(mut out) = outside else {
-        return root.0 + dir * inside;
+    let mut out = match outside {
+        Some(out) => out,
+        // A closed window stops at its quarter turn.
+        None if window.closed => return root.0 + dir * inside,
+        // The doubling passed an open window's end inside the band: the
+        // band runs to the end when the end itself is within, returned
+        // exactly (a touch at a curve's own end is found there,
+        // `stationary_point`).
+        None if within(root.0 + dir * reach) => {
+            return if dir > 0.0 { window.hi } else { window.lo };
+        }
+        None => reach,
     };
     for _ in 0..40 {
         let mid = 0.5 * (inside + out);
@@ -116,14 +137,27 @@ fn band_edge(
 }
 
 /// The closest approach of the curve to the surface over `[a, b]`
-/// (golden section on the distance; `a`, `b` may run past the window
-/// on a closed curve). The root itself when nothing is closer.
+/// (golden section on the distance, refined to the distance's
+/// stationary point; `a`, `b` may run past the window on a closed
+/// curve). The approach replaces the root when it is no farther from
+/// the surface than the root beyond rounding (at a touch both gaps are
+/// rounding, 1e-13 against 1e-13 a thousand units out, and a plain
+/// "closer than the root" decided by a coin toss), or when it lies
+/// inside the tangency band: the curve then never leaves the surface
+/// by the tolerance between its two roots, which are one touch at that
+/// apex, as the analytic circle × plane and line × sphere arms decide it
+/// (a ball's seam meridian 5e-7 past a plate's side face read as two
+/// crossings 4e-3 apart, and the dimple touching the plate's edge,
+/// moved half a tolerance, declined non-manifold). A bulge one whole
+/// tolerance deep stays two crossings (the scripted thin lens, two
+/// balls overlapping 1e-6).
 fn closest_approach(
     curve: &CurveGeometry,
     surface: &SurfaceGeometry,
     root: &Root,
     window: Window,
     (a, b): (f64, f64),
+    tolerance: &Tolerance,
 ) -> Root {
     let uv = (root.1, root.2);
     let d = |t: f64| distance(curve, surface, window.wrap(t), uv).map_or(f64::INFINITY, |r| r.0);
@@ -147,11 +181,90 @@ fn closest_approach(
             f2 = d(x2);
         }
     }
-    let t = window.wrap(0.5 * (lo + hi));
+    let t = stationary_point(curve, surface, uv, window, (a, b), 0.5 * (lo + hi));
     match distance(curve, surface, t, uv) {
-        Some((gap, (u, v), p)) if gap <= d(root.0) => (t, u, v, p),
+        Some((gap, (u, v), p))
+            if gap <= d(root.0) + rounding(&p) || gap < tolerance.tangency_band(scale(&p)) =>
+        {
+            (t, u, v, p)
+        }
         _ => *root,
     }
+}
+
+/// The touch nearest `seed` in `[a, b]`: a root of
+/// `h(t) = C′(t) · N(π C(t))`, where the curve's tangent lies in the
+/// surface's tangent plane, by bisection where it changes sign about
+/// the seed; else the seed (a transversal crossing, whose distance is
+/// V-shaped and its golden-section minimum well placed). A touch's
+/// minimum located from distance values is only known to `√(δ/κ)` for
+/// a rounding `δ` in the distance, flat to second order: a thousand
+/// units from the origin, a ball's seam meridian touching an ice-cream
+/// cone landed 1.9e-6 off the touch, the record's node there was
+/// another vertex and the union's loops did not close (PK-1133). The
+/// residual `C − S(π C)` cannot say where: inside the band the
+/// projection's foot is the point itself and the residual is zero. `N`
+/// needs only an approximate foot, and `h` crosses zero with slope the
+/// relative curvature, so its root is known to rounding over it.
+fn stationary_point(
+    curve: &CurveGeometry,
+    surface: &SurfaceGeometry,
+    uv: (f64, f64),
+    window: Window,
+    (a, b): (f64, f64),
+    seed: f64,
+) -> f64 {
+    let h = |t: f64| -> Option<f64> {
+        let w = window.wrap(t);
+        let (_, (u, v), _) = distance(curve, surface, w, uv)?;
+        let n = surface.partial_u(u, v).cross(&surface.partial_v(u, v));
+        let n = n.normalized()?;
+        let d = curve.derivative_at(w, 1).normalized()?;
+        Some(d.dot(&n))
+    };
+    let (lo, hi) = (a.min(b), a.max(b));
+    let (Some(h_lo), Some(h_hi)) = (h(lo), h(hi)) else {
+        return window.wrap(seed);
+    };
+    if h_lo * h_hi > 0.0 {
+        return end_touch(window, (lo, h_lo), (hi, h_hi)).unwrap_or_else(|| window.wrap(seed));
+    }
+    let (mut lo, mut hi, mut h_lo) = (lo, hi, h_lo);
+    for _ in 0..100 {
+        let mid = 0.5 * (lo + hi);
+        let Some(hm) = h(mid) else { break };
+        if hm * h_lo <= 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+            h_lo = hm;
+        }
+    }
+    window.wrap(0.5 * (lo + hi))
+}
+
+/// A touch at an open window's end: the band reaches the end and `h`
+/// vanishes there against its value at the band's other edge, without
+/// changing sign between (a ball's seam meridian ends at its pole, and
+/// Viviani's cylinder touches the ball there: the touch is the curve's
+/// own end, where no sign change brackets it, and the golden-section
+/// seed sat 7.5e-5 off; the clip pinned the record's end to it and the
+/// re-authored record missed both surfaces, PK-1139). A transversal
+/// crossing near the end has `h` about its crossing sine at both edges
+/// and keeps its seed. The ratio leaves rounding in `h` (relative to
+/// the relative curvature times the band) far below it.
+fn end_touch(window: Window, (lo, h_lo): (f64, f64), (hi, h_hi): (f64, f64)) -> Option<f64> {
+    const VANISHING: f64 = 1e-2;
+    if window.closed {
+        return None;
+    }
+    if lo == window.lo && h_lo.abs() <= VANISHING * h_hi.abs() {
+        return Some(lo);
+    }
+    if hi == window.hi && h_hi.abs() <= VANISHING * h_lo.abs() {
+        return Some(hi);
+    }
+    None
 }
 
 /// Move each root to its band's closest approach and collapse roots
@@ -177,7 +290,7 @@ pub(super) fn consolidate_touches(
     for root in roots {
         let left = band_edge(curve, surface, &root, window, band, -1.0);
         let right = band_edge(curve, surface, &root, window, band, 1.0);
-        let touch = closest_approach(curve, surface, &root, window, (left, right));
+        let touch = closest_approach(curve, surface, &root, window, (left, right), tolerance);
         // One contact: a root landing on one already kept (in space —
         // a seam touch lands at either window end).
         if !out

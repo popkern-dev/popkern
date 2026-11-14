@@ -35,6 +35,7 @@ mod probe_clearance;
 pub(crate) mod record_rotation;
 pub mod select;
 mod vertex_identity;
+mod vertex_reach;
 
 pub use cell::{Cell, CellDecomposition};
 

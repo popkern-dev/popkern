@@ -211,6 +211,27 @@ pub enum BoolError {
         /// The most it takes.
         limit: usize,
     },
+    /// The operands' boundaries meet in no intersection curve, and
+    /// classifying points of one against the other could not decide
+    /// whether it lies inside or apart (PK-1124): every probe on the
+    /// other's boundary (the bodies only touch, everywhere sampled), or
+    /// probes on both sides (the boundaries cross somewhere the
+    /// intersection stage did not find). The input model is unchanged.
+    #[error(
+        "could not decide how the bodies lie: operand {operand}'s {probes} probe point(s) against the other were {inside} inside, {outside} outside and {on_boundary} on its boundary, with no intersection curves found"
+    )]
+    RelationUndecided {
+        /// The operand whose points were classified (0 = A, 1 = B).
+        operand: usize,
+        /// Probe points classified.
+        probes: usize,
+        /// Probes inside the other body.
+        inside: usize,
+        /// Probes outside it.
+        outside: usize,
+        /// Probes on its boundary.
+        on_boundary: usize,
+    },
 }
 
 #[path = "error_contact.rs"]
@@ -255,6 +276,8 @@ pub struct BoolDiagnostics {
     pub entries: Vec<DiagnosticEntry>,
     /// Per-phase timing and counters (§16 telemetry).
     pub phase_metrics: Vec<PhaseMetric>,
+    /// Where the operands touch without crossing (tangency design §7.3).
+    pub contacts: Vec<crate::diagnostics_contacts::OperandContact>,
 }
 
 impl BoolDiagnostics {
@@ -380,6 +403,7 @@ impl BoolDiagnostics {
                 remediation: Some(hint),
             }],
             phase_metrics: Vec::new(),
+            contacts: Vec::new(),
         }
     }
 }

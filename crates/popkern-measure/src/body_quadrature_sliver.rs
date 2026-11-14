@@ -177,7 +177,22 @@ pub(super) fn sliver_term(
     // Within a thousandth of the chord, and never past the caller's
     // gate: the trim across a narrow face (a fillet's other rim at a
     // coarse tolerance) is a strip width away, far more than that.
+    let caller_gate = gate;
     let gate = gate.min(ON_TRIM * pa.distance_to(&pb));
+    // The located parameter itself must image at the chord end: the
+    // edge's own closest point says the end is ON the trim, not that
+    // the parameter found in (u, v) is that point. In a chart whose
+    // axes differ in scale the uv band admits another branch of the
+    // trim: a kilometre Viviani lobe's two branches mirror each other
+    // in u, 0.083 rad apart (416 units in space) while its chords run
+    // 4.8 along v, and every chord near the pinch fanned over the
+    // mirror branch (the common read 2.3e-4 high, PK-1146).
+    let branch = UV_BRANCH * pa.distance_to(&pb) + caller_gate;
+    let at = |trim: &Trim<'_>, t: f64, q: (f64, f64)| {
+        let c = trim.pcurve.point_at(t);
+        let c = aligned((c.x, c.y), q, periods);
+        surface.point_at(c.0, c.1)
+    };
     // Off the trim in space: from the EDGE curve when the trim has one
     // (exact; a fitted pcurve sits up to ~1e-4 off it, PK-826, and the
     // hub of the propeller declined every blade-root chord on the
@@ -204,20 +219,56 @@ pub(super) fn sliver_term(
             ON_TRIM * chord
         }
     };
+    // A chord end at a chart pole stands under the chord's other end
+    // (`face_quadrature`), not at the trim's own longitude there: it is
+    // found on the trim in space, at the trim's end imaging at the pole,
+    // and the fan runs along the pole row to the trim (a row of no
+    // area). Located in (u, v) it lay a longitude step off the trim and
+    // the sliver went missing: Viviani's cap with the ball's poles on
+    // its rim read 3.4e-4 short (PK-1169).
+    let (pole_a, pole_b) = (at_pole(surface, a), at_pole(surface, b));
+    let find = |trim: &Trim<'_>, q: (f64, f64), p, pole: bool| -> (f64, f64) {
+        if !pole {
+            return locate(trim, q, periods);
+        }
+        let t = [trim.lo, trim.hi]
+            .into_iter()
+            .min_by(|&x, &y| {
+                at(trim, x, q)
+                    .distance_to(&p)
+                    .total_cmp(&at(trim, y, q).distance_to(&p))
+            })
+            .unwrap_or(trim.lo);
+        (t, 0.0)
+    };
     let mut best: Option<(&Trim<'_>, f64, f64, f64)> = None;
     for trim in trims {
-        let (ta, uva) = locate(trim, a, periods);
+        let (ta, uva) = find(trim, a, pa, pole_a);
         let da = off(trim, ta, a, pa);
-        if da > gate || uva > uv_band(trim) {
+        if da > gate || uva > uv_band(trim) || at(trim, ta, a).distance_to(&pa) > branch {
             continue;
         }
-        let (tb, uvb) = locate(trim, b, periods);
+        let (tb, uvb) = find(trim, b, pb, pole_b);
         let worst = da.max(off(trim, tb, b, pb));
-        if worst <= gate && uvb <= uv_band(trim) && ta != tb && best.is_none_or(|x| worst < x.3) {
+        if worst <= gate
+            && uvb <= uv_band(trim)
+            && at(trim, tb, b).distance_to(&pb) <= branch
+            && ta != tb
+            && best.is_none_or(|x| worst < x.3)
+        {
             best = Some((trim, ta, tb, worst));
         }
     }
     let (trim, ta, tb, _) = best?;
+    // The trim's own chart point at a pole end, on the chord's branch.
+    let pole_point = |t: f64, q: (f64, f64)| {
+        let c = trim.pcurve.point_at(t);
+        aligned((c.x, c.y), q, periods)
+    };
+    let (via_a, via_b) = (
+        pole_a.then(|| pole_point(ta, a)),
+        pole_b.then(|| pole_point(tb, b)),
+    );
     // A closed trim's short way round may cross its parameter seam.
     let span = trim.hi - trim.lo;
     let mut delta = tb - ta;
@@ -226,7 +277,6 @@ pub(super) fn sliver_term(
     }
     let panels = 2 * PANELS;
     let mut points = Vec::with_capacity(panels + 1);
-    points.push(a);
     for k in 1..panels {
         let f = k as f64 / panels as f64;
         let mut t = ta + delta * f;
@@ -262,10 +312,16 @@ pub(super) fn sliver_term(
         }
         points.push(q);
     }
-    points.push(b);
-    let fan = |pts: &[(f64, f64)]| -> f64 {
+    // The fan from `a` over the trim's samples to `b`, through the
+    // trim's pole points where an end is at a pole.
+    let fan = |samples: &[(f64, f64)]| -> f64 {
+        let pts: Vec<(f64, f64)> = via_a
+            .into_iter()
+            .chain(samples.iter().copied())
+            .chain(via_b)
+            .chain(std::iter::once(b))
+            .collect();
         pts.windows(2)
-            .skip(1)
             .map(|w| oriented_term(surface, [a, w[0], w[1]], kind))
             .sum()
     };
@@ -274,9 +330,20 @@ pub(super) fn sliver_term(
     // (Richardson). At 16 panels alone the hub's blade-root slivers
     // (5e-6 summed) left ~2e-8 of the propeller's volume (PK-818).
     let fine = fan(&points);
-    let coarse: Vec<(f64, f64)> = points.iter().step_by(2).copied().collect();
+    let coarse: Vec<(f64, f64)> = points.iter().skip(1).step_by(2).copied().collect();
     let sum = fine + (fine - fan(&coarse)) / 3.0;
     sum.is_finite().then_some(sum)
+}
+
+/// Whether the chart point `q` lies on a pole of `surface`: one chart
+/// partial vanishes beside the other (a sphere's pole, a cone's apex),
+/// by the ratio `pole_corner` reads.
+fn at_pole(surface: &SurfaceGeometry, q: (f64, f64)) -> bool {
+    let (su, sv) = (
+        surface.partial_u(q.0, q.1).length(),
+        surface.partial_v(q.0, q.1).length(),
+    );
+    su <= super::POLE_RATIO * sv || sv <= super::POLE_RATIO * su
 }
 
 #[cfg(test)]

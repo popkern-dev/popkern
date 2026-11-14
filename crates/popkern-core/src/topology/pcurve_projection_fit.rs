@@ -20,6 +20,15 @@
 //! model's linear tolerance, the refinement stopping at the first
 //! doubling that fails to halve the gap (a floor no sample count
 //! moves: a vertex pinned off the curve's end).
+//!
+//! Uniform doubling cannot follow a track that turns fast in a short
+//! stretch: a ring passing a sphere's pole within 1e-3 sweeps half a
+//! turn of longitude within its distance from the pole, and 736
+//! uniform samples left a rod's ring on a turned ball 1e-2 off its edge
+//! (the union declined). Past the doublings, samples go where the image
+//! strays (`locally_refined`): intervals straying past the target are
+//! halved, the rest graded 2:1, judged co-parameterized at quarter
+//! points, the better of the two fits kept (PK-1178).
 
 use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -164,6 +173,9 @@ pub(super) fn measured_projection_interpolant(
     let extent = edge_extent(curve_on_edge, (t_lo, t_hi));
     let misfit_sized =
         best_gap > REFINABLE_GAP_FACTOR * target && best_gap > MISFIT_EXTENT_FRACTION * extent;
+    let mut best_spans = spans.clone();
+    // Whether any doubling improved the fit.
+    let mut improved = false;
     for _ in 0..MAX_DOUBLINGS {
         if best_gap <= target {
             break;
@@ -182,9 +194,226 @@ pub(super) fn measured_projection_interpolant(
         if gap >= best_gap || (misfit_sized && gap > 0.5 * best_gap) {
             break;
         }
-        (best, best_gap) = (fit, gap);
+        (best, best_gap, best_spans, improved) = (fit, gap, spans.clone(), true);
+    }
+    // Where uniform doubling cannot follow the track (a ring passing a
+    // sphere's pole sweeps half a turn of longitude within its distance
+    // from the pole, PK-1178), samples go where the image strays.
+    // Only where doubling followed the track some way, or the chart has
+    // a singular row a sweep can turn round: a gap no added samples move
+    // at all on a regular chart is a misfit (a cube fillet's rails on an
+    // intermediate body, 2.8e-2 off a 0.1 edge at every density, its
+    // local rounds only spent five times the allocations), while beside
+    // a pole doubling moves nothing until its spans reach the sweep's
+    // length (a ring 1e-4 round the pole, 0.1 off at 22 spans and not
+    // halved at 44, PK-1185).
+    let singular = crate::geometry::chart_singularity::has_singular_row(surface, linear_tolerance);
+    if best_gap > target && (improved || singular) {
+        let start = segment_fractions(&breaks, &best_spans);
+        let range = (t_lo, t_hi);
+        if let Some((fit, fractions)) = locally_refined(
+            surface,
+            curve_on_edge,
+            range,
+            &breaks,
+            start,
+            target,
+            sample,
+        ) {
+            // Judged with the doubling's fit on one dense set: midpoints
+            // alone let a graded cubic stray between them.
+            let judge = dense_fractions(&fractions);
+            let gap =
+                |f: &NurbsCurve| max_gap(&interval_gaps(f, surface, curve_on_edge, range, &judge));
+            if gap(&fit) < gap(&best) {
+                best = fit;
+            }
+        }
     }
     Some(best)
+}
+
+/// Rounds of local refinement: enough to halve an interval of a
+/// uniform sampling down to a sweep a millionth of the edge long and
+/// then converge there.
+const LOCAL_ROUNDS: usize = 40;
+/// The most samples local refinement takes.
+const MAX_LOCAL_SAMPLES: usize = 4096;
+
+/// Refine `fractions` where the interpolant's image strays past
+/// `target`: each round fits the samples piecewise between `breaks`,
+/// judges each interval at its quarter points, halves those straying
+/// within a tenth of the worst and grades the rest (no interval over
+/// twice a neighbour), stopping when the rounds stall; the best fit and
+/// its fractions.
+fn locally_refined(
+    surface: &SurfaceGeometry,
+    curve_on_edge: &CurveOnEdge,
+    range: (f64, f64),
+    breaks: &[f64],
+    mut fractions: Vec<f64>,
+    target: f64,
+    sample: &dyn Fn(&[f64]) -> Vec<Point3>,
+) -> Option<(NurbsCurve, Vec<f64>)> {
+    let periods = surface.periodicity();
+    let mut best: Option<(NurbsCurve, f64, Vec<f64>)> = None;
+    let mut history: Vec<f64> = Vec::new();
+    for _ in 0..LOCAL_ROUNDS {
+        let points = sample(&fractions);
+        let fit = interpolant_at(&points, &fractions, breaks)?;
+        let judge = dense_fractions(&fractions);
+        let gaps = interval_gaps(&fit, surface, curve_on_edge, range, &judge);
+        let interval_gap: Vec<f64> = gaps.chunks(4).map(max_gap).collect();
+        let worst = max_gap(&interval_gap);
+        // An interval past the target still turning the chart past a
+        // quarter period is a sweep round a singular row its samples have
+        // not reached: the image cannot settle there, or ringing beside
+        // it, until the interval is as short as the sweep (a ring 1e-4
+        // round a pole on an edge sampled at 0.14, ten halvings), so the
+        // stall rule waits for it.
+        let sweeping = interval_gap.iter().zip(points.windows(2)).any(|(&g, w)| {
+            g > target && turns_past_quarter(periods, (w[0].x, w[0].y), (w[1].x, w[1].y))
+        });
+        let stalled = best.as_ref().is_some_and(|b| worst >= b.1)
+            || history.len() >= 2 && worst > 0.5 * history[history.len() - 2];
+        if stalled && !sweeping {
+            break;
+        }
+        history.push(worst);
+        // The intervals straying within a tenth of the worst: splitting
+        // every one past the target at first doubled the whole edge,
+        // which leaves a pole sweep where it was (a ring 1e-4 round the
+        // pole: 6.8e-2 at 23 samples, 6.1e-2 at 45, PK-1185).
+        let cut = target.max(0.1 * worst);
+        if best.as_ref().is_none_or(|b| worst < b.1) {
+            best = Some((fit, worst, fractions.clone()));
+        }
+        if worst <= target || fractions.len() >= MAX_LOCAL_SAMPLES {
+            break;
+        }
+        let mut next = Vec::with_capacity(2 * fractions.len());
+        for (w, &g) in fractions.windows(2).zip(&interval_gap) {
+            next.push(w[0]);
+            if g > cut {
+                next.push(0.5 * (w[0] + w[1]));
+            }
+        }
+        next.extend(fractions.last().copied());
+        fractions = graded(next);
+    }
+    best.map(|(fit, _, fractions)| (fit, fractions))
+}
+
+/// Whether the chart step from `a` to `b` turns a periodic coordinate
+/// (periods `periods`) past a quarter period.
+fn turns_past_quarter(periods: (Option<f64>, Option<f64>), a: (f64, f64), b: (f64, f64)) -> bool {
+    [(b.0 - a.0, periods.0), (b.1 - a.1, periods.1)]
+        .iter()
+        .any(|&(d, p)| p.is_some_and(|p| p > 0.0 && d.abs() > 0.25 * p))
+}
+
+/// `fractions` with every interval more than twice a neighbour's
+/// halved until none is: a cubic through samples graded more steeply
+/// rings between them.
+fn graded(mut fractions: Vec<f64>) -> Vec<f64> {
+    loop {
+        let len: Vec<f64> = fractions.windows(2).map(|w| w[1] - w[0]).collect();
+        let wide: Vec<usize> = (0..len.len())
+            .filter(|&i| {
+                let left = i.checked_sub(1).map(|j| len[j]);
+                let right = len.get(i + 1).copied();
+                [left, right]
+                    .into_iter()
+                    .flatten()
+                    .any(|n| len[i] > 2.0 * n)
+            })
+            .collect();
+        if wide.is_empty() || fractions.len() >= MAX_LOCAL_SAMPLES {
+            return fractions;
+        }
+        for &i in wide.iter().rev() {
+            let mid = 0.5 * (fractions[i] + fractions[i + 1]);
+            fractions.insert(i + 1, mid);
+        }
+    }
+}
+
+/// Each interval of `fractions` at its start and three quarter points,
+/// then the last fraction: gaps over the result's intervals come four
+/// to an interval of `fractions`.
+fn dense_fractions(fractions: &[f64]) -> Vec<f64> {
+    let mut out = Vec::with_capacity(4 * fractions.len());
+    for w in fractions.windows(2) {
+        for k in 0..4 {
+            out.push(w[0] + (w[1] - w[0]) * f64::from(k) / 4.0);
+        }
+    }
+    out.extend(fractions.last().copied());
+    out
+}
+
+/// The largest of `gaps` (nought for none).
+fn max_gap(gaps: &[f64]) -> f64 {
+    gaps.iter().copied().fold(0.0_f64, f64::max)
+}
+
+/// Interpolate `points` at `fractions` (ascending, holding every
+/// breakpoint) piecewise between `breaks`, joined C0.
+fn interpolant_at(points: &[Point3], fractions: &[f64], breaks: &[f64]) -> Option<NurbsCurve> {
+    if points.len() != fractions.len() {
+        return None;
+    }
+    let mut cuts: Vec<usize> = vec![0];
+    for &b in breaks {
+        let k = fractions.iter().position(|&f| (f - b).abs() <= 1e-12)?;
+        cuts.push(k);
+    }
+    cuts.push(fractions.len() - 1);
+    let mut joined: Option<NurbsCurve> = None;
+    for w in cuts.windows(2) {
+        let (pts, params) = (points.get(w[0]..=w[1])?, fractions.get(w[0]..=w[1])?);
+        if pts.len() < 2 {
+            return None;
+        }
+        let degree = 3.min(pts.len() - 1);
+        let piece = crate::geometry::fitting::fit_curve(pts, params, degree, pts.len()).ok()?;
+        joined = Some(match joined {
+            None => piece,
+            Some(left) => left.concatenate_clamped(&piece, JOIN_TOLERANCE).ok()?,
+        });
+    }
+    joined
+}
+
+/// Per interval of `fractions`, the distance from the image of `fit`
+/// at its midpoint to the edge curve at the same fraction (the
+/// agreeing direction of the two): co-parameterized, as the mesher
+/// pairs a canonical station's point with the pcurve at its fraction
+/// (a fit on the curve as a point set but drifting in parameter failed
+/// that round trip, its loop fell to private samples and the measured
+/// volume lost 2e-5).
+fn interval_gaps(
+    fit: &NurbsCurve,
+    surface: &SurfaceGeometry,
+    curve_on_edge: &CurveOnEdge,
+    (t_lo, t_hi): (f64, f64),
+    fractions: &[f64],
+) -> Vec<f64> {
+    let curve = &curve_on_edge.geometry;
+    let along = |reversed: bool| -> Vec<f64> {
+        fractions
+            .windows(2)
+            .map(|w| {
+                let f = 0.5 * (w[0] + w[1]);
+                let uv = fit.point_at(f);
+                let image = surface.point_at(uv.x, uv.y);
+                let g = if reversed { 1.0 - f } else { f };
+                curve.point_at(t_lo + (t_hi - t_lo) * g).distance_to(&image)
+            })
+            .collect()
+    };
+    let (a, b) = (along(false), along(true));
+    if max_gap(&a) <= max_gap(&b) { a } else { b }
 }
 
 /// The edge curve's polygonal length over 32 chords.

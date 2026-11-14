@@ -1,13 +1,13 @@
-//! The branch rule (plan §4.3a gate): two branches of one face pair
-//! passing within tolerance stay two vertices; two pieces of one branch
-//! meeting end to end, and a record ending on another face pair's
-//! record, are one.
+//! Records of one face pair (plan §4.3a, §5.4): two branches of one
+//! face pair passing within tolerance are one vertex; so are two pieces
+//! of one branch meeting end to end, and a record ending on another
+//! face pair's record.
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::FaceHandle;
 
 use super::candidates::{CandidateVertex, Incidence, SourceKind};
-use super::resolve::{Incompatibility, ResolutionContext, resolve};
+use super::resolve::{ResolutionContext, resolve};
 use super::tests::{TOL, cube, line, options, record, record_end};
 use crate::intersect::IntersectionRecord;
 
@@ -43,11 +43,13 @@ fn on_record(record: usize, s: f64, at: Point3) -> CandidateVertex {
 }
 
 /// A record of one face pair ending 0.5 tol beside another record of
-/// that pair, mid-span: two branches passing close. The SSI marched
-/// the first through, seeing no branch point, so the end is not on it
-/// (no T-junction) and the point it passes stays a vertex of its own.
+/// that pair, mid-span: two branches passing within the tolerance. The
+/// end is not given an interior incidence on the other record (no
+/// T-junction: the arrangement's meeting is that vertex), and the two
+/// candidates, within the tolerance, are one vertex (the retired branch
+/// rule kept them two, PK-1130).
 #[test]
-fn two_branches_half_a_tolerance_apart_stay_two_vertices() {
+fn two_branches_half_a_tolerance_apart_are_one_vertex() {
     let c = cube().transform(&popkern_core::geometry::transform::Transform3::translation(
         100.0, 0.0, 0.0,
     ));
@@ -74,14 +76,7 @@ fn two_branches_half_a_tolerance_apart_stay_two_vertices() {
         records: &records,
     };
     let res = resolve(&cands, &ctx, options(10.0 * TOL)).expect("resolves");
-    assert_eq!(res.groups.len(), 2, "{res:?}");
-    assert!(
-        res.separations
-            .iter()
-            .any(|&(_, _, why)| why == Incompatibility::DistinctBranches),
-        "{:?}",
-        res.separations
-    );
+    assert_eq!(res.groups.len(), 1, "{res:?}");
 }
 
 /// Two records of one face pair meeting end to end (one branch cut at

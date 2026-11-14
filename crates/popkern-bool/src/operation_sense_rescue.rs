@@ -33,8 +33,11 @@ pub(crate) fn execute_boolean_full(
     cancel: Option<&CancellationToken>,
     progress: Option<&mut dyn ProgressReporter>,
     policy: NonManifoldPolicy,
+    boxes: Option<super::OperandBoxes<'_>>,
 ) -> Result<BRep, BoolError> {
-    let routes = execute_boolean_routes(op, a, b, tolerance, metrics, cancel, progress, policy);
+    let routes = execute_boolean_routes(
+        op, a, b, tolerance, metrics, cancel, progress, policy, boxes,
+    );
     let served = match routes {
         Ok(served) => served,
         // A union of operands that only touch fails inside the pipeline
@@ -62,14 +65,40 @@ pub(crate) fn execute_boolean_full(
         }
         Err(e) => return Err(e),
     };
-    // Whatever route served it, a result that touches itself (two
-    // vertices or two edges in one place: bodies meeting along an
-    // edge or at a point; two shells meeting anywhere) is non-manifold
-    // and declines (PK-964, D1).
+    answer_contacts(served, tolerance, policy)
+}
+
+/// A served result as it is when it touches itself nowhere; else,
+/// where it does (two vertices or two edges in one place: bodies meeting
+/// along an edge or at a point; two shells meeting anywhere; one shell
+/// touching itself), declined with the contacts or split under the
+/// serving policies (PK-964, D1). Every route's served body answers
+/// here: the two-operand pipeline and the partition's selection alike
+/// (PK-1181).
+pub(crate) fn answer_contacts(
+    served: BRep,
+    tolerance: &Tolerance,
+    policy: NonManifoldPolicy,
+) -> Result<BRep, BoolError> {
+    // A face whose loops touch at a vertex is one disc there, its
+    // boundary one loop through the vertex twice: canonical form, so the
+    // neighbourhoods below read the pinch use as the manifold it is
+    // (PK-1129).
+    let mut served = served;
+    served.join_loops_sharing_vertices();
+    crate::postprocess::zero_thickness::repair_identity_copies(&mut served, tolerance);
+    if popkern_core::trace::trace_enabled("contacts") {
+        crate::postprocess::zero_thickness::trace_findings(&served, tolerance);
+    }
     let mut contacts =
         crate::postprocess::zero_thickness::zero_thickness_contacts(&served, tolerance);
     if contacts.is_empty() {
         contacts = crate::postprocess::shell_contact::shell_contacts(&served, tolerance);
+    }
+    if contacts.is_empty() {
+        // One shell touching itself where none of its topology stands
+        // (PK-1155).
+        contacts = crate::postprocess::self_contact::self_contacts(&served, tolerance);
     }
     if contacts.is_empty() {
         return Ok(served);
@@ -93,6 +122,7 @@ fn execute_boolean_routes(
     cancel: Option<&CancellationToken>,
     progress: Option<&mut dyn ProgressReporter>,
     policy: NonManifoldPolicy,
+    boxes: Option<super::OperandBoxes<'_>>,
 ) -> Result<BRep, BoolError> {
     // PK-478 stage 4: MIXED-sense rescue retry. A mixed operand pair
     // (one majority-inward — every blend-rebuilt body; one
@@ -123,7 +153,9 @@ fn execute_boolean_routes(
 
     // `progress` is consumed by the primary run; the rescue run is
     // internal and reports no progress.
-    let primary = execute_boolean_pipeline(op, a, b, tolerance, metrics, cancel, progress, policy);
+    let primary = execute_boolean_pipeline(
+        op, a, b, tolerance, metrics, cancel, progress, policy, boxes,
+    );
     let err = match primary {
         Ok(result) => return Ok(result),
         Err(BoolError::Cancelled) => return Err(BoolError::Cancelled),
@@ -171,6 +203,7 @@ fn execute_boolean_routes(
         cancel,
         None,
         policy,
+        None,
     ) {
         Ok(rescued) => {
             // Tear bar: a divergence at 1% of the body extent is a

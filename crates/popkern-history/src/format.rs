@@ -251,6 +251,7 @@ fn entity_placeholder(name: &popkern_core::naming::EntityName) -> String {
         RoleCategory::Cap => "cap",
         RoleCategory::Intersection => "int",
         RoleCategory::Junction => "jnc",
+        RoleCategory::Contact => "cnt",
     };
     format!("op{}_{}{}", name.operation.0, cat, name.role.index)
 }

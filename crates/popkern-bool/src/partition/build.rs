@@ -63,7 +63,7 @@ pub(super) fn build(
     tolerance: &Tolerance,
 ) -> Result<Built, BoolError> {
     let linear = tolerance.linear();
-    let snap = linear * 2.0;
+    let snap = tolerance.linear_reach();
     let boxes: Vec<_> = bodies
         .iter()
         .map(|b| crate::intersect::compute_face_aabbs(b))

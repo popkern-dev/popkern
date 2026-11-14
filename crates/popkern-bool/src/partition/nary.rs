@@ -106,7 +106,7 @@ pub(super) fn or_fold(
         Err(Ok(answer)) => return Err(answer),
         Err(Err(decline)) => decline,
     };
-    match fold(bodies, expr, tolerance, options) {
+    match fold(bodies, expr, tolerance, options).map(decline_of) {
         Some(Ok(body)) => {
             crate::complex_shadow::append_log_line(&format!(
                 "PartitionFallback {} bodies {expr:?}: {decline}",
@@ -114,6 +114,11 @@ pub(super) fn or_fold(
             ));
             Ok(body)
         }
+        // The fold's answer (a non-manifold result) over the partition's
+        // decline: two balls exactly a tolerance apart declined an
+        // invalid edge where the fold declined non-manifold at their
+        // contact, as the two-operand union does (PK-1183).
+        Some(Err(Ok(answer))) => Err(answer),
         _ => Err(decline),
     }
 }
