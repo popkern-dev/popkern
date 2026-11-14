@@ -33,6 +33,7 @@ pub(super) type Quad<'a> = &'a dyn Fn(f64) -> (f64, f64, f64);
 
 /// Golden-section refinement of a minimum of `D` within `[lo, hi]`.
 fn refine_minimum(quad: Quad<'_>, mut lo: f64, mut hi: f64) -> f64 {
+    let (a0, b0) = (lo, hi);
     let g = 0.5 * (5.0_f64.sqrt() - 1.0);
     let mut x1 = hi - g * (hi - lo);
     let mut x2 = lo + g * (hi - lo);
@@ -50,6 +51,32 @@ fn refine_minimum(quad: Quad<'_>, mut lo: f64, mut hi: f64) -> f64 {
             f1 = f2;
             x2 = lo + g * (hi - lo);
             f2 = quad(x2).0;
+        }
+    }
+    stationary_point(quad, (a0, b0), 0.5 * (lo + hi))
+}
+
+/// The root of `D′` nearest `seed` within `[a, b]`, by bisection on its
+/// central difference: golden section on the values of a flat minimum
+/// places it only to `√(δ / D″)` for a rounding `δ` in `D` (Viviani's
+/// double point landed 1.6e-7 off the ball's pole), the slope's root to
+/// `δ / (h D″)`. The seed when the slope does not change sign there.
+fn stationary_point(quad: Quad<'_>, (a, b): (f64, f64), seed: f64) -> f64 {
+    let h = (b - a).abs() * 1e-4;
+    let slope = |x: f64| quad(x + h).0 - quad(x - h).0;
+    let (mut lo, mut hi) = (seed - 10.0 * h, seed + 10.0 * h);
+    let (mut s_lo, s_hi) = (slope(lo), slope(hi));
+    if s_lo * s_hi > 0.0 {
+        return seed;
+    }
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        let s = slope(mid);
+        if s * s_lo <= 0.0 {
+            hi = mid;
+        } else {
+            lo = mid;
+            s_lo = s;
         }
     }
     0.5 * (lo + hi)

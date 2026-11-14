@@ -246,6 +246,7 @@ pub(super) fn split_err(
             }),
         }],
         phase_metrics: Vec::new(),
+        contacts: Vec::new(),
     }
 }
 

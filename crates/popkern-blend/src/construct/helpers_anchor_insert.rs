@@ -84,12 +84,16 @@ pub(super) fn insert_anchor_at_position(
         }
         let t = 0.5 * (lo + hi);
         // Interior only — endpoint projections belong to the vertex
-        // reuse path above.
-        let frac = (t - t0) / (t1 - t0).max(1e-300);
-        if !(0.001..=0.999).contains(&frac) {
+        // reuse path above: farther than the linear tolerance from
+        // both ends (a fixed fraction moved anchors near an end onto
+        // it, PK-1152).
+        let proj = curve.geometry.point_at(t);
+        let end_gap = proj
+            .distance_to(&curve.geometry.point_at(t0))
+            .min(proj.distance_to(&curve.geometry.point_at(t1)));
+        if end_gap <= brep.tolerance.linear() {
             continue;
         }
-        let proj = curve.geometry.point_at(t);
         let d = proj.distance_to(&position);
         if best.as_ref().is_none_or(|(_, _, bd2)| d < *bd2) {
             best = Some((eh, proj, d));
@@ -385,7 +389,8 @@ pub struct ReflexEndAnchor {
 
 /// Scan all edges in `brep` and find the one whose 3D line segment
 /// contains `point` within a small tolerance, returning the edge
-/// handle and parameter along the edge in `(0.001, 0.999)`.
+/// handle and parameter along the edge, inside it by more than the
+/// linear tolerance at both ends.
 ///
 /// `pub(crate)` for §6c-DirectApex.2.b — the apex builder calls this from
 /// `resolve_apex_vertices`'s create branch when no existing BRep
@@ -420,7 +425,11 @@ pub(crate) fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(Edge
             continue;
         }
         let t = ((point.x - v0.x) * dx + (point.y - v0.y) * dy + (point.z - v0.z) * dz) / len_sq;
-        if !(0.001..=0.999).contains(&t) {
+        // Inside the edge by more than the linear tolerance at both
+        // ends, as a length: a fixed fraction of the edge snapped an
+        // anchor a thousandth from an end onto its vertex (PK-1152).
+        let margin = brep.tolerance.linear() / len_sq.sqrt();
+        if t <= margin || t >= 1.0 - margin {
             continue;
         }
         let px = v0.x + t * dx;

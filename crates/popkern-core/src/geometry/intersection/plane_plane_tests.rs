@@ -418,3 +418,62 @@ fn public_api_parallel_separated_planes() {
     .unwrap();
     assert!(result.intersections.is_empty());
 }
+
+/// The plane `z = slope·y` against the xy plane, both over `[-5, 5]²`.
+fn tilted_against_xy(slope: f64) -> Vec<SurfaceSurfaceIntersection> {
+    let (o1, n1, u1, v1) = xy_plane_params();
+    let c = 1.0 / (1.0 + slope * slope).sqrt();
+    let n2 = Vec3::new(0.0, -slope * c, c);
+    let v2 = Vec3::new(0.0, c, slope * c);
+    let range = (-5.0_f64, 5.0_f64);
+    try_plane_plane(
+        o1,
+        n1,
+        u1,
+        v1,
+        range,
+        range,
+        o1,
+        n2,
+        Vec3::new(1.0, 0.0, 0.0),
+        v2,
+        range,
+        range,
+        &default_tol(),
+    )
+    .unwrap()
+}
+
+/// Planes a ten-thousandth of a radian apart through a common line are
+/// 5e-4 apart at the edge of a box 10 wide, past the tolerance: they
+/// cross in that line. The angular tolerance read them parallel and,
+/// sharing a point, coincident (PK-1137).
+#[test]
+fn planes_apart_past_the_tolerance_over_the_box_cross_in_a_line() {
+    for slope in [1e-4, 1e-5, 1e-6] {
+        let result = tilted_against_xy(slope);
+        assert_eq!(result.len(), 1, "{slope}: {result:?}");
+        let SurfaceSurfaceIntersection::Curve(c) = &result[0] else {
+            panic!("{slope}: {result:?}");
+        };
+        let (t0, t1) = c.curve_3d.parameter_range();
+        for t in [t0, t1] {
+            let p = c.curve_3d.point_at(t);
+            assert!(p.y.abs() < 1e-9 && p.z.abs() < 1e-9, "{slope}: {p:?}");
+        }
+    }
+}
+
+/// Planes within the tolerance of each other over both boxes are
+/// coincident, a tilt or not.
+#[test]
+fn planes_within_the_tolerance_over_the_box_are_coincident() {
+    let result = tilted_against_xy(1e-8);
+    assert!(
+        matches!(
+            result.as_slice(),
+            [SurfaceSurfaceIntersection::CoincidentRegion { .. }]
+        ),
+        "{result:?}"
+    );
+}

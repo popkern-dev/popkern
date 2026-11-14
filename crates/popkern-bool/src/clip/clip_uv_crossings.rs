@@ -9,6 +9,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::clip_branch_normalize;
+use super::clip_crossing_graze::drop_grazes;
 use super::clip_crossing_reports::{collapse_crossing_reports, resolve_contact_runs};
 use super::clip_crossings_rescue::sampled_uv_crossings;
 use super::clip_lift_crossings::extend_with_lifted_loop_crossings;
@@ -52,6 +53,27 @@ pub(crate) fn find_uv_crossings(
 
     let curve_range = curve_uv.parameter_range();
     if (curve_range.1 - curve_range.0).abs() < tolerance.numerical_floor() {
+        return Some(crossings);
+    }
+    // A plane's chart has no period (a lift by one finds nothing true
+    // there), so a record no boundary edge can reach crosses none:
+    // decided before any edge is converted (PK-1168).
+    let on_plane = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .is_some_and(|s| {
+            matches!(
+                s.geometry,
+                popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+            )
+        });
+    let pad = super::clip_rim_reach::RIM_REACH_TOLERANCES * tolerance.linear();
+    if on_plane
+        && boundary
+            .iter()
+            .all(|(_, pc)| super::clip_rim_reach::rim_clear_of_query(pc, curve_uv, pad))
+    {
         return Some(crossings);
     }
 
@@ -262,7 +284,13 @@ pub(crate) fn find_uv_crossings(
                 }
                 let b = working_boundary.point_at(t1);
                 let gap = (wrap(w.x - b.x).powi(2) + (w.y - b.y).powi(2)).sqrt();
-                (gap > COINCIDENCE_BAND * tolerance.linear()).then_some("apart")
+                if gap > COINCIDENCE_BAND * tolerance.linear() {
+                    return Some("apart");
+                }
+                // Within the linear reach in space (the shift moves both).
+                let curves = (&working_boundary, &working_curve);
+                super::clip_crossing_gap::afar(face_surface, curves, (t1, t2), applied, tolerance)
+                    .then_some("afar")
             };
             if let Ok(result) = result {
                 use popkern_core::geometry::intersection::CurveIntersection;
@@ -362,13 +390,24 @@ pub(crate) fn find_uv_crossings(
             .collect();
         crossings.extend(extra);
     }
-    // Loops on multi-turn charts: crossings on every lift (PK-673).
+    // Loops on multi-turn charts: crossings on every lift (PK-673),
+    // each one place in space (the passes above judge their own).
+    let direct = crossings.len();
     extend_with_lifted_loop_crossings(
         &mut crossings,
         brep,
         &boundary_nurbs,
         curve_uv,
         period_of(),
+        tolerance,
+    );
+    let (lifted, surface) = ((&boundary_nurbs, curve_uv), face_surface);
+    super::clip_crossing_gap::keep_one_place(
+        surface,
+        lifted.0,
+        lifted.1,
+        &mut crossings,
+        direct,
         tolerance,
     );
     if crossings.is_empty() && surface_is_periodic {
@@ -435,7 +474,9 @@ pub(crate) fn find_uv_crossings(
     });
 
     let crossings = collapse_crossing_reports(brep, face, curve_uv, crossings, tolerance);
-    let mut crossings = resolve_contact_runs(brep, face, curve_uv, crossings, tolerance);
+    let crossings = resolve_contact_runs(brep, face, curve_uv, crossings, tolerance);
+    let on = (face_surface, &boundary_nurbs[..]);
+    let mut crossings = drop_grazes(on, curve_uv, crossings, tolerance);
     // A closed query on the boundary at its closure point (PK-775).
     let period = surface_is_periodic.then(period_of);
     let period_v = {

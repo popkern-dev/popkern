@@ -376,6 +376,172 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   along an edge, PK-1072) glue where they coincide
   (`BRep::glue_coincident`) under the same option. Fixtures
   are OCC-written (`tools/occ-oracle/occ_write_nonmanifold.py`).
+- **Tangency and contacts (PK-1123..1130)** — where two surfaces
+  touch without crossing, `contact_classify` reads the relative
+  curvature `D = II₁ − II₂` in one tangent frame (a touch, a crossing
+  with its branch directions, a tangent curve, or `Undecided`, an
+  eigenvalue under `2ε/L²` decided by the gap on a ring), and
+  `intersect_surfaces_typed` reports `contacts` beside the unchanged
+  curves (`contact_discovery`: critical points of the signed gap,
+  seeded from both surfaces and merged by place, so either order finds
+  the same contacts; at a chart's pole the normal and bending are read
+  just beside it, and the ring is no wider than a quarter of either
+  surface's sharpest radius there, PK-1179). An
+  arm meeting a touch emits no curve, as every arm does: contacts are
+  typed beside. A boolean whose operands meet in no curve classifies
+  only by probes that agree off the other body's boundary and declines
+  `BoolError::RelationUndecided` otherwise. Records meeting inside one
+  another on a face are split there (`tolerance_zone/meetings.rs`),
+  the one rule for records of one face pair passing within the
+  tolerance (the vertex table's old branch rule is retired). A key
+  runs its span's way by its ends when open and its leaving tangent
+  when closed
+  (`assemble_span_unify::runs_same_way`: a closed span's ends are one
+  node). Touches of an edge with a face land on the root of `C′ · N`,
+  not a minimum of distance values (`surface_curve_touch.rs`). Exact
+  arms: sphere × sphere, sphere × coaxial cone, cones sharing an apex,
+  and a NURBS surface of revolution (either parameter the angle,
+  clamped or periodic form) × a coaxial plane, cylinder, cone or
+  sphere (`revolved_nurbs.rs`). Manifoldness has one authority,
+  `BRep::vertex_neighbourhood(s)` / `edge_neighbourhood` (a face
+  meeting a vertex twice round one fan is a pinch use, still a
+  manifold; the boolean's pinched-vertex test is its client;
+  `imprint_edge` from a pinch vertex splices into the wedge the curve
+  enters, read off chords since a tangency pinch's wedges are cusps,
+  and declines when no single wedge holds it); fillets,
+  chamfers at a pinch vertex, shells, offsets and thickens decline
+  `CoreError::PinchUse` before building. Separate shells touching are
+  found by alternating projection between face surfaces, as critical
+  points of the signed gap where projection stalls at a tangent touch
+  (`find_surface_contacts` over each face's window, a face closed round
+  a seam spanning its period whole), and by each edge walked against
+  the other face (`postprocess/shell_contact*.rs`: an edge resting on a
+  face is a contact); one shell touching itself, two faces sharing no
+  vertex meeting, by the same search over pairs no bound clears
+  (`postprocess/self_contact.rs`, PK-1155: a ball on a box's edge or
+  face inside a union kept one shell; NURBS faces held by their trim's
+  Bézier patches cut to its uv box, subdivided where near, edges
+  proved apart from the other face not walked; planes, cylinders and
+  tori whose normals cannot be parallel cleared by their edges (a torus
+  face read on its own closed-form box), a cylinder and a NURBS face
+  none of whose normals is across the axis searched by their edges
+  alone (PK-1175), planar faces of
+  segments by their exact gap, faces on one surface by their edges), and `glue_touching` gives an
+  edge resting on a face, of another piece or its own, a vertex at the
+  root of `C′ · N` (`touch_points.rs`). A closed edge's fins leave
+  its vertex at opposite ends: fans and `contacts()` read them by sense
+  (`BRep::ring_use_at`), as the neighbourhood walk does. Naming scheme 6 (PK-1160): an edgeless contact (a
+  vertex loop) is `RoleCategory::Contact`, named by the faces it lies
+  on; a general two-operand boolean is named after its glue; a face
+  lying on several operand faces is confirmed on each at a second
+  point (one point cannot tell a coincidence from a touch). A shell whose result
+  touches itself (a wall closed exactly) declines
+  `ShellError::SelfContact` (`popkern-shell/src/self_contact.rs`,
+  tangent contacts of faces sharing no vertex); under
+  `ShellOptions::with_non_manifold(General)` it serves one general
+  body glued along the contact (`glue_touching` also glues a piece
+  touching itself). A draft whose drafted faces meet across a strip
+  face serves their ridge (`popkern-draft/src/ridge.rs`: the strip's
+  short edges contracted, the strip merged into a side, the draft run
+  again; `DraftWarning::FaceConsumedToRidge`); another consumed face
+  declines `DraftError::FaceConsumed`. The linear tolerance is the
+  resolution (PK-1131): within it is inclusive with a rounding
+  allowance (`Tolerance::within_linear`, `linear_reach`), everywhere
+  two things are decided one place. An operand or a result thinner
+  than it everywhere has no inside (the other operand or empty), a
+  union closes a gap at or under it between facing faces (an N-ary
+  selection too, wherever it keeps both sides), and a merge flattens a
+  step at or under it between faces facing one way; each is recorded
+  as a `popkern_bool::sub_tolerance::SubToleranceFeature` (history and
+  Part report it as a warning). Vertex identity reads the same
+  tolerance (PK-1165): an operand vertex or an edge-face hit has half
+  the linear reach as its radius (two are one place within the
+  tolerance), a record end its faces' tolerances plus its fit
+  deviation, a candidate joins the nearest compatible vertex, and the
+  graph's snap and the assembler's coincident-span band are the reach
+  (a record's band plus its fit deviation). An entity's own tolerance
+  widens it only past the reach (a result carries the linear on every
+  entity, PK-1180); a candidate lies on a record's interior, and two
+  records meet, within the reach plus the records' fit deviation; a
+  clip's uv boundary crossing is one only where the curves come within
+  the reach in space (`clip/clip_crossing_gap.rs`: a near miss under the
+  tolerance in a stretched chart is past it in space), and a closed
+  record's lone pair of crossings grazing the boundary within the reach
+  (the same side beyond both) is none (`clip/clip_crossing_graze.rs`).
+  Two curves passing within the tolerance meet where they run parallel
+  in their stretch within it, else where they come nearest (a shallow
+  crossing), never at the stretch's middle or a minimum of a flat
+  distance; a pass running into an open record's end is that end's
+  vertex, into a closed one's closure the closure
+  (`tolerance_zone/meetings_foot.rs` `pass_place`, `parallel_point`;
+  `partition/crossings.rs`; PK-1181, PK-1182). The partition finds
+  passes within the reach as the vertex table does
+  (`meetings::passes_between`, the intersector deciding to the bare
+  tolerance), splits only the other record at a pass at one record's
+  end, and snaps at the reach; a re-anchored edge end re-authors its
+  curve as densely as it needs (`postprocess/junction_reconcile.rs`);
+  a glued vertex keeps the glued-away one's tolerance; a recorded
+  vertex reach carries the reach's rounding allowance; and a declined
+  partition answers as its pairwise fold does (PK-1183). A clipped end refined
+  a short way onto a junction on its source, where dragging its end
+  control point would bend it off itself, is a re-trim of the source
+  on the piece's own domain (`clip_retrim_on_source.rs`), and
+  circle, arc and ellipse boxes are exact, never sampled (a sampled
+  rim box missed its extreme and the hole filter kept a piece in the
+  hole, `geometry/analytic_curve_box.rs`). A decided vertex records how far
+  its edges' ends lie from it, up to its group's grown tolerance
+  (`cellular/vertex_reach.rs`); a chart walk's projection continues
+  through a fast sweep (a ring round a sphere's pole turning a period
+  within its distance from it) in steps of at most a quarter period
+  (`merge/walk/chart_embedding_follow.rs`, PK-1184); a projected
+  pcurve that uniform doubling cannot follow (a ring sweeping a pole's
+  longitude within its distance from it) is refined where its image
+  strays (`topology/pcurve_projection_fit.rs`), the mesher splits an
+  edge's sample step that turns a sphere's or cone's chart past a
+  quarter period, read from the curve's own points
+  (`boundary_first_pole_sweep.rs`), and the measuring quadrature reads
+  a corner as its pole row only where it stands for it (a pole to
+  rounding, or a face vertex at the pole within its tolerance;
+  `body_quadrature_pole.rs`; PK-1178); the projected pcurve's local
+  refinement also runs on a chart with a singular row
+  (`geometry/chart_singularity.rs`), splits the intervals straying
+  within a tenth of the worst and waits while one still turns past a
+  quarter period; a seam's border window carries the reach measured
+  in space where the chart is stretched beside a pole
+  (`merge/walk/chart_seam_reach.rs`), a run end its next sample turns
+  between a quarter and three quarters of a period clusters by its own
+  u, and of balanced floating-component placements the walk keeps the
+  one inside the seam's window (`chart_branch_float.rs`; PK-1185); two
+  faces sharing a vertex face each other by their unit normals (the
+  chart normal is scaled by the chart's speed), a touch found beside the
+  shared vertex is its own only where the gap does not keep falling
+  toward the vertex (`postprocess/self_contact_facing.rs`), a stored
+  trim ring whose seam copies lie on one chart line does not set σ
+  (`chart_ring_sigma.rs`), and runs leaving one pole node start at one
+  point for the duplicate-cover test (PK-1187); a sphere, cylinder or
+  cone face whose measuring mesh misread it (its quadrature area past
+  the pcurves' band from theirs) takes its exact divergence term from
+  its area and its loops' vector area, the mesh giving only signs
+  (`body_quadrature_analytic.rs`, PK-1186); a mesh ring passing
+  beside a sphere's pole within a twentieth of the chord height charts
+  its samples within half the chord height of the pole at the pole, so
+  the pole row's run meets the curve past its turn
+  (`boundary_first_unwrap.rs`, PK-1188); and the
+  partition's selection answers
+  contacts as a two-operand result does (`operation::answer_contacts`:
+  three records touching pairwise at a point pinch the space outside). Tolerance tests on edges
+  are lengths, never parameter fractions, and a trim test's boundary
+  band (ten tolerances) is not "on the face": contacts confirm it in
+  space (`point_near_face_boundary`).
+  `boolean_with_diagnostics` reports where the operands touch
+  (`BoolDiagnostics::contacts`, each `OperandContact` classified);
+  a declined vertex resolution's candidates, record meetings among
+  them, dump under `POPKERN_COMPLEX_ARTIFACT`. Corpora:
+  `popkern-examples/tests/tangency_corpus.rs` (placements, scales,
+  self-turns, per policy, closed forms) and
+  `popkern-rhai/tests/tangency_bench_scripts.rs`; both ratchet (a gate
+  must pass, a target that starts passing must be promoted);
+  `pinch_use_consumers.rs` puts a pinch use through every consumer.
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks

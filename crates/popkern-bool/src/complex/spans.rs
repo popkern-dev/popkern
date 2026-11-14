@@ -9,10 +9,11 @@
 //! has none (measured: the shadow harness's first suite run, 210 of 253
 //! complex declines, every flush family).
 
+use popkern_core::topology::BRep;
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::cellular::assemble_edge_geometry::span_sample_points;
-use crate::cellular::assemble_span_unify::SpanRegistry;
+use crate::cellular::assemble_span_unify::{SpanRegistry, runs_same_way};
 use crate::merge::graph::IntersectionGraph;
 use crate::merge::walk::Fragment;
 
@@ -32,6 +33,7 @@ pub(crate) struct SpanRep {
 /// representative. Keys are visited in canonical (ascending) order, as
 /// the assembler visits them, so both pick the same representative.
 pub(crate) fn unify_spans(
+    operands: &[&BRep],
     graph: &IntersectionGraph,
     fragments: &[Fragment],
     linear: f64,
@@ -42,23 +44,19 @@ pub(crate) fn unify_spans(
         .map(|&h| h.min(graph.half_edges[h].twin))
         .filter(|&k| !is_degenerate_key(graph, k))
         .collect();
-    let mut spans = SpanRegistry::new(linear * 10.0, linear);
+    let reach = popkern_core::tolerance::Tolerance::default()
+        .with_linear(linear)
+        .linear_reach();
+    let mut spans = SpanRegistry::new(linear * 10.0, reach);
     let mut out = BTreeMap::new();
     for key in keys {
         let sample = span_sample_points(graph, key);
-        let rep = match spans.prior_for(graph, key, sample) {
+        let rep = match spans.prior_for(graph, operands, key, sample) {
             // A registered span is its own representative.
-            Some(prior) => {
-                let start = |k: usize| graph.nodes[graph.half_edges[k].origin].position;
-                let end = |k: usize| {
-                    graph.nodes[graph.half_edges[graph.half_edges[k].twin].origin].position
-                };
-                let here = start(key);
-                SpanRep {
-                    key: prior,
-                    same_dir: here.distance_to(&start(prior)) <= here.distance_to(&end(prior)),
-                }
-            }
+            Some(prior) => SpanRep {
+                key: prior,
+                same_dir: runs_same_way(graph, key, prior, linear * 10.0),
+            },
             None => {
                 let (nodes, a, b, mid) = sample;
                 spans.register(nodes, a, b, mid, key);

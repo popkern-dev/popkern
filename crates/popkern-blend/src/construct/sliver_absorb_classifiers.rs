@@ -115,7 +115,9 @@ pub(super) fn find_corner_fragment_target(
     None
 }
 
-use super::sliver_absorb_measure::{outer_loop_has_closed_edge, sampled_boundary_area};
+use super::sliver_absorb_measure::{
+    edges_on_neighbours, neighbour_side, outer_loop_has_closed_edge, sampled_boundary_area,
+};
 
 /// Class A: face whose outer-loop polygonal area is below
 /// `tolerance.linear()²`. Returns `(sliver_face, neighbour_side_he, area)`.
@@ -135,6 +137,26 @@ pub(super) fn find_zero_area_target(
             continue;
         }
         let positions = brep.face_outer_loop_positions(fh);
+        if positions.len() == 2 {
+            // A face of two edges has no vertex polygon: its curves
+            // decide. Two coincident edges bound nothing (a support
+            // face used up between two blends' rails, a plate's
+            // front face under a full round) when they already lie
+            // on the faces across them: the edge left by the merge
+            // is then right for both. A sliver whose edges are still
+            // the plane's projection of a seam that lies elsewhere
+            // (two parallel fillets crossing mid-face) is the
+            // parallel-seam weld's, which moves them onto it.
+            let area = sampled_boundary_area(brep, fh);
+            if area < tol_sq
+                && brep.faces[fh].inner_loops.is_empty()
+                && edges_on_neighbours(brep, fh, tolerance.linear())
+                && let Some(he) = neighbour_side(brep, fh)
+            {
+                return Some((fh, he, area));
+            }
+            continue;
+        }
         if positions.len() < 3 {
             continue;
         }
@@ -152,34 +174,8 @@ pub(super) fn find_zero_area_target(
         if outer_loop_has_closed_edge(brep, fh) && sampled_boundary_area(brep, fh) >= tol_sq {
             continue;
         }
-        // Zero-area face. Find a half-edge on its outer loop whose
-        // twin face differs — return the TWIN half-edge so the
-        // neighbour survives the merge.
-        let face_data = &brep.faces[fh];
-        let start_he = brep.loops[face_data.outer_loop].half_edge;
-        let mut cursor = start_he;
-        let walk_cap = brep.half_edges.len() + 1;
-        for _ in 0..walk_cap {
-            let he = &brep.half_edges[cursor];
-            let Some((twin_h, twin)) = he
-                .mate()
-                .and_then(|t| brep.half_edges.get(t).map(|d| (t, d)))
-            else {
-                cursor = he.next;
-                continue;
-            };
-            let Some(twin_loop) = brep.loops.get(twin.loop_) else {
-                cursor = he.next;
-                continue;
-            };
-            let twin_face = twin_loop.face;
-            if twin_face != fh {
-                return Some((fh, twin_h, area));
-            }
-            cursor = he.next;
-            if cursor == start_he {
-                break;
-            }
+        if let Some(he) = neighbour_side(brep, fh) {
+            return Some((fh, he, area));
         }
     }
     None

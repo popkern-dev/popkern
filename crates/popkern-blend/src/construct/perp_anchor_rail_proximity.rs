@@ -9,6 +9,20 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 /// over-reports by up to half the sample spacing, which on a trim
 /// extended far past the edge ends exceeds the gates it feeds
 /// (PK-730).
+/// The edge's far vertex `far` when the rail runs through it: the
+/// blend uses the support face up to that edge exactly and the anchor
+/// is the vertex itself. The crossing search keeps to the open edge
+/// and the walk stops a thousandth of it short: a plate filleted at
+/// its thickness kept a strip of its front face 2e-3 wide.
+pub(super) fn rail_through_far_vertex(
+    rail: Option<&NurbsCurve>,
+    far: Point3,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<Point3> {
+    rail.filter(|c| distance_to_curve(c, &far) <= tolerance.linear())
+        .map(|_| far)
+}
+
 pub(super) fn distance_to_curve(curve: &NurbsCurve, point: &Point3) -> f64 {
     closest_point_on_curve(curve, point).distance_to(point)
 }
