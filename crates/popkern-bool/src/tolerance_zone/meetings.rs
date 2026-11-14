@@ -150,6 +150,31 @@ pub(crate) fn record_meetings(records: &[IntersectionRecord], radius: f64) -> Ve
     out
 }
 
+/// The passes of `ci` over `ri` and `cj` over `rj` within `radius`, as
+/// `(si, sj, gap)`: each a minimum of the distance from `ci` to `cj`,
+/// placed where they run parallel in its stretch within the radius
+/// (`pass_place`), the search `record_meetings` makes (PK-1183: the
+/// partition's crossing search took only the curve intersector's hits,
+/// under the bare tolerance, and two rims passing 1.0000006e-6 apart,
+/// within the reach, met nowhere).
+pub(crate) fn passes_between(
+    (ci, ri): (&dyn CurveEval, (f64, f64)),
+    (cj, rj): (&dyn CurveEval, (f64, f64)),
+    radius: f64,
+) -> Vec<(f64, f64, f64)> {
+    let (pi, pj) = (
+        sample_between(ci, ri.0, ri.1),
+        sample_between(cj, rj.0, rj.1),
+    );
+    if !boxes_meet(&pi, &pj, radius) {
+        return Vec::new();
+    }
+    meetings_between(ci, &pi, cj, &pj, false, radius)
+        .into_iter()
+        .map(|(si, sj, gap, _, _)| (si, sj, gap))
+        .collect()
+}
+
 fn sample(c: &dyn CurveEval) -> Vec<(f64, Point3)> {
     let (a, b) = c.parameter_range();
     sample_between(c, a, b)

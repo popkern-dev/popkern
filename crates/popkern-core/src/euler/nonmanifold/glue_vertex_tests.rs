@@ -132,3 +132,33 @@ fn acorns_absorb_and_bad_glues_decline() {
         })
     );
 }
+
+/// The kept vertex takes the glued-away one's recorded tolerance (its
+/// edges' ends lie that far off it): two cubes at a corner, the second
+/// cube's corner carrying 3 tolerances, glued onto the first's, keep
+/// it; a kept vertex's own larger tolerance stays (PK-1183).
+#[test]
+fn a_glued_vertex_keeps_the_tolerance_of_the_one_glued_away() {
+    let mut pair = BRep::unit_cube(tol()).expect("cube");
+    let other = BRep::unit_cube(tol())
+        .and_then(|c| c.transform(&Transform3::translation(1.0, 1.0, 1.0)))
+        .expect("cube");
+    pair.append_body(&other);
+    let corner = at(&pair, Point3::new(1.0, 1.0, 1.0));
+    let linear = tol().linear();
+    pair.vertices[corner[1]].tolerance = Some(3.0 * linear);
+    pair.glue_vertices(corner[0], corner[1]).expect("glue");
+    assert_eq!(pair.vertices[corner[0]].tolerance, Some(3.0 * linear));
+
+    let mut pair = BRep::unit_cube(tol()).expect("cube");
+    pair.append_body(
+        &BRep::unit_cube(tol())
+            .and_then(|c| c.transform(&Transform3::translation(1.0, 1.0, 1.0)))
+            .expect("cube"),
+    );
+    let corner = at(&pair, Point3::new(1.0, 1.0, 1.0));
+    pair.vertices[corner[0]].tolerance = Some(5.0 * linear);
+    pair.vertices[corner[1]].tolerance = Some(2.0 * linear);
+    pair.glue_vertices(corner[0], corner[1]).expect("glue");
+    assert_eq!(pair.vertices[corner[0]].tolerance, Some(5.0 * linear));
+}

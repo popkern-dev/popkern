@@ -166,7 +166,7 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
             // A short move onto the source a drag would bend: a re-trim.
             if r.distance_to(&p) <= 50.0 * tolerance.linear()
                 && let Some(t) = project_onto_curve_dense(&source.curve_3d, &r)
-                && source.curve_3d.point_at(t).distance_to(&r) <= tolerance.linear()
+                && tolerance.within_linear(source.curve_3d.point_at(t).distance_to(&r))
                 && drag_bends(&piece.curve_3d, end, r, 0.5 * tolerance.linear())
                 && retrim_on_source(piece, source, (end, t, r), (surf_a, surf_b), tolerance)
             {

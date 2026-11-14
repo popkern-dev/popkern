@@ -314,7 +314,29 @@ pub(crate) fn reconcile_junction_cluster_geometry(brep: &mut BRep, tolerance: &T
         let params: Vec<f64> = (0..n_pts)
             .map(|k| t0 + (t1 - t0) * k as f64 / (n_pts - 1) as f64)
             .collect();
-        let Ok(fitted) = popkern_core::geometry::fitting::fit_curve(&pts, &params, 3, n_pts) else {
+        // A re-anchor alone re-authors the curve with its ends pinned,
+        // as densely as it needs: nine samples re-authored a two balls'
+        // half rim, 3.46 long and its end 1.0000006e-6 off its vertex,
+        // as a cubic 3.3e-3 off the circle between them (PK-1183).
+        let fitted = if needs_refit {
+            popkern_core::geometry::fitting::fit_curve(&pts, &params, 3, n_pts).ok()
+        } else {
+            crate::clip_reauthor::reauthor_pinned_run(
+                (t0, t1),
+                &|ts: &[f64]| ts.iter().map(|&t| c.geometry.point_at(t)).collect(),
+                &|run: &mut [Point3]| {
+                    if let Some(q) = run.first_mut() {
+                        *q = target_start;
+                    }
+                    if let Some(q) = run.last_mut() {
+                        *q = target_end;
+                    }
+                },
+                &|p: &Point3| *p,
+                0.1 * lin,
+            )
+        };
+        let Some(fitted) = fitted else {
             continue;
         };
         // Commit only when the reconciliation measurably improves

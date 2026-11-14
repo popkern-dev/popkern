@@ -27,8 +27,11 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_mesh::TriMesh;
 
+#[path = "body_quadrature_pole.rs"]
+mod pole;
 #[path = "body_quadrature_sliver.rs"]
 mod sliver;
+use pole::{FaceVertex, face_vertices, mesh_pole};
 
 /// Dunavant degree-5 rule: barycentric points and weights (sum 1).
 const RULE: [([f64; 3], f64); 7] = [
@@ -118,7 +121,7 @@ fn surface_term(
     surface: &SurfaceGeometry,
     uv: [(f64, f64); 3],
     points: [Point3; 3],
-    gate: f64,
+    (gate, vertices): (f64, &[FaceVertex]),
     kind: Integrand,
 ) -> Option<f64> {
     for (q, p) in uv.iter().zip(points) {
@@ -132,7 +135,7 @@ fn surface_term(
     // its facet spans (measured: a unit sphere read -3.3e-4). The pole
     // is really an edge: integrate the quad from the pole row under the
     // other two corners' collapsed coordinates.
-    if let Some((k, collapsed_u)) = pole_corner(surface, uv) {
+    if let Some((k, collapsed_u)) = mesh_pole(surface, uv, points, (vertices, gate)) {
         let (u, v) = uv[k];
         let (b, c) = (uv[(k + 1) % 3], uv[(k + 2) % 3]);
         let (pb, pc) = if collapsed_u {
@@ -159,7 +162,13 @@ fn surface_term(
 /// cone and lost a third of it). Both are ratios, so neither reads a
 /// small ball's rows near its pole (0.5 to their neighbours) or a long
 /// sliver on a cylinder (1) as a pole.
-fn pole_corner(surface: &SurfaceGeometry, uv: [(f64, f64); 3]) -> Option<(usize, bool)> {
+///
+/// `accept` decides among corners read as poles (`pole::mesh_pole`).
+fn pole_corner(
+    surface: &SurfaceGeometry,
+    uv: [(f64, f64); 3],
+    accept: &dyn Fn(usize, bool) -> bool,
+) -> Option<(usize, bool)> {
     let partials = uv.map(|(u, v)| {
         (
             surface.partial_u(u, v).length(),
@@ -173,7 +182,7 @@ fn pole_corner(surface: &SurfaceGeometry, uv: [(f64, f64); 3]) -> Option<(usize,
         let sv_far = others[0].1.max(others[1].1);
         let collapsed_u = su <= POLE_RATIO * sv || su <= POLE_RELATIVE * su_far;
         let collapsed_v = sv <= POLE_RATIO * su || sv <= POLE_RELATIVE * sv_far;
-        (collapsed_u != collapsed_v).then_some((k, collapsed_u))
+        (collapsed_u != collapsed_v && accept(k, collapsed_u)).then_some((k, collapsed_u))
     })
 }
 
@@ -297,6 +306,8 @@ fn face_quadrature(
         .map(|_| sliver::face_trims(brep, fm.face))
         .unwrap_or_default();
     let winding = surface.and_then(|s| face_winding(s, fm));
+    // The face's vertices: where its loops meet a pole.
+    let vertices = face_vertices(brep, fm.face);
     for t in &fm.triangles {
         let boundary = [0, 1, 2].map(|k| {
             let (i, j) = (t[k], t[(k + 1) % 3]);
@@ -331,8 +342,8 @@ fn face_quadrature(
                     _ => x,
                 };
                 let [a, b, c] = corners.map(|q| (near(q.0, anchor.0, pu), near(q.1, anchor.1, pv)));
-                let exact =
-                    surface_term(s, [a, b, c], points, gate, kind).filter(|x| x.is_finite())?;
+                let exact = surface_term(s, [a, b, c], points, (gate, &vertices), kind)
+                    .filter(|x| x.is_finite())?;
                 // The (u, v) triangle must be this facet's patch: its
                 // centroid's image lies within the facet's diameter
                 // of the facet's centroid.
@@ -376,7 +387,7 @@ fn face_quadrature(
                 // seam made the seam sliver a wedge of the whole fan (a
                 // kilometre ice-cream cone read 4/3 of its area,
                 // PK-1133).
-                let pole = pole_corner(s, corners);
+                let pole = mesh_pole(s, corners, points, (&vertices, gate));
                 let chord = |k: usize| {
                     let (mut p, mut q) = (corners[k], corners[(k + 1) % 3]);
                     match pole {
