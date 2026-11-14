@@ -22,6 +22,8 @@ use crate::merge::graph::{FaceRef, IntersectionGraph};
 
 #[path = "chart_embedding_closed.rs"]
 mod chart_embedding_closed;
+#[path = "chart_embedding_follow.rs"]
+mod chart_embedding_follow;
 #[path = "chart_embedding_unfold.rs"]
 mod chart_embedding_unfold;
 
@@ -467,7 +469,14 @@ pub(crate) fn projection_run(
             } else {
                 ts[from] + (ts[to] - ts[from]) * k as f64 / sub as f64
             };
-            uv = proj_near(&c.geometry.point_at(t), uv)?;
+            let t_prev = if k == 1 {
+                ts[from]
+            } else {
+                ts[from] + (ts[to] - ts[from]) * (k - 1) as f64 / sub as f64
+            };
+            let point = |x: f64| c.geometry.point_at(x);
+            let periods = (u_period, v_period);
+            uv = chart_embedding_follow::follow(&point, &proj_near, periods, (t_prev, t), uv)?;
         }
         Some(uv)
     };

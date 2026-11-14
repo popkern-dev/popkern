@@ -482,7 +482,11 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   rim box missed its extreme and the hole filter kept a piece in the
   hole, `geometry/analytic_curve_box.rs`). A decided vertex records how far
   its edges' ends lie from it, up to its group's grown tolerance
-  (`cellular/vertex_reach.rs`); and the partition's selection answers
+  (`cellular/vertex_reach.rs`); a chart walk's projection continues
+  through a fast sweep (a ring round a sphere's pole turning a period
+  within its distance from it) in steps of at most a quarter period
+  (`merge/walk/chart_embedding_follow.rs`, PK-1184); and the
+  partition's selection answers
   contacts as a two-operand result does (`operation::answer_contacts`:
   three records touching pairwise at a point pinch the space outside). Tolerance tests on edges
   are lengths, never parameter fractions, and a trim test's boundary
