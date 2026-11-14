@@ -106,3 +106,77 @@ fn a_ball_over_the_rod_unites_as_one_solid() {
         }
     }
 }
+
+/// The box united with the ball and rod, the ball's poles on z (its
+/// chart's south pole at P) and its seam turned `seam` about z.
+fn united_poles_on_z(delta: f64, seam: f64) -> Result<BRep, BoolError> {
+    let tol = Tolerance::default();
+    let cube = BRep::prism(
+        &[
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(10.0, 0.0, 0.0),
+            Point3::new(10.0, 10.0, 0.0),
+            Point3::new(0.0, 10.0, 0.0),
+        ],
+        Vec3::new(0.0, 0.0, 1.0),
+        10.0,
+        tol,
+    )
+    .expect("box");
+    let ball = BRep::sphere(3.0, tol)
+        .and_then(|b| b.transform(&Transform3::rotation_z(seam)))
+        .and_then(|b| b.transform(&Transform3::translation(5.0, 5.0, 13.0)))
+        .expect("ball");
+    let rod = BRep::cylinder(1.0, 5.5, tol)
+        .and_then(|b| b.transform(&Transform3::translation(6.0 + delta, 5.0, 8.0)))
+        .expect("rod");
+    let fused =
+        popkern_bool::boolean(BoolOperation::Union, ball, rod, tol, None).expect("ball and rod");
+    let options = BoolOptions {
+        non_manifold: NonManifoldPolicy::Decline,
+    };
+    boolean_with_options(BoolOperation::Union, cube, fused, tol, None, &options)
+}
+
+/// With the ball's pole at P (PK-1187) the union declines with its one
+/// contact at P as with the poles on y, at every seam turn. The
+/// self-contact search compared chart normals unnormalised (1e-4 from
+/// the pole the sphere's `∂u × ∂v` is 3e-4 long, so the faces never
+/// read as facing and the union served with no contact); the fused
+/// body's stored trim ring, its seam up to the north pole and back on
+/// one chart line, flipped the face's σ against its flag; and the touch
+/// record leaving P along the seam was not taken for the seam's
+/// duplicate, its pole end reading another u. Each served invalid or
+/// with no contact.
+#[test]
+fn a_ball_touching_the_top_at_its_pole_declines_at_its_touch() {
+    let tol = Tolerance::default();
+    let p = Point3::new(5.0, 5.0, 10.0);
+    for seam in [0.0, 0.4, 2.0] {
+        for delta in [3e-3, 1e-3, 1e-4, 3e-5] {
+            match united_poles_on_z(delta, seam) {
+                Err(BoolError::NonManifoldResult { contacts }) => {
+                    assert_eq!(contacts.len(), 1, "delta {delta} seam {seam}: {contacts:?}");
+                    assert!(
+                        contacts[0].location.distance_to(&p) < 10.0 * tol.linear(),
+                        "delta {delta} seam {seam}: at {:?}",
+                        contacts[0].location
+                    );
+                }
+                other => panic!(
+                    "delta {delta} seam {seam}: {}",
+                    other.map_or_else(
+                        |e| e.to_string(),
+                        |b| format!("served {} faces", b.faces.len())
+                    )
+                ),
+            }
+        }
+        for delta in [-1e-3, -1e-4] {
+            let body = united_poles_on_z(delta, seam)
+                .unwrap_or_else(|e| panic!("delta {delta} seam {seam}: {e}"));
+            assert!(body.validate_all().is_empty(), "delta {delta} seam {seam}");
+            assert!(body.contacts().is_empty(), "delta {delta} seam {seam}");
+        }
+    }
+}
