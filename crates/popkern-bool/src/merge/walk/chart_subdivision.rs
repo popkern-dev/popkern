@@ -175,6 +175,12 @@ pub(crate) struct FaceChartSubdivision {
     /// The chart axes are swapped: a v-wrapped u-bounded band walked as
     /// a u-closed wall (PK-922, `chart_period_axes`).
     pub transposed: bool,
+    /// Per half-edge, the periodic coordinate's span of the linear reach
+    /// at the run's start and end (the reach over the chart's speed
+    /// there, under a quarter period; none within the reach of a pole):
+    /// the slack a seam's border placement allows where the chart is
+    /// stretched (PK-1185).
+    pub period_reach: BTreeMap<usize, (f64, f64)>,
     /// Substrate diagnostics.
     pub report: ChartSubdivisionReport,
 }
@@ -700,6 +706,12 @@ fn build_face_subdivision_inner(
             if popkern_core::trace::trace_enabled("branch-pairing") {
                 eprintln!("  [bp-face] {face:?}");
             }
+            sub.period_reach = super::chart_seam_reach::period_reach(
+                &sub,
+                surface,
+                tolerance.linear_reach(),
+                period,
+            );
             super::chart_boundary_substitute_periodic::anchor_with_stub_retry(
                 graph, face, &mut sub, period, &ends, ring_sigma,
             )

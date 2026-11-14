@@ -199,11 +199,16 @@ pub(super) fn measured_projection_interpolant(
     // Where uniform doubling cannot follow the track (a ring passing a
     // sphere's pole sweeps half a turn of longitude within its distance
     // from the pole, PK-1178), samples go where the image strays.
-    // Only where doubling followed the track some way: a gap no added
-    // samples move at all is a misfit (a cube fillet's rails on an
+    // Only where doubling followed the track some way, or the chart has
+    // a singular row a sweep can turn round: a gap no added samples move
+    // at all on a regular chart is a misfit (a cube fillet's rails on an
     // intermediate body, 2.8e-2 off a 0.1 edge at every density, its
-    // local rounds only spent five times the allocations).
-    if best_gap > target && improved {
+    // local rounds only spent five times the allocations), while beside
+    // a pole doubling moves nothing until its spans reach the sweep's
+    // length (a ring 1e-4 round the pole, 0.1 off at 22 spans and not
+    // halved at 44, PK-1185).
+    let singular = crate::geometry::chart_singularity::has_singular_row(surface, linear_tolerance);
+    if best_gap > target && (improved || singular) {
         let start = segment_fractions(&breaks, &best_spans);
         let range = (t_lo, t_hi);
         if let Some((fit, fractions)) = locally_refined(
@@ -228,17 +233,19 @@ pub(super) fn measured_projection_interpolant(
     Some(best)
 }
 
-/// Rounds of local refinement.
-const LOCAL_ROUNDS: usize = 16;
+/// Rounds of local refinement: enough to halve an interval of a
+/// uniform sampling down to a sweep a millionth of the edge long and
+/// then converge there.
+const LOCAL_ROUNDS: usize = 40;
 /// The most samples local refinement takes.
 const MAX_LOCAL_SAMPLES: usize = 4096;
 
 /// Refine `fractions` where the interpolant's image strays past
 /// `target`: each round fits the samples piecewise between `breaks`,
 /// judges each interval at its quarter points, halves those straying
-/// and grades the rest (no interval over twice a neighbour), stopping
-/// when a round no longer shrinks the worst gap; the best fit and its
-/// fractions.
+/// within a tenth of the worst and grades the rest (no interval over
+/// twice a neighbour), stopping when the rounds stall; the best fit and
+/// its fractions.
 fn locally_refined(
     surface: &SurfaceGeometry,
     curve_on_edge: &CurveOnEdge,
@@ -248,6 +255,7 @@ fn locally_refined(
     target: f64,
     sample: &dyn Fn(&[f64]) -> Vec<Point3>,
 ) -> Option<(NurbsCurve, Vec<f64>)> {
+    let periods = surface.periodicity();
     let mut best: Option<(NurbsCurve, f64, Vec<f64>)> = None;
     let mut history: Vec<f64> = Vec::new();
     for _ in 0..LOCAL_ROUNDS {
@@ -255,27 +263,38 @@ fn locally_refined(
         let fit = interpolant_at(&points, &fractions, breaks)?;
         let judge = dense_fractions(&fractions);
         let gaps = interval_gaps(&fit, surface, curve_on_edge, range, &judge);
-        let worst = max_gap(&gaps);
-        // A round that does not shrink the worst gap, or two that do not
-        // halve it, meet a misfit no sample count moves (a branch or
-        // topology misfit: a cube fillet's corner blends crept 9.6e-3 to
-        // 8.2e-3 over nine rounds and 5633 samples, where a pole sweep
-        // falls past half every two rounds): stop.
-        if best.as_ref().is_some_and(|b| worst >= b.1)
-            || history.len() >= 2 && worst > 0.5 * history[history.len() - 2]
-        {
+        let interval_gap: Vec<f64> = gaps.chunks(4).map(max_gap).collect();
+        let worst = max_gap(&interval_gap);
+        // An interval past the target still turning the chart past a
+        // quarter period is a sweep round a singular row its samples have
+        // not reached: the image cannot settle there, or ringing beside
+        // it, until the interval is as short as the sweep (a ring 1e-4
+        // round a pole on an edge sampled at 0.14, ten halvings), so the
+        // stall rule waits for it.
+        let sweeping = interval_gap.iter().zip(points.windows(2)).any(|(&g, w)| {
+            g > target && turns_past_quarter(periods, (w[0].x, w[0].y), (w[1].x, w[1].y))
+        });
+        let stalled = best.as_ref().is_some_and(|b| worst >= b.1)
+            || history.len() >= 2 && worst > 0.5 * history[history.len() - 2];
+        if stalled && !sweeping {
             break;
         }
         history.push(worst);
-        let split: Vec<bool> = gaps.chunks(4).map(|q| max_gap(q) > target).collect();
-        best = Some((fit, worst, fractions.clone()));
+        // The intervals straying within a tenth of the worst: splitting
+        // every one past the target at first doubled the whole edge,
+        // which leaves a pole sweep where it was (a ring 1e-4 round the
+        // pole: 6.8e-2 at 23 samples, 6.1e-2 at 45, PK-1185).
+        let cut = target.max(0.1 * worst);
+        if best.as_ref().is_none_or(|b| worst < b.1) {
+            best = Some((fit, worst, fractions.clone()));
+        }
         if worst <= target || fractions.len() >= MAX_LOCAL_SAMPLES {
             break;
         }
         let mut next = Vec::with_capacity(2 * fractions.len());
-        for (w, &cut) in fractions.windows(2).zip(&split) {
+        for (w, &g) in fractions.windows(2).zip(&interval_gap) {
             next.push(w[0]);
-            if cut {
+            if g > cut {
                 next.push(0.5 * (w[0] + w[1]));
             }
         }
@@ -283,6 +302,14 @@ fn locally_refined(
         fractions = graded(next);
     }
     best.map(|(fit, _, fractions)| (fit, fractions))
+}
+
+/// Whether the chart step from `a` to `b` turns a periodic coordinate
+/// (periods `periods`) past a quarter period.
+fn turns_past_quarter(periods: (Option<f64>, Option<f64>), a: (f64, f64), b: (f64, f64)) -> bool {
+    [(b.0 - a.0, periods.0), (b.1 - a.1, periods.1)]
+        .iter()
+        .any(|&(d, p)| p.is_some_and(|p| p > 0.0 && d.abs() > 0.25 * p))
 }
 
 /// `fractions` with every interval more than twice a neighbour's

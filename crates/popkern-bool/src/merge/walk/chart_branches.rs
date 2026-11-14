@@ -133,8 +133,28 @@ pub(super) fn anchor_periodic(
     // (measured: the cross-drill wall's seam declined as a misfit
     // against its own ring's cut azimuth).
     let eps_w = period * 1e-6;
+    // A bound set by a run's end where the chart is stretched carries
+    // that end's reach as slack (PK-1185, `chart_seam_reach`).
+    let bound_slack = |bound: f64| -> f64 {
+        interior
+            .iter()
+            .filter_map(|h| Some((sub.embeddings.get(h)?, sub.period_reach.get(h)?)))
+            .flat_map(|(emb, &(rs, re))| {
+                let ends = [
+                    emb.uv.first().map(|p| (p.0, rs)),
+                    emb.uv.last().map(|p| (p.0, re)),
+                ];
+                ends.into_iter().flatten()
+            })
+            .filter(|&(u, r)| (u - bound).abs() <= r)
+            .map(|(_, r)| r)
+            .fold(0.0, f64::max)
+    };
     let (window_lo_min, window_lo_max) = if hi > lo {
-        (hi - period - eps_w, lo + eps_w)
+        (
+            hi - period - eps_w - bound_slack(hi),
+            lo + eps_w + bound_slack(lo),
+        )
     } else {
         let u0 = seam_pairs
             .first()
@@ -143,15 +163,22 @@ pub(super) fn anchor_periodic(
         (u0 - eps_w, u0 + eps_w)
     };
     // Snap a u value to the LOW border: choose k with u + k·period in
-    // the low window; None when no k fits.
-    let low_shift = |u: f64| -> Option<f64> {
+    // the low window, else the k placing it nearest the window when that
+    // is within `slack` (the reach in space, wide where the chart is
+    // stretched beside a pole, PK-1185); None when no k fits.
+    let low_shift = |u: f64, slack: f64| -> Option<f64> {
+        let mut nearest: Option<(f64, f64)> = None;
         for k in -3i32..=3 {
             let shifted = u + k as f64 * period;
             if shifted >= window_lo_min && shifted <= window_lo_max {
                 return Some(k as f64 * period);
             }
+            let off = (window_lo_min - shifted).max(shifted - window_lo_max);
+            if off <= slack && nearest.is_none_or(|(o, _)| off < o) {
+                nearest = Some((off, k as f64 * period));
+            }
         }
-        None
+        nearest.map(|(_, shift)| shift)
     };
     let mut sigma = sub.sigma;
     let seam_trace = popkern_core::trace::trace_enabled("seam");
@@ -161,7 +188,8 @@ pub(super) fn anchor_periodic(
             let emb = &sub.embeddings[&he];
             let dv = emb.uv[emb.uv.len() - 1].1 - emb.uv[0].1;
             let u = emb.uv[0].0;
-            let Some(to_low) = low_shift(u) else {
+            let slack = sub.period_reach.get(&he).map_or(0.0, |r| r.0);
+            let Some(to_low) = low_shift(u, slack) else {
                 sub.report
                     .issues
                     .push(SubdivisionIssue::SeamBorderMisfit { he });
@@ -286,7 +314,7 @@ pub(super) fn anchor_periodic(
             None => false,
         };
         if !applied
-            && let Some(shift) = low_shift(cmin)
+            && let Some(shift) = low_shift(cmin, 0.0)
             && shift != 0.0
         {
             for &h in &components[ci] {

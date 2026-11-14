@@ -22,6 +22,7 @@ mod chart_period_axes;
 pub(crate) mod chart_poles;
 pub(crate) mod chart_run_overlay;
 pub(crate) mod chart_seam_axes;
+mod chart_seam_reach;
 pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;
 #[cfg(test)]

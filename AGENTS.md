@@ -502,7 +502,16 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   (`boundary_first_pole_sweep.rs`), and the measuring quadrature reads
   a corner as its pole row only where it stands for it (a pole to
   rounding, or a face vertex at the pole within its tolerance;
-  `body_quadrature_pole.rs`; PK-1178); and the
+  `body_quadrature_pole.rs`; PK-1178); the projected pcurve's local
+  refinement also runs on a chart with a singular row
+  (`geometry/chart_singularity.rs`), splits the intervals straying
+  within a tenth of the worst and waits while one still turns past a
+  quarter period; a seam's border window carries the reach measured
+  in space where the chart is stretched beside a pole
+  (`merge/walk/chart_seam_reach.rs`), a run end its next sample turns
+  between a quarter and three quarters of a period clusters by its own
+  u, and of balanced floating-component placements the walk keeps the
+  one inside the seam's window (`chart_branch_float.rs`; PK-1185); and the
   partition's selection answers
   contacts as a two-operand result does (`operation::answer_contacts`:
   three records touching pairwise at a point pinch the space outside). Tolerance tests on edges
