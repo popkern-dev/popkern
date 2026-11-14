@@ -511,7 +511,14 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   (`merge/walk/chart_seam_reach.rs`), a run end its next sample turns
   between a quarter and three quarters of a period clusters by its own
   u, and of balanced floating-component placements the walk keeps the
-  one inside the seam's window (`chart_branch_float.rs`; PK-1185); and the
+  one inside the seam's window (`chart_branch_float.rs`; PK-1185); two
+  faces sharing a vertex face each other by their unit normals (the
+  chart normal is scaled by the chart's speed), a touch found beside the
+  shared vertex is its own only where the gap does not keep falling
+  toward the vertex (`postprocess/self_contact_facing.rs`), a stored
+  trim ring whose seam copies lie on one chart line does not set σ
+  (`chart_ring_sigma.rs`), and runs leaving one pole node start at one
+  point for the duplicate-cover test (PK-1187); and the
   partition's selection answers
   contacts as a two-operand result does (`operation::answer_contacts`:
   three records touching pairwise at a point pinch the space outside). Tolerance tests on edges

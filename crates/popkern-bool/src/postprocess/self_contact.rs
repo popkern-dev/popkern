@@ -133,9 +133,10 @@ pub(crate) fn self_contacts(brep: &BRep, tolerance: &Tolerance) -> Vec<NonManifo
                     (*g, &sg.geometry),
                     linear,
                     (&shared, 10.0 * linear),
-                ) && out
-                    .iter()
-                    .all(|c| c.location.distance_to(&at) > 10.0 * linear)
+                ) && !falls_to_shared(&sf.geometry, &sg.geometry, at, &shared)
+                    && out
+                        .iter()
+                        .all(|c| c.location.distance_to(&at) > 10.0 * linear)
                 {
                     out.push(NonManifoldContact {
                         kind: ContactKind::Vertex,
@@ -419,27 +420,6 @@ fn face_boundary(brep: &BRep, face: FaceHandle, lone: &[(FaceHandle, VertexHandl
     out
 }
 
-/// Whether the faces on `a` and `b` face each other at `p`: their
-/// outward normals there opposed within a hundredth of a radian's
-/// cosine (a tangent pinch, the faces' interiors on either side of one
-/// tangent plane).
-fn facing_at(
-    a: &popkern_core::geometry::surface::SurfaceOnFace,
-    b: &popkern_core::geometry::surface::SurfaceOnFace,
-    p: Point3,
-) -> bool {
-    use popkern_core::geometry::surface::SurfaceEval;
-    let outward = |s: &popkern_core::geometry::surface::SurfaceOnFace| {
-        let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(&s.geometry, &p)?;
-        let n = s.geometry.normal_at(u, v);
-        Some(if s.orientation { n } else { n * -1.0 })
-    };
-    match (outward(a), outward(b)) {
-        (Some(x), Some(y)) => x.dot(&y) < -0.99995,
-        _ => false,
-    }
-}
-
 /// Whether two sorted lists share an element.
 fn shares_any<T: Ord>(a: &[T], b: &[T]) -> bool {
     let (mut i, mut j) = (0, 0);
@@ -453,6 +433,9 @@ fn shares_any<T: Ord>(a: &[T], b: &[T]) -> bool {
     false
 }
 
+#[path = "self_contact_facing.rs"]
+mod facing;
+use facing::{facing_at, falls_to_shared};
 #[path = "self_contact_clear.rs"]
 mod clear;
 #[path = "self_contact_torus.rs"]
