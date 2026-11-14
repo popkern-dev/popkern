@@ -111,17 +111,20 @@ fn a_rod_beside_a_balls_pole_unites_with_it() {
 
 /// A rod round a turned ball's pole within 1e-3 of it: the ring's
 /// sphere pcurve sweeps half a turn of longitude within a stretch as
-/// short as that distance, which the pcurve recompute's uniform samples
-/// cannot follow (an edge whose trims sit 1e-2 off its curve), so the
-/// union declines; it never serves a wrong body (PK-1176's remaining
-/// band, filed as its follow-up).
+/// short as that distance. The pcurve recompute's uniform samples could
+/// not follow it (an edge whose trims sat 1e-2 off its curve) and the
+/// union declined; refined locally where its image strays, the pcurve
+/// follows the sweep and every union serves valid, its volume the
+/// closed form's to 1e-6 (PK-1178: the measuring mesh splits the ring's
+/// sweep from its curve's own points and reads only true poles as
+/// poles).
 #[test]
-fn a_rod_round_a_turned_balls_pole_declines_or_serves_right() {
+fn a_rod_round_a_turned_balls_pole_unites_with_it() {
     for turn in [0.4, 2.0] {
         for delta in [-2e-6, -1e-5, -1e-4, -1e-3] {
-            if let Ok(body) = united(delta, turn) {
-                assert_right(&body, delta, turn);
-            }
+            let body =
+                united(delta, turn).unwrap_or_else(|e| panic!("delta {delta} turn {turn}: {e}"));
+            assert_right(&body, delta, turn);
         }
     }
 }

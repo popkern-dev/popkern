@@ -89,9 +89,8 @@ fn both_paths([cube, a, b]: &[BRep; 3], policy: NonManifoldPolicy) -> [Result<BR
 /// two-body path, with the seams turned, kept a point of the overlap
 /// circle against the first ball's cap (the stretch's ends read as an
 /// exit and a re-entry) and served both caps whole, the lens counted
-/// twice (PK-1181). Exactly at the tolerance the gap measures within
-/// the reach by less than the records' fit, and is not tested here
-/// (PK-1183).
+/// twice (PK-1181). Exactly at the tolerance, see
+/// `exactly_a_tolerance_apart_or_overlapping_the_unions_touch`.
 #[test]
 fn within_the_tolerance_the_unions_touch_at_one_point() {
     let p = Point3::new(5.0, 5.0, 10.0);
@@ -130,6 +129,74 @@ fn within_the_tolerance_the_unions_touch_at_one_point() {
             }
             assert!(
                 (volumes[0] - volumes[1]).abs() < 1e-6,
+                "{what}: volumes {volumes:?}"
+            );
+            assert!(
+                (volumes[0] - past).abs() < 1e-5,
+                "{what}: {} against {past}",
+                volumes[0]
+            );
+        }
+    }
+}
+
+/// Exactly a tolerance apart or overlapping, the rims measure
+/// 1.0000006e-6 apart at P, within the reach (1.000001e-6) by 4e-13:
+/// one place, a touch, on both paths and at every placement. Both
+/// decline by default with the contact at P, and under the general
+/// policy serve one valid general body holding it, their volumes
+/// within the lens (about pi per unit overlap) of each other and
+/// continuous with the gap just past the tolerance. Four mechanisms
+/// (PK-1183). The N-ary union declined an edge whose curve and trims
+/// disagreed by 3.3e-3: re-anchoring a half rim's end onto its vertex
+/// 1.0000006e-6 away refitted it through nine samples (a re-anchor
+/// now re-authors the curve as densely as it needs), and the fold's
+/// own answer (non-manifold at P) was dropped for the partition's
+/// decline. With the seams turned it served a plain solid: its
+/// crossing search took only the curve intersector's hits, under the
+/// bare tolerance (it now finds passes within the reach, as the vertex
+/// table does). And the general glue read a loop open by 1.8e-15 past
+/// the reach its vertex recorded, with an allowance under an ulp.
+#[test]
+fn exactly_a_tolerance_apart_or_overlapping_the_unions_touch() {
+    let p = Point3::new(5.0, 5.0, 10.0);
+    for (own, turn) in [(0.0, 0.0), (0.9, 0.0), (0.3, 0.0), (0.0, 0.4)] {
+        let past = both_paths(&scene(1.2e-6, own, turn), NonManifoldPolicy::Decline);
+        let past = volume(past[0].as_ref().expect("1.2e-6 serves"));
+        for gap in [1e-6, -1e-6] {
+            let what = format!("gap {gap:e} own {own} turn {turn}");
+            let scene = scene(gap, own, turn);
+            for (path, r) in ["two-body", "N-ary"]
+                .iter()
+                .zip(both_paths(&scene, NonManifoldPolicy::Decline))
+            {
+                match r {
+                    Err(BoolError::NonManifoldResult { contacts }) => {
+                        assert!(
+                            contacts.len() == 1 && contacts[0].location.distance_to(&p) < 1e-5,
+                            "{what}: {path} contacts {contacts:?}"
+                        );
+                    }
+                    other => panic!("{what}: {path} by default: {:?}", other.map(|_| "served")),
+                }
+            }
+            let mut volumes = Vec::new();
+            for (path, r) in ["two-body", "N-ary"]
+                .iter()
+                .zip(both_paths(&scene, NonManifoldPolicy::General))
+            {
+                let body = r.unwrap_or_else(|e| panic!("{what}: {path} general declined: {e}"));
+                let issues = body.validate_all();
+                assert!(issues.is_empty(), "{what}: {path} invalid: {issues:?}");
+                let contacts = body.contacts();
+                assert!(
+                    contacts.len() == 1 && contacts[0].location.distance_to(&p) < 1e-5,
+                    "{what}: {path} contacts {contacts:?}"
+                );
+                volumes.push(volume(&body));
+            }
+            assert!(
+                (volumes[0] - volumes[1]).abs() < 4e-6,
                 "{what}: volumes {volumes:?}"
             );
             assert!(

@@ -43,6 +43,8 @@ mod boundary_first_edge_samples;
 mod boundary_first_lattice;
 #[path = "boundary_first_pole_cap.rs"]
 mod boundary_first_pole_cap;
+#[path = "boundary_first_pole_sweep.rs"]
+mod boundary_first_pole_sweep;
 #[path = "boundary_first_revolution.rs"]
 mod boundary_first_revolution;
 #[path = "boundary_first_revolution_bipolar.rs"]

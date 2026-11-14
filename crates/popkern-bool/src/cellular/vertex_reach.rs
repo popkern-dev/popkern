@@ -67,7 +67,11 @@ pub(super) fn record_vertex_reaches(body: &mut BRep, reaches: &[(Point3, f64)]) 
         if d > cap {
             continue;
         }
-        let at = d * (1.0 + 1e-9);
+        // With the reach's rounding allowance (`linear_reach`): a
+        // billionth of a micrometre is under an ulp of a coordinate near
+        // 10, and an end evaluated again later read 1.8e-15 past it, the
+        // loop open (PK-1183).
+        let at = d * (1.0 + 1e-6);
         if let Some(vx) = body.vertices.get_mut(v) {
             vx.tolerance = Some(vx.tolerance.map_or(at, |t| t.max(at)));
         }

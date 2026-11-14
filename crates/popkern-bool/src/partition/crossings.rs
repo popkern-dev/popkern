@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use popkern_core::geometry::curve::CurveOnEdge;
+use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::intersection::{CurveIntersection, intersect_curves};
 use popkern_core::tolerance::Tolerance;
 
@@ -81,7 +81,7 @@ pub(super) fn split_at_record_crossings(
                         graph.nodes[graph.half_edges[he.twin].origin].position,
                     ]
                 };
-                let hits: Vec<(f64, f64, popkern_core::geometry::Point3)> = found
+                let mut hits: Vec<(f64, f64, popkern_core::geometry::Point3)> = found
                     .intersections
                     .iter()
                     .filter_map(|hit| match *hit {
@@ -89,15 +89,49 @@ pub(super) fn split_at_record_crossings(
                         _ => None,
                     })
                     .collect();
+                // The intersector decides to the bare tolerance; two
+                // records passing within the reach meet too (as the
+                // vertex table's meetings do), where no hit marks it.
+                if !found
+                    .intersections
+                    .iter()
+                    .any(|h| matches!(h, CurveIntersection::Overlap { .. }))
+                {
+                    let reach = tolerance.linear_reach();
+                    for (t1, t2, _) in crate::tolerance_zone::meetings::passes_between(
+                        (&c1.geometry, r1),
+                        (&c2.geometry, r2),
+                        reach,
+                    ) {
+                        let (p, q) = (c1.geometry.point_at(t1), c2.geometry.point_at(t2));
+                        let point = popkern_core::geometry::Point3::new(
+                            0.5 * (p.x + q.x),
+                            0.5 * (p.y + q.y),
+                            0.5 * (p.z + q.z),
+                        );
+                        if !hits.iter().any(|h| h.2.distance_to(&point) <= snap) {
+                            hits.push((t1, t2, point));
+                        }
+                    }
+                }
                 let hits = one_per_pass((c1, r1), (c2, r2), hits, tolerance.linear());
                 for (t1, t2, point) in hits {
-                    let at_end = ends(k1)
-                        .iter()
-                        .chain(ends(k2).iter())
-                        .any(|e| e.distance_to(&point) <= snap);
-                    if !at_end {
-                        on_record.entry(k1).or_default().push((t1, point));
-                        on_record.entry(k2).or_default().push((t2, point));
+                    // A meeting at one record's end is that end: the other
+                    // record alone is split, there (as the vertex table's
+                    // meetings are). Left to the graph's split of edges at
+                    // nodes, a rim passing a seam vertex on the other rim
+                    // exactly a tolerance off (1.0000006e-6, the reach
+                    // 1.000001e-6) was cut or not by rounding (PK-1183).
+                    let end_of =
+                        |k: usize| ends(k).into_iter().find(|e| e.distance_to(&point) <= snap);
+                    match (end_of(k1), end_of(k2)) {
+                        (Some(_), Some(_)) => {}
+                        (Some(e), None) => on_record.entry(k2).or_default().push((t2, e)),
+                        (None, Some(e)) => on_record.entry(k1).or_default().push((t1, e)),
+                        (None, None) => {
+                            on_record.entry(k1).or_default().push((t1, point));
+                            on_record.entry(k2).or_default().push((t2, point));
+                        }
                     }
                 }
             }

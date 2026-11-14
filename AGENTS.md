@@ -474,7 +474,15 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   distance; a pass running into an open record's end is that end's
   vertex, into a closed one's closure the closure
   (`tolerance_zone/meetings_foot.rs` `pass_place`, `parallel_point`;
-  `partition/crossings.rs`; PK-1181, PK-1182). A clipped end refined
+  `partition/crossings.rs`; PK-1181, PK-1182). The partition finds
+  passes within the reach as the vertex table does
+  (`meetings::passes_between`, the intersector deciding to the bare
+  tolerance), splits only the other record at a pass at one record's
+  end, and snaps at the reach; a re-anchored edge end re-authors its
+  curve as densely as it needs (`postprocess/junction_reconcile.rs`);
+  a glued vertex keeps the glued-away one's tolerance; a recorded
+  vertex reach carries the reach's rounding allowance; and a declined
+  partition answers as its pairwise fold does (PK-1183). A clipped end refined
   a short way onto a junction on its source, where dragging its end
   control point would bend it off itself, is a re-trim of the source
   on the piece's own domain (`clip_retrim_on_source.rs`), and
@@ -485,7 +493,16 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   (`cellular/vertex_reach.rs`); a chart walk's projection continues
   through a fast sweep (a ring round a sphere's pole turning a period
   within its distance from it) in steps of at most a quarter period
-  (`merge/walk/chart_embedding_follow.rs`, PK-1184); and the
+  (`merge/walk/chart_embedding_follow.rs`, PK-1184); a projected
+  pcurve that uniform doubling cannot follow (a ring sweeping a pole's
+  longitude within its distance from it) is refined where its image
+  strays (`topology/pcurve_projection_fit.rs`), the mesher splits an
+  edge's sample step that turns a sphere's or cone's chart past a
+  quarter period, read from the curve's own points
+  (`boundary_first_pole_sweep.rs`), and the measuring quadrature reads
+  a corner as its pole row only where it stands for it (a pole to
+  rounding, or a face vertex at the pole within its tolerance;
+  `body_quadrature_pole.rs`; PK-1178); and the
   partition's selection answers
   contacts as a two-operand result does (`operation::answer_contacts`:
   three records touching pairwise at a point pinch the space outside). Tolerance tests on edges

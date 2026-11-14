@@ -50,9 +50,14 @@ fn cut(alpha: f64, eps: f64, turn: f64) -> (BRep, f64) {
 
 /// Every placement serves the ball less its cap: valid, its sphere face
 /// the sphere's area less the cap's (`4 pi R^2 - 2 pi R h`) and its flat
-/// face the cut disc (`pi (R^2 - p^2)`), each to 1e-6. (The face areas
-/// judge the body; its volume as `body_volume` measures it near the pole
-/// is PK-1178's.)
+/// face the cut disc (`pi (R^2 - p^2)`), each to 1e-6, and its volume
+/// as `body_volume` measures it the ball's less the cap's
+/// (`pi h^2 (3R - h) / 3`) to 1e-6, the measuring mesh's resolution.
+/// The mesh read 5.3e-4 and 4.5e-5 off at the turned placements within
+/// 1e-4 of the pole: the arc leaving the seam beside the pole turned
+/// past a quarter period between its samples (the sphere face fell to
+/// the fallback grid), and ring samples beside the pole were integrated
+/// as poles (PK-1178).
 #[test]
 fn a_ball_cut_beside_its_pole_keeps_the_ball() {
     let tol = Tolerance::default();
@@ -83,6 +88,12 @@ fn a_ball_cut_beside_its_pole_keeps_the_ball() {
                         if plane { "flat" } else { "sphere" }
                     );
                 }
+                let volume = popkern_measure::body_volume(&body, &tol).expect("volume");
+                let want = 4.0 / 3.0 * pi * R.powi(3) - pi * h * h * (3.0 * R - h) / 3.0;
+                assert!(
+                    ((volume - want) / want).abs() < 1e-6,
+                    "{what}: volume {volume} for {want}"
+                );
             }
         }
     }
