@@ -8,6 +8,47 @@ use crate::error::DraftError;
 use crate::neutral::NeutralLine;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_math::PortableMath;
+/// Draft a cylindrical face whose axis lies along the pull: the cone
+/// narrows along the pull for a boss's wall (material inside, the face's
+/// outward normal away from the axis) and widens along it for a hole's,
+/// whichever way the cylinder's own axis runs. A fillet's quarter
+/// cylinder authored with its axis down (a box's rounded vertical
+/// edges) drafted from the axis's sign alone narrowed downward, and the
+/// drafted planes beside it left a gap of h·tan(angle) at the top.
+/// A cylinder across the pull keeps [`draft_cylindrical`].
+///
+/// # Errors
+///
+/// As [`draft_cylindrical`].
+pub fn draft_cylindrical_pulled(
+    surface: &SurfaceGeometry,
+    neutral: &NeutralLine,
+    angle: f64,
+    pull: &popkern_core::geometry::Vec3,
+    outward: bool,
+) -> Result<SurfaceGeometry, DraftError> {
+    let SurfaceGeometry::Cylinder { axis, .. } = surface else {
+        return draft_cylindrical(surface, neutral, angle);
+    };
+    let (Some(a), Some(p)) = (axis.normalized(), pull.normalized()) else {
+        return draft_cylindrical(surface, neutral, angle);
+    };
+    let along = a.dot(&p);
+    if along.abs() < 1.0 - 1e-9 {
+        return draft_cylindrical(surface, neutral, angle);
+    }
+    // draft_cylindrical narrows toward +axis for a positive angle: give
+    // it the angle whose sign makes it narrow along the pull (a boss) or
+    // widen along it (a hole).
+    let narrows_along_pull = outward == (angle > 0.0);
+    let signed = if narrows_along_pull == (along > 0.0) {
+        angle.abs()
+    } else {
+        -angle.abs()
+    };
+    draft_cylindrical(surface, neutral, signed)
+}
+
 /// Draft a cylindrical face by converting it to a cone.
 ///
 /// The cone's half-angle equals the draft angle, and the apex is positioned

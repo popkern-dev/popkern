@@ -121,9 +121,13 @@ fn drafted_by(
 
     match &surface.geometry {
         SurfaceGeometry::Plane { .. } => planar::draft_planar(&surface.geometry, neutral, angle),
-        SurfaceGeometry::Cylinder { .. } => {
-            cylindrical::draft_cylindrical(&surface.geometry, neutral, angle)
-        }
+        SurfaceGeometry::Cylinder { .. } => cylindrical::draft_cylindrical_pulled(
+            &surface.geometry,
+            neutral,
+            angle,
+            pull_direction,
+            surface.orientation,
+        ),
         _ => general::draft_general(
             &surface.geometry,
             neutral,
