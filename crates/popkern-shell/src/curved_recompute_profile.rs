@@ -195,26 +195,29 @@ pub(crate) fn coaxial_profile_edge_curve(
     let p2 = revolution_profile(surf2, origin, axis, r0, axis_eps)?;
 
     // 1D Newton on f(t) = r1(t) − r2(t), numeric derivative, seeded at
-    // the clone station.
+    // the edge's own recomputed end first (the vertex solve has already
+    // placed it on both surfaces), then at the clone station. Seeded at
+    // the clone alone, a capsule's rim opened at its dome sat where the
+    // dome's radius is flat (f' = 0) and the arm declined.
     let f = |t: f64| -> Option<f64> { Some(p1.radius_at(t)? - p2.radius_at(t)?) };
     let scale = 1.0 + h0.abs() + r0.abs();
-    let mut t = h0;
-    for _ in 0..64 {
-        let ft = f(t)?;
-        if ft.abs() < 1.0e-13 * scale {
-            break;
+    let newton = |mut t: f64| -> Option<f64> {
+        for _ in 0..64 {
+            let ft = f(t)?;
+            if ft.abs() < 1.0e-13 * scale {
+                break;
+            }
+            let dt = 1.0e-7 * scale;
+            let fp = (f(t + dt)? - f(t - dt)?) / (2.0 * dt);
+            if fp.abs() < 1.0e-16 {
+                return None;
+            }
+            let step = ft / fp;
+            t -= step.clamp(-0.25 * scale, 0.25 * scale);
         }
-        let dt = 1.0e-7 * scale;
-        let fp = (f(t + dt)? - f(t - dt)?) / (2.0 * dt);
-        if fp.abs() < 1.0e-16 {
-            return None;
-        }
-        let step = ft / fp;
-        t -= step.clamp(-0.25 * scale, 0.25 * scale);
-    }
-    if f(t)?.abs() > 1.0e-10 * scale {
-        return None;
-    }
+        (f(t)?.abs() <= 1.0e-10 * scale).then_some(t)
+    };
+    let t = newton((start_pos - origin).dot(&axis)).or_else(|| newton(h0))?;
     let r_new = p1.radius_at(t)?;
     if r_new <= lin {
         return None;

@@ -20,6 +20,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+#[path = "side_walls_sphere.rs"]
+mod side_walls_sphere;
 #[path = "side_walls_support.rs"]
 mod side_walls_support;
 use side_walls_support::{build_corner_sectors, set_line_curve, set_wall_surface};
@@ -106,6 +108,8 @@ pub fn build_side_walls(
             }
         }
     }
+
+    side_walls_sphere::arc_verticals_on_spheres(builder, &verticals, &vertical_faces);
 
     // PK-340: rim-corner arcs on the INNER skin have no original
     // preimage, so the edge iteration above never visits them. They

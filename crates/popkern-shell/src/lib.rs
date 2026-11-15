@@ -50,6 +50,7 @@ pub mod surface_offset;
 pub mod thicken;
 pub mod types;
 pub mod vertex_recompute;
+mod vertex_recompute_reseed;
 
 pub use error::{ShellError, ShellWarning};
 pub use interactive::{
