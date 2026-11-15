@@ -509,61 +509,17 @@ pub(super) fn uv_clip_one_face(
                     }
                 }
                 Some((t_enter, t_exit)) => {
-                    // CLOSED curves: the naive crossing hull can be the
-                    // WRONG SIDE — when the inside span wraps through the
-                    // parameter seam, the hull is exactly its complement
-                    // (measured: a bore-mouth ellipse breaching a wall
-                    // kept only the 8% sliver beyond the wall, t[0.46,
-                    // 0.54], and discarded the 92% real mouth arc — the
-                    // wall face's opening then assembled from the sliver
-                    // and failed closure by 27.1). Probe the hull's
-                    // midpoint: if it lies OUTSIDE the face, emit the
-                    // complement as a WRAPPED window (exit beyond the
-                    // range end; the extraction re-anchors through the
-                    // seam).
-                    use popkern_core::geometry::curve::CurveEval;
-                    let (t_min, t_max) = curve_uv.parameter_range();
-                    if is_closed && t_exit - t_enter > 1e-12 && (t_exit - t_enter) < (t_max - t_min)
-                    {
-                        // The complement is taken only on UNANIMOUS
-                        // multi-sample evidence — every interior sample
-                        // of the hull outside AND every interior sample
-                        // of the complement inside. A single-midpoint
-                        // test misfired on flush fixtures whose closed
-                        // curves hug face boundaries: on-boundary
-                        // containment verdicts are coin flips there, and
-                        // one flipped midpoint inverted a correct hull
-                        // (measured: 8 tuned union/chamfer gates broke).
-                        // Boundary-hugging curves fail BOTH unanimity
-                        // tests and keep the hull.
-                        let period = t_max - t_min;
-                        let inside = |t: f64| {
-                            let mut tt = t;
-                            if tt > t_max {
-                                tt -= period;
-                            }
-                            crate::split_inner_loop::point_inside_face_uv(
-                                brep,
-                                face,
-                                curve_uv.point_at(tt),
-                                &brep.tolerance,
-                            )
-                        };
-                        let samples = |a: f64, b: f64| -> [f64; 3] {
-                            [a + (b - a) * 0.25, a + (b - a) * 0.5, a + (b - a) * 0.75]
-                        };
-                        let hull_all_out = samples(t_enter, t_exit).iter().all(|&t| !inside(t));
-                        let comp_all_in =
-                            samples(t_exit, t_enter + period).iter().all(|&t| inside(t));
-                        if hull_all_out && comp_all_in {
-                            if trace {
-                                eprintln!(
-                                    "    [uvclip-wrap] {face:?} hull ({t_enter:.3},{t_exit:.3}) outside — complement ({t_exit:.3},{:.3})",
-                                    t_enter + period
-                                );
-                            }
-                            return UvClipResult::Windows(vec![(t_exit, t_enter + period)]);
-                        }
+                    // A closed record's hull can be its in-face span's
+                    // complement (`clip_wrap_complement`).
+                    if let Some(window) = super::clip_wrap_complement::wrapped_complement(
+                        brep,
+                        face,
+                        curve_uv,
+                        is_closed,
+                        (t_enter, t_exit),
+                        trace,
+                    ) {
+                        return UvClipResult::Windows(vec![window]);
                     }
                     UvClipResult::Windows(vec![(t_enter, t_exit)])
                 }

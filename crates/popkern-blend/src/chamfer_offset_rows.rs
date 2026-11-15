@@ -30,6 +30,15 @@ pub(super) enum InteriorHint {
     /// OUTWARD, the conical-bevel fit read a 1.6 spread, and the
     /// swept fallback's terminal cut shipped a 0.29 curve lie).
     PlanarNewell(Vec3),
+    /// Per-sample on a CURVED face: the inward direction at each station
+    /// is this sign times the chart normal × the curve tangent, both
+    /// continuous along the edge, the sign measured at the midpoint
+    /// against the face's own trim. Aiming at the boundary centroid read
+    /// a shallow cone's bore wrong at half its stations: the centroid
+    /// lies near the axis, and at radius 28 the 1.4-degree generator's
+    /// radial tilt outweighed the 0.6 height to it, so half the bevel's
+    /// rail walked up off the face (1.6e-3 off its surface, PK-1190).
+    ChartSigned(f64),
 }
 
 /// Compute offset distances on each face based on chamfer kind.
@@ -241,10 +250,36 @@ pub(super) fn face_interior_hint(
         }
         return n.cross(&he_dir).normalized().map(InteriorHint::Constant);
     }
-    let _ = (mid, he_dir, surf);
+    let _ = (mid, he_dir);
     let samples = brep.face_boundary_sample_points(face, 8);
     if samples.is_empty() {
         return None;
+    }
+    // Curved: the chart normal × the curve tangent at the midpoint
+    // station, its sign read off the face's trim.
+    {
+        use popkern_core::geometry::curve::CurveEval;
+        let station = brep.edges.get(edge).and_then(|edge_data| {
+            let c = edge_data.curve.as_ref()?;
+            let t_mid = 0.5 * (c.t_start + c.t_end);
+            Some((
+                c.geometry.point_at(t_mid),
+                c.geometry.derivative_at(t_mid, 1),
+            ))
+        });
+        if let Some((mid_station, d)) = station
+            && let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(
+                &surf.geometry,
+                &mid_station,
+            )
+        {
+            let candidate = surf.geometry.normal_at(u, v).cross(&d);
+            if let Some(sign) =
+                material_side(brep, face, &surf.geometry, mid_station, candidate, &samples)
+            {
+                return Some(InteriorHint::ChartSigned(sign));
+            }
+        }
     }
     let mut cx = 0.0;
     let mut cy = 0.0;
@@ -378,6 +413,7 @@ pub(super) fn compute_offset_points(
             Some(InteriorHint::Constant(v)) => Some(*v),
             Some(InteriorHint::Toward(c)) => Some(*c - *pt),
             Some(InteriorHint::PlanarNewell(n)) => Some(n.cross(&tangent_unit)),
+            Some(InteriorHint::ChartSigned(sign)) => Some(offset_raw * *sign),
             None => None,
         };
         if let Some(hint) = hint_vec

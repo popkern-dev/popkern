@@ -25,6 +25,7 @@ mod clip_lift_crossings;
 mod clip_line;
 mod clip_line_exact;
 mod clip_negative_branch;
+mod clip_overlap_ends;
 mod clip_pierce_windows;
 mod clip_rim_reach;
 mod clip_seam_inside;
@@ -34,6 +35,7 @@ mod clip_uv_crossings;
 mod clip_windows;
 mod clip_windows_clearance;
 mod clip_windows_decisive;
+mod clip_wrap_complement;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveGeometry;

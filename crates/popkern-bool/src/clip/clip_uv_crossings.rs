@@ -297,6 +297,10 @@ pub(crate) fn find_uv_crossings(
                 for hit in &result.intersections {
                     match hit {
                         CurveIntersection::Point { t1, t2, .. } => {
+                            let curves = (&working_boundary, &working_curve);
+                            if !super::clip_overlap_ends::crosses_on(face_surface, curves, *t2) {
+                                continue;
+                            }
                             if let Some(why) = dishonest(*t1, *t2) {
                                 if popkern_core::trace::trace_enabled("ring-crossing") {
                                     eprintln!(
@@ -336,16 +340,13 @@ pub(crate) fn find_uv_crossings(
                             // cap's plate record to a fake corner
                             // 1.2 mm inside the true one and the
                             // union ring never closed.
-                            found.push(UvCrossing {
-                                t_curve: t2_range.0,
-                                boundary_he: *he_handle,
-                                t_boundary: t1_range.0,
-                            });
-                            found.push(UvCrossing {
-                                t_curve: t2_range.1,
-                                boundary_he: *he_handle,
-                                t_boundary: t1_range.1,
-                            });
+                            found.extend(super::clip_overlap_ends::overlap_exits(
+                                super::clip_overlap_ends::chart_periods(face_surface),
+                                (&working_boundary, &working_curve),
+                                *he_handle,
+                                *t1_range,
+                                *t2_range,
+                            ));
                         }
                     }
                 }
