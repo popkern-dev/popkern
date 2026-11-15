@@ -246,21 +246,76 @@ fn line_nurbs(a: Point3, b: Point3) -> NurbsCurve {
 /// the rest per the caller's [`InterferencePolicy`]: decline with
 /// the structured `FilletInterference` error (default), or drop
 /// both members of every interfering pair and serve the rest,
-/// reporting each drop (PK-185).
+/// reporting each drop (PK-185). A concave strip running into a convex
+/// one's band rolls over it instead: its overflow is planned here and
+/// spliced after the apply phase (PK-1189, `construct::strip_overflow`).
 pub(crate) fn complete_or_decline_interference(
     edge_geometries: &mut Vec<EdgeGeometry>,
     brep: &BRep,
     tolerance: &Tolerance,
-    policy: crate::types::InterferencePolicy,
+    options: &crate::types::FilletOptions,
     overlap_warnings: &mut Vec<crate::error::BlendWarning>,
-) -> Result<Vec<StripInterference>, crate::error::BlendError> {
-    let hits = crate::overlap_strip_interference::detect_strip_interference(
+) -> Result<
+    (
+        Vec<StripInterference>,
+        Vec<crate::construct::strip_overflow::OverflowPlan>,
+    ),
+    crate::error::BlendError,
+> {
+    let detected = crate::overlap_strip_interference::detect_strip_interference(
         edge_geometries,
         brep,
         tolerance,
     );
+    let policy = options.interference_policy;
+    let trace = popkern_core::trace::trace_enabled("interference");
+    let mut plans = Vec::new();
+    let hits: Vec<StripInterference> = detected
+        .into_iter()
+        .filter(|hit| {
+            match crate::construct::strip_overflow::plan_overflow(
+                edge_geometries,
+                brep,
+                (hit.fillet_a, hit.fillet_b),
+                options.continuity,
+                tolerance,
+            ) {
+                Ok(plan) => {
+                    overlap_warnings.push(crate::error::BlendWarning::FilletOverlap {
+                        fillet_a: hit.fillet_a,
+                        fillet_b: hit.fillet_b,
+                    });
+                    if plan.g2 {
+                        // G2 to the convex strip within the overflow, but
+                        // the support itself is only G1 where the face
+                        // meets the strip: the overflow's end sections are
+                        // G1 there (PK-1192).
+                        overlap_warnings.push(crate::error::BlendWarning::ContinuityDowngraded {
+                            edge: edge_geometries[plan.rolling].analysis.edge,
+                            requested: crate::types::ContinuityLevel::G2,
+                            achieved: crate::types::ContinuityLevel::G1,
+                            reason: "the fillet rolls over a neighbouring round: G1 across its \
+                                     sections where the face meets the round (a G1 support junction)"
+                                .into(),
+                        });
+                    }
+                    plans.push(plan);
+                    false
+                }
+                Err(reason) => {
+                    if trace {
+                        eprintln!(
+                            "[overflow] pair ({},{}) does not roll over: {reason}",
+                            hit.fillet_a, hit.fillet_b
+                        );
+                    }
+                    true
+                }
+            }
+        })
+        .collect();
     if hits.is_empty() {
-        return Ok(Vec::new());
+        return Ok((Vec::new(), plans));
     }
     match try_complete_interference(edge_geometries, brep, &hits, tolerance) {
         Ok(()) => {
@@ -270,7 +325,7 @@ pub(crate) fn complete_or_decline_interference(
                     fillet_b: hit.fillet_b,
                 });
             }
-            Ok(hits)
+            Ok((hits, plans))
         }
         Err(reason) => match policy {
             crate::types::InterferencePolicy::Decline => {
@@ -300,7 +355,12 @@ pub(crate) fn complete_or_decline_interference(
                     idx += 1;
                     keep
                 });
-                Ok(Vec::new())
+                // An overflow whose strip was dropped has nothing to
+                // splice onto.
+                plans.retain(|plan| {
+                    !dropped.contains(&plan.rolling) && !dropped.contains(&plan.onto)
+                });
+                Ok((Vec::new(), plans))
             }
         },
     }

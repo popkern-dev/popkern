@@ -15,9 +15,14 @@
 //! Containment is decided in the shared surface's UV chart by the
 //! even–odd rule against each side's outer-loop polygon (pcurve
 //! samples, falling back to projected edge-curve samples, with
-//! periodic axes unwrapped to the query's branch). A hole that neither
-//! or both sides claim is left where it is — a contradiction the
-//! caller's postconditions must surface, never silently resolved.
+//! periodic axes unwrapped to the query's branch), voted over points
+//! spread round the hole: a hole the split's new edge crosses goes to
+//! the side holding most of it. One probe (its first edge's middle)
+//! read a fillet's foot circle running 0.01 past a plate edge round's
+//! rail on the round's side, half the time by where the circle started,
+//! and the foot was bound to the round (PK-1189). A hole that neither
+//! or both sides claim as often is left where it is — a contradiction
+//! the caller's postconditions must surface, never silently resolved.
 
 use crate::geometry::curve::CurveEval;
 use crate::geometry::surface::SurfaceGeometry;
@@ -64,6 +69,8 @@ impl BRep {
                     .unwrap_or_default()
             })
             .collect();
+        // Each side's outer boundary, charted once per surface.
+        let mut outlines: Vec<(SurfaceGeometry, Option<Outline>, Option<Outline>)> = Vec::new();
         for (owner, hole) in holes {
             if keep.contains(&hole) {
                 continue;
@@ -76,15 +83,31 @@ impl BRep {
             else {
                 continue;
             };
-            let Some(query) = self.loop_probe_uv(hole, &surface) else {
+            let index = match outlines.iter().position(|(s, _, _)| *s == surface) {
+                Some(i) => i,
+                None => {
+                    let a = self.outer_loop_outline(face_a, &surface);
+                    let b = self.outer_loop_outline(face_b, &surface);
+                    outlines.push((surface.clone(), a, b));
+                    outlines.len() - 1
+                }
+            };
+            let (_, outline_a, outline_b) = &outlines[index];
+            let (Some(outline_a), Some(outline_b)) = (outline_a, outline_b) else {
                 continue;
             };
-            let in_a = self.outer_loop_contains_uv(face_a, &surface, query);
-            let in_b = self.outer_loop_contains_uv(face_b, &surface, query);
-            let target = match (in_a, in_b) {
-                (Some(true), Some(false)) => face_a,
-                (Some(false), Some(true)) => face_b,
-                _ => continue,
+            let (mut votes_a, mut votes_b) = (0usize, 0usize);
+            for query in self.loop_probe_uvs(hole, &surface) {
+                match (outline_a.contains(query), outline_b.contains(query)) {
+                    (true, false) => votes_a += 1,
+                    (false, true) => votes_b += 1,
+                    _ => {}
+                }
+            }
+            let target = match votes_a.cmp(&votes_b) {
+                std::cmp::Ordering::Greater => face_a,
+                std::cmp::Ordering::Less => face_b,
+                std::cmp::Ordering::Equal => continue,
             };
             if target == owner {
                 continue;
@@ -103,29 +126,48 @@ impl BRep {
         moved
     }
 
-    /// A UV point on the loop (its first half-edge's mid-station).
-    fn loop_probe_uv(
+    /// UV points spread round the loop: each half-edge's quarter
+    /// stations (pcurve, else its edge curve projected).
+    fn loop_probe_uvs(
         &self,
         loop_handle: LoopHandle,
         surface: &SurfaceGeometry,
-    ) -> Option<(f64, f64)> {
-        let he = self
-            .half_edges
-            .get(self.loops.get(loop_handle)?.half_edge)?;
-        if let Some(pc) = &he.pcurve {
-            let p = pc.point_at(0.5 * (pc.t_start + pc.t_end));
-            return Some((p.x, p.y));
-        }
-        let edge = self.edges.get(he.edge)?;
-        let p = match edge.curve.as_ref() {
-            Some(c) => c.geometry.point_at(0.5 * (c.t_start + c.t_end)),
-            None => self.vertices.get(he.origin)?.position,
+    ) -> Vec<(f64, f64)> {
+        const STATIONS: [f64; 3] = [0.25, 0.5, 0.75];
+        let mut out = Vec::new();
+        let Some(lp) = self.loops.get(loop_handle) else {
+            return out;
         };
-        project_point_to_uv(surface, &p)
+        let start = lp.half_edge;
+        let mut cursor = start;
+        for _ in 0..=self.half_edges.len() {
+            let Some(he) = self.half_edges.get(cursor) else {
+                break;
+            };
+            for f in STATIONS {
+                let uv = if let Some(pc) = &he.pcurve {
+                    let p = pc.point_at(pc.t_start + (pc.t_end - pc.t_start) * f);
+                    Some((p.x, p.y))
+                } else {
+                    let p = self.edges.get(he.edge).and_then(|edge| {
+                        edge.curve
+                            .as_ref()
+                            .map(|c| c.geometry.point_at(c.t_start + (c.t_end - c.t_start) * f))
+                    });
+                    p.and_then(|p| project_point_to_uv(surface, &p))
+                };
+                out.extend(uv);
+            }
+            cursor = he.next;
+            if cursor == start {
+                break;
+            }
+        }
+        out
     }
 
-    /// Even–odd containment of `query` in the face's outer-loop UV
-    /// polygon; `None` when the boundary cannot be sampled.
+    /// The face's outer-loop UV polygon for even–odd containment;
+    /// `None` when the boundary cannot be sampled.
     ///
     /// On a periodic chart the boundary is chained CONTINUOUSLY (each
     /// sample on the branch nearest its predecessor — the loop lifted
@@ -135,12 +177,7 @@ impl BRep {
     /// side of a split cylinder housing claimed its fin footprints
     /// (PK-730). A loop that does not close in the cover (it winds
     /// round the period) has no even–odd interior: `None`.
-    fn outer_loop_contains_uv(
-        &self,
-        face: FaceHandle,
-        surface: &SurfaceGeometry,
-        query: (f64, f64),
-    ) -> Option<bool> {
+    fn outer_loop_outline(&self, face: FaceHandle, surface: &SurfaceGeometry) -> Option<Outline> {
         const SAMPLES_PER_HALF_EDGE: usize = 8;
         let start = self.loops.get(self.faces.get(face)?.outer_loop)?.half_edge;
         let (period_u, period_v) = surface.periodicity();
@@ -204,6 +241,26 @@ impl BRep {
         if !closes(first.0, last.0, period_u) || !closes(first.1, last.1, period_v) {
             return None;
         }
+        Some(Outline {
+            polygon,
+            period_u,
+            period_v,
+        })
+    }
+}
+
+/// An outer loop charted for containment: its polygon lifted to the
+/// cover and the chart's periods.
+struct Outline {
+    polygon: Vec<(f64, f64)>,
+    period_u: Option<f64>,
+    period_v: Option<f64>,
+}
+
+impl Outline {
+    /// Even–odd containment of `query`.
+    fn contains(&self, query: (f64, f64)) -> bool {
+        let polygon = &self.polygon;
         // The lifted polygon is bounded, so an even–odd ray along u is
         // sound in the cover; the query counts once per period image
         // overlapping the polygon (parity then reads containment on
@@ -232,8 +289,8 @@ impl BRep {
         };
         let n = polygon.len();
         let mut inside = false;
-        for &qu in &images(query.0, lo.0, hi.0, period_u) {
-            for &qv in &images(query.1, lo.1, hi.1, period_v) {
+        for &qu in &images(query.0, lo.0, hi.0, self.period_u) {
+            for &qv in &images(query.1, lo.1, hi.1, self.period_v) {
                 for i in 0..n {
                     let (u1, v1) = polygon[i];
                     let (u2, v2) = polygon[(i + 1) % n];
@@ -246,6 +303,10 @@ impl BRep {
                 }
             }
         }
-        Some(inside)
+        inside
     }
 }
+
+#[cfg(test)]
+#[path = "brep_inner_loop_rehome_tests.rs"]
+mod tests;

@@ -200,7 +200,6 @@ pub(crate) fn fillet_edges_attempt(
             failures,
         ));
     }
-    // PHASE 3: Detect overlaps (warnings only — don't block the operation).
     let t3 = popkern_core::time::Stopwatch::start();
     let mut overlap_warnings = Vec::new();
     let (overlap_trims, _face_trim_map) = build_overlap_inputs(&edge_geometries, brep);
@@ -215,11 +214,11 @@ pub(crate) fn fillet_edges_attempt(
     // seam trimming (PK-159); every other configuration follows the
     // caller's interference policy — transactional decline (PK-140,
     // default) or drop-the-pair partial service (PK-185).
-    let ridge_completed = interference_seam::complete_or_decline_interference(
+    let (ridge_completed, overflow_plans) = interference_seam::complete_or_decline_interference(
         &mut edge_geometries,
         brep,
         &tolerance,
-        options.interference_policy,
+        options,
         &mut overlap_warnings,
     )?;
     emit!(
@@ -416,6 +415,7 @@ pub(crate) fn fillet_edges_attempt(
     let _ = construct::periodic_branch_finalize::reconcile_all_periodic_pcurve_branches(
         &mut apply_result.brep,
     );
+    construct::splice_overflows(&mut apply_result.brep, &overflow_plans, &tolerance)?;
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,
