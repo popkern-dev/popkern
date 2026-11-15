@@ -1,6 +1,5 @@
 use crate::error::CoreError;
 use crate::geometry::Point3;
-use crate::geometry::curve::CurveEval;
 use crate::geometry::curve_inversion::invert_curve_at_point;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, EdgeHandle, SplitEdgeResult};
@@ -46,9 +45,26 @@ impl BRep {
         }
         let t_curve_frac = (t_curve - curve_on_edge.t_start) / t_range;
 
-        let p_t_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
-        let p_t_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
-        let curve_aligned = pos_a.distance_to(&p_t_start) <= pos_a.distance_to(&p_t_end);
+        // The curve's direction along the half-edge as `split_edge` reads
+        // it (a closed edge's ends are one point, so its pcurves witness
+        // the direction): comparing the ends' distances to the start
+        // vertex broke the tie by rounding on a closed circle and split
+        // at the point's mirror image (PK-1189).
+        let pos_b = self
+            .half_edges
+            .get(he_ab_data.next)
+            .and_then(|next| self.vertices.get(next.origin))
+            .map(|v| v.position)
+            .unwrap_or(pos_a);
+        let he_ba = he_ab_data.mate().unwrap_or(he_ab);
+        let curve_aligned = super::split_position::curve_alignment_for_split(
+            self,
+            he_ab,
+            he_ba,
+            curve_on_edge,
+            pos_a,
+            pos_b,
+        );
         let t_he = if curve_aligned {
             t_curve_frac
         } else {
@@ -66,3 +82,7 @@ impl BRep {
         self.split_edge(edge, t_he)
     }
 }
+
+#[cfg(test)]
+#[path = "split_edge_at_point_tests.rs"]
+mod tests;

@@ -286,22 +286,25 @@ pub(super) fn lifted_loop_crossings(
             };
             for hit in &result.intersections {
                 match hit {
-                    CurveIntersection::Point { t1, t2, .. } => found.push(UvCrossing {
-                        t_curve: *t2,
-                        boundary_he: *he,
-                        t_boundary: *t1,
-                    }),
+                    CurveIntersection::Point { t1, t2, .. } => {
+                        let periods = (Some(period), None);
+                        if super::clip_overlap_ends::point_crosses(periods, (pc, &lift), *t2) {
+                            found.push(UvCrossing {
+                                t_curve: *t2,
+                                boundary_he: *he,
+                                t_boundary: *t1,
+                            });
+                        }
+                    }
                     CurveIntersection::Overlap { t1_range, t2_range } => {
-                        found.push(UvCrossing {
-                            t_curve: t2_range.0,
-                            boundary_he: *he,
-                            t_boundary: t1_range.0,
-                        });
-                        found.push(UvCrossing {
-                            t_curve: t2_range.1,
-                            boundary_he: *he,
-                            t_boundary: t1_range.1,
-                        });
+                        // Ends where the lift leaves the edge only.
+                        found.extend(super::clip_overlap_ends::overlap_exits(
+                            (Some(period), None),
+                            (pc, &lift),
+                            *he,
+                            *t1_range,
+                            *t2_range,
+                        ));
                     }
                 }
             }

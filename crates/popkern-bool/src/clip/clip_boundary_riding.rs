@@ -139,3 +139,37 @@ pub(super) fn rides_boundary_everywhere(
         })
     })
 }
+
+/// Whether the uv point `q` lies within `band` of `face`'s boundary
+/// (any whole-period translate of it): a point of a record running
+/// along the face's boundary edge, on the face by closure though its
+/// region test is a coin flip.
+pub(super) fn point_rides_boundary(
+    brep: &BRep,
+    face: FaceHandle,
+    q: popkern_core::geometry::Point3,
+    band: f64,
+) -> bool {
+    let Some(boundary) = boundary_pcurves(brep, face) else {
+        return false;
+    };
+    let (pu, pv) = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| {
+            use popkern_core::geometry::surface::SurfaceEval;
+            s.geometry.parameter_periodicity()
+        })
+        .unwrap_or((None, None));
+    let shifts = |p: Option<f64>| match p {
+        Some(p) if p > 0.0 => vec![-p, 0.0, p],
+        _ => vec![0.0],
+    };
+    shifts(pu).iter().any(|&du| {
+        shifts(pv).iter().any(|&dv| {
+            let q = popkern_core::geometry::Point3::new(q.x + du, q.y + dv, q.z);
+            boundary.iter().any(|pc| distance_to(pc, q) < band)
+        })
+    })
+}

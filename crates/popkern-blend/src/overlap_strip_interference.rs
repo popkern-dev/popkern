@@ -36,38 +36,20 @@ pub fn detect_strip_interference(
     brep: &popkern_core::topology::BRep,
     tolerance: &Tolerance,
 ) -> Vec<StripInterference> {
-    let samples = |curve: &NurbsCurve| -> Vec<popkern_core::geometry::Point3> {
-        let (t0, t1) = curve.parameter_range();
-        (0..=16)
-            .map(|k| curve.point_at(t0 + (t1 - t0) * k as f64 / 16.0))
-            .collect()
-    };
-    let edge_points = |index: usize| -> Vec<popkern_core::geometry::Point3> {
+    // A rail is sampled densely and each sample measured against the
+    // other curve's closest point, the nearest sample polished along
+    // the rail: 17 samples measured against 17 missed a boss root
+    // fillet's foot circle running 0.01 into a plate edge round's band
+    // (sampled 0.110 and 0.097 against true 0.07 inside the 0.08
+    // width), and the strips were served overlapping with 52 open mesh
+    // edges (PK-1189).
+    let edge_window = |index: usize| -> Option<EdgeWindow<'_>> {
         let analysis = &edge_geometries[index].analysis;
         brep.edges
             .get(analysis.edge)
             .and_then(|edge| edge.curve.as_ref())
-            .map(|curve| {
-                (0..=16)
-                    .map(|k| {
-                        curve.geometry.point_at(
-                            curve.t_start + (curve.t_end - curve.t_start) * k as f64 / 16.0,
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default()
+            .map(|curve| (&curve.geometry, curve.t_start, curve.t_end))
     };
-    let min_distance =
-        |a: &[popkern_core::geometry::Point3], b: &[popkern_core::geometry::Point3]| -> f64 {
-            let mut best = f64::INFINITY;
-            for pa in a {
-                for pb in b {
-                    best = best.min(pa.distance_to(pb));
-                }
-            }
-            best
-        };
     let mut interferences = Vec::new();
     for i in 0..edge_geometries.len() {
         for j in (i + 1)..edge_geometries.len() {
@@ -100,11 +82,11 @@ pub fn detect_strip_interference(
             if shared.is_empty() {
                 continue;
             }
-            let pts_edge_i = edge_points(i);
-            let pts_edge_j = edge_points(j);
-            if pts_edge_i.is_empty() || pts_edge_j.is_empty() {
+            let (Some(edge_i), Some(edge_j)) = (edge_window(i), edge_window(j)) else {
                 continue;
-            }
+            };
+            let closed_i = a.vertex_start == a.vertex_end;
+            let closed_j = b.vertex_start == b.vertex_end;
             let trace = popkern_core::trace::trace_enabled("interference");
             let hit = shared.iter().any(|(trim_a, trim_b)| {
                 // Rails are authored with overhang beyond the edge's
@@ -117,50 +99,23 @@ pub fn detect_strip_interference(
                 // the skewed-rib plate's junction rail extended to
                 // x = ±67 on an 80-long plate and crossed both rim
                 // strips, declining a part whose real strips are 7
-                // apart — PK-185). A sample is in-band when its
-                // nearest edge sample is interior (not an endpoint
-                // bin), i.e. its axial foot falls inside the edge.
-                let clamp_to_band =
-                    |rail: Vec<popkern_core::geometry::Point3>,
-                     edge_pts: &[popkern_core::geometry::Point3]|
-                     -> Vec<popkern_core::geometry::Point3> {
-                        if edge_pts.len() < 3 {
-                            return rail;
-                        }
-                        let in_band: Vec<popkern_core::geometry::Point3> = rail
-                            .iter()
-                            .copied()
-                            .filter(|p| {
-                                let mut best = (f64::INFINITY, 0usize);
-                                for (k, q) in edge_pts.iter().enumerate() {
-                                    let d = p.distance_to(q);
-                                    if d < best.0 {
-                                        best = (d, k);
-                                    }
-                                }
-                                best.1 != 0 && best.1 != edge_pts.len() - 1
-                            })
-                            .collect();
-                        // A fully-clamped rail (every sample nearest an
-                        // endpoint) degenerates the width measure; keep
-                        // the raw rail so the pair still measures.
-                        if in_band.is_empty() { rail } else { in_band }
-                    };
-                let rail_a = clamp_to_band(samples(trim_a), &pts_edge_i);
-                let rail_b = clamp_to_band(samples(trim_b), &pts_edge_j);
-                let width_a = min_distance(&rail_a, &pts_edge_i);
-                let width_b = min_distance(&rail_b, &pts_edge_j);
-                let b_into_a = min_distance(&rail_b, &pts_edge_i);
-                let a_into_b = min_distance(&rail_a, &pts_edge_j);
+                // apart — PK-185). A sample is in-band when its foot
+                // on the edge is interior (past a thirty-second of the
+                // edge from either end); a closed edge has no ends.
+                if coarsely_apart(trim_a, trim_b, edge_i, edge_j) {
+                    return false;
+                }
+                let rail_a = in_band_params(trim_a, edge_i, closed_i);
+                let rail_b = in_band_params(trim_b, edge_j, closed_j);
+                let width_a = rail_to_edge(trim_a, &rail_a, edge_i);
+                let width_b = rail_to_edge(trim_b, &rail_b, edge_j);
+                let b_into_a = rail_to_edge(trim_b, &rail_b, edge_i);
+                let a_into_b = rail_to_edge(trim_a, &rail_a, edge_j);
                 let slack = tolerance.linear().max(1.0e-9) * 10.0;
                 let hit = b_into_a + slack < width_a || a_into_b + slack < width_b;
                 if trace {
-                    let ei = (pts_edge_i.first(), pts_edge_i.last());
-                    let ej = (pts_edge_j.first(), pts_edge_j.last());
                     eprintln!(
-                        "[idetect] pair ({i},{j}) hit={hit}: width_a={width_a:.4} width_b={width_b:.4} b_into_a={b_into_a:.4} a_into_b={a_into_b:.4} edge_i={ei:?} edge_j={ej:?} rail_a0={:?} rail_b0={:?}",
-                        rail_a.first(),
-                        rail_b.first()
+                        "[idetect] pair ({i},{j}) hit={hit}: width_a={width_a:.4} width_b={width_b:.4} b_into_a={b_into_a:.4} a_into_b={a_into_b:.4}"
                     );
                 }
                 hit
@@ -169,12 +124,136 @@ pub fn detect_strip_interference(
                 interferences.push(StripInterference {
                     fillet_a: i,
                     fillet_b: j,
-                    gap: min_distance(&pts_edge_i, &pts_edge_j),
+                    gap: edge_to_edge(edge_i, edge_j),
                 });
             }
         }
     }
     interferences
+}
+
+type EdgeWindow<'a> = (&'a popkern_core::geometry::curve::CurveGeometry, f64, f64);
+
+const RAIL_SAMPLES: usize = 64;
+
+/// Samples per curve in the coarse pass.
+const COARSE_SAMPLES: usize = 16;
+
+/// Points of a curve over its window, and half the widest gap between
+/// neighbours (how far its points may lie from a sample).
+fn coarse_points(
+    points: impl Fn(f64) -> popkern_core::geometry::Point3,
+) -> (Vec<popkern_core::geometry::Point3>, f64) {
+    let pts: Vec<popkern_core::geometry::Point3> = (0..=COARSE_SAMPLES)
+        .map(|k| points(k as f64 / COARSE_SAMPLES as f64))
+        .collect();
+    let gap = pts
+        .windows(2)
+        .map(|w| w[0].distance_to(&w[1]))
+        .fold(0.0_f64, f64::max);
+    (pts, 0.5 * gap)
+}
+
+fn sampled_min(a: &[popkern_core::geometry::Point3], b: &[popkern_core::geometry::Point3]) -> f64 {
+    a.iter()
+        .flat_map(|p| b.iter().map(move |q| p.distance_to(q)))
+        .fold(f64::INFINITY, f64::min)
+}
+
+/// Whether coarse samples prove neither rail can come closer to the other
+/// strip's edge than that strip's own rail does: the sampled gap less both
+/// curves' sampling reach still exceeds the sampled width (an upper bound
+/// of the true width). Keeps the dense measure to pairs near enough to
+/// interfere (a 12-edge cube's 66 pairs allocated 51 MB measured densely).
+fn coarsely_apart(
+    rail_a: &NurbsCurve,
+    rail_b: &NurbsCurve,
+    edge_i: EdgeWindow<'_>,
+    edge_j: EdgeWindow<'_>,
+) -> bool {
+    let rail = |c: &NurbsCurve| {
+        let (t0, t1) = c.parameter_range();
+        coarse_points(|f| c.point_at(t0 + (t1 - t0) * f))
+    };
+    let edge = |(c, t0, t1): EdgeWindow<'_>| coarse_points(|f| c.point_at(t0 + (t1 - t0) * f));
+    let ((ra, ha), (rb, hb)) = (rail(rail_a), rail(rail_b));
+    let ((ei, hi), (ej, hj)) = (edge(edge_i), edge(edge_j));
+    let width_a = sampled_min(&ra, &ei);
+    let width_b = sampled_min(&rb, &ej);
+    let b_into_a = sampled_min(&rb, &ei) - hb - hi;
+    let a_into_b = sampled_min(&ra, &ej) - ha - hj;
+    b_into_a > width_a && a_into_b > width_b
+}
+
+/// The foot of `p` on the edge's window: its parameter and distance.
+fn edge_foot(edge: EdgeWindow<'_>, p: &popkern_core::geometry::Point3) -> (f64, f64) {
+    let (curve, t0, t1) = edge;
+    let t = popkern_core::geometry::curve::closest_point_in_window(curve, p, t0, t1);
+    (t, curve.point_at(t).distance_to(p))
+}
+
+/// The rail's sample parameters whose feet fall inside the edge (all of
+/// them on a closed edge); the whole rail when none does, so the pair
+/// still measures.
+fn in_band_params(rail: &NurbsCurve, edge: EdgeWindow<'_>, closed: bool) -> Vec<f64> {
+    let (r0, r1) = rail.parameter_range();
+    let all: Vec<f64> = (0..=RAIL_SAMPLES)
+        .map(|k| r0 + (r1 - r0) * k as f64 / RAIL_SAMPLES as f64)
+        .collect();
+    if closed {
+        return all;
+    }
+    let (_, t0, t1) = edge;
+    let (lo, hi) = (t0.min(t1), t0.max(t1));
+    let margin = (hi - lo) / 32.0;
+    let kept: Vec<f64> = all
+        .iter()
+        .copied()
+        .filter(|&t| {
+            let (foot, _) = edge_foot(edge, &rail.point_at(t));
+            foot > lo + margin && foot < hi - margin
+        })
+        .collect();
+    if kept.is_empty() { all } else { kept }
+}
+
+/// The least distance from the rail's samples `params` to the edge,
+/// the nearest sample polished along the rail between its neighbours.
+fn rail_to_edge(rail: &NurbsCurve, params: &[f64], edge: EdgeWindow<'_>) -> f64 {
+    let dist = |t: f64| edge_foot(edge, &rail.point_at(t)).1;
+    let Some((k, mut best)) = params
+        .iter()
+        .map(|&t| dist(t))
+        .enumerate()
+        .min_by(|x, y| x.1.total_cmp(&y.1))
+    else {
+        return f64::INFINITY;
+    };
+    let mut lo = params[k.saturating_sub(1)];
+    let mut hi = params[(k + 1).min(params.len() - 1)];
+    for _ in 0..48 {
+        let m1 = lo + (hi - lo) / 3.0;
+        let m2 = hi - (hi - lo) / 3.0;
+        if dist(m1) < dist(m2) {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
+    }
+    best = best.min(dist(0.5 * (lo + hi)));
+    best
+}
+
+/// The closest approach of two edges (sampled on the first, measured
+/// to the second's closest point).
+fn edge_to_edge(a: EdgeWindow<'_>, b: EdgeWindow<'_>) -> f64 {
+    let (curve, t0, t1) = a;
+    (0..=RAIL_SAMPLES)
+        .map(|k| {
+            let t = t0 + (t1 - t0) * k as f64 / RAIL_SAMPLES as f64;
+            edge_foot(b, &curve.point_at(t)).1
+        })
+        .fold(f64::INFINITY, f64::min)
 }
 
 /// PK-140 thin-wall precheck: returns `Some((requested_radius,

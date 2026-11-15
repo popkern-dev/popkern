@@ -542,6 +542,43 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   `popkern-rhai/tests/tangency_bench_scripts.rs`; both ratchet (a gate
   must pass, a target that starts passing must be promoted);
   `pinch_use_consumers.rs` puts a pinch use through every consumer.
+- **Fillet overflow (PK-1189)** — two fillets of one operation on
+  vertex-disjoint edges of a support face whose strips meet there
+  (`overlap_strip_interference`, measured point to curve, never sample
+  to sample): parallel cylinders trim to their seam (PK-159); a concave
+  strip running into a convex one's band rolls over it, its ball keeping
+  its other support and rolling onto the convex strip where the face
+  ends (`construct/strip_overflow.rs`: exact sections solved in the
+  rolling strip's own section planes, doubled until the skin meets them
+  within a quarter of the tolerance; `strip_overflow_surgery.rs` splices
+  it with Euler operators after the pcurve repairs). With G2 rounds the
+  overflow takes G2 sections, read against the face at its ends (the
+  strip's own there) and the convex strip beyond, the strip's curvature
+  ramped in over a fifth of it, recorded as `ContinuityDowngraded` (the
+  support is only G1 where face and strip meet; PK-1192). Anything else
+  declines `FilletInterference`. A
+  hole a split crosses goes to the side holding most of it
+  (`rehome_inner_loops_after_split` votes over points round it), and a
+  closed edge splits where asked (`split_edge_at_point` reads its
+  curve's direction as `split_edge` does). A corner sphere's centre steps
+  along the fillets' own (orthogonal) axes, never the global ones (a
+  turned boss plate's rounds declined, PK-1191). `body_volume`
+  integrates Gregory caps like every curved face, oriented by the mesh:
+  a separate path signed faces by their `orientation` flag, which is a
+  winding contract, not a material side (G2 bodies read 42% low,
+  PK-1193).
+- **Clip on a face boundary (PK-1190)** — a record lying along a face's
+  boundary edge (a slot's round end standing on a plate) overlaps that
+  edge: an overlap end, or a point hit, is a crossing only where a step
+  past it leaves the edge (`clip/clip_overlap_ends.rs`; a closed loop
+  wraps round its closure, a periodic chart compares whole-period
+  shifts), never the loop's own parameter end; and a closed record's
+  hull swaps to its wrapped complement when the complement rides the
+  face's boundary (`clip/clip_wrap_complement.rs`). A chamfer on a
+  curved face offsets each station along the chart normal × the curve
+  tangent with one sign measured against the face's trim
+  (`InteriorHint::ChartSigned`): the boundary centroid read a shallow
+  cone's bore wrong at half its stations.
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks
