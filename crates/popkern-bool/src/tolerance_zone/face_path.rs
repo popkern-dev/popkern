@@ -70,7 +70,14 @@ pub(crate) fn separation_along_face(
         else {
             continue;
         };
-        let (pu, pv) = surface.geometry.periodicity();
+        // A clamped NURBS chart closed on itself (its two boundary rows
+        // one curve: an ellipsoid's or a revolve's seam) is joined across
+        // that seam as a periodic one is, so the closure of a record round
+        // it at `u = u0` and the seam's crossing at `u = u1` are one point
+        // (PK-1209: read a whole section apart, the table separated them
+        // and the boolean classified every piece away).
+        let (pu, pv) =
+            popkern_core::geometry::chart_periods::geometric_chart_periods(&surface.geometry);
         let (du, dv) = (nearest_branch(b.0 - a.0, pu), nearest_branch(b.1 - a.1, pv));
         let at = |k: usize| {
             let w = k as f64 / PATH_SAMPLES as f64;

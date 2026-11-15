@@ -104,12 +104,12 @@ pub(crate) fn try_revolved_nurbs(
 /// The valid parameter domain of a knot vector of `degree`: from
 /// `knots[degree]` to `knots[len − 1 − degree]` (a periodic-form ring's
 /// vector runs past it, PK-890).
-fn domain(knots: &[f64], degree: usize) -> (f64, f64) {
+pub(super) fn domain(knots: &[f64], degree: usize) -> (f64, f64) {
     (knots[degree], knots[knots.len() - 1 - degree])
 }
 
 /// `s` with its parameter directions exchanged.
-fn transpose(s: &NurbsSurface) -> NurbsSurface {
+pub(super) fn transpose(s: &NurbsSurface) -> NurbsSurface {
     let mut control_points = Vec::with_capacity(s.control_points.len());
     let mut weights = Vec::with_capacity(s.weights.len());
     for j in 0..s.num_v {
