@@ -58,8 +58,11 @@ impl BRep {
         let mut exposed_here = std::collections::HashSet::new();
         let mut touched_vertices = Vec::new();
         for &face in faces {
-            let retiring_loop = self.retirable_outer_loop(face)?;
-            let doomed_half_edges = self.loop_half_edges_for_retirement(retiring_loop)?;
+            let retiring_loops = self.retirable_loops(face)?;
+            let mut doomed_half_edges = Vec::new();
+            for &lh in &retiring_loops {
+                doomed_half_edges.extend(self.loop_half_edges_for_retirement(lh)?);
+            }
             let mut lost = Vec::new();
             for half_edge in &doomed_half_edges {
                 let twin = self.half_edges[*half_edge].mate();
@@ -108,7 +111,9 @@ impl BRep {
                 exposed_edges.retain(|&e| e != edge);
             }
             self.repair_shell_face_after_retirement(face)?;
-            self.loops.remove(retiring_loop);
+            for lh in retiring_loops {
+                self.loops.remove(lh);
+            }
             self.faces.remove(face);
             retired_faces.push(face);
         }
@@ -212,20 +217,32 @@ impl BRep {
         ))
     }
 
-    fn retirable_outer_loop(
+    /// The loops a retired face takes with it: its outer loop and its
+    /// holes (each hole's rim is exposed as the outer boundary's is: a
+    /// plate kept as its top face, holes and all, is a sheet whose free
+    /// edges are its outline and its hole rims). A vertex loop (a point
+    /// on the face, no half-edges) declines: it would leave its vertex
+    /// on nothing.
+    fn retirable_loops(
         &self,
         face: FaceHandle,
-    ) -> Result<crate::topology::LoopHandle, CoreError> {
+    ) -> Result<Vec<crate::topology::LoopHandle>, CoreError> {
         let face_data = self
             .faces
             .get(face)
             .ok_or_else(|| CoreError::InvalidHandle("retire face handle is invalid".into()))?;
-        if !face_data.inner_loops.is_empty() {
+        let loops: Vec<_> = std::iter::once(face_data.outer_loop)
+            .chain(face_data.inner_loops.iter().copied())
+            .collect();
+        if loops
+            .iter()
+            .any(|l| self.loops.get(*l).is_some_and(|d| d.vertex.is_some()))
+        {
             return Err(CoreError::PreconditionFailed(
-                "retire_faces_to_boundary does not retire faces with inner loops".into(),
+                "retire_faces_to_boundary does not retire a face holding a vertex loop".into(),
             ));
         }
-        Ok(face_data.outer_loop)
+        Ok(loops)
     }
 
     fn loop_half_edges_for_retirement(

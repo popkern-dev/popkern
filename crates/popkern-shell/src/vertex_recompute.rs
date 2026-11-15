@@ -127,6 +127,7 @@ pub(crate) fn recompute_vertices_with_gap_corners(
             // averaging iteration stops (measured ~9e-7 off the exact
             // corner — a ShellGap right at the tolerance boundary); with
             // it, three planes solve exactly.
+            let mut removed_faces: Vec<FaceHandle> = Vec::new();
             if let Some(&outer_vh) = reverse_vertex.get(&inner_vh) {
                 // "Kept" means the face contributed an offset constraint. A
                 // face may be PRESENT in the skin yet unclassified (midplane
@@ -143,6 +144,7 @@ pub(crate) fn recompute_vertices_with_gap_corners(
                         continue;
                     }
                     if let Some(sof) = outer.faces.get(outer_fh).and_then(|f| f.surface.as_ref()) {
+                        removed_faces.push(outer_fh);
                         surfaces.push(&sof.geometry);
                         keyed.push((outer_fh, &sof.geometry));
                         if let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry {
@@ -215,6 +217,15 @@ pub(crate) fn recompute_vertices_with_gap_corners(
                 keyed.sort_by_key(|(fh, _)| *fh);
                 let ordered: Vec<&SurfaceGeometry> = keyed.iter().map(|(_, s)| *s).collect();
                 crate::curved_recompute::solve_vertex_on_surfaces(&ordered, seed, tolerance)
+                    .or_else(|| {
+                        crate::vertex_recompute_reseed::reseed_into_openings(
+                            outer,
+                            *outer_vh,
+                            &removed_faces,
+                            &ordered,
+                            tolerance,
+                        )
+                    })
             } else {
                 // Under-determined plane sets (free-rim vertices of open
                 // sheets: 1 or 2 incident planes) solve EXACTLY as the

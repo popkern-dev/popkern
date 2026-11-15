@@ -35,8 +35,6 @@ use replay_fns::{
 
 use crate::resolve::{resolve_axis, resolve_face, resolve_faces, resolve_revolve_angle};
 
-/// Side effects produced by a successful feature execution.
-///
 pub(crate) use crate::replay_side_effects::ExecuteSideEffects;
 
 /// Execute a single feature against the current BRep.
@@ -165,11 +163,11 @@ pub(crate) fn execute_feature(
             edges,
             distance,
             kind,
+            corner,
         } => replay_blend::execute_chamfer(
             brep,
             edges,
-            *distance,
-            kind,
+            (*distance, kind, *corner),
             tracking,
             tolerance,
             param_table,
@@ -254,16 +252,11 @@ pub(crate) fn execute_feature(
             *brep = result.brep;
             Ok(ExecuteSideEffects::reported(evidence))
         }
-        Feature::RemoveFaces { faces } => {
-            let handles = resolve_faces(faces, brep)?;
-            brep.retire_faces_to_boundary(&handles)
-                .map_err(|e| ReplayError::FeatureFailed {
-                    label: "remove_faces".into(),
-                    error: crate::failure::FeatureFailure::other(e.to_string()).into(),
-                })?;
-            // The faces kept are the feature's result, a sheet.
-            brep.settle_open_shells();
-            Ok(ExecuteSideEffects::empty())
+        Feature::DeleteFaces { faces } => replay_primitive::delete_faces(brep, faces, tolerance),
+        Feature::RemoveFaces { faces } => replay_primitive::remove_faces(brep, faces),
+        Feature::OffsetFaces { faces, distance } => {
+            let d = resolve_param(param_table, *distance)?;
+            replay_primitive::offset_faces(brep, faces, d, tolerance)
         }
         Feature::OffsetSolid {
             distance,

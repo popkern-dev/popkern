@@ -7,6 +7,7 @@ pub(crate) mod canonical_curves;
 pub mod guided;
 pub mod loft_continuity;
 pub mod loft_surface;
+pub(crate) mod sweep_refine;
 pub mod sweep_surface;
 pub mod swept_blend;
 

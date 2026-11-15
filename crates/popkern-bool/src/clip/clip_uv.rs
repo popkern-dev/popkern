@@ -288,7 +288,7 @@ pub(super) fn uv_clip_one_face(
                     continue;
                 }
                 counted += 1;
-                if probe.contains(q) {
+                if super::clip_sphere_region::sample_inside(brep, face, q, &probe) {
                     inside_votes += 1;
                 }
             }

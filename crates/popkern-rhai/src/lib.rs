@@ -75,6 +75,7 @@ pub mod recipe_api;
 pub mod seam_hinge_api;
 pub mod selection_api;
 pub mod sheet_api;
+pub mod sheet_nurbs_api;
 mod source_tracking;
 pub mod values;
 pub mod wire_api;

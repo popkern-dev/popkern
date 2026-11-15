@@ -73,6 +73,8 @@ pub fn recompute_draft_vertices(
         // Try 3-plane intersection if we have 3+ planes.
         let new_pos = if planes.len() >= 3 {
             solve_3_planes(&planes[0], &planes[1], &planes[2])
+        } else if let Some(p) = slide_along_undrafted_line(brep, vh, &adjacent_faces, drafted) {
+            Some(p)
         } else {
             // Newton iteration from current position.
             let current_pos = brep.vertices[vh].position;
@@ -93,7 +95,91 @@ pub fn recompute_draft_vertices(
         }
     }
 
+    retrim_lines_at(brep, &moved);
     Ok(moved)
+}
+
+/// A straight edge whose vertex moved re-reads its range from its
+/// vertices (a line runs on unchanged; only where it stops moved): the
+/// edge recompute touches edges beside drafted faces, and a hole's seam
+/// between two undrafted sides kept its old end 10·tan(8°) short.
+fn retrim_lines_at(brep: &mut BRep, moved: &[VertexHandle]) {
+    use popkern_core::geometry::curve::CurveGeometry;
+    let edges: Vec<_> = brep.edges.keys().collect();
+    for e in edges {
+        let he = brep.edges[e].half_edge;
+        let Some(h) = brep.half_edges.get(he) else {
+            continue;
+        };
+        let Some(twin) = h.mate().and_then(|t| brep.half_edges.get(t)) else {
+            continue;
+        };
+        let (a, b) = (h.origin, twin.origin);
+        if !moved.contains(&a) && !moved.contains(&b) {
+            continue;
+        }
+        let (pa, pb) = (brep.vertices[a].position, brep.vertices[b].position);
+        if let Some(curve) = brep.edges[e].curve.as_mut()
+            && let CurveGeometry::Line { origin, direction } = &curve.geometry
+        {
+            let l2 = direction.dot(direction).max(1e-300);
+            curve.t_start = (pa - *origin).dot(direction) / l2;
+            curve.t_end = (pb - *origin).dot(direction) / l2;
+        }
+    }
+}
+
+/// A vertex on a straight edge both of whose sides keep their surfaces
+/// (a drilled hole's seam) slides along that line to the drafted plane
+/// it meets: the hole's rim vertex in a face drafted about the floor.
+/// The plane-only Newton moved it square to the plane, off the hole's
+/// wall, and the rim's loop opened by the lean.
+fn slide_along_undrafted_line(
+    brep: &BRep,
+    vh: VertexHandle,
+    adjacent: &[FaceHandle],
+    drafted: &HashMap<FaceHandle, SurfaceGeometry>,
+) -> Option<Point3> {
+    use popkern_core::geometry::curve::CurveGeometry;
+    let (po, pn) = adjacent.iter().find_map(|f| match drafted.get(f) {
+        Some(SurfaceGeometry::Plane { origin, normal, .. }) => Some((*origin, *normal)),
+        _ => None,
+    })?;
+    let face_of = |h: popkern_core::topology::HalfEdgeHandle| {
+        brep.half_edges
+            .get(h)
+            .and_then(|d| brep.loops.get(d.loop_))
+            .map(|l| l.face)
+    };
+    for (h, d) in brep.half_edges.iter() {
+        let twin = d.mate();
+        if d.origin != vh && twin.and_then(|t| brep.half_edges.get(t)).map(|t| t.origin) != Some(vh)
+        {
+            continue;
+        }
+        let sides = [face_of(h), twin.and_then(face_of)];
+        if sides
+            .iter()
+            .any(|f| f.is_none_or(|f| drafted.contains_key(&f)))
+        {
+            continue;
+        }
+        let Some(CurveGeometry::Line { origin, direction }) = brep
+            .edges
+            .get(d.edge)
+            .and_then(|e| e.curve.as_ref())
+            .map(|c| &c.geometry)
+        else {
+            continue;
+        };
+        let denom = direction.dot(&pn);
+        if denom.abs() < 1e-12 {
+            continue;
+        }
+        let t = (po - *origin).dot(&pn) / denom;
+        return Some(*origin + *direction * t);
+    }
+    None
 }
 
 /// Find all faces adjacent to a vertex.

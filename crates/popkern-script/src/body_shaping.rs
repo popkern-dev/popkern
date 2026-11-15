@@ -100,6 +100,44 @@ impl Body {
         self.record(model, feature, label, records)
     }
 
+    /// Delete blend `faces` (rounds, bevels, countersinks, corner balls)
+    /// and close each gap with its neighbours run on until they meet: a
+    /// direct edit (PK-1199).
+    pub fn delete_faces_with(
+        self,
+        model: &mut Model,
+        faces: FaceSelector,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let snapshot = self.faces(model, &faces)?;
+        let records = vec![Self::selection_record("faces", &snapshot)];
+        let feature = Feature::DeleteFaces {
+            faces: snapshot.names,
+        };
+        self.record(model, feature, label, records)
+    }
+
+    /// Move `faces` `distance` along their outward normals, their
+    /// neighbours following: a flat face moves, a hole's wall widens or
+    /// narrows (a direct edit, PK-1199).
+    pub fn offset_faces_with(
+        self,
+        model: &mut Model,
+        faces: FaceSelector,
+        distance: impl Into<Scalar>,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let snapshot = self.faces(model, &faces)?;
+        let records = vec![Self::selection_record("faces", &snapshot)];
+        let unit = model.unit;
+        let distance = Self::bind(model, "distance", &distance.into(), unit)?;
+        let feature = Feature::OffsetFaces {
+            faces: snapshot.names,
+            distance,
+        };
+        self.record(model, feature, label, records)
+    }
+
     /// Draft `faces` by `angle` (degrees) about `neutral`.
     pub fn draft_with(
         self,

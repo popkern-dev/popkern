@@ -57,6 +57,7 @@ pub(crate) fn recover_edge_in_face_records(
     tolerance: &Tolerance,
 ) {
     let mut found = Vec::new();
+    let mut superseded: Vec<usize> = Vec::new();
     for (x_is_a, x, y, aabbs_y) in [(true, a, b, aabbs_b), (false, b, a, aabbs_a)] {
         // The receiving faces' hull, padded as the per-face test pads
         // the sample box: an edge whose conservative box stays clear of
@@ -152,12 +153,50 @@ pub(crate) fn recover_edge_in_face_records(
                             if x_is_a { "A" } else { "B" }
                         );
                     }
+                    // A solver record of the pair running part of the way
+                    // along the edge (the march along a sheet's boundary
+                    // row stopped halfway, PK-1200) gives way to the
+                    // whole edge's.
+                    superseded.extend(along_edge(records, face_a, face_b, curve, span, tolerance));
                     found.push(record);
                 }
             }
         }
     }
+    superseded.sort_unstable();
+    superseded.dedup();
+    for i in superseded.into_iter().rev() {
+        records.remove(i);
+    }
     records.extend(found);
+}
+
+/// The records of pair `(face_a, face_b)` lying wholly along `curve`'s
+/// `span`, by index.
+fn along_edge(
+    records: &[IntersectionRecord],
+    face_a: FaceHandle,
+    face_b: FaceHandle,
+    curve: &popkern_core::geometry::CurveOnEdge,
+    span: (f64, f64),
+    tolerance: &Tolerance,
+) -> Vec<usize> {
+    let reach = tolerance.linear() * 10.0;
+    records
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.face_a == face_a && r.face_b == face_b)
+        .filter(|(_, r)| {
+            let c = &r.curve.curve_3d;
+            let (t0, t1) = c.parameter_range();
+            (0..=EDGE_SAMPLES).all(|k| {
+                let p = c.point_at(t0 + (t1 - t0) * k as f64 / EDGE_SAMPLES as f64);
+                let t = closest_point_in_window(&curve.geometry, &p, span.0, span.1);
+                curve.geometry.point_at(t).distance_to(&p) <= reach
+            })
+        })
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Whether the edge's curve ends at its vertices (either way round).
@@ -176,10 +215,16 @@ fn curve_meets_vertices(
             .and_then(|d| brep.vertices.get(d.origin))
             .map(|v| v.position)
     };
-    let Some(twin) = brep.half_edges.get(he).and_then(|h| h.mate()) else {
+    // A sheet's free edge is a lone fin: its far end is where the next
+    // half-edge of its loop starts.
+    let Some(far) = brep
+        .half_edges
+        .get(he)
+        .and_then(|h| h.mate().or(Some(h.next)))
+    else {
         return false;
     };
-    let (Some(p), Some(q)) = (vertex(he), vertex(twin)) else {
+    let (Some(p), Some(q)) = (vertex(he), vertex(far)) else {
         return false;
     };
     let (s, e) = (

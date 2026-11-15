@@ -25,6 +25,7 @@ use popkern_core::progress::{OperationControl, ProgressEvent, StageTracker};
 use popkern_core::tolerance::Tolerance;
 
 use crate::error::SweepError;
+use crate::surface::sweep_refine::FramePolicy;
 use crate::types::{
     HelixSpec, LoftOptions, LoftSection, PipeRadius, SweepOptions, SweepProfile, SweepResult,
 };
@@ -95,12 +96,35 @@ pub fn sweep_with_control(
     tracking: Option<&mut TrackingContext>,
     control: OperationControl<'_>,
 ) -> Result<SweepResult, SweepError> {
+    controlled_sweep(
+        profile,
+        path,
+        options,
+        tolerance,
+        tracking,
+        control,
+        FramePolicy::Refined,
+    )
+}
+
+/// [`sweep_with_control`] under a frame policy.
+fn controlled_sweep(
+    profile: &SweepProfile,
+    path: &NurbsCurve,
+    options: &SweepOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    control: OperationControl<'_>,
+    policy: FramePolicy,
+) -> Result<SweepResult, SweepError> {
     run_controlled(
         control,
         tracking,
         crate::pipeline::SWEEP_STAGE_COUNT,
         |tracking, tracker| {
-            crate::pipeline::sweep_impl(profile, path, options, tolerance, tracking, tracker)
+            crate::pipeline::sweep_impl(
+                profile, path, options, tolerance, tracking, tracker, policy,
+            )
         },
         |token, mut worker_tracking| {
             let (profile, path, options) = (profile.clone(), path.clone(), options.clone());
@@ -117,6 +141,7 @@ pub fn sweep_with_control(
                     tolerance,
                     worker_tracking.as_mut(),
                     &mut tracker,
+                    policy,
                 );
                 (result, worker_tracking)
             }
@@ -226,7 +251,15 @@ pub fn helical_sweep_with_control(
     control: OperationControl<'_>,
 ) -> Result<SweepResult, SweepError> {
     let (path, mut warnings) = crate::helix::build_helix_path(spec)?;
-    let mut result = sweep_with_control(profile, &path, options, tolerance, tracking, control)?;
+    let mut result = controlled_sweep(
+        profile,
+        &path,
+        options,
+        tolerance,
+        tracking,
+        control,
+        FramePolicy::Budgeted,
+    )?;
     result.warnings.append(&mut warnings);
     Ok(result)
 }

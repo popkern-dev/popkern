@@ -19,7 +19,8 @@ use crate::{arc_length, frame, pipe, profile, self_intersect, surface, topology}
 /// (PK-276).
 pub(crate) const SWEEP_STAGE_COUNT: usize = 6;
 
-/// Shared implementation for [`sweep`] (and the helical delegate).
+/// Shared implementation for [`sweep`] (and the helical delegate,
+/// which keeps the frame budget: `FramePolicy::Budgeted`).
 /// `tracker` threads PK-276 interactive control: a cancellation poll
 /// before every stage (`SweepError::Cancelled`, nothing produced) and
 /// one progress event per stage; the self-intersection stage also
@@ -31,6 +32,7 @@ pub(crate) fn sweep_impl(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+    policy: surface::sweep_refine::FramePolicy,
 ) -> Result<SweepResult, SweepError> {
     macro_rules! stage_gate {
         () => {
@@ -57,21 +59,23 @@ pub(crate) fn sweep_impl(
     let t0 = popkern_core::time::Stopwatch::start();
     let n_samples = compute_sample_count(&table, path);
     let is_closed_path = check_path_closed(path, &tolerance);
-    let (frames, mut warnings) = frame::compute_frames(
+    // 4. Frames refined until the skinned surfaces hold the profile
+    // between them (`sweep_refine`).
+    let (frames, mut warnings, surface_result) = surface::sweep_refine::refined_sweep_surface(
+        &analyzed,
         path,
         &table,
         &options.frame,
         n_samples,
         options.twist,
         is_closed_path,
+        &options.scale,
+        &tolerance,
+        policy,
     )?;
     tracker.finish_stage("sweep.frames", t0, frames.frames.len());
-
-    // 4. Generate surfaces.
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let surface_result =
-        surface::generate_sweep_surface(&analyzed, &frames, &options.scale, &tolerance)?;
     tracker.finish_stage("sweep.surfaces", t0, surface_result.surfaces.len());
 
     // 5. Self-intersection check (per-surface poll: the check is the
@@ -146,6 +150,18 @@ pub(crate) fn loft_impl(
         .collect::<Result<Vec<_>, _>>()?;
     let span_wise =
         span_sets[0].len() > 1 && span_sets.iter().all(|v| v.len() == span_sets[0].len());
+    // Two convex sections of different span structures in parallel
+    // planes loft to their convex hull (PK-1197).
+    if !span_wise
+        && guides.is_empty()
+        && let Some(brep) = crate::hull_loft::hull_loft(sections, tolerance)
+    {
+        tracker.finish_stage("loft.surface", t0, sections.len());
+        return Ok(SweepResult {
+            brep,
+            warnings: vec![],
+        });
+    }
     let (surfaces, start_caps, end_caps) = if span_wise {
         let n_spans = span_sets[0].len();
         let mut surfaces = Vec::with_capacity(n_spans);
@@ -215,7 +231,7 @@ pub(crate) fn loft_impl(
 
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let brep = topology::side_faces::build_sweep_topology(
+    let mut brep = topology::side_faces::build_sweep_topology(
         &surfaces,
         &start_caps,
         &end_caps,
@@ -223,6 +239,9 @@ pub(crate) fn loft_impl(
         tolerance,
         tracking,
     )?;
+    if is_closed {
+        topology::outward::orient_outward(&mut brep);
+    }
     tracker.finish_stage("loft.topology", t0, brep.faces.len());
 
     Ok(SweepResult {

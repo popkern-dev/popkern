@@ -75,6 +75,39 @@ fn on_one_pole(surface: &SurfaceGeometry, a: (f64, f64), b: (f64, f64)) -> bool 
             <= POLE_RATIO * surface.partial_v(a.0, a.1).length()
 }
 
+/// The u-shift for `pc`, entering the loop across a pole: a whole
+/// period when it is the second side of a seam whose first side the loop
+/// already ran (its edge used earlier, its chart midpoint on that side's
+/// branch), else none. A seam's two sides lie a period apart on the
+/// chart; projection recompute cannot pick the branch, and where a
+/// dimple split a ball's seam both sides came back on u = 0: the loop
+/// then enclosed two slivers beside the seam instead of the face, and
+/// the classify ray rejected every hit on the ball as off its trim (a
+/// golf ball's last dimple kept its outer cap, PK-1194). The gap free
+/// along the pole is spent where the loop needs it.
+fn seam_side_across_pole(
+    pc: &Pcurve,
+    edge: super::EdgeHandle,
+    first_use: &[(super::EdgeHandle, (f64, f64))],
+    period: f64,
+) -> f64 {
+    let Some(&(_, (fu, fv))) = first_use.iter().find(|(e, _)| *e == edge) else {
+        return 0.0;
+    };
+    let m = pc.point_at(0.5 * (pc.t_start + pc.t_end));
+    let near = 1e-6 * period;
+    if (m.x - fu).abs() > near || (m.y - fv).abs() > near {
+        return 0.0;
+    }
+    // Toward the other border: up from the chart's lower half, down
+    // from its upper (a NURBS chart re-bases the loop afterwards).
+    if fu - period * (fu / period).floor() < 0.5 * period {
+        period
+    } else {
+        -period
+    }
+}
+
 /// `S_u` against `S_v` at a pole (a sphere's reads ~1e-16), and the
 /// coincidence of the two points relative to the chart's scale.
 const POLE_RATIO: f64 = 1e-9;
@@ -110,6 +143,9 @@ impl BRep {
                 let mut prev_end: Option<(f64, f64)> = None;
                 // (handle, du, dv) shifts to apply after the walk.
                 let mut shifts: Vec<(super::HalfEdgeHandle, f64, f64)> = Vec::new();
+                // Each edge's first use in this loop: its chart midpoint
+                // once shifted, for the seam-side test at a pole.
+                let mut first_use: Vec<(super::EdgeHandle, (f64, f64))> = Vec::new();
                 for _ in 0..self.half_edges.len() + 1 {
                     let Some(h) = self.half_edges.get(he) else {
                         break;
@@ -135,11 +171,17 @@ impl BRep {
                             // sides meet the pole a period apart).
                             if !on_one_pole(&surface.geometry, pe, (s.x, s.y)) {
                                 du = wrap(pe.0 - s.x, period_u);
+                            } else if let Some(p) = period_u {
+                                du = seam_side_across_pole(pc, h.edge, &first_use, p);
                             }
                             dv = wrap(pe.1 - s.y, period_v);
                         }
                         if du != 0.0 || dv != 0.0 {
                             shifts.push((he, du, dv));
+                        }
+                        if !first_use.iter().any(|(edge, _)| *edge == h.edge) {
+                            let m = pc.point_at(0.5 * (pc.t_start + pc.t_end));
+                            first_use.push((h.edge, (m.x + du, m.y + dv)));
                         }
                         prev_end = Some((e.x + du, e.y + dv));
                     } else {

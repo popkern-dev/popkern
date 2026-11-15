@@ -139,6 +139,39 @@ impl ScriptBody {
         Ok(self.served(body))
     }
 
+    fn delete_faces(
+        &self,
+        faces: FaceSelector,
+        options: &Dynamic,
+    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let options = Options::parse("delete_faces", options, DRAFT_OPTIONS)?;
+        let body = self
+            .body
+            .delete_faces_with(&mut self.model.borrow_mut(), faces, &options.label()?)
+            .script()?;
+        Ok(self.served(body))
+    }
+
+    fn offset_faces(
+        &self,
+        faces: FaceSelector,
+        distance: Dynamic,
+        options: &Dynamic,
+    ) -> Result<ScriptBody, Box<EvalAltResult>> {
+        let distance = args::scalar("distance", &distance)?;
+        let options = Options::parse("offset_faces", options, DRAFT_OPTIONS)?;
+        let body = self
+            .body
+            .offset_faces_with(
+                &mut self.model.borrow_mut(),
+                faces,
+                distance,
+                &options.label()?,
+            )
+            .script()?;
+        Ok(self.served(body))
+    }
+
     fn draft(
         &self,
         faces: FaceSelector,
@@ -183,6 +216,25 @@ pub fn register(engine: &mut Engine) {
         .register_fn("remove_faces", |b: &mut ScriptBody, faces: FaceSelector| {
             b.remove_faces(faces, &Dynamic::UNIT)
         })
+        .register_fn(
+            "offset_faces",
+            |b: &mut ScriptBody, faces: FaceSelector, d: Dynamic| {
+                b.offset_faces(faces, d, &Dynamic::UNIT)
+            },
+        )
+        .register_fn(
+            "offset_faces",
+            |b: &mut ScriptBody, faces: FaceSelector, d: Dynamic, o: Dynamic| {
+                b.offset_faces(faces, d, &o)
+            },
+        )
+        .register_fn("delete_faces", |b: &mut ScriptBody, faces: FaceSelector| {
+            b.delete_faces(faces, &Dynamic::UNIT)
+        })
+        .register_fn(
+            "delete_faces",
+            |b: &mut ScriptBody, faces: FaceSelector, o: Dynamic| b.delete_faces(faces, &o),
+        )
         .register_fn(
             "remove_faces",
             |b: &mut ScriptBody, faces: FaceSelector, o: Dynamic| b.remove_faces(faces, &o),

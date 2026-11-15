@@ -8,12 +8,12 @@ use popkern_core::tolerance::Tolerance;
 
 use crate::arc_length::ArcLengthTable;
 use crate::error::SweepError;
-use crate::frame::compute_frames;
 use crate::profile::analyze_profile;
-use crate::surface::sweep_surface::{SweepSurfaceResult, generate_sweep_surface};
+use crate::surface::sweep_surface::SweepSurfaceResult;
 use crate::types::{PipeRadius, ScaleMethod, SweepOptions, SweepProfile};
 
-/// Number of frames to sample along the path for pipe generation.
+/// Number of frames a pipe starts from; `sweep_refine` doubles them
+/// until the wall holds the circle between frames.
 ///
 /// A moderate count balances surface fidelity against file size.
 /// Too many frames produce oversized NURBS surfaces that some CAD
@@ -61,15 +61,6 @@ pub fn generate_pipe_surface(
     let analyzed = analyze_profile(&profile, tolerance)?;
 
     let table = ArcLengthTable::build(path, 100);
-    let (frames, _warnings) = compute_frames(
-        path,
-        &table,
-        &options.frame,
-        PIPE_FRAME_COUNT,
-        options.twist,
-        false,
-    )?;
-
     let scale = match radius {
         PipeRadius::Constant(_) => ScaleMethod::None,
         PipeRadius::Variable(pts) => {
@@ -83,7 +74,19 @@ pub fn generate_pipe_surface(
         }
     };
 
-    generate_sweep_surface(&analyzed, &frames, &scale, tolerance)
+    let (_frames, _warnings, surface) = crate::surface::sweep_refine::refined_sweep_surface(
+        &analyzed,
+        path,
+        &table,
+        &options.frame,
+        PIPE_FRAME_COUNT,
+        options.twist,
+        false,
+        &scale,
+        tolerance,
+        crate::surface::sweep_refine::FramePolicy::Refined,
+    )?;
+    Ok(surface)
 }
 
 /// Build a rational degree-2 NURBS circle in the XY plane.

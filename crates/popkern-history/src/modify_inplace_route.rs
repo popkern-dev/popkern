@@ -134,15 +134,21 @@ impl FeatureTree {
                     edges: e_old,
                     distance: d_old,
                     kind: k_old,
+                    corner: c_old,
                 },
                 Feature::Chamfer {
                     edges: e_new,
                     distance: d_new,
                     kind: k_new,
+                    corner: c_new,
                 },
             ) if e_old == e_new
                 && k_old == k_new
-                && *k_old == crate::feature_blend::ChamferKindDesc::Equal =>
+                && *k_old == crate::feature_blend::ChamferKindDesc::Equal
+                // The in-place edit moves the bevel faces alone: a flat
+                // corner's faces are a replay's to rebuild.
+                && *c_old == crate::feature_blend::ChamferCornerDesc::Apex
+                && c_old == c_new =>
             {
                 let (old_v, new_v) = resolved_pair(table, *d_old, *d_new)?;
                 if (old_v - new_v).abs() < 1.0e-15 {

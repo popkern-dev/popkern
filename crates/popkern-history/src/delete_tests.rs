@@ -343,6 +343,7 @@ fn reparent_produces_warnings_for_each_reparented_feature() {
             edges: vec![entity_name(b_op.0)],
             distance: dist_d,
             kind: Default::default(),
+            corner: crate::feature_blend::ChamferCornerDesc::Apex,
         },
         "D",
     );

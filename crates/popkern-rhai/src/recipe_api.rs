@@ -5,7 +5,7 @@
 //! `two_distance(face, d2)`, `distance_angle(face, angle)`) as
 //! constructor functions.
 
-use popkern_history::feature_blend::{BlendProfileKind, FilletRecipeDesc};
+use popkern_history::feature_blend::{BlendProfileKind, ChamferCornerDesc, FilletRecipeDesc};
 use popkern_script::{ChamferSpec, FaceSelector, RadiusLaw, Scalar, ShellOptions};
 use rhai::{Dynamic, Engine, EvalAltResult};
 
@@ -42,7 +42,7 @@ pub const FILLET_OPTIONS: &[&str] = &[
 ];
 
 /// Options a `chamfer` call accepts.
-pub const CHAMFER_OPTIONS: &[&str] = &["label", "kind"];
+pub const CHAMFER_OPTIONS: &[&str] = &["label", "kind", "corner"];
 
 /// Options a `shell` call accepts.
 pub const SHELL_OPTIONS: &[&str] = &["label", "direction", "join", "trim"];
@@ -188,13 +188,33 @@ pub fn setback_end_selectors(
         .collect()
 }
 
-/// The chamfer kind and label from an options map.
-pub fn chamfer_options(value: &Dynamic) -> Result<(ChamferSpec, String), Box<EvalAltResult>> {
+/// The chamfer kind, corner closure and label from an options map.
+pub fn chamfer_options(
+    value: &Dynamic,
+) -> Result<(ChamferSpec, ChamferCornerDesc, String), Box<EvalAltResult>> {
     let options = Options::parse("chamfer", value, CHAMFER_OPTIONS)?;
     let kind = options
         .with("kind", chamfer_kind)?
         .unwrap_or(ChamferSpec::Equal);
-    Ok((kind, options.label()?))
+    let corner = options
+        .with("corner", chamfer_corner)?
+        .unwrap_or(ChamferCornerDesc::Flat);
+    Ok((kind, corner, options.label()?))
+}
+
+/// `corner: "flat" | "apex"`: how bevels meeting at a corner close.
+fn chamfer_corner(
+    argument: &str,
+    value: &Dynamic,
+) -> Result<ChamferCornerDesc, Box<EvalAltResult>> {
+    match args::text(argument, value)?.as_str() {
+        "flat" => Ok(ChamferCornerDesc::Flat),
+        "apex" => Ok(ChamferCornerDesc::Apex),
+        other => Err(argument_error(
+            argument,
+            format!("unknown chamfer corner '{other}'; expected flat | apex"),
+        )),
+    }
 }
 
 /// The shell options and label from an options map.

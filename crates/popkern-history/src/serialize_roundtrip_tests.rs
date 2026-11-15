@@ -72,6 +72,7 @@ fn save_load_all_feature_types() {
             edges: vec![face_name(2)],
             distance: cd,
             kind: Default::default(),
+            corner: crate::feature_blend::ChamferCornerDesc::Apex,
         },
         "Chamfer",
     );

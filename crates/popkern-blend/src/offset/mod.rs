@@ -8,6 +8,7 @@ mod distance_map_tests;
 pub mod error;
 pub mod nurbs;
 mod nurbs_fit;
+mod nurbs_sphere;
 pub mod self_intersect;
 
 pub use analytic::{
@@ -64,6 +65,14 @@ pub fn offset_surface_measured(
             approximation_deviation: None,
         }),
         AnalyticOffset::Unsupported => {
+            if let SurfaceGeometry::Nurbs(n) = surface
+                && let Some(exact) = nurbs_sphere::sphere_offset(n, distance, inward, tolerance)
+            {
+                return Ok(OffsetSurfaceOutcome {
+                    surface: SurfaceGeometry::Nurbs(exact),
+                    approximation_deviation: None,
+                });
+            }
             if let Some(max_safe) = self_intersect::check_offset_self_intersection(
                 surface, distance, inward, u_range, v_range,
             ) {

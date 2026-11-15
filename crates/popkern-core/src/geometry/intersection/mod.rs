@@ -16,6 +16,7 @@ mod cylinder_cylinder_singular;
 pub(crate) mod cylinder_sphere;
 mod cylinder_sphere_pierce;
 pub mod degeneracy;
+pub(crate) mod iso_level_plane;
 mod line_circle;
 mod line_cone;
 mod line_cylinder;

@@ -2,6 +2,7 @@
 
 pub mod curve_snap;
 pub mod edge;
+mod edge_ellipse;
 pub mod vertex;
 
 pub use curve_snap::snap_vertices_to_recomputed_curves;

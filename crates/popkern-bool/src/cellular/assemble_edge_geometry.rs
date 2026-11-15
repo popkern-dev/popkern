@@ -133,7 +133,13 @@ pub(super) fn pcurve_for_face(
     if graph.half_edges[twin].face.as_ref() == Some(face_ref) {
         return graph.half_edges[twin].pcurve.as_ref().map(|p| p.reversed());
     }
-    graph.half_edges[ghe].pcurve.clone()
+    // Neither half lies on this face: the fragment walks an edge
+    // registered to another face (a duplicate's surviving half, a sheet's
+    // free edge flush on a block side), whose stored chart is that
+    // face's. Handed over, it put a side plane's (x, 5 - z) chart on a
+    // B-spline dome's boundary, 4e7 off the dome (PK-1211); none leaves
+    // the projection recompute to author it on this face.
+    None
 }
 
 /// Orient `pc` to the BRep half-edge pcurve convention: the edge's

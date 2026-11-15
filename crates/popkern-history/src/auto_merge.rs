@@ -55,6 +55,8 @@ pub(crate) fn feature_mode(feature: &Feature) -> OperationMode {
         | Feature::OffsetSolid { .. }
         | Feature::Draft { .. }
         | Feature::RemoveFaces { .. }
+        | Feature::DeleteFaces { .. }
+        | Feature::OffsetFaces { .. }
         | Feature::Reference { .. }
         | Feature::LinearPattern { .. }
         | Feature::CircularPattern { .. }

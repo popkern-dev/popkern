@@ -82,3 +82,32 @@ impl Model {
         self.primitive_selecting(shape, Placement::default(), label, vec![record])
     }
 }
+
+impl Model {
+    /// The sheet of the B-spline surface with control net `points`
+    /// (rows along u), `weights` (the net's shape, or empty for a
+    /// non-rational surface), `degree` along u and v and `knots` along
+    /// each (empty: clamped uniform): one face over the surface's whole
+    /// chart, its four boundary curves free edges.
+    pub fn sheet_nurbs(
+        &mut self,
+        points: &[Vec<[f64; 3]>],
+        weights: &[Vec<f64>],
+        degree: [u32; 2],
+        knots: [Vec<f64>; 2],
+        placement: Placement,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        let unit = self.unit;
+        let shape = PrimitiveShape::SheetNurbs {
+            points: points
+                .iter()
+                .map(|row| row.iter().map(|p| p.map(|c| unit.to_si(c))).collect())
+                .collect(),
+            weights: weights.to_vec(),
+            degree,
+            knots,
+        };
+        self.primitive(shape, placement, label)
+    }
+}

@@ -132,7 +132,7 @@ pub fn recompute_draft_edges(
 }
 
 /// Outcome of a single edge-curve recompute attempt.
-enum EdgeCurveOutcome {
+pub(super) enum EdgeCurveOutcome {
     /// A new curve was derived from the adjacent surfaces.
     Recomputed(CurveOnEdge),
     /// The pair is degenerate (e.g. parallel planes); the old curve
@@ -292,7 +292,16 @@ fn compute_edge_curve(
                 None => return Ok(EdgeCurveOutcome::Degenerate),
             };
             if n.cross(axis).length() > 1.0e-9 {
-                return Ok(EdgeCurveOutcome::UnsupportedPair);
+                return Ok(super::edge_ellipse::tangent_ruling(
+                    *apex,
+                    *axis,
+                    *half_angle,
+                    *po,
+                    n,
+                    start_pos,
+                    end_pos,
+                    tolerance,
+                ));
             }
             let denom = axis.dot(&n);
             if denom.abs() < tolerance.solver() {
@@ -344,6 +353,38 @@ fn compute_edge_curve(
                 t_end: a1,
             }))
         }
+        (
+            SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            },
+            SurfaceGeometry::Plane {
+                origin: po,
+                normal: pn,
+                ..
+            },
+        )
+        | (
+            SurfaceGeometry::Plane {
+                origin: po,
+                normal: pn,
+                ..
+            },
+            SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            },
+        ) => Ok(super::edge_ellipse::plane_cylinder_ellipse(
+            (*origin, *axis, *radius),
+            (*po, *pn),
+            edge.curve.as_ref(),
+            start_pos,
+            end_pos,
+            he.origin == twin.origin,
+            tolerance,
+        )),
         _ => Ok(EdgeCurveOutcome::UnsupportedPair),
     }
 }

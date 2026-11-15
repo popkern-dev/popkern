@@ -579,6 +579,54 @@ All three take face vertex positions from `BRep::face_outer_loop_positions(face_
   tangent with one sign measured against the face's trim
   (`InteriorHint::ChartSigned`): the boundary centroid read a shallow
   cone's bore wrong at half its stations.
+- **brep-bench fixes (PK-1194..1221)** — `m.sheet_nurbs(net, #{degree,
+  weights, knots})` makes a B-spline surface from its control net:
+  open, the one-face sheet (its boundary edges the exact iso-curves with
+  iso-line pcurves, lone fins; a solid is split by it and the piece kept);
+  closed round u, the solid it bounds with flat discs at its rims; with
+  both v rows collapsed, the ball on the core sphere's topology
+  (`replay_primitive_nurbs*.rs`). A partition with a lamina removes the
+  graph's collinear duplicates (a sheet's records run along its free
+  edges), and the edge-in-face recovery reads a lone fin's far end from
+  its loop and replaces the solver's partial copies along the edge.
+  `b.delete_faces(faces)` deletes rounds, bevels, countersinks and corner
+  balls (`replay_delete_faces*.rs`: the corner region to the face's
+  chord, extruded or revolved, added for a convex blend and taken away
+  for a concave one, decided by the face's outward normal toward the
+  corner); `b.offset_faces(faces, d)` moves flat faces and hole walls
+  whose neighbours stand square to them. Sweeps and pipes double their
+  frames until the skin holds the profile at every midpoint within the
+  linear tolerance (`surface/sweep_refine.rs`); a closed loft faces out
+  of its volume (`topology/outward.rs`); a chamfer's foot on a curved face
+  is the chord point square to the edge (`chamfer_chord_point.rs`);
+  `retire_faces_to_boundary` retires a face's hole loops too; draft turns
+  a cylinder along the pull into a cone narrowing along it for a boss,
+  recomputes a drafted plane's tangent ruling on that cone and the
+  ellipse it cuts from a cylinder, and slides a vertex along an undrafted
+  line edge (`recompute/edge_ellipse.rs`, `vertex.rs`). A plane meets a
+  NURBS surface whose control rows stand level above it in exact
+  iso-curves (`iso_level_plane.rs`), and the vertex table's face path
+  reads a clamped closed NURBS chart's period (`geometric_chart_periods`),
+  so an ellipsoid cut square to its axis serves. A ball face whose seam a
+  dimple split keeps its seam sides a period apart across the pole
+  (`loop_chart_continuity`, PK-1194). Two convex sections of different
+  side counts in parallel planes loft to their hull (`hull_loft*.rs`). A
+  uniform inward shell of a convex body the skin path declines is the
+  body less its cavity, the intersection of the kept faces' offset
+  regions (`convex_cavity.rs`, a `ConvexCavity` warning); rim vertices
+  finish by Newton where surfaces meet shallowly and reseed inside the
+  opening where they meet square; a wall's verticals on a sphere are arcs;
+  a torus cut through its axis gives meridian rims. A NURBS ball offsets
+  exactly by its net's homothety (`offset/nurbs_sphere.rs`). A chamfer
+  closes a corner where three or more bevels meet flat by default
+  (`replay_chamfer_corner.rs`), `corner: "apex"` running the planes on;
+  trees saved before the choice replay as the apex. Deleting a convex
+  body's blends all together intersects its kept faces' regions
+  (`popkern_shell::extend_convex_faces`), and `offset_faces` on one face
+  carries the rounds blending it (deleted, moved, rounded again,
+  `replay_carry_rounds.rs`). The cellular assembly leaves a fragment's
+  pcurve to the projection recompute when neither graph half lies on its
+  face, rather than lending another face's chart (PK-1211).
 - **`no_file_exceeds_500_lines`** — structural test enforced. When adding code, check `wc -l` before committing. Extract tests to `*_tests.rs` files with `#[path]` attribute if needed.
 
 ## Local Checks

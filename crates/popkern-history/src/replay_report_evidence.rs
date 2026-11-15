@@ -260,6 +260,11 @@ pub(super) fn classify_shell_warning(evidence: &mut FeatureEvidence, warning: &S
             mechanism: "exact offset surface -> fitted approximation".to_string(),
             reason: warning.to_string(),
         }),
+        ShellWarning::ConvexCavity { .. } => evidence.fallbacks.push(FallbackRecord {
+            source,
+            mechanism: "offset skin -> convex body less its cavity".to_string(),
+            reason: warning.to_string(),
+        }),
         _ => evidence.warnings.push(KernelWarning {
             source,
             message: warning.to_string(),

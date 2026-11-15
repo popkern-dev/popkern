@@ -9,9 +9,9 @@ use crate::geometry::intersection::coincident::{
 use crate::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::{
-    cone_cone_apex, cylinder_cone, cylinder_cylinder, cylinder_sphere, plane_cone, plane_cylinder,
-    plane_sphere, plane_torus, radial_level_curve, revolved_nurbs, sphere_cone, sphere_sphere,
-    torus_coaxial,
+    cone_cone_apex, cylinder_cone, cylinder_cylinder, cylinder_sphere, iso_level_plane, plane_cone,
+    plane_cylinder, plane_sphere, plane_torus, radial_level_curve, revolved_nurbs, sphere_cone,
+    sphere_sphere, torus_coaxial,
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
@@ -198,6 +198,20 @@ pub(super) fn try_analytic_pair(
     // cylinder, cone or sphere → exact iso-circles (PK-1126: the
     // marcher left holes near chart poles and coincident seams).
     if let Some(intersections) = revolved_nurbs::try_revolved_nurbs(
+        surface1,
+        (u1_range, v1_range),
+        surface2,
+        (u2_range, v2_range),
+        tolerance,
+    ) {
+        return Ok(Some(SurfaceSurfaceIntersectionResult { intersections }));
+    }
+
+    // Fast path: a plane against a NURBS surface whose control rows
+    // each stand at one height above it → exact iso-curves (PK-1209:
+    // an ellipsoid's section closed round its seam came as records
+    // that did not close there).
+    if let Some(intersections) = iso_level_plane::try_iso_level_plane(
         surface1,
         (u1_range, v1_range),
         surface2,

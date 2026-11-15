@@ -9,7 +9,7 @@ use popkern_history::feature::{
     AxisDesc, BoolOpKind, Feature, JoinStyleKind, ShellDirectionKind, TrimPolicyKind,
 };
 use popkern_history::feature_blend::{
-    ChamferKindDesc, FilletRadiusLaw, FilletRecipeDesc, RadiusStation,
+    ChamferCornerDesc, ChamferKindDesc, FilletRadiusLaw, FilletRecipeDesc, RadiusStation,
 };
 use popkern_history::feature_transform::RigidMotionDesc;
 use popkern_history::unit::Unit;
@@ -300,13 +300,26 @@ impl Body {
             .collect()
     }
 
-    /// Chamfer with an explicit kind and label.
+    /// Chamfer with an explicit kind and label, corners closed flat.
     pub fn chamfer_with(
         self,
         model: &mut Model,
         edges: EdgeSelector,
         distance: impl Into<Scalar>,
         kind: ChamferSpec,
+        label: &str,
+    ) -> Result<Body, ScriptError> {
+        self.chamfer_with_corner(model, edges, distance, kind, ChamferCornerDesc::Flat, label)
+    }
+
+    /// Chamfer with an explicit kind, corner closure and label.
+    pub fn chamfer_with_corner(
+        self,
+        model: &mut Model,
+        edges: EdgeSelector,
+        distance: impl Into<Scalar>,
+        kind: ChamferSpec,
+        corner: ChamferCornerDesc,
         label: &str,
     ) -> Result<Body, ScriptError> {
         let unit = model.unit;
@@ -322,7 +335,7 @@ impl Body {
                 angle: model.bind("angle", &angle, Unit::Degrees)?,
             },
         };
-        self.chamfer_kind(model, edges, distance, kind, label, records)
+        self.chamfer_kind(model, edges, distance, (kind, corner), label, records)
     }
 
     /// Shell with the full option set and a label.

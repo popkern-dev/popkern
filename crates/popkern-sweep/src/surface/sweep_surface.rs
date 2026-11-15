@@ -237,7 +237,7 @@ fn clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
 }
 
 /// Transform profile spans at a single frame (for cap generation).
-fn transform_profile_at_frame(
+pub(crate) fn transform_profile_at_frame(
     spans: &[NurbsCurve],
     frame: &PathFrame,
     scale: &ScaleMethod,

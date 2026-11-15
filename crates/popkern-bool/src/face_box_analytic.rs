@@ -99,7 +99,19 @@ pub(crate) fn trim_scale_points(
             points.push(p);
             continue;
         };
-        if within(v, v0, v1, pv) && (free_u || within(u, u0, u1, pu)) {
+        // The window bounds the loops, which bound the face only on the
+        // side they enclose in the chart: a ball face whose one loop is
+        // the small circle where a neighbour ball meets it is the rest
+        // of the sphere, outside its window. So a critical point outside
+        // the window still joins the box unless the trim classifier
+        // places it off the face (the third ball of a chain, 5 beside
+        // the first, was boxed out of its far half and never paired).
+        let in_window = within(v, v0, v1, pv) && (free_u || within(u, u0, u1, pu));
+        let off_face = || {
+            brep.face_uv_trim_containment(face, surface, u, v)
+                == Some(popkern_core::validation::FaceUvContainment::Outside)
+        };
+        if in_window || !off_face() {
             points.push(p);
         }
     }

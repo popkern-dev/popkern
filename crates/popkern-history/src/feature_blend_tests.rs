@@ -88,6 +88,7 @@ fn recipe_and_chamfer_kind_round_trip_through_pkn() {
                 face: name(1, 3),
                 distance_2: d2,
             },
+            corner: crate::feature_blend::ChamferCornerDesc::Apex,
         },
         "ChamferTwo",
     );
@@ -99,6 +100,7 @@ fn recipe_and_chamfer_kind_round_trip_through_pkn() {
                 face: name(1, 5),
                 angle: ang,
             },
+            corner: crate::feature_blend::ChamferCornerDesc::Apex,
         },
         "ChamferAngle",
     );
@@ -181,6 +183,7 @@ fn pre_recipe_fillet_and_chamfer_json_load_with_defaults() {
                 face: name(1, 2),
                 angle: d,
             },
+            corner: crate::feature_blend::ChamferCornerDesc::Apex,
         },
         "Chamfer",
         "kind",
