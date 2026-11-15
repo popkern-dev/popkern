@@ -34,6 +34,8 @@ use crate::parameter::{ParameterId, ParameterTable};
 use crate::replay_side_effects::ExecuteSideEffects;
 use crate::resolve::resolve_param;
 
+#[path = "replay_primitive_nurbs.rs"]
+mod replay_primitive_nurbs;
 #[path = "replay_primitive_polyhedra.rs"]
 mod replay_primitive_polyhedra;
 #[path = "replay_primitive_sheet.rs"]
@@ -98,7 +100,8 @@ pub(super) fn execute(
         s @ (PrimitiveShape::SheetRect { .. }
         | PrimitiveShape::SheetDisc { .. }
         | PrimitiveShape::SheetPolygon { .. }
-        | PrimitiveShape::SheetFill { .. }) => {
+        | PrimitiveShape::SheetFill { .. }
+        | PrimitiveShape::SheetNurbs { .. }) => {
             let xy = SketchPlane::xy();
             let mut local = match s {
                 PrimitiveShape::SheetRect { x, y, centred } => {
@@ -133,6 +136,14 @@ pub(super) fn execute(
                     });
                     replay_primitive_sheet::profile_sheet(shape, &profile, xy, *tolerance)?
                 }
+                PrimitiveShape::SheetNurbs {
+                    points,
+                    weights,
+                    degree,
+                    knots,
+                } => replay_primitive_nurbs::sheet(
+                    shape, points, weights, *degree, knots, *tolerance,
+                )?,
                 PrimitiveShape::SheetFill { edges } => {
                     // World coordinates: the wire is already placed.
                     let mut sheet = replay_primitive_sheet::fill(shape, edges, bodies, *tolerance)?;
@@ -433,3 +444,30 @@ fn placed(shape: &str, local: &BRep, frame: &PrimitiveFrame) -> Result<BRep, Rep
         .transform(&placement)
         .map_err(|e| failed(shape, "placement", e))
 }
+
+/// [`extruded`] for a caller outside the primitives (`delete_faces`).
+pub(super) fn extruded_profile(
+    shape: &str,
+    profile: &AnalyticProfile<f64>,
+    z0: f64,
+    h: f64,
+    tolerance: Tolerance,
+) -> Result<BRep, ReplayError> {
+    extruded(shape, profile, z0, h, tolerance)
+}
+
+/// [`revolved`] a whole turn, for a caller outside the primitives.
+pub(super) fn revolved_profile(
+    shape: &str,
+    profile: &AnalyticProfile<f64>,
+    tolerance: Tolerance,
+) -> Result<BRep, ReplayError> {
+    revolved(shape, profile, None, tolerance)
+}
+
+#[path = "replay_delete_faces.rs"]
+mod replay_delete_faces;
+pub(super) use replay_delete_faces::{
+    delete_faces_feature as delete_faces, offset_faces_feature as offset_faces,
+    remove_faces_feature as remove_faces,
+};

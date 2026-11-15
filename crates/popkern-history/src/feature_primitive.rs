@@ -197,6 +197,24 @@ pub enum PrimitiveShape {
         /// The corners, at least three.
         points: Vec<[f64; 2]>,
     },
+    /// A sheet: the face of a B-spline surface over its whole chart,
+    /// given by its control net (`points[i][j]`: row `i` along u, column
+    /// `j` along v), with optional `weights` (the same shape; empty: all
+    /// one, a non-rational surface) and knot vectors (empty: clamped
+    /// uniform), in the local frame. Open in both directions: its four
+    /// boundary curves are its free edges.
+    SheetNurbs {
+        /// The control net, rows along u.
+        points: Vec<Vec<[f64; 3]>>,
+        /// The weights, the net's shape, or empty.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        weights: Vec<Vec<f64>>,
+        /// Degrees along u and v.
+        degree: [u32; 2],
+        /// Knot vectors along u and v (each empty: clamped uniform).
+        #[serde(default)]
+        knots: [Vec<f64>; 2],
+    },
     /// A sheet: the planar face a closed chain of wire edges bounds
     /// (in world coordinates; the frame is not used). The wire is
     /// referenced, not consumed.
@@ -276,6 +294,7 @@ impl PrimitiveShape {
             PrimitiveShape::SheetDisc { .. } => "sheet_disc",
             PrimitiveShape::SheetPolygon { .. } => "sheet_polygon",
             PrimitiveShape::SheetFill { .. } => "sheet_fill",
+            PrimitiveShape::SheetNurbs { .. } => "sheet_nurbs",
         }
     }
 
@@ -296,6 +315,7 @@ impl PrimitiveShape {
                 | PrimitiveShape::SheetDisc { .. }
                 | PrimitiveShape::SheetPolygon { .. }
                 | PrimitiveShape::SheetFill { .. }
+                | PrimitiveShape::SheetNurbs { .. }
         )
     }
 
@@ -327,7 +347,8 @@ impl PrimitiveShape {
             | PrimitiveShape::SheetRect { .. }
             | PrimitiveShape::SheetDisc { .. }
             | PrimitiveShape::SheetPolygon { .. }
-            | PrimitiveShape::SheetFill { .. } => None,
+            | PrimitiveShape::SheetFill { .. }
+            | PrimitiveShape::SheetNurbs { .. } => None,
             PrimitiveShape::Cylinder { angle, .. }
             | PrimitiveShape::Cone { angle, .. }
             | PrimitiveShape::Sphere { angle, .. }
@@ -388,7 +409,8 @@ impl PrimitiveShape {
             | PrimitiveShape::WireArc { .. }
             | PrimitiveShape::WireSpline { .. }
             | PrimitiveShape::SheetPolygon { .. }
-            | PrimitiveShape::SheetFill { .. } => Vec::new(),
+            | PrimitiveShape::SheetFill { .. }
+            | PrimitiveShape::SheetNurbs { .. } => Vec::new(),
         }
     }
 }

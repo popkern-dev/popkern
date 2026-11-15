@@ -87,7 +87,9 @@ pub(crate) fn for_each_entity_name_mut(feature: &mut Feature, f: &mut dyn FnMut(
                 f(name);
             }
         }
-        Feature::RemoveFaces { faces } => {
+        Feature::RemoveFaces { faces }
+        | Feature::DeleteFaces { faces }
+        | Feature::OffsetFaces { faces, .. } => {
             for name in faces.iter_mut() {
                 f(name);
             }

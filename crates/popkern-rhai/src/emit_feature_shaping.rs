@@ -38,6 +38,8 @@ pub(super) fn call(
             | Feature::Thicken { .. }
             | Feature::Draft { .. }
             | Feature::RemoveFaces { .. }
+            | Feature::DeleteFaces { .. }
+            | Feature::OffsetFaces { .. }
     ) {
         return None;
     }
@@ -108,6 +110,17 @@ fn spelling(
         Feature::RemoveFaces { faces } => format!(
             ".remove_faces({}{})",
             spell("faces", faces, true)?,
+            options(vec![label_option(label)])
+        ),
+        Feature::DeleteFaces { faces } => format!(
+            ".delete_faces({}{})",
+            spell("faces", faces, true)?,
+            options(vec![label_option(label)])
+        ),
+        Feature::OffsetFaces { faces, distance } => format!(
+            ".offset_faces({}, {}{})",
+            spell("faces", faces, true)?,
+            scalar(tree, *distance, context)?,
             options(vec![label_option(label)])
         ),
         _ => return Err(EmitError::not_applicable(label, "shaping", "not an offset")),

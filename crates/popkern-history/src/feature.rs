@@ -1,8 +1,6 @@
-//! The [`Feature`] enum and its supporting parameter types.
-//!
-//! Every variant stores the operation's parameters in a serialisable form.
-//! Entity references use [`EntityName`] (stable names) rather than raw handles
-//! so that references survive rollback and tree reordering.
+//! The [`Feature`] enum: each variant's parameters in serialisable form,
+//! entities referenced by [`EntityName`] (stable names, not raw handles)
+//! so references survive rollback and tree reordering.
 
 use crate::feature_blend::{ChamferKindDesc, FilletRecipeDesc};
 use crate::feature_draft::NeutralPlaneDesc;
@@ -14,11 +12,8 @@ use crate::parameter::ParameterId;
 use popkern_core::naming::EntityName;
 use serde::{Deserialize, Serialize};
 
-/// A single parametric modeling operation in the feature tree.
-///
-/// Each variant corresponds to one type of BRep operation.  The parameters
-/// are stored in a serialisable form so the whole tree can be saved and
-/// replayed from scratch.
+/// A single parametric modeling operation in the feature tree, one variant
+/// per BRep operation, serialisable so the tree saves and replays whole.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Feature {
     /// A 2D sketch placed on a plane (or face): a constraint sketch
@@ -192,8 +187,19 @@ pub enum Feature {
         #[serde(default, skip_serializing_if = "ThickenSideKind::is_both")]
         side: ThickenSideKind,
     },
-    /// Take `faces` away, leaving the body open along their edges: a
-    /// solid becomes a sheet (thicken's usual input).
+    /// Delete blend `faces`, closing each gap (a direct edit, PK-1199).
+    DeleteFaces {
+        /// Faces to delete, by stable name.
+        faces: Vec<EntityName>,
+    },
+    /// Move `faces` `distance` along their outward normals (PK-1199).
+    OffsetFaces {
+        /// Faces to move, by stable name.
+        faces: Vec<EntityName>,
+        /// Signed distance (resolved via parameter table).
+        distance: ParameterId,
+    },
+    /// Take `faces` away, leaving the body open: a sheet (thicken's input).
     RemoveFaces {
         /// Faces to remove, identified by stable name.
         faces: Vec<EntityName>,
@@ -479,22 +485,16 @@ pub enum Feature {
     },
 }
 
-pub use crate::feature_plane::{BasePlane, SketchPlaneDesc, Vec3Desc};
-
+pub use crate::feature_extrude::{AxisDesc, ExtrudeEnd, ExtrudeSecondDir, RevolveEnd};
+pub use crate::feature_kinds::{BoolOpKind, OperationMode};
 pub use crate::feature_pieces::PieceRule;
-
-pub use popkern_bool::{FaceClass, NonManifoldPolicy, SetExpr};
-
+pub use crate::feature_plane::{BasePlane, SketchPlaneDesc, Vec3Desc};
 pub use crate::feature_shell_kinds::{
     JoinStyleKind, ShellDirectionKind, ThickenSideKind, TrimPolicyKind,
 };
+pub use popkern_bool::{FaceClass, NonManifoldPolicy, SetExpr};
 
-pub use crate::feature_kinds::{BoolOpKind, OperationMode};
-
-pub use crate::feature_extrude::{AxisDesc, ExtrudeEnd, ExtrudeSecondDir, RevolveEnd};
-
-/// Returns `true`. Used as the `#[serde(default = "default_true")]` target for
-/// boolean fields that should default to `true` rather than `false`.
+/// `true`: the `#[serde(default = "default_true")]` of fields defaulting on.
 fn default_true() -> bool {
     true
 }

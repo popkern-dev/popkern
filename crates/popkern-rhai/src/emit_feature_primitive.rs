@@ -128,6 +128,33 @@ pub(super) fn primitive_statement(
                 "a fill is spelled with its wire (emit_feature)",
             ));
         }
+        PrimitiveShape::SheetNurbs {
+            points,
+            weights,
+            degree,
+            knots,
+        } => {
+            let list = |items: Vec<String>| format!("[{}]", items.join(", "));
+            if *degree != [3, 3] {
+                pairs.push(("degree", format!("[{}, {}]", degree[0], degree[1])));
+            }
+            if !weights.is_empty() {
+                let rows = weights
+                    .iter()
+                    .map(|r| list(r.iter().map(|w| format!("{w:?}")).collect()))
+                    .collect();
+                pairs.push(("weights", list(rows)));
+            }
+            if !knots[0].is_empty() || !knots[1].is_empty() {
+                let k = |v: &Vec<f64>| list(v.iter().map(|x| format!("{x:?}")).collect());
+                pairs.push(("knots", format!("[{}, {}]", k(&knots[0]), k(&knots[1]))));
+            }
+            let rows = points
+                .iter()
+                .map(|r| list(r.iter().map(|q| point(*q)).collect()))
+                .collect();
+            ("sheet_nurbs", vec![list(rows)])
+        }
         PrimitiveShape::WireSpline {
             points,
             degree,
