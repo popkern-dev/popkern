@@ -45,19 +45,33 @@ impl BRep {
             // normal against f64::EPSILON flagged every face under
             // ~1e-4 across (a 1.6 mm rounded cube's 70 um corner
             // patches: |Su x Sv|^2 ~ 2e-17), so a valid mm-scale part
-            // failed validation.
+            // failed validation. A normal vanishing at one point is a
+            // pole, an apex or a pinch (a horn torus's section touches
+            // its axis at the chart's middle), not bad geometry: the
+            // face is degenerate only where it vanishes at the middle
+            // and at points a quarter of the way in on either side too.
             let geometry = &surface_on_face.geometry;
-            let (su, sv) = (
-                geometry.partial_u(u_mid, v_mid),
-                geometry.partial_v(u_mid, v_mid),
-            );
-            let normal = geometry.normal_at(u_mid, v_mid);
-            let scale = su.length() * sv.length();
-            let degenerate = if scale > 0.0 && scale.is_finite() {
-                su.cross(&sv).length() <= 1e-12 * scale
-            } else {
-                normal.length_squared() < f64::EPSILON
+            let degenerate_at = |u: f64, v: f64| {
+                let (su, sv) = (geometry.partial_u(u, v), geometry.partial_v(u, v));
+                let scale = su.length() * sv.length();
+                if scale > 0.0 && scale.is_finite() {
+                    su.cross(&sv).length() <= 1e-12 * scale
+                } else {
+                    geometry.normal_at(u, v).length_squared() < f64::EPSILON
+                }
             };
+            let quarter = |lo: f64, hi: f64, mid: f64, k: f64| {
+                if lo.is_finite() && hi.is_finite() {
+                    mid + k * 0.25 * (hi - lo)
+                } else {
+                    mid + k * 0.25
+                }
+            };
+            let normal = geometry.normal_at(u_mid, v_mid);
+            let degenerate = degenerate_at(u_mid, v_mid)
+                && [-1.0, 1.0]
+                    .iter()
+                    .all(|&k| degenerate_at(quarter(u0, u1, u_mid, k), quarter(v0, v1, v_mid, k)));
             if degenerate || !normal.length().is_finite() {
                 return Err(ValidationError::InconsistentOrientation { face: face_handle });
             }
