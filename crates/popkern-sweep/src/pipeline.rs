@@ -215,7 +215,7 @@ pub(crate) fn loft_impl(
 
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let brep = topology::side_faces::build_sweep_topology(
+    let mut brep = topology::side_faces::build_sweep_topology(
         &surfaces,
         &start_caps,
         &end_caps,
@@ -223,6 +223,9 @@ pub(crate) fn loft_impl(
         tolerance,
         tracking,
     )?;
+    if is_closed {
+        topology::outward::orient_outward(&mut brep);
+    }
     tracker.finish_stage("loft.topology", t0, brep.faces.len());
 
     Ok(SweepResult {
