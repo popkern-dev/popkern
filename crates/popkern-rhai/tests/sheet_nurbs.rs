@@ -133,3 +133,27 @@ fn an_ellipsoid_cut_square_to_its_axis_keeps_its_cap_at_every_height() {
         );
     }
 }
+
+/// PK-1211: a block under a clamped bicubic B-spline whose boundary lies
+/// flush on the block's sides. A fragment of the dome walked an edge
+/// whose graph halves both belonged to a side plane, and the assembly
+/// handed it the plane's chart (4e7 off the dome); it now leaves that
+/// pcurve to the projection recompute on the dome itself.
+#[test]
+fn a_block_under_a_flush_bspline_dome_reads_its_closed_form() {
+    let v = volume(
+        r#"let m = model();
+let xs = [0.0, 3.0, 7.0, 11.0, 16.0, 20.0];
+let ys = [0.0, 5.0, 10.0, 15.0, 20.0];
+let z = [[3.0, 5.0, 6.0, 5.0, 4.0], [5.0, 9.0, 11.0, 8.0, 5.0], [6.0, 12.0, 15.0, 10.0, 6.0],
+    [4.0, 10.0, 18.0, 9.0, 5.0], [5.0, 8.0, 9.0, 7.0, 4.0], [2.0, 4.0, 5.0, 4.0, 3.0]];
+let net = [];
+for i in 0..6 { let row = []; for j in 0..5 { row.push([xs[i], ys[j], z[i][j]]); } net.push(row); }
+let dome = m.sheet_nurbs(net, #{ degree: 3, knots: [[0.0, 0.0, 0.0, 0.0, 0.4, 0.4, 1.0, 1.0, 1.0, 1.0],
+    [0.0, 0.0, 0.0, 0.0, 1.0 / 3.0, 1.0, 1.0, 1.0, 1.0]] });
+let b = m.box(20.0, 20.0, 30.0).split([dome], containing([10.0, 10.0, 1.0]))[0];
+m"#,
+    );
+    let want = 554581.0 / 180.0;
+    assert!((v - want).abs() < 1e-6 * want, "{v} want {want}");
+}
