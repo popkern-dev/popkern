@@ -16,13 +16,68 @@ use super::nurbs_fit::fit_degree3_surface;
 
 /// Compute the offset point at a single (u, v) parameter.
 ///
-/// Returns `point + sign * distance * normalized_normal`. Falls back to the
-/// surface point itself when the normal degenerates to zero length.
+/// Returns `point + sign * distance * normal`, the normal the surface's
+/// own or, where the chart collapses (a pole row: a NURBS ball's ends,
+/// where `S_u × S_v` vanishes), its limit there ([`limit_normal`]).
+/// Taken as zero, a NURBS ball's poles stayed put while the rest moved
+/// and the fit read 4.7 off on a ball of radius 5 offset by 2.
 fn offset_point(surface: &SurfaceGeometry, u: f64, v: f64, distance: f64, sign: f64) -> Point3 {
     let pt = surface.point_at(u, v);
-    let raw_normal = surface.normal_at(u, v);
-    let n = raw_normal.normalized().unwrap_or(Vec3::new(0.0, 0.0, 0.0));
+    let n = chart_normal(surface, u, v)
+        .or_else(|| limit_normal(surface, u, v))
+        .unwrap_or(Vec3::new(0.0, 0.0, 0.0));
     pt + n * (sign * distance)
+}
+
+/// The unit chart normal at `(u, v)`, `None` where the chart collapses:
+/// `S_u × S_v` under 1e-9 of the larger partial's square (at a pole it
+/// reads ~1e-14, not zero, and normalised points anywhere: a NURBS
+/// ball's pole samples landed at 5.39 for an offset sphere of 7).
+fn chart_normal(surface: &SurfaceGeometry, u: f64, v: f64) -> Option<Vec3> {
+    let n = surface.normal_at(u, v);
+    let scale = surface
+        .partial_u(u, v)
+        .length()
+        .max(surface.partial_v(u, v).length());
+    if n.length() <= 1e-9 * scale * scale {
+        return None;
+    }
+    n.normalized()
+}
+
+/// The limit of the unit normal at a collapsed chart point, stepped into
+/// the domain across the collapse: Richardson-extrapolated from the
+/// normals a small step and twice it away (`2 n(δ) − n(2δ)`, its error
+/// second order in δ), averaged over the directions that leave the
+/// collapse (along a pole row the normal stays degenerate).
+fn limit_normal(surface: &SurfaceGeometry, u: f64, v: f64) -> Option<Vec3> {
+    let ((u0, u1), (v0, v1)) = surface.parameter_range();
+    let step = |lo: f64, hi: f64, at: f64| -> Option<f64> {
+        let d = 1e-5 * (hi - lo);
+        if !(d.is_finite() && d > 0.0) {
+            return None;
+        }
+        Some(if at + 2.0 * d <= hi { d } else { -d })
+    };
+    let mut sum = Vec3::new(0.0, 0.0, 0.0);
+    let mut any = false;
+    for (du, dv) in [
+        (0.0, step(v0, v1, v).unwrap_or(0.0)),
+        (step(u0, u1, u).unwrap_or(0.0), 0.0),
+    ] {
+        if du == 0.0 && dv == 0.0 {
+            continue;
+        }
+        let near = chart_normal(surface, u + du, v + dv);
+        let far = chart_normal(surface, u + 2.0 * du, v + 2.0 * dv);
+        if let (Some(a), Some(b)) = (near, far)
+            && let Some(n) = (a * 2.0 - b).normalized()
+        {
+            sum = sum + n;
+            any = true;
+        }
+    }
+    if any { sum.normalized() } else { None }
 }
 
 fn uniform_params(range: (f64, f64), m: usize) -> Vec<f64> {

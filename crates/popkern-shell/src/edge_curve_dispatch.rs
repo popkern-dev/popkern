@@ -47,6 +47,11 @@ pub(crate) fn compute_edge_curve(
             ) {
                 return Ok(Some(c));
             }
+            if let Some(c) = crate::curved_recompute_nurbs_seam::nurbs_seam_curve(
+                surf1, start_pos, end_pos, tolerance,
+            ) {
+                return Ok(Some(c));
+            }
             let mapped = crate::curved_recompute_similarity::parallel_map_edge_curve(
                 &old, surf1, surf2, start_pos, end_pos, tolerance,
             );
