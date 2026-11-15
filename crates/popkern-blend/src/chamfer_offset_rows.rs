@@ -9,6 +9,9 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_math::PortableMath;
 
+#[path = "chamfer_chord_point.rs"]
+mod chamfer_chord_point;
+
 use crate::analysis::EdgeAnalysis;
 use crate::types::ChamferKind;
 
@@ -424,18 +427,23 @@ pub(super) fn compute_offset_points(
 
         let offset_pt = *pt + offset_dir * distance;
 
-        // Project offset point back onto the surface for accuracy.
-        let projected = project_onto_surface(surface, &offset_pt);
-        offset_points.push(projected);
+        // The tangent-plane step projected back onto the surface seeds
+        // the exact point: on the face, square to the edge, `distance`
+        // from it in a straight line.
+        let (u0, v0) = find_uv_for_point(surface, &offset_pt);
+        let exact = chamfer_chord_point::chord_point_on_section(
+            surface,
+            (u0, v0),
+            pt,
+            &tangent_unit,
+            distance,
+        )
+        .filter(|q| (*q - *pt).dot(&offset_dir) > 0.0)
+        .unwrap_or_else(|| surface.point_at(u0, v0));
+        offset_points.push(exact);
     }
 
     Ok(offset_points)
-}
-
-/// Project a 3D point onto a surface (closest point).
-pub(super) fn project_onto_surface(surface: &SurfaceGeometry, point: &Point3) -> Point3 {
-    let (u, v) = find_uv_for_point(surface, point);
-    surface.point_at(u, v)
 }
 
 /// Find (u, v) parameters on a surface closest to a 3D point.
