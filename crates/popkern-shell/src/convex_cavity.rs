@@ -39,7 +39,7 @@ use popkern_core::validation::FaceUvContainment;
 
 /// A face's supporting region, the side holding the body.
 #[derive(Debug, Clone, Copy)]
-enum Region {
+pub(crate) enum Region {
     /// `(p − point) · out ≤ 0`.
     Half { point: Point3, out: Vec3 },
     /// Within `radius` of `centre`.
@@ -115,7 +115,7 @@ impl Region {
     }
 
     /// The region as a solid reaching `reach` past `centre` every way.
-    fn solid(&self, centre: Point3, reach: f64, tol: Tolerance) -> Option<BRep> {
+    pub(crate) fn solid(&self, centre: Point3, reach: f64, tol: Tolerance) -> Option<BRep> {
         let placed = |origin: Point3, z: Vec3| -> Option<Transform3> {
             let seed = if z.x.abs() < 0.9 {
                 Vec3::new(1.0, 0.0, 0.0)
@@ -173,7 +173,11 @@ impl Region {
 }
 
 /// The face's supporting region holding `samples`, within `reach`.
-fn region_of(surface: &SurfaceGeometry, samples: &[Point3], reach: f64) -> Option<Region> {
+pub(crate) fn region_of(
+    surface: &SurfaceGeometry,
+    samples: &[Point3],
+    reach: f64,
+) -> Option<Region> {
     let holds = |r: &Region| samples.iter().all(|p| r.excess(p) <= reach);
     let region = match *surface {
         SurfaceGeometry::Plane { origin, normal, .. } => {
@@ -230,7 +234,7 @@ fn region_of(surface: &SurfaceGeometry, samples: &[Point3], reach: f64) -> Optio
 
 /// Points of `body`: its vertices, samples along each edge, and samples
 /// inside each face's trim.
-fn body_samples(body: &BRep) -> Vec<Point3> {
+pub(crate) fn body_samples(body: &BRep) -> Vec<Point3> {
     let mut out: Vec<Point3> = body.vertices.values().map(|v| v.position).collect();
     for edge in body.edges.values() {
         if let Some(c) = edge.curve.as_ref() {
@@ -306,7 +310,7 @@ fn face_samples(body: &BRep, face: FaceHandle, surface: &SurfaceGeometry) -> Vec
 /// (a rounded plate shelled thicker than its corner radius meets in
 /// sharp inner corners), so it adds no constraint to the cavity. A
 /// round whose offset survives is not one region and declines.
-fn consumed_convex_blend(
+pub(crate) fn consumed_convex_blend(
     body: &BRep,
     face: FaceHandle,
     surface: &SurfaceGeometry,

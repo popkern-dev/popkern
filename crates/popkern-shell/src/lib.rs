@@ -19,6 +19,8 @@ mod classify_sense;
 pub mod collapse_check;
 mod collapse_resolve;
 mod convex_cavity;
+mod convex_extend;
+pub use convex_extend::extend_convex_faces;
 mod curved_recompute;
 mod curved_recompute_meridian;
 mod curved_recompute_newton;

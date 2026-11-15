@@ -19,7 +19,7 @@ type Region = (BRep, Point3, Point3);
 
 /// The face's boundary edges with the face across each (`None` for a
 /// seam, both sides on the face).
-fn boundary(
+pub(super) fn boundary(
     brep: &BRep,
     face: FaceHandle,
 ) -> Vec<(popkern_core::topology::EdgeHandle, Option<FaceHandle>)> {

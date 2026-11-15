@@ -111,3 +111,28 @@ fn a_face_whose_neighbours_lean_onto_it_does_not_move() {
     };
     assert!(e.to_string().contains("leans onto the face"), "{e}");
 }
+
+/// PK-1220: a box rounded on every edge, every round and corner ball
+/// deleted, is the box again: the kept faces' regions intersected.
+#[test]
+fn a_box_with_every_round_deleted_is_the_box() {
+    close(
+        volume(
+            "let m = model();\nlet b = m.box(20.0, 16.0, 12.0);\nb = b.fillet(edges(), 2.0);\nb = b.delete_faces(faces().kind(\"cylinder\").or(faces().kind(\"sphere\")));\nm\n",
+        ),
+        3840.0,
+    );
+}
+
+/// PK-1221: a block's top moved up 6 carries the round that blends it
+/// into the back: deleted, the top moved, the new edge rounded again at
+/// radius 3. Volume 40·30·16 − (1 − π/4)·3²·40 = 18840 + 90π.
+#[test]
+fn a_moved_top_carries_its_round() {
+    close(
+        volume(
+            "let m = model();\nlet b = m.box(40.0, 30.0, 10.0);\nb = b.fillet(edges().straight().direction(\"x\").at_vertex([0.0, 30.0, 10.0]), 3.0);\nb = b.offset_faces(faces().facing(\"z\").at_height(10.0), 6.0);\nm\n",
+        ),
+        18840.0 + 90.0 * PI,
+    );
+}

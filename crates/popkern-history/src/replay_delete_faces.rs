@@ -28,6 +28,8 @@ use popkern_sketch::profile::{AnalyticProfile, PathSegment, ProfileShape};
 
 use crate::error::ReplayError;
 
+#[path = "replay_carry_rounds.rs"]
+mod carry;
 #[path = "replay_delete_faces_regions.rs"]
 mod regions;
 
@@ -37,6 +39,11 @@ pub(super) fn delete_faces(
     faces: &[FaceHandle],
     tolerance: Tolerance,
 ) -> Result<BRep, ReplayError> {
+    // A convex body's blends deleted all together: its other faces run
+    // on until they meet, their regions' intersection (PK-1220).
+    if let Some(healed) = popkern_shell::extend_convex_faces(brep, faces, tolerance) {
+        return Ok(healed);
+    }
     let mut fills = Vec::with_capacity(faces.len());
     let ball_first = |f: &FaceHandle| {
         !matches!(
@@ -81,6 +88,12 @@ pub(super) fn offset_faces(
 ) -> Result<BRep, ReplayError> {
     if distance.abs() <= tolerance.linear() {
         return Ok(brep.clone());
+    }
+    // A single face blended into its neighbours by rounds carries them.
+    if let [face] = faces
+        && let Some(carried) = carry::offset_carrying_rounds(brep, *face, distance, tolerance)
+    {
+        return carried;
     }
     let mut regions = Vec::with_capacity(faces.len());
     for &face in faces {
