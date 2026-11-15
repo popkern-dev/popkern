@@ -375,8 +375,14 @@ pub fn statement(
             edges,
             distance,
             kind,
+            corner,
         } => {
             let mut pairs = vec![label_option(label)];
+            // Scripts close corners flat unless told: an apex corner
+            // (and every tree saved before the choice) spells it out.
+            if *corner == popkern_history::ChamferCornerDesc::Apex {
+                pairs.push(("corner", "\"apex\"".to_string()));
+            }
             match kind {
                 ChamferKindDesc::Equal => {}
                 ChamferKindDesc::TwoDistance { face, distance_2 } => pairs.push((

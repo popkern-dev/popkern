@@ -77,6 +77,7 @@ pub(crate) mod pattern_validate;
 pub mod queries;
 pub mod reference_rebind;
 pub(crate) mod replay;
+mod replay_chamfer_corner;
 mod replay_exact_extrude;
 mod replay_exact_extrude_names;
 mod replay_outputs;
@@ -112,9 +113,9 @@ pub use feature::{
     OperationMode, RevolveEnd, ShellDirectionKind, SketchPlaneDesc, TrimPolicyKind, Vec3Desc,
 };
 pub use feature_blend::{
-    BlendProfileKind, CapKindDesc, ChamferKindDesc, ContinuityKind, CornerCapDesc,
-    CornerConstructionDesc, CornerModeDesc, EdgeRadiusGroup, FilletRadiusLaw, FilletRecipeDesc,
-    InterferencePolicyKind, RadiusStation,
+    BlendProfileKind, CapKindDesc, ChamferCornerDesc, ChamferKindDesc, ContinuityKind,
+    CornerCapDesc, CornerConstructionDesc, CornerModeDesc, EdgeRadiusGroup, FilletRadiusLaw,
+    FilletRecipeDesc, InterferencePolicyKind, RadiusStation,
 };
 pub use feature_snapshot::SnapshotOrigin;
 pub use format::{format_expression, format_expression_with_unit};

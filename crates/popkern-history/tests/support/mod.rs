@@ -106,6 +106,7 @@ pub fn author_reference_document() -> FeatureTree {
             edges: vec![entity(2, RoleCategory::Generated, 0)],
             distance,
             kind: ChamferKindDesc::Equal,
+            corner: popkern_history::ChamferCornerDesc::Apex,
         },
         "Top Break",
     );

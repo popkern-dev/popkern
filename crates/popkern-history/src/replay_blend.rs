@@ -10,7 +10,7 @@ use popkern_core::topology::BRep;
 
 use super::replay_fns::{chamfer_specs, fillet_specs};
 use crate::error::ReplayError;
-use crate::feature_blend::{ChamferKindDesc, FilletRecipeDesc};
+use crate::feature_blend::{ChamferCornerDesc, ChamferKindDesc, FilletRecipeDesc};
 use crate::parameter::{ParameterId, ParameterTable};
 use crate::replay_report::{FeatureEvidence, face_census};
 use crate::replay_side_effects::ExecuteSideEffects;
@@ -182,8 +182,7 @@ fn end_setbacks(
 pub(super) fn execute_chamfer(
     brep: &mut BRep,
     edges: &[EntityName],
-    distance: ParameterId,
-    kind: &ChamferKindDesc,
+    (distance, kind, corner): (ParameterId, &ChamferKindDesc, ChamferCornerDesc),
     tracking: &mut TrackingContext,
     tolerance: &Tolerance,
     param_table: &ParameterTable,
@@ -198,14 +197,28 @@ pub(super) fn execute_chamfer(
         &specs,
         &popkern_blend::ChamferOptions::default(),
         *tolerance,
-        Some(tracking),
+        Some(&mut *tracking),
     )
     .map_err(|e| ReplayError::FeatureFailed {
         label: "chamfer".into(),
         error: crate::failure::FeatureFailure::blend(&e, Some(brep)).into(),
     })?;
-    let evidence =
+    let mut evidence =
         FeatureEvidence::blend(&result, &pre_faces, edges_requested, None, certification);
-    *brep = result.brep;
+    let mut body = result.brep;
+    if corner == ChamferCornerDesc::Flat {
+        let kept =
+            crate::replay_chamfer_corner::flatten_corners(brep, &mut body, tracking, *tolerance);
+        for reason in kept {
+            evidence
+                .fallbacks
+                .push(crate::replay_report::FallbackRecord {
+                    source: crate::replay_report::RecordSource::Blend,
+                    mechanism: "flat chamfer corner -> apex".to_string(),
+                    reason,
+                });
+        }
+    }
+    *brep = body;
     Ok(ExecuteSideEffects::reported(evidence))
 }

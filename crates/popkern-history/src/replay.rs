@@ -163,11 +163,11 @@ pub(crate) fn execute_feature(
             edges,
             distance,
             kind,
+            corner,
         } => replay_blend::execute_chamfer(
             brep,
             edges,
-            *distance,
-            kind,
+            (*distance, kind, *corner),
             tracking,
             tolerance,
             param_table,

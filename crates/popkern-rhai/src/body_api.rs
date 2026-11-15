@@ -125,12 +125,12 @@ impl ScriptBody {
         options: &Dynamic,
     ) -> Result<ScriptBody, Box<EvalAltResult>> {
         let distance = args::scalar("distance", &distance)?;
-        let (kind, label) = chamfer_options(options)?;
+        let (kind, corner, label) = chamfer_options(options)?;
+        let model = &mut self.model.borrow_mut();
         let body = self
             .body
-            .chamfer_with(&mut self.model.borrow_mut(), edges, distance, kind, &label)
-            .script()?;
-        Ok(self.served(body))
+            .chamfer_with_corner(model, edges, distance, kind, corner, &label);
+        Ok(self.served(body.script()?))
     }
 
     fn shell(

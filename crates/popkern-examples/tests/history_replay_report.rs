@@ -220,6 +220,7 @@ fn chamfer_reports_a_crease_record_without_continuity() {
             edges,
             distance: d,
             kind: ChamferKindDesc::Equal,
+            corner: popkern_history::ChamferCornerDesc::Apex,
         },
         "Chamfer1",
     );

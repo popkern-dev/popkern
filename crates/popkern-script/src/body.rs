@@ -8,7 +8,9 @@ use popkern_history::feature::{
     AxisDesc, BoolOpKind, ExtrudeEnd, Feature, JoinStyleKind, NonManifoldPolicy, OperationMode,
     ShellDirectionKind, TrimPolicyKind, Vec3Desc,
 };
-use popkern_history::feature_blend::{ChamferKindDesc, ContinuityKind, FilletRecipeDesc};
+use popkern_history::feature_blend::{
+    ChamferCornerDesc, ChamferKindDesc, ContinuityKind, FilletRecipeDesc,
+};
 use popkern_history::feature_transform::RigidMotionDesc;
 use popkern_history::node::BodyId;
 
@@ -338,7 +340,7 @@ impl Body {
             model,
             edges,
             distance,
-            ChamferKindDesc::Equal,
+            (ChamferKindDesc::Equal, ChamferCornerDesc::Flat),
             "",
             Vec::new(),
         )
@@ -351,7 +353,7 @@ impl Body {
         model: &mut Model,
         edges: EdgeSelector,
         distance: impl Into<Scalar>,
-        kind: ChamferKindDesc,
+        (kind, corner): (ChamferKindDesc, ChamferCornerDesc),
         label: &str,
         mut records: Vec<SelectionRecord>,
     ) -> Result<Body, ScriptError> {
@@ -366,6 +368,7 @@ impl Body {
             edges: snapshot.names,
             distance,
             kind,
+            corner,
         };
         self.record(model, feature, label, records)
     }

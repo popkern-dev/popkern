@@ -292,6 +292,7 @@ fn chamfer_kinds_replay_to_kernel_parity() {
             edges: edges.clone(),
             distance: d,
             kind: ChamferKindDesc::Equal,
+            corner: popkern_history::ChamferCornerDesc::Apex,
         },
         "Chamfer1",
     );
@@ -349,6 +350,7 @@ fn chamfer_kinds_replay_to_kernel_parity() {
                 face: face_name.clone(),
                 distance_2: d2,
             },
+            corner: popkern_history::ChamferCornerDesc::Apex,
         },
         "TwoDistance",
     );
@@ -413,6 +415,7 @@ fn chamfer_kinds_replay_to_kernel_parity() {
                 face: face_name,
                 angle: ang,
             },
+            corner: popkern_history::ChamferCornerDesc::Apex,
         },
         "DistanceAngle",
     );

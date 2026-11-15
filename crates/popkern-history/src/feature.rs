@@ -2,7 +2,7 @@
 //! entities referenced by [`EntityName`] (stable names, not raw handles)
 //! so references survive rollback and tree reordering.
 
-use crate::feature_blend::{ChamferKindDesc, FilletRecipeDesc};
+use crate::feature_blend::{ChamferCornerDesc, ChamferKindDesc, FilletRecipeDesc};
 use crate::feature_draft::NeutralPlaneDesc;
 use crate::feature_sketch::SketchPayload;
 use crate::feature_snapshot::SnapshotOrigin;
@@ -79,18 +79,18 @@ pub enum Feature {
         #[serde(default)]
         recipe: FilletRecipeDesc,
     },
-    /// Chamfer one or more edges. `distance` alone is an equal-distance
-    /// bevel; `kind` selects two-distance or distance-angle geometry.
+    /// Chamfer edges: an equal, two-distance or distance-angle bevel.
     Chamfer {
         /// The edges to chamfer, identified by stable name.
         edges: Vec<EntityName>,
-        /// Chamfer distance, or the first distance of a two-distance /
-        /// distance-angle kind (resolved via parameter table).
+        /// Distance, or a two-distance / distance-angle kind's first.
         distance: ParameterId,
-        /// The chamfer geometry kind (PK-361). Defaults to the equal
-        /// bevel trees saved before the kind existed.
+        /// The geometry kind (PK-361; older trees: the equal bevel).
         #[serde(default)]
         kind: ChamferKindDesc,
+        /// How corners close (PK-1217; older trees: the apex).
+        #[serde(default = "ChamferCornerDesc::legacy")]
+        corner: ChamferCornerDesc,
     },
     /// Move the whole current body by a rigid (similarity) motion
     /// (PK-362). Topology and stable names are preserved; only

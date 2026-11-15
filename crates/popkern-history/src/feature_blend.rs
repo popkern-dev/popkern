@@ -275,6 +275,29 @@ pub enum ChamferKindDesc {
     },
 }
 
+/// How a chamfer closes a corner where three or more of its bevels meet
+/// (PK-1217).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChamferCornerDesc {
+    /// A flat face through the points where the bevels' setback lines
+    /// meet on each original face (a cube corner's equilateral
+    /// triangle), as the mainstream kernels close it: the default for
+    /// new chamfers.
+    Flat,
+    /// The bevels' planes run on until they meet (a point at a cube's
+    /// corner, a ridge where four meet): the convex body cut by the
+    /// bevel half-spaces alone. Trees saved before the choice existed
+    /// replay this way.
+    Apex,
+}
+
+impl ChamferCornerDesc {
+    /// The corner of a chamfer saved before the choice existed.
+    pub fn legacy() -> Self {
+        Self::Apex
+    }
+}
+
 impl ContinuityKind {
     /// The kernel continuity level this descriptor requests.
     pub fn to_kernel(self) -> popkern_blend::ContinuityLevel {
