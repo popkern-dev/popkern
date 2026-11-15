@@ -133,7 +133,11 @@ pub(super) fn build(
     let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
     crate::merge::graph_split::split_shared_edges_at_nodes(&mut graph, &all_nodes, snap);
     crate::merge::graph_split_shared::split_edges_at_shared_nodes(&mut graph, snap, breps);
-    if partial {
+    // A lamina's records run along its own free edges too, where its
+    // boundary lies on another body's face (a B-spline dome sheet
+    // standing flush on a block's sides, PK-1200): the free edge and
+    // the record are one edge.
+    if partial || lamina_edges.iter().any(|e| !e.is_empty()) {
         crate::merge::graph_duplicates::remove_collinear_duplicates(&mut graph, linear);
     }
     crate::merge::radial::sort_all_radial(&mut graph);
