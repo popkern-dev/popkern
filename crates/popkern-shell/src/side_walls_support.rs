@@ -159,7 +159,25 @@ fn circular_rim_wall(
             normal,
             radius,
         } => (center, normal, radius),
-        _ => return Ok(None),
+        // A rim that traces a circle as a NURBS (a sheet made by
+        // removing an extrude's flat faces: the half-pipe's end arcs) is
+        // that circle within the linear tolerance; read as no circle, its
+        // quad collapsed (an arc's ends and their offsets are collinear)
+        // and the thicken declined.
+        _ => {
+            let range = (
+                curve.t_start.min(curve.t_end),
+                curve.t_start.max(curve.t_end),
+            );
+            match popkern_core::geometry::circle_recognition::recognize_circular(
+                &curve.geometry,
+                range,
+                lin,
+            ) {
+                Some(fit) => (fit.center, fit.normal, fit.radius),
+                None => return Ok(None),
+            }
+        }
     };
     let Some(a) = axis.normalized() else {
         return Ok(None);
