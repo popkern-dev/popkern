@@ -66,6 +66,7 @@ pub fn sweep(
         tolerance,
         tracking,
         &mut popkern_core::progress::StageTracker::inert(),
+        surface::sweep_refine::FramePolicy::Refined,
     )
 }
 
@@ -137,7 +138,15 @@ pub fn helical_sweep(
     tracking: Option<&mut TrackingContext>,
 ) -> Result<SweepResult, SweepError> {
     let (path, mut warnings) = helix::build_helix_path(spec)?;
-    let mut result = sweep(profile, &path, options, tolerance, tracking)?;
+    let mut result = pipeline::sweep_impl(
+        profile,
+        &path,
+        options,
+        tolerance,
+        tracking,
+        &mut popkern_core::progress::StageTracker::inert(),
+        surface::sweep_refine::FramePolicy::Budgeted,
+    )?;
     result.warnings.append(&mut warnings);
     Ok(result)
 }

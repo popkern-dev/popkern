@@ -19,7 +19,8 @@ use crate::{arc_length, frame, pipe, profile, self_intersect, surface, topology}
 /// (PK-276).
 pub(crate) const SWEEP_STAGE_COUNT: usize = 6;
 
-/// Shared implementation for [`sweep`] (and the helical delegate).
+/// Shared implementation for [`sweep`] (and the helical delegate,
+/// which keeps the frame budget: `FramePolicy::Budgeted`).
 /// `tracker` threads PK-276 interactive control: a cancellation poll
 /// before every stage (`SweepError::Cancelled`, nothing produced) and
 /// one progress event per stage; the self-intersection stage also
@@ -31,6 +32,7 @@ pub(crate) fn sweep_impl(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
     tracker: &mut popkern_core::progress::StageTracker<'_, '_>,
+    policy: surface::sweep_refine::FramePolicy,
 ) -> Result<SweepResult, SweepError> {
     macro_rules! stage_gate {
         () => {
@@ -57,21 +59,23 @@ pub(crate) fn sweep_impl(
     let t0 = popkern_core::time::Stopwatch::start();
     let n_samples = compute_sample_count(&table, path);
     let is_closed_path = check_path_closed(path, &tolerance);
-    let (frames, mut warnings) = frame::compute_frames(
+    // 4. Frames refined until the skinned surfaces hold the profile
+    // between them (`sweep_refine`).
+    let (frames, mut warnings, surface_result) = surface::sweep_refine::refined_sweep_surface(
+        &analyzed,
         path,
         &table,
         &options.frame,
         n_samples,
         options.twist,
         is_closed_path,
+        &options.scale,
+        &tolerance,
+        policy,
     )?;
     tracker.finish_stage("sweep.frames", t0, frames.frames.len());
-
-    // 4. Generate surfaces.
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let surface_result =
-        surface::generate_sweep_surface(&analyzed, &frames, &options.scale, &tolerance)?;
     tracker.finish_stage("sweep.surfaces", t0, surface_result.surfaces.len());
 
     // 5. Self-intersection check (per-surface poll: the check is the
