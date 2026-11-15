@@ -150,6 +150,18 @@ pub(crate) fn loft_impl(
         .collect::<Result<Vec<_>, _>>()?;
     let span_wise =
         span_sets[0].len() > 1 && span_sets.iter().all(|v| v.len() == span_sets[0].len());
+    // Two convex sections of different span structures in parallel
+    // planes loft to their convex hull (PK-1197).
+    if !span_wise
+        && guides.is_empty()
+        && let Some(brep) = crate::hull_loft::hull_loft(sections, tolerance)
+    {
+        tracker.finish_stage("loft.surface", t0, sections.len());
+        return Ok(SweepResult {
+            brep,
+            warnings: vec![],
+        });
+    }
     let (surfaces, start_caps, end_caps) = if span_wise {
         let n_spans = span_sets[0].len();
         let mut surfaces = Vec::with_capacity(n_spans);
