@@ -90,12 +90,15 @@ fn run_operation(
 }
 
 /// True when a served result crossed the plain-offset boundary: the
-/// trim stage removed material or a feature collapsed.
+/// trim stage removed material, a feature collapsed, or the skin path
+/// declined and a convex body was served as itself less its cavity.
 fn served_past_boundary(warnings: &[ShellWarning]) -> bool {
     warnings.iter().any(|w| {
         matches!(
             w,
-            ShellWarning::RegionTrimmed { .. } | ShellWarning::FaceCollapsed { .. }
+            ShellWarning::RegionTrimmed { .. }
+                | ShellWarning::FaceCollapsed { .. }
+                | ShellWarning::ConvexCavity { .. }
         )
     })
 }

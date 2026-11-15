@@ -236,6 +236,10 @@ impl std::fmt::Display for ShellWarning {
                  {welded_seams} seam(s) re-closed)",
                 regions.len()
             ),
+            ShellWarning::ConvexCavity { declined } => write!(
+                f,
+                "shelled as the convex body less its cavity (skin path declined: {declined})"
+            ),
         }
     }
 }
@@ -288,6 +292,13 @@ pub enum ShellWarning {
     ConeApexSharp {
         /// The apex vertex in the input body.
         vertex: VertexHandle,
+    },
+    /// The skin path declined and the body, convex, was shelled as
+    /// itself less its cavity: the intersection of its kept faces'
+    /// offset regions (PK-1212; `convex_cavity.rs`).
+    ConvexCavity {
+        /// Why the skin path declined.
+        declined: String,
     },
     /// A connected group of faces vanished at this offset distance
     /// (the offset exceeds the feature's local size — e.g. a thin rib

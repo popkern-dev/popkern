@@ -18,8 +18,10 @@ pub mod classify;
 mod classify_sense;
 pub mod collapse_check;
 mod collapse_resolve;
+mod convex_cavity;
 mod curved_recompute;
 mod curved_recompute_meridian;
+mod curved_recompute_newton;
 mod curved_recompute_nurbs_seam;
 mod curved_recompute_similarity;
 mod edge_curve_dispatch;
@@ -37,6 +39,7 @@ pub mod offset;
 mod parallel_dispatch;
 pub mod preview;
 mod self_contact;
+mod serve_trace;
 pub(crate) use self_contact::shell_impl;
 mod shell_naming;
 pub mod side_walls;
@@ -97,6 +100,17 @@ pub fn shell(
         &mut popkern_core::progress::StageTracker::inert(),
         tracking.is_some().then_some(&mut provenance),
     )
+    .or_else(|e| {
+        convex_cavity::after_decline(
+            brep,
+            thickness,
+            direction,
+            removed_faces,
+            face_thicknesses,
+            tolerance,
+            e,
+        )
+    })
     .map_err(|e| {
         max_safe::upgrade_trim_decline(
             brep,
@@ -438,34 +452,7 @@ pub(crate) fn shell_impl_unchecked(
     // validate_all.
     let validation_errors = result.validate_collect_structural();
     if !validation_errors.is_empty() {
-        if popkern_core::trace::trace_enabled("shell-serve") {
-            for e in &validation_errors {
-                eprintln!("[serve-trace] {e}");
-            }
-            for (eh, edge) in &result.edges {
-                let ends = {
-                    let he = &result.half_edges[edge.half_edge];
-                    let tw = &result.half_edges[he.require_mate()?];
-                    (
-                        result.vertices[he.origin].position,
-                        result.vertices[tw.origin].position,
-                    )
-                };
-                eprintln!(
-                    "[serve-trace] {eh:?} curve={:?} ends=({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
-                    edge.curve.as_ref().map(|c| format!("{:?}", c.geometry)
-                        .chars()
-                        .take(90)
-                        .collect::<String>()),
-                    ends.0.x,
-                    ends.0.y,
-                    ends.0.z,
-                    ends.1.x,
-                    ends.1.y,
-                    ends.1.z
-                );
-            }
-        }
+        serve_trace::serve_trace(&result, &validation_errors)?;
         return Err(ShellError::ValidationFailed {
             errors: validation_errors,
         });

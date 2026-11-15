@@ -171,7 +171,16 @@ pub(crate) fn solve_vertex_on_surfaces(
     let converged = surfaces
         .iter()
         .all(|s| surface_distance(s, &pos).is_some_and(|r| r <= accept));
-    converged.then_some(pos)
+    if converged {
+        return Some(pos);
+    }
+    // Projection crawls where the surfaces meet at a shallow angle:
+    // finish by Newton from where it stopped, held to the same gate.
+    let refined = crate::curved_recompute_newton::refine_onto_surfaces(surfaces, pos, accept)?;
+    surfaces
+        .iter()
+        .all(|s| surface_distance(s, &refined).is_some_and(|r| r <= accept))
+        .then_some(refined)
 }
 
 /// Closest point on any surface: exact analytic arms first, iterative
