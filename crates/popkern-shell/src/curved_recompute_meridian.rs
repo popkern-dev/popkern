@@ -110,3 +110,86 @@ pub(crate) fn sphere_meridian_seam_curve(
         t_end: 1.0,
     })
 }
+
+/// The circle a plane through a torus's axis cuts from the offset torus
+/// (PK-1218): such a plane meets a torus in its meridian circles, each
+/// about a point of the core circle with the minor radius. The coaxial
+/// arm takes planes square to the axis only, so a half torus shelled
+/// open at its cut ends kept its inner rims at the outer minor radius
+/// and the wall opened by the thickness. The old rim (a meridian circle
+/// of the original torus) keeps its centre, which the offset leaves on
+/// the core circle, and its angles in its own plane; its radius becomes
+/// the offset's minor radius.
+pub(crate) fn torus_meridian_edge_curve(
+    old: &CurveOnEdge,
+    surf1: &SurfaceGeometry,
+    surf2: &SurfaceGeometry,
+    start_pos: Point3,
+    end_pos: Point3,
+    tolerance: &Tolerance,
+) -> Option<CurveOnEdge> {
+    let lin = tolerance.linear();
+    let (torus, plane) = match (surf1, surf2) {
+        (t @ SurfaceGeometry::Torus { .. }, p @ SurfaceGeometry::Plane { .. })
+        | (p @ SurfaceGeometry::Plane { .. }, t @ SurfaceGeometry::Torus { .. }) => (t, p),
+        _ => return None,
+    };
+    let (
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius,
+        },
+        SurfaceGeometry::Plane { origin, normal, .. },
+    ) = (torus, plane)
+    else {
+        return None;
+    };
+    let (a, n) = (axis.normalized()?, normal.normalized()?);
+    // The plane holds the axis: square to it, through the centre.
+    if a.dot(&n).abs() > 1e-9 || (*center - *origin).dot(&n).abs() > lin {
+        return None;
+    }
+    let CurveGeometry::Arc {
+        center: c0,
+        normal: arc_normal,
+        start_angle,
+        end_angle,
+        ..
+    } = old.geometry
+    else {
+        return None;
+    };
+    // The old centre on the core circle, in the plane.
+    let rel = c0 - *center;
+    let radial = rel - a * rel.dot(&a);
+    if (radial.length() - major_radius).abs() > lin
+        || rel.dot(&a).abs() > lin
+        || arc_normal.cross(&n).length() > 1e-9
+    {
+        return None;
+    }
+    let candidate = CurveOnEdge {
+        geometry: CurveGeometry::Arc {
+            center: c0,
+            normal: arc_normal,
+            radius: *minor_radius,
+            start_angle,
+            end_angle,
+        },
+        t_start: old.t_start,
+        t_end: old.t_end,
+    };
+    let ends_meet = candidate
+        .geometry
+        .point_at(candidate.t_start)
+        .distance_to(&start_pos)
+        <= lin
+        && candidate
+            .geometry
+            .point_at(candidate.t_end)
+            .distance_to(&end_pos)
+            <= lin;
+    ends_meet.then_some(candidate)
+}

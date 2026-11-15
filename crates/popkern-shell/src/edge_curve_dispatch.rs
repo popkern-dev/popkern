@@ -119,6 +119,11 @@ pub(crate) fn compute_edge_curve(
             ) {
                 return Ok(Some(c));
             }
+            if let Some(c) = crate::curved_recompute_meridian::torus_meridian_edge_curve(
+                &old, surf1, surf2, start_pos, end_pos, tolerance,
+            ) {
+                return Ok(Some(c));
+            }
             // G1-tangential pairs and remaining seams: both offset
             // surfaces displace the edge identically along the shared
             // normal (projection-agreement witness).
