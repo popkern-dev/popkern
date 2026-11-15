@@ -19,6 +19,7 @@ mod classify_sense;
 pub mod collapse_check;
 mod collapse_resolve;
 mod curved_recompute;
+mod curved_recompute_meridian;
 mod curved_recompute_similarity;
 mod edge_curve_dispatch;
 mod edge_reauthor;

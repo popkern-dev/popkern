@@ -215,8 +215,31 @@ struct AxisForm {
 }
 
 enum AxisKind {
-    Cylinder { radius: f64 },
-    Cone { half_angle: f64 },
+    Cylinder {
+        radius: f64,
+    },
+    Cone {
+        half_angle: f64,
+    },
+    /// A sphere about `origin`, read about the section plane's normal:
+    /// every plane section of it is a circle about that line.
+    Sphere {
+        radius: f64,
+    },
+}
+
+/// [`axis_form`], a sphere read about the section plane's normal `n`
+/// (an offset hemisphere's opening rim: the offset sphere meets the
+/// removed flat face in the circle about that normal, PK-1205).
+fn axis_form_about(surface: &SurfaceGeometry, n: Vec3) -> Option<AxisForm> {
+    match surface {
+        SurfaceGeometry::Sphere { center, radius, .. } => Some(AxisForm {
+            origin: *center,
+            axis: n,
+            kind: AxisKind::Sphere { radius: *radius },
+        }),
+        other => axis_form(other),
+    }
 }
 
 fn axis_form(surface: &SurfaceGeometry) -> Option<AxisForm> {
@@ -308,11 +331,10 @@ pub(crate) fn coaxial_circle_edge_curve(
 ) -> Option<CurveOnEdge> {
     let lin = tolerance.linear();
     let (plane_origin, plane_normal, quadric) = match (surf1, surf2) {
-        (SurfaceGeometry::Plane { origin, normal, .. }, q) => {
-            (*origin, normal.normalized()?, axis_form(q)?)
-        }
-        (q, SurfaceGeometry::Plane { origin, normal, .. }) => {
-            (*origin, normal.normalized()?, axis_form(q)?)
+        (SurfaceGeometry::Plane { origin, normal, .. }, q)
+        | (q, SurfaceGeometry::Plane { origin, normal, .. }) => {
+            let n = normal.normalized()?;
+            (*origin, n, axis_form_about(q, n)?)
         }
         _ => return None,
     };
@@ -337,6 +359,13 @@ pub(crate) fn coaxial_circle_edge_curve(
                 return None; // plane at/behind the apex
             }
             t_axis * half_angle.ptan()
+        }
+        AxisKind::Sphere { radius } => {
+            let r_sq = radius * radius - t_axis * t_axis;
+            if r_sq <= lin * lin {
+                return None; // the plane misses the sphere, or grazes it
+            }
+            r_sq.sqrt()
         }
     };
     if r1 <= lin {
