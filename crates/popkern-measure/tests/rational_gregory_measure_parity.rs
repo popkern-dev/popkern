@@ -119,10 +119,9 @@ fn total_area_gregory_matches_polar_nurbs_within_two_percent() {
     );
 }
 
-/// §5.3 item #9 — `body_volume` takes the Gregory-aware native
-/// path (`native_divergence_volume` with Gauss-Legendre face
-/// contributions) and produces a volume close to the polar-NURBS
-/// baseline. Both should evaluate to ≈ 1 − tiny_fillet_material
+/// §5.3 item #9 — `body_volume` integrates the Gregory caps on their
+/// exact surface (oriented by the measuring mesh, PK-1193) and produces
+/// a volume close to the polar-NURBS baseline. Both should evaluate to ≈ 1 − tiny_fillet_material
 /// (unit cube with three fillets removed from one corner).
 #[test]
 fn body_volume_gregory_matches_polar_nurbs_within_one_percent() {

@@ -125,11 +125,8 @@ fn to_vec3(p: Point3) -> Vec3 {
 /// resolution and the signed tetrahedral volume formula
 /// `V = (1/6) * Σ v0 · (v1 × v2)` is summed over all triangles.
 ///
-/// §5.3 item #9: when the body contains `SurfaceGeometry::Gregory` faces,
-/// those faces contribute via native 8×8 Gauss-Legendre quadrature of
-/// `(1/3) S · (S_u × S_v) du dv` over the UV rectangle (orders of
-/// magnitude tighter than the chord-height tessellation error).
-/// Non-Gregory non-planar faces still go through tessellation.
+/// Gregory corner caps (§5.3 item #9) are integrated on their exact
+/// surface like every other curved face, oriented by the mesh.
 ///
 /// A general body's volume is the sum of its solid regions'
 /// ([`crate::region_volumes`]).
@@ -171,140 +168,16 @@ pub fn body_volume(brep: &BRep, tol: &Tolerance) -> Result<f64, MeasureError> {
         return exact_polyhedral_volume(brep);
     }
 
-    let has_gregory = brep.faces.values().any(|f| {
-        f.surface
-            .as_ref()
-            .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Gregory(_)))
-    });
-    if has_gregory {
-        return native_divergence_volume(brep);
-    }
-
-    // Curved bodies: the fine tessellation's triangles integrated on
-    // the exact surface (see `body_quadrature`).
+    // Curved bodies, Gregory corner caps included: the fine
+    // tessellation's triangles integrated on the exact surface, each
+    // face's term signed by the mesh's outward winding (see
+    // `body_quadrature`). A separate Gregory path signed each face's term
+    // by its `orientation` flag, which is a winding contract, not a
+    // material side: the G2 boss plate read 1.0043 for a mesh volume of
+    // 1.7593 (PK-1193).
     let mesh = tessellate_fine(brep)?;
     let gate = 100.0 * brep.tolerance.linear().max(1e-9);
     Ok(crate::body_quadrature::quadrature_volume(brep, &mesh, gate).abs())
-}
-
-/// Volume via divergence theorem, computing each face's contribution
-/// natively by surface type. Planar faces use exact polygon
-/// triangulation; Gregory faces use 8×8 Gauss-Legendre quadrature of
-/// `(1/3) · S · (S_u × S_v)`; other curved faces fall back to a
-/// per-face fine tessellation. Used only when `body_volume` sees at
-/// least one Gregory face.
-fn native_divergence_volume(brep: &BRep) -> Result<f64, MeasureError> {
-    let mut total = 0.0_f64;
-    for (face_h, face) in &brep.faces {
-        let Some(sof) = face.surface.as_ref() else {
-            continue;
-        };
-        let orient_sign = if sof.orientation { 1.0 } else { -1.0 };
-        let contrib = match &sof.geometry {
-            SurfaceGeometry::Plane { .. } => {
-                crate::planar_area::planar_face_divergence(brep, face_h)
-            }
-            SurfaceGeometry::Gregory(_) if face.inner_loops.is_empty() => {
-                match crate::face_helpers::pcurve_uv_range(brep, face_h) {
-                    Some(((u0, u1), (v0, v1)))
-                        if crate::face_helpers::outer_loop_matches_uv_rectangle(
-                            brep,
-                            face_h,
-                            ((u0, u1), (v0, v1)),
-                        ) =>
-                    {
-                        gauss_legendre_face_volume(&sof.geometry, (u0, u1), (v0, v1))
-                    }
-                    _ => tessellated_face_divergence_contribution(brep, face_h)?,
-                }
-            }
-            _ => tessellated_face_divergence_contribution(brep, face_h)?,
-        };
-        total += orient_sign * contrib;
-    }
-    Ok(total.abs())
-}
-
-/// Divergence contribution from a single curved face via fine
-/// tessellation. Used as the fallback branch in
-/// `native_divergence_volume` for non-Gregory non-planar faces.
-fn tessellated_face_divergence_contribution(
-    brep: &BRep,
-    face: popkern_core::topology::FaceHandle,
-) -> Result<f64, MeasureError> {
-    let opts = popkern_mesh::TessellationOptions {
-        chord_height: 0.001,
-        min_subdivisions: 8,
-        max_subdivisions: 128,
-        ..Default::default()
-    };
-    // The boundary-first face pass, as `face_area` measures (the
-    // uniform-grid face mesher clips folded periodic trims to the wrong
-    // region; PK-934).
-    let face_mesh = popkern_mesh::tessellate_faces(brep, &[face], &opts)
-        .map_err(|e| MeasureError::TessellationFailed(e.to_string()))?
-        .into_iter()
-        .find(|m| m.face == face)
-        .ok_or_else(|| MeasureError::TessellationFailed("face not meshed".into()))?;
-    let mut v = 0.0_f64;
-    for tri in &face_mesh.triangles {
-        let v0 = to_vec3(face_mesh.vertices[tri[0]].position);
-        let v1 = to_vec3(face_mesh.vertices[tri[1]].position);
-        let v2 = to_vec3(face_mesh.vertices[tri[2]].position);
-        v += signed_tet_volume(v0, v1, v2);
-    }
-    Ok(v)
-}
-
-/// 8×8 tensor-product Gauss-Legendre quadrature of
-/// `(1/3) · S(u,v) · (S_u × S_v)` over the UV rectangle — the
-/// divergence-theorem volume contribution from a single face.
-/// `1/3` comes from the factor in `V = (1/3) ∮ r · n dA`.
-fn gauss_legendre_face_volume(
-    geom: &SurfaceGeometry,
-    (u0, u1): (f64, f64),
-    (v0, v1): (f64, f64),
-) -> f64 {
-    use popkern_core::geometry::surface::SurfaceEval;
-    const GL_X: [f64; 8] = [
-        -0.960_289_856_497_536_2,
-        -0.796_666_477_413_626_7,
-        -0.525_532_409_916_329,
-        -0.183_434_642_495_649_8,
-        0.183_434_642_495_649_8,
-        0.525_532_409_916_329,
-        0.796_666_477_413_626_7,
-        0.960_289_856_497_536_2,
-    ];
-    const GL_W: [f64; 8] = [
-        0.101_228_536_290_376_26,
-        0.222_381_034_453_374_4,
-        0.313_706_645_877_887_3,
-        0.362_683_783_378_362,
-        0.362_683_783_378_362,
-        0.313_706_645_877_887_3,
-        0.222_381_034_453_374_4,
-        0.101_228_536_290_376_26,
-    ];
-    let du = 0.5 * (u1 - u0);
-    let dv = 0.5 * (v1 - v0);
-    let mu = 0.5 * (u1 + u0);
-    let mv = 0.5 * (v1 + v0);
-    let mut sum = 0.0_f64;
-    for i in 0..8 {
-        let u = mu + du * GL_X[i];
-        for j in 0..8 {
-            let v = mv + dv * GL_X[j];
-            let p = geom.point_at(u, v);
-            let su = geom.partial_u(u, v);
-            let sv = geom.partial_v(u, v);
-            let n = su.cross(&sv);
-            // r · n where r = (p.x, p.y, p.z).
-            let r_dot_n = p.x * n.x + p.y * n.y + p.z * n.z;
-            sum += GL_W[i] * GL_W[j] * r_dot_n;
-        }
-    }
-    du * dv * sum / 3.0
 }
 
 /// Exact volume of a body bounded only by planar faces, via the
