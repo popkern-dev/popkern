@@ -54,12 +54,15 @@ pub(super) fn try_sphere_for_corner(
     let avg_radius = radii.first().copied().unwrap_or(0.1);
 
     // Orthogonality guard (PK-221): the centre construction below
-    // offsets PER GLOBAL AXIS from the corner, which is only
-    // meaningful for a cube-style corner — mutually orthogonal,
-    // axis-aligned fillet axes. A pyramid apex (non-orthogonal
-    // supports) satisfied every other gate and shipped a sphere with
-    // g1 ~1.0 at its rim. Decline so the constructed N-sided cap
-    // stands.
+    // offsets along the corner's frame, which is only meaningful for a
+    // cube-style corner — mutually orthogonal fillet axes. A pyramid
+    // apex (non-orthogonal supports) satisfied every other gate and
+    // shipped a sphere with g1 ~1.0 at its rim. Decline so the
+    // constructed N-sided cap stands. The frame is the fillets' own
+    // axes, not the global ones: requiring axis-aligned fillets left a
+    // boss plate turned 23 degrees about z with every corner's
+    // cube-corner outlier in its cap, 36 edges 3.3e-2 off their faces
+    // (PK-1191).
     let axes: Vec<popkern_core::geometry::Vec3> = fillet_surfaces
         .iter()
         .filter_map(|s| match s {
@@ -69,23 +72,7 @@ pub(super) fn try_sphere_for_corner(
             _ => None,
         })
         .collect();
-    const AXIS_ALIGNMENT_TOLERANCE: f64 = 1.0e-6;
-    for axis in &axes {
-        let max_component = axis.x.abs().max(axis.y.abs()).max(axis.z.abs());
-        if max_component < 1.0 - AXIS_ALIGNMENT_TOLERANCE {
-            return None;
-        }
-    }
-    for (i, a) in axes.iter().enumerate() {
-        for b in axes.iter().skip(i + 1) {
-            if a.dot(b).abs() > AXIS_ALIGNMENT_TOLERANCE
-                && a.dot(b).abs() < 1.0 - AXIS_ALIGNMENT_TOLERANCE
-            {
-                return None;
-            }
-        }
-    }
-
+    let frame = corner_frame(&axes)?;
     // Use the per-coordinate **median** position rather than the
     // mean centroid. The boundary of a multi-fillet vertex blend
     // can include outlier vertices that bleed in from adjacent
@@ -140,24 +127,23 @@ pub(super) fn try_sphere_for_corner(
     // strictly greater than the corner on every axis. We use the
     // median for `cx/cy/cz` (it's the right choice for *position*),
     // but the centroid for the *direction* of the offset.
-    let mean_x = positions.iter().map(|p| p.x).sum::<f64>() / positions.len() as f64;
-    let mean_y = positions.iter().map(|p| p.y).sum::<f64>() / positions.len() as f64;
-    let mean_z = positions.iter().map(|p| p.z).sum::<f64>() / positions.len() as f64;
-    let sx = if mean_x > corner.x {
-        corner.x + avg_radius
-    } else {
-        corner.x - avg_radius
-    };
-    let sy = if mean_y > corner.y {
-        corner.y + avg_radius
-    } else {
-        corner.y - avg_radius
-    };
-    let sz = if mean_z > corner.z {
-        corner.z + avg_radius
-    } else {
-        corner.z - avg_radius
-    };
+    let n = positions.len() as f64;
+    let mean = popkern_core::geometry::Point3::new(
+        positions.iter().map(|p| p.x).sum::<f64>() / n,
+        positions.iter().map(|p| p.y).sum::<f64>() / n,
+        positions.iter().map(|p| p.z).sum::<f64>() / n,
+    );
+    let toward = mean - corner;
+    let mut centre = corner;
+    for e in frame {
+        let step = if toward.dot(&e) > 0.0 {
+            avg_radius
+        } else {
+            -avg_radius
+        };
+        centre = centre + e * step;
+    }
+    let (sx, sy, sz) = (centre.x, centre.y, centre.z);
 
     Some(SurfaceOnFace {
         geometry: SurfaceGeometry::Sphere {
@@ -167,4 +153,44 @@ pub(super) fn try_sphere_for_corner(
         },
         orientation: true,
     })
+}
+
+/// The corner's frame: the fillets' distinct axis directions when they
+/// are mutually orthogonal, completed by a cross product when two
+/// appear; the global axes when none or one global axis appears; `None`
+/// for non-orthogonal axes or a lone axis off the global ones.
+fn corner_frame(
+    axes: &[popkern_core::geometry::Vec3],
+) -> Option<[popkern_core::geometry::Vec3; 3]> {
+    use popkern_core::geometry::Vec3;
+    const AXIS_ALIGNMENT_TOLERANCE: f64 = 1.0e-6;
+    let mut dirs: Vec<Vec3> = Vec::new();
+    for a in axes {
+        if !dirs
+            .iter()
+            .any(|d| d.dot(a).abs() > 1.0 - AXIS_ALIGNMENT_TOLERANCE)
+        {
+            dirs.push(*a);
+        }
+    }
+    for (i, a) in dirs.iter().enumerate() {
+        if dirs
+            .iter()
+            .skip(i + 1)
+            .any(|b| a.dot(b).abs() > AXIS_ALIGNMENT_TOLERANCE)
+        {
+            return None;
+        }
+    }
+    let global = [Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0), Vec3::Z];
+    match dirs.as_slice() {
+        [] => Some(global),
+        [d] => global
+            .iter()
+            .any(|g| g.dot(d).abs() > 1.0 - AXIS_ALIGNMENT_TOLERANCE)
+            .then_some(global),
+        [a, b] => Some([*a, *b, a.cross(b).normalized()?]),
+        [a, b, c] => Some([*a, *b, *c]),
+        _ => None,
+    }
 }
