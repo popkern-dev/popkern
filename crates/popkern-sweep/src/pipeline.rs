@@ -57,7 +57,16 @@ pub(crate) fn sweep_impl(
     // 3. Compute frames.
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
-    let n_samples = compute_sample_count(&table, path);
+    // A prism is exact through its two end frames: the budget's ten per
+    // unit length gave a 10 mm box's walls ~100 spans along the path,
+    // and plane recognition, fitting and topology paid for each
+    // (PK-1223).
+    let n_samples =
+        if surface::sweep_refine::prism(path, &options.frame, options.twist, &options.scale) {
+            2
+        } else {
+            compute_sample_count(&table, path)
+        };
     let is_closed_path = check_path_closed(path, &tolerance);
     // 4. Frames refined until the skinned surfaces hold the profile
     // between them (`sweep_refine`).
@@ -81,7 +90,12 @@ pub(crate) fn sweep_impl(
     // 5. Self-intersection check (per-surface poll: the check is the
     // costliest per-entity step of the pipeline).
     let t0 = popkern_core::time::Stopwatch::start();
-    for surf in &surface_result.surfaces {
+    // A prism's walls are translations of its profile spans: the normal
+    // never turns along the path, so the fold check (normal reversals
+    // between path samples) cannot fire, and it was the costliest stage
+    // of every extruded primitive (PK-1223).
+    let prism = surface::sweep_refine::prism(path, &options.frame, options.twist, &options.scale);
+    for surf in surface_result.surfaces.iter().filter(|_| !prism) {
         stage_gate!();
         if let Some(t) = self_intersect::check_self_intersection(surf, &tolerance) {
             if options.allow_self_intersection {
