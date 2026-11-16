@@ -216,7 +216,48 @@ pub(super) fn export_pcurve_trace_matches_edge(
     let Some(curve) = brep.edges.get(edge).and_then(|edge| edge.curve.as_ref()) else {
         return false;
     };
+    // The gap from each edge sample to the pcurve's point at the same
+    // fraction bounds its distance to the whole trace from above: within
+    // the tolerance there, the trace matches without the global nearest
+    // search, which cost ~2200 evaluations per half-edge and 90% of
+    // writing a box (PK-1223). A pcurve parameterized unlike its edge
+    // fails the bound and takes the exact search.
+    if let Some(forward) = half_edge_curve_forward(brep, half_edge)
+        && same_fraction_gap(curve, pcurve, surface, forward, 17) <= tolerance
+    {
+        return true;
+    }
     edge_curve_to_pcurve_trace_gap(curve, pcurve, surface, 17) <= tolerance
+}
+
+/// The largest gap between the edge curve and the pcurve's surface image
+/// at matching fractions of their ranges (`forward`: the pcurve runs the
+/// curve's way), an upper bound on the curve's distance to the trace.
+fn same_fraction_gap(
+    curve: &CurveOnEdge,
+    pcurve: &Pcurve,
+    surface: &SurfaceGeometry,
+    forward: bool,
+    samples: usize,
+) -> f64 {
+    let samples = samples.max(2);
+    let (p0, p1) = pcurve.parameter_range();
+    let mut max_gap = 0.0_f64;
+    for index in 0..samples {
+        let fraction = index as f64 / (samples - 1) as f64;
+        let t = curve.t_start + (curve.t_end - curve.t_start) * fraction;
+        let f = if forward { fraction } else { 1.0 - fraction };
+        let uv = pcurve.point_at(p0 + (p1 - p0) * f);
+        let gap = curve
+            .geometry
+            .point_at(t)
+            .distance_to(&surface.point_at(uv.x, uv.y));
+        if !gap.is_finite() {
+            return f64::INFINITY;
+        }
+        max_gap = max_gap.max(gap);
+    }
+    max_gap
 }
 
 fn edge_curve_to_pcurve_trace_gap(

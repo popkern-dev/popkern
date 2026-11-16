@@ -80,7 +80,7 @@ pub fn analyze_brep_degenerate_edges(
     brep: &BRep,
     options: BrepDegenerateEdgeOptions,
 ) -> BrepDegenerateEdgeReport {
-    let mut report = analyze_brep_degenerate_edges_raw(brep, options);
+    let mut report = classify_brep_degenerate_edges(brep, options);
     let knowledge = degenerate_edge_knowledge(brep, options);
     for finding in &mut report.findings {
         finding.shared_fact_ids = degenerate_finding_fact_ids(&knowledge, brep, finding.edge);
@@ -89,7 +89,12 @@ pub fn analyze_brep_degenerate_edges(
     report
 }
 
-pub(super) fn analyze_brep_degenerate_edges_raw(
+/// [`analyze_brep_degenerate_edges`] without the shared repair facts:
+/// each edge's classification alone. The facts come from a repair
+/// knowledge graph that measures every pcurve's deviation; a caller
+/// reading only each finding's kind and edge (the STEP writer looking
+/// for collapsed trims to synthesize curves for) skips that cost.
+pub fn classify_brep_degenerate_edges(
     brep: &BRep,
     options: BrepDegenerateEdgeOptions,
 ) -> BrepDegenerateEdgeReport {

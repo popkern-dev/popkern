@@ -298,7 +298,7 @@ pub use brep_edge_surface_compatibility_vertex_star::{
 pub mod brep_degenerate_edges;
 pub use brep_degenerate_edges::{
     BrepDegenerateEdgeFinding, BrepDegenerateEdgeKind, BrepDegenerateEdgeOptions,
-    BrepDegenerateEdgeReport, analyze_brep_degenerate_edges,
+    BrepDegenerateEdgeReport, analyze_brep_degenerate_edges, classify_brep_degenerate_edges,
 };
 
 /// Read-only BRep export-quality diagnostics.
