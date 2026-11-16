@@ -3444,36 +3444,25 @@ fn solve_test_dense_linear_system(
         }
         rhs[pivot] /= pivot_value;
         let pivot_row = matrix[pivot].clone();
-        for row_index in 0..n {
+        // Columns where the pivot row is exactly zero subtract ±0.0,
+        // which changes no value (PK-289): the update skips them.
+        let support: Vec<usize> = (pivot..n).filter(|&c| pivot_row[c] != 0.0).collect();
+        let pivot_rhs = rhs[pivot];
+        for (row_index, row) in matrix.iter_mut().enumerate() {
             if row_index == pivot {
                 continue;
             }
-            let factor = matrix[row_index][pivot];
+            let factor = row[pivot];
             if factor == 0.0 {
                 continue;
             }
-            for column in pivot..n {
-                matrix[row_index][column] -= factor * pivot_row[column];
+            for &column in &support {
+                row[column] -= factor * pivot_row[column];
             }
-            rhs[row_index] -= factor * rhs[pivot];
+            rhs[row_index] -= factor * pivot_rhs;
         }
     }
     Some(rhs)
-}
-
-fn max_dense_row_residual(design: &[Vec<f64>], solution: &[f64], rhs: &[f64]) -> f64 {
-    design
-        .iter()
-        .zip(rhs)
-        .map(|(row, &target)| {
-            let value = row
-                .iter()
-                .zip(solution)
-                .map(|(&coeff, &variable)| coeff * variable)
-                .sum::<f64>();
-            (value - target).abs()
-        })
-        .fold(0.0_f64, f64::max)
 }
 
 fn blend_macro_patch_points(

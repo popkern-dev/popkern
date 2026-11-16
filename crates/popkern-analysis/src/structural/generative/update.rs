@@ -61,8 +61,9 @@ pub fn physical(
 ) -> Vec<f64> {
     let mut p = filter.apply(x);
     if let Some(pr) = projection {
+        let curve = pr.curve();
         for p in p.iter_mut() {
-            *p = pr.apply(*p);
+            *p = curve.apply(*p);
         }
     }
     match print {
