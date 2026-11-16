@@ -1,5 +1,5 @@
 // Golden film states from web/live/film-state.js for the Rust port's
-// parity test (crates/popkern-cli/tests/film_state_parity.rs;
+// parity check (crates/popkern-cli/tests/gallery/film_parity.rs;
 // docs/architecture/cli-render-export.md §7).
 //
 // Usage: node tools/film-state-fixtures.mjs <fixture.json>...

@@ -32,7 +32,7 @@ pub mod watch;
 
 pub use args::{Cli, Command, parse_args};
 pub use report::{Outcome, RunSummary};
-pub use run::{CliError, execute, exit_code};
+pub use run::{CliError, execute, exit_code, export_document};
 pub use watch::Watcher;
 
 use std::process::ExitCode;

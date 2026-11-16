@@ -10,13 +10,17 @@
 
 use std::path::{Path, PathBuf};
 
-use popkern_cli::{Outcome, execute, parse_args};
+use popkern_cli::{Outcome, export_document};
 use popkern_live::{HostOptions, Session};
 use serde_json::{Value, json};
 
 #[path = "gallery/table.rs"]
 mod table;
 use table::GALLERY;
+#[path = "gallery/film_parity.rs"]
+mod film_parity;
+#[path = "gallery/run_command.rs"]
+mod run_command;
 
 /// Project examples (live-projects-and-history.md §12): folder name in
 /// crates/popkern-project/gallery, title, blurb, expected feature count,
@@ -185,24 +189,10 @@ fn tmp(name: &str) -> PathBuf {
     dir.join(name)
 }
 
-fn oracle_passes(step: &Path) -> Option<bool> {
-    let oracle = Path::new(&std::env::var("HOME").unwrap_or_default()).join("venvs/ocp/bin/python");
-    let check = root().join("tools/occ-oracle/occ_check.py");
-    if !(oracle.exists() && check.exists()) {
-        return None;
-    }
-    let output = std::process::Command::new(&oracle)
-        .arg(&check)
-        .arg(step)
-        .output()
-        .expect("oracle");
-    Some(String::from_utf8_lossy(&output.stdout).contains("\"passed\": true"))
-}
-
 /// One gallery script through the native gate: served through the
 /// live session, clean, every body watertight within the display facet
-/// bound, its films played, then through the `run` command (STEP and
-/// thumbnail) with the OCC oracle on the STEP when present.
+/// bound, the `run` command's exports (STEP and thumbnail) with the OCC
+/// oracle on the STEP when present, then its films played.
 fn check_script(stem: &str) {
     let Some(&(_, _, _, features, _)) = GALLERY.iter().find(|row| row.0 == stem) else {
         panic!("[{stem}] not in the gallery table");
@@ -226,17 +216,6 @@ fn check_script(stem: &str) {
         "[{stem}] no script leans on a downgrade"
     );
     assert!(!envelope.bodies.is_empty(), "[{stem}] a body on screen");
-    let films = script_films(stem);
-    let film_sources: Vec<(String, String)> = films
-        .iter()
-        .map(|(_, file)| {
-            (
-                file.clone(),
-                std::fs::read_to_string(examples_dir().join(file)).expect("film"),
-            )
-        })
-        .collect();
-    assert_films_run(stem, &mut session, &film_sources);
     for body in &envelope.bodies {
         assert_eq!(body.open_edges, 0, "[{stem}] watertight mesh");
         let worst = worst_facet_spread(&body.normals, &body.indices);
@@ -247,38 +226,40 @@ fn check_script(stem: &str) {
             popkern_mesh::DISPLAY_MAX_FACET_ANGLE.to_degrees()
         );
     }
-    // The command: STEP + thumbnail, oracle on the STEP.
+    // The run command's exports, STEP + thumbnail, of the document the
+    // session built (before a film poses it), oracle on the STEP. The
+    // command's own build is the same host (PK-1223: it built every
+    // script a second time); `the_run_command_writes_step_and_thumbnail`
+    // keeps the command whole.
     let step = tmp(&format!("{stem}.step"));
     let png = if updating() {
         page_dir().join("examples").join(format!("{stem}.png"))
     } else {
         tmp(&format!("{stem}.png"))
     };
-    let args: Vec<String> = [
-        "run",
-        script.to_str().expect("utf8"),
-        "--step",
-        step.to_str().expect("utf8"),
-        "--png",
-        png.to_str().expect("utf8"),
-        "--width",
-        "480",
-        "--height",
-        "360",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    let summary = execute(&parse_args(&args).expect("args"));
+    let cli = run_command::cli(&script, &step, &png);
+    let document = session
+        .document_mut()
+        .expect("the session keeps its document");
+    let summary = export_document(&cli, document);
     assert!(
         matches!(summary.outcome, Outcome::Served),
         "[{stem}] {:?}",
         summary.outcome
     );
-    match oracle_passes(&step) {
+    match run_command::oracle_passes(&step) {
         Some(passed) => assert!(passed, "[{stem}] OCC oracle rejected the STEP"),
         None => eprintln!("[pk412] {stem}: OCC oracle absent"),
     }
+    // Its films play as the page plays them (the JavaScript's fixtures).
+    let films: Vec<(String, String)> = script_films(stem)
+        .into_iter()
+        .map(|(name, file)| {
+            let text = std::fs::read_to_string(examples_dir().join(file)).expect("film");
+            (name, text)
+        })
+        .collect();
+    film_parity::films_play_as_the_page_plays_them(stem, &mut session, &envelope, &films);
 }
 
 /// One test per gallery script, so the suite runs them side by side
@@ -334,6 +315,42 @@ mod script {
         six_axis_arm,
         generative_bracket,
     );
+
+    /// Every filmed example is a gallery script, so its films are
+    /// compared, every fixture belongs to one of its films, and the
+    /// fixtures hold many states.
+    #[test]
+    fn every_film_is_a_gallery_scripts_and_has_its_fixture() {
+        let mut fixtures = Vec::new();
+        for entry in std::fs::read_dir(super::examples_dir())
+            .expect("examples")
+            .flatten()
+        {
+            let file = entry.file_name().to_string_lossy().into_owned();
+            let Some(rest) = file.strip_suffix(".film.rhai") else {
+                continue;
+            };
+            let stem = rest.split('.').next().unwrap_or(rest);
+            assert!(
+                TESTED.contains(&stem),
+                "{file}: its script is not in the gallery"
+            );
+            fixtures.push(format!(
+                "{stem}.{}.json",
+                popkern_rhai::film::film_name(&file)
+            ));
+        }
+        fixtures.sort();
+        let mut found: Vec<String> = std::fs::read_dir(super::film_parity::fixtures())
+            .expect("fixtures")
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        found.sort();
+        assert_eq!(found, fixtures, "film fixtures and gallery films differ");
+        let states = super::film_parity::fixture_states();
+        assert!(states > 500, "only {states} states in the fixtures");
+    }
 
     #[test]
     fn every_gallery_script_has_its_own_test() {
