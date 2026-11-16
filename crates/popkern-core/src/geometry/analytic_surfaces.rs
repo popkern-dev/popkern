@@ -237,6 +237,13 @@ impl SurfaceEval for SurfaceGeometry {
         }
     }
 
+    fn evaluation_wrap(&self) -> crate::geometry::EvaluationWrap {
+        match self {
+            SurfaceGeometry::Nurbs(n) => n.evaluation_wrap(),
+            _ => crate::geometry::EvaluationWrap::default(),
+        }
+    }
+
     fn parameter_range(&self) -> ((f64, f64), (f64, f64)) {
         match self {
             SurfaceGeometry::Plane { .. } => (

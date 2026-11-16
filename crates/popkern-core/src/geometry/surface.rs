@@ -7,7 +7,7 @@ mod surface_quadric_nurbs;
 mod surface_torus_nurbs;
 use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::nurbs_surface::NurbsSurface;
-use crate::geometry::{Point3, Vec3};
+use crate::geometry::{EvaluationWrap, Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
 /// Evaluation interface for parametric surfaces.
@@ -28,6 +28,10 @@ pub trait SurfaceEval {
     /// surfaces of revolution override it.
     fn parameter_periodicity(&self) -> (Option<f64>, Option<f64>) {
         (None, None)
+    }
+    /// The wrap the surface's own evaluation applies ([`EvaluationWrap`]).
+    fn evaluation_wrap(&self) -> EvaluationWrap {
+        EvaluationWrap::default()
     }
 
     /// Both first partials `(S_u, S_v)` at (u, v): one evaluation where
@@ -73,11 +77,7 @@ pub trait SurfaceEval {
     fn bounding_box(&self, u_range: (f64, f64), v_range: (f64, f64)) -> Aabb;
 }
 
-// `closest_point_gauss_newton` and `bounding_box_by_sampling` —
-// numerical helpers reusable by any `SurfaceEval` — live in
-// [`super::surface_helpers`].  `crop_nurbs_surface_to_range` and
-// `sample_to_nurbs` are private helpers used by
-// `SurfaceGeometry::to_nurbs_in_range` below.
+// Numerical helpers for any `SurfaceEval` live in [`super::surface_helpers`].
 pub use super::surface_helpers::{
     bounding_box_by_sampling, closest_point_from_seed_points, closest_point_from_seeds,
     closest_point_gauss_newton, closest_point_gauss_newton_bounded,

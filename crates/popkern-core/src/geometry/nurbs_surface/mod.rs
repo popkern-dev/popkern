@@ -234,6 +234,10 @@ impl SurfaceEval for NurbsSurface {
         (self.u_period(), self.v_period())
     }
 
+    fn evaluation_wrap(&self) -> crate::geometry::EvaluationWrap {
+        NurbsSurface::evaluation_wrap(self)
+    }
+
     fn parameter_range(&self) -> ((f64, f64), (f64, f64)) {
         let p = self.degree_u;
         let n_u = self.num_u - 1;
@@ -269,13 +273,19 @@ impl SurfaceEval for NurbsSurface {
         // parameter 6e-2 of surface away (PK-446, the phantom
         // watertightness gap). Seed every knot-span-midpoint pair
         // (subsampled to 48/axis), coarse-select by distance, and
-        // Newton-refine only the best few.
-        use crate::geometry::surface::{closest_point_from_seeds, closest_point_gauss_newton};
-        match self.projection_seeds() {
+        // Newton-refine only the best few. The seeds' points are the
+        // memoized field's (bit-identical; ~2300 evaluations a call on a
+        // coil wall's contact search otherwise, PK-1223).
+        use crate::geometry::surface::{
+            closest_point_from_seed_points, closest_point_gauss_newton,
+        };
+        match self.projection_seed_field() {
             // Few spans — the generic multi-start already covers the
             // basin structure; keep the tuned path.
             None => closest_point_gauss_newton(self, point),
-            Some(seeds) => closest_point_from_seeds(self, point, &seeds, (false, false), 6),
+            Some(f) => {
+                closest_point_from_seed_points(self, point, &f.seeds, &f.points, (false, false), 6)
+            }
         }
     }
 

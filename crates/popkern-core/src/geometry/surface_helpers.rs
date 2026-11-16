@@ -66,9 +66,15 @@ pub fn closest_point_from_seeds(
     periodic: (bool, bool),
     refine: usize,
 ) -> Option<(f64, f64)> {
+    // Seeds may lie past the domain (a periodic form's extended knots):
+    // the surface's wrap is read once, not per seed (PK-1223).
+    let wrap = surface.evaluation_wrap();
     let mut ranked: Vec<(f64, (f64, f64))> = seeds
         .iter()
-        .map(|&(u, v)| (surface.point_at(u, v).distance_to(point), (u, v)))
+        .map(|&(u, v)| {
+            let (wu, wv) = wrap.apply(u, v);
+            (surface.point_at(wu, wv).distance_to(point), (u, v))
+        })
         .collect();
     ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     ranked.truncate(refine.max(1));
@@ -143,6 +149,13 @@ fn gauss_newton_over_starts(
     periodic: (bool, bool),
 ) -> Option<(f64, f64)> {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
+    // The surface's own parameter wrap, read once: a free periodic axis
+    // steps out of the domain on nearly every evaluation (PK-1223).
+    let wrap = surface.evaluation_wrap();
+    let at = |u: f64, v: f64| {
+        let (u, v) = wrap.apply(u, v);
+        surface.point_at(u, v)
+    };
     let clamp_axis = |value: f64, lo: f64, hi: f64, free: bool| -> f64 {
         if free || !lo.is_finite() || !hi.is_finite() {
             value
@@ -184,15 +197,16 @@ fn gauss_newton_over_starts(
         let mut v = v_start;
 
         for _ in 0..max_iter {
-            let p = surface.point_at(u, v);
+            let p = at(u, v);
             let diff = p - *point;
             let dist = diff.length();
             if dist > max_dist {
                 break;
             }
 
-            let su = surface.partial_u(u, v);
-            let sv = surface.partial_v(u, v);
+            let (wu, wv) = wrap.apply(u, v);
+            let su = surface.partial_u(wu, wv);
+            let sv = surface.partial_v(wu, wv);
 
             // 2x2 normal equation: J^T J [du, dv]^T = -J^T r
             let a00 = su.dot(&su);
@@ -228,7 +242,7 @@ fn gauss_newton_over_starts(
             let mut scale = 1.0_f64;
             let mut stepped = clamp_uv(u + du, v + dv);
             for _ in 0..8 {
-                let stepped_dist = surface.point_at(stepped.0, stepped.1).distance_to(point);
+                let stepped_dist = at(stepped.0, stepped.1).distance_to(point);
                 if stepped_dist <= dist {
                     break;
                 }
@@ -238,7 +252,7 @@ fn gauss_newton_over_starts(
             (u, v) = stepped;
 
             if (du * du + dv * dv) * scale * scale < step_tol {
-                let final_p = surface.point_at(u, v);
+                let final_p = at(u, v);
                 let final_dist = final_p.distance_to(point);
                 match &best {
                     Some((_, _, bd)) if final_dist >= *bd => {}
@@ -249,7 +263,7 @@ fn gauss_newton_over_starts(
         }
 
         // Even if we didn't converge, record the best distance found
-        let p = surface.point_at(u, v);
+        let p = at(u, v);
         let dist = p.distance_to(point);
         match &best {
             Some((_, _, bd)) if dist >= *bd => {}

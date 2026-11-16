@@ -14,6 +14,7 @@
 //! NURBS walls are clamped rings and keep their open-chart handling.
 
 use super::NurbsSurface;
+use crate::geometry::evaluation_wrap::{AxisWrap, EvaluationWrap};
 
 /// Roundoff budget, in ulps of the net's coordinate scale and of the
 /// period, for two control points or two knot gaps to count as equal.
@@ -173,6 +174,20 @@ impl NurbsSurface {
             }),
         )
     }
+
+    /// The wrap [`Self::wrap_into_domain`] applies, with the periodic-form
+    /// test run once (see [`EvaluationWrap`]).
+    pub fn evaluation_wrap(&self) -> EvaluationWrap {
+        EvaluationWrap {
+            u: axis_wrap(&self.knots_u, self.degree_u, self.num_u, self.u_period()),
+            v: axis_wrap(&self.knots_v, self.degree_v, self.num_v, self.v_period()),
+        }
+    }
+}
+
+fn axis_wrap(knots: &[f64], degree: usize, count: usize, period: Option<f64>) -> Option<AxisWrap> {
+    let (&lo, &hi) = (knots.get(degree)?, knots.get(count)?);
+    period.map(|period| AxisWrap { lo, hi, period })
 }
 
 fn wrap_axis(
@@ -189,7 +204,7 @@ fn wrap_axis(
         return t;
     }
     match period() {
-        Some(period) => lo + (t - lo).rem_euclid(period),
+        Some(period) => AxisWrap { lo, hi, period }.wrap(t).unwrap_or(t),
         None => t,
     }
 }
