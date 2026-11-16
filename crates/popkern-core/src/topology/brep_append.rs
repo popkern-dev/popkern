@@ -3,7 +3,7 @@
 //! welding. The two bodies' regions stay apart and share nothing but
 //! the outside, which is one region.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use slotmap::{Key, SlotMap};
 

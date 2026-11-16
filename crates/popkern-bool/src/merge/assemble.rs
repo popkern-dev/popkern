@@ -7,7 +7,7 @@
 // Used by later pipeline stages; not yet called from the main merge path.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::{
     constructors::builder::BRepBuilder,
@@ -58,7 +58,7 @@ pub(crate) fn assemble_result(
     let shell = builder.add_shell(solid);
 
     // Lazily map graph node index → VertexHandle.
-    let mut node_to_vertex: HashMap<usize, VertexHandle> = HashMap::new();
+    let mut node_to_vertex: HashMap<usize, VertexHandle> = HashMap::default();
 
     // Map graph half-edge index → BRep HalfEdgeHandle (global across
     // fragments).  When an edge is created for graph half-edge `ghe`,
@@ -66,7 +66,7 @@ pub(crate) fn assemble_result(
     // second fragment needs the twin direction, it finds the mapping
     // already present and reuses the opposite BRep half-edge — one BRep
     // edge per shared intersection edge.
-    let mut he_map: HashMap<usize, HalfEdgeHandle> = HashMap::new();
+    let mut he_map: HashMap<usize, HalfEdgeHandle> = HashMap::default();
 
     // Process non-flipped fragments first so their half-edge mappings
     // are established before flipped fragments resolve to twins.  This

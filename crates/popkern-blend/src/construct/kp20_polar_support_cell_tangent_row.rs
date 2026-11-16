@@ -1,6 +1,6 @@
 //! Adjacent tangent-row alignment for KP20 support-cell shared boundaries.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
@@ -56,7 +56,7 @@ fn align_worst_row_group_tangent_band_with_damping(
     damping: f64,
 ) -> Result<(), CoreError> {
     let row_group = boundary_row_group::worst_boundary_row_group_trims(brep, trims)?;
-    let mut targets = HashMap::new();
+    let mut targets = HashMap::default();
     for trim in row_group {
         push_trim_targets(brep, trim, alignment, &mut targets)?;
     }
@@ -107,7 +107,7 @@ fn align_segment_owned_tangent_band_with_damping(
     if segment_trims.is_empty() {
         return Ok(false);
     }
-    let mut targets = HashMap::new();
+    let mut targets = HashMap::default();
     for record in segment_trims {
         push_trim_targets(brep, record.trim, alignment, &mut targets)?;
     }
@@ -131,7 +131,7 @@ fn align_trims_tangent_band_with_damping(
     alignment: TangentRowAlignment,
     damping: f64,
 ) -> Result<(), CoreError> {
-    let mut targets = HashMap::new();
+    let mut targets = HashMap::default();
     for &trim in trims {
         push_trim_targets(brep, trim, alignment, &mut targets)?;
     }

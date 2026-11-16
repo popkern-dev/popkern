@@ -4,7 +4,7 @@
 //! after every migration so an edit reruns only from the first changed
 //! migration.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -176,7 +176,7 @@ impl ProjectRunner {
             options,
             base: None,
             checkpoints: Vec::new(),
-            built_after: HashMap::new(),
+            built_after: HashMap::default(),
         }
     }
 

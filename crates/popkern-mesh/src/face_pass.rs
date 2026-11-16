@@ -10,7 +10,9 @@
 //! the `boundary-first` trace topic forces the sequential path so interleaved thread
 //! output cannot garble the dump.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeSet;
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
@@ -240,7 +242,7 @@ pub(crate) fn faces_incident_to_edges(
     brep: &BRep,
     edges: &BTreeSet<EdgeHandle>,
 ) -> HashSet<FaceHandle> {
-    let mut faces = HashSet::new();
+    let mut faces = HashSet::default();
     for &eh in edges {
         let Some(edge) = brep.edges.get(eh) else {
             continue;

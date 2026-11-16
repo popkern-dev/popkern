@@ -19,7 +19,8 @@
 //! its own, so products sharing a geometry representation through a
 //! link do not swallow each other.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::Transform3;
 use popkern_core::topology::BRep;
@@ -37,7 +38,7 @@ pub(crate) struct ShapeReach {
 impl ShapeReach {
     /// Index every plain `SHAPE_REPRESENTATION_RELATIONSHIP`.
     pub(crate) fn build(graph: &EntityGraph) -> ShapeReach {
-        let mut links: HashMap<EntityId, Vec<EntityId>> = HashMap::new();
+        let mut links: HashMap<EntityId, Vec<EntityId>> = HashMap::default();
         for (_, entity) in graph.iter() {
             let plain_srr = entity.type_name == "SHAPE_REPRESENTATION_RELATIONSHIP"
                 && !entity
@@ -75,7 +76,7 @@ impl ShapeReach {
     ) -> (Vec<BRep>, Vec<EntityId>) {
         let mut out = Vec::new();
         let mut items = Vec::new();
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         self.collect(
             graph,
             geo,

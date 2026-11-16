@@ -8,8 +8,8 @@
 //! FACE is shared through a [`SurfaceJetCache`] by every seam of a
 //! measurement call.
 
+use popkern_math::hash::FastHashMap as HashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use popkern_core::geometry::NurbsSurface;
 use popkern_core::geometry::certify::surface_jet::gregory_exact_form;

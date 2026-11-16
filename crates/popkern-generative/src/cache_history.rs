@@ -3,7 +3,7 @@
 //! another's (a gallery bake's), and read by a host showing a design
 //! converging.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::{CAPACITY, Key, TOUCHED, design_id, parse_design_id};
@@ -13,7 +13,7 @@ type Histories = Mutex<HashMap<Key, Arc<DesignHistory>>>;
 
 fn histories() -> &'static Histories {
     static HISTORIES: OnceLock<Histories> = OnceLock::new();
-    HISTORIES.get_or_init(|| Mutex::new(HashMap::new()))
+    HISTORIES.get_or_init(|| Mutex::new(HashMap::default()))
 }
 
 /// Keeps `history` for the design `key` (a few are kept, as designs

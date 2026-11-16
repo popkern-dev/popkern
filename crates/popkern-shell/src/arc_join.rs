@@ -12,7 +12,8 @@
 //! once and join the general path (their k=2 vertices need one split
 //! and no cap).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::arc_join_geometry::{great_arc, offset_rail, strip_surface, surface_geo_normal};
 use crate::curved_recompute::project_to_surface;

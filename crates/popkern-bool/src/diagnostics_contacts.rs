@@ -111,7 +111,7 @@ pub(crate) fn window(
 
 /// Whether an edge of `face` is used twice by its own loops: a seam.
 fn has_seam(brep: &BRep, face: FaceHandle) -> bool {
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = popkern_math::hash::FastHashSet::default();
     brep.half_edges
         .values()
         .filter(|he| brep.loops.get(he.loop_).is_some_and(|l| l.face == face))

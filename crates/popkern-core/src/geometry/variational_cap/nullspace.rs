@@ -10,7 +10,7 @@
 //! `nullspace_basis`): each sector's interior, each spoke's local
 //! modes, and a small global block, orthonormal as a whole.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::{Arc, Mutex};
 
 use faer::Mat;
@@ -80,7 +80,7 @@ pub(super) fn hard_system(space: &SectorSpace) -> Option<Arc<HardSystem>> {
     }
     let built = Arc::new(build(space)?);
     let mut guard = MEMO.lock().unwrap_or_else(|p| p.into_inner());
-    let map = guard.get_or_insert_with(HashMap::new);
+    let map = guard.get_or_insert_with(HashMap::default);
     if map.len() > 64 {
         map.clear();
     }

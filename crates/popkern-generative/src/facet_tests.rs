@@ -5,7 +5,7 @@ use super::*;
 /// shared.
 fn grid_box(size: V3, n: usize) -> (Vec<V3>, Vec<[u32; 3]>) {
     let mut vertices: Vec<V3> = Vec::new();
-    let mut index: HashMap<[i64; 3], u32> = HashMap::new();
+    let mut index: HashMap<[i64; 3], u32> = HashMap::default();
     let mut id = |q: [usize; 3], vertices: &mut Vec<V3>| -> u32 {
         let k = q.map(|x| x as i64);
         *index.entry(k).or_insert_with(|| {
@@ -165,8 +165,8 @@ fn two_cubes_glued_on_a_wall_merge_across_the_seam() {
 
 /// The boundary of unit voxels as a closed mesh, vertices shared.
 fn voxels(cells: &[[i64; 3]]) -> (Vec<V3>, Vec<[u32; 3]>) {
-    let set: std::collections::HashSet<[i64; 3]> = cells.iter().copied().collect();
-    let mut index: HashMap<[i64; 3], u32> = HashMap::new();
+    let set: popkern_math::hash::FastHashSet<[i64; 3]> = cells.iter().copied().collect();
+    let mut index: HashMap<[i64; 3], u32> = HashMap::default();
     let mut v: Vec<V3> = Vec::new();
     let mut id = |q: [i64; 3], v: &mut Vec<V3>| {
         *index.entry(q).or_insert_with(|| {

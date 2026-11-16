@@ -59,7 +59,7 @@ fn census(script: &str) -> (f64, usize) {
     let mesh = popkern_mesh::tessellate(brep, &options).expect("mesh");
     let mut vol6 = 0.0;
     type QuantizedPoint = (i64, i64, i64);
-    let mut uses: std::collections::HashMap<(QuantizedPoint, QuantizedPoint), i64> =
+    let mut uses: popkern_math::hash::FastHashMap<(QuantizedPoint, QuantizedPoint), i64> =
         Default::default();
     let key = |p: popkern_core::geometry::Point3| {
         (
@@ -214,7 +214,7 @@ fn a_blind_drill_splits_the_torus_only_where_it_pierces() {
         let mut model = outcome.model.expect("model");
         let part = model.to_part().expect("part");
         let brep = part.brep();
-        let mut valence: std::collections::HashMap<_, usize> = Default::default();
+        let mut valence: popkern_math::hash::FastHashMap<_, usize> = Default::default();
         for he in brep.half_edges.values() {
             *valence.entry(he.origin).or_default() += 1;
         }

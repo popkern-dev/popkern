@@ -310,7 +310,7 @@ fn vertex_blend_3d_variable_radii_produce_distinct_torus_sizes() {
         .iter()
         .filter(|(_, he)| he.origin == corner)
         .map(|(_, he)| he.edge)
-        .collect::<std::collections::HashSet<_>>()
+        .collect::<popkern_math::hash::FastHashSet<_>>()
         .into_iter()
         .collect();
     assert_eq!(incident.len(), 3);

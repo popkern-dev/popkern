@@ -37,7 +37,7 @@ fn collect_faces_invalid_vertex() {
 /// Helper to collect vertices of a face's outer loop.
 fn face_vertex_set(brep: &BRep, face: FaceHandle) -> HashSet<VertexHandle> {
     let start_he = brep.loops[brep.faces[face].outer_loop].half_edge;
-    let mut verts = HashSet::new();
+    let mut verts = HashSet::default();
     let mut cursor = start_he;
     loop {
         verts.insert(brep.half_edges[cursor].origin);

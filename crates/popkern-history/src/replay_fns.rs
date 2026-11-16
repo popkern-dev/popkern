@@ -9,7 +9,7 @@ use popkern_core::naming::EntityName;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::error::ReplayError;
 use crate::feature::{
@@ -67,7 +67,7 @@ pub(super) fn execute_sketch(
             let mut sketch_on_plane = popkern_sketch::SketchOnPlane {
                 sketch,
                 plane,
-                element_names: std::collections::HashMap::new(),
+                element_names: popkern_math::hash::FastHashMap::default(),
             };
             sketch_on_plane.assign_element_names(tracking.operation);
             sketch_on_plane

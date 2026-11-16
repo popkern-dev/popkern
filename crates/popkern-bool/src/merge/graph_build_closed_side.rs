@@ -2,7 +2,7 @@
 //! from `graph_build.rs` under the 500-line file budget). See
 //! [`closed_he_runs_curve_forward`].
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::{BRep, FaceHandle as FHandle, HalfEdgeHandle};
 
@@ -25,7 +25,7 @@ impl<'a> ClosedSideContext<'a> {
         Self {
             brep,
             face_aabbs: None,
-            outward_sign: HashMap::new(),
+            outward_sign: HashMap::default(),
         }
     }
 

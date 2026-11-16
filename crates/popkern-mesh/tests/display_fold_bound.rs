@@ -21,7 +21,7 @@
 //! govern) away from chart-singular vertices, and no corner-fan sliver
 //! below 1e-8 of its face's area.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_blend::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::curve::CurveEval;
@@ -176,7 +176,7 @@ fn crease_census(brep: &BRep, mesh: &TriMesh) -> Vec<FaceCreases> {
             .geometry;
         // Weld the face's own vertices: the pole row of a sphere chart
         // repeats the pole once per station.
-        let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+        let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
         let ids: Vec<usize> = fm
             .vertices
             .iter()
@@ -203,7 +203,7 @@ fn crease_census(brep: &BRep, mesh: &TriMesh) -> Vec<FaceCreases> {
             .map(|&t| 0.5 * facet_normal(positions(t)).length())
             .collect();
         let face_area: f64 = areas.iter().sum();
-        let mut adjacency: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        let mut adjacency: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
         for (ti, t) in fm.triangles.iter().enumerate() {
             let w = t.map(|i| ids[i]);
             if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {

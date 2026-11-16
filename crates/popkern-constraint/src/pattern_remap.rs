@@ -6,7 +6,7 @@ use crate::Sketch;
 use crate::constraint::Constraint;
 use crate::elements::{ElementHandle, LineHandle, PointHandle};
 use crate::pattern::HandleRemap;
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 /// Check whether all elements referenced by a constraint are in the
 /// given set.

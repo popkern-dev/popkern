@@ -7,7 +7,8 @@
 //! result, a [`crate::document_state::DocumentState`] and a cache record.
 
 use crate::working_bodies::WorkingBodies;
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 use std::sync::Arc;
 
 use popkern_core::history::TrackingContext;
@@ -273,7 +274,7 @@ impl FeatureTree {
                     &recorded,
                     &brep_backup,
                 );
-                let mut touched: HashSet<BodyId> = HashSet::from([body]);
+                let mut touched: HashSet<BodyId> = HashSet::from_iter([body]);
                 // Apply deferred side effects only on success.
                 for consumed in &side_effects.consumed_bodies {
                     body_breps.remove(consumed);
@@ -392,7 +393,7 @@ impl FeatureTree {
         // just that one out of the shared working map (PK-812).
         let active: HashMap<BodyId, BRep> = body_breps
             .get(&node.body)
-            .map(|brep| HashMap::from([(node.body, brep.clone())]))
+            .map(|brep| HashMap::from_iter([(node.body, brep.clone())]))
             .unwrap_or_default();
         let ctx = MeasureContext {
             bodies: &active,

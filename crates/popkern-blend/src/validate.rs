@@ -249,10 +249,10 @@ pub(crate) fn validate_corner_resolution(
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<(), BlendError> {
     let floor = CORNER_RADIUS_RESOLUTION * tolerance.linear();
-    let mut at_vertex: std::collections::HashMap<
+    let mut at_vertex: popkern_math::hash::FastHashMap<
         popkern_core::topology::VertexHandle,
         (usize, f64),
-    > = std::collections::HashMap::new();
+    > = popkern_math::hash::FastHashMap::default();
     for spec in specs {
         let smallest = match &spec.radius {
             FilletRadius::Constant(r) => *r,

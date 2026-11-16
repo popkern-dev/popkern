@@ -1,6 +1,6 @@
 //! Coupled worst-neighborhood fitting for KP20 support-cell boundaries.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
@@ -293,7 +293,7 @@ fn average_adjacent_boundary_controls(
     cluster: &[PatchCornerKey],
     trims: &[FullBoundaryTrim],
 ) -> Result<(), CoreError> {
-    let mut targets: HashMap<PatchControlKey, ControlAccumulator> = HashMap::new();
+    let mut targets: HashMap<PatchControlKey, ControlAccumulator> = HashMap::default();
     for &trim in trims {
         for (corner_a, corner_b) in trim_endpoint_pairs(trim) {
             if !cluster.contains(&corner_a) || !cluster.contains(&corner_b) {

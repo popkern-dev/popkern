@@ -6,7 +6,7 @@
 //! chained transverse legs are authoritative and constrain the
 //! field to contain them.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
@@ -28,7 +28,7 @@ pub(super) fn author_ribbon_field(
     sub: &AuthoredSubChain,
     node_normals: &HashMap<VertexHandle, Vec3>,
     patches: &HashMap<FaceHandle, RectangularGregoryBiNonic>,
-    chained_rows: &std::collections::HashSet<ChainRowKey>,
+    chained_rows: &popkern_math::hash::FastHashSet<ChainRowKey>,
 ) -> Option<[Vec3; 9]> {
     let mut normal_field: Vec<(f64, Vec3)> = Vec::with_capacity(sub.nodes.len());
     for &(vertex, param) in &sub.nodes {

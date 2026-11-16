@@ -248,7 +248,10 @@ impl Evaluator {
     /// its floors.
     fn stage(&self, filtered: &[f64], projection: Option<projection::Projection>) -> Stage {
         let projected: Vec<f64> = match projection {
-            Some(pr) => filtered.iter().map(|&t| pr.apply(t)).collect(),
+            Some(pr) => {
+                let curve = pr.curve();
+                filtered.iter().map(|&t| curve.apply(t)).collect()
+            }
             None => filtered.to_vec(),
         };
         // The printed design when the print filter is on; where the floor
@@ -267,7 +270,10 @@ impl Evaluator {
         };
         // dx̄/dx̃ for the chain rule.
         let slope: Vec<f64> = match projection {
-            Some(pr) => filtered.iter().map(|&t| pr.slope(t)).collect(),
+            Some(pr) => {
+                let curve = pr.curve();
+                filtered.iter().map(|&t| curve.slope(t)).collect()
+            }
             None => vec![1.0; filtered.len()],
         };
         Stage {

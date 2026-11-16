@@ -13,7 +13,7 @@
 //! this module is the reference consumer of `CacheStats`. Additional
 //! caches added to the engine should embed the same type.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::cache_stats::CacheStats;
 use crate::topology::{EdgeHandle, FaceHandle};

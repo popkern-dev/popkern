@@ -13,7 +13,7 @@
 //! material is only in dropped ones. Dropped and filled volumes are
 //! reported, never silent.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 /// What the sorting kept and why it dropped the rest.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,7 +57,7 @@ fn signed_volume(vertices: &[[f64; 3]], triangles: &[[u32; 3]], shell: &[usize])
 /// The edge-connected shells of a closed mesh, each a list of
 /// triangles, in order of their first triangle.
 fn shells(triangles: &[[u32; 3]]) -> Vec<Vec<usize>> {
-    let mut by_edge: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+    let mut by_edge: HashMap<(u32, u32), Vec<usize>> = HashMap::default();
     for (t, tri) in triangles.iter().enumerate() {
         for k in 0..3 {
             let (a, b) = (tri[k], tri[(k + 1) % 3]);

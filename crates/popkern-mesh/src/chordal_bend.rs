@@ -23,7 +23,8 @@
 //! midpoint to the surface point nearest the chord's midpoint, which
 //! cancels the in-plane sag that the affine pairing charges.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::{Point3, SurfaceEval, SurfaceGeometry};
 
@@ -59,7 +60,7 @@ pub(super) fn bend_pass(
     tolerance: f64,
     mut bound: impl FnMut([Uv; 3], [Point3; 3], [Option<Uv>; 3]) -> Option<f64>,
 ) -> HashSet<EdgeKey> {
-    let mut users: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::new();
+    let mut users: HashMap<(usize, usize), Vec<(usize, usize)>> = HashMap::default();
     for (k, t) in tris.iter().enumerate() {
         let Some(t) = t else { continue };
         for e in 0..3 {
@@ -72,11 +73,11 @@ pub(super) fn bend_pass(
         .zip(bounds.iter())
         .map(|(t, &b)| t.is_some() && b > tolerance)
         .collect();
-    let mut offsets: HashMap<(usize, usize), Uv> = HashMap::new();
+    let mut offsets: HashMap<(usize, usize), Uv> = HashMap::default();
     for _ in 0..MAX_ROUNDS {
         let mut found = vec![None; tris.len()];
         let mut rejected = false;
-        let mut edges = HashSet::new();
+        let mut edges = HashSet::default();
         for k in 0..tris.len() {
             let Some(t) = tris[k].filter(|_| bent[k]) else {
                 continue;
@@ -125,7 +126,7 @@ pub(super) fn bend_pass(
             return edges;
         }
     }
-    HashSet::new()
+    HashSet::default()
 }
 
 /// The welded edge `e` (vertices `e`, `e + 1`) of `t`, unordered.
@@ -149,7 +150,7 @@ fn foot(surface: &SurfaceGeometry, t: &BendTriangle, e: usize) -> Option<Uv> {
     let mut q = m;
     for _ in 0..8 {
         let r = surface.point_at(q.0, q.1) - c;
-        let (su, sv) = (surface.partial_u(q.0, q.1), surface.partial_v(q.0, q.1));
+        let (su, sv) = surface.first_partials(q.0, q.1);
         let (g, h, k) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
         let det = g * k - h * h;
         // NaN fails too.

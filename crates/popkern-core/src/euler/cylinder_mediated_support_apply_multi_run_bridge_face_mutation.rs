@@ -1,7 +1,8 @@
 //! Mutation for multi-run bridge-face plans.
 
 use crate::topology::RadialLinks;
-use std::collections::{BTreeSet, HashSet};
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeSet;
 
 use crate::error::CoreError;
 use crate::topology::{
@@ -81,7 +82,7 @@ fn multi_run_bridge_paths(
     plan: &MultiRunBridgeFacePlan,
 ) -> Result<Vec<MultiRunBridgePath>, CoreError> {
     let mut paths = Vec::with_capacity(plan.cylinder_runs + 1);
-    let mut consumed_edges = HashSet::new();
+    let mut consumed_edges = HashSet::default();
     paths.push(create_multi_run_bridge_boundary_twins(
         brep,
         half_open_path(&operand.outside_interval)?,

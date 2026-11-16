@@ -5,7 +5,7 @@
 //! for constraining new sketch elements.
 
 use popkern_math::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_constraint::{Constraint, ElementHandle, PointHandle};
 use popkern_core::geometry::curve::CurveGeometry;
@@ -58,7 +58,7 @@ impl SketchOnPlane {
         }
 
         // Track already-projected vertices to avoid duplicate points.
-        let mut vertex_map: HashMap<VertexHandle, PointHandle> = HashMap::new();
+        let mut vertex_map: HashMap<VertexHandle, PointHandle> = HashMap::default();
         let mut imported: Vec<ElementHandle> = Vec::new();
 
         for he_handle in &half_edges {

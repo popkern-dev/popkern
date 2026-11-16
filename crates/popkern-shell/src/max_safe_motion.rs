@@ -3,7 +3,8 @@
 //! thin-wall clearance sweep over trimmed patches. Split from
 //! `max_safe.rs` (500-line ratchet).
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3, uv_projection};
@@ -14,7 +15,7 @@ use crate::max_safe::OffsetConstraint;
 
 /// Vertex → adjacent classified faces, in first-encounter order.
 pub(crate) fn vertex_face_adjacency(brep: &BRep) -> HashMap<VertexHandle, Vec<FaceHandle>> {
-    let mut adjacency: HashMap<VertexHandle, Vec<FaceHandle>> = HashMap::new();
+    let mut adjacency: HashMap<VertexHandle, Vec<FaceHandle>> = HashMap::default();
     for (_, he) in &brep.half_edges {
         let Some(loop_data) = brep.loops.get(he.loop_) else {
             continue;
@@ -37,7 +38,7 @@ pub(crate) fn vertex_velocities(
 ) -> HashMap<VertexHandle, Vec3> {
     let adjacency = vertex_face_adjacency(brep);
 
-    let mut velocities = HashMap::new();
+    let mut velocities = HashMap::default();
     for (vh, faces) in adjacency {
         let Some(vertex) = brep.vertices.get(vh) else {
             continue;
@@ -154,7 +155,7 @@ fn vertex_at_distance(
     let faces = adjacency.get(&vh)?;
     let start = brep.vertices.get(vh)?.position;
     let mut p = start;
-    let mut seeds: HashMap<FaceHandle, (f64, f64)> = HashMap::new();
+    let mut seeds: HashMap<FaceHandle, (f64, f64)> = HashMap::default();
     for _ in 0..4 {
         let mut ata = [[0.0f64; 3]; 3];
         let mut atb = [0.0f64; 3];
@@ -253,7 +254,7 @@ pub(crate) fn thin_wall_candidates(
         motion: f64,
     }
     // Face → boundary vertices (adjacency exemption).
-    let mut face_verts: HashMap<FaceHandle, HashSet<VertexHandle>> = HashMap::new();
+    let mut face_verts: HashMap<FaceHandle, HashSet<VertexHandle>> = HashMap::default();
     for (_, he) in &brep.half_edges {
         if let Some(loop_data) = brep.loops.get(he.loop_) {
             face_verts

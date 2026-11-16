@@ -20,8 +20,8 @@ pub(super) fn resolve_apex_edges(
     use super::target_topology::TargetEdgeRole;
     let mut out: Vec<Option<EdgeHandle>> =
         Vec::with_capacity(plan.target_topology.apex_edges.len());
-    let mut cap_side_faces: std::collections::HashSet<FaceHandle> =
-        std::collections::HashSet::new();
+    let mut cap_side_faces: popkern_math::hash::FastHashSet<FaceHandle> =
+        popkern_math::hash::FastHashSet::default();
     for (i, target_edge) in plan.target_topology.apex_edges.iter().enumerate() {
         let v_origin = apex_vertex_handles
             .get(target_edge.origin_vertex_idx)
@@ -84,13 +84,14 @@ pub(super) fn resolve_apex_edges(
         let v_incident_faces = if matches!(target_edge.role, TargetEdgeRole::CapVsPlane { .. }) {
             faces_with_vertex_on_outer_loop(brep, plan.apex_vertex)
         } else {
-            std::collections::HashSet::new()
+            popkern_math::hash::FastHashSet::default()
         };
-        let prefer_set: std::collections::HashSet<FaceHandle> = if !v_incident_faces.is_empty() {
-            v_incident_faces
-        } else {
-            cap_side_faces.clone()
-        };
+        let prefer_set: popkern_math::hash::FastHashSet<FaceHandle> =
+            if !v_incident_faces.is_empty() {
+                v_incident_faces
+            } else {
+                cap_side_faces.clone()
+            };
         let (edge, mef_face_pair) =
             create_apex_edge_preferring(brep, v_origin, v_dest, target_edge, Some(&prefer_set))
                 .map_err(|reason| ApexBuildError::PlanMismatch {
@@ -183,8 +184,9 @@ fn adopt_fillet_end_arc(
 fn faces_with_vertex_on_outer_loop(
     brep: &BRep,
     vertex: VertexHandle,
-) -> std::collections::HashSet<FaceHandle> {
-    let mut out: std::collections::HashSet<FaceHandle> = std::collections::HashSet::new();
+) -> popkern_math::hash::FastHashSet<FaceHandle> {
+    let mut out: popkern_math::hash::FastHashSet<FaceHandle> =
+        popkern_math::hash::FastHashSet::default();
     for (fh, face) in &brep.faces {
         let Some(loop_data) = brep.loops.get(face.outer_loop) else {
             continue;
@@ -233,7 +235,7 @@ fn find_shared_face_for_mef_preferring(
     brep: &BRep,
     v_origin: VertexHandle,
     v_dest: VertexHandle,
-    prefer: Option<&std::collections::HashSet<FaceHandle>>,
+    prefer: Option<&popkern_math::hash::FastHashSet<FaceHandle>>,
 ) -> Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> {
     let mut preferred: Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> = None;
     let mut fallback: Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> = None;
@@ -279,7 +281,7 @@ fn create_apex_edge_preferring(
     v_origin: VertexHandle,
     v_dest: VertexHandle,
     target_edge: &TargetEdge,
-    prefer: Option<&std::collections::HashSet<FaceHandle>>,
+    prefer: Option<&popkern_math::hash::FastHashSet<FaceHandle>>,
 ) -> Result<(EdgeHandle, (FaceHandle, FaceHandle)), String> {
     let (face, he_origin, he_dest) =
         find_shared_face_for_mef_preferring(brep, v_origin, v_dest, prefer).ok_or_else(|| {

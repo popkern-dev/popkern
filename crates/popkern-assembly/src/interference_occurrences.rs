@@ -12,7 +12,7 @@
 //! mesh box, its eight corners placed. Only the occurrences in a
 //! candidate pair get their world BRep and placed mesh.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::Arc;
 
 use crate::assembly::{Assembly, DefinitionId};

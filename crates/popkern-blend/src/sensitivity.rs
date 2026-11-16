@@ -142,7 +142,7 @@ pub fn quality_sensitivity(
     // profile is scaled up by `epsilon` in absolute terms.
     let step_specs: Vec<FilletSpec> = specs.iter().map(|s| shifted_spec(s, epsilon)).collect();
 
-    let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
+    let pre_faces: popkern_math::hash::FastHashSet<FaceHandle> = brep.faces.keys().collect();
 
     let base_result = fillet_edges(brep, specs, options, tolerance, None)?;
     let step_result = fillet_edges(brep, &step_specs, options, tolerance, None)?;

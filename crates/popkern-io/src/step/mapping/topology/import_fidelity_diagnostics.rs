@@ -1,6 +1,6 @@
 //! STEP topology import fidelity diagnostics with entity provenance.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;

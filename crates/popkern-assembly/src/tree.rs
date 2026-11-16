@@ -1,7 +1,7 @@
 //! Walking the instance tree: path resolution, the expanded tree a
 //! viewer lists, and the part (leaf) occurrences.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::assembly::{Assembly, DefinitionContent, Instance, InstanceRef, Parent, TreeRow};
 use crate::error::AssemblyError;
@@ -78,7 +78,7 @@ impl Assembly {
             self.placements_after(count).into_iter().collect();
         let placement_of = |at: InstanceRef, _: &Instance| placed.get(&at).copied();
         let mut rows = self.expand_root(&placement_of);
-        let mut shown: std::collections::HashSet<String> =
+        let mut shown: popkern_math::hash::FastHashSet<String> =
             rows.iter().map(|row| row.path.to_string()).collect();
         // Final rows come depth-first, parents before children, so an
         // unplaced occurrence inside another unplaced one is reached

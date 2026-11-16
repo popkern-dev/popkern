@@ -2,7 +2,7 @@
 //! incidences and crossing zones, and their resolution, built once for
 //! the shadow comparison and for graph node identity.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
@@ -264,7 +264,7 @@ impl VertexTable {
     /// lower operand's vertex anchoring it. Empty when the resolution
     /// declined.
     pub(crate) fn operand_vertex_anchors(&self) -> [HashMap<VertexHandle, Point3>; 2] {
-        let mut out = [HashMap::new(), HashMap::new()];
+        let mut out = [HashMap::default(), HashMap::default()];
         let Ok(res) = self.resolution.as_ref() else {
             return out;
         };

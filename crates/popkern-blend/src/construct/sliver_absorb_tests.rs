@@ -92,7 +92,7 @@ fn find_zero_area_target_detects_collapsed_cube_face() {
         brep.vertices[v].position = pivot_pos;
     }
 
-    let retained = std::collections::HashSet::new();
+    let retained = popkern_math::hash::FastHashSet::default();
     let result = find_zero_area_target(&brep, &tol(), &retained);
     let (face, _he, area) = result.expect("zero-area target should be detected");
     assert_eq!(
@@ -109,7 +109,7 @@ fn find_zero_area_target_detects_collapsed_cube_face() {
 #[test]
 fn zero_area_not_detected_on_pristine_cube() {
     let brep = BRep::unit_cube(tol()).unwrap();
-    let retained = std::collections::HashSet::new();
+    let retained = popkern_math::hash::FastHashSet::default();
     let result = find_zero_area_target(&brep, &tol(), &retained);
     assert!(
         result.is_none(),
@@ -137,7 +137,7 @@ fn find_short_edge_target_detects_collapsed_edge() {
     };
     brep.vertices[v_origin].position = brep.vertices[v_next].position;
 
-    let retained = std::collections::HashSet::new();
+    let retained = popkern_math::hash::FastHashSet::default();
     let result = find_short_edge_target(&brep, &tol(), &retained);
     let (_face, _he, min_length) = result.expect("short-edge target should be detected");
     assert!(
@@ -149,7 +149,7 @@ fn find_short_edge_target_detects_collapsed_edge() {
 #[test]
 fn short_edge_not_detected_on_pristine_cube() {
     let brep = BRep::unit_cube(tol()).unwrap();
-    let retained = std::collections::HashSet::new();
+    let retained = popkern_math::hash::FastHashSet::default();
     let result = find_short_edge_target(&brep, &tol(), &retained);
     assert!(
         result.is_none(),
@@ -168,7 +168,7 @@ fn short_edge_not_detected_on_pristine_cube() {
 #[test]
 fn classifiers_do_not_flag_closed_circle_loops() {
     let brep = BRep::cylinder(0.35, 1.0, tol()).unwrap();
-    let retained = std::collections::HashSet::new();
+    let retained = popkern_math::hash::FastHashSet::default();
     assert!(
         find_zero_area_target(&brep, &tol(), &retained).is_none(),
         "cylinder faces are macroscopic — the curve-sampled boundary area must see them"

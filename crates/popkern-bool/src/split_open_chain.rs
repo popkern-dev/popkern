@@ -3,7 +3,7 @@
 //! single boundary-to-boundary polylines and splits the face with each
 //! combined trim. Extracted from `split.rs` (PK-304).
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::{
     tolerance::Tolerance,
@@ -48,7 +48,7 @@ pub(super) fn open_chain_pre_pass(
     tolerance: &Tolerance,
     fragments: &mut FragmentMap,
 ) -> Result<HashSet<usize>, BoolDiagnostics> {
-    let mut chained: HashSet<usize> = HashSet::new();
+    let mut chained: HashSet<usize> = HashSet::default();
     // Curved records join the chain pool since PK-304 — but ONLY on
     // cell-resolvable faces (doubly-periodic, non-winding ring): a
     // marched torus arc can be delivered as two fragments dead-ending

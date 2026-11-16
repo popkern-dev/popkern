@@ -145,7 +145,7 @@ fn mixed_corner_names_one_feature() {
     .brep;
     use popkern_core::geometry::surface::SurfaceGeometry;
     use popkern_core::naming::RoleCategory;
-    let mut roles = std::collections::HashSet::new();
+    let mut roles = popkern_math::hash::FastHashSet::default();
     let mut generated = 0;
     let mut fill = None;
     for face in out.faces.values() {

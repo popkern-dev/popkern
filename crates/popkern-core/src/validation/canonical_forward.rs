@@ -64,7 +64,7 @@ pub enum CanonicalForwardState {
 
 /// Per-face winding-honesty verdicts, audited on first need.
 type WindingCache =
-    std::cell::OnceCell<std::collections::HashMap<crate::topology::FaceHandle, Option<bool>>>;
+    std::cell::OnceCell<popkern_math::hash::FastHashMap<crate::topology::FaceHandle, Option<bool>>>;
 
 impl BRep {
     /// Audit the canonical-forward convention on every CLOSED,

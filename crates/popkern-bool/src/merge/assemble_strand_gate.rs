@@ -8,7 +8,7 @@
 //! sides of every edge has mis-partitioned an operand; declining
 //! transactionally is the contract.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
@@ -175,7 +175,7 @@ pub(super) fn mask_dangling_halves(
         .collect();
 
     if popkern_core::trace::trace_enabled("boolean") {
-        let rev: std::collections::HashMap<HalfEdgeHandle, usize> =
+        let rev: popkern_math::hash::FastHashMap<HalfEdgeHandle, usize> =
             he_map.iter().map(|(g, h)| (*h, *g)).collect();
         for (heh, _) in &twin_fixups {
             if let Some(he) = brep.half_edges.get(*heh) {

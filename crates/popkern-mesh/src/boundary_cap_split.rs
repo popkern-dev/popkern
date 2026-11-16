@@ -16,7 +16,7 @@
 //! triangle did; afterwards the touched faces re-run the guarded
 //! refinement and crease flips locally.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
@@ -101,7 +101,7 @@ fn triangle_tilt(mesh: &FaceMesh, surface: &SurfaceGeometry, t: [usize; 3]) -> O
 /// Boundary edges of one face mesh (used by one triangle), as
 /// `(local a, local b, triangle)` with `a -> b` in the triangle's winding.
 fn boundary_edges(mesh: &FaceMesh) -> Vec<(usize, usize, usize)> {
-    let mut count: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut count: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         for k in 0..3 {
             let (a, b) = (t[k], t[(k + 1) % 3]);
@@ -149,14 +149,14 @@ pub(crate) fn split_leaning_boundary_caps(
 ) -> Vec<usize> {
     let gate = brep.tolerance.linear().max(1.0e-9) * 10.0;
     let mut changed: Vec<usize> = Vec::new();
-    let mut curve_cache = CurveSamples::new();
+    let mut curve_cache = CurveSamples::default();
     // Vertices this pass created: a chord ending on one is a split's
     // half, and gets no slack (see `allowance`).
-    let mut created: std::collections::HashSet<[u64; 3]> = Default::default();
+    let mut created: popkern_math::hash::FastHashSet<[u64; 3]> = Default::default();
     let bits = |p: Point3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
     for _ in 0..ROUNDS {
         // Every boundary edge copy, keyed by its end positions.
-        let mut copies: HashMap<EdgeKey, Vec<(usize, usize, usize, usize)>> = HashMap::new();
+        let mut copies: HashMap<EdgeKey, Vec<(usize, usize, usize, usize)>> = HashMap::default();
         let mut requests: Vec<(f64, EdgeKey)> = Vec::new();
         let mut leaning: Vec<usize> = Vec::new();
         for (mi, fm) in meshes.iter().enumerate() {
@@ -189,7 +189,7 @@ pub(crate) fn split_leaning_boundary_caps(
         }
         requests.sort_by(|x, y| y.0.total_cmp(&x.0).then(x.1.cmp(&y.1)));
         let mut requests: Vec<EdgeKey> = requests.into_iter().map(|(_, k)| k).collect();
-        let mut seen = std::collections::HashSet::new();
+        let mut seen = popkern_math::hash::FastHashSet::default();
         requests.retain(|k| seen.insert(*k));
         if requests.is_empty() {
             break;
@@ -213,7 +213,7 @@ pub(crate) fn split_leaning_boundary_caps(
         if flipped_any {
             continue;
         }
-        let mut touched: std::collections::HashSet<(usize, usize)> = Default::default();
+        let mut touched: popkern_math::hash::FastHashSet<(usize, usize)> = Default::default();
         let topology: std::cell::RefCell<HashMap<usize, MeshTopology>> = Default::default();
         let mut split_any = false;
         for key in requests {

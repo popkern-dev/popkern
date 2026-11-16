@@ -10,8 +10,8 @@
 //! watertight, and encloses what its quadrature and its mesh agree on,
 //! with at least the bore's own volume removed.
 
+use popkern_math::hash::FastHashMap as HashMap;
 use popkern_rhai::ScriptHost;
-use std::collections::HashMap;
 
 const WEDGE_VOLUME: f64 = 240.0 * 16.0;
 
@@ -54,7 +54,7 @@ fn countersunk_holes_serve_across_a_sloped_face() {
             .expect("mesh");
             let key =
                 |p: &popkern_core::geometry::Point3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
-            let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+            let mut weld: HashMap<[u64; 3], usize> = HashMap::default();
             let ids: Vec<usize> = mesh
                 .vertices
                 .iter()
@@ -63,7 +63,7 @@ fn countersunk_holes_serve_across_a_sloped_face() {
                     *weld.entry(key(&v.position)).or_insert(n)
                 })
                 .collect();
-            let mut edges: HashMap<(usize, usize), usize> = HashMap::new();
+            let mut edges: HashMap<(usize, usize), usize> = HashMap::default();
             let mut meshed = 0.0;
             for t in &mesh.triangles {
                 let p = t.map(|i| mesh.vertices[i].position);

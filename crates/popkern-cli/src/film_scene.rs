@@ -6,7 +6,7 @@
 //! (`film-player.js` `frameCamera`).
 
 use popkern_core::geometry::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use glam::{DMat4, DVec3};
 use popkern_live::{AssemblyView, BodyMesh, Envelope};
@@ -131,7 +131,7 @@ pub fn boundary_edges(body: &BodyMesh) -> Vec<[f32; 3]> {
     } else {
         1e-6
     };
-    let mut cells: HashMap<(i64, i64, i64), u32> = HashMap::new();
+    let mut cells: HashMap<(i64, i64, i64), u32> = HashMap::default();
     let weld: Vec<u32> = (0..p.len() / 3)
         .map(|v| {
             let key = (
@@ -145,7 +145,7 @@ pub fn boundary_edges(body: &BodyMesh) -> Vec<[f32; 3]> {
         .collect();
     // Welded edge -> one mesh edge and its use count per face, in first
     // appearance order.
-    let mut index: HashMap<(u32, u32), usize> = HashMap::new();
+    let mut index: HashMap<(u32, u32), usize> = HashMap::default();
     let mut uses: Vec<EdgeUse> = Vec::new();
     for (t, tri) in body.indices.as_chunks::<3>().0.iter().enumerate() {
         let face = body.face_ids.get(t).copied().unwrap_or(0);
@@ -208,7 +208,7 @@ impl Scene {
         let edges = envelope.bodies.iter().map(boundary_edges).collect();
         let mut selectors: Vec<String> = Vec::new();
         let mut bounds = None;
-        let mut targets: HashMap<String, [DVec3; 2]> = HashMap::new();
+        let mut targets: HashMap<String, [DVec3; 2]> = HashMap::default();
         for d in &draws {
             if !selectors.contains(&d.selector) {
                 selectors.push(d.selector.clone());
@@ -254,7 +254,7 @@ impl Scene {
                 None => boxes.push((top, b)),
             }
         }
-        let mut out = HashMap::new();
+        let mut out = HashMap::default();
         if boxes.len() < 2 {
             return out;
         }

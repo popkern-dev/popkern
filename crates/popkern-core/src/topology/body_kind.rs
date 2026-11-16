@@ -141,8 +141,8 @@ impl BRep {
         if self.shells.values().any(|s| s.acorn.is_some()) {
             return BodyKind::General;
         }
-        let mut ends: std::collections::HashMap<super::VertexHandle, usize> =
-            std::collections::HashMap::new();
+        let mut ends: popkern_math::hash::FastHashMap<super::VertexHandle, usize> =
+            popkern_math::hash::FastHashMap::default();
         for edge in self.edges.keys() {
             if self.edge_use(edge) != EdgeUse::Wire {
                 return BodyKind::General;

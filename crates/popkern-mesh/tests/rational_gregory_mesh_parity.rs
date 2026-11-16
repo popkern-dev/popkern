@@ -283,7 +283,7 @@ fn r8_c8_mesh_covers_every_gregory_subpatch() {
     let mesh_opts = TessellationOptions::default();
     let mesh = tessellate(&result.brep, &mesh_opts).unwrap();
 
-    let gregory_patch_faces: std::collections::HashSet<_> =
+    let gregory_patch_faces: popkern_math::hash::FastHashSet<_> =
         native_cap_faces(&result).into_iter().collect();
     assert!(
         !gregory_patch_faces.is_empty(),

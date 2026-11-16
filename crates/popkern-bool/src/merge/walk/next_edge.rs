@@ -2,7 +2,7 @@
 //!
 //! Split from `walk/mod.rs` under the structural line ratchet.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::topology::BRep;
 

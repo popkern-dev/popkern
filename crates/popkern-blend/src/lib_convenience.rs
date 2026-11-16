@@ -23,7 +23,7 @@ pub fn fillet_edges_with_quality(
     tolerance: Tolerance,
     tracking: Option<&mut TrackingContext>,
 ) -> Result<(BlendResult, BlendQuality), BlendError> {
-    let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
+    let pre_faces: popkern_math::hash::FastHashSet<FaceHandle> = brep.faces.keys().collect();
     let result = fillet_edges(brep, specs, options, tolerance, tracking)?;
     let requested_radius = specs
         .iter()

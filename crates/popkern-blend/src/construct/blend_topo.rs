@@ -4,7 +4,7 @@
 //! collect adjacent faces, anchor vertices, and incident edges.
 //! These are used by [`super::blend_insert`] during blend face insertion.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
@@ -66,7 +66,7 @@ pub(crate) fn collect_faces_around_vertex(
     }
 
     let mut faces = Vec::new();
-    let mut seen_faces = HashSet::new();
+    let mut seen_faces = HashSet::default();
     let mut cursor = outgoing;
     let max_iters = brep.half_edges.len() + 1;
     let mut iters = 0;
@@ -402,7 +402,7 @@ pub(crate) fn collect_edges_through_vertex(
     }
 
     let mut edges = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let mut cursor = outgoing;
     let max_iters = brep.half_edges.len() + 1;
     let mut iters = 0;

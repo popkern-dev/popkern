@@ -24,7 +24,7 @@ pub(crate) fn sew_boundaries_to_edge_polylines(
     face_meshes: &mut [crate::mesh::FaceMesh],
     sew_candidate_faces: &[usize],
 ) {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
 
     const SEW_SAMPLES: usize = 129;
     // Canonical (t, point) polylines per edge — the polyline seeds a
@@ -32,7 +32,7 @@ pub(crate) fn sew_boundaries_to_edge_polylines(
     // onto chords would pull on-surface vertices off the geometry by
     // the chord error).
     let mut polylines: HashMap<popkern_core::topology::EdgeHandle, Vec<(f64, Point3)>> =
-        HashMap::new();
+        HashMap::default();
     for (eh, edge) in brep.edges.iter() {
         let Some(curve) = edge.curve.as_ref() else {
             continue;
@@ -259,9 +259,9 @@ pub(crate) fn sew_boundaries_to_edge_polylines(
 /// internal-tear detector).
 fn face_mesh_boundary_vertices(
     fm: &crate::mesh::FaceMesh,
-) -> (std::collections::HashSet<usize>, usize) {
-    use std::collections::HashMap;
-    let mut canon: HashMap<(i64, i64, i64), usize> = HashMap::new();
+) -> (popkern_math::hash::FastHashSet<usize>, usize) {
+    use popkern_math::hash::FastHashMap as HashMap;
+    let mut canon: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut remap = Vec::with_capacity(fm.vertices.len());
     for v in &fm.vertices {
         let k = (
@@ -272,7 +272,7 @@ fn face_mesh_boundary_vertices(
         let next = canon.len();
         remap.push(*canon.entry(k).or_insert(next));
     }
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &fm.triangles {
         let w = [remap[t[0]], remap[t[1]], remap[t[2]]];
         if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
@@ -282,7 +282,7 @@ fn face_mesh_boundary_vertices(
             *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
         }
     }
-    let mut boundary_canon = std::collections::HashSet::new();
+    let mut boundary_canon = popkern_math::hash::FastHashSet::default();
     for (&(a, b), &c) in &counts {
         if c == 1 {
             boundary_canon.insert(a);
@@ -309,7 +309,7 @@ fn face_mesh_boundary_vertices(
     }
     let components = {
         let keys: Vec<usize> = parent.keys().copied().collect();
-        let mut roots = std::collections::HashSet::new();
+        let mut roots = popkern_math::hash::FastHashSet::default();
         for k in keys {
             let r = find(&mut parent, k);
             roots.insert(r);

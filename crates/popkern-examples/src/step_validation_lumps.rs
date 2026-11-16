@@ -1,7 +1,8 @@
 //! The bodies a STEP export re-reads as under the round-trip's import
 //! options (PK-1115: lumps that touch without sharing are separate).
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, RegionKind, ShellHandle, VertexHandle};
 use popkern_io::StepNonManifold;
@@ -51,8 +52,8 @@ fn separate_lumps(body: &BRep) -> usize {
         let (a, b) = (root(&mut parent, a), root(&mut parent, b));
         parent[a] = b;
     };
-    let mut by_vertex: HashMap<VertexHandle, usize> = HashMap::new();
-    let mut by_edge: HashMap<EdgeHandle, usize> = HashMap::new();
+    let mut by_vertex: HashMap<VertexHandle, usize> = HashMap::default();
+    let mut by_edge: HashMap<EdgeHandle, usize> = HashMap::default();
     let mut uses: Vec<(usize, usize)> = Vec::new();
     for fin in body.half_edges.values() {
         let Some(&i) = body.loops.get(fin.loop_).and_then(|l| index.get(&l.face)) else {
@@ -69,7 +70,7 @@ fn separate_lumps(body: &BRep) -> usize {
     for (i, j) in uses {
         join(i, j);
     }
-    let mut region_shells: HashMap<_, Vec<(ShellHandle, usize)>> = HashMap::new();
+    let mut region_shells: HashMap<_, Vec<(ShellHandle, usize)>> = HashMap::default();
     for (&f, &i) in &index {
         for side in [body.faces[f].back, body.faces[f].front] {
             let r = body.shell_region(side);

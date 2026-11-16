@@ -247,8 +247,10 @@ pub(super) fn resolve_contact_runs(
     let Some(boundary) = crate::clip::face_uv_boundary(brep, face) else {
         return crossings;
     };
-    let mut tight: std::collections::HashMap<popkern_core::topology::HalfEdgeHandle, NurbsCurve> =
-        std::collections::HashMap::new();
+    let mut tight: popkern_math::hash::FastHashMap<
+        popkern_core::topology::HalfEdgeHandle,
+        NurbsCurve,
+    > = popkern_math::hash::FastHashMap::default();
     for c in &crossings {
         if let Some((h, pc)) = boundary.iter().find(|(h, _)| *h == c.boundary_he) {
             tight

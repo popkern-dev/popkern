@@ -14,6 +14,7 @@ publish = false
 result_large_err = "allow"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }
 popkern-blend = { path = "../popkern-blend" }

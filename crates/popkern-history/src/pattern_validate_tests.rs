@@ -3,7 +3,7 @@
 #[cfg(test)]
 use super::validate_seed_features;
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::naming::OperationId;
 use slotmap::SlotMap;
@@ -33,7 +33,7 @@ fn insert(
         suppressed: false,
         body,
         suppress_if: None,
-        instance_op_ids: std::collections::HashMap::new(),
+        instance_op_ids: popkern_math::hash::FastHashMap::default(),
         last_result: None,
         selections: Vec::new(),
         provenance: Vec::new(),
@@ -106,7 +106,7 @@ fn extrude_new_body() -> Feature {
 fn empty_seed_list_is_rejected() {
     let features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
 
     let result = validate_seed_features(&[], &features, &timeline, &existing);
     assert!(
@@ -123,7 +123,7 @@ fn empty_seed_list_is_rejected() {
 fn missing_feature_id_is_rejected() {
     let mut features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let mut timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
 
     let body = BodyId(0);
     let _real = insert(&mut features, &mut timeline, sketch(), body);
@@ -137,7 +137,7 @@ fn missing_feature_id_is_rejected() {
         suppressed: false,
         body,
         suppress_if: None,
-        instance_op_ids: std::collections::HashMap::new(),
+        instance_op_ids: popkern_math::hash::FastHashMap::default(),
         last_result: None,
         selections: Vec::new(),
         provenance: Vec::new(),
@@ -160,7 +160,7 @@ fn missing_feature_id_is_rejected() {
 fn seeds_on_different_bodies_are_rejected() {
     let mut features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let mut timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
 
     let id0 = insert(&mut features, &mut timeline, sketch(), BodyId(0));
     let id1 = insert(&mut features, &mut timeline, extrude_boss(), BodyId(1));
@@ -180,7 +180,7 @@ fn seeds_on_different_bodies_are_rejected() {
 fn non_contiguous_seeds_are_rejected() {
     let mut features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let mut timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
     let body = BodyId(0);
 
     // Timeline: sketch, filler, extrude — sketch and extrude are not adjacent.
@@ -203,7 +203,7 @@ fn non_contiguous_seeds_are_rejected() {
 fn seed_chain_not_starting_with_sketch_is_rejected() {
     let mut features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let mut timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
     let body = BodyId(0);
 
     // Only an extrude — no leading Sketch.
@@ -224,7 +224,7 @@ fn seed_chain_not_starting_with_sketch_is_rejected() {
 fn seed_chain_with_no_boss_or_cut_is_rejected() {
     let mut features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let mut timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
     let body = BodyId(0);
 
     let sketch_id = insert(&mut features, &mut timeline, sketch(), body);
@@ -252,7 +252,7 @@ fn seed_already_owned_by_another_pattern_is_rejected() {
     let extrude_id = insert(&mut features, &mut timeline, extrude_boss(), body);
 
     // Mark extrude_id as already owned.
-    let mut existing: HashSet<FeatureId> = HashSet::new();
+    let mut existing: HashSet<FeatureId> = HashSet::default();
     existing.insert(extrude_id);
 
     let result = validate_seed_features(&[sketch_id, extrude_id], &features, &timeline, &existing);
@@ -270,7 +270,7 @@ fn seed_already_owned_by_another_pattern_is_rejected() {
 fn valid_seed_chain_passes_all_rules() {
     let mut features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let mut timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
     let body = BodyId(0);
 
     let sketch_id = insert(&mut features, &mut timeline, sketch(), body);
@@ -288,7 +288,7 @@ fn single_seed_with_boss_extrude_starting_with_sketch_passes() {
     // A single-feature seed must still include a Boss/Cut feature.
     let mut features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let mut timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
     let body = BodyId(0);
 
     let sketch_id = insert(&mut features, &mut timeline, sketch(), body);
@@ -305,7 +305,7 @@ fn single_seed_with_boss_extrude_starting_with_sketch_passes() {
 fn cut_mode_satisfies_boss_or_cut_rule() {
     let mut features: SlotMap<FeatureId, FeatureNode> = SlotMap::with_key();
     let mut timeline: Vec<FeatureId> = Vec::new();
-    let existing: HashSet<FeatureId> = HashSet::new();
+    let existing: HashSet<FeatureId> = HashSet::default();
     let body = BodyId(0);
 
     let mut p: slotmap::SlotMap<ParameterId, ()> = slotmap::SlotMap::with_key();

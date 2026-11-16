@@ -1,6 +1,7 @@
 //! Row-control helpers for constructive support-cell re-authoring.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};

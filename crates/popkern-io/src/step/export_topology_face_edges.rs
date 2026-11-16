@@ -1,6 +1,6 @@
 //! Face-local STEP edge export for incoherent shared face uses.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::CurveEval;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};

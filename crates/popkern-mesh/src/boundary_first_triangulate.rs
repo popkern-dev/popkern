@@ -58,7 +58,7 @@ pub(super) fn triangulate_region(
         .map(|(a, b)| (local[alias[a]], local[alias[b]]))
         .filter(|(a, b)| a != b)
         .collect();
-    let present: std::collections::HashSet<(usize, usize)> = tris
+    let present: popkern_math::hash::FastHashSet<(usize, usize)> = tris
         .iter()
         .flat_map(|t| (0..3).map(move |k| (t[k].min(t[(k + 1) % 3]), t[k].max(t[(k + 1) % 3]))))
         .collect();

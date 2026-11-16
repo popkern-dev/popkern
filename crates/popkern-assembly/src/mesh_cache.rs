@@ -14,7 +14,7 @@
 //! surfaces, in full precision. It leaves out names, which the
 //! tessellation never reads.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use popkern_core::topology::{BRep, FaceHandle};

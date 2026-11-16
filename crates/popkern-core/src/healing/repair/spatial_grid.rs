@@ -4,7 +4,7 @@
 //! and O(27) neighbor-cell lookup. Reduces pairwise matching from
 //! O(n^2) to O(n) for uniformly distributed points.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::geometry::Point3;
 
@@ -20,7 +20,7 @@ impl SpatialGrid {
     /// Create a new spatial grid with the given cell size.
     pub(super) fn new(cell_size: f64) -> Self {
         Self {
-            cells: HashMap::new(),
+            cells: HashMap::default(),
             cell_size: if cell_size > 0.0 { cell_size } else { 1.0 },
         }
     }

@@ -21,8 +21,8 @@
 //! - **Bit-identical**: the cached points are the values the uncached
 //!   ranking would compute, in the same order.
 
+use popkern_math::hash::FastHashMap as HashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 use super::NurbsSurface;
@@ -116,7 +116,7 @@ struct CacheKey {
 
 thread_local! {
     static CACHE: RefCell<HashMap<CacheKey, Option<Rc<ProjectionSeedField>>>> =
-        RefCell::new(HashMap::new());
+        RefCell::new(HashMap::default());
 }
 
 /// Two independently seeded multiply-rotate mixers over a word stream.

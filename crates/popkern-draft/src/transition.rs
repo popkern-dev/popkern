@@ -5,7 +5,7 @@
 //! the gap between old and new vertex positions.
 
 use popkern_core::topology::RadialLinks;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::DraftError;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};

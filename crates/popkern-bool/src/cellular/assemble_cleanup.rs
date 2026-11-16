@@ -4,7 +4,7 @@
 //! Split from `cellular/assemble.rs` to keep it within the
 //! structural line ratchet.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::constructors::builder::BRepBuilder;
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
@@ -157,7 +157,7 @@ pub(super) fn partition_shells(
             }
         }
     }
-    let mut component_of: HashMap<usize, usize> = HashMap::new();
+    let mut component_of: HashMap<usize, usize> = HashMap::default();
     let mut roots: Vec<usize> = Vec::new();
     for i in 0..faces.len() {
         let r = find(&mut parent, i);

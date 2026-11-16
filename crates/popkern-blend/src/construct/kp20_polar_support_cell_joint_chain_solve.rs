@@ -6,7 +6,7 @@
 //! authored sub-chain so endpoint-leg equations can connect two
 //! chain derivatives directly.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};

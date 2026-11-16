@@ -174,9 +174,10 @@ impl FlattenedSteps {
     /// Record the widest step of each set of faces the merges joined.
     pub(crate) fn record(self) {
         use popkern_core::topology::FaceHandle;
-        let mut parent: std::collections::HashMap<FaceHandle, FaceHandle> = Default::default();
+        let mut parent: popkern_math::hash::FastHashMap<FaceHandle, FaceHandle> =
+            Default::default();
         fn find(
-            parent: &mut std::collections::HashMap<
+            parent: &mut popkern_math::hash::FastHashMap<
                 popkern_core::topology::FaceHandle,
                 popkern_core::topology::FaceHandle,
             >,

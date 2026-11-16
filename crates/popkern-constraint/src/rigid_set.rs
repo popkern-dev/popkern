@@ -135,8 +135,8 @@ fn write_center_params(sketch: &mut Sketch, elem: &ElementHandle, cx: f64, cy: f
 /// This is used by the Jacobian remapping to redirect columns.
 pub(crate) fn build_rigid_param_lookup(
     sketch: &Sketch,
-) -> std::collections::HashMap<usize, (usize, f64, f64)> {
-    let mut map = std::collections::HashMap::new();
+) -> popkern_math::hash::FastHashMap<usize, (usize, f64, f64)> {
+    let mut map = popkern_math::hash::FastHashMap::default();
     for rs in sketch.rigid_sets.values() {
         // Point params.
         for (i, &ph) in rs.points.iter().enumerate() {
@@ -383,8 +383,8 @@ pub(crate) fn constraint_element_handles(c: &crate::constraint::Constraint) -> V
 ///
 /// Used by the DOF analysis to filter out individual point freedoms for
 /// rigid-set members.
-pub(crate) fn rigid_set_point_params(sketch: &Sketch) -> std::collections::HashSet<usize> {
-    let mut set = std::collections::HashSet::new();
+pub(crate) fn rigid_set_point_params(sketch: &Sketch) -> popkern_math::hash::FastHashSet<usize> {
+    let mut set = popkern_math::hash::FastHashSet::default();
     for rs in sketch.rigid_sets.values() {
         for &ph in &rs.points {
             if let Some(pt) = sketch.points.get(ph) {

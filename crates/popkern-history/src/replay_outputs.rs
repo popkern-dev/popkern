@@ -21,7 +21,8 @@
 //! body, allocated and recorded. Keys prefer names with lineage, which
 //! follow their piece, over generated names numbered by position.
 
-use std::collections::{BTreeSet, HashSet};
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeSet;
 
 use popkern_core::naming::{EntityName, NameId, RoleCategory};
 use popkern_core::topology::BRep;

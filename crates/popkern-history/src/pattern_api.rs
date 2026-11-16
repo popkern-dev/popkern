@@ -4,7 +4,7 @@
 //! feature variants (linear, circular, mirror) without requiring callers to
 //! manually pre-allocate parameter IDs or construct the inner types.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use slotmap::SlotMap;
 
@@ -114,7 +114,7 @@ impl FeatureTree {
             },
             secondary: None,
             geometry_pattern: false,
-            instance_overrides: std::collections::HashMap::new(),
+            instance_overrides: popkern_math::hash::FastHashMap::default(),
         };
 
         Ok(self.add_feature(feature, label))
@@ -163,7 +163,7 @@ impl FeatureTree {
             count: count_id,
             total_angle: total_angle_id,
             geometry_pattern: false,
-            instance_overrides: std::collections::HashMap::new(),
+            instance_overrides: popkern_math::hash::FastHashMap::default(),
         };
 
         Ok(self.add_feature(feature, label))
@@ -238,7 +238,7 @@ impl FeatureTree {
             count: count_id,
             total_angle: total_angle_id,
             geometry_pattern: false,
-            instance_overrides: std::collections::HashMap::new(),
+            instance_overrides: popkern_math::hash::FastHashMap::default(),
         };
 
         Ok(self.add_feature(feature, label))

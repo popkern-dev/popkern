@@ -36,7 +36,7 @@ pub(crate) fn chart_singular(surface: &SurfaceGeometry, u: f64, v: f64) -> bool 
     if matches!(surface, SurfaceGeometry::Plane { .. }) {
         return false;
     }
-    let (pu, pv) = (surface.partial_u(u, v), surface.partial_v(u, v));
+    let (pu, pv) = surface.first_partials(u, v);
     let big = pu.length().max(pv.length());
     big < 1e-300 || pu.cross(&pv).length() < SINGULAR_RATIO * big * big
 }
@@ -93,7 +93,7 @@ pub fn limit_normal(surface: &SurfaceGeometry, u: f64, v: f64) -> Option<Vec3> {
         }
         // Step along the coordinate that moves AWAY from the collapse:
         // a vanishing ∂u (sphere pole row) is cured by moving in v.
-        let (pu, pv) = (surface.partial_u(u, v), surface.partial_v(u, v));
+        let (pu, pv) = surface.first_partials(u, v);
         if pu.length() <= pv.length() {
             v += step(v0, v1, v);
         } else {
@@ -112,7 +112,7 @@ pub(crate) fn singular_without_unique_normal(surface: &SurfaceGeometry, u: f64, 
     if !chart_singular(surface, u, v) {
         return false;
     }
-    let (pu, pv) = (surface.partial_u(u, v), surface.partial_v(u, v));
+    let (pu, pv) = surface.first_partials(u, v);
     // Sweep the collapsed coordinate: every point of the collapsed
     // row is the same 3D point, so its limit normals must agree.
     let ((u0, u1), (v0, v1)) = surface.parameter_range();

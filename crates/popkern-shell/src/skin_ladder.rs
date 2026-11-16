@@ -6,7 +6,7 @@
 //! faces; the classic inward/outward shell runs the equivalent stages
 //! inline in `shell_impl`.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::classify::classify_faces;
 use crate::edge_recompute::recompute_edges_with_skips;
@@ -198,10 +198,10 @@ pub(crate) fn combine_skin_maps(map_a: &SkinMap, map_b: &SkinMap) -> SkinMap {
     let reverse_a_he: HashMap<_, _> = map_a.half_edges.iter().map(|(&k, &v)| (v, k)).collect();
     let reverse_a_faces = map_a.reverse_face_map();
 
-    let mut vertices = HashMap::new();
-    let mut edges = HashMap::new();
-    let mut half_edges = HashMap::new();
-    let mut faces = HashMap::new();
+    let mut vertices = HashMap::default();
+    let mut edges = HashMap::default();
+    let mut half_edges = HashMap::default();
+    let mut faces = HashMap::default();
 
     for (&a_vh, &orig_vh) in &reverse_a_vertices {
         if let Some(&b_vh) = map_b.vertices.get(&orig_vh) {

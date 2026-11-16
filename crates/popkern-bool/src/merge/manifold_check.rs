@@ -26,7 +26,7 @@
 
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::graph::{FaceRef, IntersectionGraph};
 
@@ -76,13 +76,13 @@ impl ManifoldReport {
 /// intersection circles at the same vertex are NOT a multi-incident
 /// edge.
 pub(crate) fn detect_multi_incident_edges(graph: &IntersectionGraph) -> ManifoldReport {
-    use std::collections::HashSet;
+    use popkern_math::hash::FastHashSet as HashSet;
 
     // Group by (start_vertex, end_vertex) canonical pair, skipping
     // closed self-loops. The value is the set of distinct face
     // refs collected from all half-edge pairs in the group.
-    let mut groups: HashMap<(usize, usize), HashSet<FaceRef>> = HashMap::new();
-    let mut seen_pairs: HashSet<usize> = HashSet::new();
+    let mut groups: HashMap<(usize, usize), HashSet<FaceRef>> = HashMap::default();
+    let mut seen_pairs: HashSet<usize> = HashSet::default();
 
     for (he_idx, he) in graph.half_edges.iter().enumerate() {
         let twin_idx = he.twin;

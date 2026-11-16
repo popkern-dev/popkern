@@ -68,7 +68,7 @@ fn shells(mesh: &SurfaceMesh) -> usize {
         }
         i
     }
-    let mut by_edge: std::collections::HashMap<(u32, u32), usize> = Default::default();
+    let mut by_edge: popkern_math::hash::FastHashMap<(u32, u32), usize> = Default::default();
     for (t, tri) in mesh.triangles.iter().enumerate() {
         for k in 0..3 {
             let (a, b) = (tri[k], tri[(k + 1) % 3]);

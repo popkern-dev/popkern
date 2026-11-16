@@ -136,7 +136,7 @@ fn r8_c8_fillet_quality_gregory_not_worse_than_polar_nurbs() {
     // rewrites the support planes under new handles, so the raw
     // new-face area totals differ by whole support faces between
     // the two paths until PK-167 restores support handle identity.
-    let pre_faces: std::collections::HashSet<_> = cube.faces.keys().collect();
+    let pre_faces: popkern_math::hash::FastHashSet<_> = cube.faces.keys().collect();
     let blend_area = |brep: &BRep| -> f64 {
         brep.faces
             .iter()

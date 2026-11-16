@@ -32,8 +32,10 @@ pub(crate) fn reconcile_junction_cluster_geometry(brep: &mut BRep, tolerance: &T
     let trace = popkern_core::trace::trace_enabled("boolean");
 
     // half-edge -> face map for adjacent-surface lookup.
-    let mut he_face: std::collections::HashMap<popkern_core::topology::HalfEdgeHandle, FaceHandle> =
-        std::collections::HashMap::new();
+    let mut he_face: popkern_math::hash::FastHashMap<
+        popkern_core::topology::HalfEdgeHandle,
+        FaceHandle,
+    > = popkern_math::hash::FastHashMap::default();
     for (fh, f) in brep.faces.iter() {
         for lh in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
             let Some(l) = brep.loops.get(lh) else {
@@ -65,10 +67,10 @@ pub(crate) fn reconcile_junction_cluster_geometry(brep: &mut BRep, tolerance: &T
     // pulls the vertex to their common intersection; the edge pass
     // below then re-anchors incident curves.
     {
-        let mut vertex_faces: std::collections::HashMap<
+        let mut vertex_faces: popkern_math::hash::FastHashMap<
             popkern_core::topology::VertexHandle,
             Vec<FaceHandle>,
-        > = std::collections::HashMap::new();
+        > = popkern_math::hash::FastHashMap::default();
         for (hh, he) in brep.half_edges.iter() {
             if let Some(f) = he_face.get(&hh) {
                 let e = vertex_faces.entry(he.origin).or_default();

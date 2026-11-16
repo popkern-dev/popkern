@@ -1,6 +1,6 @@
 //! Single sub-chain curve authoring for the KP20 chain network.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};

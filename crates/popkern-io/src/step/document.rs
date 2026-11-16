@@ -5,7 +5,7 @@
 //! geometry, units, presentation metadata, and any unrecognized entities for
 //! round-trip fidelity.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::Arc;
 
 use popkern_core::geometry::Transform3;

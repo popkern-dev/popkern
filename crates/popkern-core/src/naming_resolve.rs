@@ -83,7 +83,7 @@ pub fn resolve_name(name: &EntityName, brep: &BRep) -> Resolution {
 /// `id` (transitively, bounded by the pool size).
 fn descends_from(id: NameId, name_id: NameId, brep: &BRep) -> bool {
     let mut frontier = vec![id];
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = popkern_math::hash::FastHashSet::default();
     while let Some(current) = frontier.pop() {
         if !seen.insert(current) {
             continue;

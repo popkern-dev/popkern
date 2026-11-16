@@ -5,7 +5,7 @@
 //! graph half-edge near the query height with both slot states, the
 //! ledger that exposed the thread coil's end-region claim contest.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::{HalfEdgeHandle, LoopHandle};
 

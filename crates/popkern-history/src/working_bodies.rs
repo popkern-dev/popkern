@@ -11,7 +11,7 @@
 //! it only when a state still shares it, untouched bodies are never
 //! copied, and the next state shares the working handles back.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::Arc;
 
 use popkern_core::topology::BRep;
@@ -79,7 +79,7 @@ mod tests {
     fn untouched_bodies_stay_shared_and_a_taken_body_is_copied_once() {
         let cube = Arc::new(BRep::unit_cube(Tolerance::default()).expect("cube"));
         let other = Arc::new(BRep::unit_cube(Tolerance::default()).expect("cube"));
-        let state = HashMap::from([(BodyId(0), cube.clone()), (BodyId(1), other.clone())]);
+        let state = HashMap::from_iter([(BodyId(0), cube.clone()), (BodyId(1), other.clone())]);
         let mut working = WorkingBodies::shared(state.clone());
         // Untouched: the working map holds the state's own allocation.
         let shared = working.get_shared(&BodyId(1)).expect("alive");

@@ -130,7 +130,7 @@ type ExportKey = (String, u64);
 
 #[derive(Default)]
 struct ExportMemo {
-    map: std::collections::HashMap<ExportKey, (NurbsCurve, f64)>,
+    map: popkern_math::hash::FastHashMap<ExportKey, (NurbsCurve, f64)>,
     order: std::collections::VecDeque<ExportKey>,
 }
 

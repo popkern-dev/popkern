@@ -2,7 +2,8 @@
 //! edge by exactly one shell, every held entry a live wire edge, every
 //! acorn a live vertex nothing else uses.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::topology::{BRep, EdgeHandle};
 
@@ -20,7 +21,7 @@ impl BRep {
     /// Every wire edge held by exactly one shell, every held edge a
     /// live wire edge, every acorn's vertex live and reached by no edge.
     pub(super) fn validate_wire_shells(&self) -> Result<(), ValidationError> {
-        let mut holder: HashMap<EdgeHandle, usize> = HashMap::new();
+        let mut holder: HashMap<EdgeHandle, usize> = HashMap::default();
         for (sh, shell) in &self.shells {
             for &e in &shell.wire_edges {
                 if !self.is_wire_edge(e) {

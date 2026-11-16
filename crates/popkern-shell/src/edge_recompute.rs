@@ -1,6 +1,6 @@
 //! Edge curve recomputation for inner skin.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::edge_curve_dispatch::compute_edge_curve;
 use crate::error::ShellError;

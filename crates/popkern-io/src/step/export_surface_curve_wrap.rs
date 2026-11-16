@@ -1,7 +1,7 @@
 //! SURFACE_CURVE / SEAM_CURVE wrapping for edge export (extracted
 //! from `export_topology.rs` under the file-size ratchet).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 

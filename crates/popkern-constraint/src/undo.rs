@@ -20,8 +20,8 @@ use crate::{
     ArcHandle, ConstraintHandle, EllipseHandle, HyperbolaHandle, Line, LineHandle, ParabolaHandle,
     PointHandle, SplineHandle,
 };
+use popkern_math::hash::FastHashMap as HashMap;
 use slotmap::SlotMap;
-use std::collections::HashMap;
 
 /// A complete snapshot of the mutable sketch state, captured before each
 /// mutation for undo support.

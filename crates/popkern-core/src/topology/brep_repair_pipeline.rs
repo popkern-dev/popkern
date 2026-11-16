@@ -1,6 +1,6 @@
 //! Generic BRep boundary repair pipeline coordinator.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepCurveTrimReconstructionReport,
@@ -327,7 +327,7 @@ fn preflight_policy(
     pairs: &[BrepSewingEdgePair],
     options: BrepRepairPipelineOptions,
 ) -> Vec<BrepEdgePairPolicyDecision> {
-    let mut used_edges = HashSet::new();
+    let mut used_edges = HashSet::default();
     let mut decisions = Vec::with_capacity(pairs.len());
     for pair in pairs {
         let decision = assess_edge_pair_topology_policy(

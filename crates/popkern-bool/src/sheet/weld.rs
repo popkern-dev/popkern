@@ -21,7 +21,7 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, VertexHandle};
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 /// Weld vertices within `tolerance.linear()` of each other into a
 /// single canonical representative.
@@ -81,7 +81,7 @@ pub(super) fn weld_coincident_edges(brep: &mut BRep) -> usize {
     // Group edges by canonical (v_min, v_max) endpoint pair. The
     // VertexHandle ordering is via slotmap key comparison, which is
     // stable across snapshots of the same BRep.
-    let mut groups: HashMap<(VertexHandle, VertexHandle), Vec<EdgeHandle>> = HashMap::new();
+    let mut groups: HashMap<(VertexHandle, VertexHandle), Vec<EdgeHandle>> = HashMap::default();
     for (eh, edge) in &brep.edges {
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;
@@ -132,7 +132,7 @@ pub(super) fn weld_coincident_edges(brep: &mut BRep) -> usize {
         // Collect all half-edges belonging to the group's edges via
         // the back-reference. We iterate `brep.half_edges` once and
         // pick up every half-edge whose `edge` field is in our set.
-        let edge_set: std::collections::HashSet<EdgeHandle> = edges.iter().copied().collect();
+        let edge_set: popkern_math::hash::FastHashSet<EdgeHandle> = edges.iter().copied().collect();
         let mut group_half_edges: Vec<HalfEdgeHandle> = brep
             .half_edges
             .iter()

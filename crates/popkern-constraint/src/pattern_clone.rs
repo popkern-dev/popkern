@@ -8,7 +8,7 @@ use crate::constraint::ConstraintHandle;
 use crate::elements::{ElementHandle, PointHandle};
 use crate::pattern::HandleRemap;
 use crate::pattern_remap;
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 /// Compute the "complete seed set" -- seed elements plus all points
 /// they reference (line endpoints, arc centres via phantom points,
@@ -82,7 +82,7 @@ pub(crate) fn clone_elements(
         }
     }
     // Deduplicate while preserving insertion order
-    let mut seen_points: HashSet<PointHandle> = HashSet::new();
+    let mut seen_points: HashSet<PointHandle> = HashSet::default();
     point_order.retain(|ph| seen_points.insert(*ph));
 
     // Clone each unique point

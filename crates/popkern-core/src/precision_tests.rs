@@ -29,13 +29,13 @@ fn entity_handle_display() {
 
 #[test]
 fn entity_handle_clone_copy_eq_hash() {
-    use std::collections::HashSet;
+    use popkern_math::hash::FastHashSet as HashSet;
     let vh = VertexHandle::default();
     let eh = EntityHandle::Vertex(vh);
     let copied = eh;
     assert_eq!(eh, copied);
 
-    let mut set = HashSet::new();
+    let mut set = HashSet::default();
     set.insert(eh);
     assert!(set.contains(&EntityHandle::Vertex(vh)));
 

@@ -9,7 +9,7 @@
 //! inconsistent body meshed with 638 cracked seam edges).
 
 use popkern_math::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::{DraftError, DraftWarning};
 use popkern_core::geometry::Vec3;
@@ -450,7 +450,7 @@ mod tests {
     #[test]
     fn recompute_empty_drafted_is_noop() {
         let mut brep = BRep::unit_cube(tol()).unwrap();
-        let drafted = HashMap::new();
+        let drafted = HashMap::default();
         recompute_draft_edges(&mut brep, &drafted, &[], &tol(), &mut Vec::new()).unwrap();
     }
 
@@ -466,7 +466,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 0.996, -0.087),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         let result = recompute_draft_edges(&mut brep, &drafted, &[], &tol(), &mut Vec::new());

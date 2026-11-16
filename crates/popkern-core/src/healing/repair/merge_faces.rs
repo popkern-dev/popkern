@@ -5,7 +5,7 @@
 //! faces an additional distance-from-origin check ensures the planes
 //! are truly coincident (not just parallel).
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::surface::SurfaceGeometry;
@@ -35,7 +35,7 @@ pub struct FaceMergeResult {
 pub fn detect_coplanar_pairs(brep: &BRep, tolerance: &Tolerance) -> Vec<(FaceHandle, FaceHandle)> {
     let angular_tol = tolerance.angular();
     let linear_tol = tolerance.linear();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
 
     for (_edge_handle, edge_data) in &brep.edges {
         // Get the two half-edges for this edge.

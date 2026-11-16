@@ -108,7 +108,7 @@ impl NamePool {
         if self.extends(source) {
             return source.get(id).map(|_| id);
         }
-        let mut memo = std::collections::HashMap::new();
+        let mut memo = popkern_math::hash::FastHashMap::default();
         self.import_memo(source, id, &mut memo, 0)
     }
 
@@ -116,7 +116,7 @@ impl NamePool {
         &mut self,
         source: &NamePool,
         id: NameId,
-        memo: &mut std::collections::HashMap<NameId, NameId>,
+        memo: &mut popkern_math::hash::FastHashMap<NameId, NameId>,
         depth: usize,
     ) -> Option<NameId> {
         if let Some(&copied) = memo.get(&id) {

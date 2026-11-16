@@ -1,6 +1,7 @@
 //! Face classification for shell operations.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::error::ShellError;
 use crate::types::ShellDirection;
@@ -127,7 +128,7 @@ pub fn classify_faces(
 /// [`ShellError::MaterialSenseUnresolved`] naming the first face
 /// neither resolution can serve.
 fn face_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, ShellError> {
-    let mut senses: HashMap<FaceHandle, crate::classify_sense::FaceSense> = HashMap::new();
+    let mut senses: HashMap<FaceHandle, crate::classify_sense::FaceSense> = HashMap::default();
     let mut face_handles: Vec<FaceHandle> = brep.faces.keys().collect();
     face_handles.sort();
     for &fh in &face_handles {
@@ -136,9 +137,9 @@ fn face_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, She
         }
     }
 
-    let mut multipliers: HashMap<FaceHandle, f64> = HashMap::new();
+    let mut multipliers: HashMap<FaceHandle, f64> = HashMap::default();
     let mut unresolved: Vec<FaceHandle> = Vec::new();
-    let mut assigned: HashSet<FaceHandle> = HashSet::new();
+    let mut assigned: HashSet<FaceHandle> = HashSet::default();
     for &seed in &face_handles {
         if assigned.contains(&seed) {
             continue;
@@ -258,8 +259,8 @@ fn shared_edge_component(
 /// [`ShellError::MaterialSenseUnresolved`] naming a seed face of the
 /// first component whose sense cannot be measured.
 fn component_outward_multipliers(brep: &BRep) -> Result<HashMap<FaceHandle, f64>, ShellError> {
-    let mut multipliers = HashMap::new();
-    let mut assigned: HashSet<FaceHandle> = HashSet::new();
+    let mut multipliers = HashMap::default();
+    let mut assigned: HashSet<FaceHandle> = HashSet::default();
 
     for (seed, _) in &brep.faces {
         if assigned.contains(&seed) {

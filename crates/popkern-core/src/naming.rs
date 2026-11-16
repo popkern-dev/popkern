@@ -6,7 +6,8 @@
 //! recipe that produced the entity) and an optional [`GeometricCriteria`] hint
 //! (used by the resolver when structural names collide).
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -215,8 +216,8 @@ impl NamePool {
             names: ChunkedVec::default(),
             criteria: ChunkedVec::default(),
             lineage: ChunkedVec::default(),
-            index: Arc::new(HashMap::new()),
-            collisions: Arc::new(HashMap::new()),
+            index: Arc::new(HashMap::default()),
+            collisions: Arc::new(HashMap::default()),
         }
     }
 
@@ -302,8 +303,8 @@ impl NamePool {
     ///
     /// Call after deserialization (the index is not serialized).
     pub fn rebuild_index(&mut self) {
-        let mut index = HashMap::new();
-        let mut collisions: HashMap<u64, Vec<NameId>> = HashMap::new();
+        let mut index = HashMap::default();
+        let mut collisions: HashMap<u64, Vec<NameId>> = HashMap::default();
         for (i, name) in self.names.iter().enumerate() {
             let hash = name_hash(name);
             match index.entry(hash) {
@@ -354,7 +355,7 @@ impl NamePool {
     /// Names that already exist in `self` are not duplicated; they receive
     /// the existing id in the returned map.
     pub fn merge(&mut self, other: &NamePool) -> HashMap<NameId, NameId> {
-        let mut remap: HashMap<NameId, NameId> = HashMap::new();
+        let mut remap: HashMap<NameId, NameId> = HashMap::default();
 
         for (old_id, name) in other.names() {
             // Remap ancestors using what we've mapped so far.
@@ -385,7 +386,7 @@ impl NamePool {
     /// Returns a map from old [`NameId`] to new [`NameId`] for all surviving
     /// names. Dead names have no entry in the map.
     pub fn compact(&mut self, referenced: &HashSet<NameId>) -> HashMap<NameId, NameId> {
-        let mut remap: HashMap<NameId, NameId> = HashMap::new();
+        let mut remap: HashMap<NameId, NameId> = HashMap::default();
         let mut new_names: Vec<EntityName> = Vec::new();
         let mut new_criteria: Vec<Option<GeometricCriteria>> = Vec::new();
         let mut new_lineage: Vec<crate::naming_lineage::LineageEntry> = Vec::new();

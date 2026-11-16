@@ -114,8 +114,24 @@ pub(super) fn request_deviation_splits(
     count
 }
 
-/// Largest pairwise angle (radians) between a triangle's vertex
-/// normals, or zero when any vertex is chart-singular.
+/// Fraction of the way from a vertex toward its triangle's centroid at
+/// which the vertex's normal is read (see [`normal_spread`]).
+const INSIDE_STEP: f64 = 1e-6;
+
+/// Largest pairwise angle (radians) between a triangle's surface
+/// normals at its vertices, or zero when any vertex is chart-singular.
+///
+/// Each normal is read a hair inside the triangle (a millionth of the
+/// way to its centroid in the chart), not at the vertex: on a surface
+/// with a crease (a C0 knot row, a polyline section) a vertex on the
+/// crease has two normals, and the vertex's own evaluation picks one
+/// side whatever side the triangle lies on. A triangle lying on one
+/// side then compared normals across the crease and never met the
+/// bound however small it was split: the refinement doubled the strip
+/// every round to the cap (a face blend on a 19°-faceted section meshed
+/// to ten million triangles, PK-1223). On a smooth surface the inside
+/// read differs from the vertex's by the normal's turn over a millionth
+/// of the facet.
 fn normal_spread(vertices: [&MeshVertex; 3], surface: &SurfaceGeometry) -> f64 {
     if vertices
         .iter()
@@ -123,6 +139,17 @@ fn normal_spread(vertices: [&MeshVertex; 3], surface: &SurfaceGeometry) -> f64 {
     {
         return 0.0;
     }
+    let centroid = (
+        (vertices[0].uv.0 + vertices[1].uv.0 + vertices[2].uv.0) / 3.0,
+        (vertices[0].uv.1 + vertices[1].uv.1 + vertices[2].uv.1) / 3.0,
+    );
+    let inside = |v: &MeshVertex| {
+        surface.normal_at(
+            v.uv.0 + INSIDE_STEP * (centroid.0 - v.uv.0),
+            v.uv.1 + INSIDE_STEP * (centroid.1 - v.uv.1),
+        )
+    };
+    let normals = vertices.map(inside);
     let angle = |p: Vec3, q: Vec3| {
         let (lp, lq) = (p.length(), q.length());
         if lp < 1e-300 || lq < 1e-300 {
@@ -131,6 +158,6 @@ fn normal_spread(vertices: [&MeshVertex; 3], surface: &SurfaceGeometry) -> f64 {
         (p.dot(&q) / (lp * lq)).clamp(-1.0, 1.0).pacos()
     };
     (0..3)
-        .map(|k| angle(vertices[k].normal, vertices[(k + 1) % 3].normal))
+        .map(|k| angle(normals[k], normals[(k + 1) % 3]))
         .fold(0.0, f64::max)
 }

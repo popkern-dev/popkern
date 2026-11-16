@@ -15,6 +15,7 @@
 //! with no pcurves, a sample far from the chord) keeps the chord: the
 //! correction declines to the straight boundary it replaces.
 
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -197,18 +198,21 @@ pub(super) fn sliver_term(
     // (exact; a fitted pcurve sits up to ~1e-4 off it, PK-826, and the
     // hub of the propeller declined every blade-root chord on the
     // pcurve's distance), else from the pcurve's image.
-    let off = |trim: &Trim<'_>, t: f64, q: (f64, f64), p: popkern_core::geometry::Point3| {
+    // Also the foot's edge parameter, when the trim has an edge.
+    let off = |trim: &Trim<'_>, t: f64, q: (f64, f64), p: Point3| -> (f64, Option<f64>) {
         if let Some(edge) = trim.edge {
             let (lo, hi) = (edge.t_start.min(edge.t_end), edge.t_start.max(edge.t_end));
-            return edge
-                .geometry
-                .closest_point(&p)
-                .map(|te| edge.geometry.point_at(te.clamp(lo, hi)).distance_to(&p))
-                .unwrap_or(f64::INFINITY);
+            return match edge.geometry.closest_point(&p) {
+                Some(te) => {
+                    let te = te.clamp(lo, hi);
+                    (edge.geometry.point_at(te).distance_to(&p), Some(te))
+                }
+                None => (f64::INFINITY, None),
+            };
         }
         let c = trim.pcurve.point_at(t);
         let c = aligned((c.x, c.y), q, periods);
-        surface.point_at(c.0, c.1).distance_to(&p)
+        (surface.point_at(c.0, c.1).distance_to(&p), None)
     };
     // In (u, v) the pcurve only picks the branch: within a twentieth of
     // the chord with an edge to decide in space, a thousandth without.
@@ -241,25 +245,29 @@ pub(super) fn sliver_term(
             .unwrap_or(trim.lo);
         (t, 0.0)
     };
-    let mut best: Option<(&Trim<'_>, f64, f64, f64)> = None;
+    // The cheap (u, v) tests first: the edge's global foot search runs
+    // only for trims the chord could lie on (the same verdicts).
+    let mut best: Option<Carrier<'_>> = None;
     for trim in trims {
         let (ta, uva) = find(trim, a, pa, pole_a);
-        let da = off(trim, ta, a, pa);
-        if da > gate || uva > uv_band(trim) || at(trim, ta, a).distance_to(&pa) > branch {
+        if uva > uv_band(trim) || at(trim, ta, a).distance_to(&pa) > branch {
+            continue;
+        }
+        let (da, fa) = off(trim, ta, a, pa);
+        if da > gate {
             continue;
         }
         let (tb, uvb) = find(trim, b, pb, pole_b);
-        let worst = da.max(off(trim, tb, b, pb));
-        if worst <= gate
-            && uvb <= uv_band(trim)
-            && at(trim, tb, b).distance_to(&pb) <= branch
-            && ta != tb
-            && best.is_none_or(|x| worst < x.3)
-        {
-            best = Some((trim, ta, tb, worst));
+        if uvb > uv_band(trim) || at(trim, tb, b).distance_to(&pb) > branch || ta == tb {
+            continue;
+        }
+        let (db, fb) = off(trim, tb, b, pb);
+        let worst = da.max(db);
+        if worst <= gate && best.is_none_or(|x| worst < x.3) {
+            best = Some((trim, ta, tb, worst, [fa, fb]));
         }
     }
-    let (trim, ta, tb, _) = best?;
+    let (trim, ta, tb, _, feet) = best?;
     // The trim's own chart point at a pole end, on the chord's branch.
     let pole_point = |t: f64, q: (f64, f64)| {
         let c = trim.pcurve.point_at(t);
@@ -275,6 +283,19 @@ pub(super) fn sliver_term(
     if trim.closed && delta.abs() > 0.5 * span {
         delta -= span * delta.signum();
     }
+    // The edge parameters of the chord's ends: each fan sample's foot on
+    // the edge lies between them, so Newton finds it from there. A
+    // global search per sample (five Newton starts over the whole edge)
+    // held ~90% of a threaded part's volume, 150 s on an arm link, and
+    // on a multi-turn edge could settle on another turn (PK-1223). Ends
+    // either side of a closed edge's parameter seam keep the search.
+    let end_feet = match (trim.edge, feet) {
+        (Some(edge), [Some(fa), Some(fb)]) => {
+            let span = (edge.t_end - edge.t_start).abs();
+            (!trim.closed || (fb - fa).abs() <= 0.5 * span).then_some((fa, fb))
+        }
+        _ => None,
+    };
     let panels = 2 * PANELS;
     let mut points = Vec::with_capacity(panels + 1);
     for k in 1..panels {
@@ -296,7 +317,13 @@ pub(super) fn sliver_term(
             Some(edge) => {
                 let on_surface = surface.point_at(seed.0, seed.1);
                 let (lo, hi) = (edge.t_start.min(edge.t_end), edge.t_start.max(edge.t_end));
-                let te = edge.geometry.closest_point(&on_surface)?.clamp(lo, hi);
+                let near = end_feet.and_then(|(fa, fb)| {
+                    local_foot(&edge.geometry, &on_surface, fa + (fb - fa) * f, lo, hi)
+                });
+                let te = match near {
+                    Some(te) => te,
+                    None => edge.geometry.closest_point(&on_surface)?.clamp(lo, hi),
+                };
                 let on_edge = edge.geometry.point_at(te);
                 let uv = popkern_core::geometry::uv_projection::project_point_to_uv_near(
                     surface, &on_edge, seed.0, seed.1,
@@ -333,6 +360,34 @@ pub(super) fn sliver_term(
     let coarse: Vec<(f64, f64)> = points.iter().skip(1).step_by(2).copied().collect();
     let sum = fine + (fine - fan(&coarse)) / 3.0;
     sum.is_finite().then_some(sum)
+}
+
+/// The trim carrying a chord: its ends' trim parameters, their worst
+/// distance off it, and their feet on its edge.
+type Carrier<'a> = (&'a Trim<'a>, f64, f64, f64, [Option<f64>; 2]);
+
+/// Newton steps of [`local_foot`] before it gives way to the global search.
+const LOCAL_STEPS: usize = 12;
+
+/// The foot of `p` on `curve` by Newton on (C(t) − p) · C′(t) from
+/// `seed`, within `[lo, hi]`; `None` where the step does not settle or
+/// the distance is not convex there (the caller's global search decides).
+fn local_foot(curve: &dyn CurveEval, p: &Point3, seed: f64, lo: f64, hi: f64) -> Option<f64> {
+    let mut t = seed.clamp(lo, hi);
+    for _ in 0..LOCAL_STEPS {
+        let diff = curve.point_at(t) - *p;
+        let d1 = curve.derivative_at(t, 1);
+        let fp = d1.dot(&d1) + diff.dot(&curve.derivative_at(t, 2));
+        if fp.is_nan() || fp <= 0.0 {
+            return None;
+        }
+        let next = (t - diff.dot(&d1) / fp).clamp(lo, hi);
+        if (next - t).abs() <= 1e-12 * (1.0 + t.abs()) {
+            return Some(next);
+        }
+        t = next;
+    }
+    None
 }
 
 /// Whether the chart point `q` lies on a pole of `surface`: one chart

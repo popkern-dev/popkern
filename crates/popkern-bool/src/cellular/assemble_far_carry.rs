@@ -23,7 +23,7 @@
 //! unflipped split B's sense: the scoped union validated with A's part
 //! outward and B's inward (measured: signed volume -606.7, true 617.9).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::constructors::BRepBuilder;
 use popkern_core::topology::{
@@ -57,7 +57,7 @@ impl CarryMaps {
             operand,
             edges: SecondaryMap::new(),
             vertices: SecondaryMap::new(),
-            faces: HashMap::new(),
+            faces: HashMap::default(),
         }
     }
 

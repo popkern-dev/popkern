@@ -205,8 +205,8 @@ fn wire_part(
     };
     let mut builder = BRepBuilder::new(tolerance);
     // Output vertices standing for the wire's own vertices.
-    let mut at_vertex: std::collections::HashMap<VertexHandle, VertexHandle> =
-        std::collections::HashMap::new();
+    let mut at_vertex: popkern_math::hash::FastHashMap<VertexHandle, VertexHandle> =
+        popkern_math::hash::FastHashMap::default();
     for (eh, edge) in &wire.edges {
         let Some(curve) = edge.curve.as_ref() else {
             return Err(declined("a wire edge has no curve".to_string()));

@@ -301,7 +301,7 @@ pub(super) fn apply_open_chains(
     result: &mut BRep,
     edge_geometries: &[EdgeGeometry],
     tolerance: &popkern_core::tolerance::Tolerance,
-    chain_members: &mut std::collections::HashSet<usize>,
+    chain_members: &mut popkern_math::hash::FastHashSet<usize>,
     protected: &mut Vec<popkern_core::topology::FaceHandle>,
     failures: &mut Vec<(
         popkern_core::topology::EdgeHandle,

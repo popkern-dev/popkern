@@ -12,7 +12,7 @@
 //! full scan could accept. Candidates are visited in (edge, segment)
 //! order with a strict `<`, the full scan's tie-break.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 
@@ -39,7 +39,7 @@ impl SegmentIndex {
         // typical segment, or a sixteenth of the longest one (a long
         // segment touches a bounded number of cells).
         let cell = (4.0 * max_band).max(median).max(longest / 16.0).max(1e-9);
-        let mut cells: HashMap<(i64, i64, i64), Vec<(u32, u32)>> = HashMap::new();
+        let mut cells: HashMap<(i64, i64, i64), Vec<(u32, u32)>> = HashMap::default();
         for (ei, edge) in edges.iter().enumerate() {
             for (si, w) in edge.pts.windows(2).enumerate() {
                 let lo = key(

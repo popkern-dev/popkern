@@ -12,7 +12,8 @@
 //! curve, pcurve or surface) is not judged, and neither are the shells
 //! reaching it.
 
-use std::collections::{BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeSet;
 
 use slotmap::Key;
 
@@ -54,7 +55,7 @@ impl BRep {
     /// edge.
     pub fn validate_ring_membership_all(&self) -> Vec<ValidationError> {
         let mut errors = Vec::new();
-        let mut on_ring: HashMap<EdgeHandle, BTreeSet<HalfEdgeHandle>> = HashMap::new();
+        let mut on_ring: HashMap<EdgeHandle, BTreeSet<HalfEdgeHandle>> = HashMap::default();
         for (edge, data) in &self.edges {
             let first = data.half_edge;
             if !self.half_edges.get(first).is_some_and(|f| f.edge == edge) {
@@ -130,7 +131,7 @@ impl BRep {
         };
         let mut sides = Joins::new(face_index.len() * 2);
         let mut corners = Joins::new(fin_index.len() * 2);
-        let mut wedges_in: HashMap<ShellHandle, i64> = HashMap::new();
+        let mut wedges_in: HashMap<ShellHandle, i64> = HashMap::default();
         let mut unjudged: BTreeSet<ShellHandle> = BTreeSet::new();
         for edge in self.edges.keys() {
             let ring = self.radial_fins(edge);
@@ -209,8 +210,8 @@ impl BRep {
             loops: i64,
             lone_vertices: i64,
         }
-        let mut tally: HashMap<ShellHandle, Tally> = HashMap::new();
-        let mut face_vertices: HashMap<FaceHandle, BTreeSet<VertexHandle>> = HashMap::new();
+        let mut tally: HashMap<ShellHandle, Tally> = HashMap::default();
+        let mut face_vertices: HashMap<FaceHandle, BTreeSet<VertexHandle>> = HashMap::default();
         for (face, data) in &self.faces {
             for side in [FaceSide::Back, FaceSide::Front] {
                 let shell = self.face_side_shell(face, side).unwrap_or_default();
@@ -286,7 +287,7 @@ impl BRep {
             .copied()
             .collect();
         let mut joins = Joins::new(wires.len());
-        let mut at: HashMap<VertexHandle, usize> = HashMap::new();
+        let mut at: HashMap<VertexHandle, usize> = HashMap::default();
         let mut touches = vec![false; wires.len()];
         for (i, &e) in wires.iter().enumerate() {
             let Some((a, b)) = self.edge_vertices(e) else {

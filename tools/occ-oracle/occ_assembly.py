@@ -25,6 +25,11 @@ Output: one JSON object on stdout:
                            (BRepMesh, signed tetrahedra): GProp diverges on
                            multi-turn NURBS threads (PK-725)
 Exit code 0 when the file loaded.
+
+Reports are replayed from the content-addressed verdict cache that
+occ_check.py keeps (same key rule: the file's bytes, this script, the
+OCP version; POPKERN_OCC_CACHE=0 turns it off): the arm's read held
+~200 s of its suite test on every run (PK-1223).
 """
 
 import json
@@ -104,7 +109,8 @@ def volumes(shape):
     return props.Mass(), total
 
 
-def main(path):
+def report(path):
+    """The JSON report of `path` and the exit code."""
     from OCP.IFSelect import IFSelect_RetDone
     from OCP.STEPCAFControl import STEPCAFControl_Reader
     from OCP.TCollection import TCollection_ExtendedString
@@ -119,8 +125,7 @@ def main(path):
     status = reader.ReadFile(path)
     out = {"reader_status": str(status), "check_messages": [], "parts": 0, "instances": []}
     if status != IFSelect_RetDone:
-        print(json.dumps(out))
-        return 1
+        return out, 1
     reader.Transfer(doc)
     tool = XCAFDoc_DocumentTool.ShapeTool_s(doc.Main())
     colors = XCAFDoc_DocumentTool.ColorTool_s(doc.Main())
@@ -189,8 +194,41 @@ def main(path):
     for i in range(1, roots.Length() + 1):
         walk(roots.Value(i), TopLoc_Location(), [])
     out["parts"] = len(parts)
+    return out, 0
+
+
+def main(path):
+    import hashlib
+    import os
+
+    from occ_check import default_cache_dir
+
+    cache_dir = default_cache_dir()
+    if cache_dir is None:
+        out, code = report(path)
+        print(json.dumps(out))
+        return code
+    import OCP
+
+    digest = hashlib.sha256()
+    for name in (path, os.path.abspath(__file__)):
+        with open(name, "rb") as fh:
+            digest.update(fh.read())
+    digest.update(str(getattr(OCP, "__version__", "unknown")).encode())
+    entry = os.path.join(cache_dir, "assembly-" + digest.hexdigest() + ".json")
+    if os.path.exists(entry):
+        with open(entry) as fh:
+            stored = json.load(fh)
+        print(json.dumps(stored["report"]))
+        return stored["code"]
+    out, code = report(path)
+    os.makedirs(cache_dir, exist_ok=True)
+    tmp = entry + ".tmp%d" % os.getpid()
+    with open(tmp, "w") as fh:
+        json.dump({"report": out, "code": code}, fh)
+    os.replace(tmp, entry)
     print(json.dumps(out))
-    return 0
+    return code
 
 
 if __name__ == "__main__":

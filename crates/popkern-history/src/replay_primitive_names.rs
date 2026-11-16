@@ -91,7 +91,7 @@ pub(super) fn name_by_role(brep: &mut BRep, ctx: &mut TrackingContext, sector: b
         }
     }
     laterals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    let mut face_names = std::collections::HashMap::new();
+    let mut face_names = popkern_math::hash::FastHashMap::default();
     let roles = caps
         .iter()
         .map(|(i, fh)| (RoleCategory::Cap, *i as usize, *fh))
@@ -152,7 +152,8 @@ pub(super) fn name_by_role(brep: &mut BRep, ctx: &mut TrackingContext, sector: b
         brep.edges[eh].name = Some(id);
     }
     // Vertices: by the faces round them, then by position.
-    let mut around: std::collections::HashMap<_, Vec<NameId>> = std::collections::HashMap::new();
+    let mut around: popkern_math::hash::FastHashMap<_, Vec<NameId>> =
+        popkern_math::hash::FastHashMap::default();
     for (he, h) in brep.half_edges.iter() {
         if let Some(id) = face_of(brep, he).and_then(|f| face_names.get(&f).copied()) {
             around.entry(h.origin).or_default().push(id);

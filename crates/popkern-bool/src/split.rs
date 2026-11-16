@@ -4,7 +4,8 @@
 //! affected face to produce face fragments. Tracks provenance (which original
 //! face each fragment came from) and which edges were created by splitting.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::{
     tolerance::Tolerance,
@@ -239,8 +240,8 @@ pub(crate) fn split_body_along_curves(
     tolerance: &Tolerance,
 ) -> Result<(BRep, FragmentMap), BoolDiagnostics> {
     let mut fragments = FragmentMap {
-        origin: HashMap::new(),
-        intersection_edges: HashSet::new(),
+        origin: HashMap::default(),
+        intersection_edges: HashSet::default(),
     };
     // Group records by face (collect all curves per face).
     // Deterministic face processing order: the split cascade mutates
@@ -318,8 +319,8 @@ pub(crate) fn self_split_along_curves(
     tolerance: &Tolerance,
 ) -> Result<(BRep, FragmentMap), BoolDiagnostics> {
     let mut fragments = FragmentMap {
-        origin: HashMap::new(),
-        intersection_edges: HashSet::new(),
+        origin: HashMap::default(),
+        intersection_edges: HashSet::default(),
     };
     let mut per_face: std::collections::BTreeMap<FaceHandle, Vec<(usize, bool)>> =
         std::collections::BTreeMap::new();

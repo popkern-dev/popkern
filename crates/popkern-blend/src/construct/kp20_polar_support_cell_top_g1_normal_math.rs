@@ -1,6 +1,6 @@
 //! Linearized normal-equation helpers for the top-G1 solve.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Vec3;
@@ -64,7 +64,7 @@ pub(super) fn limited_control_deltas(
     solution: &[f64],
     limit: f64,
 ) -> (HashMap<ControlKey, Vec3>, usize, f64) {
-    let mut deltas: HashMap<ControlKey, Vec3> = HashMap::new();
+    let mut deltas: HashMap<ControlKey, Vec3> = HashMap::default();
     for (variable, value) in variables.iter().zip(solution) {
         deltas
             .entry(variable.key)
@@ -91,7 +91,7 @@ pub(super) fn apply_control_deltas(
     deltas: &HashMap<ControlKey, Vec3>,
     damping: f64,
 ) -> Result<(), CoreError> {
-    let mut patches: HashMap<FaceHandle, RectangularGregoryBiNonic> = HashMap::new();
+    let mut patches: HashMap<FaceHandle, RectangularGregoryBiNonic> = HashMap::default();
     for (&key, delta) in deltas {
         if let std::collections::hash_map::Entry::Vacant(entry) = patches.entry(key.face) {
             entry.insert(rectangular_binonic_on_face(brep, key.face)?);

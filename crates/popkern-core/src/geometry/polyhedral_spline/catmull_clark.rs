@@ -18,7 +18,7 @@
 //! realization of the design intent, not the intent itself. See
 //! `docs/architecture/smooth-mesh-cage-normalization.md`.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::net::ControlNet;
 use super::types::PolyhedralSplineError;
@@ -107,7 +107,7 @@ fn undirected_key(a: usize, b: usize) -> (usize, usize) {
 
 fn undirected_edges(net: &ControlNet) -> (Vec<CageEdge>, HashMap<(usize, usize), usize>) {
     let mut edges: Vec<CageEdge> = Vec::new();
-    let mut index = HashMap::new();
+    let mut index = HashMap::default();
     for (face_id, face) in net.faces.iter().enumerate() {
         let n = face.vertices.len();
         for corner in 0..n {

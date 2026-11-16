@@ -108,8 +108,8 @@ fn blade_hub_union_serves_with_full_outward_mesh() {
 
     let mesh = popkern_mesh::tessellate(&brep, &popkern_mesh::TessellationOptions::default())
         .expect("tessellate");
-    let mut face_vol: std::collections::HashMap<popkern_core::topology::FaceHandle, f64> =
-        std::collections::HashMap::new();
+    let mut face_vol: popkern_math::hash::FastHashMap<popkern_core::topology::FaceHandle, f64> =
+        popkern_math::hash::FastHashMap::default();
     for (ti, tri) in mesh.triangles.iter().enumerate() {
         let [a, b, c] = *tri;
         let (pa, pb, pc) = (
@@ -217,8 +217,8 @@ fn assert_meshes_watertight_and_faithful(
             + a.z * (b.x * c.y - b.y * c.x);
     }
     let volume = vol6 / 6.0;
-    let mut edge_uses: std::collections::HashMap<(u64, u64), i64> =
-        std::collections::HashMap::new();
+    let mut edge_uses: popkern_math::hash::FastHashMap<(u64, u64), i64> =
+        popkern_math::hash::FastHashMap::default();
     let key = |p: popkern_core::geometry::Point3| -> u64 {
         let q = |x: f64| ((x * 1.0e7).round() as i64) as u64;
         q(p.x)

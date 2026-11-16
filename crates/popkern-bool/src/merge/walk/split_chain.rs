@@ -13,7 +13,7 @@
 //! edges only with the interior piece it bounds, which shares none
 //! with the outer's chain, so the chain never reaches it.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use super::super::graph::IntersectionGraph;
 

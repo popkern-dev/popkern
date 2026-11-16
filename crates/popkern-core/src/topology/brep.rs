@@ -51,12 +51,12 @@ pub struct BRep {
     /// inferred repair result: downstream repair/export stages can consume it
     /// before falling back to lossy pcurve or endpoint inference.
     #[serde(default, with = "super::serde_handle_map")]
-    pub surface_boundary_hints: std::collections::HashMap<HalfEdgeHandle, BoundarySide>,
+    pub surface_boundary_hints: popkern_math::hash::FastHashMap<HalfEdgeHandle, BoundarySide>,
     /// Construction-time reasons a live half-edge was inspected for canonical
     /// boundary ownership but could not be accepted as one.
     #[serde(default, with = "super::serde_handle_map")]
     pub surface_boundary_declines:
-        std::collections::HashMap<HalfEdgeHandle, SurfaceBoundaryHintDecline>,
+        popkern_math::hash::FastHashMap<HalfEdgeHandle, SurfaceBoundaryHintDecline>,
     /// Durable audit trail for surface-boundary classification and shared
     /// trim-edge validation decisions. Repair knowledge collectors promote
     /// these records into structured facts so construction diagnostics are not
@@ -81,7 +81,7 @@ pub struct BRep {
     /// to the operator that authored the edge. Edges inserted via the
     /// raw `edges.insert()` path will be absent from this map.
     #[serde(skip)]
-    pub edge_creator_locations: std::collections::HashMap<EdgeHandle, (&'static str, u32)>,
+    pub edge_creator_locations: popkern_math::hash::FastHashMap<EdgeHandle, (&'static str, u32)>,
 }
 
 impl BRep {
@@ -110,13 +110,13 @@ impl BRep {
             name_pool: NamePool::new(),
             operation_labels: OperationLabels::default(),
             max_imprecision,
-            surface_boundary_hints: std::collections::HashMap::new(),
-            surface_boundary_declines: std::collections::HashMap::new(),
+            surface_boundary_hints: popkern_math::hash::FastHashMap::default(),
+            surface_boundary_declines: popkern_math::hash::FastHashMap::default(),
             surface_boundary_audit_events: Vec::new(),
             face_use_pcurves: std::collections::BTreeMap::new(),
             degradation_tracker: None,
             pending_coherence: Vec::new(),
-            edge_creator_locations: std::collections::HashMap::new(),
+            edge_creator_locations: popkern_math::hash::FastHashMap::default(),
         }
     }
 

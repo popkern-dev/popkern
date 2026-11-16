@@ -311,7 +311,7 @@ fn pattern_skip_instance_reduces_count() {
         .len();
 
     // Modify to skip instance 2.
-    let mut overrides: std::collections::HashMap<usize, pattern::InstanceOverride> =
+    let mut overrides: popkern_math::hash::FastHashMap<usize, pattern::InstanceOverride> =
         Default::default();
     overrides.insert(
         2,

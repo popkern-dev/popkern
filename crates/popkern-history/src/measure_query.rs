@@ -4,7 +4,7 @@
 //! popkern-history because they reference [`EntityName`] — the compute layer
 //! (popkern-measure) uses typed handles instead.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::naming::EntityName;
 use popkern_core::tolerance::Tolerance;
@@ -174,7 +174,7 @@ impl MeasureContext<'_> {
     /// a descriptive error.
     pub fn empty() -> MeasureContext<'static> {
         static EMPTY_BODIES: std::sync::LazyLock<HashMap<BodyId, BRep>> =
-            std::sync::LazyLock::new(HashMap::new);
+            std::sync::LazyLock::new(HashMap::default);
         static DEFAULT_TOL: std::sync::LazyLock<Tolerance> =
             std::sync::LazyLock::new(Tolerance::default);
         MeasureContext {

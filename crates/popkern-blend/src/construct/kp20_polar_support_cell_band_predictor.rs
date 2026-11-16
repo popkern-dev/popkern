@@ -7,7 +7,7 @@
 //! probe (`transverse_extent`) feeding the worst-sample anatomy.
 
 use popkern_math::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
@@ -48,7 +48,7 @@ pub(super) fn predict_worst_trim_g1(
     outcome: &mut CellReauthorOutcome,
 ) {
     use super::row_fit::bernstein9;
-    let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
+    let chained_rows: popkern_math::hash::FastHashSet<ChainRowKey> = sub_chains
         .iter()
         .flat_map(|sub| sub.rows.iter().map(|&(key, _)| key))
         .collect();

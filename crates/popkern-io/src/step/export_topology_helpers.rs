@@ -1,6 +1,6 @@
 //! Helper predicates and recovery utilities for STEP topology export.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
@@ -8,7 +8,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFac
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::topology::{
     BRep, BrepDegenerateEdgeKind, BrepDegenerateEdgeOptions, EdgeHandle, HalfEdge, HalfEdgeHandle,
-    LoopHandle, VertexHandle, analyze_brep_degenerate_edges, edge_segment,
+    LoopHandle, VertexHandle, classify_brep_degenerate_edges, edge_segment,
 };
 
 use crate::error::IoError;
@@ -108,7 +108,14 @@ pub(super) fn edge_curve_surface_trim_geometric_gap(
 }
 
 pub(super) fn collapsed_trim_missing_curve_edges(brep: &BRep) -> HashSet<EdgeHandle> {
-    analyze_brep_degenerate_edges(
+    // Only an edge with no 3D curve can answer: when every edge carries
+    // one the set is empty, and the degenerate-edge analysis (a repair
+    // knowledge graph measuring every pcurve, 89% of writing a box) is
+    // not run (PK-1223).
+    if brep.edges.values().all(|edge| edge.curve.is_some()) {
+        return HashSet::default();
+    }
+    classify_brep_degenerate_edges(
         brep,
         BrepDegenerateEdgeOptions {
             tolerance: brep.tolerance.linear(),

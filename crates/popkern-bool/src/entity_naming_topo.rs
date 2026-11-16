@@ -33,7 +33,8 @@
 //! by position (the lowest x, then y, then z of a sample point), which
 //! is the one place a moving tool can still renumber.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -93,7 +94,7 @@ pub(crate) fn assign_topological_names(
     // Faces.
     let sources =
         FaceSources::new(ops.a, ops.tools, tol, ops.carry).confirming(ctx.naming_scheme >= 6);
-    let mut piece_of: HashMap<FaceHandle, Vec<NameId>> = HashMap::new();
+    let mut piece_of: HashMap<FaceHandle, Vec<NameId>> = HashMap::default();
     let mut pending = Vec::new();
     let faces: Vec<FaceHandle> = result.faces.keys().collect();
     for f in faces {
@@ -194,7 +195,7 @@ pub(crate) fn assign_topological_names(
 
     // Vertices.
     let vertex_index = NearIndex::new(ops.vertices.iter().map(|v| v.1), band);
-    let mut incident: HashMap<VertexHandle, BTreeSet<u32>> = HashMap::new();
+    let mut incident: HashMap<VertexHandle, BTreeSet<u32>> = HashMap::default();
     for he in result.half_edges.values() {
         if let Some(id) = result.edges.get(he.edge).and_then(|e| e.name) {
             incident.entry(he.origin).or_default().insert(id.0);
@@ -364,7 +365,7 @@ fn first_name(sources: &[Source<'_>]) -> Option<EntityName> {
 
 /// Each face's neighbours across its edges.
 fn face_neighbours(result: &BRep) -> HashMap<FaceHandle, BTreeSet<FaceHandle>> {
-    let mut out: HashMap<FaceHandle, BTreeSet<FaceHandle>> = HashMap::new();
+    let mut out: HashMap<FaceHandle, BTreeSet<FaceHandle>> = HashMap::default();
     for e in result.edges.keys() {
         let faces: BTreeSet<FaceHandle> = result
             .radial_fins(e)

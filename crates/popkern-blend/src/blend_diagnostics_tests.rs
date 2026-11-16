@@ -16,7 +16,7 @@ fn tol() -> Tolerance {
 /// torus/cylinder on the G1 path.
 fn find_blend_face(
     brep: &BRep,
-    pre_faces: &std::collections::HashSet<popkern_core::topology::FaceHandle>,
+    pre_faces: &popkern_math::hash::FastHashSet<popkern_core::topology::FaceHandle>,
 ) -> popkern_core::topology::FaceHandle {
     use popkern_core::geometry::surface::SurfaceGeometry;
     for (fh, f) in brep.faces.iter() {
@@ -42,7 +42,7 @@ fn find_blend_face(
 fn comb_u_on_g1_cube_fillet_reads_ball_curvature() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let edge = cube.edges.keys().next().unwrap();
-    let pre: std::collections::HashSet<_> = cube.faces.keys().collect();
+    let pre: popkern_math::hash::FastHashSet<_> = cube.faces.keys().collect();
     let radius = 0.15;
     let specs = vec![FilletSpec {
         edge,
@@ -73,7 +73,7 @@ fn comb_u_on_g1_cube_fillet_reads_ball_curvature() {
 fn comb_v_on_g2_cube_fillet_is_populated() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let edge = cube.edges.keys().next().unwrap();
-    let pre: std::collections::HashSet<_> = cube.faces.keys().collect();
+    let pre: popkern_math::hash::FastHashSet<_> = cube.faces.keys().collect();
     let specs = vec![FilletSpec {
         edge,
         radius: FilletRadius::Constant(0.1),
@@ -101,7 +101,7 @@ fn comb_v_on_g2_cube_fillet_is_populated() {
 fn highlight_kink_max_returns_finite_on_cube_fillet() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let edge = cube.edges.keys().next().unwrap();
-    let pre: std::collections::HashSet<_> = cube.faces.keys().collect();
+    let pre: popkern_math::hash::FastHashSet<_> = cube.faces.keys().collect();
     let specs = vec![FilletSpec {
         edge,
         radius: FilletRadius::Constant(0.1),
@@ -132,7 +132,7 @@ fn highlight_kink_max_returns_finite_on_cube_fillet() {
 #[test]
 fn corner_curvature_comb_on_cube_corner_populates_bundle() {
     let cube = BRep::unit_cube(tol()).unwrap();
-    let pre: std::collections::HashSet<_> = cube.faces.keys().collect();
+    let pre: popkern_math::hash::FastHashSet<_> = cube.faces.keys().collect();
     let specs: Vec<FilletSpec> = cube
         .edges
         .keys()

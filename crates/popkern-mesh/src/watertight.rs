@@ -8,7 +8,7 @@
 //! every triangle as degenerate, and reported 0 open edges — a broken
 //! STEP import passed as watertight.)
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 
@@ -17,7 +17,7 @@ use crate::mesh::TriMesh;
 /// Open edges of `mesh` after welding at 1e-7 (0 = watertight); every
 /// triangle with a non-finite corner adds three.
 pub fn welded_open_edges(mesh: &TriMesh) -> usize {
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut id = |p: Point3| -> usize {
         let k = (
             (p.x * 1.0e7).round() as i64,
@@ -29,7 +29,7 @@ pub fn welded_open_edges(mesh: &TriMesh) -> usize {
     };
     let finite = |p: &Point3| p.x.is_finite() && p.y.is_finite() && p.z.is_finite();
     let mut holes = 0;
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         let corners = [
             mesh.vertices[t[0]].position,

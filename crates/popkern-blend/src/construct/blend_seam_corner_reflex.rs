@@ -24,7 +24,7 @@
 //! then declines the fillet with that reason. **Tolerance:** the
 //! caller's blend tolerance (`linear × 10` position gate, PK-152).
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::tolerance::Tolerance;

@@ -42,7 +42,7 @@ pub struct VertexSnapshot {
 /// Everything the naming pass needs from the body before a blend.
 pub struct PreOperationSnapshot {
     /// Face handles present before the operation.
-    pub(crate) faces: std::collections::HashSet<FaceHandle>,
+    pub(crate) faces: popkern_math::hash::FastHashSet<FaceHandle>,
     edges: Vec<EdgeSnapshot>,
     vertices: Vec<VertexSnapshot>,
 }
@@ -110,7 +110,7 @@ impl PreOperationSnapshot {
 pub(crate) fn assign_fillet_names(
     brep: &mut BRep,
     ctx: &mut TrackingContext,
-    pre_faces: &std::collections::HashSet<FaceHandle>,
+    pre_faces: &popkern_math::hash::FastHashSet<FaceHandle>,
 ) {
     let post_faces: Vec<FaceHandle> = brep.faces.keys().collect();
     let mut gen_idx: u32 = 0;

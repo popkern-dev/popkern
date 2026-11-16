@@ -1,6 +1,7 @@
 //! Read-only vertex-star classification for coordinated edge/surface repair.
 
-use std::collections::{BTreeSet, HashSet};
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeSet;
 
 use crate::geometry::Point3;
 use crate::topology::brep_edge_surface_compatibility::{

@@ -5,7 +5,7 @@
 //! and a per-triangle face id, plus the welded open-edge census (the
 //! same measure `Part::open_edge_count` reports).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::{BRep, FaceHandle};
 use popkern_mesh::{MeshError, TessellationOptions, TriMesh};
@@ -61,7 +61,7 @@ pub fn body_mesh(
         MeshPurpose::ZebraAnalysis => analysis_options(),
     };
     let mesh = popkern_mesh::tessellate(brep, &options)?;
-    let mut face_index: HashMap<FaceHandle, u32> = HashMap::new();
+    let mut face_index: HashMap<FaceHandle, u32> = HashMap::default();
     let mut face_labels = Vec::with_capacity(brep.faces.len());
     for (handle, _) in brep.faces.iter() {
         face_index.insert(handle, face_labels.len() as u32);

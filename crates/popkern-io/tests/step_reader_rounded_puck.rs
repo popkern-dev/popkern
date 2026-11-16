@@ -292,7 +292,7 @@ fn signed_meshed_volume(text: &str) -> f64 {
             (p.z * 1e7).round() as i64,
         )
     };
-    let mut directed = std::collections::HashMap::new();
+    let mut directed = popkern_math::hash::FastHashMap::default();
     for t in &mesh.triangles {
         let c = t.map(|i| key(mesh.vertices[i].position));
         for (a, b) in [(c[0], c[1]), (c[1], c[2]), (c[2], c[0])] {
@@ -363,7 +363,7 @@ fn a_puck_with_both_edges_rounded_winds_consistently() {
             (p.z * 1e7).round() as i64,
         )
     };
-    let mut directed = std::collections::HashMap::new();
+    let mut directed = popkern_math::hash::FastHashMap::default();
     for t in &mesh.triangles {
         let c = t.map(|i| key(mesh.vertices[i].position));
         for (a, b) in [(c[0], c[1]), (c[1], c[2]), (c[2], c[0])] {

@@ -3,7 +3,7 @@
 //! For each vertex adjacent to both drafted and undrafted faces, computes
 //! the new position from the intersection of the relevant surfaces.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::DraftError;
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -192,7 +192,7 @@ fn find_adjacent_faces(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
     }
 
     let mut current = start_he;
-    let mut visited = std::collections::HashSet::new();
+    let mut visited = popkern_math::hash::FastHashSet::default();
     loop {
         if !visited.insert(current) {
             break;
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn recompute_empty_drafted_is_noop() {
         let mut brep = BRep::unit_cube(tol()).unwrap();
-        let drafted = HashMap::new();
+        let drafted = HashMap::default();
         recompute_draft_vertices(&mut brep, &drafted, &tol()).unwrap();
         // Vertices should be unchanged.
         assert_eq!(brep.vertices.len(), 8);
@@ -369,7 +369,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 0.996, -0.087),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         let result = recompute_draft_vertices(&mut brep, &drafted, &tol());

@@ -5,7 +5,7 @@
 //! sets them, captions drawn on top, and the frames handed to an
 //! encoder. No browser, no GPU.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use glam::DVec3;
 use popkern_live::{Envelope, Session};

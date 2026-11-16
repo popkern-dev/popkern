@@ -182,8 +182,8 @@ type GridKey = ((u64, u64, u64), [u64; 4], usize, bool);
 
 thread_local! {
     static GRID_CACHE: std::cell::RefCell<
-        std::collections::HashMap<GridKey, std::rc::Rc<Vec<SurfaceCell>>>,
-    > = std::cell::RefCell::new(std::collections::HashMap::new());
+        popkern_math::hash::FastHashMap<GridKey, std::rc::Rc<Vec<SurfaceCell>>>,
+    > = std::cell::RefCell::new(popkern_math::hash::FastHashMap::default());
 }
 
 /// [`build_surface_grid`], memoized for NURBS surfaces by exact
@@ -234,8 +234,8 @@ const CELL_CACHE_CAPACITY: usize = 1 << 15;
 type CellKey = ((u64, u64, u64), [u64; 4]);
 
 thread_local! {
-    static CELL_CACHE: std::cell::RefCell<std::collections::HashMap<CellKey, SurfaceCell>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
+    static CELL_CACHE: std::cell::RefCell<popkern_math::hash::FastHashMap<CellKey, SurfaceCell>> =
+        std::cell::RefCell::new(popkern_math::hash::FastHashMap::default());
 }
 
 /// [`padded_cell`], memoized by the surface's content fingerprint

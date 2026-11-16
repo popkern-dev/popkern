@@ -6,7 +6,7 @@
 // Some helpers are used only by census/diagnostic paths.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
 use popkern_core::validation::CanonicalForwardState;
@@ -50,10 +50,10 @@ pub(crate) fn insert_operand_topology_scoped(
     scope: Option<&crate::scope::ActiveScope>,
     anchors: Option<&HashMap<VertexHandle, popkern_core::geometry::Point3>>,
 ) -> (HashMap<VertexHandle, usize>, HashMap<HalfEdgeHandle, usize>) {
-    let mut vertex_map: HashMap<VertexHandle, usize> = HashMap::new();
-    let mut he_map: HashMap<HalfEdgeHandle, usize> = HashMap::new();
+    let mut vertex_map: HashMap<VertexHandle, usize> = HashMap::default();
+    let mut he_map: HashMap<HalfEdgeHandle, usize> = HashMap::default();
     let active = scope.map(|s| &s.active);
-    let holes: std::collections::HashSet<popkern_core::topology::LoopHandle> = scope
+    let holes: popkern_math::hash::FastHashSet<popkern_core::topology::LoopHandle> = scope
         .map(|s| s.far_holes.values().flatten().copied().collect())
         .unwrap_or_default();
     // In scope: on an active face, and not on one of its far holes.
@@ -69,7 +69,7 @@ pub(crate) fn insert_operand_topology_scoped(
                     .is_some_and(|l| set.contains(&l.face))
         })
     };
-    let scoped_vertices: Option<std::collections::HashSet<VertexHandle>> = active.map(|_| {
+    let scoped_vertices: Option<popkern_math::hash::FastHashSet<VertexHandle>> = active.map(|_| {
         brep.half_edges
             .iter()
             .filter(|(h, _)| in_scope(*h))

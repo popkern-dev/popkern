@@ -77,10 +77,10 @@ fn probe_turn_scale() {
 /// Attribute welded open mesh edges to their originating faces (same
 /// welding as popkern-part's watertightness gate).
 fn report_open_edges_per_face(brep: &popkern_core::topology::BRep) {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
         .expect("mesh");
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut id = |p: popkern_core::geometry::Point3| -> usize {
         let k = (
             (p.x * 1.0e7).round() as i64,
@@ -90,7 +90,7 @@ fn report_open_edges_per_face(brep: &popkern_core::topology::BRep) {
         let next = key.len();
         *key.entry(k).or_insert(next)
     };
-    let mut counts: HashMap<(usize, usize), (usize, Vec<usize>)> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), (usize, Vec<usize>)> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
         let w = [
             id(mesh.vertices[t[0]].position),
@@ -108,7 +108,7 @@ fn report_open_edges_per_face(brep: &popkern_core::topology::BRep) {
             e.1.push(ti);
         }
     }
-    let mut per_face: HashMap<String, usize> = HashMap::new();
+    let mut per_face: HashMap<String, usize> = HashMap::default();
     let mut printed = 0;
     for ((a, _), (c, tris)) in counts.iter() {
         if *c == 1 {

@@ -117,7 +117,7 @@ pub fn row_shading_error(
     // length, blind to how the chart parametrizes the surface.
     let w = c.position - surface.point_at(u0, v0);
     let w_t = w - n_foot * w.dot(&n_foot);
-    let (su, sv) = (surface.partial_u(u0, v0), surface.partial_v(u0, v0));
+    let (su, sv) = surface.first_partials(u0, v0);
     let (g11, g12, g22) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
     let det = g11 * g22 - g12 * g12;
     if det <= 1e-24 * (g11 * g22).max(1e-300) || w_t.length() <= 1e-300 {

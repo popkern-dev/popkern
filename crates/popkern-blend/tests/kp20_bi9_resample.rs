@@ -41,7 +41,8 @@ fn fillet(body: &BRep, vertex: VertexHandle, radii: &[f64]) -> BlendResult {
 
 /// Worst certified bounds `(g0, g1, g2)` over the cap's rim and spoke seams.
 fn cap_bounds(result: &BlendResult) -> ([f64; 3], [f64; 3]) {
-    let caps: std::collections::HashSet<_> = result.corner_patches.iter().map(|p| p.face).collect();
+    let caps: popkern_math::hash::FastHashSet<_> =
+        result.corner_patches.iter().map(|p| p.face).collect();
     let brep = &result.brep;
     let options = seam_certify_options(brep);
     let (mut rim, mut spoke) = ([0.0f64; 3], [0.0f64; 3]);

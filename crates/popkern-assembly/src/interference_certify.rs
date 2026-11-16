@@ -22,7 +22,7 @@
 //! a body at most once per level. The first decided report wins. A pair still undecided at the finest
 //! level keeps its last report, so a decline is never hidden.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::Arc;
 
 use crate::assembly::{Assembly, DefinitionId};
@@ -84,7 +84,7 @@ impl Assembly {
         let mut last: Option<Option<PairReport>> = None;
         for level in 1..=MAX_LEVELS {
             let fraction = chord_fraction / 8f64.powi(level as i32);
-            let mut local: HashMap<(DefinitionId, usize), Arc<LocalMesh>> = HashMap::new();
+            let mut local: HashMap<(DefinitionId, usize), Arc<LocalMesh>> = HashMap::default();
             let meshes = &self.meshes;
             let mut finer_occurrence = |o: &Occurrence,
                                         near: &[std::collections::BTreeSet<FaceHandle>]|

@@ -3,7 +3,7 @@
 //! kind of seam — cap–cap, cap rim (cap–strip), strip–support,
 //! strip–strip — rather than one number over the whole part.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_blend::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::SurfaceGeometry;

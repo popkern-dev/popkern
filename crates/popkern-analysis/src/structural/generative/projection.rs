@@ -38,24 +38,85 @@ pub struct Projection {
 impl Projection {
     /// x̄ of `t`.
     pub fn apply(&self, t: f64) -> f64 {
+        self.curve().apply(t)
+    }
+
+    /// dx̄/dx̃ at `t`.
+    pub fn slope(&self, t: f64) -> f64 {
+        self.curve().slope(t)
+    }
+
+    /// The projection with its terms that do not depend on x̃ evaluated
+    /// once, for a sweep over a design's entries: the same arithmetic,
+    /// so the same bits as [`Projection::apply`], at a third of the
+    /// transcendentals for the threshold form (the update's volume
+    /// closure applies it ~60 times per update, PK-1223).
+    pub fn curve(&self) -> ProjectionCurve {
         let b = self.beta;
         match self.kind {
-            ProjectionKind::Guest => 1.0 - (-b * t).pexp() + t * (-b).pexp(),
+            ProjectionKind::Guest => ProjectionCurve::Guest {
+                beta: b,
+                tail: (-b).pexp(),
+            },
             ProjectionKind::Threshold(eta) => {
                 let low = (b * eta).ptanh();
-                (low + (b * (t - eta)).ptanh()) / (low + (b * (1.0 - eta)).ptanh())
+                ProjectionCurve::Threshold {
+                    beta: b,
+                    eta,
+                    low,
+                    span: low + (b * (1.0 - eta)).ptanh(),
+                }
             }
+        }
+    }
+}
+
+/// A [`Projection`] with its constant terms evaluated.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ProjectionCurve {
+    /// Guest's form; `tail` is e^(−β).
+    Guest {
+        /// Sharpness.
+        beta: f64,
+        /// e^(−β).
+        tail: f64,
+    },
+    /// The threshold form; `low` is tanh βη, `span` tanh βη + tanh β(1 − η).
+    Threshold {
+        /// Sharpness.
+        beta: f64,
+        /// Threshold.
+        eta: f64,
+        /// tanh βη.
+        low: f64,
+        /// tanh βη + tanh β(1 − η).
+        span: f64,
+    },
+}
+
+impl ProjectionCurve {
+    /// x̄ of `t`.
+    pub fn apply(&self, t: f64) -> f64 {
+        match *self {
+            ProjectionCurve::Guest { beta, tail } => 1.0 - (-beta * t).pexp() + t * tail,
+            ProjectionCurve::Threshold {
+                beta,
+                eta,
+                low,
+                span,
+            } => (low + (beta * (t - eta)).ptanh()) / span,
         }
     }
 
     /// dx̄/dx̃ at `t`.
     pub fn slope(&self, t: f64) -> f64 {
-        let b = self.beta;
-        match self.kind {
-            ProjectionKind::Guest => b * (-b * t).pexp() + (-b).pexp(),
-            ProjectionKind::Threshold(eta) => {
-                let th = (b * (t - eta)).ptanh();
-                b * (1.0 - th * th) / ((b * eta).ptanh() + (b * (1.0 - eta)).ptanh())
+        match *self {
+            ProjectionCurve::Guest { beta, tail } => beta * (-beta * t).pexp() + tail,
+            ProjectionCurve::Threshold {
+                beta, eta, span, ..
+            } => {
+                let th = (beta * (t - eta)).ptanh();
+                beta * (1.0 - th * th) / span
             }
         }
     }

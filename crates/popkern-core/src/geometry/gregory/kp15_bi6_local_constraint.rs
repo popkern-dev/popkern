@@ -47,7 +47,7 @@
 // through this module, removing the allow(dead_code) below.
 #![allow(dead_code)]
 
-use super::direct_linalg::solve_dense;
+use super::direct_linalg::solve_dense_sides;
 use super::kp15_bi6_reparam::Bi6Reparams;
 use crate::geometry::bernstein_poly::{
     BernsteinPoly, PolyCoeff, bernstein_product_scalar, bernstein_product_scalar_vec3,
@@ -1463,7 +1463,7 @@ impl Kp15Bi6GeneratingTable {
         m_unordered: Vec<f64>,
         free_bias_cols: &[usize],
     ) -> Self {
-        let free_bias_lookup: std::collections::HashSet<usize> =
+        let free_bias_lookup: popkern_math::hash::FastHashSet<usize> =
             free_bias_cols.iter().copied().collect();
         let mut perm: Vec<usize> = (0..cols)
             .filter(|c| !free_bias_lookup.contains(c))
@@ -1835,22 +1835,18 @@ impl Kp15Bi6GeneratingTable {
             }
         }
 
-        let mut var_vals: [Vec<f64>; 3] = [vec![0.0; n_var], vec![0.0; n_var], vec![0.0; n_var]];
-        for (d, seed) in [&seed_x, &seed_y, &seed_z].iter().enumerate() {
-            // rhs = -H_vf · seed.
-            let rhs: Vec<f64> = (0..n_var)
-                .map(|r| {
-                    let mut s = 0.0;
-                    for c in 0..n_fixed {
-                        s -= h_vf[r][c] * seed[c];
-                    }
-                    s
-                })
-                .collect();
-            let solution = solve_dense(h_vv.clone(), rhs)
-                .ok_or_else(|| format!("F_κ SPD solve singular at coord {d}"))?;
-            var_vals[d] = solution;
-        }
+        // rhs = -H_vf · seed per coordinate, all three through one
+        // elimination of H_vv (each bit-identical to its own solve, PK-600).
+        let sides: Vec<Vec<f64>> = [&seed_x, &seed_y, &seed_z]
+            .iter()
+            .map(|seed| {
+                (0..n_var)
+                    .map(|r| (0..n_fixed).fold(0.0, |s, c| s - h_vf[r][c] * seed[c]))
+                    .collect()
+            })
+            .collect();
+        let var_vals = solve_dense_sides(h_vv, sides)
+            .ok_or_else(|| "F_κ SPD solve singular at coord 0".to_string())?;
 
         // Step 5: assemble free-value vectors and apply.
         let assemble_free = |coord: usize, seed_coord: &[f64]| -> Vec<f64> {
@@ -1973,24 +1969,16 @@ impl Kp15Bi6GeneratingTable {
                 row[r] += ridge_lambda;
             }
         }
-        let mut var_vals: [Vec<f64>; 3] = [
-            vec![0.0; variable_idx.len()],
-            vec![0.0; variable_idx.len()],
-            vec![0.0; variable_idx.len()],
-        ];
-        for (d, seed) in [&seed_x, &seed_y, &seed_z].iter().enumerate() {
-            let rhs = (0..variable_idx.len())
-                .map(|r| {
-                    let mut s = 0.0;
-                    for c in 0..fixed_idx.len() {
-                        s -= h_vf[r][c] * seed[c];
-                    }
-                    s
-                })
-                .collect::<Vec<_>>();
-            var_vals[d] = solve_dense(h_vv.clone(), rhs)
-                .ok_or_else(|| format!("F_κ central-quadratic-free solve singular at coord {d}"))?;
-        }
+        let sides: Vec<Vec<f64>> = [&seed_x, &seed_y, &seed_z]
+            .iter()
+            .map(|seed| {
+                (0..variable_idx.len())
+                    .map(|r| (0..fixed_idx.len()).fold(0.0, |s, c| s - h_vf[r][c] * seed[c]))
+                    .collect()
+            })
+            .collect();
+        let var_vals = solve_dense_sides(h_vv, sides)
+            .ok_or_else(|| "F_κ central-quadratic-free solve singular at coord 0".to_string())?;
 
         let assemble_free = |coord: usize, seed_coord: &[f64]| -> Vec<f64> {
             let mut free = vec![0.0_f64; n_free];
@@ -2123,35 +2111,34 @@ impl Kp15Bi6GeneratingTable {
             rhs[2].push(source_point.z);
         }
 
-        let mut coords: [Vec<f64>; 3] = [
-            vec![0.0_f64; total],
-            vec![0.0_f64; total],
-            vec![0.0_f64; total],
-        ];
-        for coord in 0..3 {
-            let (active_constraints, active_rhs) =
-                independent_affine_constraint_rows(total, &constraint_rows, &rhs[coord], 1.0e-10)?;
-            let kkt_size = total + active_constraints.len();
-            let mut kkt = vec![vec![0.0_f64; kkt_size]; kkt_size];
-            for r in 0..total {
-                for c in 0..total {
-                    kkt[r][c] = q_global[r][c];
-                }
-            }
-            for (constraint_index, constraint) in active_constraints.iter().enumerate() {
-                let lagrange_col = total + constraint_index;
-                for (col, &value) in constraint.iter().enumerate() {
-                    kkt[col][lagrange_col] = value;
-                    kkt[lagrange_col][col] = value;
-                }
-            }
-            let mut kkt_rhs = vec![0.0_f64; kkt_size];
-            kkt_rhs[total..].copy_from_slice(&active_rhs);
-            let solution = solve_dense(kkt, kkt_rhs).ok_or_else(|| {
-                format!("F_κ {source_label} constrained solve singular at coord {coord}")
-            })?;
-            coords[coord][..total].copy_from_slice(&solution[..total]);
+        // One Gram-Schmidt pass and one elimination serve the three
+        // coordinates, each bit-identical to its own (PK-600, PK-1223).
+        let (active_constraints, active_rhs, inconsistent) =
+            independent_affine_constraint_rows(total, &constraint_rows, &rhs, 1.0e-10);
+        let fail =
+            |r: f64| format!("inconsistent KP15 two-sided tensor-source constraint residual {r:e}");
+        if let Some(r) = inconsistent[0] {
+            return Err(fail(r));
         }
+        let kkt_size = total + active_constraints.len();
+        let mut kkt = vec![vec![0.0_f64; kkt_size]; kkt_size];
+        for r in 0..total {
+            kkt[r][..total].copy_from_slice(&q_global[r][..total]);
+        }
+        for (constraint_index, constraint) in active_constraints.iter().enumerate() {
+            let lagrange_col = total + constraint_index;
+            for (col, &value) in constraint.iter().enumerate() {
+                kkt[col][lagrange_col] = value;
+                kkt[lagrange_col][col] = value;
+            }
+        }
+        let sides = Vec::from(active_rhs.map(|t| [vec![0.0_f64; total], t].concat()));
+        let solutions = solve_dense_sides(kkt, sides)
+            .ok_or_else(|| format!("F_κ {source_label} constrained solve singular at coord 0"))?;
+        if let Some(r) = inconsistent[1].or(inconsistent[2]) {
+            return Err(fail(r));
+        }
+        let coords: Vec<Vec<f64>> = solutions.iter().map(|s| s[..total].to_vec()).collect();
 
         let xs = &coords[0];
         let ys = &coords[1];
@@ -2213,20 +2200,24 @@ impl Kp15Bi6GeneratingTable {
     }
 }
 
+/// Independent constraint rows (orthonormalised), each coordinate's
+/// targets, and each coordinate's first inconsistent residual.
+type AffineRows = (Vec<Vec<f64>>, [Vec<f64>; 3], [Option<f64>; 3]);
+
 fn independent_affine_constraint_rows(
     cols: usize,
     rows: &[Vec<f64>],
-    rhs: &[f64],
+    rhs: &[Vec<f64>; 3],
     tol: f64,
-) -> Result<(Vec<Vec<f64>>, Vec<f64>), String> {
-    assert_eq!(rows.len(), rhs.len());
+) -> AffineRows {
     let mut basis = Vec::<Vec<f64>>::new();
-    let mut targets = Vec::<f64>::new();
-    for (row, &target) in rows.iter().zip(rhs) {
+    let mut targets: [Vec<f64>; 3] = Default::default();
+    let mut inconsistent = [None; 3];
+    for (index, row) in rows.iter().enumerate() {
         assert_eq!(row.len(), cols);
         let mut candidate = row.clone();
-        let mut candidate_target = target;
-        for (basis_row, &basis_target) in basis.iter().zip(&targets) {
+        let mut candidate_target = [0, 1, 2].map(|d| rhs[d][index]);
+        for (b, basis_row) in basis.iter().enumerate() {
             let dot = candidate
                 .iter()
                 .zip(basis_row)
@@ -2235,14 +2226,21 @@ fn independent_affine_constraint_rows(
             for (value, basis_value) in candidate.iter_mut().zip(basis_row) {
                 *value -= dot * basis_value;
             }
-            candidate_target -= dot * basis_target;
+            for d in 0..3 {
+                candidate_target[d] -= dot * targets[d][b];
+            }
         }
         let norm = candidate.iter().map(|v| v * v).sum::<f64>().sqrt();
         if norm <= tol {
-            if candidate_target.abs() > 1.0e-8 {
-                return Err(format!(
-                    "inconsistent KP15 two-sided tensor-source constraint residual {candidate_target:e}"
-                ));
+            for d in 0..3 {
+                if candidate_target[d].abs() > 1.0e-8 && inconsistent[d].is_none() {
+                    inconsistent[d] = Some(candidate_target[d]);
+                }
+            }
+            // Coordinate 0 inconsistent decides the outcome: stop, as
+            // its own pass did.
+            if inconsistent[0].is_some() {
+                break;
             }
             continue;
         }
@@ -2250,9 +2248,11 @@ fn independent_affine_constraint_rows(
             *value /= norm;
         }
         basis.push(candidate);
-        targets.push(candidate_target / norm);
+        for d in 0..3 {
+            targets[d].push(candidate_target[d] / norm);
+        }
     }
-    Ok((basis, targets))
+    (basis, targets, inconsistent)
 }
 
 /// Global column indices of [KP15 §3.6 step 4]'s "P" set — the

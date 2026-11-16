@@ -6,7 +6,7 @@
 //! and each carrying the faces the step itself created (its
 //! highlight).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use serde::Serialize;
 

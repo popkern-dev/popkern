@@ -90,7 +90,12 @@ pub(crate) fn refined_sweep_surface(
 /// and extrudes built this way keep their frames bit for bit (parity
 /// fixtures, and a fillet on a 1.6 mm block read its rounds 0.35% low
 /// once the block's walls were reskinned).
-fn prism(path: &NurbsCurve, method: &FrameMethod, twist: f64, scale: &ScaleMethod) -> bool {
+pub(crate) fn prism(
+    path: &NurbsCurve,
+    method: &FrameMethod,
+    twist: f64,
+    scale: &ScaleMethod,
+) -> bool {
     path.degree == 1
         && path.control_points.len() == 2
         && twist == 0.0

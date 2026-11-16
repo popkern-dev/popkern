@@ -11,7 +11,8 @@
 //! leaves an end no other edge reaches as an acorn, so a vertex is never
 //! orphaned.
 
-use std::collections::{BTreeSet, HashSet};
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeSet;
 
 use super::EulerError;
 use crate::topology::{

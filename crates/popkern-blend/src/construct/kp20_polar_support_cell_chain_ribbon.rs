@@ -16,7 +16,7 @@
 //! tangent-plane constraints applied to those curves at the
 //! shared node already make them G1-compatible.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};

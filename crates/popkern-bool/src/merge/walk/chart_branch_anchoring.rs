@@ -2,7 +2,8 @@
 //! anchoring (split from `chart_branches.rs` under the 500-line file
 //! budget). See [`anchor_components`].
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use super::super::chart_subdivision::FaceChartSubdivision;
 
@@ -60,7 +61,7 @@ fn run_flood(
     period: f64,
     ends: &dyn Fn(usize) -> (usize, usize),
 ) -> (Vec<Vec<usize>>, HashMap<usize, f64>) {
-    let mut node_to_hes: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut node_to_hes: HashMap<usize, Vec<usize>> = HashMap::default();
     for &h in interior {
         let (s, e) = ends(h);
         for n in [s, e] {
@@ -75,8 +76,8 @@ fn run_flood(
             }
         }
     }
-    let mut applied: HashMap<usize, f64> = HashMap::new();
-    let mut comp_of: HashMap<usize, usize> = HashMap::new();
+    let mut applied: HashMap<usize, f64> = HashMap::default();
+    let mut comp_of: HashMap<usize, usize> = HashMap::default();
     let mut components: Vec<Vec<usize>> = Vec::new();
     for &seed in interior {
         if comp_of.contains_key(&seed) {

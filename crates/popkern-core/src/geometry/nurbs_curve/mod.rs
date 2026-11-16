@@ -288,20 +288,22 @@ impl NurbsCurve {
     /// truncation).
     fn derivative_analytic_order1(&self, t: f64) -> Vec3 {
         let span = nurbs_ops::find_span(self.degree, &self.knots, self.control_points.len(), t);
-        let (n, d) =
-            nurbs_ops::basis::basis_funs_and_first_derivs(self.degree, &self.knots, span, t);
-        let mut a = [0.0_f64; 4];
-        let mut a_t = [0.0_f64; 4];
-        for r in 0..=self.degree {
-            let i = span - self.degree + r;
-            let w = self.weights[i];
-            let cp = &self.control_points[i];
-            let hw = [w * cp.x, w * cp.y, w * cp.z, w];
-            for c in 0..4 {
-                a[c] += n[r] * hw[c];
-                a_t[c] += d[r] * hw[c];
-            }
-        }
+        let (a, a_t) =
+            nurbs_ops::basis::with_first_derivs(self.degree, &self.knots, span, t, |n, d| {
+                let mut a = [0.0_f64; 4];
+                let mut a_t = [0.0_f64; 4];
+                for r in 0..=self.degree {
+                    let i = span - self.degree + r;
+                    let w = self.weights[i];
+                    let cp = &self.control_points[i];
+                    let hw = [w * cp.x, w * cp.y, w * cp.z, w];
+                    for c in 0..4 {
+                        a[c] += n[r] * hw[c];
+                        a_t[c] += d[r] * hw[c];
+                    }
+                }
+                (a, a_t)
+            });
         if a[3].abs() < 1e-30 {
             return Vec3::zero();
         }

@@ -20,7 +20,7 @@ mod direct_apex_acceptance;
 #[path = "direct_apex_vfree_fallback.rs"]
 mod vfree_fallback;
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};

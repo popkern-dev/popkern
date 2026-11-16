@@ -2,7 +2,8 @@
 //! the boundary-first tessellator that fixes every edge's samples
 //! before the final face pass (split out of `tessellate.rs`).
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
@@ -58,13 +59,13 @@ pub(crate) fn sample_and_refine_edges(
     // monotone (fractions only grow, per-edge caps only fill), so an
     // unchanged-boundary face can only reproduce requests that were
     // already inserted or are permanently deduped.
-    let mut active: Option<std::collections::HashSet<FaceHandle>> = None;
+    let mut active: Option<popkern_math::hash::FastHashSet<FaceHandle>> = None;
     // Each check builds the face's boundary-first mesh, the same pure
     // function of its edge samples that the final pass would run. Keep
     // it until a split changes one of the face's edges. Rebuilding
     // every face in the final pass doubled the mesh cost of a thread
     // rod, whose rounds usually end with no requests (PK-794).
-    let mut checked: HashMap<FaceHandle, Option<crate::mesh::FaceMesh>> = HashMap::new();
+    let mut checked: HashMap<FaceHandle, Option<crate::mesh::FaceMesh>> = HashMap::default();
     for round in 0..ENCROACHMENT_ROUNDS {
         // §17 per-round poll (the per-face closures also short-circuit
         // on a fired token, so a cancelled round finishes fast).
@@ -145,7 +146,7 @@ pub(crate) fn sample_and_refine_edges(
 
 /// Every edge bounding one of `faces`.
 fn edges_of(brep: &BRep, faces: &HashSet<FaceHandle>) -> HashSet<EdgeHandle> {
-    let mut edges = HashSet::new();
+    let mut edges = HashSet::default();
     for &fh in faces {
         let Some(face) = brep.faces.get(fh) else {
             continue;

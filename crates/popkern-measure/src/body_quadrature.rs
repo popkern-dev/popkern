@@ -306,7 +306,7 @@ fn face_quadrature(
 ) -> f64 {
     let mut out = 0.0;
     // Chords on the face's boundary: mesh edges of one triangle.
-    let mut uses = std::collections::HashMap::<(usize, usize), u32>::new();
+    let mut uses = popkern_math::hash::FastHashMap::<(usize, usize), u32>::default();
     for t in &fm.triangles {
         for k in 0..3 {
             let (i, j) = (t[k], t[(k + 1) % 3]);

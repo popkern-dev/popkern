@@ -14,7 +14,7 @@
 //! target); the thin set GROWS round over round and occasionally
 //! destabilizes the whole candidate — measured divergent.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Vec3;
 use popkern_core::topology::VertexHandle;
@@ -44,7 +44,7 @@ pub(super) fn leg_class_targets(
     authored_sub_chains: &[AuthoredSubChain],
 ) -> (ChainDerivativeTargets, usize) {
     let mut thin_count = 0usize;
-    let mut vertex_legs: HashMap<VertexHandle, Vec<(usize, f64, f64, f64)>> = HashMap::new();
+    let mut vertex_legs: HashMap<VertexHandle, Vec<(usize, f64, f64, f64)>> = HashMap::default();
     for (chain_index, authored) in authored_sub_chains.iter().enumerate() {
         for &(_, (start, end)) in &authored.rows {
             let width = (end - start).abs().max(1.0e-12);
@@ -65,7 +65,7 @@ pub(super) fn leg_class_targets(
             }
         }
     }
-    let mut targets: ChainDerivativeTargets = HashMap::new();
+    let mut targets: ChainDerivativeTargets = HashMap::default();
     let mut vertex_order: Vec<&VertexHandle> = vertex_legs.keys().collect();
     vertex_order.sort_by_key(|vertex| format!("{vertex:?}"));
     for vertex in vertex_order {

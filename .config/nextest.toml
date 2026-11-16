@@ -34,7 +34,7 @@ test-threads = 12
 # so the carve-out and the nightly kp20-battery job were removed.
 
 # Tests that build the whole six-axis arm (or a full cycloidal joint
-# module, or every gallery script) are the suite's heaviest: each
+# module, the gallery's two of them included) are the suite's heaviest: each
 # drives rayon's full pool for a minute or more. On 2026-10-14 each
 # held 13.5-16.5 GB (a debug-only validate_all after every boolean,
 # since gated to POPKERN_TRACE=boolean; arm_build_memory gates the
@@ -62,19 +62,76 @@ filter = """
     | binary(arm_build_memory)
     | binary(arm_target_posing)
     | binary(cycloidal_joint)
-    | (package(popkern-cli) & binary(gallery))
+    | (package(popkern-cli) & binary(gallery) & test(/^script::(six_axis_arm|cycloidal_joint)$/))
+    | (package(popkern-cli) & binary(film_state_parity) & test(/^script::six_axis_arm$/))
 """
 test-group = "whole-arm"
 
-# Every gallery script in one test: ~38 min (2270-2430 s over 2026-10
-# suites, once 3405 s under load), past the 30-minute default bound.
-# Killed after 80 minutes (40 periods), twice its usual time.
-[[profile.default.overrides]]
-filter = "package(popkern-cli) & binary(gallery) & test(every_gallery_script_serves_clean_watertight_and_step_valid)"
-slow-timeout = { period = "120s", terminate-after = 40 }
-
 [test-groups]
 whole-arm = { max-threads = 2 }
+
+# The longest tests start first (longest-first scheduling): in file
+# order the 17-minute STEP reader of the arm started 40 minutes in and
+# set the wall (3430 s of a 2360 s mean load per thread, PK-1223).
+# Tiers from the suite's timings (2026-11-16): 100 for 500 s and more,
+# 90 for 300-500 s, 80 for 200-300 s, 50 for 100-200 s. A test that
+# grows past its tier only starts later than it might; re-tier from a
+# suite log when the tail moves.
+[[profile.default.overrides]]
+filter = """
+    binary(six_axis_arm_step)
+    | binary(tangency_corpus)
+    | (package(popkern-cli) & binary(film_state_parity) & test(=script::generative_bracket))
+    | (package(popkern-cli) & binary(gallery) & test(/^script::(generative_bracket|polyhedral_dice|six_axis_arm)$/))
+"""
+priority = 100
+
+[[profile.default.overrides]]
+filter = """
+    (package(popkern-cli) & binary(gallery) & test(=script::cycloidal_joint))
+    | binary(angled_hole_rim_fillet)
+    | binary(step_roundtrip_continuity)
+    | binary(ball_rod_beside_its_pole)
+"""
+priority = 90
+
+[[profile.default.overrides]]
+filter = """
+    binary(deep_grind_phase_band)
+    | binary(/^zz_probe_(fuse_seam|pk892)$/)
+    | (package(popkern-live) & binary(/^six_axis_arm_/))
+    | (package(popkern-cli) & binary(film_state_parity) & test(=script::six_axis_arm))
+    | (package(popkern-rhai) & binary(six_axis_arm))
+    | binary(ball_cut_beside_its_pole)
+"""
+priority = 80
+
+[[profile.default.overrides]]
+filter = """
+    binary(cli_zebra)
+    | binary(variational_corner_fairness)
+    | (package(popkern-core) & test(/kp20_bi6_(guide_lsq|tau_solve_assemble|cc_ring)::/))
+    | binary(validation_sweep)
+    | binary(arm_build_memory)
+    | binary(equal_tee_saddle_fillet)
+    | binary(g1_request_corner_census)
+    | binary(film_overlap)
+    | (package(popkern-fastener) & test(/seated_tap_tests|tap_tool::/))
+    | binary(tangency_near_miss)
+    | binary(tangency_bench_scripts)
+    | binary(wide_apex_census)
+    | binary(display_fold_census)
+    | binary(tapped_hole_volume)
+    | binary(trim_containment_census)
+    | binary(sphere_pole_rod)
+    | binary(fillet_tangent_chains)
+    | binary(angled_fitting_seating)
+    | binary(six_axis_arm_interference)
+    | binary(corner_patched_cap)
+    | binary(cycloidal_joint)
+    | binary(zz_probe_pk1188)
+"""
+priority = 50
 
 [profile.ci]
 # CI wants the complete failure picture in one run.

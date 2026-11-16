@@ -7,7 +7,7 @@
 //! two open shells for `SheetSheetUnion`.
 
 use popkern_core::topology::{BRep, FaceHandle};
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 /// Remove every face in `faces_to_remove` from `brep`, then prune
 /// orphaned half-edges / edges / vertices left behind.
@@ -75,7 +75,7 @@ pub(super) fn drop_faces_and_prune(brep: &mut BRep, faces_to_remove: &HashSet<Fa
     }
 
     // Step 4: prune orphaned vertices.
-    let mut vertex_in_use = HashSet::new();
+    let mut vertex_in_use = HashSet::default();
     for (_, he) in &brep.half_edges {
         vertex_in_use.insert(he.origin);
     }

@@ -23,7 +23,7 @@
 //! [`GregoryExportForm::Exact`] trades consumer robustness for exact
 //! continuity (see its docs).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::path::Path;
 
 use popkern_core::geometry::Point3;
@@ -227,9 +227,9 @@ impl ExportContext {
         Self {
             entities: Vec::new(),
             next_id: 1,
-            point_cache: HashMap::new(),
-            point_2d_cache: HashMap::new(),
-            direction_cache: HashMap::new(),
+            point_cache: HashMap::default(),
+            point_2d_cache: HashMap::default(),
+            direction_cache: HashMap::default(),
             param_repr_context_id: None,
             surface_conditioning_tolerance: 0.1
                 * super::document::RepresentationContext::default().uncertainty,

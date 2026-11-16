@@ -190,7 +190,7 @@ impl BRep {
         // legitimate isolated vertices are an acorn shell's and the
         // vertex of an empty (MVFS) loop, one per loop without
         // half-edges.
-        let origins: std::collections::HashSet<_> = self
+        let origins: popkern_math::hash::FastHashSet<_> = self
             .half_edges
             .values()
             .map(|he| he.origin)
@@ -221,7 +221,7 @@ impl BRep {
         // intersection served exactly that, χ-clean and `validate()`
         // clean).
         // A shell of wire edges or an acorn holds no face side.
-        let bounded: std::collections::HashSet<_> = self
+        let bounded: popkern_math::hash::FastHashSet<_> = self
             .faces
             .values()
             .flat_map(|f| [f.back, f.front])

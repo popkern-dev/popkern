@@ -3,7 +3,7 @@
 //! Uses the section operation to find intersection curves for the specified
 //! pairs, then delegates to the standard boolean for the result.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};

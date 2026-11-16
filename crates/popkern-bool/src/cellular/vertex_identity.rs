@@ -8,7 +8,7 @@
 //! declined table, or `POPKERN_VERTEX_TABLE=0`, leaves the graph its
 //! own snap-then-adopt identity (`graph_identity`).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};

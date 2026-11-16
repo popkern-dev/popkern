@@ -4,7 +4,7 @@
 //! inner-loop imprints; the fresh-hole containment rule for nested
 //! annular imprints lives here.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -25,7 +25,7 @@ pub(super) fn island_chain_pre_pass(
     fragments: &mut FragmentMap,
 ) -> Result<HashSet<usize>, BoolDiagnostics> {
     use popkern_core::topology::trim::InnerLoopPiece;
-    let mut consumed: HashSet<usize> = HashSet::new();
+    let mut consumed: HashSet<usize> = HashSet::default();
     if entries.len() < 2 {
         return Ok(consumed);
     }

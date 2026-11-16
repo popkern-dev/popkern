@@ -11,7 +11,7 @@
 //! edge with it — the twin-sharing exclusion that keeps the tuned
 //! paired-ring tool semantics (same rule as assemble_chart_roles).
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::geometry::{Point3, Vec3};

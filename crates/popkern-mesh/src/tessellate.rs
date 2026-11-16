@@ -1,6 +1,6 @@
 //! Core tessellation: per-face meshing and top-level BRep tessellation.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::{SurfaceEval, SurfaceGeometry, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
@@ -39,7 +39,7 @@ pub(crate) fn tessellate_face_with_samples(
     face_handle: FaceHandle,
     options: &TessellationOptions,
     edge_samples: Option<
-        &std::collections::HashMap<
+        &popkern_math::hash::FastHashMap<
             popkern_core::topology::EdgeHandle,
             crate::boundary_first::EdgeSamples,
         >,
@@ -232,7 +232,7 @@ pub(crate) fn tessellate_face_with_samples(
     );
 
     // Deduplicate vertices by UV coordinate using bit-exact keys.
-    let mut vertex_map: HashMap<(u64, u64), usize> = HashMap::new();
+    let mut vertex_map: HashMap<(u64, u64), usize> = HashMap::default();
     let mut vertices: Vec<MeshVertex> = Vec::new();
     let mut triangles: Vec<[usize; 3]> = Vec::new();
 
@@ -251,8 +251,8 @@ pub(crate) fn tessellate_face_with_samples(
         let b = f.to_bits();
         if b >> 63 == 1 { !b } else { b ^ (1u64 << 63) }
     };
-    let mut corners_on_u: HashMap<u64, std::collections::BTreeMap<u64, f64>> = HashMap::new();
-    let mut corners_on_v: HashMap<u64, std::collections::BTreeMap<u64, f64>> = HashMap::new();
+    let mut corners_on_u: HashMap<u64, std::collections::BTreeMap<u64, f64>> = HashMap::default();
+    let mut corners_on_v: HashMap<u64, std::collections::BTreeMap<u64, f64>> = HashMap::default();
     for cell in &cells {
         for (u, v) in [
             (cell.u_min, cell.v_min),
@@ -795,7 +795,7 @@ pub(crate) type PositionBitKey = (u64, u64, u64);
 /// Winding votes for a face-mesh pair (mesh indices, lower first):
 /// summed matched arc length voting that the two boundaries traverse
 /// shared edges in the (same, opposite) direction.
-pub(crate) type PairWindingVotes = std::collections::HashMap<(usize, usize), (f64, f64)>;
+pub(crate) type PairWindingVotes = popkern_math::hash::FastHashMap<(usize, usize), (f64, f64)>;
 
 #[cfg(test)]
 mod tests {

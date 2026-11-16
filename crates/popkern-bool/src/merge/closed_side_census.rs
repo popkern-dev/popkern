@@ -54,7 +54,7 @@ pub struct ClosedSideCensusRow {
 /// Measure every closed, non-seam edge of `brep`.
 #[doc(hidden)]
 pub fn closed_side_census(brep: &BRep) -> Vec<ClosedSideCensusRow> {
-    let honesty: std::collections::HashMap<FaceHandle, Option<bool>> = brep
+    let honesty: popkern_math::hash::FastHashMap<FaceHandle, Option<bool>> = brep
         .audit_winding_honesty()
         .into_iter()
         .map(|v| (v.face, v.honest))

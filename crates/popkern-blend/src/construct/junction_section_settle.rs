@@ -29,7 +29,7 @@
 //! **Tolerance:** 100 × linear for the on-strip acceptance (the same
 //! band as the chain surgery's), local to this pass.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;

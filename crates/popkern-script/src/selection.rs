@@ -348,7 +348,7 @@ impl EdgeSelector {
 fn edges_named(
     brep: &BRep,
     name: &EntityName,
-) -> std::collections::HashSet<popkern_core::topology::EdgeHandle> {
+) -> popkern_math::hash::FastHashSet<popkern_core::topology::EdgeHandle> {
     popkern_core::naming_resolve::resolve_lineage(name, brep)
         .into_iter()
         .filter_map(|r| match r {
@@ -362,7 +362,7 @@ fn edges_named(
 fn faces_named(
     brep: &BRep,
     name: &EntityName,
-) -> std::collections::HashSet<popkern_core::topology::FaceHandle> {
+) -> popkern_math::hash::FastHashSet<popkern_core::topology::FaceHandle> {
     popkern_core::naming_resolve::resolve_lineage(name, brep)
         .into_iter()
         .filter_map(|r| match r {

@@ -2,7 +2,7 @@
 //! demand (design §6.4). Nothing here is stored: a definition's bodies
 //! are read once per call and transformed per occurrence.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::BRep;
 use popkern_part::Part;
@@ -37,7 +37,7 @@ impl Assembly {
     ///
     /// [`AssemblyError::Script`] when a definition's model fails.
     pub fn definition_parts(&mut self) -> Result<HashMap<DefinitionId, Vec<Part>>, AssemblyError> {
-        let mut parts = HashMap::new();
+        let mut parts = HashMap::default();
         for (i, definition) in self.definitions.iter_mut().enumerate() {
             if let DefinitionContent::Part(model) = &mut definition.content {
                 let built = model

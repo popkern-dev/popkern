@@ -3,7 +3,8 @@
 //! Implements detection and vertex-merging; full topological edge merging
 //! via Euler operators is deferred.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;
@@ -196,7 +197,7 @@ pub fn find_matching_edges(
         .collect();
     let mut match_counts = vec![0_usize; free_edges.len()];
     let mut candidates: Vec<EdgeMatch> = Vec::new();
-    let mut checked = HashSet::new();
+    let mut checked = HashSet::default();
     for i in 0..free_edges.len() {
         let Some(mid) = &midpoints[i] else {
             continue;
@@ -324,7 +325,7 @@ pub fn stitch_boundaries(
     let mut overall_max_displacement = 0.0_f64;
 
     // Track which edges were successfully matched.
-    let mut matched_edges = HashSet::new();
+    let mut matched_edges = HashSet::default();
 
     for m in matches {
         // Skip if the gap is too large to close within displacement limit.

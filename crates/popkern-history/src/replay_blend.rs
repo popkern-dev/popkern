@@ -77,8 +77,8 @@ fn grouped_fillet_specs(
             "radius laws are per fillet; radius groups take constant radii".into(),
         ));
     }
-    let mut grouped: std::collections::HashMap<&EntityName, usize> =
-        std::collections::HashMap::new();
+    let mut grouped: popkern_math::hash::FastHashMap<&EntityName, usize> =
+        popkern_math::hash::FastHashMap::default();
     for (g, group) in recipe.edge_radii.iter().enumerate() {
         for name in &group.edges {
             if !edges.contains(name) {

@@ -32,7 +32,7 @@
 //! untouched and watertightness holds by construction. Every accepted
 //! flip lowers a local maximum; a flip budget bounds the work.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
@@ -159,7 +159,7 @@ pub(crate) fn flip_creases(
         .iter()
         .map(|v| singular_without_unique_normal(surface, v.uv.0, v.uv.1))
         .collect();
-    let mut edge_tris: HashMap<EdgeKey, Vec<usize>> = HashMap::new();
+    let mut edge_tris: HashMap<EdgeKey, Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
         for k in 0..3 {
             edge_tris

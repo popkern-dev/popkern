@@ -16,7 +16,7 @@
 //! KP20's by more than 25 % on any corner both serve; past that the
 //! Moreton–Séquin polish becomes planned work.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_blend::dispatch_overrides::with_kp20_cap_forced_to_decline;
 use popkern_blend::{

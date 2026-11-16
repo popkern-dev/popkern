@@ -199,82 +199,161 @@ fn oracle_passes(step: &Path) -> Option<bool> {
     Some(String::from_utf8_lossy(&output.stdout).contains("\"passed\": true"))
 }
 
+/// One gallery script through the native gate: served through the
+/// live session, clean, every body watertight within the display facet
+/// bound, its films played, then through the `run` command (STEP and
+/// thumbnail) with the OCC oracle on the STEP when present.
+fn check_script(stem: &str) {
+    let Some(&(_, _, _, features, _)) = GALLERY.iter().find(|row| row.0 == stem) else {
+        panic!("[{stem}] not in the gallery table");
+    };
+    let features = &features;
+    let script = examples_dir().join(format!("{stem}.rhai"));
+    let source = std::fs::read_to_string(&script).unwrap_or_else(|e| panic!("{stem}: {e}"));
+    // Native engine: served, clean, every body watertight.
+    let mut session = Session::new(HostOptions::default());
+    let envelope = session.run(&source, &format!("{stem}.rhai"));
+    assert!(
+        envelope.outcome.is_served(),
+        "[{stem}] {:?}",
+        envelope.outcome
+    );
+    assert_eq!(envelope.features, *features, "[{stem}] feature count");
+    let report = envelope.report.as_ref().expect("report");
+    assert_eq!(report["failures"], 0, "[{stem}]");
+    assert_eq!(
+        report["downgraded_blends"], 0,
+        "[{stem}] no script leans on a downgrade"
+    );
+    assert!(!envelope.bodies.is_empty(), "[{stem}] a body on screen");
+    let films = script_films(stem);
+    let film_sources: Vec<(String, String)> = films
+        .iter()
+        .map(|(_, file)| {
+            (
+                file.clone(),
+                std::fs::read_to_string(examples_dir().join(file)).expect("film"),
+            )
+        })
+        .collect();
+    assert_films_run(stem, &mut session, &film_sources);
+    for body in &envelope.bodies {
+        assert_eq!(body.open_edges, 0, "[{stem}] watertight mesh");
+        let worst = worst_facet_spread(&body.normals, &body.indices);
+        assert!(
+            worst <= popkern_mesh::DISPLAY_MAX_FACET_ANGLE + FACET_SPREAD_SLACK,
+            "[{stem}] display mesh facet spread {:.2}° over the {:.1}° bound",
+            worst.to_degrees(),
+            popkern_mesh::DISPLAY_MAX_FACET_ANGLE.to_degrees()
+        );
+    }
+    // The command: STEP + thumbnail, oracle on the STEP.
+    let step = tmp(&format!("{stem}.step"));
+    let png = if updating() {
+        page_dir().join("examples").join(format!("{stem}.png"))
+    } else {
+        tmp(&format!("{stem}.png"))
+    };
+    let args: Vec<String> = [
+        "run",
+        script.to_str().expect("utf8"),
+        "--step",
+        step.to_str().expect("utf8"),
+        "--png",
+        png.to_str().expect("utf8"),
+        "--width",
+        "480",
+        "--height",
+        "360",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    let summary = execute(&parse_args(&args).expect("args"));
+    assert!(
+        matches!(summary.outcome, Outcome::Served),
+        "[{stem}] {:?}",
+        summary.outcome
+    );
+    match oracle_passes(&step) {
+        Some(passed) => assert!(passed, "[{stem}] OCC oracle rejected the STEP"),
+        None => eprintln!("[pk412] {stem}: OCC oracle absent"),
+    }
+}
+
+/// One test per gallery script, so the suite runs them side by side
+/// (in one test they ran serially, ~37 min, the suite's longest tail)
+/// and a failure names its script.
+macro_rules! gallery_scripts {
+    ($($stem:ident),* $(,)?) => {
+        $(
+            #[test]
+            fn $stem() {
+                check_script(stringify!($stem));
+            }
+        )*
+        /// The stems with a test of their own.
+        const TESTED: &[&str] = &[$(stringify!($stem)),*];
+    };
+}
+
+mod script {
+    use super::check_script;
+
+    gallery_scripts!(
+        boss_plate,
+        revolved_knob,
+        shelled_enclosure,
+        chamfered_bracket,
+        bored_block,
+        tapered_fillet,
+        pyramid_apex,
+        mixed_radius_corner,
+        parametric_plate,
+        project_box,
+        ball_bearing,
+        involute_gear,
+        centrifugal_impeller,
+        polyhedral_dice,
+        coil_spring,
+        propeller,
+        keyed_shaft,
+        planetary_gearbox,
+        threaded_stud,
+        hex_bolt,
+        countersunk_joint,
+        fastener_kit,
+        angled_fitting,
+        door_hinge,
+        piano_hinge,
+        living_hinges,
+        hinged_box,
+        hinge_assembly,
+        hinged_case,
+        cycloidal_joint,
+        six_axis_arm,
+        generative_bracket,
+    );
+
+    #[test]
+    fn every_gallery_script_has_its_own_test() {
+        let table: Vec<&str> = super::GALLERY.iter().map(|row| row.0).collect();
+        assert_eq!(
+            TESTED,
+            table.as_slice(),
+            "gallery_scripts! must list the table's stems in order"
+        );
+    }
+}
+
+/// The manifest the page reads and the copies beside it match the table
+/// (entries are the table's own rows: no script runs here).
 #[test]
-fn every_gallery_script_serves_clean_watertight_and_step_valid() {
+fn the_page_manifest_and_copies_match_the_gallery_table() {
     assert!(GALLERY.len() >= 8, "at least eight gallery scripts");
     let mut entries = Vec::new();
     for (stem, title, blurb, features, demonstrates) in GALLERY {
-        let script = examples_dir().join(format!("{stem}.rhai"));
-        let source = std::fs::read_to_string(&script).unwrap_or_else(|e| panic!("{stem}: {e}"));
-        // Native engine: served, clean, every body watertight.
-        let mut session = Session::new(HostOptions::default());
-        let envelope = session.run(&source, &format!("{stem}.rhai"));
-        assert!(
-            envelope.outcome.is_served(),
-            "[{stem}] {:?}",
-            envelope.outcome
-        );
-        assert_eq!(envelope.features, *features, "[{stem}] feature count");
-        let report = envelope.report.as_ref().expect("report");
-        assert_eq!(report["failures"], 0, "[{stem}]");
-        assert_eq!(
-            report["downgraded_blends"], 0,
-            "[{stem}] no script leans on a downgrade"
-        );
-        assert!(!envelope.bodies.is_empty(), "[{stem}] a body on screen");
         let films = script_films(stem);
-        let film_sources: Vec<(String, String)> = films
-            .iter()
-            .map(|(_, file)| {
-                (
-                    file.clone(),
-                    std::fs::read_to_string(examples_dir().join(file)).expect("film"),
-                )
-            })
-            .collect();
-        assert_films_run(stem, &mut session, &film_sources);
-        for body in &envelope.bodies {
-            assert_eq!(body.open_edges, 0, "[{stem}] watertight mesh");
-            let worst = worst_facet_spread(&body.normals, &body.indices);
-            assert!(
-                worst <= popkern_mesh::DISPLAY_MAX_FACET_ANGLE + FACET_SPREAD_SLACK,
-                "[{stem}] display mesh facet spread {:.2}° over the {:.1}° bound",
-                worst.to_degrees(),
-                popkern_mesh::DISPLAY_MAX_FACET_ANGLE.to_degrees()
-            );
-        }
-        // The command: STEP + thumbnail, oracle on the STEP.
-        let step = tmp(&format!("{stem}.step"));
-        let png = if updating() {
-            page_dir().join("examples").join(format!("{stem}.png"))
-        } else {
-            tmp(&format!("{stem}.png"))
-        };
-        let args: Vec<String> = [
-            "run",
-            script.to_str().expect("utf8"),
-            "--step",
-            step.to_str().expect("utf8"),
-            "--png",
-            png.to_str().expect("utf8"),
-            "--width",
-            "480",
-            "--height",
-            "360",
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        let summary = execute(&parse_args(&args).expect("args"));
-        assert!(
-            matches!(summary.outcome, Outcome::Served),
-            "[{stem}] {:?}",
-            summary.outcome
-        );
-        match oracle_passes(&step) {
-            Some(passed) => assert!(passed, "[{stem}] OCC oracle rejected the STEP"),
-            None => eprintln!("[pk412] {stem}: OCC oracle absent"),
-        }
         let mut entry = json!({
             "file": format!("{stem}.rhai"),
             "title": title,

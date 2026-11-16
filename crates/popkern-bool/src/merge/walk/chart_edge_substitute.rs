@@ -133,7 +133,8 @@ pub(super) fn imbalanced(
     sub: &FaceChartSubdivision,
     ends: &dyn Fn(usize) -> (usize, usize),
 ) -> bool {
-    let mut degree: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
+    let mut degree: popkern_math::hash::FastHashMap<usize, i64> =
+        popkern_math::hash::FastHashMap::default();
     for &h in sub.embeddings.keys() {
         let (a, b) = ends(h);
         *degree.entry(a).or_default() += 1;

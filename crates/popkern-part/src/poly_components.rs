@@ -1,6 +1,6 @@
 //! Solids of a polyhedron: one per edge-connected set of faces.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::*;
 

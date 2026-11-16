@@ -4,7 +4,7 @@
 use super::seam::{CertificateStatus, InconclusiveReason, SeamCertificate, SeamCertifyOptions};
 use super::seam_interval::{IntervalBounds, SideB, interval_bounds};
 use super::seam_state::SeamSideSource;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 /// Enclosures already computed for one seam under fraction
 /// correspondence, keyed by the s-interval's exact endpoints. Under

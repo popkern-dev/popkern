@@ -11,7 +11,7 @@
 //! number of later operations, without changing any stable name (no
 //! naming-scheme change; saved references keep resolving).
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 use std::sync::Arc;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -143,7 +143,7 @@ pub fn prune_unreadable_lineage(brep: &mut BRep) {
         .filter_map(|v| v.name)
         .chain(brep.edges.values().filter_map(|e| e.name))
         .chain(brep.faces.values().filter_map(|f| f.name));
-    let mut keep: HashSet<NameId> = HashSet::new();
+    let mut keep: HashSet<NameId> = HashSet::default();
     for id in live {
         keep.insert(id);
         if let Some(name) = brep.name_pool.get(id) {
@@ -193,7 +193,7 @@ mod tests {
         merged.intern(name(9, RoleCategory::Cap, 0), None);
         let remap = merged.merge(&second);
         assert!(merged.descends(remap[&again], &original));
-        let keep: std::collections::HashSet<_> = [remap[&again]].into_iter().collect();
+        let keep: popkern_math::hash::FastHashSet<_> = [remap[&again]].into_iter().collect();
         let compacted = merged.compact(&keep);
         assert!(merged.descends(compacted[&remap[&again]], &original));
     }

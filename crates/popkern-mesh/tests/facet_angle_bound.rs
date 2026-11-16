@@ -15,7 +15,7 @@
 //! (`popkern-cli/tests/gallery.rs`): the polyhedral dice's pip poles
 //! are the only fixture known to invert past v = π.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::surface::SurfaceEval;
@@ -88,7 +88,7 @@ fn worst_spread(mesh: &TriMesh) -> f64 {
 
 /// Edges used by exactly one triangle after welding at 1e-7.
 fn welded_open_edges(mesh: &TriMesh) -> usize {
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut id = |p: Point3| {
         let k = (
             (p.x * 1e7).round() as i64,
@@ -98,7 +98,7 @@ fn welded_open_edges(mesh: &TriMesh) -> usize {
         let next = key.len();
         *key.entry(k).or_insert(next)
     };
-    let mut count: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut count: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         let w = [
             id(mesh.vertices[t[0]].position),

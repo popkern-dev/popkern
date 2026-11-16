@@ -14,7 +14,8 @@
 //! pass is for the asymmetric case where one side's endpoint
 //! must agree with the other side's row-1 polynomial.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
@@ -88,7 +89,7 @@ pub(super) fn leg_vector_targets(
     patches: &HashMap<FaceHandle, RectangularGregoryBiNonic>,
 ) -> (ChainDerivativeTargets, usize, f64) {
     let authored_rows = authored_row_lookup(authored_sub_chains);
-    let mut targets: ChainDerivativeTargets = HashMap::new();
+    let mut targets: ChainDerivativeTargets = HashMap::default();
     let mut target_count = 0usize;
     let mut max_leg_delta = 0.0_f64;
     for trim in chain_trims {
@@ -149,7 +150,7 @@ pub(super) fn joint_endpoint_leg_equations(
 ) -> Vec<JointEndpointLegEquation> {
     let authored_rows = authored_row_lookup(authored_sub_chains);
     let mut equations = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     for trim in chain_trims {
         for (row_a, param_a, row_b, param_b) in [
             (trim.row_a, trim.interval_a.0, trim.row_b, trim.interval_b.1),
@@ -212,7 +213,7 @@ pub(super) fn joint_endpoint_plane_constraints(
 ) -> Vec<JointEndpointPlaneConstraint> {
     let authored_rows = authored_row_lookup(authored_sub_chains);
     let mut constraints = Vec::new();
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     for trim in chain_trims {
         for (row_a, param_a, row_b, param_b) in [
             (trim.row_a, trim.interval_a.0, trim.row_b, trim.interval_b.1),
@@ -251,7 +252,7 @@ pub(super) fn joint_endpoint_plane_constraints(
 fn authored_row_lookup(
     authored_sub_chains: &[AuthoredSubChain],
 ) -> HashMap<ChainRowKey, AuthoredRow> {
-    let mut rows = HashMap::new();
+    let mut rows = HashMap::default();
     for (chain_index, authored) in authored_sub_chains.iter().enumerate() {
         for &(key, (start, end)) in &authored.rows {
             rows.entry(key).or_insert(AuthoredRow {

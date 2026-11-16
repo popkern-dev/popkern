@@ -70,8 +70,8 @@ pub fn prepare_instances(instances: &[Instance<'_>], show_wireframe: bool) -> Pr
         Vec<u32>,
         Vec<([f32; 3], [f32; 3])>,
     );
-    let mut prepared: std::collections::HashMap<*const TriMesh, Prepared> =
-        std::collections::HashMap::new();
+    let mut prepared: popkern_math::hash::FastHashMap<*const TriMesh, Prepared> =
+        popkern_math::hash::FastHashMap::default();
     for inst in instances {
         let (lv, li, le) = prepared
             .entry(inst.mesh as *const TriMesh)

@@ -22,7 +22,7 @@
 //! its pcurves contradicted its topology (PK-878; the outward shell of
 //! the same cone exported to OpenCASCADE at 4.97 for 0.78).
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::geometry::surface::SurfaceGeometry;
 

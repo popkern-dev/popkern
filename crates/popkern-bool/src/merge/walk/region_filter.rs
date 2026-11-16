@@ -57,7 +57,7 @@ pub(super) fn drop_hole_interior_record_pieces(
     face_ref: &FaceRef,
     he_indices: &[usize],
     operands: &[&BRep],
-    carried: Option<&std::collections::HashSet<popkern_core::topology::LoopHandle>>,
+    carried: Option<&popkern_math::hash::FastHashSet<popkern_core::topology::LoopHandle>>,
     tolerance: &Tolerance,
 ) -> Option<Vec<usize>> {
     let brep = operands[face_ref.operand.index()];

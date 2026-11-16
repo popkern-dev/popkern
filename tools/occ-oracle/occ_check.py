@@ -23,9 +23,13 @@ Output: one JSON object per file on stdout with:
                          tolerance inflation that BRepCheck accepts (PK-524).
                          Runs OCC's parallel mode: 175 s -> 23 s on a
                          19-face setback cap (PK-590, same verdict).
-    cached               (with --cache-dir) true when the report was
+    cached               true when the report was
                          replayed from the verdict cache
 
+The cache is on by default at <repo>/target/occ-oracle-cache (or
+$POPKERN_OCC_CACHE; POPKERN_OCC_CACHE=0 turns it off): every suite test
+that calls the oracle re-checked byte-identical exports on each run, the
+gallery's dice alone 280 s (PK-1223).
 --cache-dir DIR replays a stored report when the SAME bytes were
 checked before under the same checker script, OCP version and flags
 (sha256 key over all four). The oracle is deterministic in those
@@ -239,6 +243,18 @@ def cached_check(path, self_interference, cache_dir):
     return dict(report, cached=False), passed
 
 
+def default_cache_dir():
+    """$POPKERN_OCC_CACHE, else the repository's target/occ-oracle-cache;
+    None when the variable is 0."""
+    configured = os.environ.get("POPKERN_OCC_CACHE")
+    if configured == "0":
+        return None
+    if configured:
+        return configured
+    repo = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(repo, "target", "occ-oracle-cache")
+
+
 def main():
     args = sys.argv[1:]
     if not args:
@@ -260,6 +276,8 @@ def main():
     if not paths:
         print(__doc__, file=sys.stderr)
         return 2
+    if cache_dir is None:
+        cache_dir = default_cache_dir()
     all_passed = True
     for path in paths:
         try:

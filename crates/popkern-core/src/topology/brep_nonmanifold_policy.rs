@@ -1,6 +1,6 @@
 //! Non-manifold policy checks and explanations for topology repair.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::topology::{BRep, BrepSewingEdgePair, EdgeHandle, HalfEdgeHandle};
 

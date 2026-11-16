@@ -1,6 +1,7 @@
 //! Active final-gate normal solve for the top shared-trim G1 samples.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Vec3;
@@ -277,7 +278,7 @@ fn active_control_variables(
     samples: &[ActiveGateSample],
     authority: ControlAuthority,
 ) -> Vec<ControlVariable> {
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let mut variables = Vec::new();
     for sample in samples {
         for variable in control_variables(sample.matched, sample.fraction, authority) {
@@ -293,7 +294,7 @@ fn load_sample_patches(
     brep: &BRep,
     samples: &[ActiveGateSample],
 ) -> Result<HashMap<FaceHandle, RectangularGregoryBiNonic>, CoreError> {
-    let mut patches = HashMap::new();
+    let mut patches = HashMap::default();
     for sample in samples {
         for face in [sample.matched.face_a, sample.matched.face_b] {
             if let std::collections::hash_map::Entry::Vacant(entry) = patches.entry(face) {

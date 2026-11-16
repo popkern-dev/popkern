@@ -1,6 +1,8 @@
 //! Vertex position recomputation for inner skin.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeMap;
 
 use crate::error::ShellError;
 use crate::skin_map::SkinMap;
@@ -260,7 +262,7 @@ pub(crate) fn recompute_vertices_with_gap_corners(
 
 /// Faces adjacent to `vertex` in `brep`, by walking the outgoing fan.
 fn faces_at_vertex(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
-    let mut faces = HashSet::new();
+    let mut faces = HashSet::default();
     let start_he = brep.vertices[vertex].outgoing;
     if !brep.half_edges.contains_key(start_he) {
         return Vec::new();
@@ -294,7 +296,7 @@ fn find_adjacent_outer_faces(
     vertex: VertexHandle,
     reverse_face: &HashMap<FaceHandle, FaceHandle>,
 ) -> Vec<FaceHandle> {
-    let mut faces = HashSet::new();
+    let mut faces = HashSet::default();
     let start_he = inner.vertices[vertex].outgoing;
 
     if !inner.half_edges.contains_key(start_he) {

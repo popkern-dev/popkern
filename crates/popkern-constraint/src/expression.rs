@@ -14,8 +14,9 @@ use crate::Sketch;
 use crate::config::{get_constraint_value, set_constraint_value_on};
 use crate::constraint::ConstraintHandle;
 use popkern_math::PortableMath;
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 /// A mathematical expression for computing dimension values.
 ///
@@ -123,7 +124,7 @@ pub(crate) fn has_cycle(
     expr: &Expression,
     expressions: &HashMap<ConstraintHandle, Expression>,
 ) -> bool {
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     has_cycle_inner(target, expr, expressions, &mut visited)
 }
 
@@ -208,8 +209,8 @@ fn topological_sort(
     expressions: &HashMap<ConstraintHandle, Expression>,
 ) -> Result<Vec<ConstraintHandle>, String> {
     let handle_set: HashSet<ConstraintHandle> = handles.iter().copied().collect();
-    let mut visited = HashSet::new();
-    let mut in_stack = HashSet::new();
+    let mut visited = HashSet::default();
+    let mut in_stack = HashSet::default();
     let mut order = Vec::with_capacity(handles.len());
 
     for &handle in handles {

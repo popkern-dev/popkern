@@ -3,7 +3,7 @@
 //! offset-rail rebuild for free-rim edges whose Stage-2 recompute
 //! declined (PK-326 boundary corners).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::arc_join_geometry::offset_rail;
 use crate::error::ShellError;

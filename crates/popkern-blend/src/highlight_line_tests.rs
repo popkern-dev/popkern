@@ -118,7 +118,7 @@ fn highlight_lines_on_fillet_blend_face() {
         edge,
         radius: FilletRadius::Constant(0.1),
     }];
-    let pre_faces: std::collections::HashSet<_> = cube.faces.keys().collect();
+    let pre_faces: popkern_math::hash::FastHashSet<_> = cube.faces.keys().collect();
     let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None)
         .expect("fillet should succeed");
     // The blend strip specifically (a cylinder for a plane–plane

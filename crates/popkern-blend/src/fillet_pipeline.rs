@@ -137,7 +137,7 @@ pub(crate) fn fillet_edges_attempt(
     let specs: &[FilletSpec] = &healed_specs;
     // Capture pre-operation faces, edges and vertices for naming.
     let pre = PreOperationSnapshot::capture(brep);
-    let pre_faces: &std::collections::HashSet<FaceHandle> = &pre.faces;
+    let pre_faces: &popkern_math::hash::FastHashSet<FaceHandle> = &pre.faces;
     // PHASE 1: Analyze edges.
     let t1 = popkern_core::time::Stopwatch::start();
     let edges: Vec<EdgeHandle> = specs.iter().map(|s| s.edge).collect();
@@ -392,7 +392,7 @@ pub(crate) fn fillet_edges_attempt(
     // from the rail curves at the same fraction (curved variable
     // rails; the imprecision-scaled stale gate cannot serve them).
     {
-        let pre_faces: std::collections::HashSet<popkern_core::topology::FaceHandle> =
+        let pre_faces: popkern_math::hash::FastHashSet<popkern_core::topology::FaceHandle> =
             brep.faces.keys().collect();
         let created: Vec<popkern_core::topology::FaceHandle> = apply_result
             .brep

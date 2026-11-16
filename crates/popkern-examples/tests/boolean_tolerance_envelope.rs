@@ -32,12 +32,12 @@ fn volume(brep: &BRep) -> f64 {
 
 /// Mesh edges used by exactly one triangle (position-welded).
 fn open_edges(mesh: &popkern_mesh::TriMesh) -> usize {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     type Bits = (u64, u64, u64);
     let key = |p: popkern_core::geometry::Point3| -> Bits {
         (p.x.to_bits(), p.y.to_bits(), p.z.to_bits())
     };
-    let mut count: HashMap<(Bits, Bits), usize> = HashMap::new();
+    let mut count: HashMap<(Bits, Bits), usize> = HashMap::default();
     for t in &mesh.triangles {
         for k in 0..3 {
             let a = key(mesh.vertices[t[k]].position);

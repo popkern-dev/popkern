@@ -7,7 +7,7 @@
 //!      applying overrides, calling [`expression::evaluate_all`], and returning
 //!      the resulting value map.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use slotmap::SlotMap;
 
@@ -70,8 +70,8 @@ pub(crate) fn build_effective_expressions(
     configs: &SlotMap<ConfigId, Configuration>,
     table: &ParameterTable,
 ) -> (HashMap<ParameterId, f64>, HashMap<ParameterId, Expression>) {
-    let mut literals = HashMap::new();
-    let mut expressions = HashMap::new();
+    let mut literals = HashMap::default();
+    let mut expressions = HashMap::default();
 
     for (pid, _param) in table.all_params() {
         if let Some(ov) = resolve_override(pid, config, configs) {

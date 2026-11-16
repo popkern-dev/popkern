@@ -96,7 +96,7 @@ pub(super) fn misread_face_term(
 /// tolerance), `None` where the mesh read it.
 fn misread_area(brep: &BRep, fm: &FaceMesh, mesh_area: &dyn Fn() -> f64) -> Option<f64> {
     let trims = crate::face::face_area(brep, fm.face, &brep.tolerance).ok()?;
-    let mut uses = std::collections::HashMap::<(usize, usize), u32>::new();
+    let mut uses = popkern_math::hash::FastHashMap::<(usize, usize), u32>::default();
     for t in &fm.triangles {
         for k in 0..3 {
             let (i, j) = (t[k], t[(k + 1) % 3]);

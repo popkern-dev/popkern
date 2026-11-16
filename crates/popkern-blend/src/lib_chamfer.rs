@@ -145,7 +145,7 @@ fn chamfer_pipeline(
 
     // Capture pre-operation faces, edges and vertices for naming.
     let pre = crate::naming::PreOperationSnapshot::capture(brep);
-    let pre_faces: &std::collections::HashSet<FaceHandle> = &pre.faces;
+    let pre_faces: &popkern_math::hash::FastHashSet<FaceHandle> = &pre.faces;
 
     // 1. Analyze edges.
     let edges: Vec<EdgeHandle> = specs.iter().map(|s| s.edge).collect();

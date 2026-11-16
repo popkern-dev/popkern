@@ -9,7 +9,7 @@
 //! larger, and `Inconclusive` when no bound could be proven — never
 //! accepted on sampled evidence.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::certify::CertifyDecline;
@@ -117,7 +117,7 @@ impl ChordalCertificate {
 /// Certify `mesh` (tessellated from `brep`) against `tolerance`.
 pub fn chordal_certificate(brep: &BRep, mesh: &TriMesh, tolerance: f64) -> ChordalCertificate {
     let mut by_face: Vec<(FaceHandle, Vec<usize>)> = Vec::new();
-    let mut slot: HashMap<FaceHandle, usize> = HashMap::new();
+    let mut slot: HashMap<FaceHandle, usize> = HashMap::default();
     for (t, &face) in mesh.face_map.iter().enumerate() {
         let k = *slot.entry(face).or_insert_with(|| {
             by_face.push((face, Vec::new()));
@@ -205,7 +205,7 @@ fn certify_face(
     // Two triangles tiling a parameter rectangle are bounded together,
     // through the bilinear patch, and the smaller bound is kept.
     if best.iter().any(|(b, _)| *b > tolerance) {
-        let mut by_edge: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        let mut by_edge: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
         for (k, &t) in tris.iter().enumerate() {
             let tri = mesh.triangles[t];
             for e in 0..3 {
@@ -250,7 +250,7 @@ fn certify_face(
     // Triangles still over: pair them through bent edges, which do not
     // charge a surface's sag inside its tangent plane (PK-908).
     if best.iter().any(|(b, _)| *b > tolerance) {
-        let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+        let mut weld: HashMap<[u64; 3], usize> = HashMap::default();
         let mut id = |p: Point3| {
             let next = weld.len();
             *weld

@@ -19,7 +19,7 @@
 //! Shifts are applied at pcurve emission; kernel pcurves are never
 //! modified (the kernel's own consumers unwrap rings themselves).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};

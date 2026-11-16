@@ -171,15 +171,16 @@ fn split_err_produces_correct_diagnostics() {
 fn find_fragment_for_curve_returns_original_when_no_fragments() {
     use crate::split::FragmentMap;
     use popkern_core::geometry::NurbsCurve;
-    use std::collections::{HashMap, HashSet};
+    use popkern_math::hash::FastHashMap as HashMap;
+    use popkern_math::hash::FastHashSet as HashSet;
 
     let brep = unit_cube();
     let face = brep.faces.keys().next().unwrap();
 
     // FragmentMap with no entries for this face.
     let fragments = FragmentMap {
-        origin: HashMap::new(),
-        intersection_edges: HashSet::new(),
+        origin: HashMap::default(),
+        intersection_edges: HashSet::default(),
     };
 
     // A simple straight UV curve from (0,0) to (1,0).
@@ -207,14 +208,15 @@ fn find_fragment_for_curve_returns_original_when_no_fragments() {
 fn find_fragment_for_curve_returns_none_for_nonexistent_face() {
     use crate::split::FragmentMap;
     use popkern_core::geometry::NurbsCurve;
-    use std::collections::{HashMap, HashSet};
+    use popkern_math::hash::FastHashMap as HashMap;
+    use popkern_math::hash::FastHashSet as HashSet;
 
     let brep = unit_cube();
     let bogus = popkern_core::topology::FaceHandle::default();
 
     let fragments = FragmentMap {
-        origin: HashMap::new(),
-        intersection_edges: HashSet::new(),
+        origin: HashMap::default(),
+        intersection_edges: HashSet::default(),
     };
 
     let curve_uv = NurbsCurve {

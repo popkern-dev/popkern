@@ -37,13 +37,14 @@ use crate::fillet_2d::{fillet_corner_2d, fillet_corners_2d};
 /// edge for determinism. Disconnected sets, branching junctions
 /// (degree ≥ 3), and empty inputs each return a specific error.
 fn walk_chain_corners(brep: &BRep, edges: &[EdgeHandle]) -> Result<Vec<VertexHandle>, String> {
-    use std::collections::{HashMap, HashSet};
+    use popkern_math::hash::FastHashMap as HashMap;
+    use popkern_math::hash::FastHashSet as HashSet;
 
     if edges.is_empty() {
         return Ok(Vec::new());
     }
 
-    let mut vertex_edges: HashMap<VertexHandle, Vec<EdgeHandle>> = HashMap::new();
+    let mut vertex_edges: HashMap<VertexHandle, Vec<EdgeHandle>> = HashMap::default();
     for &eh in edges {
         let he = brep.edges[eh].half_edge;
         let v_from = brep.half_edges[he].origin;
@@ -93,7 +94,7 @@ fn walk_chain_corners(brep: &BRep, edges: &[EdgeHandle]) -> Result<Vec<VertexHan
     };
 
     let mut corners: Vec<VertexHandle> = Vec::new();
-    let mut visited_edges: HashSet<EdgeHandle> = HashSet::new();
+    let mut visited_edges: HashSet<EdgeHandle> = HashSet::default();
     let mut current_vertex = start_vertex;
     let mut current_edge = start_edge;
 
@@ -148,8 +149,8 @@ fn walk_chain_corners(brep: &BRep, edges: &[EdgeHandle]) -> Result<Vec<VertexHan
 /// handle for deterministic collision semantics in the batch
 /// fillet / chamfer paths.
 fn corner_vertices_for_edge_set(brep: &BRep, edges: &[EdgeHandle]) -> Vec<VertexHandle> {
-    use std::collections::HashMap;
-    let mut counts: HashMap<VertexHandle, usize> = HashMap::new();
+    use popkern_math::hash::FastHashMap as HashMap;
+    let mut counts: HashMap<VertexHandle, usize> = HashMap::default();
     for &edge_h in edges {
         let he = brep.edges[edge_h].half_edge;
         let v_from = brep.half_edges[he].origin;

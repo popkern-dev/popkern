@@ -4,7 +4,7 @@
 //! features and current BRep snapshots.  Each body represents a discrete solid
 //! in a multi-body workflow (e.g. the target body and a boolean tool body).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::BRep;
 
@@ -34,8 +34,8 @@ impl BodyManager {
     /// Create a new, empty body manager.
     pub fn new() -> Self {
         Self {
-            bodies: HashMap::new(),
-            body_breps: HashMap::new(),
+            bodies: HashMap::default(),
+            body_breps: HashMap::default(),
             next_id: 0,
         }
     }

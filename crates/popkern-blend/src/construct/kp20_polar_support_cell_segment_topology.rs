@@ -1,6 +1,6 @@
 //! Topology preflight for KP20 support-cell segment-owned boundaries.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::error::CoreError;
 use popkern_core::topology::BRep;
@@ -49,8 +49,8 @@ impl SegmentBoundaryTopologyPlan {
 pub(super) fn segment_boundary_topology_plan(
     records: &[SegmentOwnedBoundaryTrim],
 ) -> SegmentBoundaryTopologyPlan {
-    let mut seen_edges = HashSet::new();
-    let mut seen_half_edge_pairs: HashSet<(String, String)> = HashSet::new();
+    let mut seen_edges = HashSet::default();
+    let mut seen_half_edge_pairs: HashSet<(String, String)> = HashSet::default();
     let mut plan = SegmentBoundaryTopologyPlan {
         segment_trim_count: records.len(),
         already_segment_topology_count: 0,

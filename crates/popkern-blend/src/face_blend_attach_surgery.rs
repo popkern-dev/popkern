@@ -3,7 +3,7 @@
 //! kef-merge + spur dissolution, and strip re-surfacing. See
 //! `face_blend_attach` for the full transactional contract.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
@@ -235,7 +235,7 @@ fn flood_doomed(
     blocked: &[EdgeHandle],
     barriers: &[FaceHandle],
 ) -> Result<HashSet<FaceHandle>, BlendError> {
-    let mut region = HashSet::new();
+    let mut region = HashSet::default();
     region.insert(seed);
     let mut queue = vec![seed];
     while let Some(f) = queue.pop() {

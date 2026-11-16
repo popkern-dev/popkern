@@ -22,7 +22,8 @@
 //! violation named, so a suite run under the variable lists every case
 //! the scope would get wrong.
 
-use std::collections::{BTreeSet, HashSet};
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeSet;
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};

@@ -341,7 +341,7 @@ fn face_realizes_distance(
 /// free-form (NURBS/Gregory), mapped to their result-face images.
 pub(crate) fn collect_free_form_pairs(
     source: &BRep,
-    offset_surfaces: &std::collections::HashMap<
+    offset_surfaces: &popkern_math::hash::FastHashMap<
         FaceHandle,
         popkern_core::geometry::surface::SurfaceGeometry,
     >,

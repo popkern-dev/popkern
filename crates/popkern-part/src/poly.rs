@@ -12,7 +12,7 @@
 
 use popkern_core::topology::RadialLinks;
 use popkern_math::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -126,7 +126,7 @@ pub fn truncate_vertices(
     t: f64,
 ) -> (Vec<Point3>, Vec<Vec<usize>>) {
     let mut new_points: Vec<Point3> = Vec::new();
-    let mut cut_index: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut cut_index: HashMap<(usize, usize), usize> = HashMap::default();
     let mut cut = |a: usize, b: usize, new_points: &mut Vec<Point3>| -> usize {
         *cut_index.entry((a, b)).or_insert_with(|| {
             let p = points[a] + (points[b] - points[a]) * t;
@@ -148,7 +148,7 @@ pub fn truncate_vertices(
     }
 
     // Corner facets via the neighbour cycle around each vertex.
-    let mut succ: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut succ: HashMap<(usize, usize), usize> = HashMap::default();
     for face in faces {
         let n = face.len();
         for i in 0..n {
@@ -227,7 +227,7 @@ pub fn build_polyhedron_brep(
 
     let (_, shell_h) = brep.add_solid_region(Default::default());
 
-    let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::new();
+    let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::default();
     let ensure_edges =
         |cycle: &[usize], brep: &mut BRep, edge_of: &mut HashMap<(usize, usize), EdgeHandle>| {
             let n = cycle.len();
@@ -253,7 +253,7 @@ pub fn build_polyhedron_brep(
         }
     }
 
-    let mut he_of: HashMap<(usize, usize), HalfEdgeHandle> = HashMap::new();
+    let mut he_of: HashMap<(usize, usize), HalfEdgeHandle> = HashMap::default();
     for face in faces {
         let fh = brep.faces.insert(Face {
             outer_loop: Default::default(),
@@ -413,7 +413,7 @@ pub fn build_polyhedron_brep(
 /// [`PartError::NotApplicable`] naming the offending face when a
 /// surface is not a plane or an edge is not a line.
 pub fn extract_polyhedron(brep: &BRep) -> Result<(Vec<Point3>, Vec<PolyFace>), PartError> {
-    let mut index_of: HashMap<VertexHandle, usize> = HashMap::new();
+    let mut index_of: HashMap<VertexHandle, usize> = HashMap::default();
     let mut points: Vec<Point3> = Vec::new();
     for (vh, v) in brep.vertices.iter() {
         index_of.insert(vh, points.len());

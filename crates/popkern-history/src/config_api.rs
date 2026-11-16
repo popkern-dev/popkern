@@ -5,7 +5,7 @@
 //! intentionally NOT undoable — it is a UI-level navigation action, not a
 //! model mutation.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::FeatureTree;
 use crate::config::{ConfigId, Configuration, DeleteConfigResult, ParamOverride};
@@ -30,8 +30,8 @@ impl FeatureTree {
             name: name.to_string(),
             description: description.to_string(),
             parent: None,
-            overrides: HashMap::new(),
-            suppression: HashMap::new(),
+            overrides: HashMap::default(),
+            suppression: HashMap::default(),
         };
         let id = self.configs.insert(cfg.clone());
         self.record_undo(TreeCommand::AddConfig { id, snapshot: cfg });
@@ -66,8 +66,8 @@ impl FeatureTree {
             name: name.to_string(),
             description: description.to_string(),
             parent: Some(parent),
-            overrides: HashMap::new(),
-            suppression: HashMap::new(),
+            overrides: HashMap::default(),
+            suppression: HashMap::default(),
         };
         let id = self.configs.insert(cfg.clone());
         self.record_undo(TreeCommand::AddConfig { id, snapshot: cfg });

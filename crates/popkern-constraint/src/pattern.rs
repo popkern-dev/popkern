@@ -80,17 +80,17 @@ pub struct PatternInstance {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct HandleRemap {
     /// Point handle remapping (seed -> instance).
-    pub points: std::collections::HashMap<PointHandle, PointHandle>,
+    pub points: popkern_math::hash::FastHashMap<PointHandle, PointHandle>,
     /// Line handle remapping.
-    pub lines: std::collections::HashMap<LineHandle, LineHandle>,
+    pub lines: popkern_math::hash::FastHashMap<LineHandle, LineHandle>,
     /// Arc handle remapping.
-    pub arcs: std::collections::HashMap<ArcHandle, ArcHandle>,
+    pub arcs: popkern_math::hash::FastHashMap<ArcHandle, ArcHandle>,
     /// Ellipse handle remapping.
-    pub ellipses: std::collections::HashMap<EllipseHandle, EllipseHandle>,
+    pub ellipses: popkern_math::hash::FastHashMap<EllipseHandle, EllipseHandle>,
     /// Parabola handle remapping.
-    pub parabolas: std::collections::HashMap<ParabolaHandle, ParabolaHandle>,
+    pub parabolas: popkern_math::hash::FastHashMap<ParabolaHandle, ParabolaHandle>,
     /// Hyperbola handle remapping.
-    pub hyperbolas: std::collections::HashMap<HyperbolaHandle, HyperbolaHandle>,
+    pub hyperbolas: popkern_math::hash::FastHashMap<HyperbolaHandle, HyperbolaHandle>,
     /// Spline handle remapping.
-    pub splines: std::collections::HashMap<SplineHandle, SplineHandle>,
+    pub splines: popkern_math::hash::FastHashMap<SplineHandle, SplineHandle>,
 }

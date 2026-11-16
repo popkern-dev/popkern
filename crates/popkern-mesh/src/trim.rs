@@ -42,7 +42,7 @@ pub(crate) fn build_trim_loops_with_samples(
     surface: &SurfaceGeometry,
     chord_height: f64,
     edge_samples: Option<
-        &std::collections::HashMap<
+        &popkern_math::hash::FastHashMap<
             popkern_core::topology::EdgeHandle,
             crate::boundary_first::EdgeSamples,
         >,

@@ -60,7 +60,7 @@ fn cube_refines_to_all_quads_with_expected_census() {
 fn refined_cube_is_closed_and_shrinks_toward_the_limit() {
     let refined = cube().catmull_clark_refined().expect("refine");
     // Every undirected edge appears in exactly two faces (closed).
-    let mut counts = std::collections::HashMap::<(usize, usize), usize>::new();
+    let mut counts = popkern_math::hash::FastHashMap::<(usize, usize), usize>::default();
     for face in &refined.faces {
         let n = face.vertices.len();
         for corner in 0..n {

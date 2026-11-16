@@ -535,8 +535,9 @@ fn build_face_subdivision_inner(
     // both, and it is the direction agreeing with the adjacent
     // boundary flow. Greedy per pair, deterministic, recorded.
     if u_period.is_none() {
-        let degree = |sub: &FaceChartSubdivision| -> std::collections::HashMap<usize, i64> {
-            let mut d: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
+        let degree = |sub: &FaceChartSubdivision| -> popkern_math::hash::FastHashMap<usize, i64> {
+            let mut d: popkern_math::hash::FastHashMap<usize, i64> =
+                popkern_math::hash::FastHashMap::default();
             for &h in sub.embeddings.keys() {
                 let (a, b) = ends(h);
                 *d.entry(a).or_default() += 1; // departure
@@ -544,7 +545,7 @@ fn build_face_subdivision_inner(
             }
             d
         };
-        let imbalance_total = |d: &std::collections::HashMap<usize, i64>| -> i64 {
+        let imbalance_total = |d: &popkern_math::hash::FastHashMap<usize, i64>| -> i64 {
             d.values().map(|v| v.abs()).sum()
         };
         let deg = degree(&sub);

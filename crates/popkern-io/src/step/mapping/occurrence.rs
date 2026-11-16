@@ -12,7 +12,8 @@
 //! the child's representation; a file that lists the parent first is
 //! detected against the child's own representations and inverted.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::{Point3, Transform3, Vec3};
 
@@ -34,8 +35,8 @@ pub(crate) struct OccurrenceIndex {
 impl OccurrenceIndex {
     /// Index `graph`.
     pub(crate) fn build(graph: &EntityGraph) -> OccurrenceIndex {
-        let mut shapes_of: HashMap<EntityId, Vec<EntityId>> = HashMap::new();
-        let mut relation_of = HashMap::new();
+        let mut shapes_of: HashMap<EntityId, Vec<EntityId>> = HashMap::default();
+        let mut relation_of = HashMap::default();
         for (&id, entity) in graph.iter() {
             match entity.type_name.as_str() {
                 "PRODUCT_DEFINITION_SHAPE" => {

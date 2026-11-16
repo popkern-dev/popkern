@@ -18,7 +18,8 @@
 //! to the skins at vertices only — the open-shell output was never
 //! edge-manifold.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 #[path = "side_walls_sphere.rs"]
 mod side_walls_sphere;
@@ -78,12 +79,12 @@ pub fn build_side_walls(
 ) -> Result<SideWallResult, ShellError> {
     let removed_set: HashSet<FaceHandle> = removed_faces.iter().copied().collect();
     let mut faces = Vec::new();
-    let mut verticals: HashMap<(VertexHandle, VertexHandle), VerticalEdge> = HashMap::new();
-    let mut vertical_faces: HashMap<(VertexHandle, VertexHandle), FaceHandle> = HashMap::new();
+    let mut verticals: HashMap<(VertexHandle, VertexHandle), VerticalEdge> = HashMap::default();
+    let mut vertical_faces: HashMap<(VertexHandle, VertexHandle), FaceHandle> = HashMap::default();
     // Each boundary edge yields exactly one wall (it is only ever seen
     // from its single removed side); the set guards adjacent removed
     // faces re-listing a shared rim.
-    let mut processed_edges: HashSet<EdgeHandle> = HashSet::new();
+    let mut processed_edges: HashSet<EdgeHandle> = HashSet::default();
 
     for &removed_fh in removed_faces {
         for (outer_eh, rim_he) in find_boundary_edges(outer, removed_fh, &removed_set)? {
@@ -151,8 +152,8 @@ pub fn build_free_rim_walls(
     shell_handle: ShellHandle,
 ) -> Result<SideWallResult, ShellError> {
     let mut faces = Vec::new();
-    let mut verticals: HashMap<(VertexHandle, VertexHandle), VerticalEdge> = HashMap::new();
-    let mut vertical_faces: HashMap<(VertexHandle, VertexHandle), FaceHandle> = HashMap::new();
+    let mut verticals: HashMap<(VertexHandle, VertexHandle), VerticalEdge> = HashMap::default();
+    let mut vertical_faces: HashMap<(VertexHandle, VertexHandle), FaceHandle> = HashMap::default();
     let mut rim_hes: Vec<HalfEdgeHandle> = Vec::new();
     for (eh, edge) in &outer.edges {
         let he = &outer.half_edges[edge.half_edge];

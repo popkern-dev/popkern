@@ -19,7 +19,7 @@
 //! shared with two distinct drafted faces. Any other consumed face
 //! still declines `FaceConsumed`.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};

@@ -68,7 +68,7 @@ pub(super) fn apply_multi_chord_for_face(
     original_face: FaceHandle,
     trims: &[FaceTrim],
     fillet_edges_by_trim: &[EdgeHandle],
-    descendants: &std::collections::HashMap<EdgeHandle, Vec<EdgeHandle>>,
+    descendants: &popkern_math::hash::FastHashMap<EdgeHandle, Vec<EdgeHandle>>,
     tolerance: &Tolerance,
 ) -> MultiChordOutcome {
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();

@@ -21,8 +21,8 @@
 //! a design not in the cache then declines as `NeedsSolve`, and the
 //! host asks for an explicit solve.
 
+use popkern_math::hash::FastHashMap as HashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -69,7 +69,7 @@ type Cache = Mutex<HashMap<Key, Arc<Entry>>>;
 
 fn cache() -> &'static Cache {
     static CACHE: OnceLock<Cache> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    CACHE.get_or_init(|| Mutex::new(HashMap::default()))
 }
 
 /// One optimisation update as a host sees it.

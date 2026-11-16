@@ -28,7 +28,8 @@
 //!   PK-244);
 //! - pcurves: recomputed per touched face.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::constructors::{line_between, plane_from_loop};
 use crate::error::CoreError;

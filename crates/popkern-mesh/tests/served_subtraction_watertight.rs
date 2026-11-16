@@ -9,7 +9,7 @@ use popkern_blend::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_core::geometry::{Point3, Transform3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 fn rim_filleted_cylinder(tol: Tolerance) -> BRep {
     let brep = BRep::cylinder(1.0, 2.0, tol).expect("cylinder");
@@ -49,7 +49,7 @@ fn cube_cutter(tol: Tolerance) -> BRep {
 fn open_mesh_edges(result: &BRep) -> usize {
     let mesh = popkern_mesh::tessellate(result, &popkern_mesh::TessellationOptions::default())
         .expect("tessellation");
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut canon: Vec<Point3> = Vec::new();
     let id = |p: Point3, key: &mut HashMap<(i64, i64, i64), usize>, canon: &mut Vec<Point3>| {
         let k = (
@@ -62,7 +62,7 @@ fn open_mesh_edges(result: &BRep) -> usize {
             canon.len() - 1
         })
     };
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         let w = [
             id(mesh.vertices[t[0]].position, &mut key, &mut canon),

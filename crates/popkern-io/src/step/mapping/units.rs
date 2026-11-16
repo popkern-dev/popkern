@@ -13,7 +13,7 @@
 //! were read as radians and every cone face meshed open, and 9 declare
 //! inch or centimetre lengths, which imported at the wrong scale.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::parser::graph::EntityGraph;
@@ -70,7 +70,7 @@ pub(crate) fn resolve_file_units(graph: &EntityGraph, log: &mut DiagnosticLog) -
             let Parameter::EntityRef(unit_id) = unit else {
                 continue;
             };
-            match unit_factor(graph, *unit_id, &mut HashSet::new()) {
+            match unit_factor(graph, *unit_id, &mut HashSet::default()) {
                 Some((UnitKind::Length, f)) => found.mm_per_length = f,
                 Some((UnitKind::Angle, f)) => found.radians_per_angle = f,
                 Some((UnitKind::Other, _)) => {}
@@ -123,7 +123,7 @@ pub(crate) fn resolve_file_units(graph: &EntityGraph, log: &mut DiagnosticLog) -
 /// Millimetres per unit for a LENGTH unit entity (`None` for any other
 /// kind or an unresolvable unit).
 pub(crate) fn mm_per_length_unit(graph: &EntityGraph, unit: EntityId) -> Option<f64> {
-    match unit_factor(graph, unit, &mut HashSet::new())? {
+    match unit_factor(graph, unit, &mut HashSet::default())? {
         (UnitKind::Length, f) => Some(f),
         _ => None,
     }
@@ -248,7 +248,7 @@ pub(crate) fn convert_lengths_to_mm(
     log: &mut DiagnosticLog,
 ) {
     use popkern_core::geometry::Transform3;
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     use std::sync::Arc;
 
     if mm_per_length == 1.0 {
@@ -259,7 +259,7 @@ pub(crate) fn convert_lengths_to_mm(
     let mut converted: HashMap<
         *const crate::step::document::ShapeRep,
         Arc<crate::step::document::ShapeRep>,
-    > = HashMap::new();
+    > = HashMap::default();
     for product in products.iter_mut() {
         for shape in product.shapes.iter_mut() {
             let key = Arc::as_ptr(shape);

@@ -4,7 +4,7 @@
 //! have duplicate vertices at the same position and edge curves whose endpoints
 //! don't match vertex positions. This pass repairs both defects.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::{
     geometry::curve::CurveEval,
@@ -75,7 +75,7 @@ pub fn merge_coincident_vertices(brep: &mut BRep, tolerance: &Tolerance) -> usiz
         .map(|(vh, v)| (vh, v.position))
         .collect();
 
-    let mut remap: HashMap<VertexHandle, VertexHandle> = HashMap::new();
+    let mut remap: HashMap<VertexHandle, VertexHandle> = HashMap::default();
     let n = verts.len();
     for i in 0..n {
         let (vh_i, pos_i) = verts[i];

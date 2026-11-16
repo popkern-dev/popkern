@@ -42,7 +42,7 @@ fn a_millimetre_pip_face_passes_the_watertight_gate() {
 /// the dimples. A span turning past ~110 deg now splits at any chord.
 #[test]
 fn the_pip_face_meshes_watertight_at_a_coarse_chord() {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     let source = "let m = model();\n\
         let die = m.profile(xy_at(-8.0)).rect(16.0, 16.0).sketch(\"block\").extrude(blind(16.0));\n\
         let k = 0;\n\
@@ -63,7 +63,7 @@ fn the_pip_face_meshes_watertight_at_a_coarse_chord() {
         let mesh = popkern_mesh::tessellate(&brep, &options).expect("mesh");
         let key =
             |p: &popkern_core::geometry::Point3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
-        let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+        let mut weld: HashMap<[u64; 3], usize> = HashMap::default();
         let ids: Vec<usize> = mesh
             .vertices
             .iter()
@@ -72,7 +72,7 @@ fn the_pip_face_meshes_watertight_at_a_coarse_chord() {
                 *weld.entry(key(&v.position)).or_insert(n)
             })
             .collect();
-        let mut edges: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut edges: HashMap<(usize, usize), usize> = HashMap::default();
         for t in &mesh.triangles {
             for k in 0..3 {
                 let (a, b) = (ids[t[k]], ids[t[(k + 1) % 3]]);

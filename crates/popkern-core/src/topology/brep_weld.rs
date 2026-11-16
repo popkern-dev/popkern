@@ -21,7 +21,7 @@
 //! edges resulting from welding should follow up with their own
 //! edge-cleanup pass.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::CoreError;
 use crate::tolerance::Tolerance;
@@ -79,7 +79,7 @@ impl BRep {
 
         // Resolve canonical handles after all unions.
         let keys: Vec<VertexHandle> = parent.keys().copied().collect();
-        let mut canonical: HashMap<VertexHandle, VertexHandle> = HashMap::new();
+        let mut canonical: HashMap<VertexHandle, VertexHandle> = HashMap::default();
         for vh in keys {
             let root = uf_find(&mut parent, vh);
             canonical.insert(vh, root);

@@ -1,6 +1,7 @@
 // Structural lint marker: this file is test code, included via #[path] under #[cfg(test)].
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -38,7 +39,7 @@ fn untouched_bodies_are_shared_and_keep_their_origin() {
     // shares it) and puts the result back.
     let body = working.remove(&BodyId(1)).expect("alive");
     working.insert(BodyId(1), body);
-    let touched = HashSet::from([BodyId(1)]);
+    let touched = HashSet::from_iter([BodyId(1)]);
     let second = first.advanced(&working, Touched::Bodies(&touched), f[1]);
 
     assert!(second.shares_body(&first, BodyId(0)), "body 0 untouched");
@@ -46,7 +47,7 @@ fn untouched_bodies_are_shared_and_keep_their_origin() {
     assert_eq!(second.changed_by(BodyId(0)), Some(f[0]));
     assert_eq!(second.changed_by(BodyId(1)), Some(f[1]));
     // Shared bodies count once across states.
-    let mut seen = HashSet::new();
+    let mut seen = HashSet::default();
     let total = first.unique_bytes(&mut seen) + second.unique_bytes(&mut seen);
     let one = super::estimate_brep_bytes(&cube());
     assert_eq!(total, 3 * one, "two bodies + one new copy");
@@ -61,7 +62,7 @@ fn consumed_bodies_leave_and_new_bodies_arrive() {
     let mut after = both.clone();
     let _ = after.remove(&BodyId(1));
     after.insert(BodyId(2), cube());
-    let none = HashSet::new();
+    let none = HashSet::default();
     let second = first.advanced(&after, Touched::Bodies(&none), f[1]);
     assert_eq!(second.body_ids(), vec![BodyId(0), BodyId(2)]);
     assert!(second.shares_body(&first, BodyId(0)));

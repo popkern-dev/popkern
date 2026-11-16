@@ -443,8 +443,8 @@ impl SeamSide<'_> {
 /// exactly one triangle.
 #[allow(dead_code)]
 pub fn welded_open_edge_count(mesh: &popkern_mesh::TriMesh) -> usize {
-    use std::collections::HashMap;
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    use popkern_math::hash::FastHashMap as HashMap;
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut id = |p: popkern_core::geometry::Point3| -> usize {
         let k = (
             (p.x * 1.0e7).round() as i64,
@@ -454,7 +454,7 @@ pub fn welded_open_edge_count(mesh: &popkern_mesh::TriMesh) -> usize {
         let next = key.len();
         *key.entry(k).or_insert(next)
     };
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         let w = [
             id(mesh.vertices[t[0]].position),

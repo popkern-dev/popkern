@@ -52,7 +52,7 @@ impl BRep {
             // and at points a quarter of the way in on either side too.
             let geometry = &surface_on_face.geometry;
             let degenerate_at = |u: f64, v: f64| {
-                let (su, sv) = (geometry.partial_u(u, v), geometry.partial_v(u, v));
+                let (su, sv) = geometry.first_partials(u, v);
                 let scale = su.length() * sv.length();
                 if scale > 0.0 && scale.is_finite() {
                     su.cross(&sv).length() <= 1e-12 * scale

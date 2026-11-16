@@ -350,7 +350,7 @@ impl Part {
         // Seam edges (same face on both sides) can never blend —
         // drop them from the selection rather than failing the
         // whole operation, and record the skip.
-        let seams: std::collections::HashSet<_> = infos
+        let seams: popkern_math::hash::FastHashSet<_> = infos
             .iter()
             .filter(|i| i.is_seam)
             .map(|i| i.handle)

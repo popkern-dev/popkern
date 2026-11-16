@@ -228,8 +228,8 @@ impl BRep {
             // Find the bottom face: it's the pre-existing face that is NOT
             // in side_faces and NOT the cap. The input `face` handle becomes
             // a side face after extrude.
-            let side_and_cap: std::collections::HashSet<FaceHandle> = {
-                let mut s: std::collections::HashSet<FaceHandle> =
+            let side_and_cap: popkern_math::hash::FastHashSet<FaceHandle> = {
+                let mut s: popkern_math::hash::FastHashSet<FaceHandle> =
                     side_faces.iter().copied().collect();
                 s.insert(cap_face);
                 s

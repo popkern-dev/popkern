@@ -17,7 +17,7 @@
 //! order at their stored (solved) placements, and
 //! [`AssemblyHistory::recorded`] is false so viewers can say so.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_script::source::SourceSpan;
 
@@ -186,7 +186,7 @@ impl Assembly {
     /// placements then (`count` past the end is the final state).
     pub fn placements_after(&self, count: usize) -> StepPlacements {
         let mut present: StepPlacements = Vec::new();
-        let mut slot: HashMap<InstanceRef, usize> = HashMap::new();
+        let mut slot: HashMap<InstanceRef, usize> = HashMap::default();
         for step in self.history.steps.iter().take(count) {
             for (at, placement) in &step.placements {
                 match slot.get(at) {

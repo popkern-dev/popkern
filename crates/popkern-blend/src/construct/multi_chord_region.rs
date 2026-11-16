@@ -27,7 +27,7 @@
 //! resolves; otherwise the caller's state is untouched and the
 //! original failures are reported.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::{NurbsCurve, Point3};
@@ -53,7 +53,7 @@ pub(super) fn process_deferred(
     brep: &mut BRep,
     deferred: Vec<DeferredTrim>,
     trims: &[FaceTrim],
-    descendants: &std::collections::HashMap<EdgeHandle, Vec<EdgeHandle>>,
+    descendants: &popkern_math::hash::FastHashMap<EdgeHandle, Vec<EdgeHandle>>,
     sub_faces: &[FaceHandle],
     all_trim_edges: &[EdgeHandle],
     trim_results: &mut Vec<TrimSplitResult>,

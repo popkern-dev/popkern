@@ -15,8 +15,8 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_math::hash::FastHashMap as HashMap;
 use popkern_sweep::{SweepOptions, SweepProfile, sweep};
-use std::collections::HashMap;
 
 fn rectangle_sketch(width: f64, depth: f64) -> NurbsCurve {
     let (hw, hd) = (0.5 * width, 0.5 * depth);
@@ -168,7 +168,7 @@ fn flagship_boss_plate_pipeline_serves_watertight() {
     let mesh =
         popkern_mesh::tessellate(&result.brep, &popkern_mesh::TessellationOptions::default())
             .expect("tessellation");
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut canon: Vec<Point3> = Vec::new();
     let id = |p: Point3, key: &mut HashMap<(i64, i64, i64), usize>, canon: &mut Vec<Point3>| {
         let k = (
@@ -181,7 +181,7 @@ fn flagship_boss_plate_pipeline_serves_watertight() {
             canon.len() - 1
         })
     };
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         let w = [
             id(mesh.vertices[t[0]].position, &mut key, &mut canon),

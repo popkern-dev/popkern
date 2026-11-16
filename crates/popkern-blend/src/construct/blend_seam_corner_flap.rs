@@ -18,7 +18,7 @@
 //! its surgery. That runs inside the same snapshot and rollback, and
 //! a rejected `kef` declines as `EulerRejected`.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
@@ -65,7 +65,7 @@ pub(super) fn flap_region(
     }
     let (origin, normal) = plane_of(brep, *faces.first()?)?;
     // Edge multiplicity over the region's outer loops.
-    let mut count: HashMap<EdgeHandle, usize> = HashMap::new();
+    let mut count: HashMap<EdgeHandle, usize> = HashMap::default();
     for &face in &faces {
         let (o, n) = plane_of(brep, face)?;
         if n.cross(&normal).length() > COPLANAR_SINE || (o - origin).dot(&normal).abs() > stale_tol

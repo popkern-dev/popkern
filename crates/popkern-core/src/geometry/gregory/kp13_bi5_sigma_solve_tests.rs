@@ -37,7 +37,7 @@ fn decode_flat_respects_symmetry() {
 #[test]
 fn off_diag_flat_index_covers_30_scalars() {
     // The 15 pairs give flat indices 6..36.
-    let mut used = std::collections::HashSet::new();
+    let mut used = popkern_math::hash::FastHashSet::default();
     for i in 0..6 {
         for j in (i + 1)..6 {
             let (ix, iy) = off_diag_flat_index(i, j);

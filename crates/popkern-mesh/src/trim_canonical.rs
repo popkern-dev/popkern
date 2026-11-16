@@ -23,7 +23,7 @@
 //! declines the WHOLE loop back to the caller's adaptive path (a
 //! pcurve authored off-contract must not silently warp the trim).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};

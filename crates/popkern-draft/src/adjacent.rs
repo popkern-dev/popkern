@@ -3,7 +3,7 @@
 //! This module handles extending/trimming adjacent faces to maintain
 //! valid topology, or inserting transition faces when needed.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::{DraftError, DraftWarning};
 use crate::transition;
@@ -250,7 +250,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 0.996, -0.087),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         let warnings =
@@ -273,7 +273,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 0.996, -0.087),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         let warnings = handle_adjacent_faces(
@@ -299,7 +299,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 0.996, -0.087),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         let warnings = handle_adjacent_faces(
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn empty_drafted_faces_is_noop() {
         let mut brep = BRep::unit_cube(tol()).unwrap();
-        let drafted = HashMap::new();
+        let drafted = HashMap::default();
         let orig = original_pos(&brep);
 
         let warnings =
@@ -339,7 +339,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 1.0, 0.0),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         let boundary = find_boundary_edges(&brep, &drafted);
@@ -362,7 +362,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 0.996, -0.087),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         // Simulate vertex movement by shifting original positions away.
@@ -400,7 +400,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 1.0, 0.0),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, same_plane);
 
         let warnings =
@@ -417,7 +417,7 @@ mod tests {
         // edges are found, so the result is Ok with no warnings.
         let mut brep = BRep::unit_cube(tol()).unwrap();
         let orig = original_pos(&brep);
-        let drafted = HashMap::new(); // nothing drafted
+        let drafted = HashMap::default(); // nothing drafted
 
         let warnings =
             handle_adjacent_faces(&mut brep, &drafted, &orig, AdjacentMode::ExtendTrim, &tol());
@@ -441,7 +441,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 1.0, 0.0),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face1, plane.clone());
         drafted.insert(face2, plane);
 
@@ -478,7 +478,7 @@ mod tests {
         let nurbs = skinning::skin_points(&rows).unwrap();
         let nurbs_surf = SurfaceGeometry::Nurbs(nurbs);
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, nurbs_surf);
 
         let warnings = handle_adjacent_faces(

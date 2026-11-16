@@ -140,8 +140,8 @@ fn steiner_candidates(
     let mut added: Vec<(f64, f64)> = Vec::new();
     // Candidates of one round keep a quarter of their triangle's
     // shortest edge apart (bucketed by that spacing).
-    let mut buckets: std::collections::HashMap<(i64, i64), Vec<usize>> =
-        std::collections::HashMap::new();
+    let mut buckets: popkern_math::hash::FastHashMap<(i64, i64), Vec<usize>> =
+        popkern_math::hash::FastHashMap::default();
     for t in triangles {
         let (a, b, c) = (point(t[0]), point(t[1]), point(t[2]));
         let centroid = Point3::new(
@@ -255,7 +255,7 @@ fn steiner_candidates(
 
 /// Whether every ring segment is a triangle edge.
 fn covers_rings(triangles: &[[usize; 3]], ring_ranges: &[(usize, usize)]) -> bool {
-    let edges: std::collections::HashSet<(usize, usize)> = triangles
+    let edges: popkern_math::hash::FastHashSet<(usize, usize)> = triangles
         .iter()
         .flat_map(|t| (0..3).map(move |k| (t[k].min(t[(k + 1) % 3]), t[k].max(t[(k + 1) % 3]))))
         .collect();
@@ -293,7 +293,7 @@ fn folds(
             (p.z * s).round() as i64,
         )
     };
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = popkern_math::hash::FastHashSet::default();
     for t in triangles {
         for (i, j) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
             let (a, b) = (q(&positions[i]), q(&positions[j]));

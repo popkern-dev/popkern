@@ -68,8 +68,8 @@ fn run_setback_closure_gate(continuity: popkern_blend::ContinuityLevel) {
     // PK-095 closure gate: the whole-object tessellation must be
     // watertight — after position welding, every edge is used by
     // exactly two triangles.
-    let mut canon: std::collections::HashMap<(i64, i64, i64), usize> =
-        std::collections::HashMap::new();
+    let mut canon: popkern_math::hash::FastHashMap<(i64, i64, i64), usize> =
+        popkern_math::hash::FastHashMap::default();
     let mut remap = Vec::with_capacity(mesh.vertices.len());
     for v in &mesh.vertices {
         let k = (
@@ -80,8 +80,8 @@ fn run_setback_closure_gate(continuity: popkern_blend::ContinuityLevel) {
         let next = canon.len();
         remap.push(*canon.entry(k).or_insert(next));
     }
-    let mut counts: std::collections::HashMap<(usize, usize), usize> =
-        std::collections::HashMap::new();
+    let mut counts: popkern_math::hash::FastHashMap<(usize, usize), usize> =
+        popkern_math::hash::FastHashMap::default();
     for t in &mesh.triangles {
         let w = [remap[t[0]], remap[t[1]], remap[t[2]]];
         if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {

@@ -9,7 +9,8 @@
 //! vertex its own vertex, and every fragment half-edge the plan names
 //! wires to its planned edge. Everything else keeps the default.
 
-use std::collections::{BTreeMap, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeMap;
 
 use popkern_core::constructors::builder::BRepBuilder;
 use popkern_core::topology::{HalfEdgeHandle, VertexHandle};

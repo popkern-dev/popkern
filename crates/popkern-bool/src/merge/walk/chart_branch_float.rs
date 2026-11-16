@@ -1,7 +1,8 @@
 //! Floating-component seam-config search and final branch clustering
 //! (split from `chart_branches.rs` under the 500-line file budget).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::chart_branches::clustering::{self, cluster_branches, is_balanced};
 use super::chart_subdivision::{BranchPoint, FaceChartSubdivision, SubdivisionIssue};
@@ -341,7 +342,7 @@ pub(super) fn resolve_floating_and_cluster(
     }
 
     // I2: off-seam nodes must be single-branch.
-    let mut node_branches: HashMap<usize, BTreeSet<u32>> = HashMap::new();
+    let mut node_branches: HashMap<usize, BTreeSet<u32>> = HashMap::default();
     for (&h, bp) in start_bp.iter().chain(end_bp.iter()) {
         let _ = h;
         node_branches.entry(bp.node).or_default().insert(bp.branch);

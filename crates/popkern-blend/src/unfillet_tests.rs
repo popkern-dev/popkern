@@ -2,7 +2,7 @@ use super::*;
 use crate::types::{FilletOptions, FilletRadius, FilletSpec};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 fn tol() -> Tolerance {
     Tolerance::default()

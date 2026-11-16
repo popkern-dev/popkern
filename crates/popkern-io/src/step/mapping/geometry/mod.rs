@@ -19,7 +19,7 @@ mod tests_resolve;
 
 pub(crate) use pcurves::ResolvedStepPcurve;
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
@@ -60,9 +60,9 @@ impl<'a> GeometryCache<'a> {
     pub fn new(graph: &'a EntityGraph) -> Self {
         Self {
             graph,
-            points: HashMap::new(),
-            directions: HashMap::new(),
-            placements: HashMap::new(),
+            points: HashMap::default(),
+            directions: HashMap::default(),
+            placements: HashMap::default(),
             radians_per_angle: 1.0,
             model_box: None,
             trim_allowance: 0.0,

@@ -1,7 +1,7 @@
 //! One popkern live session: the model the last successful script
 //! authored, the host budgets, and the verbs the page speaks.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -94,9 +94,9 @@ impl Session {
             document: None,
             last_display_triangles: 0,
             project: None,
-            migrations: HashMap::new(),
+            migrations: HashMap::default(),
             assembly_migrations: Vec::new(),
-            step_meshes: HashMap::new(),
+            step_meshes: HashMap::default(),
             display: crate::session_describe::DisplayState::new(),
         }
     }

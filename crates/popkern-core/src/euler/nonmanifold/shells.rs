@@ -8,7 +8,8 @@
 //! region, which then join; ungluing can leave a shell in pieces, each
 //! then a shell of its own.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::topology::{BRep, FaceHandle, FaceSide, Shell, ShellHandle};
 

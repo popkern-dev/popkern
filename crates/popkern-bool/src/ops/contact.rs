@@ -68,7 +68,7 @@ pub fn contact_report(
         crate::operation::helpers::copy_brep_into_mapped(a.clone(), b.clone(), false)?;
     // `a`'s handles survive the copy unchanged (versioned keys: a slot
     // `b`'s copy reuses carries a new version); `b`'s map back.
-    let b_back: std::collections::HashMap<FaceHandle, FaceHandle> =
+    let b_back: popkern_math::hash::FastHashMap<FaceHandle, FaceHandle> =
         b_map.into_iter().map(|(old, new)| (new, old)).collect();
     let back = |f: FaceHandle| -> Option<(bool, FaceHandle)> {
         if a.faces.contains_key(f) {

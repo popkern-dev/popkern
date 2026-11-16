@@ -8,7 +8,9 @@
 //! This reduces the number of expensive ray-cast calls from O(n_faces) to
 //! O(n_components), which is typically a 50-90% reduction.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::VecDeque;
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::tolerance::Tolerance;
@@ -48,7 +50,7 @@ pub fn classify_with_propagation(
     let components = find_components(&face_handles, &adjacency);
 
     // Step 3+4: Classify seed, propagate
-    let mut result = HashMap::new();
+    let mut result = HashMap::default();
     let mut ray_cast_count = 0;
 
     for component in &components {
@@ -93,7 +95,7 @@ fn build_face_adjacency(
     intersection_edges: &HashSet<EdgeHandle>,
     tolerance: &Tolerance,
 ) -> HashMap<FaceHandle, Vec<FaceHandle>> {
-    let mut adjacency: HashMap<FaceHandle, Vec<FaceHandle>> = HashMap::new();
+    let mut adjacency: HashMap<FaceHandle, Vec<FaceHandle>> = HashMap::default();
 
     let prop_trace = popkern_core::trace::trace_enabled("classification-propagation");
     for (eh, edge) in &brep.edges {
@@ -205,7 +207,7 @@ fn find_components(
     faces: &[FaceHandle],
     adjacency: &HashMap<FaceHandle, Vec<FaceHandle>>,
 ) -> Vec<Vec<FaceHandle>> {
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut components = Vec::new();
 
     for &face in faces {

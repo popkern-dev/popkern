@@ -12,7 +12,7 @@
 //! at up to about twice it.
 
 use popkern_core::geometry::{Point3, Vec3};
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 /// `(script, body, max facets tilted over 12°, max worst tilt in degrees)`.
 const CEILINGS: &[(&str, usize, usize, f64)] = &[
@@ -44,7 +44,7 @@ const CEILINGS: &[(&str, usize, usize, f64)] = &[
 /// Edges of the globally welded display mesh (bit-identical positions)
 /// used by one triangle (open) or more than two (non-manifold).
 fn welded_defects(mesh: &popkern_mesh::TriMesh) -> (usize, usize) {
-    let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+    let mut weld: HashMap<[u64; 3], usize> = HashMap::default();
     let ids: Vec<usize> = mesh
         .vertices
         .iter()
@@ -56,7 +56,7 @@ fn welded_defects(mesh: &popkern_mesh::TriMesh) -> (usize, usize) {
                 .or_insert(n)
         })
         .collect();
-    let mut uses: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut uses: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         for k in 0..3 {
             let (a, b) = (ids[t[k]], ids[t[(k + 1) % 3]]);
@@ -124,7 +124,7 @@ fn facet_normal(p: [Point3; 3]) -> Vec3 {
 fn in_face_folds(mesh: &popkern_mesh::TriMesh) -> (usize, f64) {
     let (mut over, mut worst) = (0usize, 0.0f64);
     for fm in &mesh.face_meshes {
-        let mut weld: HashMap<(i64, i64, i64), usize> = HashMap::new();
+        let mut weld: HashMap<(i64, i64, i64), usize> = HashMap::default();
         let ids: Vec<usize> = fm
             .vertices
             .iter()
@@ -139,7 +139,7 @@ fn in_face_folds(mesh: &popkern_mesh::TriMesh) -> (usize, f64) {
                 *weld.entry(k).or_insert(n)
             })
             .collect();
-        let mut edges: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        let mut edges: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
         for (ti, t) in fm.triangles.iter().enumerate() {
             let w = [ids[t[0]], ids[t[1]], ids[t[2]]];
             if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {

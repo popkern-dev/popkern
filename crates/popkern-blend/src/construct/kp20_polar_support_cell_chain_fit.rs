@@ -3,7 +3,7 @@
 //! pins, soft tangent planes), every member row its exact de
 //! Casteljau restriction — all trims of a chain become CP identities.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
@@ -209,13 +209,14 @@ fn author_chain_network_internal(
     // must be assigned to exactly one sub-chain; a row silently
     // dropped by the clean-node splitter keeps its old geometry
     // and surfaces as a localized G0/G1 hole.
-    let mut glued_rows: std::collections::HashSet<ChainRowKey> = std::collections::HashSet::new();
+    let mut glued_rows: popkern_math::hash::FastHashSet<ChainRowKey> =
+        popkern_math::hash::FastHashSet::default();
     for trim in &chain_trims {
         glued_rows.insert(trim.row_a);
         glued_rows.insert(trim.row_b);
     }
-    let mut assigned_rows: std::collections::HashSet<ChainRowKey> =
-        std::collections::HashSet::new();
+    let mut assigned_rows: popkern_math::hash::FastHashSet<ChainRowKey> =
+        popkern_math::hash::FastHashSet::default();
     let mut multiply_assigned_row_count = 0usize;
     for sub in &discovery.sub_chains {
         for (key, _) in &sub.rows {
@@ -232,7 +233,7 @@ fn author_chain_network_internal(
     // Shared-field invariant: a trim's two rows must land in the
     // SAME sub-chain, else they are derived from different
     // ribbon fields and their tangent planes cannot coincide.
-    let mut row_sub_chain: HashMap<ChainRowKey, usize> = HashMap::new();
+    let mut row_sub_chain: HashMap<ChainRowKey, usize> = HashMap::default();
     for (index, sub) in discovery.sub_chains.iter().enumerate() {
         for (key, _) in &sub.rows {
             row_sub_chain.insert(*key, index);
@@ -256,7 +257,7 @@ fn author_chain_network_internal(
         .map(|key| format!("{:?}:{:?}", key.face, key.side))
         .collect::<Vec<_>>()
         .join(",");
-    let mut patches: HashMap<FaceHandle, RectangularGregoryBiNonic> = HashMap::new();
+    let mut patches: HashMap<FaceHandle, RectangularGregoryBiNonic> = HashMap::default();
     for sub in &discovery.sub_chains {
         for (key, _) in &sub.rows {
             if let std::collections::hash_map::Entry::Vacant(entry) = patches.entry(key.face) {
@@ -292,7 +293,7 @@ fn author_chain_network_internal(
     // every chain incident to a node constrains its tangent to
     // the SAME plane. Computed from the pre-network geometry.
     let node_normals = if mode == ChainNetworkMode::Curves {
-        HashMap::new()
+        HashMap::default()
     } else {
         global_node_normals(&discovery.sub_chains, &patches)
     };
@@ -427,7 +428,7 @@ fn author_chain_network_internal(
         }
     }
     let mut reauthor_detail = String::new();
-    let mut dual_twist_pairs = HashMap::new();
+    let mut dual_twist_pairs = HashMap::default();
     if mode.constructive() {
         let outcome = reauthor_cells_from_chain_network(
             &mut patches,

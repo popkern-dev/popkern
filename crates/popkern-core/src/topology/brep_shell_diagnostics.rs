@@ -1,6 +1,7 @@
 //! Read-only loop and shell diagnostics for BRep repair decisions.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::topology::brep_shell_diagnostics_facts::{
     attach_loop_shell_fact_ids, loop_shell_knowledge,
@@ -284,7 +285,7 @@ fn analyze_shell_components(
     brep: &BRep,
     findings: &mut Vec<BrepTopologyDiagnosticFinding>,
 ) -> usize {
-    let mut adjacency: HashMap<FaceHandle, Vec<FaceHandle>> = HashMap::new();
+    let mut adjacency: HashMap<FaceHandle, Vec<FaceHandle>> = HashMap::default();
     for face in brep.faces.keys() {
         adjacency.entry(face).or_default();
     }
@@ -339,7 +340,7 @@ fn analyze_boundary_graph(
     brep: &BRep,
     findings: &mut Vec<BrepTopologyDiagnosticFinding>,
 ) -> BoundarySummary {
-    let mut graph: HashMap<VertexHandle, Vec<VertexHandle>> = HashMap::new();
+    let mut graph: HashMap<VertexHandle, Vec<VertexHandle>> = HashMap::default();
     for edge in brep.free_edges() {
         let Some((start, end)) = edge_vertices(brep, edge) else {
             push_finding(
@@ -354,7 +355,7 @@ fn analyze_boundary_graph(
         graph.entry(start).or_default().push(end);
         graph.entry(end).or_default().push(start);
     }
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut summary = BoundarySummary::default();
     for &vertex in graph.keys() {
         if !visited.insert(vertex) {
@@ -471,7 +472,7 @@ fn count_components(
     adjacency: &HashMap<FaceHandle, Vec<FaceHandle>>,
 ) -> usize {
     let face_set: HashSet<_> = faces.iter().copied().collect();
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut components = 0usize;
     for &face in faces {
         if !visited.insert(face) {

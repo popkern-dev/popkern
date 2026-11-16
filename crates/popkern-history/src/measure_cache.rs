@@ -3,7 +3,7 @@
 //! Caches measurement results during a single replay step. Invalidated
 //! when the BRep changes (after any non-Reference feature executes).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::ReplayError;
 use crate::measure_query::{MeasureContext, MeasureQuery};
@@ -21,7 +21,7 @@ impl MeasureCache {
     /// Create a new empty cache.
     pub fn new() -> Self {
         Self {
-            entries: HashMap::new(),
+            entries: HashMap::default(),
             generation: 0,
         }
     }

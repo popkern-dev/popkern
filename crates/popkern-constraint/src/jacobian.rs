@@ -9,7 +9,7 @@ use crate::constraint::ConstraintKind;
 use crate::equations::{equation_count, evaluate_constraint};
 use crate::rigid_set;
 use popkern_math::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 /// Assembled equation system: residuals F(x) and sparse Jacobian dF/dx.
 pub(crate) struct EquationSystem {

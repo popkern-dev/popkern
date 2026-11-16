@@ -12,7 +12,7 @@
 //! name and parameter values — so an entry can never answer for a
 //! different definition at a reused index.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::{Arc, Mutex};
 
 use popkern_part::Part;
@@ -67,9 +67,9 @@ impl Assembly {
     /// [`AssemblyError::Script`] when a definition fails to build.
     pub(crate) fn cached_parts(
         &mut self,
-        ids: &std::collections::HashSet<DefinitionId>,
+        ids: &popkern_math::hash::FastHashSet<DefinitionId>,
     ) -> Result<HashMap<DefinitionId, Arc<CachedParts>>, AssemblyError> {
-        let mut out = HashMap::new();
+        let mut out = HashMap::default();
         let mut sorted: Vec<DefinitionId> = ids.iter().copied().collect();
         sorted.sort();
         for id in sorted {

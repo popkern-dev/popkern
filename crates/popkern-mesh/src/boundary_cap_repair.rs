@@ -2,7 +2,7 @@
 //! cannot fix (see the parent module): flips that hand a cap a farther
 //! apex, and collapsing a cap-zone apex onto the new boundary vertex.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 
@@ -79,7 +79,7 @@ pub(super) fn plan_apex_collapse(
 /// once per round for a mesh that needs a collapse and patched by every
 /// split and collapse the round lands on that mesh.
 pub(super) struct MeshTopology {
-    pub(super) boundary: std::collections::HashSet<usize>,
+    pub(super) boundary: popkern_math::hash::FastHashSet<usize>,
     pub(super) incident: HashMap<usize, Vec<usize>>,
 }
 
@@ -89,7 +89,7 @@ impl MeshTopology {
             .into_iter()
             .flat_map(|(a, b, _)| [a, b])
             .collect();
-        let mut incident: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut incident: HashMap<usize, Vec<usize>> = HashMap::default();
         for (ti, t) in mesh.triangles.iter().enumerate() {
             for &v in t {
                 incident.entry(v).or_default().push(ti);
@@ -116,7 +116,7 @@ pub(super) fn flip_leaning_caps(
     surface: &SurfaceGeometry,
     bound: f64,
 ) -> bool {
-    let mut edge_tris: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut edge_tris: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
         for k in 0..3 {
             let (a, b) = (t[k], t[(k + 1) % 3]);

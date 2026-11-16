@@ -8,7 +8,7 @@
 //! the void — out of the material, as every outer face does. These
 //! items were ignored before: a hollow part imported as nothing.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::brep::BRep;
@@ -119,7 +119,7 @@ fn build_solid_with_voids(
     };
     let mut faces = shell_faces(graph, item.outer, log)?;
     let mut sizes = vec![faces.len()];
-    let mut reversed = HashSet::new();
+    let mut reversed = HashSet::default();
     for void in item.voids {
         let (shell, flip) = void_shell(graph, void, log)?;
         let listed = shell_faces(graph, shell, log)?;

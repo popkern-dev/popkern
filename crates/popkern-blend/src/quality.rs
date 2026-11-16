@@ -77,7 +77,7 @@ pub struct ComputeQualityInput<'a> {
     /// used to distinguish new blend faces from surviving original
     /// faces. A face handle that is in `post_brep.faces` but not in
     /// this set is counted as a new blend face.
-    pub pre_faces: &'a std::collections::HashSet<popkern_core::topology::FaceHandle>,
+    pub pre_faces: &'a popkern_math::hash::FastHashSet<popkern_core::topology::FaceHandle>,
     /// The radius that was requested (for relative quality scoring).
     pub requested_radius: f64,
 }

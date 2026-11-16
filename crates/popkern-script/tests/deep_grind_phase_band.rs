@@ -42,8 +42,8 @@ fn mesh_volume_and_open_edges(brep: &popkern_core::topology::BRep) -> (f64, usiz
         vol6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
             + a.z * (b.x * c.y - b.y * c.x);
     }
-    let mut edge_uses: std::collections::HashMap<(u64, u64), i64> =
-        std::collections::HashMap::new();
+    let mut edge_uses: popkern_math::hash::FastHashMap<(u64, u64), i64> =
+        popkern_math::hash::FastHashMap::default();
     let key = |p: popkern_core::geometry::Point3| -> u64 {
         let q = |x: f64| ((x * 1.0e7).round() as i64) as u64;
         q(p.x)

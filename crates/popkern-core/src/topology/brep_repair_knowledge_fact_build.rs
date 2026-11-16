@@ -1,6 +1,6 @@
 //! Shared BRep repair knowledge fact construction.
 
-use crate::topology::brep_degenerate_edges::analyze_brep_degenerate_edges_raw;
+use crate::topology::brep_degenerate_edges::classify_brep_degenerate_edges;
 use crate::topology::brep_repair_knowledge_authority::{
     BrepRepairAuthorityFact, BrepRepairAuthorityKind, BrepRepairAuthorityReason,
     degenerate_edge_authority_fact, surface_boundary_authority_fact, trim_authority_facts,
@@ -404,7 +404,7 @@ fn push_degenerate_edge_authority_facts(
         return;
     }
     let report =
-        analyze_brep_degenerate_edges_raw(brep, BrepDegenerateEdgeOptions { tolerance, samples });
+        classify_brep_degenerate_edges(brep, BrepDegenerateEdgeOptions { tolerance, samples });
     for finding in report
         .findings
         .iter()

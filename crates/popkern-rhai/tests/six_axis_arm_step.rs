@@ -52,7 +52,7 @@ fn an_independent_reader_finds_every_occurrence_where_and_as_we_place_it() {
 
     // Each definition body once: its mesh (for placed bounds) and volume.
     let parts = asm.definition_parts().expect("parts");
-    let mut ours = std::collections::HashMap::new();
+    let mut ours = popkern_math::hash::FastHashMap::default();
     for (id, bodies) in &parts {
         let mut meshes = Vec::new();
         let mut volume = 0.0;

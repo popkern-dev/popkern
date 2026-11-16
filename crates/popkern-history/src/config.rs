@@ -6,7 +6,7 @@
 //! from the default state if `parent` is `None`), and only the *delta* from
 //! the parent is stored.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use serde::{Deserialize, Serialize};
 use slotmap::new_key_type;
@@ -28,7 +28,7 @@ use crate::parameter::ParameterId;
 /// Serialise/deserialise a `HashMap<K, V>` as `Vec<(K, V)>`, sorted by
 /// key so the document bytes never depend on hash order.
 mod serde_map_as_vec {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     use std::hash::Hash;
 
     use serde::de::DeserializeOwned;

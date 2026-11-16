@@ -7,7 +7,7 @@
 //! Candidates come back in input order, so the first-minimum choice of
 //! the full scan is kept.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 
@@ -23,7 +23,7 @@ impl NearIndex {
     /// returned by [`NearIndex::near`]).
     pub(crate) fn new(points: impl Iterator<Item = Point3>, band: f64) -> Self {
         let mut index = Self {
-            cells: HashMap::new(),
+            cells: HashMap::default(),
             band,
             count: 0,
         };

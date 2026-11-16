@@ -281,9 +281,10 @@ pub(crate) fn cellular_graph_merge(
         })
         .collect();
     let mut walk_fallbacks: Vec<(crate::merge::graph::FaceRef, String)> = Vec::new();
-    let holes_of = |s: Option<&crate::scope::ActiveScope>| -> Option<std::collections::HashSet<_>> {
-        s.map(|s| s.far_holes.values().flatten().copied().collect())
-    };
+    let holes_of =
+        |s: Option<&crate::scope::ActiveScope>| -> Option<popkern_math::hash::FastHashSet<_>> {
+            s.map(|s| s.far_holes.values().flatten().copied().collect())
+        };
     let carried_holes = [holes_of(scope), holes_of(scopes.and_then(|s| s.b.as_ref()))];
     let fragments = walk_all_fragments_ext(
         &graph,

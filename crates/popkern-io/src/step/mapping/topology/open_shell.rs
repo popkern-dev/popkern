@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::constructors::BRepBuilder;
 use popkern_core::topology::HalfEdgeHandle;

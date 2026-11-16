@@ -9,7 +9,7 @@ pub(super) fn orient_face_meshes_coherently(
     brep: &BRep,
     face_meshes: &mut [crate::mesh::FaceMesh],
 ) {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
 
     let n = face_meshes.len();
     if popkern_core::trace::trace_enabled("mesh-orientation") {
@@ -201,7 +201,7 @@ pub(super) fn orient_face_meshes_coherently(
     // Face-pair parity votes over shared BRep edges, accumulated by
     // weight (summed matched boundary length). Same-signed advance on
     // both sides means one of the pair is inside-out.
-    let mut votes: PairWindingVotes = HashMap::new(); // (same, opposite)
+    let mut votes: PairWindingVotes = HashMap::default(); // (same, opposite)
     for (_, edge) in brep.edges.iter() {
         let Some(curve) = edge.curve.as_ref() else {
             continue;
@@ -391,9 +391,9 @@ pub(super) fn orient_face_meshes_coherently(
 /// segments' advances, so an unsorted list made the vote weights vary
 /// in the last bits from run to run (PK-796).
 fn boundary_segments(fm: &crate::mesh::FaceMesh) -> Vec<(Point3, Point3)> {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     let key = |p: &Point3| -> PositionBitKey { (p.x.to_bits(), p.y.to_bits(), p.z.to_bits()) };
-    let mut counts: HashMap<(PositionBitKey, PositionBitKey), i64> = HashMap::new();
+    let mut counts: HashMap<(PositionBitKey, PositionBitKey), i64> = HashMap::default();
     for t in &fm.triangles {
         for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
             let (ka, kb) = (key(&fm.vertices[a].position), key(&fm.vertices[b].position));
@@ -440,7 +440,7 @@ fn component_is_closed(
     component: &[usize],
     face_meshes: &[crate::mesh::FaceMesh],
 ) -> bool {
-    let faces: std::collections::HashSet<_> =
+    let faces: popkern_math::hash::FastHashSet<_> =
         component.iter().map(|&f| face_meshes[f].face).collect();
     faces.iter().all(|&face| {
         let Some(data) = brep.faces.get(face) else {

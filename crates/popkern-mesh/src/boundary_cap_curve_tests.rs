@@ -31,7 +31,7 @@ fn a_chord_splits_only_with_a_copy_in_every_face_of_its_edge() {
     };
     let (a, b) = (at(0.1), at(0.2));
     let gate = 1e-7;
-    let mut cache = CurveSamples::new();
+    let mut cache = CurveSamples::default();
     for one in faces {
         assert!(
             edge_curve_midpoint(&brep, &[one], a, b, gate, &mut cache, None).is_none(),

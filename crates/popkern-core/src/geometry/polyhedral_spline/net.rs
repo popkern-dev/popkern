@@ -1,7 +1,8 @@
 use super::types::PolyhedralSplineError;
 use crate::geometry::Point3;
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ControlVertex {
@@ -133,7 +134,7 @@ impl<'a> HalfedgeNet<'a> {
     fn new(net: &'a ControlNet) -> Result<Self, PolyhedralSplineError> {
         let mut halfedges = Vec::new();
         let mut face_halfedges = Vec::with_capacity(net.faces.len());
-        let mut directed = HashMap::<(usize, usize), usize>::new();
+        let mut directed = HashMap::<(usize, usize), usize>::default();
 
         for (face_id, face) in net.faces.iter().enumerate() {
             let mut ids = Vec::with_capacity(face.vertices.len());
@@ -229,7 +230,7 @@ impl<'a> HalfedgeNet<'a> {
             return outgoing.clone();
         }
         let mut ordered = Vec::with_capacity(outgoing.len());
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         let mut current = outgoing[0];
         for _ in 0..outgoing.len() {
             if !seen.insert(current) {
@@ -261,7 +262,7 @@ impl<'a> HalfedgeNet<'a> {
     }
 
     pub fn neighbor_faces_of_face(&self, face: usize) -> Vec<usize> {
-        let mut faces = HashSet::new();
+        let mut faces = HashSet::default();
         for &vertex in self.face_vertices(face) {
             for h in &self.outgoing[vertex] {
                 let f = self.halfedges[*h].face;

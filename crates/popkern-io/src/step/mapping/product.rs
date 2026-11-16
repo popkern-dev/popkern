@@ -7,7 +7,8 @@
 //!
 //! Assembly relationships come from `NEXT_ASSEMBLY_USAGE_OCCURRENCE`.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 use std::sync::Arc;
 
 use popkern_core::geometry::Transform3;
@@ -38,12 +39,12 @@ pub fn map_products(
     log: &mut DiagnosticLog,
 ) -> (Vec<StepProductNode>, Vec<usize>) {
     // Index: PRODUCT_DEFINITION entity_id → product_index
-    let mut pd_to_index: HashMap<EntityId, usize> = HashMap::new();
+    let mut pd_to_index: HashMap<EntityId, usize> = HashMap::default();
     let mut products: Vec<StepProductNode> = Vec::new();
 
     // Build a map: representation item entity_id → BRep bodies. A single
     // SHELL_BASED_SURFACE_MODEL item may contain multiple shell bodies.
-    let mut brep_by_id: HashMap<EntityId, Vec<&BRep>> = HashMap::new();
+    let mut brep_by_id: HashMap<EntityId, Vec<&BRep>> = HashMap::default();
     for (id, brep) in brep_solids {
         brep_by_id.entry(*id).or_default().push(brep);
     }
@@ -97,7 +98,7 @@ pub fn map_products(
     sdr_list.sort_unstable_by_key(|(id, _)| *id);
     // Each product's own representations: an occurrence relationship
     // is read against them to tell child from parent.
-    let mut product_reps: Vec<HashSet<EntityId>> = vec![HashSet::new(); products.len()];
+    let mut product_reps: Vec<HashSet<EntityId>> = vec![HashSet::default(); products.len()];
 
     // Also build PD_SHAPE → PD index
     let pds_to_pd: HashMap<EntityId, EntityId> = graph
@@ -115,7 +116,7 @@ pub fn map_products(
 
     // Every product's own (SDR) representations, so the reach walk of
     // one product never enters another's.
-    let mut own_reps: HashMap<EntityId, usize> = HashMap::new();
+    let mut own_reps: HashMap<EntityId, usize> = HashMap::default();
     for (_, sdr) in &sdr_list {
         if let Some(&pd) = pds_to_pd.get(&sdr.definition)
             && let Some(&idx) = pd_to_index.get(&pd)
@@ -194,7 +195,7 @@ pub fn map_products(
     nauo_list.sort_unstable_by_key(|(id, _)| *id);
 
     let occurrences = OccurrenceIndex::build(graph);
-    let mut child_pds: HashSet<EntityId> = HashSet::new();
+    let mut child_pds: HashSet<EntityId> = HashSet::default();
     for (nauo_id, nauo) in &nauo_list {
         let parent_idx = pd_to_index.get(&nauo.relating).copied();
         let child_idx = pd_to_index.get(&nauo.related).copied();

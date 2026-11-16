@@ -87,15 +87,15 @@ pub fn shell_preview(
     }
 
     let classification = classify_faces(brep, thickness, &[], direction, &[])?;
-    let motions: std::collections::HashMap<FaceHandle, f64> = classification
+    let motions: popkern_math::hash::FastHashMap<FaceHandle, f64> = classification
         .offset_faces
         .iter()
         .map(|&(fh, d, inward)| (fh, if inward { -d } else { d }))
         .collect();
 
     let mut mesh = PreviewMesh::default();
-    let mut entries: std::collections::HashMap<FaceHandle, FaceTrimEntry> =
-        std::collections::HashMap::new();
+    let mut entries: popkern_math::hash::FastHashMap<FaceHandle, FaceTrimEntry> =
+        popkern_math::hash::FastHashMap::default();
     let mut face_handles: Vec<FaceHandle> = motions.keys().copied().collect();
     face_handles.sort();
 

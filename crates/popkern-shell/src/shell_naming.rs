@@ -15,7 +15,7 @@
 //! plain `Generated`. Result handles that died in the trim stage are
 //! simply absent from the final body and skipped.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::history::TrackingContext;
 use popkern_core::naming::{EntityName, EntityRole, OperationId, RoleCategory};
@@ -91,7 +91,7 @@ pub(crate) fn assign_shell_names(
     // Source-face names: the input's own name where one exists, else a
     // stable positional placeholder (pre-history bodies) — the same
     // fallback the heuristic used, keyed by source iteration index.
-    let mut source_names: HashMap<FaceHandle, EntityName> = HashMap::new();
+    let mut source_names: HashMap<FaceHandle, EntityName> = HashMap::default();
     for (i, (fh, face)) in source.faces.iter().enumerate() {
         let name = face
             .name
@@ -108,7 +108,7 @@ pub(crate) fn assign_shell_names(
         source_names.insert(fh, name);
     }
 
-    let mut roles: HashMap<FaceHandle, FaceRole<'_>> = HashMap::new();
+    let mut roles: HashMap<FaceHandle, FaceRole<'_>> = HashMap::default();
     for &(res, src) in &provenance.modified {
         roles.insert(res, FaceRole::Modified(src));
     }

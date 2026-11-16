@@ -26,7 +26,7 @@
 //! identity face too and reports any difference (see
 //! [`compare_identity`]).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle};
@@ -51,7 +51,7 @@ pub(crate) struct OperandHalfEdgeMaps<'a> {
     /// their edges are not in the graph, and they lie away from every
     /// record. Loop handles are per body, so each set is its own.
     pub carried_holes:
-        [Option<&'a std::collections::HashSet<popkern_core::topology::LoopHandle>>; 2],
+        [Option<&'a popkern_math::hash::FastHashSet<popkern_core::topology::LoopHandle>>; 2],
 }
 
 /// The graph half-edges of one stored loop, in loop order; `None` when
@@ -132,7 +132,8 @@ pub(crate) fn identity_fragment(
             && sorted.binary_search(&h).is_ok()
     };
     let all = outer_loop.iter().chain(inner_loops.iter().flatten());
-    let mut seen = std::collections::HashSet::with_capacity(mapped);
+    let mut seen =
+        popkern_math::hash::FastHashSet::with_capacity_and_hasher(mapped, Default::default());
     for &h in all {
         if !original(h) || !seen.insert(h) {
             return None;

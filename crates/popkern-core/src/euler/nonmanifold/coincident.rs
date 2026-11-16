@@ -10,7 +10,8 @@
 //! vertex, one ring in radial order, the shells of a region meeting in
 //! a new wedge joined.
 
-use std::collections::{BTreeMap, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeMap;
 
 use super::EulerError;
 use crate::topology::{BRep, EdgeHandle, VertexHandle};
@@ -44,7 +45,7 @@ impl BRep {
             let k = |x: f64| (x / tolerance.max(1e-12)).floor() as i64;
             (k(p.x), k(p.y), k(p.z))
         };
-        let mut grid: HashMap<(i64, i64, i64), Vec<VertexHandle>> = HashMap::new();
+        let mut grid: HashMap<(i64, i64, i64), Vec<VertexHandle>> = HashMap::default();
         for (v, data) in &work.vertices {
             grid.entry(cell(data.position)).or_default().push(v);
         }
@@ -77,7 +78,7 @@ impl BRep {
         // Edges, grouped by their end vertices.
         loop {
             let mut by_ends: HashMap<(VertexHandle, VertexHandle), Vec<EdgeHandle>> =
-                HashMap::new();
+                HashMap::default();
             for e in work.edges.keys() {
                 if work.radial_fins(e).is_empty() {
                     continue;

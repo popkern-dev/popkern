@@ -48,7 +48,7 @@ fn a_region_is_refined_into_oriented_pieces_and_improves() {
         &plane(),
         &tris,
         &mut bounds,
-        &HashSet::new(),
+        &HashSet::default(),
         0.5,
         |w, _| {
             assert!(orient(w[0], w[1], w[2]) > 0.0);
@@ -69,7 +69,7 @@ fn a_region_that_does_not_improve_keeps_its_bounds() {
         &plane(),
         &tris,
         &mut bounds,
-        &HashSet::new(),
+        &HashSet::default(),
         0.5,
         |_, _| Some(2.0),
     );

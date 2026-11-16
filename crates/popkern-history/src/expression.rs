@@ -6,7 +6,8 @@
 //! checking, and topological ordering.
 
 use popkern_math::PortableMath;
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use serde::{Deserialize, Serialize};
 
@@ -252,15 +253,15 @@ pub(crate) fn expression_param_refs(expr: &Expression) -> Vec<ParameterId> {
 /// Topological sort of parameters with expressions (dependencies before dependents).
 pub fn topological_sort(table: &ParameterTable) -> Result<Vec<ParameterId>, HistoryError> {
     // Build adjacency list: param → [params it depends on].
-    let mut deps: HashMap<ParameterId, Vec<ParameterId>> = HashMap::new();
+    let mut deps: HashMap<ParameterId, Vec<ParameterId>> = HashMap::default();
     for (id, param) in table.all_params() {
         if let Some(ref expr) = param.expression {
             deps.insert(id, expression_param_refs(expr));
         }
     }
 
-    let mut visited = HashSet::new();
-    let mut in_progress = HashSet::new();
+    let mut visited = HashSet::default();
+    let mut in_progress = HashSet::default();
     let mut order = Vec::new();
 
     for &id in deps.keys() {

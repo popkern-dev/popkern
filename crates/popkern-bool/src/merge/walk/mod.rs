@@ -43,7 +43,7 @@ pub(crate) use fragment_chart::FragmentChart;
 pub(crate) use identity::OperandHalfEdgeMaps;
 mod walk_trace;
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::topology::BRep;
 
@@ -82,7 +82,7 @@ pub(crate) fn walk_all_fragments_ext(
     identity: Option<&OperandHalfEdgeMaps<'_>>,
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Vec<Fragment> {
-    let (mut fragments, mut chart_views) = (Vec::new(), std::collections::HashMap::new());
+    let (mut fragments, mut chart_views) = (Vec::new(), popkern_math::hash::FastHashMap::default());
     let compare = identity::compare_mode();
     let mut identities: Vec<Fragment> = Vec::new();
 
@@ -168,7 +168,7 @@ struct FaceWalk<'g, 'o> {
     carried_holes: [Option<&'g HashSet<popkern_core::topology::LoopHandle>>; 2],
     tolerance: &'g popkern_core::tolerance::Tolerance,
     fragments: &'o mut Vec<Fragment>,
-    chart_views: &'o mut std::collections::HashMap<FaceRef, fragment_chart::WalkView>,
+    chart_views: &'o mut popkern_math::hash::FastHashMap<FaceRef, fragment_chart::WalkView>,
     walk_fallbacks: &'o mut Vec<(FaceRef, String)>,
 }
 
@@ -209,7 +209,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
     };
     walk_trace::dump_face_pre(graph, face_ref, he_indices);
     let face_hes: HashSet<usize> = he_indices.iter().copied().collect();
-    let mut visited: HashSet<usize> = HashSet::new();
+    let mut visited: HashSet<usize> = HashSet::default();
     let mut loops: Vec<Vec<usize>> = Vec::new();
 
     // PK-104 stage 3: chart-subdivision permutation walk, primary
@@ -336,7 +336,7 @@ fn walk_face(ctx: &mut FaceWalk<'_, '_>, face_ref: &FaceRef, he_indices: &[usize
                     let largest = orbits.iter().enumerate().max_by_key(|(_, o)| o.len());
                     match largest {
                         Some((li, lo)) => {
-                            let largest_twins: std::collections::HashSet<usize> =
+                            let largest_twins: popkern_math::hash::FastHashSet<usize> =
                                 lo.iter().map(|&h| graph.half_edges[h].twin).collect();
                             orbits.iter().enumerate().any(|(oi, o)| {
                                 oi != li

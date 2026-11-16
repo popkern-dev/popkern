@@ -23,7 +23,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, VertexHandle};
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use super::perp_anchor_curve_refit::relocate_vertex_with_curve_coherence;
 use super::plan::ApexPlan;
@@ -94,7 +94,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
     // any vertex on a cylinder face's outer loop within search_radius
     // of V.  Cylinder face boundaries hold perp-anchors; the BFS
     // from V finds plane-side perp-anchors.
-    let mut candidates: HashSet<VertexHandle> = HashSet::new();
+    let mut candidates: HashSet<VertexHandle> = HashSet::default();
     bfs_collect_neighborhood(
         brep,
         plan.apex_vertex,
@@ -132,7 +132,7 @@ pub(super) fn relocate_perp_anchors_to_plan_targets(
     triples.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
 
     let mut target_to_anchor: Vec<Option<VertexHandle>> = vec![None; targets.len()];
-    let mut claimed: HashSet<VertexHandle> = HashSet::new();
+    let mut claimed: HashSet<VertexHandle> = HashSet::default();
     for (ti, c, _) in &triples {
         if target_to_anchor[*ti].is_some() {
             continue;
