@@ -9,12 +9,12 @@
 //! keep conforming meshes; raw constructor/fillet outputs need not.
 
 use popkern_core::topology::BRep;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 pub(crate) fn welded_open_edges(brep: &BRep) -> usize {
     let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
         .expect("tessellate");
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut id = |p: popkern_core::geometry::Point3| -> usize {
         let k = (
             (p.x * 1.0e7).round() as i64,
@@ -24,7 +24,7 @@ pub(crate) fn welded_open_edges(brep: &BRep) -> usize {
         let next = key.len();
         *key.entry(k).or_insert(next)
     };
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         let w = [
             id(mesh.vertices[t[0]].position),

@@ -102,7 +102,7 @@ pub(super) fn peel_far_holes(
     {
         return None;
     }
-    let on_face: std::collections::HashSet<usize> = he_indices.iter().copied().collect();
+    let on_face: popkern_math::hash::FastHashSet<usize> = he_indices.iter().copied().collect();
     let pad = 100.0 * tolerance.linear();
     let mut candidates: Vec<(LoopHandle, Vec<usize>)> = Vec::new();
     for &lh in &face.inner_loops {
@@ -125,7 +125,7 @@ pub(super) fn peel_far_holes(
     if candidates.is_empty() {
         return None;
     }
-    let peeled: std::collections::HashSet<usize> = candidates
+    let peeled: popkern_math::hash::FastHashSet<usize> = candidates
         .iter()
         .flat_map(|(_, lp)| lp.iter().copied())
         .collect();
@@ -136,7 +136,7 @@ pub(super) fn peel_far_holes(
         .collect();
     // A peeled loop must be node-disjoint from everything the walk
     // still sees, in either direction of travel.
-    let rest_nodes: std::collections::HashSet<usize> = rest
+    let rest_nodes: popkern_math::hash::FastHashSet<usize> = rest
         .iter()
         .flat_map(|&h| {
             let he = &graph.half_edges[h];
@@ -154,7 +154,7 @@ pub(super) fn peel_far_holes(
     if loops.is_empty() || rest.is_empty() {
         return None;
     }
-    let peeled: std::collections::HashSet<usize> = loops.iter().flatten().copied().collect();
+    let peeled: popkern_math::hash::FastHashSet<usize> = loops.iter().flatten().copied().collect();
     let rest = he_indices
         .iter()
         .copied()

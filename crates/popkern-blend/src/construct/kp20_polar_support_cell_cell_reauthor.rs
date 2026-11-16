@@ -18,7 +18,7 @@
 //! demanded by two boundaries; the writes are averaged and
 //! counted.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
@@ -232,7 +232,7 @@ pub(super) fn reauthor_cells_from_chain_network(
     curvature_solve_scope: CurvatureSolveScope,
 ) -> CellReauthorOutcome {
     let mut outcome = CellReauthorOutcome::default();
-    let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
+    let chained_rows: popkern_math::hash::FastHashSet<ChainRowKey> = sub_chains
         .iter()
         .flat_map(|sub| sub.rows.iter().map(|&(key, _)| key))
         .collect();
@@ -338,7 +338,7 @@ pub(super) fn reauthor_cells_from_chain_network(
             ));
         }
     }
-    let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();
+    let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::default();
     for band in &row_bands {
         let (span_residual, residual_param) =
             derived_span_residual(&band.row0, &band.row1, &band.field_segment);

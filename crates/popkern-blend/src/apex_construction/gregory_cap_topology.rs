@@ -6,7 +6,7 @@ pub(super) fn merge_cap_side_accumulators(
     brep: &mut BRep,
     apex_edge_handles: &[EdgeHandle],
 ) -> Result<(), String> {
-    use std::collections::HashSet;
+    use popkern_math::hash::FastHashSet as HashSet;
     if apex_edge_handles.is_empty() {
         return Ok(());
     }
@@ -59,9 +59,10 @@ pub(super) fn merge_cap_side_accumulators(
 
 fn count_apex_edges_per_face(
     brep: &BRep,
-    perimeter: &std::collections::HashSet<EdgeHandle>,
-) -> std::collections::HashMap<FaceHandle, usize> {
-    let mut out: std::collections::HashMap<FaceHandle, usize> = std::collections::HashMap::new();
+    perimeter: &popkern_math::hash::FastHashSet<EdgeHandle>,
+) -> popkern_math::hash::FastHashMap<FaceHandle, usize> {
+    let mut out: popkern_math::hash::FastHashMap<FaceHandle, usize> =
+        popkern_math::hash::FastHashMap::default();
     for (fh, face) in &brep.faces {
         let Some(loop_data) = brep.loops.get(face.outer_loop) else {
             continue;
@@ -94,7 +95,7 @@ pub(super) fn merge_unmerged_apex_subfaces(
     apex_edge_handles: &[EdgeHandle],
 ) -> Result<(), String> {
     let cap_iters = apex_edge_handles.len() * 2 + 8;
-    let apex_set: std::collections::HashSet<EdgeHandle> =
+    let apex_set: popkern_math::hash::FastHashSet<EdgeHandle> =
         apex_edge_handles.iter().copied().collect();
     let apex_vertex_set = apex_vertex_set(brep, &apex_set);
     for _ in 0..cap_iters {
@@ -117,9 +118,9 @@ pub(super) fn merge_unmerged_apex_subfaces(
 
 fn apex_vertex_set(
     brep: &BRep,
-    apex_set: &std::collections::HashSet<EdgeHandle>,
-) -> std::collections::HashSet<VertexHandle> {
-    let mut out = std::collections::HashSet::new();
+    apex_set: &popkern_math::hash::FastHashSet<EdgeHandle>,
+) -> popkern_math::hash::FastHashSet<VertexHandle> {
+    let mut out = popkern_math::hash::FastHashSet::default();
     for &eh in apex_set {
         let Some(edge) = brep.edges.get(eh) else {
             continue;
@@ -138,7 +139,7 @@ fn apex_vertex_set(
 fn find_kef_candidate_between(
     brep: &BRep,
     cap_side_faces: &[FaceHandle],
-    apex_set: &std::collections::HashSet<EdgeHandle>,
+    apex_set: &popkern_math::hash::FastHashSet<EdgeHandle>,
 ) -> Option<HalfEdgeHandle> {
     for fh in cap_side_faces {
         let face = brep.faces.get(*fh)?;
@@ -173,8 +174,8 @@ fn find_kef_candidate_between(
 
 fn find_bisected_spoke_kef_candidate(
     brep: &BRep,
-    apex_set: &std::collections::HashSet<EdgeHandle>,
-    apex_vertex_set: &std::collections::HashSet<VertexHandle>,
+    apex_set: &popkern_math::hash::FastHashSet<EdgeHandle>,
+    apex_vertex_set: &popkern_math::hash::FastHashSet<VertexHandle>,
 ) -> Option<HalfEdgeHandle> {
     let containing_faces: Vec<FaceHandle> = brep
         .faces
@@ -231,7 +232,7 @@ fn find_bisected_spoke_kef_candidate(
 
 fn faces_with_multi_apex_edges(
     brep: &BRep,
-    apex_set: &std::collections::HashSet<EdgeHandle>,
+    apex_set: &popkern_math::hash::FastHashSet<EdgeHandle>,
 ) -> Vec<FaceHandle> {
     let mut out = Vec::new();
     for (fh, face) in &brep.faces {

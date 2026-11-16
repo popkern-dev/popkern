@@ -23,14 +23,17 @@ pub trait SurfaceEval {
     /// Valid parameter range ((u_min, u_max), (v_min, v_max)).
     fn parameter_range(&self) -> ((f64, f64), (f64, f64));
 
-    /// Periodicity of each parameter, as `(u_period, v_period)`.
-    /// `Some(p)` means the parameter is `p`-periodic — evaluating
-    /// the surface at `u` and `u + k·p` gives the same point for
-    /// any integer `k`. `None` means non-periodic. Default is
-    /// non-periodic for both; analytic surfaces with rotational
-    /// symmetry (cylinder, cone, sphere, torus) override this.
+    /// Periodicity of each parameter, `(u_period, v_period)`: `Some(p)`
+    /// when `S(u, v) = S(u + k·p, v)`. Default non-periodic; the analytic
+    /// surfaces of revolution override it.
     fn parameter_periodicity(&self) -> (Option<f64>, Option<f64>) {
         (None, None)
+    }
+
+    /// Both first partials `(S_u, S_v)` at (u, v): one evaluation where
+    /// the surface fuses them (a NURBS computed both for each partial).
+    fn first_partials(&self, u: f64, v: f64) -> (Vec3, Vec3) {
+        (self.partial_u(u, v), self.partial_v(u, v))
     }
 
     /// Second partial derivative d²S/du² at (u, v).
@@ -225,12 +228,8 @@ impl SurfaceGeometry {
         }
     }
 
-    /// Returns whether the surface is periodic in the u and v directions,
-    /// as a tuple `(periodic_u, periodic_v)`.
-    ///
-    /// Periodicity means the surface wraps around in that parameter direction.
-    /// For example, a cylinder wraps in u (the angular direction) but not in v
-    /// (the axial direction). A torus wraps in both u and v.
+    /// Whether the surface wraps round in u and in v, `(periodic_u,
+    /// periodic_v)`: a cylinder in u (its angle), a torus in both.
     pub fn is_periodic(&self) -> (bool, bool) {
         match self {
             SurfaceGeometry::Plane { .. } => (false, false),

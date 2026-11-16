@@ -2,7 +2,8 @@
 //! steps, record each in the step cache, and resume a replay after the
 //! longest cached prefix (see `cache` and `step_key`).
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::replay_report::ReplayResult;
 use crate::{expression, measure_query};
@@ -83,15 +84,15 @@ impl FeatureTree {
     ) -> Result<ReplayRangeOutput, ReplayError> {
         let mut body_breps = start.to_working();
         let mut state = start;
-        let mut results = HashMap::new();
+        let mut results = HashMap::default();
         let mut report = ReplayReport::default();
         let mut carry = RangeCarry {
             seed_feature_ids: self.pattern_seed_ids(to),
-            stale_param_ids: HashSet::new(),
-            failed_ref_ids: HashSet::new(),
+            stale_param_ids: HashSet::default(),
+            failed_ref_ids: HashSet::default(),
             measure_cache: MeasureCache::new(),
         };
-        let none = HashSet::new();
+        let none = HashSet::default();
         for i in from..to {
             let id = self.timeline[i];
             let published = self.replay_step(id, &mut body_breps, &mut carry, tolerance)?;

@@ -71,7 +71,7 @@ impl FeatureTree {
             },
             secondary: None,
             geometry_pattern: false,
-            instance_overrides: std::collections::HashMap::new(),
+            instance_overrides: popkern_math::hash::FastHashMap::default(),
         };
 
         Ok(self.add_feature(feature, label))
@@ -126,7 +126,7 @@ impl FeatureTree {
             count: count_id,
             total_angle: total_angle_id,
             geometry_pattern: false,
-            instance_overrides: std::collections::HashMap::new(),
+            instance_overrides: popkern_math::hash::FastHashMap::default(),
         };
 
         Ok(self.add_feature(feature, label))
@@ -171,7 +171,7 @@ impl FeatureTree {
             equal_spacing,
             align_to_curve,
             geometry_pattern: false,
-            instance_overrides: std::collections::HashMap::new(),
+            instance_overrides: popkern_math::hash::FastHashMap::default(),
         };
 
         Ok(self.add_feature(feature, label))

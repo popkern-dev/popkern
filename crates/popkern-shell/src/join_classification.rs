@@ -11,7 +11,8 @@
 //! required. This one rule covers outward (material-convex), inward
 //! (material-concave / erosion) and variable-distance ladders.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::{JoinDecline, ShellError, ShellWarning};
 use crate::skin_map::SkinMap;

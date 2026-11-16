@@ -1,7 +1,7 @@
 //! The shared context of one cellular fragment classification, and the
 //! point classification through its prepared operands (PK-814).
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;

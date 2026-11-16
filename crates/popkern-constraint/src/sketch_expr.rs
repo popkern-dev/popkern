@@ -70,7 +70,7 @@ impl Sketch {
 
 /// Serialize the expressions `HashMap` as a `Vec` of pairs (JSON-compatible).
 pub(crate) fn serialize_expressions<S>(
-    map: &std::collections::HashMap<ConstraintHandle, Expression>,
+    map: &popkern_math::hash::FastHashMap<ConstraintHandle, Expression>,
     serializer: S,
 ) -> Result<S::Ok, S::Error>
 where
@@ -87,7 +87,7 @@ where
 /// Deserialize the expressions `HashMap` from a `Vec` of pairs.
 pub(crate) fn deserialize_expressions<'de, D>(
     deserializer: D,
-) -> Result<std::collections::HashMap<ConstraintHandle, Expression>, D::Error>
+) -> Result<popkern_math::hash::FastHashMap<ConstraintHandle, Expression>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {

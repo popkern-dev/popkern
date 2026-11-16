@@ -7,7 +7,8 @@
 // they will be consumed by later pipeline stages.
 #![allow(dead_code)]
 
-use std::collections::{BTreeMap, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeMap;
 
 use popkern_core::{
     geometry::{CurveOnEdge, Point3},
@@ -174,7 +175,7 @@ impl IntersectionGraph {
             .push(idx);
         self.nodes.push(GraphNode {
             position,
-            uv_coords: HashMap::new(),
+            uv_coords: HashMap::default(),
             source,
             outgoing: Vec::new(),
         });

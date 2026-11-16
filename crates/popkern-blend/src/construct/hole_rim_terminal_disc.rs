@@ -47,7 +47,7 @@
 //! postconditions gate at `linear × 10` (the PK-148 gate).
 
 use popkern_math::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};

@@ -20,7 +20,7 @@
 //! `∮ p·n_trav dA = ±3V` — positive means the traversal-coherent
 //! normals face outward.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -198,7 +198,7 @@ pub(crate) fn component_stored_normal_out_signs(
         return None;
     }
     let global = if total > 0.0 { 1.0 } else { -1.0 };
-    let mut out = HashMap::new();
+    let mut out = HashMap::default();
     for fh in component {
         if let Some(s) = senses.get(fh) {
             out.insert(*fh, global * s.trav_sign);

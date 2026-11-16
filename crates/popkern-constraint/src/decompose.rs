@@ -9,7 +9,7 @@ use crate::Sketch;
 use crate::constraint::{ConstraintHandle, ConstraintKind};
 use crate::elements::ElementHandle;
 use crate::rigid_set;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 /// Disjoint-set (union-find) data structure with path compression and
 /// union-by-rank for near-constant amortised operations.
@@ -250,7 +250,7 @@ pub(crate) fn find_components(sketch: &Sketch) -> Vec<SubProblem> {
     }
 
     // Group params by root to form components.
-    let mut root_to_params: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut root_to_params: HashMap<usize, Vec<usize>> = HashMap::default();
     // Only include params that are referenced by at least one active constraint.
     let mut referenced = vec![false; n];
     for (_, indices) in &active_constraints {
@@ -285,7 +285,7 @@ pub(crate) fn find_components(sketch: &Sketch) -> Vec<SubProblem> {
     }
 
     // Assign constraints to components.
-    let mut root_to_constraints: HashMap<usize, Vec<ConstraintHandle>> = HashMap::new();
+    let mut root_to_constraints: HashMap<usize, Vec<ConstraintHandle>> = HashMap::default();
     for (handle, indices) in &active_constraints {
         if let Some(&first_idx) = indices.first() {
             let root = uf.find(first_idx);

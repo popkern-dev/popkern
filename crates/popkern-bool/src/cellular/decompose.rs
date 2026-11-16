@@ -6,7 +6,7 @@
 //! 2. Merging cells via union-find when fragments share edges
 //! 3. Classifying each cell's membership via point-in-solid
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::intersection::surface_subdivision::Aabb;
@@ -61,7 +61,7 @@ pub fn decompose_cells(params: &DecomposeParams<'_>) -> CellDecomposition {
     }
 
     // Collect unique cells
-    let mut cell_id_map: HashMap<usize, CellId> = HashMap::new();
+    let mut cell_id_map: HashMap<usize, CellId> = HashMap::default();
     let mut cells: Vec<Cell> = Vec::new();
 
     for i in 0..(n * 2) {

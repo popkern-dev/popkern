@@ -4,7 +4,7 @@
 //! *"which features depend on this one?"*, *"what are this feature's direct
 //! parents?"*, and *"if I change this feature, what will need to rebuild?"*.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::naming::EntityName;
 
@@ -40,7 +40,7 @@ impl FeatureTree {
     /// Uses a single-pass walk over the timeline — O(n) rather than O(n^2).
     /// The result does **not** include `id` itself.
     pub fn dependents(&self, id: FeatureId) -> Vec<FeatureId> {
-        let mut visited = HashSet::new();
+        let mut visited = HashSet::default();
         visited.insert(id);
         let mut result = Vec::new();
 

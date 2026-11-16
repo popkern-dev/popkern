@@ -3,7 +3,7 @@
 //! This module is not public API — it is a submodule of [`crate::csv`].
 //! All pub items here are re-exported through `crate::csv`.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::FeatureTree;
 use crate::config::{ConfigId, ParamOverride};

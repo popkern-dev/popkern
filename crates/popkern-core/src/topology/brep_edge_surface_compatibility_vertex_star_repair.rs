@@ -1,6 +1,6 @@
 //! Transactional coordinated vertex-star repair for edge/surface compatibility.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::topology::brep_edge_surface_compatibility::{
     BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceCompatibilityRepairDecision,

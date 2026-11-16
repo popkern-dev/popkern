@@ -2,7 +2,8 @@
 //! disk-preserving growth where a patch's boundary pinches, and the
 //! collinear-vertex pass.
 
-use std::collections::{HashMap, VecDeque};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::VecDeque;
 
 use super::{V3, cross, dot, sub};
 
@@ -105,7 +106,7 @@ fn loops(
     edges: &HashMap<(u32, u32), u32>,
     n: V3,
 ) -> Option<(Vec<u32>, Vec<Vec<u32>>)> {
-    let mut next: HashMap<u32, u32> = HashMap::new();
+    let mut next: HashMap<u32, u32> = HashMap::default();
     for &t in members {
         let tri = triangles[t as usize];
         for k in 0..3 {
@@ -118,7 +119,7 @@ fn loops(
     }
     let mut starts: Vec<u32> = next.keys().copied().collect();
     starts.sort_unstable();
-    let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    let mut seen: popkern_math::hash::FastHashSet<u32> = popkern_math::hash::FastHashSet::default();
     let mut outer = None;
     let mut holes = Vec::new();
     for start in starts {
@@ -248,7 +249,7 @@ fn boundary(
     r: u32,
     edges: &HashMap<(u32, u32), u32>,
 ) -> Vec<u32> {
-    let mut next: HashMap<u32, u32> = HashMap::new();
+    let mut next: HashMap<u32, u32> = HashMap::default();
     for &t in members {
         let tri = triangles[t as usize];
         for k in 0..3 {
@@ -280,7 +281,7 @@ fn boundary(
 /// that lies within `tol` of the segment between them (it splits a
 /// straight edge between the same two faces). Returns the count.
 pub(super) fn drop_collinear(vertices: &[V3], cycles: &mut [Vec<u32>], tol: f64) -> usize {
-    let mut neighbours: HashMap<u32, Vec<u32>> = HashMap::new();
+    let mut neighbours: HashMap<u32, Vec<u32>> = HashMap::default();
     for c in cycles.iter() {
         let n = c.len();
         for i in 0..n {
@@ -293,7 +294,7 @@ pub(super) fn drop_collinear(vertices: &[V3], cycles: &mut [Vec<u32>], tol: f64)
             }
         }
     }
-    let dropped: std::collections::HashSet<u32> = neighbours
+    let dropped: popkern_math::hash::FastHashSet<u32> = neighbours
         .iter()
         .filter(|(_, list)| list.len() == 2)
         .filter(|&(&v, list)| {

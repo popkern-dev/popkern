@@ -83,8 +83,8 @@ pub(crate) fn split_shared_edges_at_nodes(
     // cached box stays conservative after a split shrinks its edge.
     // Without them every node met every shared edge on every restart
     // (a 60-knuckle piano hinge spent 1.0 s of 1.1 s here).
-    let mut bounds: std::collections::HashMap<usize, Option<(Point3, Point3)>> =
-        std::collections::HashMap::new();
+    let mut bounds: popkern_math::hash::FastHashMap<usize, Option<(Point3, Point3)>> =
+        popkern_math::hash::FastHashMap::default();
     let mut did_split = true;
     while did_split {
         did_split = false;

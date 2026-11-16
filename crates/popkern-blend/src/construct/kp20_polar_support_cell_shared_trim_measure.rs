@@ -1,6 +1,7 @@
 //! Shared-trim measurement for KP20 support-cell patchwork.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::{
@@ -33,8 +34,8 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
     n_samples: usize,
 ) -> Kp20SupportCellSharedTrimQuality {
     let face_set = faces.iter().copied().collect::<HashSet<_>>();
-    let mut visited_edges = HashSet::new();
-    let mut boundary_row_counts = HashMap::new();
+    let mut visited_edges = HashSet::default();
+    let mut boundary_row_counts = HashMap::default();
     let mut quality = Kp20SupportCellSharedTrimQuality {
         shared_trim_count: 0,
         partial_shared_trim_count: 0,

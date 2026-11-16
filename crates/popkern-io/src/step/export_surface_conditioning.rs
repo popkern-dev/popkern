@@ -224,7 +224,7 @@ fn boundary_samples(
 /// Normal curvatures at `(u, v)` along the boundary direction (`u` when
 /// `along_u`, else `v`) and across it, in 3D: `II(x, x) / I(x, x)`.
 fn boundary_curvatures(s: &dyn SurfaceEval, u: f64, v: f64, along_u: bool) -> Option<[f64; 2]> {
-    let (su, sv) = (s.partial_u(u, v), s.partial_v(u, v));
+    let (su, sv) = s.first_partials(u, v);
     let n = su.cross(&sv).normalized()?;
     let along = if along_u { su } else { sv }.normalized()?;
     let across = n.cross(&along);

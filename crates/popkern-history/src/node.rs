@@ -8,9 +8,9 @@ use crate::error::FeatureResult;
 use crate::expression::Expression;
 use crate::feature::Feature;
 use popkern_core::naming::OperationId;
+use popkern_math::hash::FastHashMap as HashMap;
 use serde::{Deserialize, Serialize};
 use slotmap::new_key_type;
-use std::collections::HashMap;
 
 new_key_type! {
     /// Stable handle for a feature node in the [`crate::FeatureTree`].
@@ -135,7 +135,7 @@ fn deserialize_op_ids<'de, D: serde::Deserializer<'de>>(
 ) -> Result<HashMap<(u32, u32), OperationId>, D::Error> {
     use serde::de::Error;
     let string_map: HashMap<String, OperationId> = HashMap::deserialize(deserializer)?;
-    let mut result = HashMap::new();
+    let mut result = HashMap::default();
     for (key, op_id) in string_map {
         let parts: Vec<&str> = key.split('_').collect();
         if parts.len() != 2 {

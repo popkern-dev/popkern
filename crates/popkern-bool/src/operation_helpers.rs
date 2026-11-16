@@ -3,7 +3,7 @@
 //! tracing. The no-intersection dispatch
 //! lives in `operation_no_intersection.rs` (500-line cap).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::BRep;
 

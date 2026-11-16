@@ -9,7 +9,8 @@
 //! sits at distance d from the original apex (|C−A|² + r² = d²).
 
 use popkern_math::PortableMath;
-use std::collections::{BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeSet;
 
 use crate::arc_join::cap_orientation;
 use crate::skin_map::{JoinKind, JoinRecord, SkinMap};

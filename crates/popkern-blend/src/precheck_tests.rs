@@ -177,7 +177,7 @@ fn feasible_radius_bounds_min_is_tolerance_linear() {
 fn fillet_quality_after_successful_cube_fillet() {
     use crate::{FilletOptions, FilletSpec, fillet_edges};
     let (brep, edge) = cube_and_edge();
-    let pre_faces: std::collections::HashSet<_> = brep.faces.keys().collect();
+    let pre_faces: popkern_math::hash::FastHashSet<_> = brep.faces.keys().collect();
 
     let specs = vec![FilletSpec {
         edge,
@@ -203,7 +203,7 @@ fn fillet_quality_after_successful_cube_fillet() {
 #[test]
 fn fillet_quality_with_no_new_faces_falls_back_to_requested_radius() {
     let brep = BRep::unit_cube(tol()).unwrap();
-    let pre_faces: std::collections::HashSet<_> = brep.faces.keys().collect();
+    let pre_faces: popkern_math::hash::FastHashSet<_> = brep.faces.keys().collect();
     let quality = fillet_quality(&ComputeQualityInput {
         post_brep: &brep,
         pre_faces: &pre_faces,
@@ -221,7 +221,7 @@ fn fillet_quality_composite_score_is_one_when_r_min_meets_requested() {
     // radius, so the score should be 1.0.
     use crate::{FilletOptions, FilletSpec, fillet_edges};
     let (brep, edge) = cube_and_edge();
-    let pre_faces: std::collections::HashSet<_> = brep.faces.keys().collect();
+    let pre_faces: popkern_math::hash::FastHashSet<_> = brep.faces.keys().collect();
     let specs = vec![FilletSpec {
         edge,
         radius: FilletRadius::Constant(0.1),

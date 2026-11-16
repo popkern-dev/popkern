@@ -390,7 +390,7 @@ fn side_skin(
 /// vertex fan walks stay closed. The dangling `loop_` marks it free.
 fn materialize_boundary_twins(brep: &mut BRep) -> Result<(), ShellError> {
     use popkern_core::topology::{HalfEdge, HalfEdgeHandle, VertexHandle};
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
 
     let survivors: Vec<HalfEdgeHandle> = brep
         .half_edges
@@ -400,7 +400,7 @@ fn materialize_boundary_twins(brep: &mut BRep) -> Result<(), ShellError> {
         .collect();
 
     // Create the twins first (next/prev wired below).
-    let mut new_by_origin: HashMap<VertexHandle, HalfEdgeHandle> = HashMap::new();
+    let mut new_by_origin: HashMap<VertexHandle, HalfEdgeHandle> = HashMap::default();
     let mut created: Vec<HalfEdgeHandle> = Vec::new();
     for s in &survivors {
         let next = brep.half_edges[*s].next;

@@ -113,10 +113,7 @@ pub fn render_curvature_map(
                     // du x dv; flip it where that points inward of the
                     // pixel's outward facet normal.
                     use popkern_core::geometry::surface::SurfaceEval;
-                    let (su, sv) = (
-                        surface.geometry.partial_u(s.uv.0, s.uv.1),
-                        surface.geometry.partial_v(s.uv.0, s.uv.1),
-                    );
+                    let (su, sv) = surface.geometry.first_partials(s.uv.0, s.uv.1);
                     let chart = su.cross(&sv);
                     let inward =
                         crate::zebra::dot([chart.x, chart.y, chart.z], s.mesh_normal) < 0.0;

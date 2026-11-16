@@ -1,5 +1,5 @@
 use crate::topology::RadialLinks;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::readiness::{PatchEdgeRole, validate_brep_readiness};
 use super::types::{PatchEdge, PolyhedralSpline, PolyhedralSplineError, PolyhedralSplineFamily};
@@ -65,8 +65,8 @@ pub fn build_polyhedral_spline_brep(
     let mut brep = BRep::new(options.tolerance);
     let (_solid, shell) = brep.add_solid_region(Default::default());
 
-    let mut vertices = HashMap::new();
-    let mut edges = HashMap::new();
+    let mut vertices = HashMap::default();
+    let mut edges = HashMap::default();
     let mut faces = Vec::with_capacity(spline.patches.len());
     let mut collapsed_singularity_count = 0usize;
 

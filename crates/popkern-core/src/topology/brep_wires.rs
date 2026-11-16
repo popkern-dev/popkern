@@ -19,7 +19,8 @@
 //! A vertex with more than one use is non-manifold (two cones touching
 //! at their apexes, a wire standing on a face).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use slotmap::Key;
 
@@ -91,7 +92,7 @@ impl BRep {
         let mut out: BTreeMap<VertexHandle, Vec<VertexUse>> =
             self.vertices.keys().map(|v| (v, Vec::new())).collect();
         // Face uses leaving each vertex.
-        let mut leaving: HashMap<VertexHandle, Vec<HalfEdgeHandle>> = HashMap::new();
+        let mut leaving: HashMap<VertexHandle, Vec<HalfEdgeHandle>> = HashMap::default();
         for (h, fin) in &self.half_edges {
             if self.loops.contains_key(fin.loop_) {
                 leaving.entry(fin.origin).or_default().push(h);
@@ -337,7 +338,7 @@ impl BRep {
             }
             i
         }
-        let mut at: HashMap<VertexHandle, usize> = HashMap::new();
+        let mut at: HashMap<VertexHandle, usize> = HashMap::default();
         for (i, &e) in edges.iter().enumerate() {
             let Some((a, b)) = self.edge_vertices(e) else {
                 continue;

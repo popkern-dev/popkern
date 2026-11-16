@@ -21,7 +21,8 @@
 //! wall between flat sides) are a contact where a boundary sample of
 //! one lies on the other's patch.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::intersection::contact_classify::ContactScale;
@@ -97,7 +98,7 @@ pub(crate) fn first_self_contact(brep: &BRep, tolerance: &Tolerance) -> Option<S
     let boxes: HashMap<FaceHandle, _> = popkern_bool::face_bounding_boxes(brep)
         .into_iter()
         .collect();
-    let mut verts: HashMap<FaceHandle, HashSet<VertexHandle>> = HashMap::new();
+    let mut verts: HashMap<FaceHandle, HashSet<VertexHandle>> = HashMap::default();
     for (_, he) in &brep.half_edges {
         if let Some(l) = brep.loops.get(he.loop_) {
             verts.entry(l.face).or_default().insert(he.origin);
@@ -105,7 +106,7 @@ pub(crate) fn first_self_contact(brep: &BRep, tolerance: &Tolerance) -> Option<S
     }
     let mut faces: Vec<FaceHandle> = brep.faces.keys().collect();
     faces.sort();
-    let mut entries: HashMap<FaceHandle, Option<FaceTrimEntry>> = HashMap::new();
+    let mut entries: HashMap<FaceHandle, Option<FaceTrimEntry>> = HashMap::default();
     for (i, &fa) in faces.iter().enumerate() {
         for &fb in &faces[i + 1..] {
             let (Some(ba), Some(bb)) = (boxes.get(&fa), boxes.get(&fb)) else {

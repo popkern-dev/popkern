@@ -2,7 +2,7 @@
 //! split from `boundary_first.rs` for the 500-line/frozen-ratchet
 //! structural gate.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 /// Bowyer–Watson Delaunay triangulation over a point set. Returns
 /// `None` on degenerate input (all collinear etc.).
@@ -71,8 +71,8 @@ fn triangulate(points: &[(f64, f64)], walk: bool) -> Option<Vec<[usize; 3]>> {
             .flatten()
             .unwrap_or_else(|| mesh.conflict_scan(&pts, p));
         // Boundary of the cavity: edges appearing exactly once.
-        let mut edge_count: HashMap<(usize, usize), usize> = HashMap::new();
-        let mut edge_dir: HashMap<(usize, usize), (usize, usize)> = HashMap::new();
+        let mut edge_count: HashMap<(usize, usize), usize> = HashMap::default();
+        let mut edge_dir: HashMap<(usize, usize), (usize, usize)> = HashMap::default();
         for &ti in &bad {
             let t = mesh.tris[ti];
             for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
@@ -320,7 +320,8 @@ impl Adjacency {
             return None;
         }
         let mut bad = vec![ti];
-        let mut seen: std::collections::HashSet<usize> = std::collections::HashSet::from([ti]);
+        let mut seen: popkern_math::hash::FastHashSet<usize> =
+            popkern_math::hash::FastHashSet::from_iter([ti]);
         let mut next = 0;
         while next < bad.len() {
             let t = self.tris[bad[next]];

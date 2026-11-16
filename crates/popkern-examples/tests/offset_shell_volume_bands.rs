@@ -216,7 +216,7 @@ fn open_mesh_edges(brep: &BRep) -> usize {
         let p = mesh.vertices[i].position;
         (q(p.x), q(p.y), q(p.z))
     };
-    let mut counts = std::collections::HashMap::new();
+    let mut counts = popkern_math::hash::FastHashMap::default();
     for t in &mesh.triangles {
         let w = [key(t[0]), key(t[1]), key(t[2])];
         if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {

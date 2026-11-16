@@ -210,7 +210,7 @@ fn skip_pattern_instance_2d_computes_flat_index() {
             total_distance: secondary_total,
         }),
         geometry_pattern: false,
-        instance_overrides: std::collections::HashMap::new(),
+        instance_overrides: popkern_math::hash::FastHashMap::default(),
     };
 
     let pattern_id = tree.add_feature(pat_feature, "grid1_pat");

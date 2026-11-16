@@ -201,7 +201,7 @@ fn write_grouped_obj(
     }
     let mut fillet_counter = 0usize;
     let mut cap_counter = 0usize;
-    let mut group_of_face = std::collections::HashMap::new();
+    let mut group_of_face = popkern_math::hash::FastHashMap::default();
     let mut current_group = String::new();
     for (tri, &face) in mesh.triangles.iter().zip(&mesh.face_map) {
         let group = group_of_face

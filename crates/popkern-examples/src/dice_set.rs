@@ -19,7 +19,7 @@
 //! generic polyhedron BRep wiring (inner-loop aware) → validate →
 //! watertight tessellation gate → STEP export (per die + full set).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -133,7 +133,7 @@ fn truncate_vertices(
     t: f64,
 ) -> (Vec<Point3>, Vec<Vec<usize>>) {
     let mut new_points: Vec<Point3> = Vec::new();
-    let mut cut_index: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut cut_index: HashMap<(usize, usize), usize> = HashMap::default();
     let mut cut = |a: usize, b: usize, new_points: &mut Vec<Point3>| -> usize {
         *cut_index.entry((a, b)).or_insert_with(|| {
             let p = points[a] + (points[b] - points[a]) * t;
@@ -158,7 +158,7 @@ fn truncate_vertices(
 
     // Corner facets: the neighbours of v, cycled via "in the face
     // [..., a, v, b, ...] the successor of a around v is b".
-    let mut succ: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut succ: HashMap<(usize, usize), usize> = HashMap::default();
     for face in faces {
         let n = face.len();
         for i in 0..n {
@@ -741,7 +741,7 @@ fn build_polyhedron(
     let (_, shell_h) = brep.add_solid_region(Default::default());
 
     // Edges: one per unordered vertex pair present in any cycle.
-    let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::new();
+    let mut edge_of: HashMap<(usize, usize), EdgeHandle> = HashMap::default();
     let ensure_edges =
         |cycle: &[usize], brep: &mut BRep, edge_of: &mut HashMap<(usize, usize), EdgeHandle>| {
             let n = cycle.len();
@@ -768,7 +768,7 @@ fn build_polyhedron(
     }
 
     // Faces, loops, half-edges.
-    let mut he_of: HashMap<(usize, usize), HalfEdgeHandle> = HashMap::new();
+    let mut he_of: HashMap<(usize, usize), HalfEdgeHandle> = HashMap::default();
     for face in faces {
         let fh = brep.faces.insert(Face {
             outer_loop: Default::default(),
@@ -1153,7 +1153,7 @@ fn single_product_doc(brep: &BRep, name: &str) -> popkern_io::StepDocument {
 /// Welded open-edge count (the watertightness gate — same census the
 /// flagship uses).
 fn open_edge_count(mesh: &popkern_mesh::TriMesh) -> usize {
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let id = |p: Point3, key: &mut HashMap<(i64, i64, i64), usize>| -> usize {
         let k = (
             (p.x * 1.0e7).round() as i64,
@@ -1163,7 +1163,7 @@ fn open_edge_count(mesh: &popkern_mesh::TriMesh) -> usize {
         let next = key.len();
         *key.entry(k).or_insert(next)
     };
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         let w = [
             id(mesh.vertices[t[0]].position, &mut key),

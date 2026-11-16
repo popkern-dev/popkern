@@ -20,7 +20,7 @@
 //! parameter, magnitude-scaled for the held one) — chart space has
 //! no global length unit.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::canonical_forward::CHAIN_AMBIGUOUS;
 use crate::topology::{BRep, EdgeHandle, HalfEdgeHandle};

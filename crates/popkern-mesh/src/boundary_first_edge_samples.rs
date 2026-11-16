@@ -3,7 +3,7 @@
 //! both incident faces consume the same polyline (watertight by
 //! construction). Split out of `boundary_first.rs` (500-line cap).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::{Point3, PortableMath};
 
@@ -37,11 +37,11 @@ pub(crate) struct EdgeSamples {
 pub(crate) fn sample_edges(
     brep: &BRep,
     options: &crate::TessellationOptions,
-    only: Option<&std::collections::HashSet<EdgeHandle>>,
+    only: Option<&popkern_math::hash::FastHashSet<EdgeHandle>>,
 ) -> HashMap<EdgeHandle, EdgeSamples> {
     let chord_height = options.chord_height;
     let max_turn = options.angular_bound();
-    let mut map = HashMap::new();
+    let mut map = HashMap::default();
     let edges = brep
         .edges
         .iter()

@@ -1,6 +1,6 @@
 //! Helper predicates and recovery utilities for STEP topology export.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
@@ -113,7 +113,7 @@ pub(super) fn collapsed_trim_missing_curve_edges(brep: &BRep) -> HashSet<EdgeHan
     // knowledge graph measuring every pcurve, 89% of writing a box) is
     // not run (PK-1223).
     if brep.edges.values().all(|edge| edge.curve.is_some()) {
-        return HashSet::new();
+        return HashSet::default();
     }
     classify_brep_degenerate_edges(
         brep,

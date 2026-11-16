@@ -1,6 +1,6 @@
 //! Trim and pcurve diagnostics plus transactional repair for BReps.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::geometry::SurfaceEval;
 use crate::topology::{
@@ -216,8 +216,8 @@ pub fn repair_brep_trims_transactionally(
         ));
     }
     let mut repaired = brep.clone();
-    let mut affected_faces = HashSet::new();
-    let mut affected_half_edges = HashSet::new();
+    let mut affected_faces = HashSet::default();
+    let mut affected_half_edges = HashSet::default();
 
     for finding in &before.findings {
         affected_faces.insert(finding.face);

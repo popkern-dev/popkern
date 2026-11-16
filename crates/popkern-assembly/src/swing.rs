@@ -90,8 +90,8 @@ pub struct SwingReport {
 /// Which pairs a swing checks: roots in different rigid clusters,
 /// neither a follower of the swung parameter.
 struct Scope {
-    cluster: std::collections::HashMap<String, usize>,
-    followers: std::collections::HashSet<String>,
+    cluster: popkern_math::hash::FastHashMap<String, usize>,
+    followers: popkern_math::hash::FastHashSet<String>,
     exclude: Vec<[String; 2]>,
 }
 
@@ -287,7 +287,7 @@ impl Assembly {
     /// The pairs a swing of `param` checks: root clusters from the
     /// placements at `from` and two probe values, and the followers.
     fn swing_scope(&mut self, param: &str, o: &SwingOptions) -> Result<Scope, AssemblyError> {
-        let followers: std::collections::HashSet<String> = self
+        let followers: popkern_math::hash::FastHashSet<String> = self
             .joints
             .iter()
             .filter(|j| matches!(&j.drive, JointDrive::Follow { leader, .. } if leader == param))
@@ -329,7 +329,7 @@ impl Assembly {
                 })
             })
         };
-        let mut cluster = std::collections::HashMap::new();
+        let mut cluster = popkern_math::hash::FastHashMap::default();
         let mut representatives: Vec<usize> = Vec::new();
         for k in 0..at_from.len() {
             let found = representatives

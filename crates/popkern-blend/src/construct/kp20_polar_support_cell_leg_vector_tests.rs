@@ -1,6 +1,6 @@
 // Index loops follow the coefficient-grid index algebra (PK-795).
 #![allow(clippy::needless_range_loop)]
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
@@ -74,7 +74,7 @@ fn trim_endpoint_targets_chain_owned_cp1_to_interior_peer_vector() {
         face,
         side: BoundarySide::VMax,
     };
-    let mut patches = HashMap::new();
+    let mut patches = HashMap::default();
     let mut patch = base_patch();
     set_boundary_cross(&mut patch, BoundarySide::UMin, Vec3::new(0.0, 0.5, 0.0));
     set_boundary_cross(&mut patch, BoundarySide::UMax, Vec3::new(0.0, 2.0, 0.0));
@@ -135,7 +135,7 @@ fn trim_endpoint_planes_chain_owned_leg_against_interior_peer_plane() {
     };
     let mut patch = base_patch();
     set_boundary_cross(&mut patch, BoundarySide::UMax, Vec3::new(1.0, 0.0, 0.0));
-    let mut patches = HashMap::new();
+    let mut patches = HashMap::default();
     patches.insert(face, patch);
     let authored = vec![AuthoredSubChain {
         chain_cps: chain_with_endpoint_derivatives(

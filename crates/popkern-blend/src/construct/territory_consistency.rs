@@ -22,7 +22,7 @@
 //! Faces the operation never touched are not measured, so the gate
 //! neither pays for nor fails on geometry it did not author.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::CurveEval;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};

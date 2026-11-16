@@ -31,7 +31,7 @@
 //! the reported max, decline or trim at `1.05 ×` it.
 
 use popkern_math::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::fmt;
 
 use popkern_core::geometry::Point3;

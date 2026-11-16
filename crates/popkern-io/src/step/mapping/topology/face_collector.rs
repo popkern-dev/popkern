@@ -1,7 +1,7 @@
 //! Face data collection: walks STEP topology to gather unique vertices, edges,
 //! and per-face bound/loop structure before BRep construction.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::parser::graph::EntityGraph;
@@ -63,7 +63,12 @@ pub(super) fn collect_face_data(
     face_ids: &[EntityId],
     log: &mut DiagnosticLog,
 ) -> Option<FaceData> {
-    collect_face_data_reversing(graph, face_ids, &std::collections::HashSet::new(), log)
+    collect_face_data_reversing(
+        graph,
+        face_ids,
+        &popkern_math::hash::FastHashSet::default(),
+        log,
+    )
 }
 
 /// Face data collection with the shell-listed faces in `reversed_uses`
@@ -72,15 +77,15 @@ pub(super) fn collect_face_data(
 pub(super) fn collect_face_data_reversing(
     graph: &EntityGraph,
     face_ids: &[EntityId],
-    reversed_uses: &std::collections::HashSet<EntityId>,
+    reversed_uses: &popkern_math::hash::FastHashSet<EntityId>,
     log: &mut DiagnosticLog,
 ) -> Option<FaceData> {
     let mut vertex_ids = Vec::new();
     let mut edge_curve_ids = Vec::new();
-    let mut edge_ends = HashMap::new();
+    let mut edge_ends = HashMap::default();
     let mut faces = Vec::new();
-    let mut seen_vertices: HashMap<EntityId, ()> = HashMap::new();
-    let mut seen_edges: HashMap<EntityId, ()> = HashMap::new();
+    let mut seen_vertices: HashMap<EntityId, ()> = HashMap::default();
+    let mut seen_edges: HashMap<EntityId, ()> = HashMap::default();
 
     for &shell_face_id in face_ids {
         // A shell may list an ORIENTED_FACE('', *, face, orientation):

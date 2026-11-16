@@ -158,7 +158,7 @@ impl BRep {
         // outgoing pointer IS that he, switch to the twin (which
         // has a different origin but... actually we need ANY
         // surviving he with this origin).
-        let doomed_set: std::collections::HashSet<_> = doomed_hes.iter().copied().collect();
+        let doomed_set: popkern_math::hash::FastHashSet<_> = doomed_hes.iter().copied().collect();
         for &heh in &doomed_hes {
             let origin = brep.half_edges[heh].origin;
             if brep.vertices[origin].outgoing == heh {

@@ -34,7 +34,7 @@
 //! lens no longer reaches the registry, so no fixture separates the
 //! two bands today; the linear band stays as the coincidence rule.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::BRep;
@@ -63,9 +63,9 @@ impl SpanRegistry {
     /// curve piece.
     pub(crate) fn new(gate: f64, coincide: f64) -> Self {
         Self {
-            exact: HashMap::new(),
+            exact: HashMap::default(),
             spans: Vec::new(),
-            cells: HashMap::new(),
+            cells: HashMap::default(),
             gate,
             coincide,
         }

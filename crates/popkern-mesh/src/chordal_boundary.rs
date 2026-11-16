@@ -2,7 +2,7 @@
 //! `chordal_certificate`): each boundary segment against the face edge
 //! (or the two-edge corner chain) it lies on.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::certify::chord::{curve_piece_bound, curve_point_distance};
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, closest_point_in_window};
@@ -24,14 +24,14 @@ pub(super) fn boundary_bound(
     // Edges keyed by welded position, not index: a pole fan's apex and
     // a seam's two sides are duplicated vertices, and their edges are
     // interior although each index pair is used once.
-    let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+    let mut weld: HashMap<[u64; 3], usize> = HashMap::default();
     let mut id = |i: usize| -> usize {
         let p = mesh.vertices[i].position;
         let key = [p.x, p.y, p.z].map(|x| (x + 0.0).to_bits());
         let next = weld.len();
         *weld.entry(key).or_insert(next)
     };
-    let mut uses: HashMap<(usize, usize), (usize, (usize, usize))> = HashMap::new();
+    let mut uses: HashMap<(usize, usize), (usize, (usize, usize))> = HashMap::default();
     for &t in tris {
         let tri = mesh.triangles[t];
         for k in 0..3 {
@@ -52,7 +52,7 @@ pub(super) fn boundary_bound(
     segments.sort_unstable();
     // Each boundary vertex ends two segments: its feet on every edge
     // are found once.
-    let mut feet: HashMap<usize, Vec<Option<(f64, f64)>>> = HashMap::new();
+    let mut feet: HashMap<usize, Vec<Option<(f64, f64)>>> = HashMap::default();
     let mut feet_of = |i: usize| -> Vec<Option<(f64, f64)>> {
         let p = mesh.vertices[i].position;
         feet.entry(i)

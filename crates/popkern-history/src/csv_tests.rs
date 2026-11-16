@@ -27,7 +27,7 @@ fn add_dummy_feature(tree: &mut FeatureTree, label: &str) -> crate::node::Featur
         suppressed: false,
         body: crate::node::BodyId(0),
         suppress_if: None,
-        instance_op_ids: std::collections::HashMap::new(),
+        instance_op_ids: popkern_math::hash::FastHashMap::default(),
         last_result: None,
         selections: Vec::new(),
         provenance: Vec::new(),

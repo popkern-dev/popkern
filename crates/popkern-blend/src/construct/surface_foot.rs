@@ -15,7 +15,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 /// (`S_u × S_v`); `None` where the chart degenerates (one partial under
 /// 1e-3 of the other, or a vanishing cross product).
 pub(crate) fn unit_normal(surface: &SurfaceGeometry, (u, v): (f64, f64)) -> Option<Vec3> {
-    let (su, sv) = (surface.partial_u(u, v), surface.partial_v(u, v));
+    let (su, sv) = surface.first_partials(u, v);
     let (lu, lv) = (su.length(), sv.length());
     if lu.min(lv) < 1e-3 * lu.max(lv) {
         return None;

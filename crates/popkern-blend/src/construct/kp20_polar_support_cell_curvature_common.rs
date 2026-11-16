@@ -1,6 +1,6 @@
 //! Shared row-band curvature sampling and delta application.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Vec3;
 use popkern_core::topology::VertexHandle;

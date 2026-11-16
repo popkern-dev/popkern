@@ -4,7 +4,7 @@
 //! a node must agree on the node's data, so it is computed ONCE
 //! per vertex from all incident rows and shared by every fit.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
@@ -29,7 +29,7 @@ pub(super) fn global_node_positions(
     sub_chains: &[SubChain<ChainRowKey, VertexHandle>],
     patches: &HashMap<FaceHandle, RectangularGregoryBiNonic>,
 ) -> HashMap<VertexHandle, Point3> {
-    let mut sums: HashMap<VertexHandle, (Point3, usize)> = HashMap::new();
+    let mut sums: HashMap<VertexHandle, (Point3, usize)> = HashMap::default();
     for sub in sub_chains {
         for &(vertex, param) in &sub.nodes {
             for &(key, embedding) in &sub.rows {
@@ -80,7 +80,7 @@ pub(super) fn global_node_normals(
     sub_chains: &[SubChain<ChainRowKey, VertexHandle>],
     patches: &HashMap<FaceHandle, RectangularGregoryBiNonic>,
 ) -> HashMap<VertexHandle, Vec3> {
-    let mut directions: HashMap<VertexHandle, Vec<Vec3>> = HashMap::new();
+    let mut directions: HashMap<VertexHandle, Vec<Vec3>> = HashMap::default();
     for sub in sub_chains {
         for &(vertex, param) in &sub.nodes {
             for &(key, embedding) in &sub.rows {
@@ -110,7 +110,7 @@ pub(super) fn global_node_normals(
             }
         }
     }
-    let mut normals = HashMap::new();
+    let mut normals = HashMap::default();
     for (vertex, vectors) in directions {
         if let Some(normal) = plane_normal_of_directions(&vectors) {
             normals.insert(vertex, normal);

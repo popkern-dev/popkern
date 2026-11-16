@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::time::Duration;
 
 use crate::time::Stopwatch;
@@ -377,7 +377,7 @@ fn assemble_components(
     complex: &PolyhedralSplineSurfaceComplex,
 ) -> Result<AssembledSurfaceComplex, String> {
     let mut out = BRep::new(crate::tolerance::Tolerance::default());
-    let mut edge_component = HashMap::new();
+    let mut edge_component = HashMap::default();
     let (_solid, shell) = out.add_solid_region(Default::default());
     for (component_index, component) in complex.components.iter().enumerate() {
         copy_component_brep(
@@ -401,11 +401,11 @@ fn copy_component_brep(
     src: &BRep,
     edge_component: &mut HashMap<EdgeHandle, usize>,
 ) -> Result<(), String> {
-    let mut vertices = HashMap::new();
-    let mut edges = HashMap::new();
-    let mut half_edges = HashMap::new();
-    let mut loops = HashMap::new();
-    let mut faces = HashMap::new();
+    let mut vertices = HashMap::default();
+    let mut edges = HashMap::default();
+    let mut half_edges = HashMap::default();
+    let mut loops = HashMap::default();
+    let mut faces = HashMap::default();
 
     for (old, vertex) in &src.vertices {
         vertices.insert(old, out.vertices.insert(vertex.clone()));

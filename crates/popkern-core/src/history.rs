@@ -5,7 +5,7 @@
 //! that operations accept and call back into. When finished, the caller
 //! extracts a [`HistoryMap`] summarizing the operation's effects.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use serde::{Deserialize, Serialize};
 

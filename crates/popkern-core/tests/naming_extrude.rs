@@ -5,7 +5,7 @@
 // Index loops follow the coefficient-grid index algebra (PK-795).
 #![allow(clippy::needless_range_loop)]
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::history::TrackingContext;

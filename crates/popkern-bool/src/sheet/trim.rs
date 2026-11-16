@@ -39,13 +39,13 @@ pub(super) fn trim_sheet(
     use crate::error::PointClassification;
     use crate::point_in_solid;
     use popkern_core::topology::FaceHandle;
-    use std::collections::HashSet;
+    use popkern_math::hash::FastHashSet as HashSet;
 
     let solid_aabbs = crate::intersect::compute_face_aabbs(solid);
 
     // Classify every sheet face as inside / outside / on by sampling
     // its centroid and collect the ones to remove.
-    let mut faces_to_remove: HashSet<FaceHandle> = HashSet::new();
+    let mut faces_to_remove: HashSet<FaceHandle> = HashSet::default();
     for fh in sheet.faces.keys() {
         let positions = face_vertex_positions(&sheet, fh);
         if positions.is_empty() {

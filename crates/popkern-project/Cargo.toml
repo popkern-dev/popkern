@@ -7,6 +7,7 @@ license.workspace = true
 description = "Projects: a folder of ordered migration scripts built into one document, with applied-migration records (popkern build, popkern live)"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-history = { path = "../popkern-history" }
 popkern-script = { path = "../popkern-script" }

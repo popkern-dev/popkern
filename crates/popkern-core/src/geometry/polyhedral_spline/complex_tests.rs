@@ -109,7 +109,7 @@ fn weld_clean_boundaries_reduces_tee_open_edges_transactionally() {
 /// The face sets of `brep` joined through shared edges only (the
 /// pieces a STEP import reads a shell as).
 fn edge_joined_face_sets(brep: &crate::topology::BRep) -> usize {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     let faces: Vec<_> = brep.faces.keys().collect();
     let index: HashMap<_, usize> = faces.iter().enumerate().map(|(i, &f)| (f, i)).collect();
     let mut parent: Vec<usize> = (0..faces.len()).collect();
@@ -120,7 +120,7 @@ fn edge_joined_face_sets(brep: &crate::topology::BRep) -> usize {
         }
         i
     }
-    let mut by_edge = HashMap::new();
+    let mut by_edge = HashMap::default();
     for he in brep.half_edges.values() {
         let Some(&i) = brep.loops.get(he.loop_).and_then(|l| index.get(&l.face)) else {
             continue;
@@ -131,6 +131,6 @@ fn edge_joined_face_sets(brep: &crate::topology::BRep) -> usize {
     }
     (0..faces.len())
         .map(|i| root(&mut parent, i))
-        .collect::<std::collections::HashSet<_>>()
+        .collect::<popkern_math::hash::FastHashSet<_>>()
         .len()
 }

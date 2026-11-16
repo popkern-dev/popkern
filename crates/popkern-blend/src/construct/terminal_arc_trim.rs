@@ -41,7 +41,7 @@
 //! the caller's blend tolerance (`linear` for point checks) — local,
 //! explicit, no global state.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};

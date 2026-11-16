@@ -4,7 +4,7 @@
 //! composite scores, and classifies models into letter grades.
 
 use crate::healing::diagnostics::{EntityRef, HealingReport, Severity};
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::fmt;
 
 /// Quality grade classification.
@@ -215,7 +215,7 @@ fn entity_key(entity: &EntityRef) -> String {
 /// 4. Grade from composite: A >= 0.95, B >= 0.80, C >= 0.60, D >= 0.40, F < 0.40.
 pub fn score_model(report: &HealingReport, profile: &ScoringProfile) -> QualityScore {
     // Step 1: group defect severities by entity.
-    let mut entity_defects: HashMap<String, (EntityRef, Vec<Severity>)> = HashMap::new();
+    let mut entity_defects: HashMap<String, (EntityRef, Vec<Severity>)> = HashMap::default();
 
     for defect in report.iter() {
         for entity in &defect.entities {

@@ -47,7 +47,7 @@ fn staggered_lattice(surface: &SurfaceGeometry, nu: usize, nv: usize) -> FaceMes
 }
 
 fn edge_census(mesh: &FaceMesh) -> HashMap<EdgeKey, Vec<usize>> {
-    let mut edges: HashMap<EdgeKey, Vec<usize>> = HashMap::new();
+    let mut edges: HashMap<EdgeKey, Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
         for k in 0..3 {
             edges.entry(key(t[k], t[(k + 1) % 3])).or_default().push(ti);

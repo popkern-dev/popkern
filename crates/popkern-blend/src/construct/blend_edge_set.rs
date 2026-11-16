@@ -3,7 +3,8 @@
 //! edge from a sharp neighbour and, at a reflex corner shared by two
 //! fillet edges, where their support rails meet (PK-740).
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};

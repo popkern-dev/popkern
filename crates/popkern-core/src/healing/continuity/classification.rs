@@ -175,8 +175,10 @@ pub fn detect_smooth_chains(
         .collect();
 
     // Build vertex -> edge indices map.
-    let mut vertex_to_edges: std::collections::HashMap<crate::topology::VertexHandle, Vec<usize>> =
-        std::collections::HashMap::new();
+    let mut vertex_to_edges: popkern_math::hash::FastHashMap<
+        crate::topology::VertexHandle,
+        Vec<usize>,
+    > = popkern_math::hash::FastHashMap::default();
     for (i, (_, verts)) in edge_vertices.iter().enumerate() {
         for &vh in verts {
             vertex_to_edges.entry(vh).or_default().push(i);
@@ -220,8 +222,8 @@ pub fn detect_smooth_chains(
     }
 
     // Collect components.
-    let mut components: std::collections::HashMap<usize, Vec<EdgeHandle>> =
-        std::collections::HashMap::new();
+    let mut components: popkern_math::hash::FastHashMap<usize, Vec<EdgeHandle>> =
+        popkern_math::hash::FastHashMap::default();
     for (i, (eh, _)) in edge_vertices.iter().enumerate() {
         let root = find(&mut parent, i);
         components.entry(root).or_default().push(*eh);

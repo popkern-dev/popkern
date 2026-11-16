@@ -1,6 +1,5 @@
-//! The [`Feature`] enum: each variant's parameters in serialisable form,
-//! entities referenced by [`EntityName`] (stable names, not raw handles)
-//! so references survive rollback and tree reordering.
+//! The [`Feature`] enum: each variant's parameters, serialisable, entities
+//! by [`EntityName`] (stable names surviving rollback and reordering).
 
 use crate::feature_blend::{ChamferCornerDesc, ChamferKindDesc, FilletRecipeDesc};
 use crate::feature_draft::NeutralPlaneDesc;
@@ -10,6 +9,7 @@ use crate::feature_transform::RigidMotionDesc;
 use crate::node::BodyId;
 use crate::parameter::ParameterId;
 use popkern_core::naming::EntityName;
+use popkern_math::hash::FastHashMap;
 use serde::{Deserialize, Serialize};
 
 /// A single parametric modeling operation in the feature tree, one variant
@@ -430,7 +430,7 @@ pub enum Feature {
         geometry_pattern: bool,
         /// Per-instance overrides (suppression and parameter values).
         #[serde(default)]
-        instance_overrides: std::collections::HashMap<usize, crate::pattern::InstanceOverride>,
+        instance_overrides: FastHashMap<usize, crate::pattern::InstanceOverride>,
     },
     /// Replicate one or more seed features around a rotation axis.
     CircularPattern {
@@ -448,7 +448,7 @@ pub enum Feature {
         geometry_pattern: bool,
         /// Per-instance overrides (suppression and parameter values).
         #[serde(default)]
-        instance_overrides: std::collections::HashMap<usize, crate::pattern::InstanceOverride>,
+        instance_overrides: FastHashMap<usize, crate::pattern::InstanceOverride>,
     },
     /// Replicate one or more seed features along a curve.
     CurvePattern {
@@ -471,7 +471,7 @@ pub enum Feature {
         geometry_pattern: bool,
         /// Per-instance overrides (suppression and parameter values).
         #[serde(default)]
-        instance_overrides: std::collections::HashMap<usize, crate::pattern::InstanceOverride>,
+        instance_overrides: FastHashMap<usize, crate::pattern::InstanceOverride>,
     },
     /// Mirror one or more seed features about a plane.
     Mirror {

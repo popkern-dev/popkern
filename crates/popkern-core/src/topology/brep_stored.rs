@@ -6,7 +6,8 @@
 //! round-trip test rather than being dropped on load; retired fields
 //! are named and ignored.
 
-use std::collections::{BTreeMap, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use serde::de::IgnoredAny;

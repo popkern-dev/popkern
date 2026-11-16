@@ -23,7 +23,7 @@
 //! - The policy is session-local (never serialized); a loaded document
 //!   certifies inline until a host opts in.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 pub use popkern_blend::ContinuityCertification;
 use popkern_core::topology::{BRep, EdgeHandle};

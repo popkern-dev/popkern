@@ -12,7 +12,7 @@
 //! separate solids. Nothing is approximated beyond the plane tolerance:
 //! the body encloses the mesh's volume.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
@@ -143,7 +143,7 @@ fn mid(a: V3, b: V3) -> V3 {
 fn weld(vertices: &[V3], tol: f64) -> (Vec<u32>, usize) {
     let cell = tol.max(f64::MIN_POSITIVE);
     let key = |p: V3| p.map(|x| (x / cell).floor() as i64);
-    let mut grid: HashMap<[i64; 3], Vec<u32>> = HashMap::new();
+    let mut grid: HashMap<[i64; 3], Vec<u32>> = HashMap::default();
     let mut map = Vec::with_capacity(vertices.len());
     let mut merged = 0;
     for (i, &p) in vertices.iter().enumerate() {
@@ -213,7 +213,8 @@ fn edge_map(
     vertices: &[V3],
     triangles: &[[u32; 3]],
 ) -> Result<HashMap<(u32, u32), u32>, FacetError> {
-    let mut edges: HashMap<(u32, u32), u32> = HashMap::with_capacity(3 * triangles.len());
+    let mut edges: HashMap<(u32, u32), u32> =
+        HashMap::with_capacity_and_hasher(3 * triangles.len(), Default::default());
     for (t, tri) in triangles.iter().enumerate() {
         for k in 0..3 {
             let e = (tri[k], tri[(k + 1) % 3]);
@@ -361,7 +362,7 @@ pub fn facet(
     }
     let collinear = regions::drop_collinear(vertices, &mut loops, options.plane);
     // Compact the vertices the loops use.
-    let mut index: HashMap<u32, usize> = HashMap::new();
+    let mut index: HashMap<u32, usize> = HashMap::default();
     let mut points: Vec<Point3> = Vec::new();
     let mut compact = |c: &[u32]| -> Vec<usize> {
         c.iter()

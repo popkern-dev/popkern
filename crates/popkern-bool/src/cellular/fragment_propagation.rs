@@ -90,7 +90,7 @@ pub(super) fn build_plan(
     graph: &IntersectionGraph,
     fragments: &[Fragment],
     degenerate: &[bool],
-    overlap_a: &std::collections::HashSet<popkern_core::topology::FaceHandle>,
+    overlap_a: &popkern_math::hash::FastHashSet<popkern_core::topology::FaceHandle>,
     brep_a: &BRep,
     brep_b: &BRep,
 ) -> Option<PropagationPlan> {

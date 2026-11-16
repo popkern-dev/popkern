@@ -29,7 +29,8 @@ pub(crate) fn walk_chart_orbits(
     graph: &IntersectionGraph,
 ) -> Option<Vec<Vec<usize>>> {
     let mut consumed: BTreeSet<usize> = BTreeSet::new();
-    let mut consumed_by: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut consumed_by: popkern_math::hash::FastHashMap<usize, usize> =
+        popkern_math::hash::FastHashMap::default();
     let mut orbits = Vec::new();
     let budget = sub.embeddings.len() + 1;
     for &seed in sub.embeddings.keys() {

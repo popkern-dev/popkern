@@ -21,7 +21,8 @@ pub(super) fn author_sphere_apex_vertices(
     let tol = tolerance.linear();
     let trace = crate::direct_apex_trace::enabled();
     let mut out: Vec<VertexHandle> = Vec::with_capacity(plan.target_topology.apex_vertices.len());
-    let mut used: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
+    let mut used: popkern_math::hash::FastHashSet<VertexHandle> =
+        popkern_math::hash::FastHashSet::default();
     for (i, target) in plan.target_topology.apex_vertices.iter().enumerate() {
         match find_vertex_within(brep, *target, tol) {
             Some(vh) if !used.contains(&vh) => {
@@ -172,8 +173,9 @@ fn collect_face_outer_loop_edges(
 fn build_fillet_face_map(
     brep: &BRep,
     fillet_surfaces: &[FilletSurfaceResult],
-) -> std::collections::HashMap<usize, FaceHandle> {
-    let mut out: std::collections::HashMap<usize, FaceHandle> = std::collections::HashMap::new();
+) -> popkern_math::hash::FastHashMap<usize, FaceHandle> {
+    let mut out: popkern_math::hash::FastHashMap<usize, FaceHandle> =
+        popkern_math::hash::FastHashMap::default();
     for (fi, fillet) in fillet_surfaces.iter().enumerate() {
         let SurfaceGeometry::Cylinder {
             origin: f_origin,
@@ -351,7 +353,8 @@ pub(super) fn author_gregory_apex_vertices(
 
     let trace = crate::direct_apex_trace::enabled();
     let mut out: Vec<Option<VertexHandle>> = vec![None; n_targets];
-    let mut t_vertices: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
+    let mut t_vertices: popkern_math::hash::FastHashSet<VertexHandle> =
+        popkern_math::hash::FastHashSet::default();
     // Slot aliasing for welded corners: T_b[k] and T_a[k+1] are ONE
     // vertex, authored once at the weld point on the shared host
     // face and aliased into both slots after the schedule runs.
@@ -436,7 +439,7 @@ fn find_v_cube_edge_half_edge_on_face(
     brep: &BRep,
     v: VertexHandle,
     face: FaceHandle,
-    t_vertices: &std::collections::HashSet<VertexHandle>,
+    t_vertices: &popkern_math::hash::FastHashSet<VertexHandle>,
 ) -> Option<HalfEdgeHandle> {
     let outer_loop = brep.faces.get(face)?.outer_loop;
     let start = brep.loops.get(outer_loop)?.half_edge;

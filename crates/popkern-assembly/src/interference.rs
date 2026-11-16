@@ -23,7 +23,7 @@
 //!    `Touching`. When the boolean declines, the pair is `Interfering`
 //!    with no volume and the decline text — never an estimate.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::Arc;
 
 use popkern_core::geometry::Point3;
@@ -107,7 +107,7 @@ impl Assembly {
                             .is_some_and(|rest| rest.starts_with('/'))
                 })
         };
-        let wanted: std::collections::HashSet<DefinitionId> = self
+        let wanted: popkern_math::hash::FastHashSet<DefinitionId> = self
             .leaves()
             .iter()
             .filter(|r| r.is_part && selected(&r.path.to_string()))
@@ -125,7 +125,7 @@ impl Assembly {
         trace_phase("parts");
         // One tessellation per definition body, kept across checks by
         // content (a sweep moves placements, not geometry).
-        let mut local: HashMap<(DefinitionId, usize), Arc<LocalMesh>> = HashMap::new();
+        let mut local: HashMap<(DefinitionId, usize), Arc<LocalMesh>> = HashMap::default();
         for (id, cached) in &parts {
             for (i, part) in cached.parts.iter().enumerate() {
                 let brep = part.brep();
@@ -182,7 +182,7 @@ impl Assembly {
                 }
             }
         }
-        let mut placed: HashMap<usize, usize> = HashMap::new();
+        let mut placed: HashMap<usize, usize> = HashMap::default();
         let mut occurrences: Vec<Occurrence> = Vec::new();
         for &(i, j) in &candidate_pairs {
             for k in [i, j] {

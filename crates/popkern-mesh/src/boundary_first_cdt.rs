@@ -17,7 +17,8 @@
 //! point lies on a segment's interior — a T-point only a conforming
 //! split resolves — or when segments cross or the flip budget runs out.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 /// Orientation of `c` relative to the directed line `a → b` (exact).
 fn orient(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> f64 {
@@ -57,7 +58,7 @@ impl Mesh {
         let mut mesh = Mesh {
             pts: pts.to_vec(),
             tris: Vec::with_capacity(tris.len()),
-            edges: HashMap::new(),
+            edges: HashMap::default(),
             vertex_tris: vec![Vec::new(); pts.len()],
         };
         for &t in tris {

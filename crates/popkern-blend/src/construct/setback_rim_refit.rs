@@ -145,8 +145,8 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
     // Move rim vertices onto their rows (average when a vertex is
     // claimed by multiple rows — e.g. c between two sectors; the rows
     // agree at corners to extraction accuracy).
-    let mut targets: std::collections::HashMap<VertexHandle, Vec<Point3>> =
-        std::collections::HashMap::new();
+    let mut targets: popkern_math::hash::FastHashMap<VertexHandle, Vec<Point3>> =
+        popkern_math::hash::FastHashMap::default();
     for job in &jobs {
         for v in [job.va, job.vb] {
             let p = brep.vertices[v].position;
@@ -164,7 +164,8 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
     // would deform the wrong span, and skipping it breaks loop
     // closure (measured 4.7e-4 gaps), so those vertices stay put and
     // the rim segments snap to them instead.
-    let rim_edge_set: std::collections::HashSet<EdgeHandle> = jobs.iter().map(|j| j.edge).collect();
+    let rim_edge_set: popkern_math::hash::FastHashSet<EdgeHandle> =
+        jobs.iter().map(|j| j.edge).collect();
     let movable = |v: VertexHandle| -> bool {
         let old = brep.vertices[v].position;
         for (eh, edge) in brep.edges.iter() {
@@ -200,10 +201,10 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
         }
         true
     };
-    let movable_set: std::collections::HashSet<VertexHandle> =
+    let movable_set: popkern_math::hash::FastHashSet<VertexHandle> =
         targets.keys().copied().filter(|&v| movable(v)).collect();
-    let mut moves: std::collections::HashMap<VertexHandle, (Point3, Point3)> =
-        std::collections::HashMap::new();
+    let mut moves: popkern_math::hash::FastHashMap<VertexHandle, (Point3, Point3)> =
+        popkern_math::hash::FastHashMap::default();
     let mut moved_windowed_neighbour = false;
     for (v, list) in targets {
         let old = brep.vertices[v].position;
@@ -245,7 +246,8 @@ pub(super) fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result
     }
 
     // Assign exact row segments to the rim edges.
-    let rim_edges: std::collections::HashSet<EdgeHandle> = jobs.iter().map(|j| j.edge).collect();
+    let rim_edges: popkern_math::hash::FastHashSet<EdgeHandle> =
+        jobs.iter().map(|j| j.edge).collect();
     for job in &jobs {
         let pa = brep.vertices[job.va].position;
         let pb = brep.vertices[job.vb].position;

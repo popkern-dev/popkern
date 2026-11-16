@@ -1,6 +1,6 @@
 //! Exact shared boundary-row ownership for KP20 support-cell patches.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
@@ -84,13 +84,13 @@ impl SharedControlClasses {
         // key, so map order would reach the averaged controls.
         let mut keys = self.parents.keys().copied().collect::<Vec<_>>();
         keys.sort_by_key(|key| format!("{key:?}"));
-        let mut patches = HashMap::new();
+        let mut patches = HashMap::default();
         for key in &keys {
             patches
                 .entry(key.face)
                 .or_insert(rectangular_binonic_on_face(brep, key.face)?);
         }
-        let mut sums: HashMap<BoundaryControlKey, (Point3, usize)> = HashMap::new();
+        let mut sums: HashMap<BoundaryControlKey, (Point3, usize)> = HashMap::default();
         for key in &keys {
             let root = self.find(*key);
             let Some(patch) = patches.get(&key.face) else {
@@ -104,7 +104,7 @@ impl SharedControlClasses {
                 })
                 .or_insert((position, 1));
         }
-        let mut targets = HashMap::new();
+        let mut targets = HashMap::default();
         for key in keys {
             let root = self.find(key);
             let Some(&(sum, count)) = sums.get(&root) else {
@@ -184,9 +184,9 @@ fn fit_valid_segment_boundary_records(
     brep: &mut BRep,
     segment_records: Vec<trim_ownership::SegmentOwnedBoundaryTrim>,
 ) -> Result<&'static str, CoreError> {
-    let mut samples = HashMap::new();
-    let mut edited_intervals = HashMap::new();
-    let mut exact_rows: HashMap<BoundaryRowKey, [Point3; 10]> = HashMap::new();
+    let mut samples = HashMap::default();
+    let mut edited_intervals = HashMap::default();
+    let mut exact_rows: HashMap<BoundaryRowKey, [Point3; 10]> = HashMap::default();
     let mut fallback_records = Vec::new();
     for record in &segment_records {
         if !push_exact_segment_row(brep, record.trim, &mut exact_rows)? {
@@ -294,7 +294,7 @@ fn apply_exact_rows(
     brep: &mut BRep,
     exact_rows: &HashMap<BoundaryRowKey, [Point3; 10]>,
 ) -> Result<(), CoreError> {
-    let mut patches = HashMap::new();
+    let mut patches = HashMap::default();
     for key in exact_rows.keys() {
         patches
             .entry(key.face)
@@ -435,7 +435,7 @@ fn fit_boundary_row_samples(
     brep: &mut BRep,
     samples: &HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>>,
 ) -> Result<(), CoreError> {
-    let mut patches = HashMap::new();
+    let mut patches = HashMap::default();
     for key in samples.keys() {
         patches
             .entry(key.face)
@@ -460,7 +460,7 @@ fn apply_targets(
     brep: &mut BRep,
     targets: &HashMap<BoundaryControlKey, Point3>,
 ) -> Result<(), CoreError> {
-    let mut patches = HashMap::new();
+    let mut patches = HashMap::default();
     for key in targets.keys() {
         patches
             .entry(key.face)

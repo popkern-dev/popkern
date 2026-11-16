@@ -3,7 +3,7 @@
 //! Clips BOUNDARY triangles against trim polyline segments with vertex snapping.
 //! Propagates split vertices into neighboring INSIDE triangles to prevent T-junctions.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -34,7 +34,7 @@ pub(crate) fn apply_trim(
     let mut new_verts: Vec<MeshVertex> = vertices.to_vec();
     let mut new_tris: Vec<[usize; 3]> = Vec::new();
     // Map from canonical edge (min, max) to inserted split vertex indices.
-    let mut edge_splits: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut edge_splits: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
 
     // Classify and process each triangle.
     for tri in triangles {

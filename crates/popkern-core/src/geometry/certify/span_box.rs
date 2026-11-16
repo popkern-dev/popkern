@@ -10,7 +10,7 @@
 //! Both orders enclose rigorously; the cached order evaluates the
 //! point direction first.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::super::bernstein::{self, Coef};
 use super::super::interval::Iv;

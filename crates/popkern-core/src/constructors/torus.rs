@@ -179,7 +179,8 @@ fn close_torus_seam(
     // is NOT included in result.revolution_faces (which has 16 entries) and
     // NOT the mvfs_face.  We find it by exhaustive search.
     // -----------------------------------------------------------------------
-    let orig_set: std::collections::HashSet<VertexHandle> = orig_verts.iter().copied().collect();
+    let orig_set: popkern_math::hash::FastHashSet<VertexHandle> =
+        orig_verts.iter().copied().collect();
 
     let cap_face = find_cap_face(brep, mvfs_face, &orig_set)
         .ok_or_else(|| CoreError::PreconditionFailed("could not locate 360° cap face".into()))?;
@@ -344,7 +345,7 @@ fn collect_loop_half_edges(
 fn find_cap_face(
     brep: &BRep,
     mvfs_face: FaceHandle,
-    orig_set: &std::collections::HashSet<VertexHandle>,
+    orig_set: &popkern_math::hash::FastHashSet<VertexHandle>,
 ) -> Option<FaceHandle> {
     for (fh, face_data) in &brep.faces {
         if fh == mvfs_face {

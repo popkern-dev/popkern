@@ -220,10 +220,10 @@ pub(crate) fn find_intersections_with_aabbs(
     // all lens endpoints existed as pierce hits, and the missing
     // records cascaded into 20 half-claimed strand declines).
     let edge_face_hits = detect_edge_face_intersections(a, b, aabbs_b, aabbs_a, tolerance);
-    let mut pair_seeds: std::collections::HashMap<
+    let mut pair_seeds: popkern_math::hash::FastHashMap<
         (FaceHandle, FaceHandle),
         Vec<popkern_core::geometry::Point3>,
-    > = std::collections::HashMap::new();
+    > = popkern_math::hash::FastHashMap::default();
     let faces_of_edge =
         |brep: &BRep, eh: popkern_core::topology::EdgeHandle| -> Option<(FaceHandle, FaceHandle)> {
             let he_h = brep.edges.get(eh)?.half_edge;

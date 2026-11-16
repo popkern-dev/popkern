@@ -210,10 +210,10 @@ impl FeatureTree {
     /// timeline), followed by dependents in the order they appear in the
     /// timeline.
     pub(crate) fn transitive_dependents(&self, id: FeatureId) -> Vec<FeatureId> {
-        use std::collections::HashSet;
+        use popkern_math::hash::FastHashSet as HashSet;
 
         // Seed with the root.
-        let mut to_delete: HashSet<FeatureId> = HashSet::new();
+        let mut to_delete: HashSet<FeatureId> = HashSet::default();
         to_delete.insert(id);
 
         // Walk the timeline in order, collecting anything that depends on an

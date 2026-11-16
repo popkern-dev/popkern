@@ -24,8 +24,8 @@
 //! - **No invalidation**: keys are content-derived, so a mutated
 //!   patch is simply a different key.
 
+use popkern_math::hash::FastHashMap as HashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::hash::Hasher;
 
 use super::GregorySelfIntersectionReport;

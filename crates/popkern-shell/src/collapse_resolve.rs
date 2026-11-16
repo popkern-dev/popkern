@@ -13,7 +13,8 @@
 //! for the chord-inversion collapse gate to decline — folded geometry
 //! never serves.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::body_distance::BodyDistanceIndex;
 use crate::error::{ShellError, ShellWarning};

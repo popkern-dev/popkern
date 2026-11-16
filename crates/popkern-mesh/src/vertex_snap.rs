@@ -11,7 +11,7 @@
 //! exact position, so the faces meeting there share it by
 //! construction.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::BRep;
@@ -45,7 +45,7 @@ pub(crate) fn snap_to_vertices(brep: &BRep, face_meshes: &mut [FaceMesh]) -> usi
             (p.z / cell).floor() as i64,
         )
     };
-    let mut grid: HashMap<(i64, i64, i64), Vec<usize>> = HashMap::new();
+    let mut grid: HashMap<(i64, i64, i64), Vec<usize>> = HashMap::default();
     for (i, p) in points.iter().enumerate() {
         grid.entry(key(p)).or_default().push(i);
     }

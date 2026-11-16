@@ -7,7 +7,8 @@
 //! commits filler geometry through the `cap_boundary_ring_fan` Euler
 //! operator; the APIs here stay analysis-only for diagnostics.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::geometry::surface::SurfaceEval;
 use crate::tolerance::Tolerance;
@@ -47,7 +48,7 @@ pub struct DetectedHole {
 /// A free edge is one where both half-edges belong to the same face
 /// (the edge borders only one face). Returns the set of such edges.
 fn find_free_edges(brep: &BRep) -> HashSet<EdgeHandle> {
-    let mut free = HashSet::new();
+    let mut free = HashSet::default();
 
     for (edge_handle, edge_data) in &brep.edges {
         let he = match brep.half_edges.get(edge_data.half_edge) {
@@ -99,7 +100,7 @@ fn build_vertex_edge_adjacency(
     brep: &BRep,
     free_edges: &HashSet<EdgeHandle>,
 ) -> HashMap<VertexHandle, Vec<EdgeHandle>> {
-    let mut adjacency: HashMap<VertexHandle, Vec<EdgeHandle>> = HashMap::new();
+    let mut adjacency: HashMap<VertexHandle, Vec<EdgeHandle>> = HashMap::default();
 
     for &edge in free_edges {
         if let Some((v_start, v_end)) = edge_endpoints(brep, edge) {
@@ -161,7 +162,7 @@ pub fn detect_holes(brep: &BRep) -> Vec<DetectedHole> {
     }
 
     let adjacency = build_vertex_edge_adjacency(brep, &free_edges);
-    let mut visited = HashSet::new();
+    let mut visited = HashSet::default();
     let mut holes = Vec::new();
 
     // Try to trace a closed chain starting from each unvisited free edge.

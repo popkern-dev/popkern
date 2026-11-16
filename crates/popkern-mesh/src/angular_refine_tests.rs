@@ -43,7 +43,7 @@ fn coarse_quarter(surface: &SurfaceGeometry, flip: bool) -> FaceMesh {
 }
 
 fn boundary_edges(mesh: &FaceMesh) -> Vec<(usize, usize)> {
-    let mut count: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut count: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         for k in 0..3 {
             let (a, b) = (t[k], t[(k + 1) % 3]);

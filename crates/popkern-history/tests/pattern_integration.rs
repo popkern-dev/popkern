@@ -259,7 +259,7 @@ fn pattern_skip_instance_persists_across_round_trip() {
     let total_param = add_param(&mut tree, "_pat_total", 30.0, Unit::Meters);
 
     // Build instance_overrides with instance index 3 suppressed.
-    let mut overrides: std::collections::HashMap<usize, pattern::InstanceOverride> =
+    let mut overrides: popkern_math::hash::FastHashMap<usize, pattern::InstanceOverride> =
         Default::default();
     overrides.insert(
         3,

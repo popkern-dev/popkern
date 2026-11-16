@@ -101,7 +101,7 @@ pub(super) fn find_face_containing_vertices(
 use super::{EdgeGeometry, helpers, multi_chord, pcurve_attach};
 use crate::error::BlendFailure;
 use popkern_core::tolerance::Tolerance;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 /// Outcome of the face-trim pipeline (split + consumed-merge).
 pub(super) struct TrimPipelineOutcome {
@@ -310,9 +310,9 @@ pub(super) fn apply_face_trim_pipeline(
     for tr in &trim_results {
         edge_trims.entry(tr.edge_idx).or_default().push(tr);
     }
-    let mut merged_consumed: std::collections::HashSet<FaceHandle> =
-        std::collections::HashSet::new();
-    let mut fillet_faces: HashMap<usize, FaceHandle> = HashMap::new();
+    let mut merged_consumed: popkern_math::hash::FastHashSet<FaceHandle> =
+        popkern_math::hash::FastHashSet::default();
+    let mut fillet_faces: HashMap<usize, FaceHandle> = HashMap::default();
 
     for (idx, trims) in &edge_trims {
         let eg = &edge_geometries[*idx];

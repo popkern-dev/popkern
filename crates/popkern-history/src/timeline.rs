@@ -6,7 +6,7 @@
 //!   produced them (via [`OperationId`]).
 //! - Timeline insertion and reordering with dependency validation.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::naming::{EntityName, OperationId};
 use slotmap::SlotMap;

@@ -101,7 +101,8 @@ impl CellDecomposition {
     /// two adjacent cells is selected. Internal faces (both cells selected)
     /// and external faces (neither cell selected) are excluded.
     pub fn boundary_faces_of(&self, selected: &[CellId]) -> Vec<(usize, bool)> {
-        let selected_set: std::collections::HashSet<CellId> = selected.iter().copied().collect();
+        let selected_set: popkern_math::hash::FastHashSet<CellId> =
+            selected.iter().copied().collect();
         let mut result = Vec::new();
 
         for bf in &self.boundaries {

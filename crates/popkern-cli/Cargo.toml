@@ -16,6 +16,7 @@ default = ["h264"]
 h264 = ["dep:openh264"]
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-part = { path = "../popkern-part" }
 popkern-script = { path = "../popkern-script" }

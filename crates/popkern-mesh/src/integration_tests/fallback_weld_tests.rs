@@ -9,7 +9,7 @@
 //! face's boundary is bit-identical to its neighbours' and the
 //! zipper closes the clip-introduced T-junctions exactly.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
@@ -85,7 +85,7 @@ fn pcurve_stripped_wall_face_welds_watertight() {
     );
 
     let mesh = crate::tessellate(&brep, &options).expect("tessellation");
-    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut next = 0usize;
     let mut id = |p: Point3| -> usize {
         let k = (
@@ -98,7 +98,7 @@ fn pcurve_stripped_wall_face_welds_watertight() {
             next - 1
         })
     };
-    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         let w = [
             id(mesh.vertices[t[0]].position),

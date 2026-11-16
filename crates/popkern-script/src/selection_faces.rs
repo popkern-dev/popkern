@@ -116,8 +116,8 @@ impl FaceSelector {
         infos: &[FaceInfo],
         resolve: &dyn Fn(EntityRef<'_>) -> Result<EntityName, ScriptError>,
         unit: Unit,
-    ) -> Result<std::collections::HashSet<FaceHandle>, ScriptError> {
-        let mut out = std::collections::HashSet::new();
+    ) -> Result<popkern_math::hash::FastHashSet<FaceHandle>, ScriptError> {
+        let mut out = popkern_math::hash::FastHashSet::default();
         for branch in &self.branches {
             out.extend(branch_query(branch, brep, infos, resolve, unit)?.resolve(infos));
         }

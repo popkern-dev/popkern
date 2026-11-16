@@ -365,11 +365,11 @@ pub(crate) fn record_votes(
 /// (other_is_a, face).
 pub(crate) fn calibrate_face_signs(
     all: &[(PointClassification, Vec<RecordVote>)],
-) -> std::collections::HashMap<(bool, FaceHandle), f64> {
+) -> popkern_math::hash::FastHashMap<(bool, FaceHandle), f64> {
     const MIN_CALIBRATION_VOTES: usize = 2;
     const MIN_CALIBRATION_RATIO: f64 = 0.75;
-    let mut tally: std::collections::HashMap<(bool, FaceHandle), (usize, usize)> =
-        std::collections::HashMap::new();
+    let mut tally: popkern_math::hash::FastHashMap<(bool, FaceHandle), (usize, usize)> =
+        popkern_math::hash::FastHashMap::default();
     for (class, votes) in all {
         let ray_outside = match class {
             PointClassification::Outside => true,
@@ -412,7 +412,7 @@ pub(crate) fn calibrate_face_signs(
 /// ray verdict stands).
 pub(crate) fn calibrated_verdict(
     votes: &[RecordVote],
-    signs: &std::collections::HashMap<(bool, FaceHandle), f64>,
+    signs: &popkern_math::hash::FastHashMap<(bool, FaceHandle), f64>,
 ) -> Option<PointClassification> {
     let mut verdict: Option<PointClassification> = None;
     if votes.is_empty() {

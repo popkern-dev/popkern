@@ -83,7 +83,8 @@ fn mesh_volume_and_open_edges(body: &BRep) -> (f64, usize) {
             (p.z * 1e6).round() as i64,
         )
     };
-    let mut uses: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
+    let mut uses: popkern_math::hash::FastHashMap<_, usize> =
+        popkern_math::hash::FastHashMap::default();
     for t in &mesh.triangles {
         for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
             let (ka, kb) = (key(a), key(b));

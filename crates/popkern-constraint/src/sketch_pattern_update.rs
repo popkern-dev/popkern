@@ -280,7 +280,7 @@ impl Sketch {
             .get(pattern)
             .ok_or(ConstraintError::InvalidHandle)?;
         let seed = pat.seed_elements.clone();
-        let old_seed_constraints: std::collections::HashSet<_> =
+        let old_seed_constraints: popkern_math::hash::FastHashSet<_> =
             pat.seed_internal_constraints.iter().copied().collect();
 
         let seed_set = complete_seed_set(self, &seed);

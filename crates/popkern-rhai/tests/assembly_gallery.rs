@@ -105,7 +105,7 @@ fn covered(a: &[[f64; 3]], b: &[[f64; 3]]) -> f64 {
 /// The vertices of `brep` that are not on a seam edge (an edge whose
 /// two sides bound the same face).
 fn feature_vertices(brep: &BRep) -> Vec<[f64; 3]> {
-    let mut seam_vertices = std::collections::HashSet::new();
+    let mut seam_vertices = popkern_math::hash::FastHashSet::default();
     for edge in brep.edges.values() {
         let Some(he) = brep.half_edges.get(edge.half_edge) else {
             continue;

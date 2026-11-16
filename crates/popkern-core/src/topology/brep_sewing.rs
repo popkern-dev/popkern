@@ -1,6 +1,6 @@
 //! Transactional BRep sewing for caller-supplied clean edge pairs.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::geometry::{Point3, SurfaceEval};
 use crate::topology::brep_sewing_facts::{sewing_pair_fact_ids, sewing_pair_knowledge};
@@ -162,7 +162,7 @@ pub fn sew_clean_boundary_edge_pairs(
         }));
     }
     let mut candidate = brep.clone();
-    let mut used = HashSet::new();
+    let mut used = HashSet::default();
     let mut report = BrepSewingReport {
         candidate_pairs: pairs.len(),
         accepted_pairs: 0,

@@ -577,7 +577,7 @@ fn test_table_from_side_mapping_matrix(
         let bias_lookup = bias_cols
             .iter()
             .copied()
-            .collect::<std::collections::HashSet<_>>();
+            .collect::<popkern_math::hash::FastHashSet<_>>();
         let mut perm = (0..cols)
             .filter(|col| !bias_lookup.contains(col))
             .collect::<Vec<_>>();

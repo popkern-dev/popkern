@@ -308,8 +308,8 @@ pub(super) fn slit_band(
             }
         }
     }
-    let mut partner: std::collections::HashMap<(usize, bool), EndRef> =
-        std::collections::HashMap::new();
+    let mut partner: popkern_math::hash::FastHashMap<(usize, bool), EndRef> =
+        popkern_math::hash::FastHashMap::default();
     for ends in [&mut lo_wall_ends, &mut hi_wall_ends] {
         if !ends.len().is_multiple_of(2) {
             return None;

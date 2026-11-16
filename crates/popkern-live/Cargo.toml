@@ -12,6 +12,7 @@ description = "Browser engine for popkern live: a Rhai model script in, triangle
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }
 popkern-io = { path = "../popkern-io" }

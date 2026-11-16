@@ -1,6 +1,6 @@
 //! Curvature-weighted normal solve for constructive row bands.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Vec3;
 use popkern_core::topology::VertexHandle;

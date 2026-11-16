@@ -36,7 +36,7 @@ pub(crate) fn resolve_edges(
     let query = selector.to_query(brep, resolve, unit)?;
     let infos = popkern_part::edge_infos(brep);
     let handles = query.resolve(&infos);
-    let seams: std::collections::HashSet<_> = infos
+    let seams: popkern_math::hash::FastHashSet<_> = infos
         .iter()
         .filter(|i| i.is_seam)
         .map(|i| i.handle)

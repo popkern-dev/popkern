@@ -8,7 +8,8 @@
 //! is the transversal intersection curve of the two cut-wedge surfaces
 //! (PK-326).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::arc_join::{author_corner_arc, cap_orientation, offset_corner_position};
 use crate::arc_join_corner_mixed::construct_mixed_corner;

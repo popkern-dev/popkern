@@ -51,8 +51,8 @@ pub(crate) fn gate_and_export(part: Part, name: &str, out_dir: &std::path::Path)
         let mesh = part
             .mesh(&popkern_mesh::TessellationOptions::default())
             .expect("mesh");
-        use std::collections::HashMap;
-        let mut count: HashMap<(usize, usize), i32> = HashMap::new();
+        use popkern_math::hash::FastHashMap as HashMap;
+        let mut count: HashMap<(usize, usize), i32> = HashMap::default();
         for t in &mesh.triangles {
             for k in 0..3 {
                 let (a, b) = (t[k], t[(k + 1) % 3]);

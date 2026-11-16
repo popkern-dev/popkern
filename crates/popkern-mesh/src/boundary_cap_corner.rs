@@ -3,7 +3,7 @@
 //! its apex in the chord's cap zone, is split with that copy re-fanned
 //! as a pentagon (PK-859).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, FaceHandle};

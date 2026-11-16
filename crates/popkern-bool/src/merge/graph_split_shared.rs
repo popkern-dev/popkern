@@ -173,13 +173,13 @@ pub(crate) fn complete_dead_end_cuts(
             } => Some((o.index() as u8, e)),
             _ => None,
         };
-        let joined: std::collections::HashSet<(
+        let joined: popkern_math::hash::FastHashSet<(
             popkern_core::topology::FaceHandle,
             popkern_core::topology::FaceHandle,
             u8,
             popkern_core::topology::EdgeHandle,
         )> = {
-            let mut set = std::collections::HashSet::new();
+            let mut set = popkern_math::hash::FastHashSet::default();
             for node in &graph.nodes {
                 let mut pairs = Vec::new();
                 let mut origs = Vec::new();

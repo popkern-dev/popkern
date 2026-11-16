@@ -1,6 +1,6 @@
 //! Handle mapping between outer and inner skin BReps.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
@@ -79,10 +79,10 @@ mod tests {
     #[test]
     fn reverse_maps_are_correct() {
         let map = SkinMap {
-            vertices: HashMap::new(),
-            edges: HashMap::new(),
-            half_edges: HashMap::new(),
-            faces: HashMap::new(),
+            vertices: HashMap::default(),
+            edges: HashMap::default(),
+            half_edges: HashMap::default(),
+            faces: HashMap::default(),
         };
         assert!(map.reverse_face_map().is_empty());
         assert!(map.reverse_vertex_map().is_empty());

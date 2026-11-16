@@ -9,7 +9,7 @@
 //! cycle is left out and listed in the [`StepImportReport`] with the
 //! reason; the rest of the tree loads.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_history::SnapshotOrigin;
 use popkern_io::{StepDocument, StepImportOptions};
@@ -102,7 +102,7 @@ fn build(
     report: &mut StepImportReport,
 ) -> Result<Assembly, AssemblyError> {
     let mut assembly = Assembly::new(name);
-    let mut taken = HashMap::new();
+    let mut taken = HashMap::default();
     // Definitions reachable from the roots, children first so every
     // sub-assembly's parts exist when it is filled.
     let mut order: Vec<usize> = Vec::new();
@@ -114,10 +114,10 @@ fn build(
     // top-level instances, and it gets no definition of its own.
     let single_root_assembly =
         doc.roots.len() == 1 && !doc.products[doc.roots[0]].children.is_empty();
-    let mut ids: HashMap<usize, DefinitionId> = HashMap::new();
+    let mut ids: HashMap<usize, DefinitionId> = HashMap::default();
     // A product's own solids, when it also has children, ride in a part
     // placed at its origin inside the sub-assembly.
-    let mut own_parts: HashMap<usize, DefinitionId> = HashMap::new();
+    let mut own_parts: HashMap<usize, DefinitionId> = HashMap::default();
     for &index in &order {
         let product = &doc.products[index];
         let solids: Vec<&popkern_core::topology::BRep> = product
@@ -202,7 +202,7 @@ fn build(
         let Some(&sub) = ids.get(&index) else {
             continue;
         };
-        let mut siblings = HashMap::new();
+        let mut siblings = HashMap::default();
         if let Some(&own) = own_parts.get(&index) {
             let label = unique(
                 &mut siblings,
@@ -231,7 +231,7 @@ fn build(
     }
     // The top level: a single root assembly's occurrences ARE the
     // document's; otherwise every root is placed at the origin.
-    let mut siblings = HashMap::new();
+    let mut siblings = HashMap::default();
     if single_root_assembly {
         let root = &doc.products[doc.roots[0]];
         if !root.name.trim().is_empty() {

@@ -172,7 +172,7 @@ impl Part {
         let infos = edge_infos(self.brep());
         let mut edges = query.resolve(&infos);
         let selection = query.describe();
-        let seams: std::collections::HashSet<_> = infos
+        let seams: popkern_math::hash::FastHashSet<_> = infos
             .iter()
             .filter(|i| i.is_seam)
             .map(|i| i.handle)

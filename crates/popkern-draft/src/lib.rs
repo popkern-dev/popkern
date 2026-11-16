@@ -80,7 +80,7 @@ pub fn draft_faces(
     }
 
     // Stage 2: Compute drafted surfaces.
-    let mut drafted_surfaces = std::collections::HashMap::new();
+    let mut drafted_surfaces = popkern_math::hash::FastHashMap::default();
     for (i, spec) in specs.iter().enumerate() {
         let new_surface = surface::compute_drafted_surface(
             brep,

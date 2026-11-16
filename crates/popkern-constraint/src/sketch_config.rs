@@ -18,8 +18,8 @@ impl Sketch {
     pub fn create_config(&mut self, name: &str) -> ConfigHandle {
         self.configs.insert(Configuration {
             name: name.to_owned(),
-            constraint_states: std::collections::HashMap::new(),
-            group_states: std::collections::HashMap::new(),
+            constraint_states: popkern_math::hash::FastHashMap::default(),
+            group_states: popkern_math::hash::FastHashMap::default(),
             solved_params: None,
         })
     }

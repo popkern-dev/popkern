@@ -17,7 +17,7 @@ use crate::topology::*;
 pub struct BRepBuilder {
     pub(crate) brep: BRep,
     /// The sides each shell made here gives its faces.
-    sides: std::collections::HashMap<ShellHandle, FaceSides>,
+    sides: popkern_math::hash::FastHashMap<ShellHandle, FaceSides>,
 }
 
 impl BRepBuilder {
@@ -25,7 +25,7 @@ impl BRepBuilder {
     pub fn new(tolerance: Tolerance) -> Self {
         Self {
             brep: BRep::new(tolerance),
-            sides: std::collections::HashMap::new(),
+            sides: popkern_math::hash::FastHashMap::default(),
         }
     }
 

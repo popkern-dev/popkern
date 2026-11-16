@@ -220,6 +220,11 @@ impl SurfaceEval for NurbsSurface {
         self.point_and_first_partials(u, v).2
     }
 
+    fn first_partials(&self, u: f64, v: f64) -> (Vec3, Vec3) {
+        let (_, du, dv) = self.point_and_first_partials(u, v);
+        (du, dv)
+    }
+
     fn normal_at(&self, u: f64, v: f64) -> Vec3 {
         let (_, du, dv) = self.point_and_first_partials(u, v);
         du.cross(&dv)

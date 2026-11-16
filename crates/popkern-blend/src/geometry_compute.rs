@@ -25,7 +25,7 @@ pub(crate) type OverlapTrimEntry = (
 
 /// Per-face collection of trim curves for face-disappearance detection.
 pub(crate) type FaceTrimMap =
-    std::collections::HashMap<usize, Vec<popkern_core::geometry::NurbsCurve>>;
+    popkern_math::hash::FastHashMap<usize, Vec<popkern_core::geometry::NurbsCurve>>;
 
 /// Compute fillet geometry (center curve, fillet surface, trim curves) for one edge.
 #[allow(clippy::too_many_arguments)]
@@ -459,10 +459,10 @@ pub(crate) fn build_overlap_inputs(
     brep: &BRep,
 ) -> (Vec<OverlapTrimEntry>, FaceTrimMap) {
     let mut overlap_trims = Vec::new();
-    let mut face_trim_map: std::collections::HashMap<
+    let mut face_trim_map: popkern_math::hash::FastHashMap<
         usize,
         Vec<popkern_core::geometry::NurbsCurve>,
-    > = std::collections::HashMap::new();
+    > = popkern_math::hash::FastHashMap::default();
 
     for eg in edge_geometries {
         let f1_idx = face_handle_to_index(brep, eg.analysis.face_1);

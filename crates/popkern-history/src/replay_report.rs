@@ -33,7 +33,7 @@
 //!   that window would be attributed here too — the registry is a
 //!   process census, and this channel reports it as observed.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::time::Duration;
 
 use popkern_blend::{BlendContinuityEvidence, ContinuityLevel};

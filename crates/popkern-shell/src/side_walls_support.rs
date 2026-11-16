@@ -1,7 +1,7 @@
 //! Side-wall support: corner-sector construction for rim arcs
 //! (PK-340) and wall surface authoring.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::ShellError;
 use popkern_core::constructors::BRepBuilder;
@@ -326,9 +326,9 @@ pub(super) fn build_corner_sectors(
     vertical_faces: &HashMap<(VertexHandle, VertexHandle), FaceHandle>,
     shell_handle: ShellHandle,
 ) -> Result<Vec<FaceHandle>, ShellError> {
-    use std::collections::HashMap as Map;
-    let mut by_inner: Map<VertexHandle, Vec<VertexHandle>> = Map::new();
-    let mut by_outer: Map<VertexHandle, Vec<VertexHandle>> = Map::new();
+    use popkern_math::hash::FastHashMap as Map;
+    let mut by_inner: Map<VertexHandle, Vec<VertexHandle>> = Map::default();
+    let mut by_outer: Map<VertexHandle, Vec<VertexHandle>> = Map::default();
     for &(ov, iv) in verticals.keys() {
         by_inner.entry(iv).or_default().push(ov);
         by_outer.entry(ov).or_default().push(iv);

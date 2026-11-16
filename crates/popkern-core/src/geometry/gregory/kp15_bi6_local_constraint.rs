@@ -1463,7 +1463,7 @@ impl Kp15Bi6GeneratingTable {
         m_unordered: Vec<f64>,
         free_bias_cols: &[usize],
     ) -> Self {
-        let free_bias_lookup: std::collections::HashSet<usize> =
+        let free_bias_lookup: popkern_math::hash::FastHashSet<usize> =
             free_bias_cols.iter().copied().collect();
         let mut perm: Vec<usize> = (0..cols)
             .filter(|c| !free_bias_lookup.contains(c))

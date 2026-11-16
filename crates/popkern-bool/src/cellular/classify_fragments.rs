@@ -101,9 +101,9 @@ pub(super) fn classify_fragments_cellular(
     // other — the kept duplicate skin went non-manifold). They are
     // routed to the offset-pair classifier, whose (in, out) verdict
     // maps to OnBoundary and the operation's keep-one-skin rules.
-    let overlap_a: std::collections::HashSet<_> =
+    let overlap_a: popkern_math::hash::FastHashSet<_> =
         face_overlaps.iter().map(|fo| fo.face_a).collect();
-    let overlap_b: std::collections::HashSet<_> =
+    let overlap_b: popkern_math::hash::FastHashSet<_> =
         face_overlaps.iter().map(|fo| fo.face_b).collect();
 
     // Probe offset for side/coorientation sampling. It must sit

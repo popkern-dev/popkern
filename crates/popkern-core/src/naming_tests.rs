@@ -63,7 +63,7 @@ fn rebuild_index_restores_lookups() {
     let id = pool.intern(name.clone(), None);
 
     // Simulate what happens after serde: index is gone.
-    pool.index = Arc::new(HashMap::new());
+    pool.index = Arc::new(HashMap::default());
     assert_eq!(pool.find(&name), None, "index cleared");
 
     pool.rebuild_index();
@@ -113,7 +113,7 @@ fn compact_removes_dead_names_and_remaps() {
     let b = pool.intern(make_name(2, RoleCategory::Cap, 0), None);
     let _c = pool.intern(make_name(3, RoleCategory::Cap, 0), None);
 
-    let mut keep = HashSet::new();
+    let mut keep = HashSet::default();
     keep.insert(a);
     keep.insert(b);
 
@@ -146,7 +146,7 @@ fn compact_remaps_ancestor_references() {
     };
     let child = pool.intern(child_name, None);
 
-    let mut keep = HashSet::new();
+    let mut keep = HashSet::default();
     keep.insert(parent);
     keep.insert(child);
     let remap = pool.compact(&keep);

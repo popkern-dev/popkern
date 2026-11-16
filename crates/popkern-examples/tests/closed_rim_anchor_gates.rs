@@ -209,13 +209,13 @@ fn render_pk344_bracket_max_grow() {
 /// base-row azimuths and flipped one band triangle at the arc joint.
 #[test]
 fn thickened_rod_tessellates_watertight() {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     let f = sphere_capped_rod(tol()).expect("fixture");
     let r = popkern_shell::thicken::thicken(&f.brep, 0.04, &ShellOptions::default(), tol())
         .expect("serves");
     let mesh = popkern_mesh::tessellate(&r.brep, &popkern_mesh::TessellationOptions::default())
         .expect("tessellate");
-    let mut edge_use: HashMap<(u64, u64, u64, u64, u64, u64), i64> = HashMap::new();
+    let mut edge_use: HashMap<(u64, u64, u64, u64, u64, u64), i64> = HashMap::default();
     for t in &mesh.triangles {
         for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
             let pa = mesh.vertices[a].position;

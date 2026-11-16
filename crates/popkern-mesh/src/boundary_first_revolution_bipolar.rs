@@ -12,7 +12,7 @@ use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::FaceHandle;
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::{BoundaryRing, boundary_first_edge_samples::EdgeSamples};
 use crate::TessellationOptions;

@@ -5,7 +5,7 @@
 //! Split from `walk/mod.rs` to honour the structural line ratchet.
 
 use crate::merge::graph::Operand;
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::merge::graph::IntersectionGraph;
 
@@ -91,8 +91,8 @@ pub(super) fn apex_turnaround_candidate(
     end_node: usize,
     he_idx: usize,
     twin_idx: usize,
-    face_hes: &std::collections::HashSet<usize>,
-    visited: &std::collections::HashSet<usize>,
+    face_hes: &popkern_math::hash::FastHashSet<usize>,
+    visited: &popkern_math::hash::FastHashSet<usize>,
 ) -> Option<usize> {
     let node_is_original = matches!(
         graph.nodes[end_node].source,

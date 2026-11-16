@@ -2,7 +2,8 @@
 //! with transversal / rim end-circle connectors, plus the shared
 //! post-surgery curve re-trim.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::arc_join::offset_corner_position;
 use crate::arc_join_corner::CornerFanEntry;

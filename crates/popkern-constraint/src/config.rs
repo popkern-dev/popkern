@@ -6,8 +6,8 @@
 
 use crate::constraint::{Constraint, ConstraintHandle};
 use crate::groups::GroupHandle;
+use popkern_math::hash::FastHashMap as HashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 slotmap::new_key_type! {
     /// Opaque handle to a [`Configuration`] inside a [`Sketch`](crate::Sketch).

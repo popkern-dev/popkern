@@ -18,7 +18,7 @@
 //! each generated entry's position in the pattern, so a corner scatters
 //! its values and factors numerically.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use faer::Mat;
@@ -78,7 +78,7 @@ type Key = (usize, [u64; 6]);
 
 fn cache() -> &'static Mutex<HashMap<Key, Arc<Pattern>>> {
     static CACHE: OnceLock<Mutex<HashMap<Key, Arc<Pattern>>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    CACHE.get_or_init(|| Mutex::new(HashMap::default()))
 }
 
 /// Every lower-triangular entry in a fixed generation order.

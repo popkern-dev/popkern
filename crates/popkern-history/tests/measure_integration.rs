@@ -4,7 +4,7 @@
 //! correctly through the full stack: expression evaluator → measure dispatch →
 //! live BRep geometry.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -19,7 +19,7 @@ use popkern_history::{
 fn unit_cube_ctx() -> (BRep, HashMap<BodyId, BRep>, Tolerance) {
     let tol = Tolerance::default();
     let brep = BRep::unit_cube(tol).expect("unit cube should build");
-    let mut bodies = HashMap::new();
+    let mut bodies = HashMap::default();
     bodies.insert(BodyId(0), brep.clone());
     (brep, bodies, tol)
 }

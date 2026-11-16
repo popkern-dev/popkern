@@ -14,7 +14,8 @@
 //! (one key per timeline position), which is what the history scrubber
 //! and the in-place parameter route read.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 use std::sync::Arc;
 
 use popkern_core::topology::BRep;
@@ -144,12 +145,12 @@ impl StepCache {
     /// A new, empty cache with the given strategy.
     pub(crate) fn new(strategy: CacheStrategy) -> Self {
         Self {
-            records: HashMap::new(),
+            records: HashMap::default(),
             strategy,
             tick: 0,
             chain: Vec::new(),
             frozen: None,
-            node_results: HashMap::new(),
+            node_results: HashMap::default(),
         }
     }
 
@@ -270,7 +271,7 @@ impl StepCache {
 
     /// Estimated bytes of every kept state, shared bodies counted once.
     pub(crate) fn memory_bytes(&self) -> usize {
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::default();
         self.records
             .values()
             .filter_map(|r| r.state.as_ref())

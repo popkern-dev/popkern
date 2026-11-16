@@ -1,6 +1,6 @@
 //! Surface offset computation for shell operations.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::classify::FaceClassification;
 use crate::error::{ShellError, ShellWarning};
@@ -87,7 +87,7 @@ pub fn compute_offset_surfaces(
     );
 
     // Phase 2 (sequential): fold the per-face outcomes in list order.
-    let mut surfaces = HashMap::new();
+    let mut surfaces = HashMap::default();
     let mut failed = Vec::new();
     let mut warnings = Vec::new();
     let mut auto_removed = Vec::new();

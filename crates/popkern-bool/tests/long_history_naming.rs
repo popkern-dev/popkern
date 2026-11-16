@@ -88,7 +88,7 @@ fn scheme_two_keeps_the_import_rule() {
 fn lineage_lives_only_where_a_reader_reaches_it() {
     let bodies = slotted(12, 3);
     let last = bodies.last().expect("a body");
-    let mut readable = std::collections::HashSet::new();
+    let mut readable = popkern_math::hash::FastHashSet::default();
     for id in live_names(last) {
         readable.insert(id);
         if let Some(name) = last.name_pool.get(id) {
@@ -127,7 +127,7 @@ fn pruning_never_changes_what_a_live_name_descends_from() {
     prune_unreadable_lineage(&mut body);
     let after: Vec<Vec<EntityName>> = live.iter().map(|id| body.name_pool.ancestry(*id)).collect();
     assert_eq!(before, after, "every live name's ancestry is unchanged");
-    let mut readable = std::collections::HashSet::new();
+    let mut readable = popkern_math::hash::FastHashSet::default();
     for id in &live {
         readable.insert(*id);
         if let Some(name) = body.name_pool.get(*id) {

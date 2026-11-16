@@ -275,4 +275,5 @@ impl PortableMath for f32 {
 #[path = "lib_tests.rs"]
 mod tests;
 
+pub mod hash;
 pub mod linalg;

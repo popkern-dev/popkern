@@ -11,7 +11,7 @@
 use crate::edge_graph::EdgeGraph;
 use popkern_constraint::{ElementHandle, Sketch};
 use popkern_math::PortableMath;
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 /// A sketch edge with its traversal direction.
 #[derive(Debug, Clone)]
@@ -70,7 +70,7 @@ pub(crate) fn trace_loops(graph: &EdgeGraph, sketch: &Sketch) -> Vec<TracedLoop>
     }
 
     let adjacency = build_adjacency(graph);
-    let mut visited: HashSet<HalfEdgeId> = HashSet::new();
+    let mut visited: HashSet<HalfEdgeId> = HashSet::default();
     let mut loops = Vec::new();
 
     // Each undirected edge gives two directed half-edges.
@@ -389,9 +389,9 @@ fn discard_outer_boundary(loops: Vec<TracedLoop>) -> Vec<TracedLoop> {
     }
 
     // For each component, find the outer boundary (largest |negative area|).
-    let mut outer_indices: HashSet<usize> = HashSet::new();
-    let mut component_outer: std::collections::HashMap<usize, (usize, f64)> =
-        std::collections::HashMap::new();
+    let mut outer_indices: HashSet<usize> = HashSet::default();
+    let mut component_outer: popkern_math::hash::FastHashMap<usize, (usize, f64)> =
+        popkern_math::hash::FastHashMap::default();
 
     for (i, l) in loops.iter().enumerate() {
         if l.signed_area < 0.0 {

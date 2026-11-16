@@ -587,8 +587,8 @@ fn main() {
     );
     // Closure audit: welded edge-use counts.
     {
-        use std::collections::HashMap;
-        let mut key = HashMap::new();
+        use popkern_math::hash::FastHashMap as HashMap;
+        let mut key = HashMap::default();
         let mut canon = Vec::new();
         let id = |p: popkern_core::geometry::Point3,
                   key: &mut HashMap<(i64, i64, i64), usize>,
@@ -603,7 +603,7 @@ fn main() {
                 canon.len() - 1
             })
         };
-        let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut counts: HashMap<(usize, usize), usize> = HashMap::default();
         for t in &mesh.triangles {
             let w = [
                 id(mesh.vertices[t[0]].position, &mut key, &mut canon),

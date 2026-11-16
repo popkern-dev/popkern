@@ -233,7 +233,7 @@ fn add_rigid_set_freedoms(
     v: faer::MatRef<'_, f64>,
     col_idx: usize,
     threshold: f64,
-    _rigid_params: &std::collections::HashSet<usize>,
+    _rigid_params: &popkern_math::hash::FastHashSet<usize>,
     freedoms: &mut Vec<FreedomInfo>,
 ) {
     for rs in sketch.rigid_sets.values() {

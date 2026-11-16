@@ -17,7 +17,7 @@
 //! ends exactly, restoring the in-span product identity on both
 //! trim sides.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::VertexHandle;
@@ -60,7 +60,7 @@ pub(super) fn leg_direction_targets(
     authored_sub_chains: &[AuthoredSubChain],
     node_normals: &HashMap<VertexHandle, Vec3>,
 ) -> (ChainDerivativeTargets, usize) {
-    let mut vertices: HashMap<VertexHandle, Vec<IncidentDirection>> = HashMap::new();
+    let mut vertices: HashMap<VertexHandle, Vec<IncidentDirection>> = HashMap::default();
     for (chain_index, authored) in authored_sub_chains.iter().enumerate() {
         for &(vertex, station) in &authored.nodes {
             let derivative = chain_derivative(&authored.chain_cps, station);
@@ -77,7 +77,7 @@ pub(super) fn leg_direction_targets(
             });
         }
     }
-    let mut targets: ChainDerivativeTargets = HashMap::new();
+    let mut targets: ChainDerivativeTargets = HashMap::default();
     let mut rotated = 0usize;
     let mut vertex_order: Vec<&VertexHandle> = vertices.keys().collect();
     vertex_order.sort_by_key(|vertex| format!("{vertex:?}"));

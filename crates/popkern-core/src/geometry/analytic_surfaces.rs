@@ -207,6 +207,13 @@ impl SurfaceEval for SurfaceGeometry {
         }
     }
 
+    fn first_partials(&self, u: f64, v: f64) -> (Vec3, Vec3) {
+        match self {
+            SurfaceGeometry::Nurbs(nurbs) => nurbs.first_partials(u, v),
+            _ => (self.partial_u(u, v), self.partial_v(u, v)),
+        }
+    }
+
     fn normal_at(&self, u: f64, v: f64) -> Vec3 {
         match self {
             SurfaceGeometry::Plane { normal, .. } => *normal,

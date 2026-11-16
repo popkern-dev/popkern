@@ -10,7 +10,7 @@ use crate::geometry::surface::SurfaceEval;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, FaceHandle};
 use crate::validation::bvh::Bvh;
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use super::self_intersection_helpers::{TraceSurfacePatch, trace_self_intersection_candidate};
 use super::self_intersection_same_surface::same_surface_domains_disjoint;
@@ -68,7 +68,7 @@ impl BRep {
         // ------------------------------------------------------------------ //
         // 1. Build adjacency set (by face index pairs, not handles)           //
         // ------------------------------------------------------------------ //
-        let mut adjacent: HashSet<(usize, usize)> = HashSet::new();
+        let mut adjacent: HashSet<(usize, usize)> = HashSet::default();
 
         for (i, &fk) in face_keys.iter().enumerate() {
             let face = &self.faces[fk];

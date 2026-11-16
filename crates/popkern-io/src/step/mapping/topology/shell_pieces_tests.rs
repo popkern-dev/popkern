@@ -1,7 +1,8 @@
 //! The split of a closed shell into touching pieces, on face topology
 //! alone (no geometry).
 
-use std::collections::{BTreeMap, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeMap;
 
 use super::touching_pieces;
 use crate::step::mapping::topology::face_collector::{

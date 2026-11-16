@@ -117,10 +117,10 @@ pub(crate) fn merge_touching_items(items: &[BRep], log: &mut DiagnosticLog) -> O
         let k = |x: f64| (x / tolerance).floor() as i64;
         (k(p.x), k(p.y), k(p.z))
     };
-    let mut grid: std::collections::HashMap<
+    let mut grid: popkern_math::hash::FastHashMap<
         (i64, i64, i64),
         Vec<(usize, popkern_core::geometry::Point3)>,
-    > = std::collections::HashMap::new();
+    > = popkern_math::hash::FastHashMap::default();
     for (i, body) in items.iter().enumerate() {
         for v in body.vertices.values() {
             grid.entry(cell(v.position))
@@ -270,7 +270,7 @@ pub(crate) fn separate_touching_pieces(brep: BRep, id: u64, log: &mut Diagnostic
 /// Whether two pieces of `brep` have vertices within the linear
 /// tolerance of each other.
 fn pieces_touch(brep: &BRep) -> bool {
-    let mut piece = std::collections::HashMap::new();
+    let mut piece = popkern_math::hash::FastHashMap::default();
     for (k, set) in brep.piece_face_sets().iter().enumerate() {
         for &f in set {
             for (_, l) in brep.loops.iter().filter(|(_, l)| l.face == f) {
@@ -290,10 +290,10 @@ fn pieces_touch(brep: &BRep) -> bool {
         let k = |x: f64| (x / tolerance.max(1e-12)).floor() as i64;
         (k(p.x), k(p.y), k(p.z))
     };
-    let mut grid: std::collections::HashMap<
+    let mut grid: popkern_math::hash::FastHashMap<
         (i64, i64, i64),
         Vec<(usize, popkern_core::geometry::Point3)>,
-    > = std::collections::HashMap::new();
+    > = popkern_math::hash::FastHashMap::default();
     for (v, &k) in &piece {
         let p = brep.vertices[*v].position;
         let (x, y, z) = cell(p);

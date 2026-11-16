@@ -1,6 +1,6 @@
 //! Inner skin construction: clone, map, and geometry replacement.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::ShellError;
 use crate::skin_map::SkinMap;
@@ -176,7 +176,7 @@ mod tests {
         let (mut inner, skin_map) = build_inner_skin(&outer, &[]).unwrap();
 
         // Create fake offset surfaces (same as original for test).
-        let mut offset_surfaces = HashMap::new();
+        let mut offset_surfaces = HashMap::default();
         for &outer_fh in skin_map.faces.keys() {
             if let Some(sof) = &outer.faces[outer_fh].surface {
                 offset_surfaces.insert(outer_fh, sof.geometry.clone());
@@ -201,7 +201,7 @@ mod tests {
 
         // Create offset surfaces that are distinct from the originals
         // (shifted planes).
-        let mut offset_surfaces = HashMap::new();
+        let mut offset_surfaces = HashMap::default();
         for &outer_fh in skin_map.faces.keys() {
             let shifted = SurfaceGeometry::Plane {
                 origin: Point3::new(99.0, 99.0, 99.0),
@@ -236,7 +236,7 @@ mod tests {
         let (mut inner, skin_map) = build_inner_skin(&outer, &[first_face]).unwrap();
 
         // Only provide offset surfaces for faces that weren't removed.
-        let mut offset_surfaces = HashMap::new();
+        let mut offset_surfaces = HashMap::default();
         for &outer_fh in skin_map.faces.keys() {
             if let Some(sof) = &outer.faces[outer_fh].surface {
                 offset_surfaces.insert(outer_fh, sof.geometry.clone());

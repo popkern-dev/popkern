@@ -17,7 +17,7 @@
 //! back to the uniform grid, WHY (missing pcurve, no canonical samples,
 //! off-surface residual, uncovered ring segment, unchartable wrap).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
@@ -123,7 +123,7 @@ pub(crate) fn tessellate_face_boundary_first(
     let seam_square =
         matches!(surface.periodicity(), (Some(_), Some(_))) && !face.inner_loops.is_empty();
     {
-        let mut edge_counts: HashMap<EdgeHandle, usize> = HashMap::new();
+        let mut edge_counts: HashMap<EdgeHandle, usize> = HashMap::default();
         let start = brep.loops.get(face.outer_loop)?.half_edge;
         let mut cur = start;
         let mut steps = 0;
@@ -554,7 +554,7 @@ pub(crate) fn tessellate_face_boundary_first(
     // Boundary-edge coverage check: every ring segment must appear as
     // a triangle edge, else the Delaunay cut a concave corner — fall
     // back to the uniform-grid path rather than ship a gap.
-    let mut edge_set = std::collections::HashSet::new();
+    let mut edge_set = popkern_math::hash::FastHashSet::default();
     for t in &triangles {
         for (x, y) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
             edge_set.insert((x.min(y), x.max(y)));
@@ -715,7 +715,7 @@ fn build_ring(
     let mut uv = Vec::new();
     let mut pos = Vec::new();
     let mut sources = Vec::new();
-    let mut first_leg_starts: HashMap<EdgeHandle, (f64, f64)> = HashMap::new();
+    let mut first_leg_starts: HashMap<EdgeHandle, (f64, f64)> = HashMap::default();
     let mut he = start;
     for _ in 0..10_000 {
         let data = &brep.half_edges[he];

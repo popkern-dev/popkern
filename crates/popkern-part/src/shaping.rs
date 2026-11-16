@@ -25,7 +25,7 @@ impl Part {
         let infos = edge_infos(self.brep());
         let mut edges = query.resolve(&infos);
         let selection = query.describe();
-        let seams: std::collections::HashSet<_> = infos
+        let seams: popkern_math::hash::FastHashSet<_> = infos
             .iter()
             .filter(|i| i.is_seam)
             .map(|i| i.handle)
@@ -69,7 +69,7 @@ impl Part {
             Err(popkern_blend::BlendError::PartialFailure { ref failures, .. })
                 if failures.len() < specs.len() =>
             {
-                let failed: std::collections::HashSet<_> =
+                let failed: popkern_math::hash::FastHashSet<_> =
                     failures.iter().map(|(eh, _)| *eh).collect();
                 for (eh, failure) in failures {
                     let msg = format!("{failure:?}");

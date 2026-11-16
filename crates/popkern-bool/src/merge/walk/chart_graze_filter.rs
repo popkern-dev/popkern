@@ -112,8 +112,8 @@ pub(super) fn filter_hairpins_and_grazes(
     // candidate time). Iterated: removing one graze can expose a
     // chain.
     for _ in 0..8 {
-        let mut incident: std::collections::HashMap<usize, Vec<usize>> =
-            std::collections::HashMap::new();
+        let mut incident: popkern_math::hash::FastHashMap<usize, Vec<usize>> =
+            popkern_math::hash::FastHashMap::default();
         for &h in sub.embeddings.keys() {
             let (a, b) = ends(h);
             incident.entry(a).or_default().push(h);

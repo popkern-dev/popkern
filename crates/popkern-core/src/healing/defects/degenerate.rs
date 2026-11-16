@@ -188,7 +188,7 @@ fn count_face_edges(brep: &BRep, face: crate::topology::FaceHandle) -> usize {
 /// Walks the outer loop half-edges, finds each twin's face, and collects
 /// unique faces (excluding the face itself).
 fn count_distinct_neighbor_faces(brep: &BRep, face: crate::topology::FaceHandle) -> usize {
-    use std::collections::HashSet;
+    use popkern_math::hash::FastHashSet as HashSet;
 
     let Some(face_data) = brep.faces.get(face) else {
         return 0;
@@ -201,7 +201,7 @@ fn count_distinct_neighbor_faces(brep: &BRep, face: crate::topology::FaceHandle)
         return 0;
     }
 
-    let mut neighbors = HashSet::new();
+    let mut neighbors = HashSet::default();
     let mut current = start_he;
     let mut guard = 0usize;
     loop {

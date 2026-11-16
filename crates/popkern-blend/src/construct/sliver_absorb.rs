@@ -201,7 +201,8 @@ fn absorb_slivers_with_protected(
 ) -> Vec<SliverAbsorbWarning> {
     let mut warnings: Vec<SliverAbsorbWarning> = Vec::new();
     let cap = brep.faces.len() * 2 + 16;
-    let mut retained: std::collections::HashSet<FaceHandle> = std::collections::HashSet::new();
+    let mut retained: popkern_math::hash::FastHashSet<FaceHandle> =
+        popkern_math::hash::FastHashSet::default();
     for _ in 0..cap {
         // NOTE: Class D before C is load-bearing — the corner
         // reconstruction downstream harvests its contact vertices

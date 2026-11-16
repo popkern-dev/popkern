@@ -12,7 +12,7 @@
 //! removed, so ring segments stay edges by construction; the result is
 //! the constrained Delaunay triangulation of the grown point set.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use super::{Mesh, in_circle, key, orient};
 
@@ -66,7 +66,7 @@ impl ConstrainedMesh {
         // circumcircle holds p (a point on the start triangle's edge
         // lies inside the neighbour's circumcircle, so it joins too).
         let mut cavity = vec![start];
-        let mut seen: HashSet<usize> = HashSet::from([start]);
+        let mut seen: HashSet<usize> = HashSet::from_iter([start]);
         let mut next = 0;
         while next < cavity.len() {
             let ti = cavity[next];

@@ -40,7 +40,7 @@ fn build_splittable_square(
 #[test]
 fn curves_per_face_collects_multiple_indices() {
     use popkern_core::geometry::curve_on_surface::CurveOnSurface;
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
 
     let dummy_curve = NurbsCurve {
         degree: 1,
@@ -83,7 +83,7 @@ fn curves_per_face_collects_multiple_indices() {
     ];
 
     // Replicate the grouping logic from split_along_curves.
-    let mut curves_a: HashMap<popkern_core::topology::FaceHandle, Vec<usize>> = HashMap::new();
+    let mut curves_a: HashMap<popkern_core::topology::FaceHandle, Vec<usize>> = HashMap::default();
     for (idx, record) in records.iter().enumerate() {
         curves_a.entry(record.face_a).or_default().push(idx);
     }

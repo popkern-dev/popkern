@@ -270,7 +270,7 @@ pub fn boolean_with_sheets(
             // curve is typically preserved unchanged, so the handles
             // still line up. (Worst case the dedupe is a no-op; the
             // later weld still removes any duplicate vertices.)
-            use std::collections::HashSet;
+            use popkern_math::hash::FastHashSet as HashSet;
             let coincident_b_faces: HashSet<popkern_core::topology::FaceHandle> = coincidence
                 .face_overlaps
                 .iter()

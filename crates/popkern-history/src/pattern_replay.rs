@@ -5,7 +5,7 @@
 //! produce a tool body.
 
 use crate::working_bodies::WorkingBodies;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::history::TrackingContext;
 use popkern_core::naming::OperationId;

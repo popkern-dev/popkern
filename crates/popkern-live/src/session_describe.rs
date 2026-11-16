@@ -6,7 +6,7 @@
 //! re-places the meshes. Re-sending the arm's report and its 9976
 //! parameter rows cost a joint step 25 ms over its 5 ms budget.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_assembly::Document;
 use popkern_core::time::monotonic_clock_available;
@@ -43,7 +43,7 @@ impl DisplayState {
     /// A state holding nothing.
     pub(crate) fn new() -> DisplayState {
         DisplayState {
-            cache: HashMap::new(),
+            cache: HashMap::default(),
             placement_base: None,
         }
     }

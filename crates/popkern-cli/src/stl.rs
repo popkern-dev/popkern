@@ -173,7 +173,7 @@ pub fn document_stl(
         Document::Assembly(assembly) => {
             let parts = assembly.definition_parts().map_err(|e| e.to_string())?;
             let mut meshes = Vec::new();
-            let mut index = std::collections::HashMap::new();
+            let mut index = popkern_math::hash::FastHashMap::default();
             let mut rows = Vec::new();
             for row in assembly
                 .leaves()

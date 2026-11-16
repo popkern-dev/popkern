@@ -68,7 +68,7 @@ fn census(script: &str) -> (f64, usize) {
             + a.z * (b.x * c.y - b.y * c.x);
     }
     type QuantizedPoint = (i64, i64, i64);
-    let mut uses: std::collections::HashMap<(QuantizedPoint, QuantizedPoint), i64> =
+    let mut uses: popkern_math::hash::FastHashMap<(QuantizedPoint, QuantizedPoint), i64> =
         Default::default();
     let key = |p: popkern_core::geometry::Point3| {
         (

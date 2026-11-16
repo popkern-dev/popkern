@@ -4,7 +4,7 @@
 //! to a BRep: surface replacement, orientation fixup, edge/vertex
 //! recomputation, and adjacent face handling.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::adjacent;
 use crate::error::{DraftError, DraftWarning};
@@ -182,7 +182,7 @@ fn collect_vertex_faces(brep: &BRep, vertex: VertexHandle) -> Vec<FaceHandle> {
     }
 
     let mut current = start_he;
-    let mut visited = std::collections::HashSet::new();
+    let mut visited = popkern_math::hash::FastHashSet::default();
     loop {
         if !visited.insert(current) {
             break;
@@ -232,7 +232,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 0.996, -0.087),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         let (result, warnings) =
@@ -259,7 +259,7 @@ mod tests {
             v_axis: Vec3::new(0.0, 0.996, -0.087),
         };
 
-        let mut drafted = HashMap::new();
+        let mut drafted = HashMap::default();
         drafted.insert(face, tilted);
 
         let (result, _) =
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn empty_drafted_is_clone() {
         let brep = BRep::unit_cube(tol()).unwrap();
-        let drafted = HashMap::new();
+        let drafted = HashMap::default();
 
         let (result, warnings) =
             apply_draft_topology(&brep, &drafted, &DraftOptions::default(), &tol()).unwrap();

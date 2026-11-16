@@ -102,11 +102,11 @@ pub struct Kp20PaperTauReport {
 /// a valence reuses one solve (PK-604 measured 0.085 s per solve at
 /// n = 8). The cached value is the exact result of the first solve.
 pub fn solve_kp20_paper_tau(n: usize) -> Result<Kp20PaperTauReport, Kp20PlanarTauPaperSolveError> {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     use std::sync::{Mutex, OnceLock};
     type Cache = Mutex<HashMap<usize, Result<Kp20PaperTauReport, Kp20PlanarTauPaperSolveError>>>;
     static CACHE: OnceLock<Cache> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::default()));
     if let Some(hit) = cache
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())

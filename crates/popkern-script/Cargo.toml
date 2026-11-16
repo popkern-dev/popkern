@@ -7,6 +7,7 @@ license.workspace = true
 description = "Scripting surface recorder: code-first authoring that records into the popkern feature tree"
 
 [dependencies]
+popkern-math = { path = "../popkern-math" }
 popkern-core = { path = "../popkern-core" }
 popkern-constraint = { path = "../popkern-constraint" }
 popkern-sketch = { path = "../popkern-sketch" }

@@ -10,7 +10,7 @@ use crate::topology::{
     BrepTopologyRepairPolicy, EdgeHandle, assess_edge_pair_topology_policy, edge_segment,
 };
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 /// Local tolerances and policy for read-only sewing classification.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -216,7 +216,7 @@ fn measure_pair(
     options: BrepSewingClassificationOptions,
     measurement: &mut BrepEdgePairMeasurement,
 ) -> Result<(), BrepSewingDeclineReason> {
-    let empty_used = HashSet::new();
+    let empty_used = HashSet::default();
     let policy_decision = assess_edge_pair_topology_policy(
         brep,
         pair,
@@ -271,7 +271,7 @@ fn topology_policy_decision(
     pair: &BrepSewingEdgePair,
     options: BrepSewingClassificationOptions,
 ) -> BrepEdgePairPolicyDecision {
-    let empty_used = HashSet::new();
+    let empty_used = HashSet::default();
     assess_edge_pair_topology_policy(
         brep,
         pair,

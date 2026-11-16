@@ -5,7 +5,7 @@
 //! `export_assembly`). A definition's solids are written once however
 //! many instances place it.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::Arc;
 
 use popkern_io::{

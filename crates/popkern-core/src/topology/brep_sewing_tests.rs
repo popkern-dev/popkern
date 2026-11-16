@@ -1,6 +1,6 @@
 use super::*;
 use crate::topology::RadialLinks;
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
@@ -186,7 +186,7 @@ fn migration_matrix_sewing_report_contract() {
 #[test]
 fn policy_accepts_clean_boundary_pair_before_geometry_checks() {
     let (brep, left_edge, right_edge) = two_square_sheet();
-    let used_edges = HashSet::new();
+    let used_edges = HashSet::default();
     let decision = assess_edge_pair_topology_policy(
         &brep,
         &BrepSewingEdgePair {
@@ -210,7 +210,7 @@ fn policy_accepts_clean_boundary_pair_before_geometry_checks() {
 #[test]
 fn policy_reports_same_edge_used_boundary_missing_and_ambiguous_cases() {
     let (mut brep, left_edge, right_edge) = two_square_sheet();
-    let mut used_edges = HashSet::new();
+    let mut used_edges = HashSet::default();
     used_edges.insert(left_edge);
     let used = assess_edge_pair_topology_policy(
         &brep,
@@ -227,7 +227,7 @@ fn policy_reports_same_edge_used_boundary_missing_and_ambiguous_cases() {
         BrepEdgePairPolicyOutcome::Declined(BrepEdgePairPolicyDeclineReason::EdgeAlreadyUsed)
     ));
 
-    let empty = HashSet::new();
+    let empty = HashSet::default();
     let same = assess_edge_pair_topology_policy(
         &brep,
         &BrepSewingEdgePair {

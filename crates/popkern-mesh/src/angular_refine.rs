@@ -28,8 +28,8 @@
 //! limited or guard-limited, never silently dropped.
 
 use popkern_math::PortableMath;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
@@ -146,7 +146,7 @@ fn over_seam_bound(
 
 /// How many triangles of `mesh` use each edge.
 fn edge_use(mesh: &FaceMesh) -> HashMap<(usize, usize), usize> {
-    let mut uses = HashMap::new();
+    let mut uses = HashMap::default();
     for t in &mesh.triangles {
         for k in 0..3 {
             let (a, b) = (t[k], t[(k + 1) % 3]);
@@ -208,7 +208,7 @@ fn refine(
         .map(|v| singular_without_unique_normal(surface, v.uv.0, v.uv.1))
         .collect();
     let key = |a: usize, b: usize| (a.min(b), a.max(b));
-    let mut edge_tris: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut edge_tris: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
         for k in 0..3 {
             edge_tris
@@ -218,7 +218,7 @@ fn refine(
         }
     }
     let budget = (mesh.triangles.len() * GROWTH_FACTOR).max(GROWTH_FLOOR);
-    let mut unsplittable: std::collections::HashSet<(usize, usize)> = Default::default();
+    let mut unsplittable: popkern_math::hash::FastHashSet<(usize, usize)> = Default::default();
     // Longest admissible interior edge of a triangle (3D length).
     // Edge measure for longest-edge selection: normal angle first (the
     // GAUSS-MAP metric the bound lives in), 3D length to break ties.
@@ -235,7 +235,7 @@ fn refine(
     // spread cannot see a chord that crosses iso-lines, and the edge
     // to bisect is the one carrying the error. Foot errors are cached
     // per edge (vertices never move, so an edge's value is final).
-    let foot_cache: RefCell<HashMap<(usize, usize), f64>> = RefCell::new(HashMap::new());
+    let foot_cache: RefCell<HashMap<(usize, usize), f64>> = RefCell::new(HashMap::default());
     let edge_angle = |mesh: &FaceMesh, singular: &[bool], a: usize, b: usize| -> f64 {
         if singular[a] || singular[b] {
             return 0.0;
@@ -277,7 +277,7 @@ fn refine(
     let longest = |mesh: &FaceMesh,
                    singular: &[bool],
                    edge_tris: &HashMap<(usize, usize), Vec<usize>>,
-                   unsplittable: &std::collections::HashSet<(usize, usize)>,
+                   unsplittable: &popkern_math::hash::FastHashSet<(usize, usize)>,
                    t: [usize; 3]|
      -> Option<((usize, usize), (f64, f64))> {
         let mut best: Option<((usize, usize), (f64, f64))> = None;

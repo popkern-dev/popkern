@@ -4,7 +4,7 @@
 //! [`BRepBuilder`], then adds side wall faces at the openings where
 //! removed faces create gaps.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::ShellError;
 use crate::side_walls::{build_free_rim_walls, build_side_walls};
@@ -78,7 +78,7 @@ pub fn assemble_shell_with_maps(
     let solid = builder.add_solid();
     let shell = builder.add_shell(solid);
 
-    let removed_set: std::collections::HashSet<FaceHandle> =
+    let removed_set: popkern_math::hash::FastHashSet<FaceHandle> =
         removed_faces.iter().copied().collect();
 
     // Copy outer skin (minus removed faces).
@@ -186,8 +186,8 @@ fn copy_skin_entities(
 
     // 1. Copy vertices incident to at least one reachable edge (a vertex
     //    used only by removed-interior edges must not survive either).
-    let mut needed_vertices: std::collections::HashSet<VertexHandle> =
-        std::collections::HashSet::new();
+    let mut needed_vertices: popkern_math::hash::FastHashSet<VertexHandle> =
+        popkern_math::hash::FastHashSet::default();
     for (eh, edge) in &source.edges {
         if !edge_reachable(eh) {
             continue;
@@ -197,7 +197,7 @@ fn copy_skin_entities(
         needed_vertices.insert(he.origin);
         needed_vertices.insert(twin.origin);
     }
-    let mut vertex_map = HashMap::new();
+    let mut vertex_map = HashMap::default();
     for (vh, vertex) in &source.vertices {
         if !needed_vertices.contains(&vh) {
             continue;
@@ -207,8 +207,8 @@ fn copy_skin_entities(
     }
 
     // 2. Copy reachable edges (and their half-edge pairs).
-    let mut edge_map = HashMap::new();
-    let mut he_map = HashMap::new();
+    let mut edge_map = HashMap::default();
+    let mut he_map = HashMap::default();
     for (eh, edge) in &source.edges {
         if !edge_reachable(eh) {
             continue;
@@ -237,7 +237,7 @@ fn copy_skin_entities(
     }
 
     // 3. Copy faces with their loops.
-    let mut face_map = HashMap::new();
+    let mut face_map = HashMap::default();
     for (fh, face) in &source.faces {
         if !face_filter(fh) {
             continue;

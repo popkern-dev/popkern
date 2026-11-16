@@ -57,7 +57,7 @@ fn round_5c4_closed_fillet_round_trip() {
     let pre_face_count = subtracted.faces.len();
     let pre_edge_count = subtracted.edges.len();
     let pre_vertex_count = subtracted.vertices.len();
-    let pre_faces: std::collections::HashSet<_> = subtracted.faces.keys().collect();
+    let pre_faces: popkern_math::hash::FastHashSet<_> = subtracted.faces.keys().collect();
 
     // The Err arm used to `return`, passing VACUOUSLY. The fillet
     // must succeed.

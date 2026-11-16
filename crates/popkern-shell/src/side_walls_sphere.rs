@@ -9,7 +9,7 @@
 //! decline). On a sphere the vertical is the great-circle arc between
 //! its ends, in the plane through them and the centre.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::constructors::BRepBuilder;
 use popkern_core::geometry::circle_recognition::{CircleFit, arc_between};

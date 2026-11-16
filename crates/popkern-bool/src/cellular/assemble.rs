@@ -5,7 +5,7 @@
 //! makes the output independent of fragment iteration order, enabling
 //! BVH-based face-pair filtering.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::{
     constructors::builder::BRepBuilder,
@@ -72,7 +72,7 @@ pub(crate) fn cellular_assemble(
     }
 
     // Step 2: Create vertices (sorted by node index for determinism).
-    let mut node_to_vertex: HashMap<usize, VertexHandle> = HashMap::new();
+    let mut node_to_vertex: HashMap<usize, VertexHandle> = HashMap::default();
     for &node in &needed_nodes {
         let vh = builder.add_vertex(graph.nodes[node].position);
         node_to_vertex.insert(node, vh);
@@ -111,7 +111,7 @@ pub(crate) fn cellular_assemble(
     // Step 4: Create all edges upfront (deterministic order from
     // BTreeMap). Map: min-half-edge → (he_fwd, he_twin) where fwd
     // follows the MIN graph half-edge's direction.
-    let mut edge_he_map: HashMap<usize, (HalfEdgeHandle, HalfEdgeHandle)> = HashMap::new();
+    let mut edge_he_map: HashMap<usize, (HalfEdgeHandle, HalfEdgeHandle)> = HashMap::default();
 
     // DEGENERATE edges — coincident endpoint nodes with no curve on
     // either half (a genuine closed rim carries its circle) — are
@@ -205,9 +205,10 @@ pub(crate) fn cellular_assemble(
     // Step 5: Wire fragment loops.
     // Track which half-edges have been used (to handle shared edges).
     // When both fwd and twin are used, create a duplicate edge.
-    let mut used_hes: std::collections::HashSet<HalfEdgeHandle> = std::collections::HashSet::new();
-    let mut used_by: std::collections::HashMap<HalfEdgeHandle, String> =
-        std::collections::HashMap::new();
+    let mut used_hes: popkern_math::hash::FastHashSet<HalfEdgeHandle> =
+        popkern_math::hash::FastHashSet::default();
+    let mut used_by: popkern_math::hash::FastHashMap<HalfEdgeHandle, String> =
+        popkern_math::hash::FastHashMap::default();
 
     for &fi in &kept {
         let sel = &selections[fi];

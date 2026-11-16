@@ -248,7 +248,7 @@ pub fn certify_seam(
         budget: (options.budget / 8).max(64).min(options.budget),
         ..*options
     };
-    let mut memo = FractionMemo::new();
+    let mut memo = FractionMemo::default();
     let fraction = certify_with(
         a,
         &mut SideB::Fraction(b),

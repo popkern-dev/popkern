@@ -25,7 +25,7 @@
 //! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-
 //! construction.md` §36.3.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::tolerance::Tolerance;
@@ -61,11 +61,11 @@ pub(crate) fn plan_apex_targets_pre_anchor(
     tolerance: &Tolerance,
 ) -> HashMap<VertexHandle, Vec<Point3>> {
     let trace = crate::direct_apex_trace::prepass_enabled();
-    let mut out: HashMap<VertexHandle, Vec<Point3>> = HashMap::new();
+    let mut out: HashMap<VertexHandle, Vec<Point3>> = HashMap::default();
 
     // Build per-vertex incidence: for each V, list the
     // `edge_geometries` indices whose edge has V as an endpoint.
-    let mut v_to_fillet_indices: HashMap<VertexHandle, Vec<usize>> = HashMap::new();
+    let mut v_to_fillet_indices: HashMap<VertexHandle, Vec<usize>> = HashMap::default();
     for (i, eg) in edge_geometries.iter().enumerate() {
         let edge = eg.analysis.edge;
         let Some(edge_data) = brep.edges.get(edge) else {

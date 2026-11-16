@@ -19,7 +19,8 @@
 //!   normal points out of the material comes from the operand's
 //!   material sense, decided once per closed component.
 
-use std::collections::{BTreeMap, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeMap;
 
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -102,7 +103,7 @@ pub(crate) fn is_degenerate_key(graph: &IntersectionGraph, key: usize) -> bool {
 /// Closed components of `brep` (faces reachable over shared edges),
 /// each sorted, in order of their lowest face.
 fn components(brep: &BRep) -> Vec<Vec<FaceHandle>> {
-    let mut seen = std::collections::HashSet::new();
+    let mut seen = popkern_math::hash::FastHashSet::default();
     let mut faces: Vec<FaceHandle> = brep.faces.keys().collect();
     faces.sort();
     let mut out = Vec::new();
@@ -172,7 +173,7 @@ fn material_senses(
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> Result<HashMap<FaceHandle, bool>, LiftDecline> {
     let comps = components(brep);
-    let mut out = HashMap::new();
+    let mut out = HashMap::default();
     for component in &comps {
         let Some(&seed) = component.first() else {
             continue;

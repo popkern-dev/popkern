@@ -7,7 +7,7 @@
 //! loads still find it; every other triangle (the design's new
 //! surfaces) belongs to one more face, free. The new body is one solid.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::model::{AnalysisModel, FaceId, FaceInfo, RoleSource, SolidId, SolidMesh, Surface};
 
@@ -53,7 +53,7 @@ pub fn design_model(model: &AnalysisModel, surface: &SurfaceMesh, tolerance: f64
     let key = |p: [f64; 3]| p.map(|x| (x / bucket).floor() as i64);
     // The original triangles by bucket, in (solid, triangle) order;
     // looked up only, never iterated.
-    let mut buckets: HashMap<[i64; 3], Vec<(usize, usize)>> = HashMap::new();
+    let mut buckets: HashMap<[i64; 3], Vec<(usize, usize)>> = HashMap::default();
     for (s, solid) in model.solids.iter().enumerate() {
         for (t, tri) in solid.triangles.iter().enumerate() {
             let pts = tri.map(|i| solid.vertices[i as usize]);

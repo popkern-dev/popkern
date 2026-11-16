@@ -21,7 +21,8 @@ pub(super) fn resolve_apex_vertices(
     let wide_tol = max_radius * 0.7;
     let n_targets = plan.target_topology.apex_vertices.len();
     let mut out: Vec<Option<VertexHandle>> = vec![None; n_targets];
-    let mut used: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
+    let mut used: popkern_math::hash::FastHashSet<VertexHandle> =
+        popkern_math::hash::FastHashSet::default();
 
     for (i, &point) in plan.target_topology.apex_vertices.iter().enumerate() {
         if let Some(vh) = find_vertex_within(brep, point, tol)
@@ -175,9 +176,10 @@ fn find_vertex_within(brep: &BRep, point: Point3, tol: f64) -> Option<VertexHand
 fn build_fillet_face_map(
     brep: &BRep,
     fillet_surfaces: &[FilletSurfaceResult],
-) -> std::collections::HashMap<usize, FaceHandle> {
+) -> popkern_math::hash::FastHashMap<usize, FaceHandle> {
     use popkern_core::geometry::surface::SurfaceGeometry;
-    let mut out: std::collections::HashMap<usize, FaceHandle> = std::collections::HashMap::new();
+    let mut out: popkern_math::hash::FastHashMap<usize, FaceHandle> =
+        popkern_math::hash::FastHashMap::default();
     for (fi, fillet) in fillet_surfaces.iter().enumerate() {
         let SurfaceGeometry::Cylinder {
             origin: f_origin,

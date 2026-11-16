@@ -3,7 +3,7 @@
 //! These tests exercise the full lifecycle: naming, history tracking,
 //! resolution, serialization, pool merge, and compaction.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::history::TrackingContext;
 use popkern_core::naming::{EntityName, EntityRole, NameId, OperationId, RoleCategory};

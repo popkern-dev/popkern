@@ -19,7 +19,7 @@ mod surface_models;
 mod vertex_loops;
 mod voids;
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::constructors::BRepBuilder;
 use popkern_core::tolerance::Tolerance;
@@ -143,7 +143,7 @@ fn build_shell_body(
     };
 
     let shells = [faces.len()];
-    let none = std::collections::HashSet::new();
+    let none = popkern_math::hash::FastHashSet::default();
     let layout = ShellLayout {
         sizes: &shells,
         reversed_uses: &none,
@@ -158,7 +158,7 @@ fn build_shell_body(
 #[derive(Clone, Copy)]
 struct ShellLayout<'a> {
     sizes: &'a [usize],
-    reversed_uses: &'a std::collections::HashSet<EntityId>,
+    reversed_uses: &'a popkern_math::hash::FastHashSet<EntityId>,
 }
 
 fn build_brep_from_faces(
@@ -196,9 +196,9 @@ fn build_brep_from_faces(
             &whole
         }
     };
-    let mut vertex_map: HashMap<(EntityId, usize), VertexHandle> = HashMap::new();
+    let mut vertex_map: HashMap<(EntityId, usize), VertexHandle> = HashMap::default();
     let mut edge_map: HashMap<(EntityId, usize), (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
-        HashMap::new();
+        HashMap::default();
 
     let mut builder = BRepBuilder::new(tolerance);
 

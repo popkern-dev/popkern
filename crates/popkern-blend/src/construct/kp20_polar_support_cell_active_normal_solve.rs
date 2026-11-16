@@ -5,7 +5,7 @@
 //! active set while rejecting updates that move the sub-chain's
 //! trim-sampled worst disagreement upward.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Vec3;
 use popkern_core::topology::VertexHandle;

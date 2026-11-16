@@ -1,7 +1,7 @@
 //! PK-141 phase 2b separators: corner chords between rail-end
 //! anchors (split from `multi_chord_region.rs`, line ratchet).
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -29,7 +29,7 @@ pub(super) fn cut_corner_separators(
         ends.push((i, a));
         ends.push((i, b));
     }
-    let mut used: HashSet<usize> = HashSet::new();
+    let mut used: HashSet<usize> = HashSet::default();
     let mut separators = Vec::new();
     for x in 0..ends.len() {
         if used.contains(&x) {

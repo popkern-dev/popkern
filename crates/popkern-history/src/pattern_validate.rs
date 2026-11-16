@@ -5,7 +5,7 @@
 //! module centralises those checks so each pattern variant can call a single
 //! function rather than duplicating logic.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use slotmap::SlotMap;
 

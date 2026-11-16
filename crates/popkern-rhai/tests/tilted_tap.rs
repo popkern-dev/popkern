@@ -12,8 +12,8 @@
 //! cylinder helix's pcurve is checked too (PK-863: the recompute's
 //! straight-pcurve shortcut accepted a line 1.1e-4 off the edge).
 
+use popkern_math::hash::FastHashMap as HashMap;
 use popkern_rhai::ScriptHost;
-use std::collections::HashMap;
 
 #[test]
 fn a_tapped_hole_tilted_off_the_face_normal_serves() {
@@ -54,7 +54,7 @@ fn a_tapped_hole_tilted_off_the_face_normal_serves() {
             .expect("mesh");
         let key =
             |p: &popkern_core::geometry::Point3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
-        let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+        let mut weld: HashMap<[u64; 3], usize> = HashMap::default();
         let ids: Vec<usize> = mesh
             .vertices
             .iter()
@@ -63,7 +63,7 @@ fn a_tapped_hole_tilted_off_the_face_normal_serves() {
                 *weld.entry(key(&v.position)).or_insert(n)
             })
             .collect();
-        let mut edges: HashMap<(usize, usize), usize> = HashMap::new();
+        let mut edges: HashMap<(usize, usize), usize> = HashMap::default();
         for t in &mesh.triangles {
             for k in 0..3 {
                 let (a, b) = (ids[t[k]], ids[t[(k + 1) % 3]]);

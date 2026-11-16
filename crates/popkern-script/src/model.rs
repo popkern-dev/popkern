@@ -42,8 +42,10 @@ pub struct Model {
     /// (cleared by parameter and configuration edits until a replay).
     pub(crate) geometry_current: bool,
     /// Where in a tracked script each feature was recorded.
-    pub(crate) sources:
-        std::collections::HashMap<popkern_history::node::FeatureId, crate::source::SourceSpan>,
+    pub(crate) sources: popkern_math::hash::FastHashMap<
+        popkern_history::node::FeatureId,
+        crate::source::SourceSpan,
+    >,
 }
 
 impl Model {

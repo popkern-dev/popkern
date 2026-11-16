@@ -23,11 +23,11 @@ pub(super) fn consolidate_records(
     tolerance: &Tolerance,
 ) {
     use popkern_core::geometry::curve::CurveEval as _;
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     if records.len() < 2 {
         return;
     }
-    let mut groups: HashMap<(FaceHandle, FaceHandle), Vec<usize>> = HashMap::new();
+    let mut groups: HashMap<(FaceHandle, FaceHandle), Vec<usize>> = HashMap::default();
     for (i, r) in records.iter().enumerate() {
         groups.entry((r.face_a, r.face_b)).or_default().push(i);
     }

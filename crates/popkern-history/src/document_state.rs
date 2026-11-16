@@ -8,7 +8,8 @@
 //! produced each body, which is also a stable key for a viewer's mesh
 //! of it.
 
-use std::collections::{BTreeMap, HashSet};
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use popkern_core::topology::BRep;

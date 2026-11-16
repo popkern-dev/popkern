@@ -2,7 +2,7 @@
 //! topology construction (inserts anchor vertices, never splits faces).
 
 use super::*;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 pub(super) struct PerpSplitData {
     pub(super) face_1_anchors: (VertexHandle, VertexHandle),
@@ -25,7 +25,7 @@ pub(super) struct PerpendicularSplitState {
 
 impl PerpendicularSplitState {
     /// Corners anchored junction-class by any edge (PK-740).
-    pub(super) fn junction_corners(&self) -> std::collections::HashSet<VertexHandle> {
+    pub(super) fn junction_corners(&self) -> popkern_math::hash::FastHashSet<VertexHandle> {
         let all = self.perp_data.iter().flatten();
         all.flat_map(|pd| pd.junction_corners.iter().copied())
             .collect()
@@ -67,7 +67,8 @@ pub(super) fn run_perpendicular_splits(
     let mut closed_fillet_protected: Vec<popkern_core::topology::FaceHandle> = Vec::new();
     // ── Anchor-split stage: ALL perpendicular edge splits ─ only modifies edges (inserts vertices), not faces.
     let mut perp_data: Vec<Option<PerpSplitData>> = Vec::new();
-    let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut closed_handled: popkern_math::hash::FastHashSet<usize> =
+        popkern_math::hash::FastHashSet::default();
     // Snapshot before the anchor-split stage mutates result; anchor
     // positions come from here.
     let pre_anchor_snapshot = result.clone();
@@ -84,7 +85,7 @@ pub(super) fn run_perpendicular_splits(
     // partition, so the anchor-split stage must place the anchors that plan expects.
     // Targets stay scoped to the promoted vertices when the global
     // flag is off so vertex-blend anchor placement elsewhere is untouched.
-    let _planner_targets_per_apex: std::collections::HashMap<
+    let _planner_targets_per_apex: popkern_math::hash::FastHashMap<
         VertexHandle,
         Vec<popkern_core::geometry::Point3>,
     > = if use_direct_apex_construction || !promoted_direct_apex_vertices.is_empty() {
@@ -99,7 +100,7 @@ pub(super) fn run_perpendicular_splits(
         targets.retain(|vertex, _| !excluded_direct_apex_vertices.contains(vertex));
         targets
     } else {
-        std::collections::HashMap::new()
+        popkern_math::hash::FastHashMap::default()
     };
     // All edges being blended this operation — the reflex-corner
     // anchor gate must never divert a walk along a fellow fillet
@@ -123,7 +124,7 @@ pub(super) fn run_perpendicular_splits(
             && (use_direct_apex_construction || promoted_direct_apex_vertices.contains(vertex))
     };
     // Per-original-edge descendants after the anchor-split stage, for the consumed-merge stage consumed-face lookup.
-    let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::new();
+    let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::default();
     for eg in edge_geometries {
         descendants.insert(eg.analysis.edge, vec![eg.analysis.edge]);
     }
@@ -131,7 +132,8 @@ pub(super) fn run_perpendicular_splits(
     // Closed tangent chains (PK-733): built whole by direct
     // construction — a loop of edges joined on one tangent line at
     // every junction has no ends for the anchor stage to place.
-    let mut chain_members: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut chain_members: popkern_math::hash::FastHashSet<usize> =
+        popkern_math::hash::FastHashSet::default();
     super::g1_junction::apply_closed_chains(
         result,
         edge_geometries,

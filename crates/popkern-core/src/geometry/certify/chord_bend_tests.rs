@@ -37,7 +37,7 @@ fn feet(s: &SurfaceGeometry, w: [Uv; 3], p: [Point3; 3]) -> [Uv; 3] {
         let mut q = m;
         for _ in 0..10 {
             let r = s.point_at(q.0, q.1) - c;
-            let (su, sv) = (s.partial_u(q.0, q.1), s.partial_v(q.0, q.1));
+            let (su, sv) = s.first_partials(q.0, q.1);
             let (g, h, i) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
             let det = g * i - h * h;
             q.0 -= (i * su.dot(&r) - h * sv.dot(&r)) / det;

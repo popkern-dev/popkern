@@ -140,7 +140,7 @@ pub use {
     feature_sketch::SketchPayload,
 };
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::naming::{EntityName, OperationId};
 use popkern_core::tolerance::Tolerance;
@@ -289,11 +289,11 @@ impl FeatureTree {
             current_brep: None,
             last_report: ReplayReport::default(),
 
-            merged_into: HashMap::new(),
+            merged_into: HashMap::default(),
             cache: StepCache::new(CacheStrategy::EveryStep),
             body_manager: BodyManager::new(),
             deferred: Default::default(),
-            op_index: HashMap::new(),
+            op_index: HashMap::default(),
             undo_log: Vec::new(),
             undo_cursor: 0,
             parameter_table: ParameterTable::new(),
@@ -301,7 +301,7 @@ impl FeatureTree {
             active_config: None,
             labels: LabelTable::default(),
             build_tolerance: None,
-            config_pinned_base: HashMap::new(),
+            config_pinned_base: HashMap::default(),
             appearance: None,
             naming_scheme: popkern_core::naming::NAMING_SCHEME_VERSION,
         }

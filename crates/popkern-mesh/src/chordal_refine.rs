@@ -27,7 +27,8 @@
 //! Periodic charts are left to the caller (their triangles' parameters
 //! are unwrapped per triangle, so shared edges need not agree).
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::{Point3, SurfaceEval, SurfaceGeometry};
 
@@ -53,7 +54,7 @@ pub(super) fn refine_pass(
     tolerance: f64,
     mut bound: impl FnMut([Uv; 3], [Point3; 3]) -> Option<f64>,
 ) {
-    let mut users: HashMap<EdgeKey, Vec<usize>> = HashMap::new();
+    let mut users: HashMap<EdgeKey, Vec<usize>> = HashMap::default();
     for (k, t) in tris.iter().enumerate() {
         let Some(t) = t else { continue };
         for e in 0..3 {
@@ -178,7 +179,7 @@ fn refine_region(
         }
         // Sub-vertex (i, j) at barycentric (n − i − j, i, j) / n: its
         // surface parameter and mesh point.
-        let mut at: HashMap<(usize, usize), (Uv, Point3)> = HashMap::new();
+        let mut at: HashMap<(usize, usize), (Uv, Point3)> = HashMap::default();
         for i in 0..=n {
             for j in 0..=n - i {
                 let l = [n - i - j, i, j];
@@ -281,7 +282,7 @@ fn nearest(surface: &SurfaceGeometry, q: Uv, c: Point3, (lo, hi): (Uv, Uv)) -> U
     let mut x = q;
     for _ in 0..12 {
         let r = surface.point_at(x.0, x.1) - c;
-        let (su, sv) = (surface.partial_u(x.0, x.1), surface.partial_v(x.0, x.1));
+        let (su, sv) = surface.first_partials(x.0, x.1);
         let (g, h, k) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
         let det = g * k - h * h;
         // NaN fails too.

@@ -114,11 +114,12 @@ pub struct Sketch {
         serialize_with = "sketch_expr::serialize_expressions",
         deserialize_with = "sketch_expr::deserialize_expressions"
     )]
-    pub(crate) expressions: std::collections::HashMap<ConstraintHandle, expression::Expression>,
+    pub(crate) expressions:
+        popkern_math::hash::FastHashMap<ConstraintHandle, expression::Expression>,
     /// Maps constraint handles to the start index of their auxiliary
     /// parameters in the parameter vector. Transient — rebuilt as needed.
     #[serde(skip)]
-    pub(crate) aux_param_map: std::collections::HashMap<ConstraintHandle, usize>,
+    pub(crate) aux_param_map: popkern_math::hash::FastHashMap<ConstraintHandle, usize>,
     /// When `false`, mutations do not record snapshots (used by undo/redo
     /// to avoid infinite recursion).
     #[serde(skip, default = "default_recording")]
@@ -148,8 +149,8 @@ impl Sketch {
             patterns: SlotMap::with_key(),
             rigid_sets: SlotMap::with_key(),
             drag_context: None,
-            expressions: std::collections::HashMap::new(),
-            aux_param_map: std::collections::HashMap::new(),
+            expressions: popkern_math::hash::FastHashMap::default(),
+            aux_param_map: popkern_math::hash::FastHashMap::default(),
             undo_log: Vec::new(),
             undo_cursor: 0,
             recording: true,

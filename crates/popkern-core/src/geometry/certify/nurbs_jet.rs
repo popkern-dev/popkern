@@ -13,7 +13,7 @@ use super::interval::Iv;
 use super::interval_vec::IvVec3;
 use super::surface_jet::{JET_ORDERS, MAX_JET_ORDER, SurfaceJet, jet_slot, jet_slots};
 use crate::geometry::nurbs_surface::NurbsSurface;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::ops::Div;
 
 type Net = Vec<Vec<Coef<4>>>;
@@ -94,7 +94,7 @@ impl NurbsJetSource {
             knots_v: surface.knots_v.clone(),
             num: (surface.num_u, surface.num_v),
             homogeneous,
-            cache: HashMap::new(),
+            cache: HashMap::default(),
             boxes: span_box::SpanBoxEncloser::default(),
         })
     }

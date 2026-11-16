@@ -14,7 +14,7 @@
 //! edge's sense from its (tied) endpoints, so the turned disc wound
 //! against its orientation flag.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_rhai::ScriptHost;
 
@@ -42,7 +42,7 @@ m
 /// Open and non-manifold edges of the mesh welded at bit-identical positions.
 fn welded_open(mesh: &popkern_mesh::TriMesh) -> usize {
     let key = |p: &popkern_core::geometry::Point3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
-    let mut weld: HashMap<[u64; 3], usize> = HashMap::new();
+    let mut weld: HashMap<[u64; 3], usize> = HashMap::default();
     let ids: Vec<usize> = mesh
         .vertices
         .iter()
@@ -51,7 +51,7 @@ fn welded_open(mesh: &popkern_mesh::TriMesh) -> usize {
             *weld.entry(key(&v.position)).or_insert(n)
         })
         .collect();
-    let mut edges: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut edges: HashMap<(usize, usize), usize> = HashMap::default();
     for t in &mesh.triangles {
         for k in 0..3 {
             let (a, b) = (ids[t[k]], ids[t[(k + 1) % 3]]);

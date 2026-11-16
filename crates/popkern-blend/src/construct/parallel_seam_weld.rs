@@ -42,7 +42,7 @@ pub(crate) fn weld_parallel_seams(
     tolerance: &Tolerance,
 ) -> usize {
     let trace = popkern_core::trace::trace_enabled("interference");
-    let pre: std::collections::HashSet<FaceHandle> = source.faces.keys().collect();
+    let pre: popkern_math::hash::FastHashSet<FaceHandle> = source.faces.keys().collect();
     let mut welded = 0usize;
     // Slivers are independent; re-scan after each weld.
     for _ in 0..8 {
@@ -107,7 +107,7 @@ fn cylinder_of(brep: &BRep, face: FaceHandle) -> Option<(Point3, Vec3, f64)> {
 
 fn recognize_sliver(
     brep: &BRep,
-    pre: &std::collections::HashSet<FaceHandle>,
+    pre: &popkern_math::hash::FastHashSet<FaceHandle>,
     tolerance: &Tolerance,
 ) -> Option<SliverCandidate> {
     let tol = tolerance.linear().max(1e-9) * 100.0;

@@ -16,7 +16,7 @@
 //! junction and is left alone; nothing moves, the edge is split at the
 //! curve point nearest the vertex.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::geometry::Point3;
 use crate::geometry::curve::CurveEval;

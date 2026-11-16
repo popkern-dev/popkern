@@ -55,7 +55,7 @@ impl BRep {
         // reached again by another, has lost both sides and goes, as
         // does a vertex left on no half-edge (a box keeping two faces
         // of six; an edge open before the call still declines).
-        let mut exposed_here = std::collections::HashSet::new();
+        let mut exposed_here = popkern_math::hash::FastHashSet::default();
         let mut touched_vertices = Vec::new();
         for &face in faces {
             let retiring_loops = self.retirable_loops(face)?;
@@ -117,7 +117,7 @@ impl BRep {
             self.faces.remove(face);
             retired_faces.push(face);
         }
-        let used: std::collections::HashSet<_> =
+        let used: popkern_math::hash::FastHashSet<_> =
             self.half_edges.values().map(|h| h.origin).collect();
         for vertex in touched_vertices {
             if !used.contains(&vertex) {

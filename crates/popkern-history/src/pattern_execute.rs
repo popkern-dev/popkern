@@ -5,7 +5,7 @@
 //! collect per-instance outcomes.
 
 use crate::working_bodies::WorkingBodies;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::history::TrackingContext;
 use popkern_core::naming::OperationId;
@@ -219,11 +219,11 @@ fn extract_pattern_flags(
     feature: &Feature,
 ) -> (
     bool,
-    &std::collections::HashMap<usize, crate::pattern::InstanceOverride>,
+    &popkern_math::hash::FastHashMap<usize, crate::pattern::InstanceOverride>,
 ) {
     static EMPTY: std::sync::LazyLock<
-        std::collections::HashMap<usize, crate::pattern::InstanceOverride>,
-    > = std::sync::LazyLock::new(std::collections::HashMap::new);
+        popkern_math::hash::FastHashMap<usize, crate::pattern::InstanceOverride>,
+    > = std::sync::LazyLock::new(popkern_math::hash::FastHashMap::default);
 
     match feature {
         Feature::LinearPattern {
@@ -306,7 +306,7 @@ fn try_feature_replay(
     pattern_op_id: OperationId,
     naming_scheme: u32,
 ) -> Result<(), ReplayError> {
-    let mut op_remap = HashMap::new();
+    let mut op_remap = HashMap::default();
     for (seed_idx, seed_op) in seed_op_ids.iter().enumerate() {
         let key = (inst_idx as u32, seed_idx as u32);
         if let Some(&inst_op) = instance_op_ids.get(&key) {

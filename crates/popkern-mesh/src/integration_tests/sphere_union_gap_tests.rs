@@ -100,8 +100,8 @@ fn sphere_union_mesh_is_geometrically_closed_at_model_tolerance() {
                 (p.z * 1.0e9).round() as i64,
             )
         };
-        let mut counts: std::collections::HashMap<_, (i64, Point3, Point3)> =
-            std::collections::HashMap::new();
+        let mut counts: popkern_math::hash::FastHashMap<_, (i64, Point3, Point3)> =
+            popkern_math::hash::FastHashMap::default();
         for tri in &fm.triangles {
             for k in 0..3 {
                 let (pa, pb) = (

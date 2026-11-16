@@ -1,7 +1,7 @@
 //! The chart walk's own view of a fragment (PK-685), split from
 //! `walk/mod.rs` under its line ratchet.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::chart_subdivision::FaceChartSubdivision;
 use crate::periodic_chart_parity_torus::ChartLoop;

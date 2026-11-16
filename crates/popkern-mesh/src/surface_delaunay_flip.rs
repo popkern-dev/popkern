@@ -17,7 +17,7 @@
 //! pair's), and the new diagonal sags no more than the chord height (or
 //! the old diagonal). Chart-singular vertices are left alone.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 
@@ -66,7 +66,7 @@ pub(crate) fn delaunay_flips_3d_from(
         .iter()
         .map(|v| singular_without_unique_normal(surface, v.uv.0, v.uv.1))
         .collect();
-    let mut edge_tris: HashMap<EdgeKey, Vec<usize>> = HashMap::new();
+    let mut edge_tris: HashMap<EdgeKey, Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
         for k in 0..3 {
             edge_tris

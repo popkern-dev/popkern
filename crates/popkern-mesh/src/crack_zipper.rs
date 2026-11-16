@@ -36,7 +36,7 @@
 //! wants to gate on "watertight without repair" can assert that
 //! count is zero.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -206,7 +206,7 @@ pub(crate) fn zip_recorded_tolerance_cracks(
 
 fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline], index: &SegmentIndex) -> usize {
     // Weld census: open edges are used by exactly one triangle.
-    let mut weld: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut weld: HashMap<(i64, i64, i64), usize> = HashMap::default();
     let mut weld_id = |p: Point3| -> usize {
         let k = (
             (p.x * WELD).round() as i64,
@@ -224,7 +224,7 @@ fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline], index: &SegmentI
             weld_id(mesh.vertices[t[2]].position),
         ]);
     }
-    let mut edge_use: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut edge_use: HashMap<(usize, usize), usize> = HashMap::default();
     for w in &ids {
         if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
             continue;
@@ -234,7 +234,7 @@ fn zip_round(mesh: &mut TriMesh, closed_edges: &[EdgePolyline], index: &SegmentI
         }
     }
     // Open boundary vertices (weld-id -> a representative position).
-    let mut open_vertex_pos: HashMap<usize, Point3> = HashMap::new();
+    let mut open_vertex_pos: HashMap<usize, Point3> = HashMap::default();
     let mut open_edges: Vec<(usize, usize, usize)> = Vec::new(); // (tri, corner, corner+1)
     for (ti, t) in mesh.triangles.iter().enumerate() {
         let w = ids[ti];

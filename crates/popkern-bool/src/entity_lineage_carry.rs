@@ -17,7 +17,7 @@
 //! in the pool. A label or stable name bound to it resolves to it
 //! directly, as an unmodified shape does in commercial kernels' history.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;

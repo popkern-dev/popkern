@@ -87,8 +87,8 @@ impl BRep {
 
         // Half-edges whose pcurves THIS call writes — the loop-winding
         // repair below only re-orients loops re-authored in full.
-        let mut freshly_authored: std::collections::HashSet<super::HalfEdgeHandle> =
-            std::collections::HashSet::new();
+        let mut freshly_authored: popkern_math::hash::FastHashSet<super::HalfEdgeHandle> =
+            popkern_math::hash::FastHashSet::default();
         for heh in he_handles {
             // Existing pcurves are kept UNLESS degenerate or
             // stale-imaged — see keep_or_clear_existing_pcurve for

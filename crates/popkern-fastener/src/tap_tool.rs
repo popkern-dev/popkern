@@ -23,7 +23,7 @@
 //! Any decline (the tool's unions, or the placed subtraction) falls
 //! back to the sequential cuts, recorded in [`take_tap_tool_fallbacks`].
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use popkern_core::tolerance::Tolerance;
@@ -114,7 +114,7 @@ pub(crate) fn one_tool_enabled() -> bool {
 
 fn cache() -> &'static Mutex<HashMap<String, Arc<BRep>>> {
     static CACHE: OnceLock<Mutex<HashMap<String, Arc<BRep>>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    CACHE.get_or_init(|| Mutex::new(HashMap::default()))
 }
 
 /// The tapped hole's tool in its local frame (entry at z = 0, material

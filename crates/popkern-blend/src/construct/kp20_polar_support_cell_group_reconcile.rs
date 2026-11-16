@@ -4,7 +4,7 @@ use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::topology::{BRep, FaceHandle};
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use super::{
     BoundarySide, FullBoundaryTrim, average_point, lerp_scalar, rectangular_binonic_on_face,
@@ -65,7 +65,7 @@ fn grouped_boundary_samples(
     patches: &[(FaceHandle, RectangularGregoryBiNonic)],
     trims: &[FullBoundaryTrim],
 ) -> Result<HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>>, CoreError> {
-    let mut out: HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>> = HashMap::new();
+    let mut out: HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>> = HashMap::default();
     for trim in trims {
         let patch_a = patch_for(patches, trim.face_a).ok_or_else(|| {
             CoreError::PreconditionFailed("kp20 support-cell grouped row missing face A".into())

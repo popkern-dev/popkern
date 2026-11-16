@@ -10,9 +10,9 @@
 //! that serialization is deterministic regardless of `HashMap`
 //! iteration order, which bit-identical output fingerprints rely on.
 
+use popkern_math::hash::FastHashMap as HashMap;
 use serde::ser::SerializeSeq;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::HashMap;
 
 /// Serialize a handle-keyed map as a key-sorted `Vec<(K, V)>`.
 pub fn serialize<K, V, S>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>

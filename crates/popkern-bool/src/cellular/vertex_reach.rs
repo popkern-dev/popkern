@@ -30,8 +30,9 @@ pub(super) fn record_vertex_reaches(body: &mut BRep, reaches: &[(Point3, f64)]) 
         return;
     }
     // The farthest end of an edge from each of its vertices.
-    let mut needed: std::collections::HashMap<VertexHandle, f64> = Default::default();
-    let mut ends_at: std::collections::HashMap<VertexHandle, Vec<EdgeHandle>> = Default::default();
+    let mut needed: popkern_math::hash::FastHashMap<VertexHandle, f64> = Default::default();
+    let mut ends_at: popkern_math::hash::FastHashMap<VertexHandle, Vec<EdgeHandle>> =
+        Default::default();
     for (e, edge) in body.edges.iter() {
         let (Some(c), Some((va, vb))) = (edge.curve.as_ref(), body.edge_vertices(e)) else {
             continue;

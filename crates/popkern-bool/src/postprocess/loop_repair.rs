@@ -20,7 +20,7 @@
 //! tidies up the result so the boolean entry point can return
 //! Euler-consistent topology more often.
 
-use std::collections::HashSet;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 use slotmap::SecondaryMap;
@@ -102,7 +102,7 @@ pub(crate) fn repair_stranded_loops_in(
     //    stranded, remove the edge as well. Track orphan vertices.
     let stranded_set: HashSet<HalfEdgeHandle> = stranded.iter().copied().collect();
     let mut edges_to_remove: Vec<EdgeHandle> = Vec::new();
-    let mut vertices_to_check: HashSet<VertexHandle> = HashSet::new();
+    let mut vertices_to_check: HashSet<VertexHandle> = HashSet::default();
 
     for &heh in &stranded {
         let Some(he) = brep.half_edges.get(heh) else {

@@ -130,8 +130,8 @@ pub(crate) fn split_records_at_band_lattice(
     a: &BRep,
     b: &BRep,
 ) -> Vec<IntersectionRecord> {
-    let mut bands: std::collections::HashMap<(bool, FaceHandle), Option<PartialSeam>> =
-        std::collections::HashMap::new();
+    let mut bands: popkern_math::hash::FastHashMap<(bool, FaceHandle), Option<PartialSeam>> =
+        popkern_math::hash::FastHashMap::default();
     let mut out = Vec::with_capacity(records.len());
     for record in records {
         if record.curve.is_closed {

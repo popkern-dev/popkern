@@ -7,7 +7,8 @@
 //! comes apart into a body per piece without anything being cut;
 //! pieces sharing a vertex or edge are one piece, a general body.
 
-use std::collections::{BTreeMap, HashSet};
+use popkern_math::hash::FastHashSet as HashSet;
+use std::collections::BTreeMap;
 
 use super::EulerError;
 use crate::topology::{BRep, EdgeHandle, FaceHandle, RegionHandle, VertexHandle};

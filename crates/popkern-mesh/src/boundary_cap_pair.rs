@@ -14,7 +14,7 @@
 //! construction; the pair lands only when no new facet in any copy
 //! leans more than the facets it replaces (or the bound).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -186,7 +186,7 @@ type EdgeMap = HashMap<(usize, usize), Vec<usize>>;
 type EdgeMaps = HashMap<usize, EdgeMap>;
 
 fn edge_triangles(fm: &FaceMesh) -> EdgeMap {
-    let mut map: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+    let mut map: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
     for (ti, t) in fm.triangles.iter().enumerate() {
         for k in 0..3 {
             let (a, b) = (t[k], t[(k + 1) % 3]);
@@ -386,9 +386,9 @@ pub(super) fn split_leaning_pairs(
         }
     }
     caps.sort_by(|x, y| y.0.total_cmp(&x.0));
-    let mut touched: std::collections::HashSet<(usize, usize)> = Default::default();
+    let mut touched: popkern_math::hash::FastHashSet<(usize, usize)> = Default::default();
     let mut changed = Vec::new();
-    let mut maps: EdgeMaps = HashMap::new();
+    let mut maps: EdgeMaps = HashMap::default();
     for (_, mi, ti, chord) in caps {
         if touched.contains(&(mi, ti)) {
             continue;
@@ -419,7 +419,7 @@ pub(super) fn split_leaning_pairs(
         }
         // One transaction rewrites each triangle once (a neighbour a
         // corner plan takes may be another copy's triangle).
-        let mut claimed = std::collections::HashSet::new();
+        let mut claimed = popkern_math::hash::FastHashSet::default();
         if !plans
             .iter()
             .all(|p| p.remove.iter().all(|&t| claimed.insert((p.mesh, t))))

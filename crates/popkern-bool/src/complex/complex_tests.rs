@@ -5,7 +5,7 @@
 //! has a negative control: a fault that breaks only it must be
 //! reported as exactly its finding.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -20,11 +20,11 @@ use super::*;
 /// Lift every face of `brep` (operand 0) into a fresh complex.
 pub(crate) fn complex_of_brep(brep: &BRep) -> CellComplex {
     let mut c = CellComplex::new(1);
-    let mut vmap = HashMap::new();
+    let mut vmap = HashMap::default();
     for (vh, v) in &brep.vertices {
         vmap.insert(vh, c.add_vertex(v.position, 1e-6, None));
     }
-    let mut emap = HashMap::new();
+    let mut emap = HashMap::default();
     for (eh, e) in &brep.edges {
         let he = &brep.half_edges[e.half_edge];
         let tw = &brep.half_edges[he.mate().unwrap_or_default()];

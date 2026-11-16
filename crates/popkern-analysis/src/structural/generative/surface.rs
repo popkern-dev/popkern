@@ -136,8 +136,8 @@ pub fn grid_surface(grid: &MaterialGrid, iso: f64) -> SurfaceMesh {
     let mut vertices: Vec<[f64; 3]> = Vec::new();
     // Edge (node a, node b), a < b, to its vertex: looked up only, never
     // iterated, so the vertex order is the cubes' order.
-    let mut edges: std::collections::HashMap<(usize, usize), u32> =
-        std::collections::HashMap::new();
+    let mut edges: popkern_math::hash::FastHashMap<(usize, usize), u32> =
+        popkern_math::hash::FastHashMap::default();
     let mut triangles: Vec<[u32; 3]> = Vec::new();
     // Each cube of eight neighbouring cell centres, by its lowest cell.
     for z in 0..cdims[2] - 1 {

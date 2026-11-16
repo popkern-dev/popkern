@@ -4,7 +4,7 @@
 //! reconciled onto them here.
 
 use popkern_math::PortableMath;
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::error::DraftWarning;
 use popkern_core::geometry::curve::CurveGeometry;
@@ -26,7 +26,7 @@ pub fn snap_vertices_to_recomputed_curves(
     warnings: &mut Vec<DraftWarning>,
 ) {
     use popkern_core::topology::VertexHandle;
-    let mut snapped: HashMap<VertexHandle, popkern_core::geometry::Point3> = HashMap::new();
+    let mut snapped: HashMap<VertexHandle, popkern_core::geometry::Point3> = HashMap::default();
     // Circles first: a rim circle lies in its cap plane, so the exact
     // corner point IS on the circle — a line processed first would
     // instead park the vertex at its perpendicular foot, off the cap

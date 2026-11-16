@@ -1,6 +1,6 @@
 //! Measured boundary-row targeting for KP20 support-cell reconciliation.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::error::CoreError;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -23,7 +23,7 @@ pub(super) fn worst_boundary_row_group_trims(
     brep: &BRep,
     trims: &[FullBoundaryTrim],
 ) -> Result<Vec<FullBoundaryTrim>, CoreError> {
-    let mut groups: HashMap<BoundaryRowGroupKey, BoundaryRowGroupScore> = HashMap::new();
+    let mut groups: HashMap<BoundaryRowGroupKey, BoundaryRowGroupScore> = HashMap::default();
     for &trim in trims {
         let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
         let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;

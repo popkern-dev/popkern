@@ -2,7 +2,7 @@
 //! parent module): the chord's parameter midpoint, or the curve point
 //! nearest a cap's apex.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;

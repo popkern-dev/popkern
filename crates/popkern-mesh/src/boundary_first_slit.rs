@@ -303,8 +303,8 @@ fn pinch_candidates(ring: &BoundaryRing, eps_uv: f64) -> Vec<(usize, usize)> {
         return all_pinch_pairs(ring, eps_uv);
     }
     let cell = |(u, v): (f64, f64)| ((u / eps_uv).floor() as i64, (v / eps_uv).floor() as i64);
-    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> =
-        std::collections::HashMap::new();
+    let mut grid: popkern_math::hash::FastHashMap<(i64, i64), Vec<usize>> =
+        popkern_math::hash::FastHashMap::default();
     for (k, &uv) in ring.uv.iter().enumerate() {
         grid.entry(cell(uv)).or_default().push(k);
     }

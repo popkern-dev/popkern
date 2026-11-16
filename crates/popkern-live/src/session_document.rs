@@ -35,7 +35,7 @@ pub(crate) fn mesh_document(
 /// slider step of the six-axis arm take 30 s. The signature (feature
 /// count and parameter values) changes when a driven part parameter
 /// does; a mutable borrow of the document clears the cache.
-pub(crate) type DisplayCache = std::collections::HashMap<String, (u64, Vec<BodyMesh>)>;
+pub(crate) type DisplayCache = popkern_math::hash::FastHashMap<String, (u64, Vec<BodyMesh>)>;
 
 fn signature(model: &Model) -> u64 {
     use std::hash::{Hash, Hasher};

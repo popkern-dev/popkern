@@ -266,7 +266,7 @@ fn top_pole_crossings(
     // A collapsed row: the u partial vanishes against the v partial.
     use popkern_core::geometry::surface::SurfaceEval;
     let at = 0.5 * (u_lo + u_hi);
-    let (pu, pv) = (surface.partial_u(at, v_top), surface.partial_v(at, v_top));
+    let (pu, pv) = surface.first_partials(at, v_top);
     if pu.length() > 1e-9 * pv.length().max(1e-300) {
         return 0;
     }
@@ -316,7 +316,7 @@ pub(crate) fn point_inside_face_region_excluding_fresh_holes(
     face: FaceHandle,
     uv_point: Point3,
     tolerance: &Tolerance,
-    fresh_edges: &std::collections::HashSet<popkern_core::topology::EdgeHandle>,
+    fresh_edges: &popkern_math::hash::FastHashSet<popkern_core::topology::EdgeHandle>,
 ) -> bool {
     if !point_inside_face_uv(brep, face, uv_point, tolerance) {
         return false;

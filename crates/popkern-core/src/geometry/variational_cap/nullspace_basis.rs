@@ -205,7 +205,7 @@ pub(super) fn nested_basis(
         let strip: Vec<usize> = (0..free.len())
             .filter(|&r| role[r] == Role::Strip(p))
             .collect();
-        let mut strip_col = std::collections::HashMap::new();
+        let mut strip_col = popkern_math::hash::FastHashMap::default();
         for (a, &r) in strip.iter().enumerate() {
             strip_col.insert(r, a);
         }

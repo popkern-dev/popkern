@@ -34,7 +34,7 @@ impl BRep {
         if lhs != rhs {
             if crate::trace::trace_enabled("euler") {
                 let mut orphan_v = 0;
-                let used: std::collections::HashSet<_> =
+                let used: popkern_math::hash::FastHashSet<_> =
                     self.half_edges.values().map(|he| he.origin).collect();
                 for vh in self.vertices.keys() {
                     if !used.contains(&vh) {
@@ -82,10 +82,10 @@ impl BRep {
         // twin was on a non-selected face).
         if two_g < -1 {
             if crate::trace::trace_enabled("euler") {
-                let used: std::collections::HashSet<_> =
+                let used: popkern_math::hash::FastHashSet<_> =
                     self.half_edges.values().map(|he| he.origin).collect();
                 let orphan_v = self.vertices.keys().filter(|v| !used.contains(v)).count();
-                let mut loops_per_face = std::collections::HashMap::new();
+                let mut loops_per_face = popkern_math::hash::FastHashMap::default();
                 for (_, lp) in &self.loops {
                     *loops_per_face.entry(lp.face).or_insert(0) += 1;
                 }
@@ -135,13 +135,13 @@ impl BRep {
                 vertices: acorns,
             });
         }
-        let on_faces: std::collections::HashSet<_> = self
+        let on_faces: popkern_math::hash::FastHashSet<_> = self
             .half_edges
             .values()
             .filter(|f| self.loops.contains_key(f.loop_))
             .map(|f| f.origin)
             .collect();
-        let wire_vertices: std::collections::HashSet<_> = self
+        let wire_vertices: popkern_math::hash::FastHashSet<_> = self
             .half_edges
             .values()
             .filter(|f| held.contains(&f.edge) && !on_faces.contains(&f.origin))

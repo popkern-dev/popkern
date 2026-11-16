@@ -8,7 +8,8 @@
 //! transversal intersection curve of the two cut-wedge surfaces (or
 //! the canal's end cross-section circle at a sheet boundary).
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{CornerKind, CornerPlanEntry, CornerTarget, EdgeJoinClass};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};

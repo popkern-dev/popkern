@@ -4,7 +4,7 @@
 //! EDGE_LOOP, FACE_BOUND, ADVANCED_FACE, CLOSED_SHELL, and
 //! MANIFOLD_SOLID_BREP entities.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceOnFace;
@@ -53,8 +53,8 @@ impl ExportContext {
     /// (sheet) bodies keep their historical single-item forms.
     pub(crate) fn export_brep_items(&mut self, brep: &BRep) -> Result<Vec<EntityId>, IoError> {
         // Maps from popkern handles to STEP entity IDs
-        let mut vertex_map: HashMap<VertexHandle, EntityId> = HashMap::new();
-        let mut edge_map: HashMap<EdgeHandle, EntityId> = HashMap::new();
+        let mut vertex_map: HashMap<VertexHandle, EntityId> = HashMap::default();
+        let mut edge_map: HashMap<EdgeHandle, EntityId> = HashMap::default();
 
         // 1. Export all vertices → VERTEX_POINT
         for (vh, vertex) in &brep.vertices {
@@ -72,7 +72,7 @@ impl ExportContext {
         let branch_shifts =
             super::export_periodic_branches::compute_periodic_branch_shifts(brep, &surface_map);
         let collapsed_trim_edges = collapsed_trim_missing_curve_edges(brep);
-        let mut local_edge_map: HashMap<EdgeFaceUse, EntityId> = HashMap::new();
+        let mut local_edge_map: HashMap<EdgeFaceUse, EntityId> = HashMap::default();
 
         // 2. Export all edges → EDGE_CURVE (with SURFACE_CURVE wrappers)
         for (eh, edge) in &brep.edges {
@@ -332,7 +332,7 @@ impl ExportContext {
         &mut self,
         brep: &BRep,
     ) -> Result<HashMap<FaceHandle, ExportedFaceSurface>, IoError> {
-        let mut surface_map: HashMap<FaceHandle, ExportedFaceSurface> = HashMap::new();
+        let mut surface_map: HashMap<FaceHandle, ExportedFaceSurface> = HashMap::default();
         for (fh, face) in &brep.faces {
             let surface = face
                 .surface

@@ -34,7 +34,7 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 /// sphere labelling.
 pub(super) fn find_corner_fragment_target(
     brep: &BRep,
-    retained: &std::collections::HashSet<FaceHandle>,
+    retained: &popkern_math::hash::FastHashSet<FaceHandle>,
 ) -> Option<(FaceHandle, HalfEdgeHandle)> {
     for fh in brep.faces.keys() {
         if retained.contains(&fh) {
@@ -129,7 +129,7 @@ use super::sliver_absorb_measure::{
 pub(super) fn find_zero_area_target(
     brep: &BRep,
     tolerance: &Tolerance,
-    retained: &std::collections::HashSet<FaceHandle>,
+    retained: &popkern_math::hash::FastHashSet<FaceHandle>,
 ) -> Option<(FaceHandle, HalfEdgeHandle, f64)> {
     let tol_sq = tolerance.linear() * tolerance.linear();
     for fh in brep.faces.keys() {
@@ -188,7 +188,7 @@ pub(super) fn find_zero_area_target(
 pub(super) fn find_redundant_edge_target(
     brep: &BRep,
     tolerance: &Tolerance,
-    retained: &std::collections::HashSet<FaceHandle>,
+    retained: &popkern_math::hash::FastHashSet<FaceHandle>,
 ) -> Option<(FaceHandle, HalfEdgeHandle)> {
     for eh in brep.edges.keys() {
         let he_h = brep.edges[eh].half_edge;
@@ -251,7 +251,7 @@ pub(super) fn find_redundant_edge_target(
 pub(super) fn find_short_edge_target(
     brep: &BRep,
     tolerance: &Tolerance,
-    retained: &std::collections::HashSet<FaceHandle>,
+    retained: &popkern_math::hash::FastHashSet<FaceHandle>,
 ) -> Option<(FaceHandle, HalfEdgeHandle, f64)> {
     let tol = tolerance.linear();
     for fh in brep.faces.keys() {

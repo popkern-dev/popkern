@@ -12,7 +12,7 @@
 //! around the polar cap) are detected by their embedding period
 //! and rebased so the cut lands on a clean node.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
@@ -80,12 +80,12 @@ where
     K: Copy + Eq + Hash,
     N: Copy + Eq + Hash + std::fmt::Debug,
 {
-    let mut adjacency: HashMap<K, Vec<usize>> = HashMap::new();
+    let mut adjacency: HashMap<K, Vec<usize>> = HashMap::default();
     for (index, trim) in trims.iter().enumerate() {
         adjacency.entry(trim.row_a).or_default().push(index);
         adjacency.entry(trim.row_b).or_default().push(index);
     }
-    let mut visited: HashMap<K, RowChainEmbedding> = HashMap::new();
+    let mut visited: HashMap<K, RowChainEmbedding> = HashMap::default();
     let mut discovery = ChainDiscovery {
         sub_chains: Vec::new(),
         declined_chain_count: 0,
@@ -133,7 +133,7 @@ where
     N: Copy + Eq + Hash + std::fmt::Debug,
 {
     let mut rows = Vec::new();
-    let mut node_params: HashMap<N, f64> = HashMap::new();
+    let mut node_params: HashMap<N, f64> = HashMap::default();
     let mut period: Option<f64> = None;
     let mut queue = VecDeque::new();
     let seed_embedding = RowChainEmbedding {

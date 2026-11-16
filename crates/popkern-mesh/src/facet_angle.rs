@@ -147,7 +147,7 @@ pub(crate) fn chord_foot_error(
     for _ in 0..FOOT_ITERATIONS {
         let s = surface.point_at(uv.0, uv.1);
         let r = Vec3::new(s.x - q.x, s.y - q.y, s.z - q.z);
-        let (su, sv) = (surface.partial_u(uv.0, uv.1), surface.partial_v(uv.0, uv.1));
+        let (su, sv) = surface.first_partials(uv.0, uv.1);
         let (a, b, c) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
         let det = a * c - b * b;
         if det.is_nan() || det <= 1e-24 * (a * c).max(1e-300) {
@@ -171,7 +171,7 @@ pub(crate) fn chord_foot_error(
     }
     // One partial pair serves both the singularity test and the normal
     // (the `chart_singular` ratio, then the regular normal).
-    let (su, sv) = (surface.partial_u(uv.0, uv.1), surface.partial_v(uv.0, uv.1));
+    let (su, sv) = surface.first_partials(uv.0, uv.1);
     let big = su.length().max(sv.length());
     let cross = su.cross(&sv);
     if big < 1e-300 || cross.length() < crate::vertex_normal::SINGULAR_RATIO * big * big {

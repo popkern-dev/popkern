@@ -1,4 +1,5 @@
-use std::collections::{BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::BTreeSet;
 
 use crate::topology::{
     BRep, BrepCurveTrimReconstructionOutcome, BrepEdgeCurveCompletionOutcome,

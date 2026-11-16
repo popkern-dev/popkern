@@ -322,7 +322,7 @@ fn bigon_lamina_top_edges_carry_their_own_base_curves() {
         };
         assert_eq!(kind(base), kind(top), "top edge mirrors its own base edge");
     }
-    let kinds: std::collections::HashSet<_> = result
+    let kinds: popkern_math::hash::FastHashSet<_> = result
         .top_edge_of_base
         .iter()
         .map(|&(_, top)| std::mem::discriminant(&brep.edges[top].curve.as_ref().unwrap().geometry))

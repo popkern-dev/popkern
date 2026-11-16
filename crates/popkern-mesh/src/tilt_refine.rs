@@ -14,7 +14,7 @@
 //! no worse than the pair's. Splits never cascade (no LEPP): a refused
 //! split leaves the facet for the census.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
@@ -225,7 +225,7 @@ pub(crate) fn bisect_leaning_facets_from(
     let mut touched = Vec::new();
     let mut next_scope: Option<Vec<usize>> = seeds.map(<[usize]>::to_vec);
     for _ in 0..ROUNDS {
-        let mut edge_tris: HashMap<EdgeKey, Vec<usize>> = HashMap::new();
+        let mut edge_tris: HashMap<EdgeKey, Vec<usize>> = HashMap::default();
         for (ti, t) in mesh.triangles.iter().enumerate() {
             for k in 0..3 {
                 edge_tris
@@ -253,7 +253,7 @@ pub(crate) fn bisect_leaning_facets_from(
             })
             .collect();
         let round_start = touched.len();
-        let mut done: std::collections::HashSet<usize> = Default::default();
+        let mut done: popkern_math::hash::FastHashSet<usize> = Default::default();
         let mut split_any = false;
         for ti in leaning {
             if done.contains(&ti) {

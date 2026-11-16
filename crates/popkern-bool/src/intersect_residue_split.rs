@@ -105,8 +105,8 @@ pub(crate) fn split_residues_at_verdict_changes(
     // AABB-overlapping face with the general solver put a torus ×
     // cylinder union from 5.8 s to 33 s).
     let gate = 100.0 * tolerance.linear();
-    let mut walls: std::collections::HashMap<(bool, FaceHandle), Vec<(Hull, NurbsCurve)>> =
-        std::collections::HashMap::new();
+    let mut walls: popkern_math::hash::FastHashMap<(bool, FaceHandle), Vec<(Hull, NurbsCurve)>> =
+        popkern_math::hash::FastHashMap::default();
     for r in records.iter().filter(|r| r.residue_owner_a.is_none()) {
         let hull = Hull::of(&r.curve.curve_3d, gate);
         walls

@@ -3,7 +3,7 @@
 //! Builds a [`HashMap`]-backed lookup from entity ID to [`EntityInstance`],
 //! validating that all entity references resolve to existing entries.
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::parser::types::{EntityId, EntityInstance, Parameter};
@@ -24,7 +24,7 @@ impl EntityGraph {
     /// Duplicate IDs and broken references are logged via the provided
     /// [`DiagnosticLog`].
     pub fn build(entities: Vec<EntityInstance>, log: &mut DiagnosticLog) -> Self {
-        let mut map = HashMap::with_capacity(entities.len());
+        let mut map = HashMap::with_capacity_and_hasher(entities.len(), Default::default());
         for entity in entities {
             let id = entity.id;
             if map.contains_key(&id) {

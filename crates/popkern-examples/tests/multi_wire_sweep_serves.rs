@@ -52,8 +52,8 @@ fn square_tube_sweep_meshes_watertight_with_exact_volume() {
         .expect("tube meshes");
     // Weld vertices by quantized position (per-face meshes share no
     // indices), then census edge use counts and the signed volume.
-    let mut key: std::collections::HashMap<(i64, i64, i64), usize> =
-        std::collections::HashMap::new();
+    let mut key: popkern_math::hash::FastHashMap<(i64, i64, i64), usize> =
+        popkern_math::hash::FastHashMap::default();
     let mut welded: Vec<usize> = Vec::with_capacity(mesh.vertices.len());
     for v in &mesh.vertices {
         let p = v.position;
@@ -65,8 +65,8 @@ fn square_tube_sweep_meshes_watertight_with_exact_volume() {
         let n = key.len();
         welded.push(*key.entry(q).or_insert(n));
     }
-    let mut boundary: std::collections::HashMap<(usize, usize), i64> =
-        std::collections::HashMap::new();
+    let mut boundary: popkern_math::hash::FastHashMap<(usize, usize), i64> =
+        popkern_math::hash::FastHashMap::default();
     let mut volume6 = 0.0_f64;
     for t in &mesh.triangles {
         let [a, b, c] = *t;

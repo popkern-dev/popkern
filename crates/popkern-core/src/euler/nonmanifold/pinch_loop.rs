@@ -176,8 +176,8 @@ impl BRep {
             })
             .collect();
         // Each vertex's passes per loop, as (loop index, passes).
-        let mut passes: std::collections::HashMap<VertexHandle, Vec<(usize, usize)>> =
-            std::collections::HashMap::new();
+        let mut passes: popkern_math::hash::FastHashMap<VertexHandle, Vec<(usize, usize)>> =
+            popkern_math::hash::FastHashMap::default();
         for (i, vs) in origins.iter().enumerate() {
             for &v in vs {
                 let entry = passes.entry(v).or_default();

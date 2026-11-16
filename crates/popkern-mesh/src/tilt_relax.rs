@@ -14,7 +14,8 @@
 //! worst tilt drops. Boundary vertices never move: they are the
 //! canonical samples both faces share.
 
-use std::collections::{HashMap, HashSet};
+use popkern_math::hash::FastHashMap as HashMap;
+use popkern_math::hash::FastHashSet as HashSet;
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
@@ -60,8 +61,8 @@ pub(crate) fn relax_leaning_vertices(
 ) -> Vec<usize> {
     let mut moved: Vec<usize> = Vec::new();
     // Moving a vertex keeps the topology: build it once.
-    let mut uses: HashMap<(usize, usize), usize> = HashMap::new();
-    let mut incident: HashMap<usize, Vec<usize>> = HashMap::new();
+    let mut uses: HashMap<(usize, usize), usize> = HashMap::default();
+    let mut incident: HashMap<usize, Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
         for k in 0..3 {
             *uses.entry(key(t[k], t[(k + 1) % 3])).or_default() += 1;

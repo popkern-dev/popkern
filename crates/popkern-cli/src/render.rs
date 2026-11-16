@@ -80,10 +80,10 @@ pub fn render_assembly_png(
     height: u32,
     edges: bool,
 ) -> Result<(), String> {
-    use std::collections::HashMap;
+    use popkern_math::hash::FastHashMap as HashMap;
     let parts = assembly.definition_parts().map_err(|e| e.to_string())?;
     let mut meshes: HashMap<(popkern_assembly::DefinitionId, usize), popkern_mesh::TriMesh> =
-        HashMap::new();
+        HashMap::default();
     for (id, bodies) in &parts {
         for (i, part) in bodies.iter().enumerate() {
             let mesh = popkern_mesh::tessellate(

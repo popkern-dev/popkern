@@ -55,7 +55,7 @@ fn normal_crossing(
         if r.length() <= 1e-13 * scale {
             break;
         }
-        let (su, sv) = (offset.partial_u(u, v), offset.partial_v(u, v));
+        let (su, sv) = offset.first_partials(u, v);
         let det = su.dot(&sv.cross(&m));
         if det.abs() <= f64::MIN_POSITIVE {
             return None;

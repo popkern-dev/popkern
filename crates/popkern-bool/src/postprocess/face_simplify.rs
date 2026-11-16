@@ -306,7 +306,8 @@ pub(crate) fn apply_face_simplification_in(
             if group.len() < 2 {
                 continue;
             }
-            let group_set: std::collections::HashSet<FaceHandle> = group.iter().copied().collect();
+            let group_set: popkern_math::hash::FastHashSet<FaceHandle> =
+                group.iter().copied().collect();
 
             // Find one shared edge between any two distinct faces in
             // the group. Picking just one — and re-running find_merge_candidates

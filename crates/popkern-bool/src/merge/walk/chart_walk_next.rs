@@ -165,8 +165,10 @@ pub(crate) fn next_in_chart(
         }
     }
     let mut pending: Vec<usize> = Vec::new();
-    let mut matched: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
-    let mut used_deps: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut matched: popkern_math::hash::FastHashMap<usize, usize> =
+        popkern_math::hash::FastHashMap::default();
+    let mut used_deps: popkern_math::hash::FastHashSet<usize> =
+        popkern_math::hash::FastHashSet::default();
     for _pass in 0..2 {
         for &(_, is_dep, hh) in &slots {
             if is_dep {

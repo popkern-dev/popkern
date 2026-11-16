@@ -104,7 +104,7 @@ fn every_pair_within_eps_is_a_candidate() {
             sources: (0..n).map(|_| (EdgeHandle::default(), 0.0, 1.0)).collect(),
             uv,
         };
-        let candidates: std::collections::HashSet<(usize, usize)> =
+        let candidates: popkern_math::hash::FastHashSet<(usize, usize)> =
             pinch_candidates(&ring, eps_uv).into_iter().collect();
         for (i, j) in all_pinch_pairs(&ring, eps_uv) {
             let (p, q) = (ring.uv[i], ring.uv[j]);

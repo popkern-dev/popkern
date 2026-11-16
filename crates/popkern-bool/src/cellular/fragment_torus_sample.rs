@@ -156,7 +156,7 @@ fn slit_view(
     surface: &SurfaceGeometry,
     periods: Periods,
 ) -> Result<Option<(Vec<ChartLoop>, (f64, f64))>, TorusSampleDecline> {
-    let walked: std::collections::HashSet<usize> = std::iter::once(&fragment.outer_loop)
+    let walked: popkern_math::hash::FastHashSet<usize> = std::iter::once(&fragment.outer_loop)
         .chain(fragment.inner_loops.iter())
         .flatten()
         .copied()

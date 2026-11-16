@@ -417,7 +417,7 @@ mod tests {
             .map(|(h, _)| h)
             .unwrap();
         // Walk around apex via twin.next and count unique edges.
-        let mut edges = std::collections::HashSet::new();
+        let mut edges = popkern_math::hash::FastHashSet::default();
         let start = p.vertices[apex].outgoing;
         let mut cursor = start;
         loop {

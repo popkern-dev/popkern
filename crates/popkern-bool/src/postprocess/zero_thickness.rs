@@ -21,7 +21,8 @@
 //! shells that merely touch, which neither test sees: those are
 //! `shell_contact`'s.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use popkern_math::hash::FastHashMap as HashMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -196,7 +197,7 @@ fn copy_findings(
 
     // Coincident edges: same end vertices (or coincident ones), same
     // midpoint.
-    let mut by_ends: HashMap<(VertexHandle, VertexHandle), Vec<EdgeHandle>> = HashMap::new();
+    let mut by_ends: HashMap<(VertexHandle, VertexHandle), Vec<EdgeHandle>> = HashMap::default();
     let mut edges: Vec<EdgeHandle> = brep.edges.keys().collect();
     edges.sort();
     for &e in &edges {

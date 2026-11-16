@@ -1,7 +1,7 @@
 //! A body's faces grouped into shells, and the representation items
 //! over them (`export_brep_items` steps 3 and 4).
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::topology::{BRep, BodyKind, EdgeHandle, FaceHandle, VertexHandle};
 

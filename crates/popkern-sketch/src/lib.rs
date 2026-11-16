@@ -36,7 +36,7 @@ pub use popkern_constraint::{Constraint, Sketch};
 pub use popkern_core::tolerance::Tolerance;
 pub use popkern_core::topology::{BRep, FaceHandle, LoopHandle};
 
-use std::collections::HashMap;
+use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_constraint::ElementHandle;
 use popkern_core::history::TrackingContext;
@@ -86,7 +86,7 @@ impl SketchOnPlane {
         Self {
             sketch: Sketch::new(),
             plane,
-            element_names: HashMap::new(),
+            element_names: HashMap::default(),
         }
     }
 
