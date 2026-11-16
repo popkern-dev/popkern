@@ -9,7 +9,7 @@
 //! projection iteration, and removes the 1e-7 finite-difference
 //! truncation error from the derivatives entirely.
 
-use crate::geometry::nurbs_ops::basis::{basis_funs_and_first_derivs, basis_funs_and_two_derivs};
+use crate::geometry::nurbs_ops::basis::{with_first_derivs, with_two_derivs};
 use crate::geometry::nurbs_ops::find_span;
 use crate::geometry::{Point3, Vec3};
 
@@ -55,34 +55,36 @@ impl NurbsSurface {
         let (u, v) = self.wrap_into_domain(u, v);
         let span_u = find_span(self.degree_u, &self.knots_u, self.num_u, u);
         let span_v = find_span(self.degree_v, &self.knots_v, self.num_v, v);
-        let (nu, du) = basis_funs_and_first_derivs(self.degree_u, &self.knots_u, span_u, u);
-        let (nv, dv) = basis_funs_and_first_derivs(self.degree_v, &self.knots_v, span_v, v);
-
-        let mut a = H4::ZERO;
-        let mut a_u = H4::ZERO;
-        let mut a_v = H4::ZERO;
-        for j_u in 0..=self.degree_u {
-            let i_u = span_u - self.degree_u + j_u;
-            // Row sums over v first: Σ_jv N_jv·Pw and Σ_jv N′_jv·Pw.
-            let mut row = H4::ZERO;
-            let mut row_dv = H4::ZERO;
-            for j_v in 0..=self.degree_v {
-                let i_v = span_v - self.degree_v + j_v;
-                let cp = self.cp(i_u, i_v);
-                let wt = self.wt(i_u, i_v);
-                let hw = H4 {
-                    x: wt * cp.x,
-                    y: wt * cp.y,
-                    z: wt * cp.z,
-                    w: wt,
-                };
-                row.add_scaled(&hw, nv[j_v]);
-                row_dv.add_scaled(&hw, dv[j_v]);
-            }
-            a.add_scaled(&row, nu[j_u]);
-            a_u.add_scaled(&row, du[j_u]);
-            a_v.add_scaled(&row_dv, nu[j_u]);
-        }
+        let (a, a_u, a_v) = with_first_derivs(self.degree_u, &self.knots_u, span_u, u, |nu, du| {
+            with_first_derivs(self.degree_v, &self.knots_v, span_v, v, |nv, dv| {
+                let mut a = H4::ZERO;
+                let mut a_u = H4::ZERO;
+                let mut a_v = H4::ZERO;
+                for j_u in 0..=self.degree_u {
+                    let i_u = span_u - self.degree_u + j_u;
+                    // Row sums over v first: Σ_jv N_jv·Pw and Σ_jv N′_jv·Pw.
+                    let mut row = H4::ZERO;
+                    let mut row_dv = H4::ZERO;
+                    for j_v in 0..=self.degree_v {
+                        let i_v = span_v - self.degree_v + j_v;
+                        let cp = self.cp(i_u, i_v);
+                        let wt = self.wt(i_u, i_v);
+                        let hw = H4 {
+                            x: wt * cp.x,
+                            y: wt * cp.y,
+                            z: wt * cp.z,
+                            w: wt,
+                        };
+                        row.add_scaled(&hw, nv[j_v]);
+                        row_dv.add_scaled(&hw, dv[j_v]);
+                    }
+                    a.add_scaled(&row, nu[j_u]);
+                    a_u.add_scaled(&row, du[j_u]);
+                    a_v.add_scaled(&row_dv, nu[j_u]);
+                }
+                (a, a_u, a_v)
+            })
+        });
 
         if a.w.abs() < 1e-30 {
             return (
@@ -120,41 +122,44 @@ impl NurbsSurface {
         let (u, v) = self.wrap_into_domain(u, v);
         let span_u = find_span(self.degree_u, &self.knots_u, self.num_u, u);
         let span_v = find_span(self.degree_v, &self.knots_v, self.num_v, v);
-        let (nu, du, duu) = basis_funs_and_two_derivs(self.degree_u, &self.knots_u, span_u, u);
-        let (nv, dv, dvv) = basis_funs_and_two_derivs(self.degree_v, &self.knots_v, span_v, v);
-
-        let mut a = H4::ZERO;
-        let mut a_u = H4::ZERO;
-        let mut a_v = H4::ZERO;
-        let mut a_uu = H4::ZERO;
-        let mut a_uv = H4::ZERO;
-        let mut a_vv = H4::ZERO;
-        for j_u in 0..=self.degree_u {
-            let i_u = span_u - self.degree_u + j_u;
-            let mut row = H4::ZERO;
-            let mut row_dv = H4::ZERO;
-            let mut row_dvv = H4::ZERO;
-            for j_v in 0..=self.degree_v {
-                let i_v = span_v - self.degree_v + j_v;
-                let cp = self.cp(i_u, i_v);
-                let wt = self.wt(i_u, i_v);
-                let hw = H4 {
-                    x: wt * cp.x,
-                    y: wt * cp.y,
-                    z: wt * cp.z,
-                    w: wt,
-                };
-                row.add_scaled(&hw, nv[j_v]);
-                row_dv.add_scaled(&hw, dv[j_v]);
-                row_dvv.add_scaled(&hw, dvv[j_v]);
-            }
-            a.add_scaled(&row, nu[j_u]);
-            a_u.add_scaled(&row, du[j_u]);
-            a_uu.add_scaled(&row, duu[j_u]);
-            a_v.add_scaled(&row_dv, nu[j_u]);
-            a_uv.add_scaled(&row_dv, du[j_u]);
-            a_vv.add_scaled(&row_dvv, nu[j_u]);
-        }
+        let (a, a_u, a_v, a_uu, a_uv, a_vv) =
+            with_two_derivs(self.degree_u, &self.knots_u, span_u, u, |nu, du, duu| {
+                with_two_derivs(self.degree_v, &self.knots_v, span_v, v, |nv, dv, dvv| {
+                    let mut a = H4::ZERO;
+                    let mut a_u = H4::ZERO;
+                    let mut a_v = H4::ZERO;
+                    let mut a_uu = H4::ZERO;
+                    let mut a_uv = H4::ZERO;
+                    let mut a_vv = H4::ZERO;
+                    for j_u in 0..=self.degree_u {
+                        let i_u = span_u - self.degree_u + j_u;
+                        let mut row = H4::ZERO;
+                        let mut row_dv = H4::ZERO;
+                        let mut row_dvv = H4::ZERO;
+                        for j_v in 0..=self.degree_v {
+                            let i_v = span_v - self.degree_v + j_v;
+                            let cp = self.cp(i_u, i_v);
+                            let wt = self.wt(i_u, i_v);
+                            let hw = H4 {
+                                x: wt * cp.x,
+                                y: wt * cp.y,
+                                z: wt * cp.z,
+                                w: wt,
+                            };
+                            row.add_scaled(&hw, nv[j_v]);
+                            row_dv.add_scaled(&hw, dv[j_v]);
+                            row_dvv.add_scaled(&hw, dvv[j_v]);
+                        }
+                        a.add_scaled(&row, nu[j_u]);
+                        a_u.add_scaled(&row, du[j_u]);
+                        a_uu.add_scaled(&row, duu[j_u]);
+                        a_v.add_scaled(&row_dv, nu[j_u]);
+                        a_uv.add_scaled(&row_dv, du[j_u]);
+                        a_vv.add_scaled(&row_dvv, nu[j_u]);
+                    }
+                    (a, a_u, a_v, a_uu, a_uv, a_vv)
+                })
+            });
 
         if a.w.abs() < 1e-30 {
             let z = Vec3::new(0.0, 0.0, 0.0);

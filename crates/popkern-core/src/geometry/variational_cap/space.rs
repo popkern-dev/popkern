@@ -13,7 +13,7 @@ use super::corner_cells::{
 };
 use crate::geometry::SurfaceGeometry;
 use crate::geometry::gregory::GregoryPatch;
-use crate::geometry::nurbs_ops::{basis::basis_funs_and_two_derivs, find_span};
+use crate::geometry::nurbs_ops::{basis::with_two_derivs, find_span};
 use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::{Point3, Vec3};
 use popkern_math::PortableMath;
@@ -110,11 +110,13 @@ impl SectorSpace {
     /// Basis values and derivatives at `t` in [0, 1].
     pub fn basis(&self, t: f64) -> Basis1 {
         let span = find_span(self.degree, &self.knots, self.m, t);
-        let (b0, b1, b2) = basis_funs_and_two_derivs(self.degree, &self.knots, span, t);
+        let funcs = with_two_derivs(self.degree, &self.knots, span, t, |b0, b1, b2| {
+            (0..=self.degree).map(|r| [b0[r], b1[r], b2[r]]).collect()
+        });
         Basis1 {
             t,
             first: span - self.degree,
-            funcs: (0..=self.degree).map(|r| [b0[r], b1[r], b2[r]]).collect(),
+            funcs,
         }
     }
 
