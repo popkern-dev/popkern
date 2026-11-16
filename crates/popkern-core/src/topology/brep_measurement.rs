@@ -15,6 +15,10 @@ use crate::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 /// Number of sample points along an edge curve for deviation measurement.
 const DEFAULT_EDGE_SAMPLES: usize = 20;
 
+/// A same-fraction deviation at or under this, relative to the point's
+/// magnitude, is an exact match: the trace search is not run.
+const EXACT_MATCH: f64 = 1e-12;
+
 /// Coarse bracketing samples for the refined trace-distance measurement.
 const TRACE_COARSE_SAMPLES: usize = 128;
 
@@ -317,7 +321,14 @@ fn measure_pcurve_deviation(
         let uv = pcurve.point_at(pc_t);
         let same_fraction_point = surface.point_at(uv.x, uv.y);
         let same_fraction_dev = p3d.distance_to(&same_fraction_point);
-        let trace = if trace_search {
+        // The trace's distance never exceeds the same-fraction one: where
+        // that is already at rounding (an exact pcurve: a box's lines),
+        // the global trace search can only report it again, within
+        // 1e-12, and is skipped (it was most of validating a box,
+        // PK-1223).
+        let exact =
+            same_fraction_dev <= EXACT_MATCH * (1.0 + p3d.x.abs() + p3d.y.abs() + p3d.z.abs());
+        let trace = if trace_search && !exact {
             pcurve_trace_nearest(pcurve, surface, &p3d, TRACE_COARSE_SAMPLES)
         } else {
             TraceNearest {
