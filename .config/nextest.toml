@@ -34,7 +34,7 @@ test-threads = 12
 # so the carve-out and the nightly kp20-battery job were removed.
 
 # Tests that build the whole six-axis arm (or a full cycloidal joint
-# module, or every gallery script) are the suite's heaviest: each
+# module, the gallery's two of them included) are the suite's heaviest: each
 # drives rayon's full pool for a minute or more. On 2026-10-14 each
 # held 13.5-16.5 GB (a debug-only validate_all after every boolean,
 # since gated to POPKERN_TRACE=boolean; arm_build_memory gates the
@@ -62,16 +62,10 @@ filter = """
     | binary(arm_build_memory)
     | binary(arm_target_posing)
     | binary(cycloidal_joint)
-    | (package(popkern-cli) & binary(gallery))
+    | (package(popkern-cli) & binary(gallery) & test(/^script::(six_axis_arm|cycloidal_joint)$/))
+    | (package(popkern-cli) & binary(film_state_parity) & test(/^script::six_axis_arm$/))
 """
 test-group = "whole-arm"
-
-# Every gallery script in one test: ~38 min (2270-2430 s over 2026-10
-# suites, once 3405 s under load), past the 30-minute default bound.
-# Killed after 80 minutes (40 periods), twice its usual time.
-[[profile.default.overrides]]
-filter = "package(popkern-cli) & binary(gallery) & test(every_gallery_script_serves_clean_watertight_and_step_valid)"
-slow-timeout = { period = "120s", terminate-after = 40 }
 
 [test-groups]
 whole-arm = { max-threads = 2 }

@@ -133,12 +133,71 @@ fn agree(a: &Value, b: &Value, tol: f64, at: &str) -> Result<(), String> {
     }
 }
 
-#[test]
-fn every_gallery_film_plays_as_the_page_plays_it() {
+/// One test per filmed script, so the suite builds them side by side
+/// (in one test they ran serially, ~15 min) and a failure names its
+/// script.
+macro_rules! filmed_scripts {
+    ($($stem:ident),* $(,)?) => {
+        $(
+            #[test]
+            fn $stem() {
+                films_play_as_the_page_plays_them(stringify!($stem));
+            }
+        )*
+        /// The stems with a test of their own.
+        const TESTED: &[&str] = &[$(stringify!($stem)),*];
+    };
+}
+
+mod script {
+    use super::films_play_as_the_page_plays_them;
+
+    filmed_scripts!(
+        angled_fitting,
+        boss_plate,
+        countersunk_joint,
+        door_hinge,
+        fastener_kit,
+        generative_bracket,
+        hex_bolt,
+        hinge_assembly,
+        hinged_box,
+        hinged_case,
+        living_hinges,
+        piano_hinge,
+        planetary_gearbox,
+        polyhedral_dice,
+        six_axis_arm,
+    );
+
+    #[test]
+    fn every_filmed_script_has_its_own_test() {
+        let found: Vec<String> = super::filmed_scripts()
+            .iter()
+            .filter_map(|p| p.file_stem().and_then(|s| s.to_str()).map(str::to_string))
+            .collect();
+        assert_eq!(
+            TESTED, found,
+            "filmed_scripts! must list every filmed script, sorted"
+        );
+        // The fixtures the script tests compare against hold many states.
+        let states: usize = std::fs::read_dir(super::fixtures())
+            .expect("fixtures")
+            .flatten()
+            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+            .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+            .filter_map(|v| v["states"].as_array().map(Vec::len))
+            .sum();
+        assert!(states > 500, "only {states} states in the fixtures");
+    }
+}
+
+/// Every film of the gallery script `stem` plays as the page plays it.
+fn films_play_as_the_page_plays_them(stem: &str) {
     let regenerate = std::env::var_os("POPKERN_FILM_FIXTURES").is_some();
     std::fs::create_dir_all(fixtures()).expect("fixture dir");
-    let mut checked = 0;
-    for script in filmed_scripts() {
+    let script = examples().join(format!("{stem}.rhai"));
+    {
         let source = popkern_cli::film::load(&script).expect("load");
         let mut session = Session::new(HostOptions::default());
         let envelope = session.run_project(source.files.clone());
@@ -156,7 +215,6 @@ fn every_gallery_film_plays_as_the_page_plays_it() {
                 .unwrap_or_else(|e| panic!("{name}: {e:?}"));
             let film = reply.film;
             let film_json = serde_json::to_value(&film).expect("film json");
-            let stem = script.file_stem().and_then(|s| s.to_str()).unwrap_or("x");
             let file = fixtures().join(format!("{stem}.{name}.json"));
             let times = times(&film_json);
             if regenerate {
@@ -189,6 +247,12 @@ fn every_gallery_film_plays_as_the_page_plays_it() {
             );
             let states = fixture["states"].as_array().expect("states");
             assert_eq!(states.len(), times.len());
+            // A step contributes five times, a track three.
+            assert!(
+                states.len() >= 3,
+                "{stem}.{name}: only {} states",
+                states.len()
+            );
             for (expected, &t) in states.iter().zip(&times) {
                 let camera = camera_at(&film, t);
                 let state = state_at(&film, t, &paths);
@@ -215,9 +279,7 @@ fn every_gallery_film_plays_as_the_page_plays_it() {
                 });
                 agree(expected, &ours, 1e-9, &format!("{stem}.{name} t={t}"))
                     .unwrap_or_else(|e| panic!("{e}"));
-                checked += 1;
             }
         }
     }
-    assert!(checked > 500, "only {checked} states compared");
 }
