@@ -690,3 +690,39 @@ broadening construction logic. A failed iteration only counts as progress
 when it records the numeric delta, worst sample or handle, rejected
 hypothesis, and next mechanism. When local repairs plateau, stop tuning
 and revise the design before building the next structural substrate.
+
+## Finishing Planned Work
+
+A foundation closed early is reopened later at a higher cost. These rules
+exist because the tangency foundations were once declared finished with
+two planned mechanisms dropped for want of a failing case in a hand-picked
+corpus, and a recurring geometric class (chart poles and seams) fixed one
+consumer at a time.
+
+- **A design's stage exits define done.** A stage closes only when its exit
+  is met as written, or when the design records an amendment the user
+  approved: what changed, the evidence, and the condition that would
+  reopen it. "Met by different means" is an amendment.
+- **"No case needs it" is not a reason to drop or defer.** A curated corpus
+  passing shows only that its cases pass. Before a planned mechanism is
+  dropped, run a generated adversarial corpus over its configuration space
+  (every relevant surface pair, random placements, scales, seam and pole
+  positions, near-miss offsets), write the result into the design, and
+  let the user decide.
+- **The design and its implementation log are the source of truth,**
+  updated in the same change as the code. The ledger mirrors them; a task
+  closed against a design cites the section it meets.
+- **One authority per decision.** Two production paths deciding the same
+  question (vertex identity, classification, manifoldness, chart
+  behaviour) need a dated plan to become one. A fallback is allowed only as
+  an explicit rung that records a shadow line when taken; a migration's
+  fallback rung is removed before the migration is declared done.
+- **Recurring classes get a mechanism.** After the third consumer-specific
+  fix of one geometric class (a chart pole, a seam, a tangency band), stop
+  and design a shared mechanism in the owning crate before the next fix.
+- **Behaviour does not depend on environment variables**, except
+  diagnostics and observability. An alternative a test must select is a
+  typed option. (The algorithm switches documented under Known Gotchas
+  predate this rule and are retired under PK-1225.)
+- **An acceptance test needs a recorded failing state:** it failed before
+  its mechanism existed, or its negative control fails without it.
