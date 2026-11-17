@@ -143,7 +143,42 @@ pub fn matmul(dst: &mut DenseMat, keep: Option<f64>, lhs: &DenseMat, rhs: &Dense
 /// of column `i` of `lhs` and column `j` of `rhs`, in ascending order.
 pub fn matmul_tn(lhs: &DenseMat, rhs: &DenseMat) -> DenseMat {
     debug_assert_eq!(lhs.rows, rhs.rows);
-    DenseMat::from_fn(lhs.cols, rhs.cols, |i, j| dot(lhs.col(i), rhs.col(j)))
+    let mut out = DenseMat::zeros(lhs.cols, rhs.cols);
+    for j in 0..rhs.cols {
+        let b = rhs.col(j);
+        let target = &mut out.data[j * lhs.cols..(j + 1) * lhs.cols];
+        // Four dot products at once: independent sums, each its own
+        // ascending order (the bits of `dot`), four times the throughput
+        // of one dependent chain (PK-1223).
+        let (chunks, rest) = target.as_chunks_mut::<4>();
+        let mut i = 0;
+        for chunk in chunks {
+            let a = [lhs.col(i), lhs.col(i + 1), lhs.col(i + 2), lhs.col(i + 3)];
+            *chunk = dot4(a, b, [0.0; 4]);
+            i += 4;
+        }
+        for slot in rest {
+            *slot = dot(lhs.col(i), b);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// `init[k] + Σ a[k]_i b_i` for four `a`s at once, each summed in
+/// ascending order: the same bits as four [`dot`]-style loops.
+pub(crate) fn dot4(a: [&[f64]; 4], b: &[f64], init: [f64; 4]) -> [f64; 4] {
+    let n = b.len();
+    let (a0, a1, a2, a3) = (&a[0][..n], &a[1][..n], &a[2][..n], &a[3][..n]);
+    let [mut s0, mut s1, mut s2, mut s3] = init;
+    for i in 0..n {
+        let x = b[i];
+        s0 += a0[i] * x;
+        s1 += a1[i] * x;
+        s2 += a2[i] * x;
+        s3 += a3[i] * x;
+    }
+    [s0, s1, s2, s3]
 }
 
 /// The upper triangle of `q qᵀ` (the strict lower triangle zero), each
@@ -178,3 +213,7 @@ pub fn dot(a: &[f64], b: &[f64]) -> f64 {
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "kernel_identity_tests.rs"]
+mod kernel_identity_tests;

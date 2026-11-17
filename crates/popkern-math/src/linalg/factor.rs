@@ -279,16 +279,40 @@ impl HouseholderQr {
             m.set(i, k, m.get(i, k) * scale);
         }
         m.set(k, k, beta);
-        for j in k + 1..m.ncols() {
-            let mut w = m.get(k, j);
-            for i in k + 1..rows {
-                w += m.get(i, k) * m.get(i, j);
+        // Apply the reflector to the later columns, four at a time: each
+        // column's dot product with the reflector still sums in row
+        // order (the same bits), but four independent sums run at once
+        // and the updates run over slices (PK-1223).
+        let (head, rest) = m.data.split_at_mut((k + 1) * rows);
+        let v = &head[k * rows + k + 1..(k + 1) * rows];
+        let apply = |column: &mut [f64], w: f64| {
+            let w = w * t;
+            column[k] -= w;
+            for (x, &vi) in column[k + 1..].iter_mut().zip(v) {
+                *x -= w * vi;
             }
-            w *= t;
-            m.set(k, j, m.get(k, j) - w);
-            for i in k + 1..rows {
-                m.set(i, j, m.get(i, j) - w * m.get(i, k));
+        };
+        let mut groups = rest.chunks_exact_mut(4 * rows);
+        for group in &mut groups {
+            let (c0, r) = group.split_at_mut(rows);
+            let (c1, r) = r.split_at_mut(rows);
+            let (c2, c3) = r.split_at_mut(rows);
+            let w = super::dot4(
+                [&c0[k + 1..], &c1[k + 1..], &c2[k + 1..], &c3[k + 1..]],
+                v,
+                [c0[k], c1[k], c2[k], c3[k]],
+            );
+            apply(c0, w[0]);
+            apply(c1, w[1]);
+            apply(c2, w[2]);
+            apply(c3, w[3]);
+        }
+        for column in groups.into_remainder().chunks_exact_mut(rows) {
+            let mut w = column[k];
+            for (&x, &vi) in column[k + 1..].iter().zip(v) {
+                w += vi * x;
             }
+            apply(column, w);
         }
         t
     }
