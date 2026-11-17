@@ -72,6 +72,24 @@ pub fn execute(cli: &Cli) -> RunSummary {
         };
         return summary;
     };
+    finish(cli, summary, &mut document)
+}
+
+/// Every requested output of a document already built from `cli`'s
+/// script (by another host, such as a live session): the parameter
+/// overrides, the report and the exports, exactly as [`execute`] does
+/// after its build. A caller that has the document does not build it
+/// twice (PK-1223).
+pub fn export_document(cli: &Cli, document: &mut popkern_assembly::Document) -> RunSummary {
+    finish(cli, RunSummary::new(&cli.script), document)
+}
+
+/// The run after the build: overrides, report, exports.
+fn finish(
+    cli: &Cli,
+    mut summary: RunSummary,
+    document: &mut popkern_assembly::Document,
+) -> RunSummary {
     for (key, value) in &cli.params {
         let set = document.set_param(key, *value).and_then(|_| {
             for (part, model) in document.models_mut() {
@@ -89,9 +107,9 @@ pub fn execute(cli: &Cli) -> RunSummary {
             return summary;
         }
     }
-    summary.report = Some(popkern_rhai::document_report_value(&mut document));
-    summary.features = popkern_rhai::document_feature_count(&mut document);
-    if let Some(outcome) = popkern_rhai::document_first_failure(&mut document) {
+    summary.report = Some(popkern_rhai::document_report_value(&mut *document));
+    summary.features = popkern_rhai::document_feature_count(&mut *document);
+    if let Some(outcome) = popkern_rhai::document_first_failure(&mut *document) {
         summary.outcome = outcome;
         return summary;
     }
@@ -107,7 +125,7 @@ pub fn execute(cli: &Cli) -> RunSummary {
     }
     if let Some(path) = &cli.stl {
         let options = crate::stl::options(cli.stl_chord, cli.stl_angle);
-        let written = crate::stl::document_stl(&mut document, &options).and_then(|(bytes, s)| {
+        let written = crate::stl::document_stl(&mut *document, &options).and_then(|(bytes, s)| {
             crate::render::create_parent(path)?;
             std::fs::write(path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
             Ok(s)
@@ -133,7 +151,7 @@ pub fn execute(cli: &Cli) -> RunSummary {
         let instanced =
             matches!(document, popkern_assembly::Document::Assembly(_)) && cli.zebra.is_none();
         let whole = if instanced {
-            let checked = match &mut document {
+            let checked = match &mut *document {
                 popkern_assembly::Document::Assembly(a) => a.definition_parts().map(|_| ()),
                 popkern_assembly::Document::Part(_) => Ok(()),
             };
@@ -165,7 +183,7 @@ pub fn execute(cli: &Cli) -> RunSummary {
             summary.outputs.push(path.clone());
         }
         if let Some(path) = &cli.png {
-            let rendered = match (&mut document, &part, cli.zebra) {
+            let rendered = match (&mut *document, &part, cli.zebra) {
                 (popkern_assembly::Document::Assembly(a), None, _) => {
                     crate::render::render_assembly_png(a, path, cli.width, cli.height, cli.edges)
                 }

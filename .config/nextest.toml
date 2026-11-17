@@ -63,7 +63,6 @@ filter = """
     | binary(arm_target_posing)
     | binary(cycloidal_joint)
     | (package(popkern-cli) & binary(gallery) & test(/^script::(six_axis_arm|cycloidal_joint)$/))
-    | (package(popkern-cli) & binary(film_state_parity) & test(/^script::six_axis_arm$/))
 """
 test-group = "whole-arm"
 
@@ -80,8 +79,8 @@ whole-arm = { max-threads = 2 }
 [[profile.default.overrides]]
 filter = """
     binary(six_axis_arm_step)
+    | (package(popkern-rhai) & binary(six_axis_arm))
     | binary(tangency_corpus)
-    | (package(popkern-cli) & binary(film_state_parity) & test(=script::generative_bracket))
     | (package(popkern-cli) & binary(gallery) & test(/^script::(generative_bracket|polyhedral_dice|six_axis_arm)$/))
 """
 priority = 100
@@ -98,10 +97,7 @@ priority = 90
 [[profile.default.overrides]]
 filter = """
     binary(deep_grind_phase_band)
-    | binary(/^zz_probe_(fuse_seam|pk892)$/)
     | (package(popkern-live) & binary(/^six_axis_arm_/))
-    | (package(popkern-cli) & binary(film_state_parity) & test(=script::six_axis_arm))
-    | (package(popkern-rhai) & binary(six_axis_arm))
     | binary(ball_cut_beside_its_pole)
 """
 priority = 80
@@ -126,10 +122,8 @@ filter = """
     | binary(sphere_pole_rod)
     | binary(fillet_tangent_chains)
     | binary(angled_fitting_seating)
-    | binary(six_axis_arm_interference)
     | binary(corner_patched_cap)
     | binary(cycloidal_joint)
-    | binary(zz_probe_pk1188)
 """
 priority = 50
 

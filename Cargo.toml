@@ -26,8 +26,14 @@ license = "AGPL-3.0-only"
 # shrinking the ~185 test binaries 5-10× (full-debuginfo deps grew to
 # 100 GiB and filled the disk, 2026-07-30). For a full-debuginfo run:
 # CARGO_PROFILE_TEST_DEBUG=2 cargo test …
+# Measured 2026-11-16 on seven heavy suite tests (PK-1223), against
+# 404.5 s: incremental off 390.0 s (the incremental split into many
+# codegen units cost 3.6%), opt-level 3 on top a further 3.5%. Float
+# results are bit-identical (rustc never reassociates or contracts float
+# arithmetic). Overflow checks off would gain only 1.8% more; they stay on.
 [profile.test]
-opt-level = 2
+opt-level = 3
+incremental = false
 debug-assertions = true
 debug = "line-tables-only"
 
