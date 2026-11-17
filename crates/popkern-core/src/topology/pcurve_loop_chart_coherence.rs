@@ -77,7 +77,7 @@ impl BRep {
             .faces
             .get(face_handle)
             .and_then(|f| f.surface.as_ref())
-            .map(|s| s.geometry.periodicity())
+            .map(|s| crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry))
         else {
             return;
         };
@@ -338,7 +338,9 @@ impl BRep {
                 .faces
                 .get(fh)
                 .and_then(|f| f.surface.as_ref())
-                .map(|s| s.geometry.periodicity())
+                .map(|s| {
+                    crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry)
+                })
             else {
                 continue;
             };

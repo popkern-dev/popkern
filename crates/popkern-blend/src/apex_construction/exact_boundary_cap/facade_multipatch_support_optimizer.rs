@@ -262,7 +262,8 @@ fn interior_parameter_for_surface(
     direction: SurfaceDirection,
 ) -> f64 {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
-    let (period_u, period_v) = surface.parameter_periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let (min, max, period) = match direction {
         SurfaceDirection::U => (u_min, u_max, period_u),
         SurfaceDirection::V => (v_min, v_max, period_v),

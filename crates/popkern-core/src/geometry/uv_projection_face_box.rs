@@ -30,7 +30,7 @@ pub fn face_bounded_parameter_range(
     surface: &SurfaceGeometry,
 ) -> UvBox {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
-    let (u_period, _) = surface.parameter_periodicity();
+    let (u_period, _) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     if u_period.is_none()
         && u_min.is_finite()
         && u_max.is_finite()
@@ -85,7 +85,7 @@ fn sampled_face_box(
     face: crate::topology::FaceHandle,
     surface: &SurfaceGeometry,
 ) -> Option<UvBox> {
-    let (u_period, _) = surface.parameter_periodicity();
+    let (u_period, _) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut samples: Vec<Point3> = Vec::new();
     let face_data = brep.faces.get(face)?;
     let start = brep.loops[face_data.outer_loop].half_edge;

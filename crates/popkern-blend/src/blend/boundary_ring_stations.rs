@@ -366,7 +366,8 @@ fn hermite_station_arc(
     use popkern_core::geometry::uv_projection::project_point_to_uv;
     let (u1, v1) = project_point_to_uv(surface, p1)?;
     let (u2, v2) = project_point_to_uv(surface, p2)?;
-    let (u_periodicity, _) = surface.periodicity();
+    let (u_periodicity, _) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut du = u2 - u1;
     if let Some(period) = u_periodicity
         && du.abs() > period * 0.5

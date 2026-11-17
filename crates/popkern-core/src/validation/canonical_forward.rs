@@ -338,7 +338,7 @@ impl BRep {
             .get(he.loop_)
             .and_then(|l| self.faces.get(l.face))
             .and_then(|f| f.surface.as_ref())
-            .map(|s| s.geometry.periodicity())
+            .map(|s| crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry))
             .unwrap_or((None, None));
         let fold = |mut delta: f64, period: Option<f64>| -> f64 {
             if let Some(p) = period

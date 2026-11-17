@@ -43,7 +43,8 @@ impl BRep {
             Some(s) => s.geometry.clone(),
             None => return fixes,
         };
-        let (period_u, period_v) = surface.periodicity();
+        let (period_u, period_v) =
+            crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface);
 
         let face = match self.faces.get(face_handle) {
             Some(f) => f,
@@ -369,7 +370,8 @@ impl BRep {
             })
             .unwrap_or_else(|| pcurve.into());
         if let Some(existing) = self.half_edges[heh].pcurve.as_ref() {
-            let (period_u, period_v) = surface.periodicity();
+            let (period_u, period_v) =
+                crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
             let branch_shift = |delta: f64, period: Option<f64>| -> f64 {
                 match period {
                     Some(period) if period > 0.0 => (delta / period).round() * period,

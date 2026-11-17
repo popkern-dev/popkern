@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 
 use super::chart_branches::clustering::balance_and_duplicates;
 
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::chart_embedding::{ChartEmbedding, EmbeddingSource, build_embedding};
 use crate::merge::graph::{FaceRef, IntersectionGraph};
@@ -279,7 +279,8 @@ fn build_face_subdivision_inner(
         ..Default::default()
     };
 
-    let (u_analytic, v_period) = surface.parameter_periodicity();
+    let (u_analytic, v_period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     // The walk runs entirely in chart space: `u_period` only drives
     // seam-branch identification (u=0 with u=period), never
     // evaluation beyond the chart — so the GEOMETRIC closure of a

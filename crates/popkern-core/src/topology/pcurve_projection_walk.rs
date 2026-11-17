@@ -89,7 +89,9 @@ pub(super) fn anchored_uv_samples(
     // PK-646).
     if complete && points.len() >= 2 {
         let ((u_s, _), (u_e, _)) = endpoint_uv_seeds;
-        let period = surface.periodicity().0.filter(|&p| p > 0.0);
+        let period = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface)
+            .0
+            .filter(|&p| p > 0.0);
         let last = points.len() - 1;
         for (end, next, seed) in [(0, 1, u_s), (last, last - 1, u_e)] {
             let (u, v) = (points[end].x, points[end].y);
@@ -154,7 +156,9 @@ fn anchored_walk(
             // Unwrap the anchor into the branch the endpoint seeds
             // carry (the face's chart window).
             let (su, _sv) = seed_at(anchor_index);
-            if let (Some(pu), _) = surface.periodicity() {
+            if let (Some(pu), _) =
+                crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface)
+            {
                 while u - su > pu * 0.5 {
                     u -= pu;
                 }
@@ -175,7 +179,8 @@ fn anchored_walk(
     };
     uv_by_index[anchor_index] = Some(anchor_uv);
 
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut walk = |indices: &mut dyn Iterator<Item = usize>| {
         let mut prev_uv = anchor_uv;
         for i in indices {

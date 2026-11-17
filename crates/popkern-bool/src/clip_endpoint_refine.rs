@@ -430,7 +430,7 @@ pub(crate) fn set_endpoint_3d_uv(
     // assembly stranded 4 record sides). Unwrap each projected
     // coordinate onto the branch of the uv sample it replaces.
     let unwrap_toward = |surf: &SurfaceGeometry, p: (f64, f64), near: (f64, f64)| -> (f64, f64) {
-        let (pu, pv) = surf.parameter_periodicity();
+        let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surf);
         let fold = |x: f64, anchor: f64, period: Option<f64>| match period {
             Some(pp) if pp.is_finite() && pp > 0.0 => x + ((anchor - x) / pp).round() * pp,
             _ => x,

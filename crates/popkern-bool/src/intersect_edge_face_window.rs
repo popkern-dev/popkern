@@ -61,9 +61,10 @@ pub(crate) fn face_window(
         distinct.len()
     };
     {
-        use popkern_core::geometry::SurfaceEval as _;
-        if let (Some(period), true) = (surface.parameter_periodicity().0, distinct_positions < 3)
-            && u_max - u_min < period
+        if let (Some(period), true) = (
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0,
+            distinct_positions < 3,
+        ) && u_max - u_min < period
         {
             let mid = 0.5 * (u_min + u_max);
             u_min = mid - 0.5 * period;
@@ -111,14 +112,13 @@ pub(crate) fn face_window(
     // no node at the rod's seam, the rod's chart walk fell
     // back to 3D-Newell, and the union served without the
     // boss wall. Such a face's u is not filtered.
-    let u_period = {
-        use popkern_core::geometry::SurfaceEval as _;
-        surface.parameter_periodicity().0
-    }
-    .filter(|_| !crate::intersect_edge_face_coincident::face_has_own_seam(brep, face));
+    let u_period =
+        { popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0 }
+            .filter(|_| !crate::intersect_edge_face_coincident::face_has_own_seam(brep, face));
     let full_turn = u_period.is_none() && {
-        use popkern_core::geometry::SurfaceEval as _;
-        surface.parameter_periodicity().0.is_some()
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface)
+            .0
+            .is_some()
     };
     FaceWindow {
         u: (u_min, u_max),

@@ -318,7 +318,8 @@ impl BRep {
             .get(loop_handle)
             .ok_or("missing-outer-loop")?
             .half_edge;
-        let (period_u, period_v) = surface.periodicity();
+        let (period_u, period_v) =
+            crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         let mut polygon: Vec<(f64, f64)> = Vec::new();
         let mut cur = start;
         for _ in 0..self.half_edges.len() + 1 {
@@ -415,7 +416,8 @@ impl BRep {
         // face, every boolean). Periodic charts keep the samples: the
         // unwrap needs steps under half a period (a full-period rim
         // line's ends alone would read as one branch shift).
-        let (period_u, period_v) = surface.periodicity();
+        let (period_u, period_v) =
+            crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         let straight = period_u.is_none()
             && period_v.is_none()
             && match &pcurve.geometry {

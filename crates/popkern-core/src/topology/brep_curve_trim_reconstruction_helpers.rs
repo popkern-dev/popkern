@@ -19,7 +19,8 @@ pub(super) fn project_edge_curve_to_surface_pcurve(
     let curve = brep.edges.get(he.edge)?.curve.as_ref()?;
     let forward = half_edge_curve_forward(brep, half_edge)?;
     let samples = samples.max(2);
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut prev_uv: Option<(f64, f64)> = None;
     let mut uv_points = Vec::with_capacity(samples);
     let mut params = Vec::with_capacity(samples);

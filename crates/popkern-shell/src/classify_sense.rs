@@ -78,7 +78,8 @@ pub(crate) fn face_sense(brep: &BRep, fh: FaceHandle) -> Option<FaceSense> {
     // invert on the broken polygon). Re-branch each sample to within
     // half a period of its predecessor so the polygon is contiguous,
     // then vote against THIS polygon.
-    let (period_u, period_v) = sof.geometry.parameter_periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&sof.geometry);
     let unwrap = |prev: f64, x: f64, period: Option<f64>| -> f64 {
         match period {
             Some(p) if p > 0.0 => {

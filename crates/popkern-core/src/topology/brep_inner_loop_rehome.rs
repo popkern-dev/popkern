@@ -180,7 +180,8 @@ impl BRep {
     fn outer_loop_outline(&self, face: FaceHandle, surface: &SurfaceGeometry) -> Option<Outline> {
         const SAMPLES_PER_HALF_EDGE: usize = 8;
         let start = self.loops.get(self.faces.get(face)?.outer_loop)?.half_edge;
-        let (period_u, period_v) = surface.periodicity();
+        let (period_u, period_v) =
+            crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         let branch = |x: f64, near: f64, period: Option<f64>| -> f64 {
             match period {
                 Some(p) if p > 0.0 => x + ((near - x) / p).round() * p,

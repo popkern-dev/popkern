@@ -67,7 +67,7 @@ fn point3(surface: &SurfaceGeometry, uv: (f64, f64)) -> [f64; 3] {
 /// Clamp non-periodic parameters into the surface's natural range.
 fn clamp_uv(surface: &SurfaceGeometry, uv: (f64, f64)) -> (f64, f64) {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
-    let (pu, pv) = surface.parameter_periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let c = |x: f64, lo: f64, hi: f64, periodic: bool| {
         if periodic || !(lo.is_finite() && hi.is_finite()) {
             x
@@ -84,7 +84,7 @@ fn clamp_uv(surface: &SurfaceGeometry, uv: (f64, f64)) -> (f64, f64) {
 /// exactly where sphere/cone poles and collapsed NURBS edges sit.
 fn damped_step(surface: &SurfaceGeometry, uv: (f64, f64), du: f64, dv: f64) -> (f64, f64) {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
-    let (pu, pv) = surface.parameter_periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let limit = |x: f64, dx: f64, lo: f64, hi: f64, periodic: bool| -> f64 {
         if periodic || dx == 0.0 {
             return 1.0;
@@ -218,7 +218,7 @@ impl PixelQuery {
 /// the natural range, and the bound value.
 pub(super) fn active_bounds(surface: &SurfaceGeometry, uv: (f64, f64)) -> [Option<f64>; 2] {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
-    let (pu, pv) = surface.parameter_periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let bound = |x: f64, lo: f64, hi: f64, periodic: bool| {
         if periodic || !(lo.is_finite() && hi.is_finite()) {
             None
@@ -463,7 +463,9 @@ pub(super) fn unwrapped_vertex_uvs(
     surface: Option<&SurfaceGeometry>,
     vs: &[&MeshVertex; 3],
 ) -> [(f64, f64); 3] {
-    let (pu, pv) = surface.map_or((None, None), |s| s.parameter_periodicity());
+    let (pu, pv) = surface.map_or((None, None), |s| {
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(s)
+    });
     let (u0, v0) = vs[0].uv;
     let w = |k: usize| {
         (

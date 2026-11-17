@@ -19,7 +19,7 @@
 use crate::geometry::curve::CurveEval;
 use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::nurbs_curve::NurbsCurve;
-use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::geometry::surface::SurfaceGeometry;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use popkern_math::PortableMath;
@@ -75,7 +75,8 @@ pub(crate) fn pcurve_on(
         } => Some(plane_uv_of_curve(curve_3d, *origin, *u_axis, *v_axis)),
         _ => {
             let mut pcurve = fit_chart_uv_curve(surface, curve_3d, tolerance)?;
-            let (period_u, period_v) = surface.parameter_periodicity();
+            let (period_u, period_v) =
+                crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
             align_pcurve_to_windows(&mut pcurve, u_window, v_window, period_u, period_v);
             Some(pcurve)
         }

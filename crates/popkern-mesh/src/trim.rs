@@ -119,7 +119,8 @@ fn unwrap_periodic_loop(
     surface: &SurfaceGeometry,
     ccw: bool,
 ) {
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let crosses = crosses_seam(points, period_u, period_v);
     let pole_period = period_u
         .filter(|&p| period_v.is_none() && points.iter().any(|&(u, v)| is_pole(surface, u, v, p)));

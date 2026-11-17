@@ -23,7 +23,7 @@ pub(super) fn chart_window(
 ) -> Option<((f64, f64), (f64, f64))> {
     let ((bu0, bu1), (bv0, bv1)) =
         popkern_core::geometry::uv_projection::exact_bounded_parameter_range(positions, surface);
-    let (pu, pv) = surface.periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let axis = |lo: f64, hi: f64, period: Option<f64>| -> Option<(f64, f64)> {
         let Some(p) = period.filter(|p| p.is_finite() && *p > 0.0) else {
             return Some((lo.min(hi), lo.max(hi)));

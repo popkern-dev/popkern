@@ -2,6 +2,7 @@
 //! `clip_uv.rs` (500-line cap ratchet). The seam-dance, period-branch
 //! normalization, and torn-boundary guards live with the finder.
 
+use popkern_core::geometry::chart::ChartDescriptor;
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
 use popkern_core::geometry::intersection::intersect_curves;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
@@ -356,11 +357,10 @@ pub(crate) fn find_uv_crossings(
     };
 
     let period_of = || -> f64 {
-        use popkern_core::geometry::SurfaceEval as _;
         brep.faces
             .get(face)
             .and_then(|f| f.surface.as_ref())
-            .and_then(|s| s.geometry.parameter_periodicity().0)
+            .and_then(|s| ChartDescriptor::evaluation_periods_of(&s.geometry).0)
             .unwrap_or(std::f64::consts::TAU)
     };
 
@@ -481,11 +481,10 @@ pub(crate) fn find_uv_crossings(
     // A closed query on the boundary at its closure point (PK-775).
     let period = surface_is_periodic.then(period_of);
     let period_v = {
-        use popkern_core::geometry::SurfaceEval as _;
         brep.faces
             .get(face)
             .and_then(|f| f.surface.as_ref())
-            .and_then(|s| s.geometry.parameter_periodicity().1)
+            .and_then(|s| ChartDescriptor::evaluation_periods_of(&s.geometry).1)
     };
     if let Some(c) = super::clip_lift_crossings::closure_crossing(
         brep,

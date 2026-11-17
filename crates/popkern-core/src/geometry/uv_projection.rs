@@ -3,6 +3,7 @@
 //! Projects 3D points onto surface UV spaces and computes bounded parameter
 //! ranges for faces with infinite parameter domains.
 
+use crate::geometry::chart::ChartDescriptor;
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
@@ -107,7 +108,7 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             Some((u, v))
         }
         // A periodic NURBS ring: best of seeded and grid (PK-892).
-        SurfaceGeometry::Nurbs(nurbs) if nurbs.u_period().or(nurbs.v_period()).is_some() => {
+        SurfaceGeometry::Nurbs(nurbs) if ChartDescriptor::is_periodic_form(nurbs) => {
             uv_projection_clamped::periodic_ring_project(surface, nurbs, point)
         }
         // NURBS: the clamped 5-start, UNCHANGED for cold construction

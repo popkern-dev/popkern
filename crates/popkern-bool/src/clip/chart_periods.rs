@@ -15,5 +15,5 @@
 pub(crate) fn classification_chart_periods(
     geometry: &popkern_core::geometry::SurfaceGeometry,
 ) -> (Option<f64>, Option<f64>) {
-    popkern_core::geometry::chart_periods::geometric_chart_periods(geometry)
+    popkern_core::geometry::chart::ChartDescriptor::periods_of(geometry)
 }

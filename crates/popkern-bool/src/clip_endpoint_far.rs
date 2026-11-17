@@ -341,7 +341,7 @@ pub(crate) fn retrim_piece_to_junction(
     for (src_uv, surf) in [(&source.curve_uv1, surf_a), (&source.curve_uv2, surf_b)] {
         // Analytic projections return the canonical period branch;
         // pin each end on the branch of the sample it replaces.
-        let (pu, pv) = surf.parameter_periodicity();
+        let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surf);
         let on_branch = |q: &Point3, near: Point3| {
             project_point_to_uv_near(surf, q, near.x, near.y).map_or(near, |(nu, nv)| {
                 Point3::new(

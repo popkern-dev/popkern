@@ -277,3 +277,4 @@ mod tests;
 
 pub mod hash;
 pub mod linalg;
+pub mod periodic;

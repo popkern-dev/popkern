@@ -170,7 +170,7 @@ pub(crate) fn in_range(
             if hi - lo >= period - slack {
                 return true;
             }
-            let shifted = lo + (t - lo).rem_euclid(period);
+            let shifted = lo + popkern_core::geometry::chart::periodic::modulo(t - lo, period);
             shifted <= hi + slack || shifted >= lo + period - slack
         }
         _ => t >= lo - slack && t <= hi + slack,

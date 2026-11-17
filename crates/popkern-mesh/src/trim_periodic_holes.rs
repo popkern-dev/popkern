@@ -21,7 +21,7 @@ use crate::trim::TrimLoop;
 pub(crate) fn retain_holes_wrapped(loops: &mut Vec<TrimLoop>, surface: &SurfaceGeometry) {
     loops.retain(|l| !l.is_outer);
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
-    let (pu, pv) = surface.parameter_periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut copies = Vec::new();
     for l in loops.iter() {
         let (mut lo, mut hi) = (

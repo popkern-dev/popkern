@@ -17,6 +17,7 @@
 //! back to the uniform grid, WHY (missing pcurve, no canonical samples,
 //! off-surface residual, uncovered ring segment, unchartable wrap).
 
+use popkern_core::geometry::chart::ChartDescriptor;
 use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::surface::SurfaceEval;
@@ -120,8 +121,8 @@ pub(crate) fn tessellate_face_boundary_first(
     // sphere 0/46). With holes, and a torus face's seam SQUARE, it meshes
     // here (a drilled torus, PK-459; a ball with Viviani's figure eight
     // cut out fell back to the grid, the union 1.5e-5 high, PK-1140).
-    let seam_square =
-        matches!(surface.periodicity(), (Some(_), Some(_))) && !face.inner_loops.is_empty();
+    let periods = ChartDescriptor::evaluation_periods_of(surface);
+    let seam_square = matches!(periods, (Some(_), Some(_))) && !face.inner_loops.is_empty();
     {
         let mut edge_counts: HashMap<EdgeHandle, usize> = HashMap::default();
         let start = brep.loops.get(face.outer_loop)?.half_edge;
@@ -163,8 +164,7 @@ pub(crate) fn tessellate_face_boundary_first(
         // (shell rim slit arms) are chart artifacts — cut the ring
         // into its genuine boundary components before charting, or
         // Delaunay coverage chases the zero-width arms forever.
-        for mut ring in boundary_first_slit::dissolve_slits(built, surface.parameter_periodicity())
-        {
+        for mut ring in boundary_first_slit::dissolve_slits(built, periods) {
             // Periodic surfaces (analytic cylinders: u = angle) can have
             // pcurves authored in different period branches; a ring that
             // crosses the seam jumps ~2π in the UV chart and Delaunay
@@ -172,7 +172,7 @@ pub(crate) fn tessellate_face_boundary_first(
             // nearest each previous sample (positions are canonical 3D
             // points and unaffected; cos/sin accept any branch).
             {
-                let (period_u, period_v) = surface.parameter_periodicity();
+                let (period_u, period_v) = periods;
                 // Chart-degenerate samples (poles, apexes); sphere pole crossings.
                 let mut u_degenerate =
                     boundary_first_unwrap::chart_degenerate(&ring, surface, period_u, options);

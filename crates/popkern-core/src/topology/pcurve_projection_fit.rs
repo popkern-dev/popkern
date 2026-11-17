@@ -207,7 +207,8 @@ pub(super) fn measured_projection_interpolant(
     // a pole doubling moves nothing until its spans reach the sweep's
     // length (a ring 1e-4 round the pole, 0.1 off at 22 spans and not
     // halved at 44, PK-1185).
-    let singular = crate::geometry::chart_singularity::has_singular_row(surface, linear_tolerance);
+    let singular =
+        crate::geometry::chart::ChartDescriptor::has_singular_row(surface, linear_tolerance);
     if best_gap > target && (improved || singular) {
         let start = segment_fractions(&breaks, &best_spans);
         let range = (t_lo, t_hi);
@@ -255,7 +256,7 @@ fn locally_refined(
     target: f64,
     sample: &dyn Fn(&[f64]) -> Vec<Point3>,
 ) -> Option<(NurbsCurve, Vec<f64>)> {
-    let periods = surface.periodicity();
+    let periods = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut best: Option<(NurbsCurve, f64, Vec<f64>)> = None;
     let mut history: Vec<f64> = Vec::new();
     for _ in 0..LOCAL_ROUNDS {

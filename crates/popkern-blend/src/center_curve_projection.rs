@@ -39,7 +39,8 @@ pub fn project_onto_surface(
         return Ok(*origin + *u_axis * u + *v_axis * v);
     }
     if let Some((u, v)) = surface.closest_point(point) {
-        let (period_u, period_v) = surface.parameter_periodicity();
+        let (period_u, period_v) =
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         let u = wrap_then_clamp(u, u_range, period_u);
         let v = wrap_then_clamp(v, v_range, period_v);
         return Ok(surface.point_at(u, v));

@@ -216,7 +216,8 @@ pub(crate) fn intersect_surface_curve_general(
     let mut point_results: Vec<(f64, f64, f64, Point3)> = Vec::new();
     let dedup_dist = tolerance.linear() * 10.0;
     let t_period = curve_period(curve);
-    let (u_period, v_period) = surface.periodicity();
+    let (u_period, v_period) =
+        crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
 
     // Per-span refinement for hit cells: the density clamp keeps the
     // coarse grid bounded (a 198-span thread wall grids at 48), so a

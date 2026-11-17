@@ -156,7 +156,7 @@ pub(super) fn try_tessellate(
         us.push(prev);
         for &i in middle.iter().skip(1) {
             let raw = ring.uv[i].0;
-            let mut delta = (raw - prev).rem_euclid(period_u);
+            let mut delta = popkern_math::periodic::offset_mod(raw, prev, period_u);
             if delta > period_u * 0.5 {
                 delta -= period_u;
             }
@@ -177,7 +177,7 @@ pub(super) fn try_tessellate(
     // ladder on the far branch (u = period while its circle end reads
     // 0 — the same seam azimuth).
     let periodic_du = |a: f64, b: f64| {
-        let d = (a - b).rem_euclid(period_u);
+        let d = popkern_math::periodic::offset_mod(a, b, period_u);
         d.min(period_u - d)
     };
     for &i in &lead {

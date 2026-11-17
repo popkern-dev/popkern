@@ -52,8 +52,9 @@ test-threads = 12
 # A `-p` on the default profile intersects with this filter, so
 # `-p popkern-analysis` there selects nothing; use --profile physics.
 default-filter = """
-    not package(/^popkern-analysis/)
-    | (package(popkern-analysis-brep) & kind(lib))
+    (not package(/^popkern-analysis/)
+    | (package(popkern-analysis-brep) & kind(lib)))
+    & not (package(popkern-examples) & binary(generated_corpus_full))
 """
 
 [[profile.default.overrides]]
@@ -159,3 +160,13 @@ fail-fast = false
 path = "battery-audit.xml"
 store-success-output = true
 store-failure-output = true
+
+# The generated adversarial corpus's full tier (PK-1227, design
+# docs/architecture/generated-corpus.md): one test per kind pair, every
+# cell's ladder plus CORPUS_RANDOM random scenes (default 300), seed
+# CORPUS_SEED. Outside the per-commit suite; nightly and at close-out:
+#   cargo nextest run -p popkern-examples --profile foundations
+[profile.foundations]
+default-filter = "package(popkern-examples) & binary(generated_corpus_full)"
+fail-fast = false
+slow-timeout = { period = "600s", terminate-after = 36 }

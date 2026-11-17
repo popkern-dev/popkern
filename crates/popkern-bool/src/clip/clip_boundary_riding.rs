@@ -99,10 +99,7 @@ pub(super) fn rides_boundary_everywhere(
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| {
-            use popkern_core::geometry::surface::SurfaceEval;
-            s.geometry.parameter_periodicity()
-        })
+        .map(|s| popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry))
         .unwrap_or((None, None));
     // Every whole-period translate of a sample that lands within the
     // boundary's extent (widened a period each way): the record can sit
@@ -157,10 +154,7 @@ pub(super) fn point_rides_boundary(
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| {
-            use popkern_core::geometry::surface::SurfaceEval;
-            s.geometry.parameter_periodicity()
-        })
+        .map(|s| popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry))
         .unwrap_or((None, None));
     let shifts = |p: Option<f64>| match p {
         Some(p) if p > 0.0 => vec![-p, 0.0, p],

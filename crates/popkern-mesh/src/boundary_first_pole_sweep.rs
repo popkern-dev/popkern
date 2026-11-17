@@ -74,7 +74,8 @@ fn turns_past_quarter(brep: &BRep, edge: &Edge, pa: &Point3, pb: &Point3) -> boo
             ) {
                 return false;
             }
-            let (period_u, period_v) = surface.periodicity();
+            let (period_u, period_v) =
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
             // A chart point, `None` at a pole (no longitude there).
             let chart = |p: &Point3| {
                 let (u, v) = surface.closest_point(p)?;

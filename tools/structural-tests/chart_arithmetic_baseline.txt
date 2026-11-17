@@ -1,0 +1,41 @@
+# Chart-service period-ARITHMETIC ratchet baseline (PK-1228): per-file
+# counts of raw `periodic::` reductions outside the service. Only ever
+# lowered; W2 exits with this file empty.
+crates/popkern-assembly/src/mate_problem.rs 1
+crates/popkern-assembly/src/mate_reduced.rs 1
+crates/popkern-blend/src/construct/strip_overflow_sections.rs 2
+crates/popkern-blend/src/construct/tangent_chain_geometry.rs 2
+crates/popkern-bool/src/clip/clip_windows_clearance.rs 1
+crates/popkern-bool/src/closed_source_window.rs 1
+crates/popkern-bool/src/entity_lineage.rs 1
+crates/popkern-bool/src/intersect_band_lattice.rs 1
+crates/popkern-bool/src/merge/curve_split.rs 2
+crates/popkern-bool/src/merge/walk/chart_branches.rs 1
+crates/popkern-bool/src/merge/walk/chart_period_axes.rs 1
+crates/popkern-bool/src/merge/walk/chart_walk_next.rs 2
+crates/popkern-bool/src/postprocess/self_contact_torus.rs 1
+crates/popkern-core/src/euler/nonmanifold/imprint_edge_pinch.rs 1
+crates/popkern-core/src/geometry/analytic_closest.rs 1
+crates/popkern-core/src/geometry/apex_blend/sphere_fit.rs 4
+crates/popkern-core/src/geometry/curve_inversion_circular_arc.rs 2
+crates/popkern-core/src/geometry/edge_triple/verify.rs 1
+crates/popkern-core/src/geometry/intersection/cone_cone_apex.rs 1
+crates/popkern-core/src/geometry/intersection/contact_discovery.rs 1
+crates/popkern-core/src/geometry/intersection/cylinder_cylinder_singular.rs 1
+crates/popkern-core/src/geometry/intersection/marching_helpers.rs 2
+crates/popkern-core/src/geometry/intersection/plane_torus_spiric_frame.rs 2
+crates/popkern-core/src/geometry/intersection/radial_level_curve_trace.rs 1
+crates/popkern-core/src/geometry/uv_projection_clamped.rs 1
+crates/popkern-hinge/src/seam.rs 4
+crates/popkern-history/src/replay_primitive_names.rs 1
+crates/popkern-history/src/replay_primitive_wire.rs 1
+crates/popkern-history/src/resolve_revolve.rs 1
+crates/popkern-io/src/step/export_pcurve_same_parameter.rs 1
+crates/popkern-io/src/step/mapping/topology/edge_trim.rs 2
+crates/popkern-mesh/src/boundary_first_revolution.rs 2
+crates/popkern-mesh/src/boundary_first_revolution_bipolar.rs 1
+crates/popkern-mesh/src/boundary_first_wrap_slit.rs 1
+crates/popkern-mesh/src/chordal_boundary.rs 1
+crates/popkern-sketch/src/curve_convert.rs 1
+crates/popkern-sketch/src/profile_compile.rs 1
+# total 52

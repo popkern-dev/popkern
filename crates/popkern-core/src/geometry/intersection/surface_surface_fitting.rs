@@ -96,14 +96,14 @@ pub(crate) fn fit_marched_trace(
     // the seam (PK-443: a spring-grind section arc crossed the wall
     // seam mid-way; unsplit, the far side stayed on the wrong branch).
     let both_periodic = {
-        let (p1u, p1v) = surface1.periodicity();
-        let (p2u, p2v) = surface2.periodicity();
+        let (p1u, p1v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface1);
+        let (p2u, p2v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface2);
         (p1u.is_some() || p1v.is_some()) && (p2u.is_some() || p2v.is_some())
     };
     let chart_closed_nurbs = {
         let closed = |s: &SurfaceGeometry| {
             matches!(s, SurfaceGeometry::Nurbs(_)) && {
-                let (u, v) = crate::geometry::chart_periods::geometric_chart_periods(s);
+                let (u, v) = crate::geometry::chart::ChartDescriptor::periods_of(s);
                 u.is_some() || v.is_some()
             }
         };
@@ -159,8 +159,8 @@ pub(crate) fn fit_marched_trace(
             }
             hi - lo > 1.5 * p
         };
-        let (p1u, p1v) = surface1.periodicity();
-        let (p2u, p2v) = surface2.periodicity();
+        let (p1u, p1v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface1);
+        let (p2u, p2v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface2);
         wraps(0, p1u) || wraps(1, p1v) || wraps(2, p2u) || wraps(3, p2v)
     };
     // OPEN seam-crossing traces on mixed pairs segment too: the march
@@ -203,15 +203,15 @@ pub(crate) fn fit_marched_trace(
             }
             hi - lo > 0.5 * p
         };
-        let (p1u, p1v) = surface1.periodicity();
-        let (p2u, p2v) = surface2.periodicity();
+        let (p1u, p1v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface1);
+        let (p2u, p2v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface2);
         crosses(0, p1u) || crosses(1, p1v) || crosses(2, p2u) || crosses(3, p2v)
     };
     // A seam dip (jumps, no net winding) splits at its seam crossings
     // too (`surface_surface_seam_dip`).
     let seam_dip = {
-        let (p1u, p1v) = surface1.periodicity();
-        let (p2u, p2v) = surface2.periodicity();
+        let (p1u, p1v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface1);
+        let (p2u, p2v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface2);
         crate::geometry::intersection::surface_surface_seam_dip::dips_across_seam(
             samples,
             [p1u, p1v, p2u, p2v],
@@ -266,8 +266,8 @@ pub(crate) fn fit_marched_trace(
     }
     let segments = if is_closed && segments.len() > 1 {
         let combined = |s: &SurfaceGeometry| -> (Option<f64>, Option<f64>) {
-            let (au, av) = s.periodicity();
-            let (cu, cv) = crate::geometry::chart_periods::geometric_chart_periods(s);
+            let (au, av) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(s);
+            let (cu, cv) = crate::geometry::chart::ChartDescriptor::periods_of(s);
             (au.or(cu), av.or(cv))
         };
         let (p1u, p1v) = combined(surface1);

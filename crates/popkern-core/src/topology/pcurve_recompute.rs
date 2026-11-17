@@ -81,7 +81,7 @@ impl BRep {
         // For each half-edge without a pcurve (or with a degenerate one
         // on a periodic surface), compute a fresh pcurve.
         let is_periodic = {
-            let (pu, pv) = surface.periodicity();
+            let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface);
             pu.is_some() || pv.is_some()
         };
 
@@ -225,7 +225,8 @@ impl BRep {
                 // direction. The chain also unwraps CLOSED edges (drafted-
                 // cone rims collapsed to zero-span pcurves, ~640 cracked weld
                 // edges): the chained destination lands one period on.
-                let (period_u, period_v) = surface.periodicity();
+                let (period_u, period_v) =
+                    crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface);
                 let align = |value: f64, reference: f64, period: Option<f64>| -> f64 {
                     match period {
                         Some(period) if period > 0.0 => {

@@ -129,7 +129,7 @@ pub(super) fn slit_band(
         let clearance = 1.0e-5 * period;
         for ring in wrapped {
             for q in &ring.uv {
-                let d = (q.0 - u_star).rem_euclid(period);
+                let d = popkern_math::periodic::offset_mod(q.0, u_star, period);
                 if d < clearance || period - d < clearance {
                     return false;
                 }

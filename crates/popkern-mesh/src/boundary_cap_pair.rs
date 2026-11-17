@@ -60,7 +60,7 @@ fn vertex_at(
     // The chord's own branch of a periodic chart: a projection lands in
     // the principal range, and a helical strip's chart is unwrapped
     // over many turns (the new vertex sat whole turns from its chord).
-    let (pu, pv) = surface.periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let align = |x: f64, near: f64, period: Option<f64>| match period {
         Some(p) if p > 0.0 => x - ((x - near) / p).round() * p,
         _ => x,

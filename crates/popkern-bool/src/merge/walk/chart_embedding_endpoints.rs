@@ -29,7 +29,8 @@ pub(crate) fn endpoint_projection(
     let ua = project_point_to_uv_multisheet(surface, &a)?;
     let (mut ub, mut vb) = project_point_to_uv_near(surface, &b, ua.0, ua.1)
         .or_else(|| project_point_to_uv_multisheet(surface, &b))?;
-    let (pp_u, pp_v) = surface.parameter_periodicity();
+    let (pp_u, pp_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     if let Some(pp) = pp_u {
         ub += ((ua.0 - ub) / pp).round() * pp;
     }
@@ -57,7 +58,10 @@ pub(crate) fn snap_end_azimuths(
     refined: (Option<Uv>, Option<Uv>),
 ) {
     let n = uv.len();
-    if let (Some(period), true) = (surface.parameter_periodicity().0, n >= 2) {
+    if let (Some(period), true) = (
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0,
+        n >= 2,
+    ) {
         for (end, node) in [(0, ends.0), (n - 1, ends.1)] {
             let (u, v) = uv[end];
             if super::chart_poles::row_collapses(surface, u, v) {

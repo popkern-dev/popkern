@@ -363,7 +363,10 @@ pub(crate) fn rescue(
         }
     }
     let wrap = |a: f64| {
-        (a + std::f64::consts::PI).rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI
+        popkern_core::geometry::chart::periodic::modulo(
+            a + std::f64::consts::PI,
+            std::f64::consts::TAU,
+        ) - std::f64::consts::PI
     };
     let mut best: Option<((f64, f64), Vec<f64>)> = None;
     for (s, seed) in seeds.into_iter().enumerate() {

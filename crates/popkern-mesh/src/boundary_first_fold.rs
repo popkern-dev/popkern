@@ -25,10 +25,10 @@ pub(crate) fn ring_chain_periods(
         .and_then(|l| brep.faces.get(l.face))
         .and_then(|f| f.surface.as_ref())
         .map(|sof| {
-            use popkern_core::geometry::SurfaceEval;
-            let analytic = sof.geometry.parameter_periodicity();
-            let chart =
-                popkern_core::geometry::chart_periods::geometric_chart_periods(&sof.geometry);
+            let analytic = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(
+                &sof.geometry,
+            );
+            let chart = popkern_core::geometry::chart::ChartDescriptor::periods_of(&sof.geometry);
             (analytic.0.or(chart.0), analytic.1.or(chart.1))
         })
         .unwrap_or((None, None))

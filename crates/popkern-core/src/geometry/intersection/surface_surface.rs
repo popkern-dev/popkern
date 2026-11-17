@@ -344,8 +344,8 @@ fn intersect_surfaces_inner(
     // Periodicity here includes geometrically-closed NURBS charts —
     // the march wraps their seam instead of terminating on it (see
     // `geometry::chart_periods`).
-    let (periodic_u1, periodic_v1) = crate::geometry::chart_periods::marching_periodicity(surface1);
-    let (periodic_u2, periodic_v2) = crate::geometry::chart_periods::marching_periodicity(surface2);
+    let (periodic_u1, periodic_v1) = crate::geometry::chart::ChartDescriptor::closed_of(surface1);
+    let (periodic_u2, periodic_v2) = crate::geometry::chart::ChartDescriptor::closed_of(surface2);
     let march_u1 = pad_window(u1_range, periodic_u1);
     let march_v1 = pad_window(v1_range, periodic_v1);
     let march_u2 = pad_window(u2_range, periodic_u2);

@@ -225,7 +225,7 @@ fn image_scan_count(pcurve: &Pcurve, surface: &SurfaceGeometry) -> usize {
             2 * (spans_in(&s.knots_u, u_lo, u_hi) + spans_in(&s.knots_v, v_lo, v_hi))
         }
         _ => {
-            let (pu, pv) = surface.parameter_periodicity();
+            let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
             let wraps = |period: Option<f64>, extent: f64| match period {
                 Some(p) if p > 0.0 && extent.is_finite() => (extent / p).ceil() as usize,
                 _ => 0,

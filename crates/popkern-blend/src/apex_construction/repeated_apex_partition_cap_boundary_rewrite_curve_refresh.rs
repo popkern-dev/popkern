@@ -345,7 +345,8 @@ fn projected_shared_trim_pcurve(
 ) -> Option<Pcurve> {
     let forward = half_edge_curve_forward(brep, half_edge, curve)?;
     let samples = sample_count.max(2);
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut prev_uv = None;
     let mut uv_points = Vec::with_capacity(samples);
     let mut params = Vec::with_capacity(samples);

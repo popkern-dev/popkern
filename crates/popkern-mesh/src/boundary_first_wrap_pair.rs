@@ -138,7 +138,8 @@ fn band_side(
     transposed: bool,
 ) -> Option<Vec<BoundaryRing>> {
     let [a, b] = rings else { return None };
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let cross = if transposed { period_u } else { period_v }?;
     let mean = |r: &BoundaryRing| r.uv.iter().map(|q| q.1).sum::<f64>() / r.uv.len().max(1) as f64;
     let (low, high) = if mean(a) <= mean(b) { (a, b) } else { (b, a) };

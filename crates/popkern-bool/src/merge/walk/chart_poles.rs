@@ -65,7 +65,7 @@ pub(crate) fn snap_pole_end_azimuths(
         return;
     }
     let off_pole = |q: &(f64, f64)| !row_collapses(surface, q.0, q.1);
-    let period = surface.parameter_periodicity().0;
+    let period = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0;
     for (end, inward, refined) in [(0, true, refined_first), (n - 1, false, refined_last)] {
         if off_pole(&uv[end]) {
             continue;

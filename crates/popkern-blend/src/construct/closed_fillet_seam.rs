@@ -329,7 +329,9 @@ pub(super) fn author_strip_seam_curve(
     // chart, and the seam's pcurves become a diagonal through every
     // u (measured: OCC flagged the strip wire self-intersecting).
     // Align u_b to u_a's branch — the seam is a single station.
-    if let Some(period) = surface.parameter_periodicity().0 {
+    if let Some(period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0
+    {
         uv_b.0 -= period * ((uv_b.0 - uv_a.0) / period).round();
     }
     // The v direction needs the same branch discipline (PK-285): on
@@ -340,7 +342,9 @@ pub(super) fn author_strip_seam_curve(
     // its 17-point polyline chords then sag 2.2e-2 into the tube,
     // the boundary-first tessellator rejects the ring and the strip
     // cracks open along both contact circles).
-    if let Some(period) = surface.parameter_periodicity().1 {
+    if let Some(period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).1
+    {
         uv_b.1 -= period * ((uv_b.1 - uv_a.1) / period).round();
     }
     if let Some(iso) = exact_nurbs_iso_seam(surface, uv_a, uv_b, p_out, p_in, tolerance) {

@@ -68,7 +68,7 @@ pub fn closest_point_from_seeds(
 ) -> Option<(f64, f64)> {
     // Seeds may lie past the domain (a periodic form's extended knots):
     // the surface's wrap is read once, not per seed (PK-1223).
-    let wrap = surface.evaluation_wrap();
+    let wrap = crate::geometry::chart::ChartDescriptor::evaluation_wrap_of(surface);
     let mut ranked: Vec<(f64, (f64, f64))> = seeds
         .iter()
         .map(|&(u, v)| {
@@ -151,7 +151,7 @@ fn gauss_newton_over_starts(
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
     // The surface's own parameter wrap, read once: a free periodic axis
     // steps out of the domain on nearly every evaluation (PK-1223).
-    let wrap = surface.evaluation_wrap();
+    let wrap = crate::geometry::chart::ChartDescriptor::evaluation_wrap_of(surface);
     let at = |u: f64, v: f64| {
         let (u, v) = wrap.apply(u, v);
         surface.point_at(u, v)

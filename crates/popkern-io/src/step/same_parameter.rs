@@ -386,7 +386,8 @@ impl<'a> PcurveTrack<'a> {
 
 /// `uv` shifted by whole surface periods to lie nearest `reference`.
 fn unwrap_periodic(surface: &SurfaceOnFace, reference: (f64, f64), uv: (f64, f64)) -> (f64, f64) {
-    let (pu, pv) = surface.geometry.parameter_periodicity();
+    let (pu, pv) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface.geometry);
     let near = |r: f64, x: f64, period: Option<f64>| match period {
         Some(p) if p > 0.0 => x + p * ((r - x) / p).round(),
         _ => x,

@@ -84,7 +84,7 @@ pub(super) fn decisive_windows(
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.periodicity())
+        .map(|s| popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry))
         .unwrap_or((None, None));
     let boundary_clearance = super::clip_windows_clearance::boundary_clearance_samples(brep, face);
     let near_boundary_at = |t: f64| -> bool {

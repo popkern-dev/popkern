@@ -171,7 +171,7 @@ fn covering_arc(intervals: impl Iterator<Item = (f64, f64)>, period: f64) -> Opt
         if b - a >= period {
             return Some((0.0, period));
         }
-        let s = a.rem_euclid(period);
+        let s = popkern_core::geometry::chart::periodic::modulo(a, period);
         arcs.push((s, s + (b - a)));
     }
     arcs.sort_by(|x, y| x.0.total_cmp(&y.0));

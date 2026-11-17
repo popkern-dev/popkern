@@ -48,7 +48,7 @@ pub(super) fn wrap_parameter(u: f64, u_range: (f64, f64), period: Option<f64>) -
     }
     // Modular arithmetic instead of a while loop: bounded work for
     // extreme values.
-    let wrapped = u_range.0 + (u - u_range.0).rem_euclid(p);
+    let wrapped = u_range.0 + crate::geometry::chart::periodic::modulo(u - u_range.0, p);
     if wrapped <= u_range.1 || window_covers_period(u_range, p) {
         return wrapped;
     }
@@ -191,14 +191,14 @@ pub(super) fn principal_branch_seed(
     v2_range: (f64, f64),
 ) -> super::MarchSample {
     let real = |analytic: Option<f64>, chart: Option<f64>| analytic.or(chart);
-    let (a1u, a1v) = surface1.periodicity();
-    let (c1u, c1v) = crate::geometry::chart_periods::geometric_chart_periods(surface1);
-    let (a2u, a2v) = surface2.periodicity();
-    let (c2u, c2v) = crate::geometry::chart_periods::geometric_chart_periods(surface2);
+    let (a1u, a1v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface1);
+    let (c1u, c1v) = crate::geometry::chart::ChartDescriptor::periods_of(surface1);
+    let (a2u, a2v) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface2);
+    let (c2u, c2v) = crate::geometry::chart::ChartDescriptor::periods_of(surface2);
     let wrap = |x: f64, range: (f64, f64), p: Option<f64>| -> f64 {
         match p {
             Some(p) if p.is_finite() && p > 0.0 && x.is_finite() => {
-                range.0 + (x - range.0).rem_euclid(p)
+                range.0 + crate::geometry::chart::periodic::modulo(x - range.0, p)
             }
             _ => x,
         }

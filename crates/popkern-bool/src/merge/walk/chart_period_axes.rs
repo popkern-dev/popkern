@@ -88,7 +88,7 @@ pub(super) fn face_v_window(
             for i in 0..=16 {
                 let q = pcurve.point_at(t0 + (t1 - t0) * i as f64 / 16.0);
                 if q.y.is_finite() {
-                    vs.push(q.y.rem_euclid(period));
+                    vs.push(popkern_core::geometry::chart::periodic::modulo(q.y, period));
                 }
             }
         }

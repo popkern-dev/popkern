@@ -67,7 +67,7 @@ fn three_point_arc(a: (f64, f64), via: (f64, f64), b: (f64, f64)) -> Result<Arc2
     let a0 = (ay - cy).patan2(ax - cx);
     let a_v = (vy - cy).patan2(vx - cx);
     let a1 = (by - cy).patan2(bx - cx);
-    let norm = |t: f64| t.rem_euclid(std::f64::consts::TAU);
+    let norm = |t: f64| popkern_core::geometry::chart::periodic::modulo(t, std::f64::consts::TAU);
     let ccw_v = norm(a_v - a0);
     let ccw_1 = norm(a1 - a0);
     let sweep = if ccw_v <= ccw_1 {

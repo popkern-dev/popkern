@@ -85,7 +85,7 @@ fn check_uv_box(pcurve: &Pcurve, surf: &SurfaceGeometry, tol: &Tolerance) -> Res
         return Ok(());
     }
     let pad = tol.parametric_base();
-    let (u_period, v_period) = surf.parameter_periodicity();
+    let (u_period, v_period) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surf);
     // Reduce a CP coordinate to its canonical-range representative
     // when the parameter is periodic. The surface evaluation is
     // identical at any `c + k·period`, so a CP at `−ε` is equivalent
@@ -97,7 +97,7 @@ fn check_uv_box(pcurve: &Pcurve, surf: &SurfaceGeometry, tol: &Tolerance) -> Res
                 if (span - p).abs() > 1.0e-9 {
                     return c; // box doesn't span a full period — treat strict
                 }
-                lo + (c - lo).rem_euclid(p)
+                lo + crate::geometry::chart::periodic::modulo(c - lo, p)
             }
             _ => c,
         }

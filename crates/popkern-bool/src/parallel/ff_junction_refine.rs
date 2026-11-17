@@ -64,8 +64,10 @@ pub(super) fn refine_record_junction_endpoints(
     if cell_a.is_none() && cell_b.is_none() {
         return;
     }
-    let (pu_a, pv_a) = surf_a.periodicity();
-    let (pu_b, pv_b) = surf_b.periodicity();
+    let (pu_a, pv_a) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surf_a);
+    let (pu_b, pv_b) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surf_b);
     let seam_of = |s: &SurfaceGeometry| {
         use popkern_core::geometry::surface::SurfaceEval as _;
         let ((u0, _), (v0, _)) = s.parameter_range();

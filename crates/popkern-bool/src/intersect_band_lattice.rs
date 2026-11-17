@@ -47,7 +47,7 @@ fn partial_seam(brep: &BRep, face: FaceHandle) -> Option<PartialSeam> {
     if matches!(surface, SurfaceGeometry::Nurbs(_)) {
         return None;
     }
-    let period = surface.periodicity().0?;
+    let period = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0?;
     let ((_, _), (v0, v1)) = brep.face_trim_uv_window(face)?;
     let mut seam: Option<(f64, f64, f64)> = None;
     for l in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
@@ -67,7 +67,11 @@ fn partial_seam(brep: &BRep, face: FaceHandle) -> Option<PartialSeam> {
                     let (lo, hi) = (a.y.min(b.y), a.y.max(b.y));
                     seam = Some(match seam {
                         Some((u, l0, h0)) => (u, l0.min(lo), h0.max(hi)),
-                        None => (a.x.rem_euclid(period), lo, hi),
+                        None => (
+                            popkern_core::geometry::chart::periodic::modulo(a.x, period),
+                            lo,
+                            hi,
+                        ),
                     });
                 }
             }

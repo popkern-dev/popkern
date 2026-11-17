@@ -50,7 +50,7 @@ pub(super) fn strip_plane_section(
     let raw2 = project_point_to_uv(surface, &q2)
         .ok_or_else(|| "terminal section: rail end 2 has no chart point".to_string())?;
     // Same period branch as the first end: the short way round.
-    let (pu, pv) = surface.periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let near = |x: f64, to: f64, p: Option<f64>| match p {
         Some(p) if p > 0.0 => x + ((to - x) / p).round() * p,
         _ => x,

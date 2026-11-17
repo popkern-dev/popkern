@@ -275,13 +275,18 @@ fn extrude_knuckle(
     let (from, to) = if side < 0.0 {
         // Below the seam: from the near point clockwise over the top.
         (
-            start.rem_euclid(std::f64::consts::TAU),
-            end.rem_euclid(std::f64::consts::TAU) - std::f64::consts::TAU,
+            popkern_core::geometry::chart::periodic::modulo(start, std::f64::consts::TAU),
+            popkern_core::geometry::chart::periodic::modulo(end, std::f64::consts::TAU)
+                - std::f64::consts::TAU,
         )
     } else {
         // Above: the mirror, counter-clockwise under the bottom.
-        let s = start.rem_euclid(std::f64::consts::TAU) - std::f64::consts::TAU;
-        (s, end.rem_euclid(std::f64::consts::TAU))
+        let s = popkern_core::geometry::chart::periodic::modulo(start, std::f64::consts::TAU)
+            - std::f64::consts::TAU;
+        (
+            s,
+            popkern_core::geometry::chart::periodic::modulo(end, std::f64::consts::TAU),
+        )
     };
     let mut segments = vec![PathSegment::Line { to: [n_near, near] }];
     segments.extend(arc_pieces(seam, [a, 0.0], r, from, to, [n_far, far]));

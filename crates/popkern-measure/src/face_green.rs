@@ -32,6 +32,8 @@
 use crate::planar_area::traverses_forward;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::analytic_surfaces::analytic_signed_distance;
+use popkern_core::geometry::chart::ChartDescriptor;
+use popkern_core::geometry::chart::ops::{aligned, shift_toward, singular_point_near};
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -248,15 +250,11 @@ fn misfits(
     Some((on_pcurve, on_curve))
 }
 
-/// Whether the chart point `q` lies on a pole of `surface`: its `u`
-/// partial vanishes beside its `v` partial (a sphere's pole, a cone's
-/// apex), to the ratio the volume quadrature reads a pole corner by.
-fn at_pole(surface: &SurfaceGeometry, q: Point3) -> bool {
-    let (su, sv) = (
-        surface.partial_u(q.x, q.y).length(),
-        surface.partial_v(q.x, q.y).length(),
-    );
-    su <= 1e-4 * sv
+/// Whether the chart point `q` lies on a pole or apex of `surface`, asked
+/// of the chart service in space: its image within the linear tolerance
+/// of a singular row's point.
+fn at_pole(surface: &SurfaceGeometry, descriptor: &ChartDescriptor, q: Point3) -> bool {
+    singular_point_near(descriptor, &surface.point_at(q.x, q.y), descriptor.linear).is_some()
 }
 
 /// The face's area by its boundary integral, or `None` when its surface
@@ -267,11 +265,14 @@ pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f6
     let surface = f.surface.as_ref()?;
     let antiderivative = Antiderivative::of(&surface.geometry)?;
     let g = |v: f64| antiderivative.at(v);
-    let (period, v_period) = surface.geometry.parameter_periodicity();
-    let period = period?;
-    let wrap = |d: f64| d - period * (d / period).round();
+    // The chart's periods and lifts, from the chart service.
+    let descriptor = ChartDescriptor::of(&surface.geometry, &brep.tolerance);
+    descriptor.u?;
+    let v_period = descriptor.v.map(|c| c.period);
+    // A u difference brought to its branch nearest zero.
+    let wrap = |d: f64| aligned(&descriptor, (d, 0.0), (0.0, 0.0)).0;
     // The whole periods that bring `v` nearest `near`, on a v-periodic chart.
-    let v_lift = |v: f64, near: f64| v_period.map_or(0.0, |p| p * ((near - v) / p).round());
+    let v_lift = |v: f64, near: f64| shift_toward(&descriptor, (0.0, v), (0.0, near)).1;
     let mut total = 0.0;
     for l in std::iter::once(f.outer_loop).chain(f.inner_loops.iter().copied()) {
         let start = brep.loops.get(l)?.half_edge;
@@ -333,7 +334,9 @@ pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f6
                 // bounds no area, where one at the end does (Viviani's
                 // cap with the ball's poles on its rim read 1.9e-5
                 // short, its pole ends' longitude 4e-7 off, PK-1169).
-                let at = if at_pole(&surface.geometry, start) && !at_pole(&surface.geometry, end) {
+                let at = if at_pole(&surface.geometry, &descriptor, start)
+                    && !at_pole(&surface.geometry, &descriptor, end)
+                {
                     start
                 } else {
                     end

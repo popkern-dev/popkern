@@ -12,7 +12,7 @@
 
 use crate::geometry::Point3;
 use crate::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
-use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
 
 /// True when both faces lie on the same analytic surface AND their
@@ -28,7 +28,7 @@ pub(super) fn same_surface_domains_disjoint(
     if !are_surfaces_coincident_analytic(geom_i, geom_j, tolerance) {
         return false;
     }
-    let (pu, pv) = geom_i.parameter_periodicity();
+    let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(geom_i);
     // Coherent boxes by corner-chaining: the raw exact ranges wrap at
     // chart-branch corners (a quarter patch touching v = 2π projects
     // corners to v = 0 and its box balloons across the chart), so

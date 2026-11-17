@@ -142,7 +142,7 @@ pub(crate) fn try_radial_level_curve(
     // loft sections) keep their tuned seam machinery (PK-443/444):
     // their level sets can be chart-wrapping loops, not graphs.
     {
-        let (pu, pv) = crate::geometry::chart_periods::geometric_chart_periods(wall);
+        let (pu, pv) = crate::geometry::chart::ChartDescriptor::periods_of(wall);
         if pu.is_some() || pv.is_some() {
             return None;
         }

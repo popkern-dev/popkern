@@ -326,8 +326,14 @@ fn solve_circle_plane_intersection(
     let theta1 = phi + alpha;
     let theta2 = phi - alpha;
     // Pick the solution in `[0, TAU)`.
-    let theta1 = (theta1.rem_euclid(TAU)).rem_euclid(TAU);
-    let theta2 = (theta2.rem_euclid(TAU)).rem_euclid(TAU);
+    let theta1 = crate::geometry::chart::periodic::modulo(
+        crate::geometry::chart::periodic::modulo(theta1, TAU),
+        TAU,
+    );
+    let theta2 = crate::geometry::chart::periodic::modulo(
+        crate::geometry::chart::periodic::modulo(theta2, TAU),
+        TAU,
+    );
     // Disambiguation: pick the smaller angle (closer to theta=0).
     // For cube corner this gives the consistent endpoint.
     Ok(if theta1 <= theta2 { theta1 } else { theta2 })

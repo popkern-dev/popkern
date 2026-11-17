@@ -129,7 +129,8 @@ fn find_merge_candidates_in(
         // by its pcurve window. Such faces group with neighbours
         // wrapping the same axis while the bounded axis stays strictly
         // inside one period.
-        let (u_period, v_period) = surf.geometry.periodicity();
+        let (u_period, v_period) =
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&surf.geometry);
         let periods = u_period.zip(v_period);
         let mut group_span: Option<ChartSpan> = None;
         if let Some(periods) = periods {
@@ -260,7 +261,12 @@ fn rechart_doubly_periodic(brep: &mut BRep, surviving: popkern_core::topology::L
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .is_some_and(|s| matches!(s.geometry.periodicity(), (Some(_), Some(_))));
+        .is_some_and(|s| {
+            matches!(
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry),
+                (Some(_), Some(_))
+            )
+        });
     if doubly {
         brep.normalize_loop_chart_continuity(&[face]);
     }

@@ -93,7 +93,7 @@ pub(super) fn attach_torus_pcurves(brep: &mut BRep) -> Result<(), CoreError> {
             .and_then(|p| project_point_to_uv(&surface, &p))
             .or_else(|| project_point_to_uv(&surface, &p_mid));
         let (u0, v0, u1, v1) = if let Some((um, vm)) = mid_uv {
-            let (pu, pv) = surface.periodicity();
+            let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface);
             let near = |x: f64, anchor: f64, period: Option<f64>| match period {
                 Some(p) if p.is_finite() && p > 0.0 => x - ((x - anchor) / p).round() * p,
                 _ => x,

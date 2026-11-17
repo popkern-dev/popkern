@@ -72,7 +72,7 @@ impl BRep {
                     samples_per_pcurve,
                     query,
                     band,
-                    surface.parameter_periodicity(),
+                    crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface),
                 );
                 for (sample, t) in stations.into_iter().enumerate() {
                     let uv = pcurve.point_at(t);

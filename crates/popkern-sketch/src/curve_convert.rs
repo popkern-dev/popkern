@@ -103,7 +103,7 @@ fn directed_arc(
     let ccw = (elem_end >= elem_start) != directed.reversed;
     let start_angle = (directed.start.1 - cy).patan2(directed.start.0 - cx);
     let end_angle = (directed.end.1 - cy).patan2(directed.end.0 - cx);
-    let forward = (end_angle - start_angle).rem_euclid(TAU);
+    let forward = popkern_core::geometry::chart::periodic::modulo(end_angle - start_angle, TAU);
     let magnitude = if ccw { forward } else { TAU - forward };
     // Coincident endpoints on an arc element mean a full turn (a
     // split circle's halves never coincide).

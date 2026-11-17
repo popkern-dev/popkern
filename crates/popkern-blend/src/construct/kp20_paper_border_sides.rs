@@ -226,8 +226,8 @@ pub(super) fn unwrap_onto(
     anchor: (f64, f64),
     uv: (f64, f64),
 ) -> (f64, f64) {
-    use popkern_core::geometry::surface::SurfaceEval;
-    let (period_u, period_v) = surface.parameter_periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let near = |value: f64, anchor: f64, period: Option<f64>| match period {
         Some(t) if t > 0.0 => value - ((value - anchor) / t).round() * t,
         _ => value,

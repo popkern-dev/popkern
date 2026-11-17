@@ -268,8 +268,9 @@ pub(crate) fn c0_breaks(surface: &SurfaceGeometry) -> C0Breaks {
     // A periodic chart's lifted triangles are cut at the domain's ends
     // and shifted into it.
     let domain = |degree: usize, knots: &[f64], p: Option<f64>| p.map(|p| (knots[degree], p));
-    breaks.wrap_u = domain(n.degree_u, &n.knots_u, n.u_period());
-    breaks.wrap_v = domain(n.degree_v, &n.knots_v, n.v_period());
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
+    breaks.wrap_u = domain(n.degree_u, &n.knots_u, pu);
+    breaks.wrap_v = domain(n.degree_v, &n.knots_v, pv);
     for (wrap, lines) in [
         (breaks.wrap_u, &mut breaks.u),
         (breaks.wrap_v, &mut breaks.v),

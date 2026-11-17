@@ -45,7 +45,7 @@ fn locate_converges_on_a_fast_nurbs_trim() {
         let n = (-d.y, d.x);
         let len = (n.0 * n.0 + n.1 * n.1).sqrt();
         let q = (p.x + 0.01 * n.0 / len, p.y + 0.01 * n.1 / len);
-        let (t, distance) = locate(&trim, q, (None, None));
+        let (t, distance) = locate(&trim, q, &unbounded_chart());
         assert!((t - foot).abs() < 1e-10, "foot {foot}: located {t}");
         assert!((distance - 0.01).abs() < 1e-10, "foot {foot}: {distance}");
     }
@@ -86,4 +86,16 @@ fn a_chord_from_a_pole_vertex_keeps_its_sliver() {
             "turn {turn}: {v} for {want}"
         );
     }
+}
+
+/// A chart with no periods and no singular rows (a plane's).
+fn unbounded_chart() -> std::rc::Rc<ChartDescriptor> {
+    use popkern_core::geometry::Vec3;
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+    };
+    ChartDescriptor::of(&plane, &popkern_core::tolerance::Tolerance::default())
 }

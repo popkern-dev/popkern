@@ -233,7 +233,8 @@ impl FaceTrimEntry {
 fn build_entry(body: &BRep, fh: FaceHandle) -> Option<FaceTrimEntry> {
     let face = body.faces.get(fh)?;
     let surface = face.surface.as_ref()?.geometry.clone();
-    let periodicity = surface.parameter_periodicity();
+    let periodicity =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface);
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
 

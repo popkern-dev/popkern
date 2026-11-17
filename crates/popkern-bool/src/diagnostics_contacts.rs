@@ -92,13 +92,12 @@ pub(crate) fn window(
     face: FaceHandle,
     s: &SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
-    use popkern_core::geometry::surface::SurfaceEval;
     let (mut u, mut v) = tight_bounded_parameter_range(
         &brep.face_outer_loop_sample_positions(face, LOOP_SAMPLES),
         s,
     );
     if has_seam(brep, face) {
-        let (pu, pv) = s.parameter_periodicity();
+        let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(s);
         if let Some(p) = pu {
             u = (u.0, u.0 + p);
         }

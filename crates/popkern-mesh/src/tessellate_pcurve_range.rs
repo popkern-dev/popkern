@@ -19,7 +19,8 @@ pub(super) fn pcurve_parameter_range(
 ) -> Option<((f64, f64), (f64, f64))> {
     let face = brep.faces.get(face_handle)?;
     let surface = face.surface.as_ref()?;
-    let (period_u, period_v) = surface.geometry.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface.geometry);
 
     let loop_ = brep.loops.get(face.outer_loop)?;
     let start_he = loop_.half_edge;

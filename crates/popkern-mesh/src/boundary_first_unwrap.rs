@@ -193,7 +193,8 @@ pub(super) fn place_rings_on_chart(
 }
 
 pub(super) fn align_hole_sheets(rings: &mut [BoundaryRing], surface: &SurfaceGeometry) {
-    let (period_u, period_v) = surface.parameter_periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let offsets = |period: Option<f64>| -> Vec<f64> {
         match period {
             Some(p) if p > 0.0 => [0.0, -1.0, 1.0, -2.0, 2.0].iter().map(|k| k * p).collect(),

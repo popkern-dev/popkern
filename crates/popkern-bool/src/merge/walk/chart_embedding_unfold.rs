@@ -1,7 +1,7 @@
 //! Period-fold unfolding for pcurve-sourced chart embedding runs
 //! (split from `chart_embedding.rs` under the 500-line file budget).
 
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 
 /// PERIOD-FOLD UNFOLDING (PK-491): stored pcurves are normalized
 /// into one canonical period branch, so a record crossing the
@@ -26,7 +26,8 @@ pub(super) fn unfold_pcurve_run(
     refined_first: &mut Option<(f64, f64)>,
     refined_last: &mut Option<(f64, f64)>,
 ) {
-    let (u_analytic, v_period) = surface.parameter_periodicity();
+    let (u_analytic, v_period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let (u_chart, v_chart) = crate::clip::classification_chart_periods(surface);
     let u_period = u_analytic.or(u_chart);
     let v_period = v_period.or(v_chart);
@@ -84,7 +85,8 @@ pub(super) fn run_parameters(
     (s0, s1): (f64, f64),
     n: usize,
 ) -> Vec<f64> {
-    let (u_analytic, v_analytic) = surface.parameter_periodicity();
+    let (u_analytic, v_analytic) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let (u_chart, v_chart) = crate::clip::classification_chart_periods(surface);
     let periods = [u_analytic.or(u_chart), v_analytic.or(v_chart)];
     let wide = |a: f64, b: f64| -> bool {

@@ -83,7 +83,8 @@ pub(crate) fn sample_loop_with_samples(
                 let (t0p, t1p) = pcurve.parameter_range();
                 let a = pcurve.point_at(t0p);
                 let b = pcurve.point_at(t1p);
-                let (period_u, period_v) = surface.periodicity();
+                let (period_u, period_v) =
+                    popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
                 let wide =
                     |d: f64, p: Option<f64>| p.is_some_and(|p| p > 0.0 && d.abs() >= 0.4 * p);
                 if wide(b.x - a.x, period_u) || wide(b.y - a.y, period_v) {
@@ -259,7 +260,8 @@ fn wide_step(
     t0: f64,
     t1: f64,
 ) -> bool {
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let (a, b) = (pcurve.point_at(t0), pcurve.point_at(t1));
     [(b.x - a.x, period_u), (b.y - a.y, period_v)]
         .iter()

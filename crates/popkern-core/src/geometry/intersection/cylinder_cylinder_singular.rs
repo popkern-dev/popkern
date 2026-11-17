@@ -102,7 +102,10 @@ pub(super) fn singular_crossings(
             continue;
         }
         let theta = i as f64 * step;
-        let star = refine_minimum(quad, theta - step, theta + step).rem_euclid(TAU);
+        let star = crate::geometry::chart::periodic::modulo(
+            refine_minimum(quad, theta - step, theta + step),
+            TAU,
+        );
         let (d, b, c) = quad(star);
         // `D = b² − 4ac` cancels at a double root: its rounding floor
         // is a few ulps of the terms, which can exceed the tolerance

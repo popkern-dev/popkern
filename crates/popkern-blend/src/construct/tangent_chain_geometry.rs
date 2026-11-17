@@ -104,7 +104,8 @@ pub(super) fn trim_piece(
             d.dot(&e2).patan2(d.dot(&e1))
         };
         let a0 = ang(a);
-        let mut sweep = (ang(b) - a0).rem_euclid(std::f64::consts::TAU);
+        let mut sweep =
+            popkern_core::geometry::chart::periodic::modulo(ang(b) - a0, std::f64::consts::TAU);
         if sweep < 1e-12 {
             sweep = std::f64::consts::TAU;
         }
@@ -297,7 +298,8 @@ pub(super) fn section_arc(
             d.dot(&e2).patan2(d.dot(&e1))
         };
         let a0 = ang(cp);
-        let sweep = (ang(cq) - a0).rem_euclid(std::f64::consts::TAU);
+        let sweep =
+            popkern_core::geometry::chart::periodic::modulo(ang(cq) - a0, std::f64::consts::TAU);
         if sweep > 1e-12 && sweep < std::f64::consts::PI {
             return Some(CurveOnEdge {
                 geometry: CurveGeometry::Arc {

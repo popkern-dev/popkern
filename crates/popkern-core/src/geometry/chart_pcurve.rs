@@ -47,7 +47,8 @@ pub fn fit_chart_pcurve(
         return None;
     }
     let gate = tolerance.linear().max(1.0e-9);
-    let (period_u, period_v) = surface.parameter_periodicity();
+    let (period_u, period_v) =
+        crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
 
     let unwrap = |x: f64, prev: Option<f64>, period: Option<f64>| -> f64 {
         match (prev, period) {

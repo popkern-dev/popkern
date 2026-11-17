@@ -138,7 +138,8 @@ fn split_circle(
 ) -> (CurveOnEdge, CurveOnEdge) {
     let split_angle = angle_in_circle_frame(split_point, center, normal);
     // Normalize into [0, 2pi).
-    let split_angle = split_angle.rem_euclid(std::f64::consts::TAU);
+    let split_angle =
+        popkern_core::geometry::chart::periodic::modulo(split_angle, std::f64::consts::TAU);
 
     let first = CurveOnEdge {
         geometry: CurveGeometry::Arc {
@@ -178,7 +179,8 @@ fn split_arc(
     split_point: Point3,
 ) -> (CurveOnEdge, CurveOnEdge) {
     let split_angle = angle_in_circle_frame(split_point, center, normal);
-    let split_angle = split_angle.rem_euclid(std::f64::consts::TAU);
+    let split_angle =
+        popkern_core::geometry::chart::periodic::modulo(split_angle, std::f64::consts::TAU);
 
     let first = CurveOnEdge {
         geometry: CurveGeometry::Arc {

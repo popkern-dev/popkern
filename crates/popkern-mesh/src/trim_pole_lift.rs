@@ -134,7 +134,10 @@ pub(crate) fn cover_outer_trim(
     trim_loops: &[crate::trim::TrimLoop],
     surface: &SurfaceGeometry,
 ) -> (f64, f64) {
-    let Some(p) = surface.periodicity().0.filter(|p| *p > 0.0) else {
+    let Some(p) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface)
+        .0
+        .filter(|p| *p > 0.0)
+    else {
         return u_range;
     };
     let Some(outer) = trim_loops.iter().find(|l| l.is_outer) else {

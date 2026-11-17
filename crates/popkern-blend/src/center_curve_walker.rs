@@ -83,8 +83,10 @@ pub fn walker_based_center_curve(
         // the wrapped-UV problem from closest_point on periodic
         // surfaces (§12.3 blend-on-blend).
         initial_seed: pcurve_seed,
-        surface_0_periodicity: surface1.periodicity(),
-        surface_1_periodicity: surface2.periodicity(),
+        surface_0_periodicity:
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface1),
+        surface_1_periodicity:
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface2),
     };
     // §12.3: when a pcurve seed is available, enable UV clamping
     // as a safety net for periodic surfaces. LM damping helps

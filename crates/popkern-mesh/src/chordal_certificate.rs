@@ -167,7 +167,7 @@ fn certify_face(
         Err(e) => return inconclusive(out, ChordalInconclusive::Decline(e)),
     };
     let breaks = c0_breaks(surface);
-    let periods = surface.periodicity();
+    let periods = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut bound_piece = |piece: &Piece| match piece {
         Piece::Triangle(w, p) => triangle_chord_bound(&mut source, &breaks, *w, *p, tolerance),
         Piece::Rectangle(u, v, c) => {

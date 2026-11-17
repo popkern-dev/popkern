@@ -158,7 +158,7 @@ pub(super) fn dense_pass(
 
 /// Principal-branch image of an unwrapped angle, in (-π, π].
 pub(super) fn branch_angle(theta: f64) -> f64 {
-    let mut t = theta.rem_euclid(TAU);
+    let mut t = crate::geometry::chart::periodic::modulo(theta, TAU);
     if t > PI {
         t -= TAU;
     }

@@ -465,7 +465,8 @@ fn extract_fillet_end_near_vertex(
     // parameter is angular (period `TAU`). Walking linearly from
     // `u1` to `u2` may take the long way around the cylinder; pick
     // the shorter arc direction.
-    let (u_periodicity, _) = fillet.surface.periodicity();
+    let (u_periodicity, _) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&fillet.surface);
     let mut du = u2 - u1;
     if let Some(period) = u_periodicity
         && du.abs() > period * 0.5

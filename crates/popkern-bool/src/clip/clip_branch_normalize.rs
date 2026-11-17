@@ -30,11 +30,15 @@ pub(super) fn normalize_query_branch(
     let mut normalized = curve_uv.clone();
     if surface_is_periodic && !boundary_nurbs.is_empty() {
         let period = {
-            use popkern_core::geometry::SurfaceEval as _;
             brep.faces
                 .get(face)
                 .and_then(|f| f.surface.as_ref())
-                .and_then(|s| s.geometry.parameter_periodicity().0)
+                .and_then(|s| {
+                    popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(
+                        &s.geometry,
+                    )
+                    .0
+                })
                 .unwrap_or(std::f64::consts::TAU)
         };
         let u_mean = |c: &NurbsCurve| {
@@ -209,12 +213,13 @@ pub(super) fn normalize_query_branch(
 /// was found and the record dropped as Outside. A face wrapping v keeps
 /// its record as authored.
 pub(crate) fn normalize_v_branch(brep: &BRep, face: FaceHandle, normalized: &mut NurbsCurve) {
-    use popkern_core::geometry::SurfaceEval as _;
     let Some(period) = brep
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .and_then(|s| s.geometry.parameter_periodicity().1)
+        .and_then(|s| {
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry).1
+        })
         .filter(|p| *p > 0.0)
     else {
         return;
@@ -270,15 +275,10 @@ pub(super) fn land_split_vote_query(
     face: FaceHandle,
     query: &NurbsCurve,
 ) -> Option<NurbsCurve> {
-    use popkern_core::geometry::SurfaceEval as _;
-    let period = brep
-        .faces
-        .get(face)?
-        .surface
-        .as_ref()?
-        .geometry
-        .parameter_periodicity()
-        .0?;
+    let period = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(
+        &brep.faces.get(face)?.surface.as_ref()?.geometry,
+    )
+    .0?;
     let extent = |points: &mut dyn Iterator<Item = f64>| {
         points.fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
             (lo.min(u), hi.max(u))

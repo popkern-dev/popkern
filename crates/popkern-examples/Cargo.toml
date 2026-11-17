@@ -34,6 +34,10 @@ ttf-parser.workspace = true
 
 [dev-dependencies]
 popkern-history = { path = "../popkern-history" }
+# The generated corpus (PK-1227) builds NURBS, revolved and filleted
+# operands through scripts and serialises its scene descriptors.
+popkern-rhai = { path = "../popkern-rhai" }
+serde.workspace = true
 # The PK-329 determinism pins build their own rayon pools.
 rayon.workspace = true
 

@@ -35,7 +35,8 @@ pub(super) fn recompute_incoherent_periodic_pcurves(result: &mut BRep) {
             continue;
         };
         use popkern_core::geometry::surface::SurfaceEval as _;
-        let (pu, pv) = sof.geometry.parameter_periodicity();
+        let (pu, pv) =
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&sof.geometry);
         // APERIODIC NURBS charts join the image-honesty sweep: a
         // self-overlapping base (a multi-turn thread flank whose
         // turns merge at the runout) admits many uv preimages for one

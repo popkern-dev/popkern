@@ -10,7 +10,6 @@
 //! test steps a hair off the seam to each side.
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -36,7 +35,9 @@ pub(super) fn point_inside_face_uv_seam_aware(
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .and_then(|s| s.geometry.parameter_periodicity().0)
+        .and_then(|s| {
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry).0
+        })
         .filter(|p| *p > 0.0)
     else {
         return false;

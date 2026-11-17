@@ -43,7 +43,7 @@ pub(crate) fn chart_singular(surface: &SurfaceGeometry, u: f64, v: f64) -> bool 
 
 fn outside_range(surface: &SurfaceGeometry, u: f64, v: f64) -> bool {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
-    let (pu, pv) = surface.parameter_periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     (pu.is_none() && (u < u0 || u > u1)) || (pv.is_none() && (v < v0 || v > v1))
 }
 
@@ -60,7 +60,8 @@ fn unit(n: Vec3) -> Option<Vec3> {
 /// point exists.
 pub fn limit_normal(surface: &SurfaceGeometry, u: f64, v: f64) -> Option<Vec3> {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
-    let (per_u, per_v) = surface.parameter_periodicity();
+    let (per_u, per_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let clamp = |x: f64, lo: f64, hi: f64, periodic: bool| {
         if periodic || !lo.is_finite() || !hi.is_finite() {
             x

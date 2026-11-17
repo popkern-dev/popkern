@@ -1,0 +1,4 @@
+# Chart-service RATCHET baseline (PK-1228, chart-service.md §7): per-file
+# counts of hand-done chart handling outside the chart service. Only
+# ever lowered; W2 exits with this file empty.
+# total 0

@@ -99,9 +99,15 @@ pub(super) fn triangulate_region(
     Some((triangles, alias))
 }
 
-/// For each point, the first index of the ring points it coincides with
-/// (itself when none): ring points closer than a billionth of the
-/// chart's extent are one point. Interior points alias themselves.
+/// For each point, the smallest index of the ring points it coincides
+/// with (itself when none): ring points closer than a billionth of the
+/// chart's extent are one point, closed transitively (a chain of points
+/// each within the bound of the next is one point). Interior points
+/// alias themselves. Every alias is a root (`alias[alias[i]] ==
+/// alias[i]`): a chain merged pairwise once left a point aliased to a
+/// point itself re-aliased later, which the triangulation's local index
+/// read as unmapped (the generated corpus's NURBS ball union panicked
+/// indexing with `usize::MAX`).
 fn coincident_ring_points(uv_pts: &[(f64, f64)], ring_ranges: &[(usize, usize)]) -> Vec<usize> {
     let mut alias: Vec<usize> = (0..uv_pts.len()).collect();
     let ring: Vec<usize> = ring_ranges.iter().flat_map(|&(s, e)| s..e).collect();
@@ -116,20 +122,45 @@ fn coincident_ring_points(uv_pts: &[(f64, f64)], ring_ranges: &[(usize, usize)])
     let eps = 1e-9 * (hi.0 - lo.0).phypot(hi.1 - lo.1).max(1e-12);
     let mut order = ring;
     order.sort_by(|&a, &b| uv_pts[a].0.total_cmp(&uv_pts[b].0).then(a.cmp(&b)));
-    for (k, &a) in order.iter().enumerate() {
-        if alias[a] != a {
-            continue;
+    fn root(alias: &mut [usize], mut i: usize) -> usize {
+        while alias[i] != i {
+            alias[i] = alias[alias[i]];
+            i = alias[i];
         }
+        i
+    }
+    for (k, &a) in order.iter().enumerate() {
         for &b in &order[k + 1..] {
             if uv_pts[b].0 - uv_pts[a].0 > eps {
                 break;
             }
-            if alias[b] == b && (uv_pts[b].1 - uv_pts[a].1).abs() <= eps {
-                let first = a.min(b);
-                alias[a] = first;
-                alias[b] = first;
+            if (uv_pts[b].1 - uv_pts[a].1).abs() <= eps {
+                let (ra, rb) = (root(&mut alias, a), root(&mut alias, b));
+                let (keep, drop) = (ra.min(rb), ra.max(rb));
+                alias[drop] = keep;
             }
         }
     }
+    for i in 0..alias.len() {
+        alias[i] = root(&mut alias, i);
+    }
     alias
+}
+
+#[cfg(test)]
+mod tests {
+    use super::coincident_ring_points;
+
+    /// A chain a ~ b ~ c with a and c past the bound of each other, in
+    /// an index order that merged b into c after a into b: every alias
+    /// must be a root.
+    #[test]
+    fn coincident_chains_alias_to_one_root() {
+        let pts = [(1.6e-9, 0.0), (0.8e-9, 0.0), (0.0, 0.0), (1.0, 1.0)];
+        let alias = coincident_ring_points(&pts, &[(0, 4)]);
+        assert_eq!(alias, vec![0, 0, 0, 3]);
+        for &a in &alias {
+            assert_eq!(alias[a], a);
+        }
+    }
 }

@@ -4,7 +4,7 @@
 //! attach/wiring passes stay in `pcurve_attach.rs`.
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_math::PortableMath;
 
@@ -76,7 +76,8 @@ pub(super) fn compute_halfedge_pcurve(
             ),
         }
     };
-    let (period_u, period_v) = surface.parameter_periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut prev: Option<(f64, f64)> = None;
     let mut uv_points: Vec<Point3> = Vec::with_capacity(n);
     for i in 0..n {
@@ -145,7 +146,8 @@ pub(super) fn compute_pcurve_on_surface(
     // the same mixing. Seed each sample from the previous result and
     // unwrap toward it — the same discipline as
     // pcurve_projection_walk and the boundary-first mesher.
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut prev: Option<(f64, f64)> = None;
     let mut uv_points: Vec<Point3> = Vec::with_capacity(n);
     for i in 0..n {

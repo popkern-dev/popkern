@@ -52,7 +52,8 @@ pub(crate) fn face_chart_cell(
     tolerance: &Tolerance,
 ) -> Option<ChartCell> {
     let sof = brep.faces.get(face)?.surface.as_ref()?;
-    let (u_period, v_period) = sof.geometry.periodicity();
+    let (u_period, v_period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&sof.geometry);
     // DOUBLY-periodic surfaces only (torus): singly-periodic charts
     // (cylinder, sphere, cone) keep the long-tuned crossing machinery
     // — routing them through cells regressed the flush-gusset union's

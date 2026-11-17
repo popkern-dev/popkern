@@ -53,8 +53,10 @@ pub fn solve_rolling_ball_contact(
     // start sat on the chart seam (measured: flagship boss/plate
     // circular seam, "initial contact failed" at u = −0.0000, the
     // failure class behind PK-099 stage 3 and the round_5c fixtures).
-    let period_0 = request.surface_0.parameter_periodicity();
-    let period_1 = request.surface_1.parameter_periodicity();
+    let period_0 =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(request.surface_0);
+    let period_1 =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(request.surface_1);
     let wrapped_uv0 = wrap_uv_periodic(request.initial_uv0, request.uv0_range, period_0);
     let wrapped_uv1 = wrap_uv_periodic(request.initial_uv1, request.uv1_range, period_1);
     let clamped_uv0 = clamp_uv(wrapped_uv0, request.uv0_range);

@@ -16,10 +16,10 @@ use popkern_math::PortableMath;
 /// Angle about +z in `[0, 2π)`, and height: the order round the axis,
 /// then along it.
 fn station(direction: Vec3, z: f64) -> (f64, f64) {
-    let a = direction
-        .y
-        .patan2(direction.x)
-        .rem_euclid(std::f64::consts::TAU);
+    let a = popkern_core::geometry::chart::periodic::modulo(
+        direction.y.patan2(direction.x),
+        std::f64::consts::TAU,
+    );
     // Quantized so round-off never reorders entities at one station.
     ((a * 1e9).round() / 1e9, (z * 1e9).round() / 1e9)
 }

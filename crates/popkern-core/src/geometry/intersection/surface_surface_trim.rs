@@ -43,8 +43,8 @@ pub(crate) fn trim_to_windows(
     // seam direction wraps in the march, so it is never trimmed here —
     // the period-jump splitter cuts those records at the seam with the
     // refined crossing instead.
-    let (periodic_u1, periodic_v1) = crate::geometry::chart_periods::marching_periodicity(surface1);
-    let (periodic_u2, periodic_v2) = crate::geometry::chart_periods::marching_periodicity(surface2);
+    let (periodic_u1, periodic_v1) = crate::geometry::chart::ChartDescriptor::closed_of(surface1);
+    let (periodic_u2, periodic_v2) = crate::geometry::chart::ChartDescriptor::closed_of(surface2);
     let outside = |s: &MarchSample| {
         let out =
             |x: f64, range: (f64, f64), periodic: bool| !periodic && (x < range.0 || x > range.1);

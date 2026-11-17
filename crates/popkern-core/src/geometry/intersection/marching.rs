@@ -331,9 +331,9 @@ pub(crate) fn march_one_direction(
                     // evaluation inside the chart; see
                     // `geometry::chart_periods`).
                     let (period_u1, period_v1) =
-                        crate::geometry::chart_periods::marching_periods(surface1);
+                        crate::geometry::chart::ChartDescriptor::periods_of(surface1);
                     let (period_u2, period_v2) =
-                        crate::geometry::chart_periods::marching_periods(surface2);
+                        crate::geometry::chart::ChartDescriptor::periods_of(surface2);
                     sample.u1 = wrap_parameter(sample.u1, u1_range, period_u1);
                     sample.v1 = wrap_parameter(sample.v1, v1_range, period_v1);
                     sample.u2 = wrap_parameter(sample.u2, u2_range, period_u2);

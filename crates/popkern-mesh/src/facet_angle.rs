@@ -135,7 +135,8 @@ pub(crate) fn chord_foot_error(
     );
     let len = pa.distance_to(&pb);
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
-    let (per_u, per_v) = surface.parameter_periodicity();
+    let (per_u, per_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let clamp = |x: f64, lo: f64, hi: f64, periodic: bool| {
         if periodic || !(lo.is_finite() && hi.is_finite()) {
             x
@@ -333,7 +334,10 @@ impl<'a> EdgeNormalProbe<'a> {
                 trace.pcurve.point_at(t)
             };
             let (a, b) = (uv_at(fa), uv_at(fb));
-            let (period_u, period_v) = trace.surface.periodicity();
+            let (period_u, period_v) =
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(
+                    trace.surface,
+                );
             [(b.x - a.x, period_u), (b.y - a.y, period_v)]
                 .iter()
                 .any(|&(d, p)| {

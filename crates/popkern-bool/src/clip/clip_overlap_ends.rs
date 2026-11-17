@@ -21,7 +21,7 @@ use popkern_core::topology::HalfEdgeHandle;
 use super::clip_uv::UvCrossing;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 
 /// The step past an overlap end, as a fraction of the query's range.
 const STEP: f64 = 1e-3;
@@ -85,7 +85,9 @@ pub(super) fn leaves_boundary(
 
 /// A face surface's chart periods.
 pub(super) fn chart_periods(surface: Option<&SurfaceGeometry>) -> (Option<f64>, Option<f64>) {
-    surface.map_or((None, None), |s| s.parameter_periodicity())
+    surface.map_or((None, None), |s| {
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(s)
+    })
 }
 
 /// The crossings an overlap of `curve` with the boundary pcurve of `he`

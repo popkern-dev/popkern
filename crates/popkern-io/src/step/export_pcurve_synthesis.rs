@@ -24,7 +24,8 @@ pub(super) fn synthesize_export_half_edge_pcurve_on_surface(
     let curve = brep.edges.get(edge)?.curve.as_ref()?;
     let forward = half_edge_curve_forward(brep, half_edge)?;
     let samples = EXPORT_PCURVE_SYNTHESIS_SAMPLES;
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut prev_uv: Option<(f64, f64)> = None;
     let mut uv_points = Vec::with_capacity(samples);
     let mut params = Vec::with_capacity(samples);
@@ -91,7 +92,8 @@ pub(super) fn synthesize_half_edge_pcurve_ungated(
     let curve = brep.edges.get(edge)?.curve.as_ref()?;
     let forward = half_edge_curve_forward(brep, half_edge)?;
     let samples = EXPORT_PCURVE_SYNTHESIS_SAMPLES;
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut prev_uv: Option<(f64, f64)> = None;
     let mut uv_points = Vec::with_capacity(samples);
     let mut params = Vec::with_capacity(samples);
@@ -137,7 +139,8 @@ pub(super) fn synthesize_export_face_use_curve_and_pcurve(
     let mut start_uv = project_point_to_uv(surface, &start)?;
     let mut end_uv = project_point_to_uv_near(surface, &end, start_uv.0, start_uv.1)
         .or_else(|| project_point_to_uv(surface, &end))?;
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     unwrap_periodic_uv(
         &mut end_uv.0,
         &mut end_uv.1,

@@ -171,7 +171,8 @@ pub(crate) fn compute_center_via_walker(
             // from there (measured: the seam-crossing arc piece of a
             // boss-on-wall chain, residual 2.6e-1; the same station
             // seeded from the other side converged at once).
-            let (period_u, period_v) = s.parameter_periodicity();
+            let (period_u, period_v) =
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(s);
             Some((
                 crate::center_curve_projection::wrap_then_clamp(u, ur, period_u),
                 crate::center_curve_projection::wrap_then_clamp(v, vr, period_v),

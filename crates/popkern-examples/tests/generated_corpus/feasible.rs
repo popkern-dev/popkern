@@ -1,0 +1,80 @@
+//! The frozen feasibility matrix (design §4, PK-1234): the cells where
+//! the configuration exists for the pair, decided once by 300 trial draws
+//! per candidate cell (`cells::feasible`) on 2026-11-16 and frozen here.
+//! A cell may be added; removing one needs the user's approval
+//! (foundations-completion §7.8). Regenerate only by adding: rerun the
+//! trial draws and merge.
+//!
+//! Infeasible by construction (0 of 300 draws accepted), for example: a
+//! plane touching a plane or a developable surface at a point (no definite
+//! relative curvature), a tangent crossing of two convex surfaces with
+//! opposed normals, a coincident patch between different kinds, curve
+//! tangencies for pairs with no template.
+
+pub const FEASIBLE: &[&str] = &[
+    "BxB-D", "BxB-E", "BxB-I", "BxB-N", "BxB-O", "BxB-V", "BxB-X", "BxB-X3", "BxC-N", "BxF-N",
+    "BxG-D", "BxG-E", "BxG-I", "BxG-N", "BxG-V", "BxG-X", "BxG-X3", "BxL-D", "BxL-E", "BxL-I",
+    "BxL-N", "BxL-V", "BxL-X", "BxL-X3", "BxP-N", "BxQ-I", "BxQ-N", "BxR-I", "BxR-N", "BxS-I",
+    "BxS-N", "BxT-I", "BxT-N", "BxW-D", "BxW-E", "BxW-I", "BxW-N", "BxW-V", "BxW-X", "BxW-X3",
+    "BxY-N", "CxB-D", "CxB-E", "CxB-I", "CxB-N", "CxB-V", "CxB-X", "CxB-X3", "CxC-D", "CxC-E",
+    "CxC-N", "CxC-O", "CxC-V", "CxC-X", "CxC-X3", "CxF-D", "CxF-E", "CxF-N", "CxF-V", "CxF-X",
+    "CxF-X3", "CxG-D", "CxG-E", "CxG-I", "CxG-N", "CxG-V", "CxG-X", "CxG-X3", "CxL-D", "CxL-E",
+    "CxL-N", "CxL-V", "CxL-X", "CxL-X3", "CxP-N", "CxQ-D", "CxQ-E", "CxQ-I", "CxQ-N", "CxQ-V",
+    "CxQ-X", "CxQ-X3", "CxR-D", "CxR-E", "CxR-I", "CxR-N", "CxR-V", "CxR-X", "CxR-X3", "CxS-D",
+    "CxS-E", "CxS-I", "CxS-K", "CxS-N", "CxS-V", "CxS-X", "CxS-X3", "CxT-D", "CxT-E", "CxT-I",
+    "CxT-N", "CxT-V", "CxT-X", "CxT-X3", "CxW-D", "CxW-E", "CxW-I", "CxW-N", "CxW-V", "CxW-X",
+    "CxW-X3", "CxY-N", "FxB-D", "FxB-E", "FxB-I", "FxB-N", "FxB-V", "FxB-X", "FxB-X3", "FxC-N",
+    "FxF-D", "FxF-E", "FxF-N", "FxF-O", "FxF-V", "FxF-X", "FxF-X3", "FxG-D", "FxG-E", "FxG-I",
+    "FxG-N", "FxG-V", "FxG-X", "FxG-X3", "FxL-D", "FxL-E", "FxL-I", "FxL-N", "FxL-V", "FxL-X",
+    "FxL-X3", "FxP-N", "FxQ-D", "FxQ-E", "FxQ-I", "FxQ-N", "FxQ-V", "FxQ-X", "FxQ-X3", "FxR-D",
+    "FxR-E", "FxR-I", "FxR-N", "FxR-V", "FxR-X", "FxR-X3", "FxS-D", "FxS-E", "FxS-I", "FxS-N",
+    "FxS-V", "FxS-X", "FxS-X3", "FxT-D", "FxT-E", "FxT-I", "FxT-N", "FxT-V", "FxT-X", "FxT-X3",
+    "FxW-D", "FxW-E", "FxW-I", "FxW-N", "FxW-V", "FxW-X", "FxW-X3", "FxY-N", "GxB-I", "GxB-N",
+    "GxC-N", "GxF-N", "GxG-D", "GxG-E", "GxG-I", "GxG-N", "GxG-O", "GxG-V", "GxG-X", "GxG-X3",
+    "GxL-I", "GxL-N", "GxP-N", "GxQ-I", "GxQ-N", "GxR-I", "GxR-N", "GxS-I", "GxS-N", "GxT-I",
+    "GxT-N", "GxW-I", "GxW-N", "GxY-N", "LxB-I", "LxB-N", "LxC-N", "LxF-N", "LxG-D", "LxG-E",
+    "LxG-I", "LxG-N", "LxG-V", "LxG-X", "LxG-X3", "LxL-D", "LxL-E", "LxL-I", "LxL-N", "LxL-O",
+    "LxL-V", "LxL-X", "LxL-X3", "LxP-N", "LxQ-I", "LxQ-N", "LxR-I", "LxR-N", "LxS-I", "LxS-N",
+    "LxT-I", "LxT-N", "LxW-I", "LxW-N", "LxY-N", "PxB-D", "PxB-E", "PxB-I", "PxB-N", "PxB-X",
+    "PxB-X3", "PxC-D", "PxC-K", "PxC-N", "PxC-X", "PxC-X3", "PxF-D", "PxF-K", "PxF-N", "PxF-X",
+    "PxF-X3", "PxG-D", "PxG-E", "PxG-I", "PxG-N", "PxG-X", "PxG-X3", "PxL-D", "PxL-E", "PxL-I",
+    "PxL-N", "PxL-X", "PxL-X3", "PxP-D", "PxP-N", "PxP-O", "PxP-X", "PxP-X3", "PxQ-D", "PxQ-E",
+    "PxQ-I", "PxQ-N", "PxQ-V", "PxQ-X", "PxQ-X3", "PxR-D", "PxR-E", "PxR-I", "PxR-N", "PxR-V",
+    "PxR-X", "PxR-X3", "PxS-D", "PxS-E", "PxS-I", "PxS-N", "PxS-X", "PxS-X3", "PxT-D", "PxT-E",
+    "PxT-I", "PxT-K", "PxT-N", "PxT-V", "PxT-X", "PxT-X3", "PxW-D", "PxW-E", "PxW-I", "PxW-N",
+    "PxW-V", "PxW-X", "PxW-X3", "PxY-D", "PxY-K", "PxY-N", "PxY-X", "PxY-X3", "QxB-D", "QxB-E",
+    "QxB-I", "QxB-N", "QxB-V", "QxB-X", "QxB-X3", "QxC-I", "QxC-N", "QxF-I", "QxF-N", "QxG-D",
+    "QxG-E", "QxG-I", "QxG-N", "QxG-V", "QxG-X", "QxG-X3", "QxL-D", "QxL-E", "QxL-I", "QxL-N",
+    "QxL-V", "QxL-X", "QxL-X3", "QxP-N", "QxQ-D", "QxQ-E", "QxQ-I", "QxQ-N", "QxQ-O", "QxQ-V",
+    "QxQ-X", "QxQ-X3", "QxR-I", "QxR-N", "QxS-I", "QxS-N", "QxT-I", "QxT-N", "QxW-D", "QxW-E",
+    "QxW-I", "QxW-N", "QxW-V", "QxW-X", "QxW-X3", "QxY-I", "QxY-N", "RxB-D", "RxB-E", "RxB-I",
+    "RxB-N", "RxB-V", "RxB-X", "RxB-X3", "RxC-I", "RxC-N", "RxF-I", "RxF-N", "RxG-D", "RxG-E",
+    "RxG-I", "RxG-N", "RxG-V", "RxG-X", "RxG-X3", "RxL-D", "RxL-E", "RxL-I", "RxL-N", "RxL-V",
+    "RxL-X", "RxL-X3", "RxP-N", "RxQ-D", "RxQ-E", "RxQ-I", "RxQ-N", "RxQ-V", "RxQ-X", "RxQ-X3",
+    "RxR-D", "RxR-E", "RxR-I", "RxR-N", "RxR-O", "RxR-V", "RxR-X", "RxR-X3", "RxS-I", "RxS-N",
+    "RxT-I", "RxT-N", "RxW-D", "RxW-E", "RxW-I", "RxW-N", "RxW-V", "RxW-X", "RxW-X3", "RxY-N",
+    "SxB-D", "SxB-E", "SxB-I", "SxB-N", "SxB-V", "SxB-X", "SxB-X3", "SxC-N", "SxF-N", "SxG-D",
+    "SxG-E", "SxG-I", "SxG-N", "SxG-V", "SxG-X", "SxG-X3", "SxL-D", "SxL-E", "SxL-I", "SxL-N",
+    "SxL-V", "SxL-X", "SxL-X3", "SxP-N", "SxQ-D", "SxQ-E", "SxQ-I", "SxQ-N", "SxQ-V", "SxQ-X",
+    "SxQ-X3", "SxR-D", "SxR-E", "SxR-I", "SxR-N", "SxR-V", "SxR-X", "SxR-X3", "SxS-D", "SxS-E",
+    "SxS-I", "SxS-N", "SxS-O", "SxS-X", "SxS-X3", "SxT-D", "SxT-E", "SxT-I", "SxT-N", "SxT-V",
+    "SxT-X", "SxT-X3", "SxW-D", "SxW-E", "SxW-I", "SxW-N", "SxW-V", "SxW-X", "SxW-X3", "SxY-N",
+    "TxB-D", "TxB-E", "TxB-I", "TxB-N", "TxB-V", "TxB-X", "TxB-X3", "TxC-N", "TxF-N", "TxG-D",
+    "TxG-E", "TxG-I", "TxG-N", "TxG-V", "TxG-X", "TxG-X3", "TxL-D", "TxL-E", "TxL-I", "TxL-N",
+    "TxL-V", "TxL-X", "TxL-X3", "TxP-N", "TxQ-D", "TxQ-E", "TxQ-I", "TxQ-N", "TxQ-V", "TxQ-X",
+    "TxQ-X3", "TxR-D", "TxR-E", "TxR-I", "TxR-N", "TxR-V", "TxR-X", "TxR-X3", "TxS-I", "TxS-K",
+    "TxS-N", "TxT-D", "TxT-E", "TxT-I", "TxT-N", "TxT-O", "TxT-V", "TxT-X", "TxT-X3", "TxW-D",
+    "TxW-E", "TxW-N", "TxW-V", "TxW-X", "TxW-X3", "TxY-I", "TxY-N", "WxB-I", "WxB-N", "WxC-N",
+    "WxF-N", "WxG-D", "WxG-E", "WxG-I", "WxG-N", "WxG-V", "WxG-X", "WxG-X3", "WxL-D", "WxL-E",
+    "WxL-I", "WxL-N", "WxL-V", "WxL-X", "WxL-X3", "WxP-N", "WxQ-I", "WxQ-N", "WxR-I", "WxR-N",
+    "WxS-I", "WxS-N", "WxT-I", "WxT-N", "WxW-D", "WxW-E", "WxW-I", "WxW-N", "WxW-O", "WxW-V",
+    "WxW-X", "WxW-X3", "WxY-I", "WxY-N", "YxB-D", "YxB-E", "YxB-I", "YxB-N", "YxB-V", "YxB-X",
+    "YxB-X3", "YxC-D", "YxC-E", "YxC-N", "YxC-V", "YxC-X", "YxC-X3", "YxF-D", "YxF-E", "YxF-N",
+    "YxF-V", "YxF-X", "YxF-X3", "YxG-D", "YxG-E", "YxG-I", "YxG-N", "YxG-V", "YxG-X", "YxG-X3",
+    "YxL-D", "YxL-E", "YxL-I", "YxL-N", "YxL-V", "YxL-X", "YxL-X3", "YxP-N", "YxQ-D", "YxQ-E",
+    "YxQ-I", "YxQ-N", "YxQ-V", "YxQ-X", "YxQ-X3", "YxR-D", "YxR-E", "YxR-I", "YxR-N", "YxR-V",
+    "YxR-X", "YxR-X3", "YxS-D", "YxS-E", "YxS-I", "YxS-K", "YxS-N", "YxS-V", "YxS-X", "YxS-X3",
+    "YxT-D", "YxT-E", "YxT-I", "YxT-N", "YxT-V", "YxT-X", "YxT-X3", "YxW-D", "YxW-E", "YxW-I",
+    "YxW-N", "YxW-V", "YxW-X", "YxW-X3", "YxY-D", "YxY-E", "YxY-K", "YxY-N", "YxY-O", "YxY-V",
+    "YxY-X", "YxY-X3",
+];

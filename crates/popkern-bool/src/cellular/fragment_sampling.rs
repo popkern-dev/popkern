@@ -39,7 +39,8 @@ pub(crate) fn loop_uv_runs(
     use popkern_core::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 
     let trace = popkern_core::trace::trace_enabled("face-selection");
-    let (u_period, v_period) = surface.parameter_periodicity();
+    let (u_period, v_period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut runs: Vec<UvRun> = Vec::new();
     let mut last_uv: Option<(f64, f64)> = None;
 
@@ -198,19 +199,24 @@ pub(crate) fn loop_uv_runs(
                 // reparameterized full-edge pcurve; without inversion
                 // it sampled the whole wall and the discard band
                 // classified into the kept region).
-                let unambiguous = match surface.parameter_periodicity().0 {
-                    None => true,
-                    Some(period) => {
-                        let (mut u_lo, mut u_hi) = (f64::MAX, f64::MIN);
-                        for i in 0..=8 {
-                            let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / 8.0;
-                            let u = pc.point_at(t).x;
-                            u_lo = u_lo.min(u);
-                            u_hi = u_hi.max(u);
+                let unambiguous =
+                    match popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(
+                        surface,
+                    )
+                    .0
+                    {
+                        None => true,
+                        Some(period) => {
+                            let (mut u_lo, mut u_hi) = (f64::MAX, f64::MIN);
+                            for i in 0..=8 {
+                                let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / 8.0;
+                                let u = pc.point_at(t).x;
+                                u_lo = u_lo.min(u);
+                                u_hi = u_hi.max(u);
+                            }
+                            u_hi - u_lo < period * 0.5
                         }
-                        u_hi - u_lo < period * 0.5
-                    }
-                };
+                    };
                 if unambiguous && p3a.distance_to(&p3b) > 1e-9 * scale3 {
                     let (ta, da) = nearest(&p3a);
                     let (tb, db) = nearest(&p3b);
@@ -465,7 +471,8 @@ pub(crate) fn fragment_cut_offset_sample(
     // Chart even-odd is no containment test on a doubly periodic chart
     // (no ray escapes); there the fragment's region decides exactly
     // (PK-685), and a region it cannot decide keeps even-odd.
-    let torus = match surface.parameter_periodicity() {
+    let torus = match popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface)
+    {
         (Some(pu), Some(pv)) => {
             super::fragment_torus_sample::TorusRegion::of(graph, fragment, surface, (pu, pv)).ok()
         }

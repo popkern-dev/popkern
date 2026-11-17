@@ -34,7 +34,7 @@ impl BRep {
         loop_handle: LoopHandle,
         surface: &SurfaceGeometry,
     ) -> Option<(i64, i64)> {
-        let periods = surface.parameter_periodicity();
+        let periods = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         let wrap = |d: f64, period: Option<f64>| match period {
             Some(p) if p > 0.0 => d - p * (d / p).round(),
             _ => d,

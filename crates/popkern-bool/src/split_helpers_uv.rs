@@ -329,12 +329,13 @@ fn uv_point_on_face_boundary_periodic(
     p: &Point3,
     tolerance: &Tolerance,
 ) -> bool {
-    use popkern_core::geometry::SurfaceEval as _;
     let period = brep
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .and_then(|s| s.geometry.parameter_periodicity().0);
+        .and_then(|s| {
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry).0
+        });
     match period {
         Some(period) if period > 0.0 => (-2..=2).any(|k| {
             let q = Point3::new(p.x + k as f64 * period, p.y, p.z);

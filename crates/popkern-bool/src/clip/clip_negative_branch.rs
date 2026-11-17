@@ -18,15 +18,10 @@ pub(super) fn align_off_principal_branch_side(
     face: FaceHandle,
     pcurve: &NurbsCurve,
 ) -> Option<NurbsCurve> {
-    use popkern_core::geometry::SurfaceEval as _;
-    let period = brep
-        .faces
-        .get(face)?
-        .surface
-        .as_ref()?
-        .geometry
-        .parameter_periodicity()
-        .0?;
+    let period = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(
+        &brep.faces.get(face)?.surface.as_ref()?.geometry,
+    )
+    .0?;
     if !(period.is_finite() && period > 0.0) {
         return None;
     }

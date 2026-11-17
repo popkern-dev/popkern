@@ -41,7 +41,7 @@ pub(crate) fn next_in_chart(
                 continue;
             };
             let u_c = emb_c.uv[0].0;
-            let mut a = ((u_a - u_c) * dir).rem_euclid(period);
+            let mut a = popkern_core::geometry::chart::periodic::modulo((u_a - u_c) * dir, period);
             if a <= 1e-12 || c == twin {
                 a += period;
             }
@@ -72,9 +72,10 @@ pub(crate) fn next_in_chart(
     // pairs the nearest pending arrival, injective by construction.
     let bp_key = *bp;
     let psi = |d: (f64, f64)| -> f64 {
-        (sub.sigma * d.1)
-            .patan2(d.0)
-            .rem_euclid(std::f64::consts::TAU)
+        popkern_core::geometry::chart::periodic::modulo(
+            (sub.sigma * d.1).patan2(d.0),
+            std::f64::consts::TAU,
+        )
     };
     // Slots: (angle, is_departure, he). Tie order in the clockwise
     // sweep puts the DEPARTURE first so an exactly-parallel departure

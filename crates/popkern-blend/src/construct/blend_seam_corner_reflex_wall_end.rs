@@ -254,7 +254,7 @@ fn same_branch(
     to: (f64, f64),
     seeds: Option<((f64, f64), (f64, f64))>,
 ) -> (f64, f64) {
-    let (pu, pv) = surface.periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let travel = seeds.map(|(a, b)| (b.0 - a.0, b.1 - a.1));
     let unwrap = |f: f64, t: f64, period: Option<f64>, want: Option<f64>| match period {
         Some(p) if p > 0.0 => {

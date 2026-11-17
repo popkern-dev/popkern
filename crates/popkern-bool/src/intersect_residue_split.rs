@@ -285,7 +285,6 @@ fn boundary_crossings(
 ) -> Vec<f64> {
     use popkern_core::geometry::curve::CurveGeometry;
     use popkern_core::geometry::intersection::{CurveIntersection, intersect_curves};
-    use popkern_core::geometry::surface::SurfaceEval as _;
     let (owner_brep, owner_face, uv) = if owner_is_a {
         (other.brep_a, record.face_a, &record.curve.curve_uv1)
     } else {
@@ -295,7 +294,7 @@ fn boundary_crossings(
         .faces
         .get(owner_face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.parameter_periodicity())
+        .map(|s| popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry))
         .unwrap_or((None, None));
     let shifts = |period: Option<f64>| match period {
         Some(p) => vec![0.0, p, -p],

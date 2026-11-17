@@ -16,6 +16,8 @@
 //! correction declines to the straight boundary it replaces.
 
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::chart::ChartDescriptor;
+use popkern_core::geometry::chart::ops::{aligned, singular_point_near};
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -99,18 +101,6 @@ const ON_TRIM: f64 = 1e-3;
 /// chord end in (u, v) when the edge curve decides in space.
 const UV_BRANCH: f64 = 0.05;
 
-/// `x` shifted by whole periods to lie nearest `to`.
-fn near(x: f64, to: f64, period: Option<f64>) -> f64 {
-    match period {
-        Some(p) if p > 0.0 => x - p * ((x - to) / p).round(),
-        _ => x,
-    }
-}
-
-fn aligned(q: (f64, f64), to: (f64, f64), periods: (Option<f64>, Option<f64>)) -> (f64, f64) {
-    (near(q.0, to.0, periods.0), near(q.1, to.1, periods.1))
-}
-
 fn uv_distance(a: (f64, f64), b: (f64, f64)) -> f64 {
     let (du, dv) = (a.0 - b.0, a.1 - b.1);
     (du * du + dv * dv).sqrt()
@@ -118,10 +108,10 @@ fn uv_distance(a: (f64, f64), b: (f64, f64)) -> f64 {
 
 /// The trim parameter nearest `q`, refined by Newton on `|pc(t) − q|²`,
 /// with its distance.
-fn locate(trim: &Trim<'_>, q: (f64, f64), periods: (Option<f64>, Option<f64>)) -> (f64, f64) {
+fn locate(trim: &Trim<'_>, q: (f64, f64), descriptor: &ChartDescriptor) -> (f64, f64) {
     let mut best = (trim.lo, f64::INFINITY);
     for &(t, p) in &trim.samples {
-        let d = uv_distance(aligned(p, q, periods), q);
+        let d = uv_distance(aligned(descriptor, p, q), q);
         if d < best.1 {
             best = (t, d);
         }
@@ -129,7 +119,7 @@ fn locate(trim: &Trim<'_>, q: (f64, f64), periods: (Option<f64>, Option<f64>)) -
     let mut t = best.0;
     for _ in 0..LOCATE_STEPS {
         let p = trim.pcurve.point_at(t);
-        let p = aligned((p.x, p.y), q, periods);
+        let p = aligned(descriptor, (p.x, p.y), q);
         let d = trim.pcurve.tangent_at(t);
         let dd = d.x * d.x + d.y * d.y;
         if dd <= 0.0 {
@@ -149,7 +139,7 @@ fn locate(trim: &Trim<'_>, q: (f64, f64), periods: (Option<f64>, Option<f64>)) -
         };
     }
     let p = trim.pcurve.point_at(t);
-    (t, uv_distance(aligned((p.x, p.y), q, periods), q))
+    (t, uv_distance(aligned(descriptor, (p.x, p.y), q), q))
 }
 
 /// `⅓ ∬ r · (∂u × ∂v)` over the region between the chord `a → b` (in a
@@ -163,6 +153,7 @@ fn locate(trim: &Trim<'_>, q: (f64, f64), periods: (Option<f64>, Option<f64>)) -
 /// seam's end at u = 2π). The nearest such trim carries it.
 pub(super) fn sliver_term(
     surface: &SurfaceGeometry,
+    descriptor: &ChartDescriptor,
     trims: &[Trim<'_>],
     a: (f64, f64),
     b: (f64, f64),
@@ -173,7 +164,6 @@ pub(super) fn sliver_term(
     if chord.is_nan() || chord <= 0.0 {
         return None;
     }
-    let periods = surface.parameter_periodicity();
     let (pa, pb) = (surface.point_at(a.0, a.1), surface.point_at(b.0, b.1));
     // Within a thousandth of the chord, and never past the caller's
     // gate: the trim across a narrow face (a fillet's other rim at a
@@ -191,7 +181,7 @@ pub(super) fn sliver_term(
     let branch = UV_BRANCH * pa.distance_to(&pb) + caller_gate;
     let at = |trim: &Trim<'_>, t: f64, q: (f64, f64)| {
         let c = trim.pcurve.point_at(t);
-        let c = aligned((c.x, c.y), q, periods);
+        let c = aligned(descriptor, (c.x, c.y), q);
         surface.point_at(c.0, c.1)
     };
     // Off the trim in space: from the EDGE curve when the trim has one
@@ -211,7 +201,7 @@ pub(super) fn sliver_term(
             };
         }
         let c = trim.pcurve.point_at(t);
-        let c = aligned((c.x, c.y), q, periods);
+        let c = aligned(descriptor, (c.x, c.y), q);
         (surface.point_at(c.0, c.1).distance_to(&p), None)
     };
     // In (u, v) the pcurve only picks the branch: within a twentieth of
@@ -230,10 +220,13 @@ pub(super) fn sliver_term(
     // area). Located in (u, v) it lay a longitude step off the trim and
     // the sliver went missing: Viviani's cap with the ball's poles on
     // its rim read 3.4e-4 short (PK-1169).
-    let (pole_a, pole_b) = (at_pole(surface, a), at_pole(surface, b));
+    let (pole_a, pole_b) = (
+        at_pole(surface, descriptor, a),
+        at_pole(surface, descriptor, b),
+    );
     let find = |trim: &Trim<'_>, q: (f64, f64), p, pole: bool| -> (f64, f64) {
         if !pole {
-            return locate(trim, q, periods);
+            return locate(trim, q, descriptor);
         }
         let t = [trim.lo, trim.hi]
             .into_iter()
@@ -271,7 +264,7 @@ pub(super) fn sliver_term(
     // The trim's own chart point at a pole end, on the chord's branch.
     let pole_point = |t: f64, q: (f64, f64)| {
         let c = trim.pcurve.point_at(t);
-        aligned((c.x, c.y), q, periods)
+        aligned(descriptor, (c.x, c.y), q)
     };
     let (via_a, via_b) = (
         pole_a.then(|| pole_point(ta, a)),
@@ -308,7 +301,7 @@ pub(super) fn sliver_term(
         }
         let p = trim.pcurve.point_at(t);
         let along = (a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f);
-        let seed = aligned((p.x, p.y), along, periods);
+        let seed = aligned(descriptor, (p.x, p.y), along);
         // The sliver ends on the EDGE, not the fitted pcurve: the seed's
         // point on the edge curve, projected back near the seed
         // (measured: the propeller's fitted blade pcurves biased the
@@ -328,7 +321,7 @@ pub(super) fn sliver_term(
                 let uv = popkern_core::geometry::uv_projection::project_point_to_uv_near(
                     surface, &on_edge, seed.0, seed.1,
                 )?;
-                aligned(uv, along, periods)
+                aligned(descriptor, uv, along)
             }
             None => seed,
         };
@@ -390,15 +383,11 @@ fn local_foot(curve: &dyn CurveEval, p: &Point3, seed: f64, lo: f64, hi: f64) ->
     None
 }
 
-/// Whether the chart point `q` lies on a pole of `surface`: one chart
-/// partial vanishes beside the other (a sphere's pole, a cone's apex),
-/// by the ratio `pole_corner` reads.
-fn at_pole(surface: &SurfaceGeometry, q: (f64, f64)) -> bool {
-    let (su, sv) = (
-        surface.partial_u(q.0, q.1).length(),
-        surface.partial_v(q.0, q.1).length(),
-    );
-    su <= super::POLE_RATIO * sv || sv <= super::POLE_RATIO * su
+/// Whether the chart point `q` lies on a pole or apex of `surface`, asked
+/// of the chart service in space: its image within the linear tolerance
+/// of a singular row's point (the fan from a pole runs along its row).
+fn at_pole(surface: &SurfaceGeometry, descriptor: &ChartDescriptor, q: (f64, f64)) -> bool {
+    singular_point_near(descriptor, &surface.point_at(q.0, q.1), descriptor.linear).is_some()
 }
 
 #[cfg(test)]

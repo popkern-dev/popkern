@@ -24,7 +24,8 @@ const INTERIOR_MARGIN: f64 = 1.0e-5;
 /// directions to the interior margin.
 pub(crate) fn periodic_interior_uv(surface: &impl SurfaceEval, u: f64, v: f64) -> (f64, f64) {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
-    let (period_u, period_v) = surface.parameter_periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     (
         interior_parameter(wrap_periodic(u, u_min, u_max, period_u), u_min, u_max),
         interior_parameter(wrap_periodic(v, v_min, v_max, period_v), v_min, v_max),

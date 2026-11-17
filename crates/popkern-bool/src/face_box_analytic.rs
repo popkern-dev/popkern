@@ -84,7 +84,7 @@ pub(crate) fn trim_scale_points(
         (lo - p, hi + p)
     };
     let ((u0, u1), (v0, v1)) = (pad(u0, u1), pad(v0, v1));
-    let (pu, pv) = surface.periodicity();
+    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let within = |x: f64, lo: f64, hi: f64, period: Option<f64>| match period {
         Some(p) if p > 0.0 => (-3..=3).any(|k| {
             let y = x + f64::from(k) * p;

@@ -136,7 +136,8 @@ fn pcurve_for(
 /// Shift `pcurve` by whole periods so its start lands on the sheet of
 /// `old`'s start.
 fn align_period(pcurve: &mut Pcurve, old: &Pcurve, surface: &SurfaceGeometry) {
-    let (period_u, period_v) = surface.parameter_periodicity();
+    let (period_u, period_v) =
+        crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let new_start = pcurve.point_at(pcurve.t_start);
     let old_start = old.point_at(old.t_start);
     let shift = |period: Option<f64>, new: f64, old: f64| -> f64 {

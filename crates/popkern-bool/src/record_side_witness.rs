@@ -235,7 +235,10 @@ pub(crate) fn record_votes(
             // Periodic-honest containment: compare on the principal
             // branch nearest the window.
             let (qpu, qpv) = {
-                let (pu, pv) = surface.geometry.periodicity();
+                let (pu, pv) =
+                    popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(
+                        &surface.geometry,
+                    );
                 let fold = |x: f64, lo: f64, hi: f64, period: Option<f64>| -> f64 {
                     match period.filter(|p| p.is_finite() && *p > 0.0) {
                         Some(p) => {

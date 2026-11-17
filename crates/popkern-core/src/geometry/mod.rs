@@ -10,9 +10,8 @@ mod analytic_closest;
 pub mod analytic_surfaces;
 pub mod bernstein_poly;
 pub mod certify;
+pub mod chart;
 pub mod chart_pcurve;
-pub mod chart_periods;
-pub mod chart_singularity;
 pub mod circle_recognition;
 pub mod curve;
 pub mod curve_inversion;
@@ -21,7 +20,6 @@ pub mod curve_on_surface;
 pub mod curve_semantics;
 mod curve_to_nurbs;
 pub mod edge_triple;
-pub mod evaluation_wrap;
 pub mod fitting;
 pub mod gregory;
 pub mod intersection;
@@ -46,9 +44,14 @@ pub(crate) mod uv_projection_face_box;
 pub mod variational_cap;
 pub mod vector;
 
+pub use chart::wrap::{AxisWrap, EvaluationWrap};
 pub use curve::{CurveEval, CurveGeometry, CurveOnEdge};
 pub use curve_semantics::LineSegmentParams;
-pub use evaluation_wrap::{AxisWrap, EvaluationWrap};
+// The chart service's relocated modules under their old paths (W2a moves
+// them behind the service; consumers migrate in W2b..W2e).
+pub use chart::periods as chart_periods;
+pub use chart::singularity as chart_singularity;
+pub use chart::wrap as evaluation_wrap;
 pub use intersection::{CurveIntersection, CurveIntersectionResult, intersect_curves};
 pub use nurbs_curve::NurbsCurve;
 pub use nurbs_surface::NurbsSurface;

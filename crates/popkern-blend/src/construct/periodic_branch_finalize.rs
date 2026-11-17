@@ -17,9 +17,11 @@ pub(crate) fn reconcile_all_periodic_pcurve_branches(brep: &mut BRep) -> usize {
         .faces
         .iter()
         .filter(|(_, f)| {
-            f.surface
-                .as_ref()
-                .is_some_and(|s| s.geometry.periodicity().0.is_some())
+            f.surface.as_ref().is_some_and(|s| {
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry)
+                    .0
+                    .is_some()
+            })
         })
         .map(|(h, _)| h)
         .collect();

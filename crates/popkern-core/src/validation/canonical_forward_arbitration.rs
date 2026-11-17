@@ -165,7 +165,8 @@ impl BRep {
         let pc = he.pcurve.as_ref()?;
         let face = self.loops.get(he.loop_)?.face;
         let sof = self.faces.get(face)?.surface.as_ref()?;
-        let (u_period, v_period) = sof.geometry.periodicity();
+        let (u_period, v_period) =
+            crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&sof.geometry);
         let (t0, t1) = pc.parameter_range();
         // Decreasing ranges are legal reversed representations; see
         // `pcurve_traversal_claim`.

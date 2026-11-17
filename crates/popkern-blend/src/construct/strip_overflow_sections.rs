@@ -82,8 +82,12 @@ impl FootPath {
             std::f64::consts::TAU
         } else {
             // The trim's own way round, read at its middle.
-            let mid = angle(trim.point_at(0.5 * (t0 + t1))).rem_euclid(std::f64::consts::TAU);
-            let end = angle(z).rem_euclid(std::f64::consts::TAU);
+            let mid = popkern_core::geometry::chart::periodic::modulo(
+                angle(trim.point_at(0.5 * (t0 + t1))),
+                std::f64::consts::TAU,
+            );
+            let end =
+                popkern_core::geometry::chart::periodic::modulo(angle(z), std::f64::consts::TAU);
             if mid <= end {
                 end
             } else {
@@ -229,7 +233,8 @@ pub(super) fn solve_section(
         } else {
             BallSide::Inside
         };
-        let (pu, pv) = surface.parameter_periodicity();
+        let (pu, pv) =
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         let half_u = pu.map_or(4.0 * r, |p| 0.25 * p);
         let half_v = pv.map_or(4.0 * r, |p| 0.25 * p);
         Ok((

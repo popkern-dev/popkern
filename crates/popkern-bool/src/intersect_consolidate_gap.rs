@@ -65,7 +65,8 @@ fn chart_midpoint(
         c.point_at(if end { t1 } else { t0 })
     };
     let (pa, mut pb) = (end_of(ca, a_end), end_of(cb, b_end));
-    let (u_period, v_period) = surface.parameter_periodicity();
+    let (u_period, v_period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     if let Some(p) = u_period {
         pb.x -= p * ((pb.x - pa.x) / p).round();
     }

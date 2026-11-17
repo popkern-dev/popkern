@@ -159,7 +159,7 @@ fn chart_trim_verdict(
 ) -> Option<HitGate> {
     let sphere = matches!(surface, SurfaceGeometry::Sphere { .. });
     let torus = matches!(surface, SurfaceGeometry::Torus { .. });
-    let period = surface.parameter_periodicity().0?;
+    let period = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0?;
     let outer = crate::clip::face_uv_boundary(brep, face_handle)?;
     let inner = crate::clip::face_uv_inner_boundaries(brep, face_handle);
     let honesty = tolerance.linear() * IMAGE_HONESTY_PER_LINEAR;
@@ -198,7 +198,8 @@ fn chart_trim_verdict(
     // branch, which needs loops that do not wind in v.
     let mut v = v;
     if torus {
-        let v_period = surface.parameter_periodicity().1?;
+        let v_period =
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).1?;
         if rings.iter().any(|r| winds(r.iter().map(|q| q.1), v_period)) {
             return None;
         }

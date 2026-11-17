@@ -3,6 +3,7 @@
 //! both incident faces consume the same polyline (watertight by
 //! construction). Split out of `boundary_first.rs` (500-line cap).
 
+use popkern_core::geometry::chart::ChartDescriptor;
 use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::{Point3, PortableMath};
@@ -264,7 +265,7 @@ pub(super) fn pcurve_forward_along_walk(
     closed_edge: bool,
 ) -> bool {
     use popkern_core::geometry::surface::SurfaceEval as _;
-    if closed_edge && surface.parameter_periodicity() == (None, None) {
+    if closed_edge && ChartDescriptor::evaluation_periods_of(surface) == (None, None) {
         return true;
     }
     let p_start = pc.point_at(pc.t_start);
@@ -331,7 +332,7 @@ pub(super) fn ring_walk_direction(
         .zip(samples.points.last())
         .map(|(a, b)| a.distance_to(b) < 1e-9)
         .unwrap_or(false);
-    let aperiodic = surface.parameter_periodicity() == (None, None);
+    let aperiodic = ChartDescriptor::evaluation_periods_of(surface) == (None, None);
     // `uv_last` is the previous ring exit ONLY on mixed loops (the
     // caller passes None for all-closed loops, whose pcurve family is
     // authored consistently and keeps the historical rules).
@@ -480,7 +481,7 @@ pub(super) fn refine_boundary_uv(
                     surface, target,
                 )
         {
-            let (pu, pv) = popkern_core::geometry::chart_periods::geometric_chart_periods(surface);
+            let (pu, pv) = ChartDescriptor::periods_of(surface);
             let on_seed_branch = |x: f64, sx: f64, p: Option<f64>| match p {
                 Some(p) if p.is_finite() && p > 0.0 => (x - sx).abs() <= 0.5 * p,
                 _ => true,

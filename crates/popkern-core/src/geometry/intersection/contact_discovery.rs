@@ -298,7 +298,7 @@ fn one_sided(
 
 /// Whether the window spans the whole period of `s`'s u and v.
 fn full_periods(s: &SurfaceGeometry, w: ParamWindow) -> (bool, bool) {
-    let (pu, pv) = s.parameter_periodicity();
+    let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(s);
     let spans = |(lo, hi): (f64, f64), p: Option<f64>| {
         p.is_some_and(|p| (hi - lo).abs() >= p * (1.0 - 1e-9))
     };
@@ -328,7 +328,7 @@ impl Gap<'_> {
 /// `uv` moved by whole periods into `w`, padded by a hundredth of its
 /// extent; `None` if it lies outside.
 fn into_window(s: &SurfaceGeometry, uv: (f64, f64), w: ParamWindow) -> Option<(f64, f64)> {
-    let (pu, pv) = s.parameter_periodicity();
+    let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(s);
     let fit = |x: f64, (lo, hi): (f64, f64), period: Option<f64>| -> Option<f64> {
         let pad = 0.01 * (hi - lo).abs();
         let (lo, hi) = (lo.min(hi) - pad, lo.max(hi) + pad);
@@ -359,11 +359,11 @@ fn newton_critical(
     // A step leaving the window wraps across a whole period, else
     // stops at the edge (a contact at a pole lies on it).
     let (wrap_u, wrap_v) = full_periods(s1, w);
-    let (pu, pv) = s1.parameter_periodicity();
+    let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(s1);
     let settle = |x: f64, (lo, hi): (f64, f64), wrap: bool, period: Option<f64>| {
         let (lo, hi) = (lo.min(hi), lo.max(hi));
         match period.filter(|_| wrap) {
-            Some(p) => lo + (x - lo).rem_euclid(p),
+            Some(p) => lo + crate::geometry::chart::periodic::modulo(x - lo, p),
             None => x.clamp(lo, hi),
         }
     };

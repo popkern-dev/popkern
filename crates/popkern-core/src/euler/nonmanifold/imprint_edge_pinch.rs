@@ -148,9 +148,10 @@ impl BRep {
                 let (e1, b) = (dir(out)?, dir(back)?);
                 let e2 = n.cross(&e1);
                 let angle = |x: &Vec3| {
-                    x.dot(&e2)
-                        .patan2(x.dot(&e1))
-                        .rem_euclid(std::f64::consts::TAU)
+                    crate::geometry::chart::periodic::modulo(
+                        x.dot(&e2).patan2(x.dot(&e1)),
+                        std::f64::consts::TAU,
+                    )
                 };
                 let (ab, ac) = (angle(&b), angle(&c));
                 if ac > ANGLE_MARGIN && ac < ab - ANGLE_MARGIN {

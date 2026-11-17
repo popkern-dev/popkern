@@ -44,7 +44,9 @@ impl BRep {
         let Some(surface) = face_data.surface.as_ref().map(|s| s.geometry.clone()) else {
             return false;
         };
-        let Some(period) = surface.periodicity().0 else {
+        let Some(period) =
+            crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface).0
+        else {
             return false;
         };
         // Every loop reconciles independently: an INNER ring crossing

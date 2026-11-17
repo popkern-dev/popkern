@@ -415,7 +415,8 @@ pub(crate) fn projection_run(
     curve_is_own: bool,
     surface: &SurfaceGeometry,
 ) -> Option<RunWithRefinedEnds> {
-    let (u_period, v_period) = surface.parameter_periodicity();
+    let (u_period, v_period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let (t0, t1) = if curve_is_own {
         (c.t_start, c.t_end)
     } else {

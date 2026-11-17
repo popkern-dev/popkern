@@ -114,7 +114,7 @@ impl BRep {
         // vertices, which project to one u and measured zero area, so a
         // fin root's reflex-end band could never be cut — PK-730), else
         // from its projected vertices.
-        let periods = crate::geometry::chart_periods::geometric_chart_periods(surface);
+        let periods = crate::geometry::chart::ChartDescriptor::periods_of(surface);
         let outer_area = match self.loop_pcurve_polyline(face_data.outer_loop, periods) {
             Some(poly) => shoelace(&poly),
             None => {

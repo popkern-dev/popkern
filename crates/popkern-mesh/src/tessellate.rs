@@ -2,7 +2,7 @@
 
 use popkern_math::hash::FastHashMap as HashMap;
 
-use popkern_core::geometry::{SurfaceEval, SurfaceGeometry, Vec3};
+use popkern_core::geometry::{SurfaceEval, SurfaceGeometry, Vec3, chart::ChartDescriptor};
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::adaptive::adaptive_subdivide_bounded;
@@ -146,7 +146,7 @@ pub(crate) fn tessellate_face_with_samples(
         // itself there, so padding double-covers a seam slice (the
         // grid meshes the same surface strip twice — measured +3%
         // volume on an offset cone once the full-period grid landed).
-        let (pp_u, pp_v) = surface.periodicity();
+        let (pp_u, pp_v) = ChartDescriptor::evaluation_periods_of(surface);
         let full_u = pp_u.is_some_and(|p| p > 0.0 && u_range.1 - u_range.0 >= 0.95 * p);
         let full_v = pp_v.is_some_and(|p| p > 0.0 && v_range.1 - v_range.0 >= 0.95 * p);
         if !full_u {
@@ -595,7 +595,7 @@ fn bounded_parameter_range(
         // kept only the u ≥ 0 half (measured, PK-732: the equal-radius
         // tee's branch-wall lobe at u ∈ [−0.52, 0.52] meshed half its
         // area and the union read 893 open mesh edges).
-        let (period_u, period_v) = surface.periodicity();
+        let (period_u, period_v) = ChartDescriptor::evaluation_periods_of(surface);
         let spans = |r: (f64, f64), p: f64| r.1 - r.0 >= 0.95 * p;
         if let Some(p) = period_u.filter(|p| *p > 0.0)
             && (spans(pc_range.0, p) || spans(fallback.0, p))

@@ -279,7 +279,8 @@ pub(super) fn intersection_pcurve(
     // other side of a periodic chart's seam, as a mitre crossing does
     // when it sits on the u = 0 / 2π rail: measured 3.7e-3 pcurve
     // deviation from a 2π jump inside one seam.
-    let (period_u, period_v) = geom.parameter_periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(geom);
     let unwrap = |value: f64, near: f64, period: Option<f64>| match period {
         Some(t) if t > 0.0 => value - ((value - near) / t).round() * t,
         _ => value,

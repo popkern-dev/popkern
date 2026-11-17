@@ -341,14 +341,14 @@ pub(super) fn multi_turn_band_hit(
     u_window: (f64, f64),
     _tolerance: &Tolerance,
 ) -> Option<bool> {
-    use popkern_core::geometry::SurfaceEval as _;
     // Analytic periodic charts decide by exact parity over every
     // period lift of the trim; helical NURBS bands (thread groove
     // walls) test in their own chart directly. Everything else keeps
     // tuned gates.
     let period = match surface {
         SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Cone { .. } => {
-            let p = surface.parameter_periodicity().0?;
+            let p =
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0?;
             // Scope: only faces whose vertex-derived solver WINDOW
             // spans more than two periods — the signature that the
             // coarse angular/axial gates carry no trim information

@@ -18,7 +18,7 @@
 
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 
 /// Scan station cap: a 1000-turn curve at four spans per turn.
 const MAX_STATIONS: usize = 8192;
@@ -77,7 +77,8 @@ pub(crate) fn pcurve_image_scan_count(
             2 * (spans_in(&s.knots_u, u_lo, u_hi) + spans_in(&s.knots_v, v_lo, v_hi))
         }
         _ => {
-            let (pu, pv) = surface.parameter_periodicity();
+            let (pu, pv) =
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
             let wraps = |period: Option<f64>, extent: f64| match period {
                 Some(p) if p > 0.0 && extent.is_finite() => (extent / p).ceil() as usize,
                 _ => 0,

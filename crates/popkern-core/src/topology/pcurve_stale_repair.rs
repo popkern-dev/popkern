@@ -274,7 +274,8 @@ impl BRep {
         let Some(surface) = self.faces.get(face).and_then(|f| f.surface.as_ref()) else {
             return;
         };
-        let (period_u, period_v) = surface.geometry.periodicity();
+        let (period_u, period_v) =
+            crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface.geometry);
         if period_u.is_none() && period_v.is_none() {
             return;
         }

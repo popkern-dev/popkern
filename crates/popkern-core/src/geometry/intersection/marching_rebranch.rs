@@ -55,8 +55,8 @@ pub(crate) fn rebranch_out_of_window(
     // treating pre-wrap coordinates as "far" made every step of a
     // multi-turn helical march pay a multisheet projection (measured:
     // the two-start rod serve went 24s → 121s).
-    let (p1u, p1v) = crate::geometry::chart_periods::marching_periodicity(surface1);
-    let (p2u, p2v) = crate::geometry::chart_periods::marching_periodicity(surface2);
+    let (p1u, p1v) = crate::geometry::chart::ChartDescriptor::closed_of(surface1);
+    let (p2u, p2v) = crate::geometry::chart::ChartDescriptor::closed_of(surface2);
     let far = |x: f64, r: (f64, f64), periodic: bool| -> bool {
         if periodic {
             return false;

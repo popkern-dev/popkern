@@ -99,7 +99,11 @@ pub(super) fn window_foot(g: &CurveGeometry, p: Point3, window: (f64, f64)) -> f
             let bu = g.point_at(0.0) - *center;
             let bv = g.point_at(std::f64::consts::FRAC_PI_2) - *center;
             let d = p - *center;
-            let t = lo + (d.dot(&bv).patan2(d.dot(&bu)) - lo).rem_euclid(std::f64::consts::TAU);
+            let t = popkern_math::periodic::wrap_from(
+                d.dot(&bv).patan2(d.dot(&bu)),
+                lo,
+                std::f64::consts::TAU,
+            );
             if t <= hi {
                 t
             } else if g.point_at(lo).distance_to(&p) <= g.point_at(hi).distance_to(&p) {

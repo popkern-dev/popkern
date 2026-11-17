@@ -104,7 +104,9 @@ pub(super) fn fragment_interior_sample(
     // has no escape there, and the nearest-boundary vote below is a
     // local guess. Fragments with neither reference, and loop sets that
     // bound no region, keep the vote, recorded under `face-selection`.
-    if let (Some(pu), Some(pv)) = surface.parameter_periodicity() {
+    if let (Some(pu), Some(pv)) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface)
+    {
         match super::fragment_torus_sample::exact_torus_sample(
             graph,
             fragment,
@@ -143,10 +145,8 @@ pub(super) fn fragment_interior_sample(
     // alone cannot decide: on a corner-breached bore wall the OUTSIDE
     // region's widest fold arc ran through the kept band and the
     // whole shank classified Inside (measured: tilted_hole_plate).
-    let u_period = {
-        use popkern_core::geometry::surface::SurfaceEval as _;
-        surface.parameter_periodicity().0
-    };
+    let u_period =
+        { popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0 };
     let (u_lo, u_hi) = outer.iter().fold((f64::MAX, f64::MIN), |(lo, hi), q| {
         (lo.min(q.0), hi.max(q.0))
     });
@@ -158,7 +158,10 @@ pub(super) fn fragment_interior_sample(
         // containment over all period lifts of the loops, and cancel
         // coincident crossings in pairs (a seam edge's u = 0 and
         // u = period copies). See `crate::periodic_chart_parity`.
-        if surface.parameter_periodicity().1.is_none() {
+        if popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface)
+            .1
+            .is_none()
+        {
             use crate::periodic_chart_parity::{
                 cancel_coincident_pairs, contains_on_u_periodic_chart_with_poles,
             };

@@ -104,7 +104,8 @@ pub fn project_to_face_branch(
         Some(p) => x - p * ((x - 0.5 * (range.0 + range.1)) / p).round(),
         None => x,
     };
-    let (u_period, v_period) = surface.periodicity();
+    let (u_period, v_period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     Some((wrap(u, u_range, u_period), wrap(v, v_range, v_period)))
 }
 

@@ -23,17 +23,19 @@
 //! (measured: an elliptic cylinder 4.5e-6, a paraboloid 5.8e-6), the
 //! exact integrand does not.
 
+use popkern_core::geometry::chart::ChartDescriptor;
+use popkern_core::geometry::chart::ops::aligned;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_mesh::TriMesh;
 
 #[path = "body_quadrature_analytic.rs"]
 mod analytic;
-#[path = "body_quadrature_pole.rs"]
-mod pole;
+#[path = "body_quadrature_singular.rs"]
+mod singular;
 #[path = "body_quadrature_sliver.rs"]
 mod sliver;
-use pole::{FaceVertex, face_vertices, mesh_pole};
+use singular::{FaceRows, face_rows, singular_corner};
 
 /// Dunavant degree-5 rule: barycentric points and weights (sum 1).
 const RULE: [([f64; 3], f64); 7] = [
@@ -103,15 +105,6 @@ pub(crate) enum Integrand {
     Area,
 }
 
-/// A corner whose one chart partial is under this fraction of the other
-/// is a pole of the chart (see `surface_term`).
-const POLE_RATIO: f64 = 1e-4;
-
-/// A corner whose one chart partial is under this fraction of the same
-/// partial at the triangle's other corners is at a pole (see
-/// `pole_corner`).
-const POLE_RELATIVE: f64 = 1e-3;
-
 /// Flat facet term `⅙ a · (b × c)`.
 fn facet_term(a: Point3, b: Point3, c: Point3) -> f64 {
     as_vec(a).dot(&as_vec(b).cross(&as_vec(c))) / 6.0
@@ -121,9 +114,10 @@ fn facet_term(a: Point3, b: Point3, c: Point3) -> f64 {
 /// when its corners do not map onto `points` within `gate`.
 fn surface_term(
     surface: &SurfaceGeometry,
+    descriptor: &ChartDescriptor,
     uv: [(f64, f64); 3],
     points: [Point3; 3],
-    (gate, vertices): (f64, &[FaceVertex]),
+    (gate, vertices): (f64, &FaceRows),
     kind: Integrand,
 ) -> Option<f64> {
     for (q, p) in uv.iter().zip(points) {
@@ -137,7 +131,7 @@ fn surface_term(
     // its facet spans (measured: a unit sphere read -3.3e-4). The pole
     // is really an edge: integrate the quad from the pole row under the
     // other two corners' collapsed coordinates.
-    if let Some((k, collapsed_u)) = mesh_pole(surface, uv, points, (vertices, gate)) {
+    if let Some((k, collapsed_u)) = singular_corner(descriptor, points, (vertices, gate)) {
         let (u, v) = uv[k];
         let (b, c) = (uv[(k + 1) % 3], uv[(k + 2) % 3]);
         let (pb, pc) = if collapsed_u {
@@ -150,42 +144,6 @@ fn surface_term(
         );
     }
     Some(oriented_term(surface, uv, kind))
-}
-
-/// The corner of `uv` at a chart pole, and whether its `u` (else its
-/// `v`) is the collapsed coordinate. Collapsed by ratio to the other
-/// partial: a pole vertex may sit a few micro-radians off the pole in
-/// parameter (measured 3e-6 on a primitive sphere), where the vanishing
-/// partial is tiny but not zero. Or relative to the triangle's other
-/// corners: a boolean's apex vertex lies within its tolerance of the
-/// apex, not at it, on a kilometre-scale cone 0.016 up the slant where
-/// the partial ratio is 1e-2 but the rim's `∂u` is 1e6 times the apex's
-/// (PK-1133; read as a triangle, the apex fan integrated one row of the
-/// cone and lost a third of it). Both are ratios, so neither reads a
-/// small ball's rows near its pole (0.5 to their neighbours) or a long
-/// sliver on a cylinder (1) as a pole.
-///
-/// `accept` decides among corners read as poles (`pole::mesh_pole`).
-fn pole_corner(
-    surface: &SurfaceGeometry,
-    uv: [(f64, f64); 3],
-    accept: &dyn Fn(usize, bool) -> bool,
-) -> Option<(usize, bool)> {
-    let partials = uv.map(|(u, v)| {
-        (
-            surface.partial_u(u, v).length(),
-            surface.partial_v(u, v).length(),
-        )
-    });
-    (0..3).find_map(|k| {
-        let (su, sv) = partials[k];
-        let others = [partials[(k + 1) % 3], partials[(k + 2) % 3]];
-        let su_far = others[0].0.max(others[1].0);
-        let sv_far = others[0].1.max(others[1].1);
-        let collapsed_u = su <= POLE_RATIO * sv || su <= POLE_RELATIVE * su_far;
-        let collapsed_v = sv <= POLE_RATIO * su || sv <= POLE_RELATIVE * sv_far;
-        (collapsed_u != collapsed_v && accept(k, collapsed_u)).then_some((k, collapsed_u))
-    })
 }
 
 /// `kind`'s integrand over the oriented (u, v) triangle `uv`.
@@ -317,8 +275,11 @@ fn face_quadrature(
         .map(|_| sliver::face_trims(brep, fm.face))
         .unwrap_or_default();
     let winding = surface.and_then(|s| face_winding(s, fm));
-    // The face's vertices: where its loops meet a pole.
-    let vertices = face_vertices(brep, fm.face);
+    // The face's chart artifacts, from the chart service.
+    let descriptor = surface.map(|s| ChartDescriptor::of(s, &brep.tolerance));
+    // The face's vertices (where its loops meet a pole) and each pole's
+    // resolution.
+    let vertices = face_rows(brep, fm.face, surface.zip(descriptor.as_deref()));
     for t in &fm.triangles {
         let boundary = [0, 1, 2].map(|k| {
             let (i, j) = (t[k], t[(k + 1) % 3]);
@@ -331,7 +292,8 @@ fn face_quadrature(
             Integrand::Area => facet_area(points[0], points[1], points[2]),
         };
         out += surface
-            .and_then(|s| {
+            .zip(descriptor.as_deref())
+            .and_then(|(s, descriptor)| {
                 // Corners on one branch of a periodic chart: a facet
                 // across the seam keeps u = 0.1 and u = 6.2 as stored,
                 // a (u, v) triangle spanning the whole period that
@@ -339,7 +301,6 @@ fn face_quadrature(
                 // part read 3.86x its volume). The anchor is the
                 // corner with the largest chart Jacobian: a pole
                 // corner's collapsed coordinate is arbitrary.
-                let (pu, pv) = s.parameter_periodicity();
                 let jacobian =
                     |q: (f64, f64)| s.partial_u(q.0, q.1).cross(&s.partial_v(q.0, q.1)).length();
                 let corners = [a.uv, b.uv, c.uv];
@@ -348,12 +309,8 @@ fn face_quadrature(
                     .copied()
                     .max_by(|x, y| jacobian(*x).total_cmp(&jacobian(*y)))
                     .unwrap_or(a.uv);
-                let near = |x: f64, to: f64, period: Option<f64>| match period {
-                    Some(p) if p > 0.0 => x - p * ((x - to) / p).round(),
-                    _ => x,
-                };
-                let [a, b, c] = corners.map(|q| (near(q.0, anchor.0, pu), near(q.1, anchor.1, pv)));
-                let exact = surface_term(s, [a, b, c], points, (gate, &vertices), kind)
+                let [a, b, c] = corners.map(|q| aligned(descriptor, q, anchor));
+                let exact = surface_term(s, descriptor, [a, b, c], points, (gate, &vertices), kind)
                     .filter(|x| x.is_finite())?;
                 // The (u, v) triangle must be this facet's patch: its
                 // centroid's image lies within the facet's diameter
@@ -398,10 +355,10 @@ fn face_quadrature(
                 // seam made the seam sliver a wedge of the whole fan (a
                 // kilometre ice-cream cone read 4/3 of its area,
                 // PK-1133).
-                let pole = mesh_pole(s, corners, points, (&vertices, gate));
+                let at_row = singular_corner(descriptor, points, (&vertices, gate));
                 let chord = |k: usize| {
                     let (mut p, mut q) = (corners[k], corners[(k + 1) % 3]);
-                    match pole {
+                    match at_row {
                         Some((i, true)) if i == k => p.0 = q.0,
                         Some((i, false)) if i == k => p.1 = q.1,
                         Some((i, true)) if i == (k + 1) % 3 => q.0 = p.0,
@@ -414,7 +371,7 @@ fn face_quadrature(
                     .filter(|&k| boundary[k] && !trims.is_empty())
                     .filter_map(|k| {
                         let (p, q) = chord(k);
-                        sliver::sliver_term(s, &trims, p, q, gate, kind)
+                        sliver::sliver_term(s, descriptor, &trims, p, q, gate, kind)
                     })
                     .sum();
                 Some(match kind {

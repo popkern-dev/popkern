@@ -21,8 +21,8 @@ pub(crate) fn split_samples_at_period_jumps(
     // charts are clamped to [0, span], so seam positions at whole
     // multiples of the period hold for them exactly as for analytic
     // angle charts.
-    let (p1u, p1v) = crate::geometry::chart_periods::geometric_chart_periods(surface1);
-    let (p2u, p2v) = crate::geometry::chart_periods::geometric_chart_periods(surface2);
+    let (p1u, p1v) = crate::geometry::chart::ChartDescriptor::periods_of(surface1);
+    let (p2u, p2v) = crate::geometry::chart::ChartDescriptor::periods_of(surface2);
     if p1u.is_none() && p1v.is_none() && p2u.is_none() && p2v.is_none() {
         return vec![samples];
     }

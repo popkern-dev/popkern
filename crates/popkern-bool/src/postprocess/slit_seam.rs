@@ -19,7 +19,6 @@
 //! as a single cycle and the body must still validate, else the edge
 //! is left in place.
 
-use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
 
@@ -76,7 +75,7 @@ pub(crate) fn dissolve_slit_seams_in(
                 return None;
             }
             let surface = brep.faces.get(face)?.surface.as_ref()?;
-            let (pu, pv) = surface.geometry.parameter_periodicity();
+            let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface.geometry);
             if pu.is_none() && pv.is_none() {
                 return None;
             }

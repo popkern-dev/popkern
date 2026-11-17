@@ -234,7 +234,8 @@ impl BRep {
             // seam's projections scatter by ulps (measured: a pip
             // sphere's window 2.2e-15 wide, past an ε·period cutoff),
             // and a window inside the band has no interior to sample.
-            let (period_u, period_v) = sof.geometry.parameter_periodicity();
+            let (period_u, period_v) =
+                crate::geometry::chart::ChartDescriptor::evaluation_periods_of(&sof.geometry);
             if let Some(p) = period_u
                 && (u1 - u0).abs() < band
             {

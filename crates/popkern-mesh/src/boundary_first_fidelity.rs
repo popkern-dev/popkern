@@ -31,7 +31,7 @@ pub(super) fn closed_chart_fidelity_ok(
     options: &TessellationOptions,
 ) -> bool {
     let closed_chart = {
-        let (pu, pv) = popkern_core::geometry::chart_periods::geometric_chart_periods(surface);
+        let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::periods_of(surface);
         matches!(surface, SurfaceGeometry::Nurbs(_)) && (pu.is_some() || pv.is_some())
     };
     if !closed_chart {

@@ -315,7 +315,9 @@ pub(super) fn build_other_pcurve(
         };
         // Periodic-axis unwrapping for cyl/cone/torus u-axis.
         if let Some((pu, pv)) = prev_uv {
-            if let (Some(period_u), _) = other.periodicity() {
+            if let (Some(period_u), _) =
+                crate::geometry::chart::ChartDescriptor::evaluation_periods_of(other)
+            {
                 while u - pu > period_u * 0.5 {
                     u -= period_u;
                 }
@@ -323,7 +325,9 @@ pub(super) fn build_other_pcurve(
                     u += period_u;
                 }
             }
-            if let (_, Some(period_v)) = other.periodicity() {
+            if let (_, Some(period_v)) =
+                crate::geometry::chart::ChartDescriptor::evaluation_periods_of(other)
+            {
                 while v - pv > period_v * 0.5 {
                     v -= period_v;
                 }

@@ -128,7 +128,7 @@ impl BRep {
                 continue;
             };
             let (period_u, period_v) =
-                crate::geometry::chart_periods::geometric_chart_periods(&surface.geometry);
+                crate::geometry::chart::ChartDescriptor::periods_of(&surface.geometry);
             if period_u.is_none() && period_v.is_none() {
                 continue;
             }

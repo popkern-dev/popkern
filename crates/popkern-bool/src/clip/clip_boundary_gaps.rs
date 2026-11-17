@@ -43,7 +43,9 @@ fn is_gap(brep: &BRep, face: FaceHandle, curve_uv: &NurbsCurve, (a, b): (f64, f6
     let Some(surface) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
         return false;
     };
-    let periodic = surface.geometry.periodicity() != (None, None);
+    let periodic =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface.geometry)
+            != (None, None);
     let outside = (1..=PIECE_SAMPLES).all(|k| {
         let p = curve_uv.point_at(a + (b - a) * k as f64 / (PIECE_SAMPLES + 1) as f64);
         let verdict = if periodic {
@@ -96,7 +98,9 @@ pub(super) fn cut_boundary_gaps(
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.periodicity())
+        .map(|s| {
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry)
+        })
     else {
         return UvClipResult::Windows(windows);
     };

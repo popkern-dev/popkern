@@ -23,7 +23,8 @@ pub(super) fn projected_support_pcurve(
     budget: ExactBoundaryRibbonBudget,
 ) -> Option<Pcurve> {
     let count = sample_count(budget).max(5);
-    let (period_u, period_v) = surface.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut previous_uv = None;
     let mut uv_points = Vec::with_capacity(count);
     let mut parameters = Vec::with_capacity(count);

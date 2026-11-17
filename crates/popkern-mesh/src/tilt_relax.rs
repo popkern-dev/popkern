@@ -119,7 +119,8 @@ pub(crate) fn relax_leaning_vertices(
             }
             // The star in one lift around `v`: across a periodic seam a
             // ring vertex can be stored a period away (tilt_refine::lift).
-            let periods = surface.periodicity();
+            let periods =
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
             let lifted = |w: usize| crate::tilt_refine::lift(mesh.vertices[w].uv, uv0, periods);
             let centroid = ring.iter().fold((0.0, 0.0), |a, &w| {
                 let q = lifted(w);

@@ -131,7 +131,7 @@ impl SpiricFrame {
             }
             let half = x.clamp(-1.0, 1.0).pacos();
             for u in [psi + half, psi - half] {
-                roots.push(self.polish_root(u.rem_euclid(TAU)));
+                roots.push(self.polish_root(crate::geometry::chart::periodic::modulo(u, TAU)));
             }
         }
         roots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -151,7 +151,7 @@ impl SpiricFrame {
             if !next.is_finite() || self.f_at(next).abs() >= f.abs() {
                 break;
             }
-            u = next.rem_euclid(TAU);
+            u = crate::geometry::chart::periodic::modulo(next, TAU);
         }
         u
     }

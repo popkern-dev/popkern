@@ -158,7 +158,8 @@ fn plan_fan(
         old_tilt = old_tilt.max(tilt(mesh, tri));
         old_spread = old_spread.max(spread(mesh, tri));
         old_over += usize::from(tilt(mesh, tri) > bound);
-        let periods = surface.periodicity();
+        let periods =
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         let sense = {
             let p0 = mesh.vertices[tri[0]].uv;
             let p = tri.map(|i| lift(mesh.vertices[i].uv, p0, periods));
@@ -221,7 +222,7 @@ pub(crate) fn bisect_leaning_facets_from(
             (d.abs() > 1e-6).then_some(if d > 0.0 { 1.0 } else { -1.0 })
         })
         .unwrap_or(1.0);
-    let periods = surface.periodicity();
+    let periods = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut touched = Vec::new();
     let mut next_scope: Option<Vec<usize>> = seeds.map(<[usize]>::to_vec);
     for _ in 0..ROUNDS {

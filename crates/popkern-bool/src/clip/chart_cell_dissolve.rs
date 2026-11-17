@@ -37,7 +37,8 @@ pub(crate) fn edge_dissolve_keeps_cell_resolvable(
     let Some(sof) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
         return true;
     };
-    let (u_period, v_period) = sof.geometry.periodicity();
+    let (u_period, v_period) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&sof.geometry);
     let (Some(p_u), Some(p_v)) = (u_period, v_period) else {
         return true;
     };

@@ -30,10 +30,8 @@ pub(crate) fn compute_pcurve_for_trim(
     // per offset_bracket build, pcurve images up to 1.84 off their
     // own edge; the survivors resisted every later repair). Unwrap
     // the far endpoint into the near one's branch.
-    let (period_u, period_v) = {
-        use popkern_core::geometry::surface::SurfaceEval;
-        surface.parameter_periodicity()
-    };
+    let (period_u, period_v) =
+        { popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface) };
     if let Some(p) = period_u {
         while u_b - u_a > p * 0.5 {
             u_b -= p;
@@ -148,8 +146,7 @@ pub fn pcurve_for_face_along(
     // global projections branch-mix on periodic charts (see
     // compute_pcurve_for_trim above).
     let (period_u, period_v) = {
-        use popkern_core::geometry::surface::SurfaceEval;
-        surface.geometry.parameter_periodicity()
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface.geometry)
     };
     let mut prev: Option<(f64, f64)> = None;
     for k in 0..n {

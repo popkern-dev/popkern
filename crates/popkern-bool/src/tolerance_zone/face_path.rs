@@ -77,7 +77,7 @@ pub(crate) fn separation_along_face(
         // (PK-1209: read a whole section apart, the table separated them
         // and the boolean classified every piece away).
         let (pu, pv) =
-            popkern_core::geometry::chart_periods::geometric_chart_periods(&surface.geometry);
+            popkern_core::geometry::chart::ChartDescriptor::periods_of(&surface.geometry);
         let (du, dv) = (nearest_branch(b.0 - a.0, pu), nearest_branch(b.1 - a.1, pv));
         let at = |k: usize| {
             let w = k as f64 / PATH_SAMPLES as f64;

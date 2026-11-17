@@ -105,7 +105,8 @@ fn face_domain<'a>(brep: &'a BRep, face: FaceHandle) -> Result<FaceDomain<'a>, B
     // period for periodic u.
     let (cu, cv) =
         popkern_core::geometry::uv_projection::face_exact_parameter_range(brep, face, surface);
-    let (u_period, _) = surface.parameter_periodicity();
+    let (u_period, _) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let pad = |(lo, hi): (f64, f64)| -> (f64, f64) {
         let p = (0.05 * (hi - lo).abs()).max(0.05);
         (lo - p, hi + p)

@@ -275,7 +275,7 @@ pub(super) fn pierce_windows(
             .faces
             .get(face)
             .and_then(|f| f.surface.as_ref())
-            .map(|s| popkern_core::geometry::chart_periods::geometric_chart_periods(&s.geometry))
+            .map(|s| popkern_core::geometry::chart::ChartDescriptor::periods_of(&s.geometry))
             .unwrap_or((None, None));
         let ring = crate::clip::face_uv_boundary(brep, face);
         let mut lo = (f64::MAX, f64::MAX);

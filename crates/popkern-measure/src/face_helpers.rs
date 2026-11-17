@@ -13,7 +13,10 @@ use popkern_core::topology::{BRep, FaceHandle};
 pub(crate) fn pcurve_uv_range(brep: &BRep, face: FaceHandle) -> Option<((f64, f64), (f64, f64))> {
     let face_data = brep.faces.get(face)?;
     let surface_on_face = face_data.surface.as_ref()?;
-    let (period_u, period_v) = surface_on_face.geometry.periodicity();
+    let (period_u, period_v) =
+        popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(
+            &surface_on_face.geometry,
+        );
 
     let loop_ = brep.loops.get(face_data.outer_loop)?;
     let start_he = loop_.half_edge;
@@ -96,7 +99,7 @@ pub(crate) fn outer_loop_matches_uv_rectangle(
     let (period_u, period_v) = face_data
         .surface
         .as_ref()
-        .map(|s| s.geometry.periodicity())
+        .map(|s| popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&s.geometry))
         .unwrap_or((None, None));
     let near = |x: f64, side: f64, period: Option<f64>| {
         let d = x - side;

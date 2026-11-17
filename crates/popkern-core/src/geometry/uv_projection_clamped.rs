@@ -63,7 +63,8 @@ pub(super) fn nurbs_gauss_newton_single(
     // and the continuation consumer keeps the hint's branch. Clamped,
     // a closed rail whose hint sat 0.005 short of a periodic strip's
     // u = 0 stalled on that chart edge 0.21 off the rail (PK-891).
-    let (u_periodic, v_periodic) = (nurbs.u_period().is_some(), nurbs.v_period().is_some());
+    let (pu, pv) = crate::geometry::chart::ChartDescriptor::nurbs_evaluation_periods(nurbs);
+    let (u_periodic, v_periodic) = (pu.is_some(), pv.is_some());
     let clamp_u = |u: f64| if u_periodic { u } else { u.clamp(u_lo, u_hi) };
     let clamp_v = |v: f64| if v_periodic { v } else { v.clamp(v_lo, v_hi) };
     let mut u = clamp_u(u0);
@@ -184,7 +185,7 @@ pub(super) fn periodic_ring_project(
     nurbs: &NurbsSurface,
     point: &Point3,
 ) -> Option<(f64, f64)> {
-    let period = (nurbs.u_period(), nurbs.v_period());
+    let period = crate::geometry::chart::ChartDescriptor::nurbs_evaluation_periods(nurbs);
     let grid = nurbs_gauss_newton_project(surface, nurbs, point);
     let seeded = nurbs.projection_seed_field().and_then(|field| {
         crate::geometry::surface::closest_point_from_seed_points(
@@ -197,7 +198,11 @@ pub(super) fn periodic_ring_project(
         )
     });
     let ((u_lo, _), (v_lo, _)) = nurbs.parameter_range();
-    let wrap = |x: f64, lo: f64, p: Option<f64>| p.map_or(x, |p| lo + (x - lo).rem_euclid(p));
+    let wrap = |x: f64, lo: f64, p: Option<f64>| {
+        p.map_or(x, |p| {
+            lo + crate::geometry::chart::periodic::modulo(x - lo, p)
+        })
+    };
     let land = |(u, v): (f64, f64)| (wrap(u, u_lo, period.0), wrap(v, v_lo, period.1));
     let gap = |uv: (f64, f64)| point.distance_to(&surface.point_at(uv.0, uv.1));
     match (seeded.map(land), grid) {

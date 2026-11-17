@@ -192,7 +192,8 @@ pub(super) fn compute_periodic_branch_shifts(
             continue;
         };
         let geometry = &exported.surface.geometry;
-        let (period_u, period_v) = geometry.parameter_periodicity();
+        let (period_u, period_v) =
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(geometry);
         if period_u.is_none() && period_v.is_none() {
             continue;
         }

@@ -22,7 +22,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::uv_projection::project_point_to_uv_near;
 use popkern_core::tolerance::Tolerance;
 
@@ -50,7 +50,7 @@ impl SourceWindow {
     /// Fold an unwrapped parameter back into the source domain.
     pub(crate) fn wrap(&self, t: f64) -> f64 {
         match self.period {
-            Some(p) => self.s0 + (t - self.s0).rem_euclid(p),
+            Some(p) => self.s0 + popkern_core::geometry::chart::periodic::modulo(t - self.s0, p),
             None => t,
         }
     }
@@ -103,7 +103,8 @@ impl SourceWindow {
         if self.period.is_none() {
             return;
         }
-        let (pu, pv) = surface.parameter_periodicity();
+        let (pu, pv) =
+            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         for i in 1..run.len() {
             let prev = run[i - 1];
             let q = &mut run[i];
@@ -207,7 +208,8 @@ impl SourceWindow {
             }
             // Anchor the run on the source chart's branch, then keep
             // it continuous across the chart seam.
-            let (pu, pv) = surf.parameter_periodicity();
+            let (pu, pv) =
+                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surf);
             let anchor = self.point_at(src_uv, params[0]);
             run[0].x = fold_toward(run[0].x, anchor.x, pu);
             run[0].y = fold_toward(run[0].y, anchor.y, pv);

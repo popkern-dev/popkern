@@ -87,7 +87,7 @@ pub struct WalkRequest<'a> {
     /// boundary at u = ±π and the last sample fails.
     ///
     /// Default: `(None, None)` (no periodicity adjustment) — pass
-    /// `surface.periodicity()` to enable.
+    /// `popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(&surface)` to enable.
     pub surface_0_periodicity: (Option<f64>, Option<f64>),
     /// Periodicity of `surface_1`'s `(u, v)` parameters. See
     /// [`Self::surface_0_periodicity`].

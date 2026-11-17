@@ -8,9 +8,9 @@
 //! often they double, while on a chart with no singular row the
 //! metric's stretch is bounded and doubling converges (PK-1185).
 
-use super::Point3;
-use super::nurbs_surface::NurbsSurface;
-use super::surface::SurfaceGeometry;
+use crate::geometry::Point3;
+use crate::geometry::nurbs_surface::NurbsSurface;
+use crate::geometry::surface::SurfaceGeometry;
 
 /// Whether `surface`'s chart has a row mapping to one point, rows of a
 /// NURBS net counted collapsed when their control points lie within
@@ -54,5 +54,5 @@ fn collapsed(mut row: impl Iterator<Item = Point3>, linear: f64) -> bool {
 }
 
 #[cfg(test)]
-#[path = "chart_singularity_tests.rs"]
+#[path = "singularity_tests.rs"]
 mod tests;
