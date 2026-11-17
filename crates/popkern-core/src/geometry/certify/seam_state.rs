@@ -109,12 +109,25 @@ impl SideState {
     }
 }
 
-/// `Σ_{i+j<M} ∂^{a+i,b+j}S · (Δu^i/i!)(Δv^j/j!)`.
+/// The products `(Δu^i/i!)(Δv^j/j!)`, `i + j < M`, in `(i, j)` order:
+/// shared by every partial's expansion at one state (each recomputed
+/// them, five times over, PK-1223).
+fn weights<const M: usize>(du_powers: &[Taylor<M>], dv_powers: &[Taylor<M>]) -> Vec<Taylor<M>> {
+    let mut out = Vec::with_capacity(M * (M + 1) / 2);
+    for i in 0..M {
+        for j in 0..M - i {
+            out.push(du_powers[i] * dv_powers[j]);
+        }
+    }
+    out
+}
+
+/// `Σ_{i+j<M} ∂^{a+i,b+j}S · (Δu^i/i!)(Δv^j/j!)`, the products from
+/// [`weights`].
 fn expand<const M: usize>(
     jet: &SurfaceJet,
     (a, b): (usize, usize),
-    du_powers: &[Taylor<M>],
-    dv_powers: &[Taylor<M>],
+    weights: &[Taylor<M>],
 ) -> TaylorVec3<M> {
     let zero = Taylor::<M>::constant(Iv::point(0.0));
     let mut out = TaylorVec3 {
@@ -122,9 +135,12 @@ fn expand<const M: usize>(
         y: zero,
         z: zero,
     };
+    let mut weight = weights.iter();
     for i in 0..M {
         for j in 0..M - i {
-            let weight = du_powers[i] * dv_powers[j];
+            let Some(&weight) = weight.next() else {
+                return out;
+            };
             let partial = jet.partial(a + i, b + j);
             out = out
                 + TaylorVec3 {
@@ -305,15 +321,14 @@ fn assemble(jet: &SurfaceJet, du: [Iv; PCURVE_JET_TERMS], dv: [Iv; PCURVE_JET_TE
     let position = expand(
         jet,
         (0, 0),
-        &scaled_powers(du_long),
-        &scaled_powers(dv_long),
+        &weights(&scaled_powers(du_long), &scaled_powers(dv_long)),
     );
     let (du, dv) = (
         du_long.truncate::<SEAM_TERMS>(),
         dv_long.truncate::<SEAM_TERMS>(),
     );
-    let (pu, pv) = (scaled_powers(du), scaled_powers(dv));
-    let at = |a: usize, b: usize| expand(jet, (a, b), &pu, &pv);
+    let shared = weights(&scaled_powers(du), &scaled_powers(dv));
+    let at = |a: usize, b: usize| expand(jet, (a, b), &shared);
     SideState {
         p: position.truncate(),
         su: at(1, 0),
@@ -400,6 +415,42 @@ fn second_form(side: &SideState, unit_normal: SeriesVec, e: SeriesVec, f: Series
     w1.0 * l * w2.0 + (w1.0 * m * w2.1 + w1.1 * m * w2.0) + w1.1 * n * w2.1
 }
 
+/// `[II(e1, e1), II(e1, e2), II(e2, e2)]`: [`second_form`]'s three
+/// values with the metric, the Hessian's normal components and each
+/// direction's chart coordinates computed once (each call recomputed
+/// them, PK-1223); every value is the same expression on the same terms.
+fn second_forms(
+    side: &SideState,
+    unit_normal: SeriesVec,
+    e1: SeriesVec,
+    e2: SeriesVec,
+) -> [Series; 3] {
+    if side.umbilic.is_some() {
+        return [
+            second_form(side, unit_normal, e1, e1),
+            second_form(side, unit_normal, e1, e2),
+            second_form(side, unit_normal, e2, e2),
+        ];
+    }
+    let (su, sv) = (side.su, side.sv);
+    let (ee, ff, gg) = (su.dot(su), su.dot(sv), sv.dot(sv));
+    let det = ee * gg - ff * ff;
+    let chart = |d: SeriesVec| {
+        let (r1, r2) = (d.dot(su), d.dot(sv));
+        ((r1 * gg - r2 * ff).div(det), (r2 * ee - r1 * ff).div(det))
+    };
+    let (c1, c2) = (chart(e1), chart(e2));
+    let (l, m, n) = (
+        side.suu.dot(unit_normal),
+        side.suv.dot(unit_normal),
+        side.svv.dot(unit_normal),
+    );
+    let ii = |w1: (Series, Series), w2: (Series, Series)| {
+        w1.0 * l * w2.0 + (w1.0 * m * w2.1 + w1.1 * m * w2.0) + w1.1 * n * w2.1
+    };
+    [ii(c1, c1), ii(c1, c2), ii(c2, c2)]
+}
+
 /// Quantities comparing side `a` with side `b` at the same s-set.
 /// `flip_b` negates side b's normal into side a's hemisphere (chosen
 /// once per seam interval from its midpoint).
@@ -411,13 +462,7 @@ pub fn seam_quantities(a: &SideState, b: &SideState, flip_b: bool) -> SeamQuanti
         .tangent
         .scale(Series::constant(Iv::point(1.0)).div(a.tangent.norm()));
     let e2 = unit_a.cross(e1);
-    let form = |side: &SideState, unit: SeriesVec| {
-        [
-            second_form(side, unit, e1, e1),
-            second_form(side, unit, e1, e2),
-            second_form(side, unit, e2, e2),
-        ]
-    };
+    let form = |side: &SideState, unit: SeriesVec| second_forms(side, unit, e1, e2);
     let (ii_a, ii_b) = (form(a, unit_a), form(b, unit_b));
     SeamQuantities {
         gap: components(a.p - b.p),
@@ -427,3 +472,7 @@ pub fn seam_quantities(a: &SideState, b: &SideState, flip_b: bool) -> SeamQuanti
         normal_dot: unit_a.dot(normal_b).value(),
     }
 }
+
+#[cfg(test)]
+#[path = "seam_state_tests.rs"]
+mod tests;

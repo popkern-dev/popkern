@@ -4,6 +4,7 @@ use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
 use crate::geometry::intersection::surface_subdivision::Aabb;
+use crate::geometry::sphere_eval::{SphereTrig, sphere_first_partials};
 use crate::geometry::surface::{
     SurfaceEval, SurfaceGeometry, bounding_box_by_sampling, closest_point_gauss_newton_bounded,
 };
@@ -102,10 +103,8 @@ impl SurfaceEval for SurfaceGeometry {
             } => {
                 // Standard spherical in the chart frame: u = longitude
                 // [0, 2π), v = colatitude [0, π], the pole `axis` at v = 0.
-                let x = radius * v.psin() * u.pcos();
-                let y = radius * v.psin() * u.psin();
-                let z = radius * v.pcos();
-                *center + sphere_to_world(axis, Vec3::new(x, y, z))
+                let local = SphereTrig::at(u, v).point(*radius);
+                *center + sphere_to_world(axis, local)
             }
             SurfaceGeometry::Torus {
                 center,
@@ -142,14 +141,7 @@ impl SurfaceEval for SurfaceGeometry {
             }
             SurfaceGeometry::Sphere { radius, axis, .. } => {
                 // d/du: (-sin(u)*sin(v), cos(u)*sin(v), 0)
-                sphere_to_world(
-                    axis,
-                    Vec3::new(
-                        -radius * v.psin() * u.psin(),
-                        radius * v.psin() * u.pcos(),
-                        0.0,
-                    ),
-                )
+                sphere_to_world(axis, SphereTrig::at(u, v).partial_u(*radius))
             }
             SurfaceGeometry::Torus {
                 axis,
@@ -183,14 +175,7 @@ impl SurfaceEval for SurfaceGeometry {
             }
             SurfaceGeometry::Sphere { radius, axis, .. } => {
                 // d/dv: (cos(u)*cos(v), sin(u)*cos(v), -sin(v))
-                sphere_to_world(
-                    axis,
-                    Vec3::new(
-                        radius * u.pcos() * v.pcos(),
-                        radius * u.psin() * v.pcos(),
-                        -radius * v.psin(),
-                    ),
-                )
+                sphere_to_world(axis, SphereTrig::at(u, v).partial_v(*radius))
             }
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
@@ -210,6 +195,9 @@ impl SurfaceEval for SurfaceGeometry {
     fn first_partials(&self, u: f64, v: f64) -> (Vec3, Vec3) {
         match self {
             SurfaceGeometry::Nurbs(nurbs) => nurbs.first_partials(u, v),
+            SurfaceGeometry::Sphere { radius, axis, .. } => {
+                sphere_first_partials(*radius, axis, u, v)
+            }
             _ => (self.partial_u(u, v), self.partial_v(u, v)),
         }
     }
@@ -217,6 +205,10 @@ impl SurfaceEval for SurfaceGeometry {
     fn normal_at(&self, u: f64, v: f64) -> Vec3 {
         match self {
             SurfaceGeometry::Plane { normal, .. } => *normal,
+            SurfaceGeometry::Sphere { radius, axis, .. } => {
+                let (du, dv) = sphere_first_partials(*radius, axis, u, v);
+                du.cross(&dv)
+            }
             _ => {
                 let du = self.partial_u(u, v);
                 let dv = self.partial_v(u, v);
