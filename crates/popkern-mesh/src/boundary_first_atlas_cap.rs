@@ -29,7 +29,7 @@ pub(super) fn mesh_pieces(
     face: FaceHandle,
     (surface, orientation): (&SurfaceGeometry, bool),
     (descriptor, options): (&ChartDescriptor, &TessellationOptions),
-    (cuts, pieces): (&[Cut], Pieces),
+    (cuts, pieces, meridian): (&[Cut], Pieces, Option<f64>),
     split_requests: &mut Vec<SplitRequest>,
 ) -> Option<FaceMesh> {
     let _ = brep;
@@ -63,7 +63,7 @@ pub(super) fn mesh_pieces(
                 match super::super::chart_rings(
                     (face, surface, orientation),
                     rings,
-                    periods,
+                    (periods, meridian),
                     options,
                 )? {
                     super::super::Charted::Rings(mut rings) => {

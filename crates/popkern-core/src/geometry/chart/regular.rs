@@ -260,6 +260,31 @@ impl RegularChart {
         xy: (f64, f64),
         seed: Option<(f64, f64)>,
     ) -> Result<(f64, f64), ChartError> {
+        // A seed from the wrong side of a pole (a caller's interpolated
+        // longitude beside it is arbitrary) can lead the iteration off:
+        // then the unseeded projection, which reads the point alone.
+        match self.inverse_from(s, xy, seed) {
+            Err(_) if seed.is_some() => self.inverse_from(s, xy, None),
+            done => done,
+        }
+    }
+
+    fn inverse_from(
+        &self,
+        s: &SurfaceGeometry,
+        xy: (f64, f64),
+        seed: Option<(f64, f64)>,
+    ) -> Result<(f64, f64), ChartError> {
+        // A seed on another period branch (a caller's unwrapped corner)
+        // is read on the surface's own: the projection's iteration keeps
+        // to the domain, so a seed past it started from its border.
+        let ((u0, _), (v0, _)) = s.parameter_range();
+        let (pu, pv) = ChartDescriptor::evaluation_periods_of(s);
+        let onto = |t: f64, lo: f64, p: Option<f64>| match p {
+            Some(p) if lo.is_finite() => lo + popkern_math::periodic::modulo(t - lo, p),
+            _ => t,
+        };
+        let seed = seed.map(|(u, v)| (onto(u, u0, pu), onto(v, v0, pv)));
         let project = |q: &Point3, near: Option<(f64, f64)>| match near {
             Some(uv) => crate::geometry::surface_helpers::closest_point_from_seeds(
                 s,
@@ -306,7 +331,7 @@ impl RegularChart {
                     let (rx, ry) = (d.dot(e1) - xy.0, d.dot(e2) - xy.1);
                     residual = rx.phypot(ry);
                     if residual <= 1e-13 * scale {
-                        return Ok((u, v));
+                        return Ok(within_domain(s, (u, v)));
                     }
                     let (su, sv) = s.first_partials(u, v);
                     let (a, b, c, e) = (su.dot(e1), sv.dot(e1), su.dot(e2), sv.dot(e2));
@@ -332,5 +357,20 @@ impl RegularChart {
                 })
             }
         }
+    }
+}
+
+/// `uv` when it lies in the surface's domain along every axis without a
+/// period; else the parameters of its point read back by projection (a
+/// Newton step beside a pole crosses it: past a sphere's pole, `v < 0`
+/// is the point at `(u + π, −v)`, outside the domain the caller reads).
+fn within_domain(s: &SurfaceGeometry, uv: (f64, f64)) -> (f64, f64) {
+    let ((u0, u1), (v0, v1)) = s.parameter_range();
+    let (pu, pv) = ChartDescriptor::evaluation_periods_of(s);
+    let out = |t: f64, lo: f64, hi: f64, p: Option<f64>| p.is_none() && (t < lo || t > hi);
+    if out(uv.0, u0, u1, pu) || out(uv.1, v0, v1, pv) {
+        s.closest_point(&s.point_at(uv.0, uv.1)).unwrap_or(uv)
+    } else {
+        uv
     }
 }

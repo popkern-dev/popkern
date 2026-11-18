@@ -267,3 +267,17 @@ fn a_cone_tip_closes_at_its_apex_whatever_its_flag() {
         );
     }
 }
+
+/// The same dome on the mesher's atlas (chart-service.md §6a, PK-1267):
+/// the face beyond the cut circle wraps the period and reaches both poles.
+/// Recorded failing state: the band's slit wall point on the cut circle
+/// is a real edge's point, off the slit's iso-line, and 4 edges stayed
+/// open.
+#[test]
+fn a_dome_meshes_on_the_atlas() {
+    let atlas = popkern_mesh::TessellationOptions {
+        atlas: true,
+        ..popkern_mesh::TessellationOptions::default()
+    };
+    check_dome_meshed([0.3, -0.5, 0.2], -6.0, 2e-3, &atlas);
+}

@@ -168,17 +168,8 @@ fn certify_face(
     };
     let breaks = c0_breaks(surface);
     let periods = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
-    let mut bound_piece = |piece: &Piece| match piece {
-        Piece::Triangle(w, p) => triangle_chord_bound(&mut source, &breaks, *w, *p, tolerance),
-        Piece::Rectangle(u, v, c) => {
-            rectangle_chord_bound(&mut source, &breaks, *u, *v, *c, tolerance)
-        }
-        Piece::Quad(u, v, c, main) => match quad_pair_offset(*c, *main) {
-            Some(h) => {
-                rectangle_chord_bound(&mut source, &breaks, *u, *v, *c, tolerance).map(|b| b + h)
-            }
-            None => Ok(f64::INFINITY),
-        },
+    let bound_piece = |source: &mut SurfaceJetSource, piece: &Piece| {
+        piece_bound(source, &breaks, piece, tolerance)
     };
     // Each triangle's bound and the piece holding it; `plain` keeps the
     // unwrapped parameters of triangles bounded as one affine piece.
@@ -192,7 +183,7 @@ fn certify_face(
         plain.push(matches!(pieces[..], [Piece::Triangle(..)]).then_some(w));
         let mut worst = (0.0_f64, Piece::Triangle(w, p));
         for piece in pieces {
-            match bound_piece(&piece) {
+            match bound_piece(&mut source, &piece) {
                 Ok(b) if b >= worst.0 => worst = (b, piece),
                 Ok(_) => {}
                 Err(e) => return inconclusive(out, ChordalInconclusive::Decline(e)),
@@ -233,7 +224,7 @@ fn certify_face(
                     let Some(quad) = quad_piece((vt, w, pt), vs, off, periods) else {
                         continue;
                     };
-                    let b = match bound_piece(&quad) {
+                    let b = match bound_piece(&mut source, &quad) {
                         Ok(b) => b,
                         Err(e) => return inconclusive(out, ChordalInconclusive::Decline(e)),
                     };
@@ -249,24 +240,31 @@ fn certify_face(
     }
     // Triangles still over: pair them through bent edges, which do not
     // charge a surface's sag inside its tangent plane (PK-908).
-    if best.iter().any(|(b, _)| *b > tolerance) {
+    let mut bent_edges = popkern_math::hash::FastHashSet::default();
+    // One weld id per position for every triangle (the bend and cap
+    // passes key edges alike).
+    let welds: Vec<[usize; 3]> = {
         let mut weld: HashMap<[u64; 3], usize> = HashMap::default();
-        let mut id = |p: Point3| {
-            let next = weld.len();
-            *weld
-                .entry([p.x, p.y, p.z].map(|x| (x + 0.0).to_bits()))
-                .or_insert(next)
-        };
+        tris.iter()
+            .map(|&t| {
+                mesh.triangles[t].map(|i| {
+                    let p = mesh.vertices[i].position;
+                    let next = weld.len();
+                    *weld
+                        .entry([p.x, p.y, p.z].map(|x| (x + 0.0).to_bits()))
+                        .or_insert(next)
+                })
+            })
+            .collect()
+    };
+    if best.iter().any(|(b, _)| *b > tolerance) {
         let input: Vec<Option<BendTriangle>> = tris
             .iter()
             .zip(&plain)
-            .map(|(&t, w)| {
+            .zip(&welds)
+            .map(|((&t, w), &weld)| {
                 let p = mesh.triangles[t].map(|i| mesh.vertices[i].position);
-                w.map(|w| BendTriangle {
-                    weld: p.map(&mut id),
-                    w,
-                    p,
-                })
+                w.map(|w| BendTriangle { weld, w, p })
             })
             .collect();
         let mut bounds: Vec<f64> = best.iter().map(|b| b.0).collect();
@@ -283,6 +281,38 @@ fn certify_face(
                 triangle_chord_bound(&mut source, &breaks, w, p, tolerance).ok()
             });
         }
+        for (b, x) in best.iter_mut().zip(bounds) {
+            b.0 = x;
+        }
+        bent_edges = bent;
+    }
+    // Still over: cap triangles paired through the cap chart (the atlas
+    // meshes them flat there, not in face parameters).
+    if best.iter().any(|(b, _)| *b > tolerance) {
+        let descriptor =
+            popkern_core::geometry::chart::ChartDescriptor::of(surface, &brep.tolerance);
+        let input: Vec<CapTriangle> = tris
+            .iter()
+            .zip(&welds)
+            .map(|(&t, &weld)| {
+                let tri = mesh.triangles[t];
+                let p = tri.map(|i| mesh.vertices[i].position);
+                CapTriangle {
+                    weld,
+                    w: tri.map(|i| mesh.vertices[i].uv),
+                    p,
+                }
+            })
+            .collect();
+        let mut bounds: Vec<f64> = best.iter().map(|b| b.0).collect();
+        cap_pass(
+            surface,
+            &descriptor,
+            &input,
+            &mut bounds,
+            (tolerance, &bent_edges),
+            |piece| bound_piece(&mut source, piece).ok(),
+        );
         for (b, x) in best.iter_mut().zip(bounds) {
             b.0 = x;
         }
@@ -310,16 +340,36 @@ fn certify_face(
     out
 }
 
+/// A piece's certified bound against `tolerance`.
+fn piece_bound(
+    source: &mut SurfaceJetSource,
+    breaks: &popkern_core::geometry::certify::chord::C0Breaks,
+    piece: &Piece,
+    tolerance: f64,
+) -> Result<f64, CertifyDecline> {
+    match piece {
+        Piece::Triangle(w, p) => triangle_chord_bound(source, breaks, *w, *p, tolerance),
+        Piece::Rectangle(u, v, c) => rectangle_chord_bound(source, breaks, *u, *v, *c, tolerance),
+        Piece::Quad(u, v, c, main) => match quad_pair_offset(*c, *main) {
+            Some(h) => rectangle_chord_bound(source, breaks, *u, *v, *c, tolerance).map(|b| b + h),
+            None => Ok(f64::INFINITY),
+        },
+    }
+}
+
 #[path = "chordal_bend.rs"]
 mod chordal_bend;
 #[path = "chordal_boundary.rs"]
 mod chordal_boundary;
+#[path = "chordal_cap.rs"]
+mod chordal_cap;
 #[path = "chordal_pieces.rs"]
 mod chordal_pieces;
 #[path = "chordal_refine.rs"]
 mod chordal_refine;
 use chordal_bend::{BendTriangle, bend_pass};
 use chordal_boundary::boundary_bound;
+use chordal_cap::{CapTriangle, cap_pass};
 pub(crate) use chordal_pieces::{Piece, c0_breaks, pole_pieces, quad_piece, unwrap};
 use chordal_refine::refine_pass;
 

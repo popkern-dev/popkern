@@ -29,7 +29,10 @@ use super::*;
 mod assemble;
 #[path = "boundary_first_atlas_cap.rs"]
 mod cap;
+#[path = "boundary_first_atlas_meridian.rs"]
+mod meridian;
 use assemble::{Pieces, assemble};
+use meridian::Meridian;
 
 /// Where a ring sample lies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,7 +190,7 @@ pub(super) fn tessellate_on_atlas(
             face_handle,
             (surface, orientation),
             (descriptor, options),
-            (&cuts, pieces),
+            (&cuts, pieces, None),
             split_requests,
         ));
     }
@@ -270,13 +273,22 @@ pub(super) fn tessellate_on_atlas(
                 .collect::<Vec<_>>())
         );
     }
-    let pieces = pieces?;
+    let mut pieces = pieces?;
+    // The band's slit meridian, its real-edge crossings samples on it.
+    let mut azimuth = None;
+    if let Some((_, band)) = pieces.iter_mut().find(|(p, _)| *p == Piece::Band) {
+        match meridian::band_meridian(brep, (surface, &cuts[0]), band, split_requests) {
+            Meridian::Requested => return Some(None),
+            Meridian::At(a) => azimuth = Some(a),
+            Meridian::Unneeded | Meridian::None => {}
+        }
+    }
     Some(cap::mesh_pieces(
         brep,
         face_handle,
         (surface, orientation),
         (descriptor, options),
-        (&cuts, pieces),
+        (&cuts, pieces, azimuth),
         split_requests,
     ))
 }

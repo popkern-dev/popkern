@@ -17,7 +17,7 @@ pub(super) fn join_wrapped_rings(
     p: f64,
     surface: &SurfaceGeometry,
     orientation: bool,
-    chord_height: f64,
+    (chord_height, azimuth): (f64, Option<f64>),
     transposed: bool,
 ) -> Option<Vec<BoundaryRing>> {
     // One ring winding once: a cap around a chart pole (PK-636).
@@ -54,7 +54,7 @@ pub(super) fn join_wrapped_rings(
             p,
             surface,
             transposed,
-            chord_height,
+            (chord_height, azimuth),
         )
     {
         // Rings that wrapped in v were slit as u bands; back to (u, v).

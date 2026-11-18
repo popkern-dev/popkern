@@ -145,7 +145,7 @@ pub(crate) fn tessellate_face_boundary_first(
             }
         }
         let spine = !edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2);
-        if spine && !seam_square && face.inner_loops.is_empty() {
+        if spine && !seam_square && face.inner_loops.is_empty() && !options.atlas {
             // PK-339: the two-apex revolution arm serves the classic
             // member of this class (a full sphere: two poles joined by
             // one meridian seam) by construction — attempt it before
@@ -189,7 +189,7 @@ pub(crate) fn tessellate_face_boundary_first(
     let rings = match chart_rings(
         (face_handle, surface, orientation),
         built?,
-        periods,
+        (periods, None),
         options,
     )? {
         Charted::Rings(rings) => rings,
@@ -221,7 +221,7 @@ fn chart_rings(
         bool,
     ),
     built_rings: Vec<BoundaryRing>,
-    periods: (Option<f64>, Option<f64>),
+    (periods, slit_azimuth): ((Option<f64>, Option<f64>), Option<f64>),
     options: &TessellationOptions,
 ) -> Option<Charted> {
     let mut rings: Vec<BoundaryRing> = Vec::new();
@@ -306,7 +306,7 @@ fn chart_rings(
             p,
             surface,
             orientation,
-            options.chord_height,
+            (options.chord_height, slit_azimuth),
             transposed,
         )?;
         rings.splice(0..0, joined);

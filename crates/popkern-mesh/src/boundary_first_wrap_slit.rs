@@ -23,9 +23,13 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_math::PortableMath;
 
 use super::BoundaryRing;
+
+#[path = "boundary_first_wrap_slit_walls.rs"]
+mod walls;
+use walls::wall_crossings;
+pub(super) use walls::{collapse_stubs, net_winding};
 
 /// One cut ring path: window uv points, matched 3-D positions, and
 /// per-point canonical edge spans.
@@ -34,52 +38,6 @@ type CutPath = (
     Vec<Point3>,
     Vec<(popkern_core::topology::EdgeHandle, f64, f64)>,
 );
-
-/// Net u-winding of a consecutively-unwrapped ring, in periods
-/// (rounded): +1/-1 for a full wrap, 0 for a chartable ring.
-pub(super) fn net_winding(ring: &BoundaryRing, period: f64) -> i64 {
-    match (ring.uv.first(), ring.uv.last()) {
-        (Some(f), Some(l)) => ((l.0 - f.0) / period).round() as i64,
-        _ => 0,
-    }
-}
-
-/// Collapse short out-and-back STUBS (a dissolved seam's remnant: the
-/// ring walks out to a point and straight back within one or two
-/// samples). `dissolve_pinches` cannot cut these — both lobes of a
-/// legal cut need three points — and a surviving stub plants exact
-/// duplicate points that the Delaunay coverage reads as unresolvable
-/// zero-distance T-points.
-pub(super) fn collapse_stubs(ring: &mut BoundaryRing) {
-    loop {
-        let n = ring.uv.len();
-        if n < 5 {
-            return;
-        }
-        let mut cut: Option<(usize, usize)> = None;
-        'scan: for i in 0..n {
-            for dj in 2..=3 {
-                let j = (i + dj) % n;
-                let (pu, pv) = ring.uv[i];
-                let (qu, qv) = ring.uv[j];
-                if (pu - qu).phypot(pv - qv) < 1.0e-9 {
-                    cut = Some((i, dj));
-                    break 'scan;
-                }
-            }
-        }
-        let Some((i, dj)) = cut else {
-            return;
-        };
-        // Delete points i+1 ..= i+dj (cyclic), keeping one pinch copy.
-        let dels: Vec<usize> = (1..=dj).map(|k| (i + k) % n).collect();
-        let keep = |k: &usize| !dels.contains(k);
-        let idx: Vec<usize> = (0..n).filter(keep).collect();
-        ring.uv = idx.iter().map(|&k| ring.uv[k]).collect();
-        ring.pos = idx.iter().map(|&k| ring.pos[k]).collect();
-        ring.sources = idx.iter().map(|&k| ring.sources[k]).collect();
-    }
-}
 
 /// Build the slit polygon from wrapped rings: cut every ring at one
 /// sample-clear azimuth into wall-to-wall pieces, then walk the piece
@@ -96,7 +54,7 @@ pub(super) fn slit_band(
     period: f64,
     surface: &SurfaceGeometry,
     transposed: bool,
-    chord_height: f64,
+    (chord_height, azimuth): (f64, Option<f64>),
 ) -> Option<Vec<BoundaryRing>> {
     // In a transposed chart (rings wrapping in v) the first coordinate
     // is the surface's v.
@@ -108,22 +66,10 @@ pub(super) fn slit_band(
         }
     };
     let ring0 = wrapped.first()?;
+    // A ring's wall crossings at `u_star` (a ring running along a wall
+    // counts as uncuttable: more than any ring could cross).
     let crossings_of = |ring: &BoundaryRing, u_star: f64| -> usize {
-        let n = ring.uv.len();
-        let mut count = 0usize;
-        for i in 0..n {
-            let ua = ring.uv[i].0;
-            let mut ub = ring.uv[(i + 1) % n].0;
-            if i + 1 == n {
-                ub += ((ring.uv[n - 1].0 - ring.uv[0].0 + 0.5 * period) / period).floor() * period;
-            }
-            let k_lo = ((ua.min(ub) - u_star) / period).ceil() as i64;
-            let k_hi = ((ua.max(ub) - u_star) / period).floor() as i64;
-            if k_hi >= k_lo {
-                count += (k_hi - k_lo + 1) as usize;
-            }
-        }
-        count
+        wall_crossings(ring, u_star, period).map_or(usize::MAX / 8, |c| c.len())
     };
     // The face's other rings: the slit runs wall to wall, so it may cross
     // none, nor graze their samples (a dome band's slit fell 7e-4 from a
@@ -169,6 +115,13 @@ pub(super) fn slit_band(
             best = Some((total, cand, clearance));
         }
     }
+    // An atlas band's meridian is chosen by the atlas (its real-edge
+    // crossings are samples on it): cut there or not at all.
+    if let Some(az) = azimuth {
+        let total: usize = wrapped.iter().map(|r| crossings_of(r, az)).sum();
+        let clear = others.iter().all(|r| crossings_of(r, az) == 0);
+        best = (clear && total >= 2 && total.is_multiple_of(2)).then_some((total, az, 0.0));
+    }
     let Some((_, u_star, _)) = best else {
         if popkern_core::trace::trace_enabled("boundary-first") {
             eprintln!("      [bf-slit] no clear even-crossing azimuth found");
@@ -176,38 +129,33 @@ pub(super) fn slit_band(
         return None;
     };
     let hi_wall = u_star + period;
+    // Both walls are one meridian in space: evaluated at u* alike, so the
+    // two copies of a wall point agree to the bit (pieces weld by bits).
+    let wall_point = |u: f64, v: f64| {
+        point_at(
+            if (u - hi_wall).abs() < 1e-9 {
+                u_star
+            } else {
+                u
+            },
+            v,
+        )
+    };
 
     // Cut every ring into pieces between successive wall crossings.
     let mut pieces: Vec<CutPath> = Vec::new();
     for ring in wrapped {
         let n = ring.uv.len();
-        let mut cross: Vec<(usize, f64, f64)> = Vec::new(); // (segment, t, v)
-        for i in 0..n {
-            let (ua, va) = ring.uv[i];
-            let (mut ub, vb) = ring.uv[(i + 1) % n];
-            if i + 1 == n {
-                ub += ((ring.uv[n - 1].0 - ring.uv[0].0 + 0.5 * period) / period).floor() * period;
-            }
-            let k_lo = ((ua.min(ub) - u_star) / period).ceil() as i64;
-            let k_hi = ((ua.max(ub) - u_star) / period).floor() as i64;
-            for k in k_lo..=k_hi {
-                let wall = u_star + k as f64 * period;
-                let t = if (ub - ua).abs() < 1e-30 {
-                    0.0
-                } else {
-                    ((wall - ua) / (ub - ua)).clamp(0.0, 1.0)
-                };
-                cross.push((i, t, va + (vb - va) * t));
-            }
-        }
+        let mut cross = wall_crossings(ring, u_star, period)?;
         if cross.is_empty() {
             return None;
         }
-        cross.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        cross.sort_by(|a, b| a.segment.cmp(&b.segment).then(a.t.total_cmp(&b.t)));
         let m = cross.len();
         for c in 0..m {
-            let (from, v_start) = (cross[c].0, cross[c].2);
-            let (to, v_end) = (cross[(c + 1) % m].0, cross[(c + 1) % m].2);
+            let (start, end) = (cross[c], cross[(c + 1) % m]);
+            let (from, v_start) = (start.segment, start.v);
+            let (to, v_end) = (end.segment, end.v);
             // Samples strictly after `from`'s segment up to and
             // including `to`'s segment start.
             let mut uv: Vec<(f64, f64)> = Vec::new();
@@ -216,6 +164,10 @@ pub(super) fn slit_band(
             let mut prev_u: Option<f64> = None;
             let mut k = (from + 1) % n;
             loop {
+                // A wall sample ending the piece is its wall point.
+                if k == to && end.at_sample {
+                    break;
+                }
                 let (mut u, v) = ring.uv[k];
                 if let Some(pv) = prev_u {
                     while u - pv > 0.5 * period {
@@ -236,6 +188,9 @@ pub(super) fn slit_band(
                 if uv.len() > n + 2 {
                     return None;
                 }
+            }
+            if uv.is_empty() {
+                return None;
             }
             // Shift into the window; a piece between successive
             // crossings spans at most one period.
@@ -271,14 +226,24 @@ pub(super) fn slit_band(
             // dips past a wall and returns contributes a chunk whose
             // both ends sit on one wall; the graph walk traverses it
             // and continues along the same wall.
+            // A wall sample is its own wall point (a canonical sample the
+            // neighbour face shares); else the wall point is interpolated.
             let src0 = sources[0];
             let src_end = *sources.last()?;
             uv.insert(0, (sw, v_start));
-            pos.insert(0, point_at(sw, v_start));
-            sources.insert(0, (src0.0, src0.1, src0.1));
+            let (p0, s0) = match start.at_sample {
+                true => (ring.pos[from], ring.sources[from]),
+                false => (wall_point(sw, v_start), (src0.0, src0.1, src0.1)),
+            };
+            pos.insert(0, p0);
+            sources.insert(0, s0);
             uv.push((ew, v_end));
-            pos.push(point_at(ew, v_end));
-            sources.push((src_end.0, src_end.2, src_end.2));
+            let (p1, s1) = match end.at_sample {
+                true => (ring.pos[to], ring.sources[to]),
+                false => (wall_point(ew, v_end), (src_end.0, src_end.2, src_end.2)),
+            };
+            pos.push(p1);
+            sources.push(s1);
             pieces.push((uv, pos, sources));
         }
     }
@@ -398,8 +363,8 @@ pub(super) fn slit_band(
         for _ in 0..6 {
             let mut next = vec![vs[0]];
             for w in vs.windows(2) {
-                let (a, b) = (point_at(from.0, w[0]), point_at(from.0, w[1]));
-                let m = point_at(from.0, 0.5 * (w[0] + w[1]));
+                let (a, b) = (wall_point(from.0, w[0]), wall_point(from.0, w[1]));
+                let m = wall_point(from.0, 0.5 * (w[0] + w[1]));
                 let mid = Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
                 if m.distance_to(&mid) > chord_height && next.len() < 512 {
                     next.push(0.5 * (w[0] + w[1]));
@@ -414,7 +379,7 @@ pub(super) fn slit_band(
         }
         for &v in &vs[1..vs.len() - 1] {
             bundle.0.push((from.0, v));
-            bundle.1.push(point_at(from.0, v));
+            bundle.1.push(wall_point(from.0, v));
             bundle.2.push((src.0, src.1, src.1));
         }
     };

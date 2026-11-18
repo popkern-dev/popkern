@@ -62,6 +62,32 @@ fn sampled(brep: &BRep, mesh: &TriMesh) -> f64 {
     worst
 }
 
+/// On the atlas a sphere's caps are meshed flat in the pole projection:
+/// paired in face parameters, the triangles round a pole read the sagitta
+/// of their longitude arcs (1.38e-2 against a 5e-3 chord height, for a
+/// mesh within 7e-4 of the surface), and the cap pairing (the triangle cut
+/// in the cap chart, polar at the pole) certifies them (PK-1267).
+#[test]
+fn primitive_meshes_on_the_atlas_certify() {
+    let options = TessellationOptions {
+        atlas: true,
+        ..TessellationOptions::default()
+    };
+    for (name, brep) in primitives() {
+        let mesh = tessellate(&brep, &options).expect("mesh");
+        let cert = chordal_certificate(&brep, &mesh, options.chord_height);
+        assert!(
+            cert.inconclusive().is_empty(),
+            "{name}: {:?}",
+            cert.inconclusive()
+        );
+        for f in &cert.faces {
+            assert!(f.surface_bound >= f.witness, "{name}: {f:?}");
+        }
+        assert!(cert.certified(), "{name}: {:?}", cert.exceeding());
+    }
+}
+
 #[test]
 fn primitive_meshes_certify_and_their_bounds_cover_the_sampled_deviation() {
     let options = TessellationOptions::default();
