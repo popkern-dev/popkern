@@ -127,6 +127,22 @@ fn side(cuts: &[Cut], uv: (f64, f64)) -> Side {
     Side::Band
 }
 
+/// The cut at cap row `cap` of a surface described by `descriptor`.
+fn cut_at(descriptor: &ChartDescriptor, cap: CapRow) -> Cut {
+    let ((u0, _), (v0, _)) = descriptor.domain;
+    let (along_axis, lo) = match cap.singular.axis {
+        Axis::V => (Axis::U, u0),
+        Axis::U => (Axis::V, v0),
+    };
+    Cut {
+        eps: 1e-9 * (cap.at - cap.singular.at).abs(),
+        toward_band: (cap.at - cap.singular.at).signum(),
+        period: descriptor.period(along_axis).map(|p| p.period),
+        start: if lo.is_finite() { lo } else { 0.0 },
+        cap,
+    }
+}
+
 /// Tessellate `face` on the atlas, or `None` when it reaches no chart
 /// singularity (the caller's path meshes it). `Some(None)`: the atlas
 /// owns the face but declined this round (it requested canonical samples
@@ -139,20 +155,7 @@ pub(super) fn tessellate_on_atlas(
     (descriptor, options): (&ChartDescriptor, &TessellationOptions),
     split_requests: &mut Vec<SplitRequest>,
 ) -> Option<Option<FaceMesh>> {
-    let cut_at = |cap: CapRow| {
-        let ((u0, _), (v0, _)) = descriptor.domain;
-        let (along_axis, lo) = match cap.singular.axis {
-            Axis::V => (Axis::U, u0),
-            Axis::U => (Axis::V, v0),
-        };
-        Cut {
-            eps: 1e-9 * (cap.at - cap.singular.at).abs(),
-            toward_band: (cap.at - cap.singular.at).signum(),
-            period: descriptor.period(along_axis).map(|p| p.period),
-            start: if lo.is_finite() { lo } else { 0.0 },
-            cap,
-        }
-    };
+    let cut_at = |cap: CapRow| cut_at(descriptor, cap);
     // Each singular row's cap row at the candidate turn lying farthest
     // from every ring's turning points in the row coordinate (a loop
     // running along the row flips its crossings as its samples refine:
@@ -421,3 +424,7 @@ fn turning_clearance(cut: &Cut, surface: &SurfaceGeometry, built: &[BoundaryRing
     }
     clearance
 }
+
+#[cfg(test)]
+#[path = "boundary_first_atlas_tests.rs"]
+mod tests;

@@ -189,7 +189,7 @@ pub(crate) fn tessellate_face_boundary_first(
     let rings = match chart_rings(
         (face_handle, surface, orientation),
         built?,
-        (periods, None),
+        (periods, None, false),
         options,
     )? {
         Charted::Rings(rings) => rings,
@@ -222,7 +222,7 @@ fn chart_rings(
         bool,
     ),
     built_rings: Vec<BoundaryRing>,
-    (periods, slit_azimuth): ((Option<f64>, Option<f64>), Option<f64>),
+    (periods, slit_azimuth, atlas_band): ((Option<f64>, Option<f64>), Option<f64>, bool),
     options: &TessellationOptions,
 ) -> Option<Charted> {
     let mut rings: Vec<BoundaryRing> = Vec::new();
@@ -243,9 +243,21 @@ fn chart_rings(
             {
                 let (period_u, period_v) = periods;
                 // Chart-degenerate samples (poles, apexes); sphere pole crossings.
-                let mut u_degenerate =
-                    boundary_first_unwrap::chart_degenerate(&ring, surface, period_u, options);
-                resolve_pole_crossings(&mut ring, &mut u_degenerate, surface, orientation);
+                // None on an atlas band: its chart holds no singular row
+                // (chart-service.md §6a), and the degeneracy test, which
+                // scales with the chord height, read a ball band's rows at
+                // a chord height past its diameter as two apex runs, and
+                // the structured revolution path meshed the whole ball
+                // over the atlas's caps.
+                let mut u_degenerate = match atlas_band {
+                    true => vec![false; ring.uv.len()],
+                    false => {
+                        boundary_first_unwrap::chart_degenerate(&ring, surface, period_u, options)
+                    }
+                };
+                if !atlas_band {
+                    resolve_pole_crossings(&mut ring, &mut u_degenerate, surface, orientation);
+                }
                 if let Some(p) = period_u
                     && !boundary_first_unwrap::unwrap_dir(
                         &mut ring,

@@ -113,10 +113,17 @@ pub(super) fn assemble(
                 let next = if arcs[next_on_ring].piece == piece {
                     next_on_ring
                 } else {
-                    // The crossing itself, then the row to the next.
+                    // The crossing itself, then the row to the next. A
+                    // source names the segment leaving its sample, which
+                    // here runs along the row: the crossing's own source
+                    // is the edge's continuation into the other piece (a
+                    // split the band requested on its row segment landed
+                    // on the seam inside the cap, every round: a ball at
+                    // a chord height past its diameter halved its seam
+                    // toward the row until the rounds ran out).
                     ring.uv.push(src.uv[end_sample]);
                     ring.pos.push(src.pos[end_sample]);
-                    ring.sources.push(src.sources[end_sample]);
+                    ring.sources.push(row_source());
                     let walk = walk_sense(cut, piece, orientation);
                     let at = cut.along(src.uv[end]);
                     let target = next_entry(&arcs, built, (k, cut), piece, at, walk)?;

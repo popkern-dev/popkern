@@ -77,7 +77,7 @@ pub(super) fn mesh_pieces(
                 match super::super::chart_rings(
                     (face, surface, orientation),
                     rings,
-                    (periods, meridian),
+                    (periods, meridian, true),
                     options,
                 )? {
                     super::super::Charted::Rings(mut rings) => {

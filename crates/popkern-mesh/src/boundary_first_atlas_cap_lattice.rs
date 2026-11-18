@@ -328,8 +328,12 @@ pub(in super::super) fn band_row_cells(
         return Vec::new();
     };
     // The along span at most a period (consecutively unwrapped rings run
-    // past it).
+    // past it), and the whole period where the rings span none: a face
+    // whose only ring is its seam (a ball touching a box's faces) lies all
+    // round the row, and its span read as nothing sampled the rows at
+    // 4e-16, to the sampler's cap.
     let along_span = |a: f64, b: f64| match cut.period {
+        Some(p) if b - a <= 1e-6 * p => p,
         Some(p) => (b - a).min(p),
         None => b - a,
     };

@@ -100,6 +100,43 @@ fn very_loose_tolerance_produces_minimal_triangles() {
     );
 }
 
+/// On the atlas, a chord height past the ball's diameter: the band is
+/// meshed on its own (its rows read as two apex runs sent it to the
+/// structured revolution path, which meshed the whole ball over the
+/// caps: 54 triangles, five edges used other than twice), and a row
+/// segment's split request is not charged to the edge its crossing
+/// leaves along (the seam inside the cap halved every round).
+#[test]
+fn very_loose_tolerance_on_the_atlas_meshes_each_piece_once() {
+    let sphere = BRep::sphere(1.0, Tolerance::default()).unwrap();
+    let opts = TessellationOptions {
+        chord_height: 100.0,
+        min_subdivisions: 1,
+        max_subdivisions: 64,
+        atlas: true,
+        ..Default::default()
+    };
+    let mesh = tessellate(&sphere, &opts).unwrap();
+    let key = |i: usize| {
+        let p = mesh.vertices[i].position;
+        [p.x, p.y, p.z].map(|c| (c * 1e6).round() as i64)
+    };
+    let mut uses: std::collections::HashMap<_, usize> = std::collections::HashMap::new();
+    for t in &mesh.triangles {
+        for k in 0..3 {
+            let (a, b) = (key(t[k]), key(t[(k + 1) % 3]));
+            *uses.entry(if a < b { (a, b) } else { (b, a) }).or_default() += 1;
+        }
+    }
+    let odd = uses.values().filter(|&&u| u != 2).count();
+    assert_eq!(odd, 0, "every edge used twice; {odd} are not");
+    assert!(
+        mesh.triangles.len() <= 32,
+        "loose tolerance stays minimal on the atlas: {} triangles",
+        mesh.triangles.len()
+    );
+}
+
 #[test]
 fn very_tight_tolerance_produces_many_triangles() {
     let sphere = BRep::sphere(1.0, Tolerance::default()).unwrap();
