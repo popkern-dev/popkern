@@ -1,6 +1,6 @@
-//! The mesher's atlas in its shadow phase (chart-service.md §6a, PK-1267):
-//! faces reaching a sphere's poles meshed with `TessellationOptions::atlas`
-//! (each piece in a chart with no singular row) must be watertight, and
+//! The mesher's atlas (chart-service.md §6a, PK-1267): faces reaching a
+//! sphere's poles mesh in pieces, each in a chart with no singular row,
+//! and must be watertight, and
 //! every sphere face's facet area must lie within the inscribed band of
 //! its exact area (under it by at most the chord deficit, never over: a
 //! piece meshed twice or a hole meshed as material reads high).
@@ -21,14 +21,10 @@ use popkern_core::topology::BRep;
 use popkern_mesh::TessellationOptions;
 
 fn atlas(display: bool) -> TessellationOptions {
-    let base = if display {
+    if display {
         TessellationOptions::display()
     } else {
         TessellationOptions::default()
-    };
-    TessellationOptions {
-        atlas: true,
-        ..base
     }
 }
 

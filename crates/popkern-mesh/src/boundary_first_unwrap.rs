@@ -9,39 +9,41 @@
 //! regular samples. Returns `false` on a genuine net full wrap — the
 //! caller routes those to the structured-revolution or uniform-grid paths.
 
+use popkern_core::geometry::chart::{ChartDescriptor, SingularKind};
 use popkern_core::geometry::surface::{SurfaceEval as _, SurfaceGeometry};
 
 use super::BoundaryRing;
 
-/// Which ring samples are chart-degenerate in u (empty when u is not
-/// periodic).
+/// Which ring samples lie at an apex in u (empty when u is not
+/// periodic): a geometric singularity of the surface (a cone's point),
+/// read from the chart service's descriptor. A chart pole never reaches
+/// the face chart: a face reaching one meshes on the atlas.
 ///
-/// A sample AT a chart pole (sphere pole, cone apex) has
-/// undefined azimuth: shifting u by half a period leaves
-/// the 3D point fixed. Its pcurve u is arbitrary, and if
-/// it participates in the consecutive unwrap it chains
-/// the rest of the ring into a spurious ±period branch —
-/// a phantom "full wrap" (flagship corner caps hold one
-/// vertex exactly at the cap sphere's pole; the phantom
-/// winding declined 2 of 4 caps). Degenerate samples are
-/// skipped as unwrap anchors and their u is rewritten
-/// from the flanking regular samples afterwards.
-/// Gate at 1e-4 of the ring scale: a sample whose
-/// half-period u-shift moves it by less than a
-/// ten-thousandth of a boundary chord has no meaningful
-/// azimuth for charting, and rewriting its u moves
-/// geometry sub-chord. A pole VERTEX projected at
-/// v ≈ 1e-6 shifts by ~2·r·v ≈ 1e-8 — above the old
-/// 1e-7·scale gate — and its arbitrary atan2 u chained
-/// PK-325's corner-cap rings into a phantom full wrap
-/// (all four wavy-plate top caps declined to uniform-grid
-/// sampling and their chains tore off the strips).
-pub(super) fn chart_degenerate(
+/// A sample at an apex has undefined azimuth: shifting u by half a period
+/// leaves the 3D point fixed. Its pcurve u is arbitrary, and if it
+/// participates in the consecutive unwrap it chains the rest of the ring
+/// into a spurious ±period branch, a phantom "full wrap". Such samples
+/// are skipped as unwrap anchors and their u is rewritten from the
+/// flanking regular samples afterwards. Gate at 1e-4 of the ring scale:
+/// a sample whose half-period u-shift moves it by less than a
+/// ten-thousandth of a boundary chord has no meaningful azimuth for
+/// charting, and rewriting its u moves geometry sub-chord.
+pub(super) fn at_apex(
     ring: &BoundaryRing,
     surface: &SurfaceGeometry,
     period_u: Option<f64>,
-    options: &crate::TessellationOptions,
+    descriptor: &ChartDescriptor,
 ) -> Vec<bool> {
+    let Some(p) = period_u else {
+        return Vec::new();
+    };
+    if !descriptor
+        .singular_rows
+        .iter()
+        .any(|r| r.kind == SingularKind::Apex)
+    {
+        return vec![false; ring.uv.len()];
+    }
     let ring_scale = ring
         .pos
         .iter()
@@ -49,55 +51,25 @@ pub(super) fn chart_degenerate(
         .map(|(a, b)| a.distance_to(b))
         .fold(0.0_f64, f64::max)
         .max(1e-9);
-    let Some(p) = period_u else {
-        return Vec::new();
-    };
-    // Each sample's half-period shift: twice its distance from the pole.
-    let shifts: Vec<f64> = ring
-        .uv
+    let gate = 1.0e-4 * ring_scale;
+    ring.uv
         .iter()
         .zip(ring.pos.iter())
-        .map(|(&(u, v), pos)| surface.point_at(u + 0.5 * p, v).distance_to(pos))
-        .collect();
-    let gate = 1.0e-4 * ring_scale;
-    let gate = gate.max(pole_pass_gate(&shifts, gate, options.chord_height));
-    shifts.iter().map(|&s| s < gate).collect()
-}
-
-/// A wider gate for a ring passing beside a pole within a twentieth of
-/// the chord height: its samples within half the chord height of the pole
-/// (a half-period shift under the chord height) are charted at the
-/// pole, the chart's error there under the chord height, positions
-/// kept. Such a pass turns its azimuth by up to half a period within
-/// its distance `d` of the pole, at a chart height `d / R` against a
-/// lattice cell; at distance `r` it has all but `asin(d / r)` of that
-/// turn behind it, so past ten times `d` (half the chord height here)
-/// the run along the pole row
-/// meets the curve leaving it within a tenth of a radian. Gated at the
-/// chord fraction alone, a ring passing 1e-5 beside a sphere's pole
-/// with chords up to 1 charted only the samples within 5e-5 of it, and
-/// the curve's turn just past them (0.33 rad at a chart height of
-/// 1e-5) folded against the pole row's run: the face fell to the
-/// fallback grid, covering part of itself twice (PK-1188). A pass is
-/// a dip in the shift along the ring: a sample off the pole (a shift
-/// past a millionth of the gate, rounding at the pole itself reading
-/// 1e-17) no farther from it than either neighbour. An edge running
-/// into the pole falls to its pole sample without a dip, its samples
-/// halved toward the pole (a die's pip caps, their seams meeting the
-/// pole at 3e-6 then 1e-18): gated at its nearest sample it charted
-/// that edge's last stretch at the pole and left the cap open. A pass
-/// farther out keeps the chord-fraction gate (its sweep the lattice
-/// follows), as does a ring meeting the pole only at a vertex.
-fn pole_pass_gate(shifts: &[f64], gate: f64, chord: f64) -> f64 {
-    let n = shifts.len();
-    let nearest = (0..n)
-        .filter(|&i| {
-            let s = shifts[i];
-            s > 1.0e-6 * gate && s <= shifts[(i + n - 1) % n] && s <= shifts[(i + 1) % n]
+        .map(|(&(u, v), pos)| {
+            // The sample's half-period shift (twice its distance from the
+            // axis), and the nearest singular row an apex.
+            surface.point_at(u + 0.5 * p, v).distance_to(pos) < gate
+                && descriptor
+                    .singular_rows
+                    .iter()
+                    .min_by(|a, b| {
+                        a.point
+                            .distance_to(pos)
+                            .total_cmp(&b.point.distance_to(pos))
+                    })
+                    .is_some_and(|r| r.kind == SingularKind::Apex)
         })
-        .map(|i| shifts[i])
-        .fold(f64::INFINITY, f64::min);
-    if 10.0 * nearest <= chord { chord } else { 0.0 }
+        .collect()
 }
 
 pub(super) fn unwrap_dir(
@@ -175,20 +147,10 @@ pub(super) fn unwrap_dir(
 /// shift wins ties. A ring no shift places inside keeps its sheet —
 /// it may be a second boundary component rather than a hole.
 /// Place a face's rings on one chart sheet: closed-NURBS rings move
-/// into the knot domain, a sphere ring through both poles takes the
-/// side its flag names, and holes join the outer ring's sheet.
-pub(super) fn place_rings_on_chart(
-    rings: &mut Vec<BoundaryRing>,
-    surface: &SurfaceGeometry,
-    orientation: bool,
-    chord_height: f64,
-) {
-    use super::boundary_first_pole_cap::{complement_through_poles, enclose_both_poles};
+/// into the knot domain, and holes join the outer ring's sheet. (A
+/// sphere ring through both poles is the atlas's.)
+pub(super) fn place_rings_on_chart(rings: &mut [BoundaryRing], surface: &SurfaceGeometry) {
     shift_into_closed_nurbs_domain(rings, surface);
-    if let [ring] = rings.as_mut_slice() {
-        complement_through_poles(ring, surface, orientation);
-    }
-    enclose_both_poles(rings, surface, orientation, chord_height);
     align_hole_sheets(rings, surface);
 }
 

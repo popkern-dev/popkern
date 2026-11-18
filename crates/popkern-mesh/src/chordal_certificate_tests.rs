@@ -70,7 +70,6 @@ fn sampled(brep: &BRep, mesh: &TriMesh) -> f64 {
 #[test]
 fn primitive_meshes_on_the_atlas_certify() {
     let options = TessellationOptions {
-        atlas: true,
         ..TessellationOptions::default()
     };
     for (name, brep) in primitives() {

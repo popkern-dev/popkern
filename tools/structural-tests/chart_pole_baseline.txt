@@ -96,15 +96,6 @@ crates/popkern-io/src/step/import_pole_split.rs 16
 crates/popkern-io/src/step/mod.rs 1
 crates/popkern-measure/src/body_quadrature_sliver.rs 14
 crates/popkern-measure/src/face_green.rs 3
-crates/popkern-mesh/src/boundary_first.rs 7
-crates/popkern-mesh/src/boundary_first_edge_samples.rs 1
-crates/popkern-mesh/src/boundary_first_pole_cap.rs 29
-crates/popkern-mesh/src/boundary_first_pole_crossing.rs 32
-crates/popkern-mesh/src/boundary_first_pole_runs.rs 19
-crates/popkern-mesh/src/boundary_first_pole_sweep.rs 3
-crates/popkern-mesh/src/boundary_first_revolution_bipolar.rs 18
-crates/popkern-mesh/src/boundary_first_unwrap.rs 7
-crates/popkern-mesh/src/boundary_first_wrap_pair.rs 3
 crates/popkern-mesh/src/chordal_certificate.rs 2
 crates/popkern-mesh/src/chordal_pieces.rs 11
 crates/popkern-mesh/src/integration_tests/mod.rs 2

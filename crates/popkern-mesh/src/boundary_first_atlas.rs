@@ -188,7 +188,18 @@ pub(super) fn tessellate_on_atlas(
         })
         .collect();
     if cuts.is_empty() {
-        return None;
+        // No chart singularity: the face chart's. A chart singularity
+        // with no cap row the atlas could place declines to the grid,
+        // listed in `TriMesh::grid_faces` (never the face chart, which
+        // has no pole handling).
+        let chart_row = descriptor
+            .singular_rows
+            .iter()
+            .any(|r| r.kind == SingularKind::Chart);
+        if chart_row && popkern_core::trace::trace_enabled("atlas") {
+            eprintln!("    [atlas] face {face_handle:?}: no cap row placed");
+        }
+        return chart_row.then_some(None);
     }
     // The whole surface within one cap (its normal never turns the cap's
     // quarter right angle): the face is one cap piece, no row to cut.
@@ -286,7 +297,13 @@ pub(super) fn tessellate_on_atlas(
                 .collect::<Vec<_>>())
         );
     }
-    let mut pieces = pieces?;
+    // Rings the atlas cannot assemble into pieces decline to the grid.
+    let Some(mut pieces) = pieces else {
+        if trace {
+            eprintln!("    [atlas] face {face_handle:?}: pieces not assembled");
+        }
+        return Some(None);
+    };
     // The band's slit meridian, its real-edge crossings samples on it.
     let mut azimuth = None;
     if let Some((_, band)) = pieces.iter_mut().find(|(p, _)| *p == Piece::Band) {

@@ -20,20 +20,15 @@ pub(super) fn join_wrapped_rings(
     (chord_height, azimuth): (f64, Option<f64>),
     transposed: bool,
 ) -> Option<Vec<BoundaryRing>> {
-    // One ring winding once: a cap around a chart pole (PK-636).
+    // One ring winding once round a cone: a cap round its apex (PK-636).
     if !transposed
         && let [ring] = wrapped_rings
-        && let Some(cap) = super::boundary_first_pole_cap::close_through_pole(
-            ring,
-            p,
-            surface,
-            orientation,
-            chord_height,
-        )
+        && let Some(cap) =
+            super::boundary_first_apex::close_round_apex(ring, p, surface, chord_height)
     {
         if popkern_core::trace::trace_enabled("boundary-first") {
             eprintln!(
-                "    [bf] face {face_handle:?} pole cap: {} pts",
+                "    [bf] face {face_handle:?} apex cap: {} pts",
                 cap.uv.len()
             );
         }

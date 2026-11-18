@@ -25,7 +25,7 @@ pub(super) fn mesh_rings(
         return None;
     }
     let chord = options.chord_height;
-    boundary_first_unwrap::place_rings_on_chart(&mut rings, surface, orientation, chord);
+    boundary_first_unwrap::place_rings_on_chart(&mut rings, surface);
     if popkern_core::trace::trace_enabled("boundary-first-ring") {
         for (ri, ring) in rings.iter().enumerate() {
             eprintln!(

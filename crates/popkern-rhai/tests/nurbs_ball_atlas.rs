@@ -61,7 +61,6 @@ fn ellipsoid_volume() -> f64 {
 /// toward it); returns the mesh's enclosed volume.
 fn assert_meshes(name: &str, body: &BRep, cavity: bool) -> f64 {
     let options = TessellationOptions::default();
-    assert!(options.atlas, "the atlas is primary");
     let mesh = popkern_mesh::tessellate(body, &options).expect("mesh");
     assert!(
         mesh.grid_faces.is_empty(),

@@ -144,7 +144,7 @@ pub(crate) fn sample_edges(
             for i in 0..fractions.len() - 1 {
                 let (a, b) = (fractions[i], fractions[i + 1]);
                 if (b - a) <= min_span {
-                    if super::boundary_first_pole_sweep::splits_below_floor(brep, edge, (a, b), &at)
+                    if super::boundary_first_apex_sweep::splits_below_floor(brep, edge, (a, b), &at)
                     {
                         split_at.push((chord_height, i));
                     }

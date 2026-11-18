@@ -97,22 +97,3 @@ fn rings_already_in_the_domain_or_on_open_surfaces_stay() {
     shift_into_closed_nurbs_domain(&mut open, &tube(false));
     assert_eq!(open[0].uv[0].0, tau);
 }
-
-/// PK-1188: a ring passing beside a pole (a dip in its half-period
-/// shift off the pole) widens the gate to the chord height; an edge
-/// running into the pole (its samples halved down to the pole sample,
-/// a die's pip-cap seam) does not, nor does a pass past a tenth of the
-/// chord height.
-#[test]
-fn only_a_pass_beside_the_pole_widens_its_gate() {
-    let chord = 5.0e-3;
-    let gate = 2.7e-5;
-    let pass = [1.6e-1, 6.0e-5, 0.0, 6.0e-5, 2.2e-5, 4.3e-5, 1.4e-4, 3.2e-4];
-    assert_eq!(super::pole_pass_gate(&pass, gate, chord), chord);
-    let into_pole = [
-        1.3e-5, 6.4e-6, 3.2e-6, 4.3e-19, 3.2e-6, 6.4e-6, 1.3e-5, 2.5e-5,
-    ];
-    assert_eq!(super::pole_pass_gate(&into_pole, 2.9e-8, chord), 0.0);
-    let far = [1.6e-1, 2.0e-3, 1.0e-3, 2.0e-3, 1.6e-1];
-    assert_eq!(super::pole_pass_gate(&far, gate, chord), 0.0);
-}

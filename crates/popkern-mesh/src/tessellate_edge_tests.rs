@@ -113,7 +113,6 @@ fn very_loose_tolerance_on_the_atlas_meshes_each_piece_once() {
         chord_height: 100.0,
         min_subdivisions: 1,
         max_subdivisions: 64,
-        atlas: true,
         ..Default::default()
     };
     let mesh = tessellate(&sphere, &opts).unwrap();

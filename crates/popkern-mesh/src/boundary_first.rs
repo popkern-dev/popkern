@@ -26,6 +26,10 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 use crate::TessellationOptions;
 use crate::mesh::FaceMesh;
 
+#[path = "boundary_first_apex.rs"]
+mod boundary_first_apex;
+#[path = "boundary_first_apex_sweep.rs"]
+mod boundary_first_apex_sweep;
 #[path = "boundary_first_cdt.rs"]
 mod boundary_first_cdt;
 #[path = "boundary_first_delaunay.rs"]
@@ -45,10 +49,6 @@ mod boundary_first_edge_samples;
 mod boundary_first_lattice;
 #[path = "boundary_first_mesh_rings.rs"]
 mod boundary_first_mesh_rings;
-#[path = "boundary_first_pole_cap.rs"]
-mod boundary_first_pole_cap;
-#[path = "boundary_first_pole_sweep.rs"]
-mod boundary_first_pole_sweep;
 #[path = "boundary_first_revolution.rs"]
 mod boundary_first_revolution;
 #[path = "boundary_first_revolution_bipolar.rs"]
@@ -75,10 +75,10 @@ mod boundary_first_unwrap;
 mod boundary_first_wrap_pair;
 #[path = "boundary_first_wrap_slit.rs"]
 mod boundary_first_wrap_slit;
+use boundary_first_apex::close_through_apex;
 pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_edges};
 use boundary_first_fold::lift_to_chain;
 use boundary_first_mesh_rings::mesh_rings;
-use boundary_first_pole_cap::{close_through_apex, resolve_pole_crossings};
 use boundary_first_wrap_pair::{join_wrapped_rings, stash_wrapped_ring};
 
 /// One boundary ring: ordered UV polygon with matched 3D positions
@@ -123,44 +123,16 @@ pub(crate) fn tessellate_face_boundary_first(
     // A face whose outer loop traverses EVERY edge twice is a pure
     // seam spine (a full sphere's meridian pair): with no holes its
     // chart "polygon" bounds no interior (Delaunay meshed the primitive
-    // sphere 0/46). With holes, and a torus face's seam SQUARE, it meshes
-    // here (a drilled torus, PK-459; a ball with Viviani's figure eight
-    // cut out fell back to the grid, the union 1.5e-5 high, PK-1140).
+    // sphere 0/46), and only the atlas meshes it. With holes, and a torus
+    // face's seam SQUARE, it meshes here (a drilled torus, PK-459; a ball
+    // with Viviani's figure eight cut out fell back to the grid, the union
+    // 1.5e-5 high, PK-1140).
     let periods = ChartDescriptor::evaluation_periods_of(surface);
     // The face's chart artifacts, from the chart service.
     let descriptor = ChartDescriptor::of(surface, &brep.tolerance);
     let seam_square = matches!(periods, (Some(_), Some(_))) && !face.inner_loops.is_empty();
-    {
-        let mut edge_counts: HashMap<EdgeHandle, usize> = HashMap::default();
-        let start = brep.loops.get(face.outer_loop)?.half_edge;
-        let mut cur = start;
-        let mut steps = 0;
-        loop {
-            let he = brep.half_edges.get(cur)?;
-            *edge_counts.entry(he.edge).or_insert(0) += 1;
-            cur = he.next;
-            steps += 1;
-            if cur == start || steps > brep.half_edges.len() {
-                break;
-            }
-        }
-        let spine = !edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2);
-        if spine && !seam_square && face.inner_loops.is_empty() && !options.atlas {
-            // PK-339: the two-apex revolution arm serves the classic
-            // member of this class (a full sphere: two poles joined by
-            // one meridian seam) by construction — attempt it before
-            // falling back. Anything it declines keeps the pcurve-grid
-            // route (Delaunay stays skipped for seam spines). It moves to
-            // the atlas once the chordal certificate certifies cap
-            // triangles in the cap chart (PK-1267).
-            return boundary_first_revolution_bipolar::seam_spine_revolution(
-                brep,
-                face_handle,
-                edge_samples,
-                options,
-            );
-        }
-    }
+    let bare_spine =
+        !seam_square && face.inner_loops.is_empty() && outer_loop_is_spine(brep, face.outer_loop)?;
 
     // Build boundary rings from canonical samples, then chart them.
     let mut loops = vec![face.outer_loop];
@@ -173,8 +145,7 @@ pub(crate) fn tessellate_face_boundary_first(
         .collect();
     // A face reaching a chart singularity meshes on the atlas (pieces in
     // charts with no singular row; chart-service.md §6a).
-    if options.atlas
-        && let Some(built) = &built
+    if let Some(built) = &built
         && let Some(out) = boundary_first_atlas::tessellate_on_atlas(
             brep,
             face_handle,
@@ -186,10 +157,33 @@ pub(crate) fn tessellate_face_boundary_first(
     {
         return out;
     }
+    if bare_spine {
+        // A spine between two apexes (a spindle's points: geometric
+        // singularities the atlas leaves to the face chart) meshes as a
+        // two-apex revolution (PK-339); one between chart poles is the
+        // atlas's, and what it declined falls to the grid.
+        let apexes = !descriptor.singular_rows.is_empty()
+            && descriptor
+                .singular_rows
+                .iter()
+                .all(|r| r.kind == popkern_core::geometry::chart::SingularKind::Apex);
+        if apexes {
+            return boundary_first_revolution_bipolar::seam_spine_revolution(
+                brep,
+                face_handle,
+                edge_samples,
+                options,
+            );
+        }
+        if popkern_core::trace::trace_enabled("atlas") {
+            eprintln!("    [atlas] face {face_handle:?}: a bare seam spine the atlas declined");
+        }
+        return None;
+    }
     let rings = match chart_rings(
         (face_handle, surface, orientation),
         built?,
-        (periods, None, false),
+        (periods, None, &descriptor),
         options,
     )? {
         Charted::Rings(rings) => rings,
@@ -203,6 +197,28 @@ pub(crate) fn tessellate_face_boundary_first(
         &descriptor,
         None,
     )
+}
+
+/// Whether a loop traverses every one of its edges at least twice (a seam
+/// spine: a full sphere's meridian pair). `None` on a broken loop.
+fn outer_loop_is_spine(
+    brep: &BRep,
+    loop_handle: popkern_core::topology::LoopHandle,
+) -> Option<bool> {
+    let mut edge_counts: HashMap<EdgeHandle, usize> = HashMap::default();
+    let start = brep.loops.get(loop_handle)?.half_edge;
+    let mut cur = start;
+    let mut steps = 0;
+    loop {
+        let he = brep.half_edges.get(cur)?;
+        *edge_counts.entry(he.edge).or_insert(0) += 1;
+        cur = he.next;
+        steps += 1;
+        if cur == start || steps > brep.half_edges.len() {
+            break;
+        }
+    }
+    Some(!edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2))
 }
 
 /// A face's rings charted for the boundary-first pipeline, or a mesh a
@@ -222,7 +238,11 @@ fn chart_rings(
         bool,
     ),
     built_rings: Vec<BoundaryRing>,
-    (periods, slit_azimuth, atlas_band): ((Option<f64>, Option<f64>), Option<f64>, bool),
+    (periods, slit_azimuth, descriptor): (
+        (Option<f64>, Option<f64>),
+        Option<f64>,
+        &ChartDescriptor,
+    ),
     options: &TessellationOptions,
 ) -> Option<Charted> {
     let mut rings: Vec<BoundaryRing> = Vec::new();
@@ -242,22 +262,12 @@ fn chart_rings(
             // points and unaffected; cos/sin accept any branch).
             {
                 let (period_u, period_v) = periods;
-                // Chart-degenerate samples (poles, apexes); sphere pole crossings.
-                // None on an atlas band: its chart holds no singular row
-                // (chart-service.md §6a), and the degeneracy test, which
-                // scales with the chord height, read a ball band's rows at
-                // a chord height past its diameter as two apex runs, and
-                // the structured revolution path meshed the whole ball
-                // over the atlas's caps.
-                let mut u_degenerate = match atlas_band {
-                    true => vec![false; ring.uv.len()],
-                    false => {
-                        boundary_first_unwrap::chart_degenerate(&ring, surface, period_u, options)
-                    }
-                };
-                if !atlas_band {
-                    resolve_pole_crossings(&mut ring, &mut u_degenerate, surface, orientation);
-                }
+                // Samples at an apex (a geometric singularity: a cone's
+                // point), from the chart service. A chart pole never
+                // reaches here: a face reaching one meshes on the atlas,
+                // its pieces in charts with no singular row.
+                let mut u_degenerate =
+                    boundary_first_unwrap::at_apex(&ring, surface, period_u, descriptor);
                 if let Some(p) = period_u
                     && !boundary_first_unwrap::unwrap_dir(
                         &mut ring,

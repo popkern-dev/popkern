@@ -275,9 +275,6 @@ fn a_cone_tip_closes_at_its_apex_whatever_its_flag() {
 /// open.
 #[test]
 fn a_dome_meshes_on_the_atlas() {
-    let atlas = popkern_mesh::TessellationOptions {
-        atlas: true,
-        ..popkern_mesh::TessellationOptions::default()
-    };
+    let atlas = popkern_mesh::TessellationOptions::default();
     check_dome_meshed([0.3, -0.5, 0.2], -6.0, 2e-3, &atlas);
 }
