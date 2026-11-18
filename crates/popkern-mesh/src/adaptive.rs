@@ -200,7 +200,7 @@ pub(crate) fn adaptive_subdivide_bounded(
     v_range: (f64, f64),
     (min_subdivisions, max_subdivisions): (usize, usize),
     chord_tolerance: f64,
-    max_normal_spread: Option<f64>,
+    max_normal_spread: Option<(f64, &popkern_core::geometry::chart::ChartDescriptor)>,
 ) -> Vec<UvCell> {
     // Compute max refinement depth: how many times we can double min_subdivisions
     // before reaching max_subdivisions.
@@ -244,9 +244,9 @@ pub(crate) fn adaptive_subdivide_bounded(
 
     while let Some((cell, depth)) = queue.pop() {
         let ch = chord_height(surface, &cell);
-        let flat_enough = max_normal_spread.is_none_or(|m| {
+        let flat_enough = max_normal_spread.is_none_or(|(m, chart)| {
             crate::facet_angle::normal_spread(
-                surface,
+                (surface, chart),
                 (cell.u_min, cell.u_max),
                 (cell.v_min, cell.v_max),
             ) <= m

@@ -96,7 +96,6 @@ crates/popkern-io/src/step/import_pole_split.rs 16
 crates/popkern-io/src/step/mod.rs 1
 crates/popkern-measure/src/body_quadrature_sliver.rs 14
 crates/popkern-measure/src/face_green.rs 3
-crates/popkern-mesh/src/angular_refine.rs 5
 crates/popkern-mesh/src/boundary_first.rs 7
 crates/popkern-mesh/src/boundary_first_edge_samples.rs 1
 crates/popkern-mesh/src/boundary_first_pole_cap.rs 29
@@ -118,4 +117,4 @@ crates/popkern-shell/src/spindle_pinch.rs 26
 crates/popkern-sweep/src/revolve.rs 1
 crates/popkern-sweep/src/topology/revolution_canonical.rs 6
 crates/popkern-sweep/src/topology/revolution_sector.rs 8
-# total 900
+# total 895

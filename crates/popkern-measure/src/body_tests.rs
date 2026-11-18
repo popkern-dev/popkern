@@ -400,3 +400,19 @@ fn a_cone_apex_vertex_off_the_apex_is_still_a_pole() {
         );
     }
 }
+
+/// A kilometre cone at a micron tolerance measures its volume exactly:
+/// its apex vertex's stored parameters sit 0.0018 up the slant (2e-3 off
+/// its point, past the 1e-4 gate), and the reproduction gate once threw
+/// the whole apex fan to flat facets, the volume 6.3e-6 low (PK-1270,
+/// found by the generated corpus at scale 1e3). The apex corner stands
+/// for its row and is integrated from the row's own parameter.
+#[test]
+fn a_kilometre_cone_at_a_micron_tolerance_measures_exactly() {
+    let tol = popkern_core::tolerance::Tolerance::default();
+    let (r, h) = (900.0, 1800.0);
+    let cone = popkern_core::topology::BRep::cone(r, h, tol).expect("cone");
+    let v = body_volume(&cone, &tol).expect("volume");
+    let exact = std::f64::consts::PI * r * r * h / 3.0;
+    assert!(((v - exact) / exact).abs() < 1e-12, "{v} for {exact}");
+}

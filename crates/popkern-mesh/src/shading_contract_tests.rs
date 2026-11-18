@@ -75,7 +75,13 @@ fn needle_error(surface: &SurfaceGeometry, u0: f64, du: f64) -> Option<f64> {
         vertex(surface, u0, 1.0),
         vertex(surface, u0 + du, 0.5),
     );
-    row_shading_error(surface, &a, &b, &c, 0.005)
+    row_shading_error(
+        (surface, &crate::shading_contract::tests_chart(surface)),
+        &a,
+        &b,
+        &c,
+        0.005,
+    )
 }
 
 #[test]
@@ -123,7 +129,14 @@ fn a_tilted_apex_normal_reads_its_tilt() {
     let (n, t) = (c.normal, Vec3::new(0.0, 0.0, 1.0).cross(&c.normal));
     let (s, k) = (0.01_f64.psin(), 0.01_f64.pcos());
     c.normal = n * k + t * s;
-    let e = row_shading_error(&tube, &a, &b, &c, 0.005).expect("measurable");
+    let e = row_shading_error(
+        (&tube, &crate::shading_contract::tests_chart(&tube)),
+        &a,
+        &b,
+        &c,
+        0.005,
+    )
+    .expect("measurable");
     assert!((e - 0.01).abs() < 5e-4, "{e:.3e}");
 }
 
@@ -133,12 +146,24 @@ fn compact_facets_apexes_beyond_the_base_and_sub_resolution_rows_are_not_held() 
     let v = |u, w| vertex(&strip, u, w);
     // Base 0.2 under a 0.1 height: compact.
     assert_eq!(
-        row_shading_error(&strip, &v(0.0, 0.4), &v(0.0, 0.6), &v(0.1, 0.5), 0.005),
+        row_shading_error(
+            (&strip, &crate::shading_contract::tests_chart(&strip)),
+            &v(0.0, 0.4),
+            &v(0.0, 0.6),
+            &v(0.1, 0.5),
+            0.005
+        ),
         None
     );
     // Apex beyond the base's end: it lies along the base.
     assert_eq!(
-        row_shading_error(&strip, &v(0.0, 0.1), &v(0.0, 0.5), &v(0.02, 0.8), 0.005),
+        row_shading_error(
+            (&strip, &crate::shading_contract::tests_chart(&strip)),
+            &v(0.0, 0.1),
+            &v(0.0, 0.5),
+            &v(0.02, 0.8),
+            0.005
+        ),
         None
     );
     // A row 1e-4 high, under a sixteenth of the chord height.
@@ -162,7 +187,16 @@ fn the_display_pass_narrows_an_over_bound_rail_row() {
         triangles,
     };
     let max_angle = crate::DISPLAY_MAX_FACET_ANGLE;
-    let left = crate::angular_refine::refine_face_shading(&mut mesh, &strip, max_angle, 0.005);
+    let left = crate::angular_refine::refine_face_shading(
+        &mut mesh,
+        &strip,
+        &popkern_core::geometry::chart::ChartDescriptor::of(
+            &strip,
+            &popkern_core::tolerance::Tolerance::default(),
+        ),
+        max_angle,
+        0.005,
+    );
     assert_eq!(left, 0);
     // Every facet on the rail now stands at most 0.05 off it (two
     // halvings of 0.1 meet the bound: 3h² <= 6.5e-3 at h <= 0.047),

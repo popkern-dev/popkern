@@ -140,15 +140,26 @@ pub(crate) fn tessellate_face_pass(
             if let Some(fm) = boundary_first {
                 let mut fm = fm;
                 if let Some(sof) = brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
-                    crate::vertex_normal::repair_singular_normals(&mut fm, &sof.geometry);
+                    // The face's chart artifacts, from the chart service.
+                    let chart = popkern_core::geometry::chart::ChartDescriptor::of(
+                        &sof.geometry,
+                        &brep.tolerance,
+                    );
+                    crate::vertex_normal::repair_singular_normals(&mut fm, &sof.geometry, &chart);
                     // Angular facet bound: boundary-first meshes only (the
                     // uniform-grid fallback below stays chord-only — see
                     // `tessellate_face_with_samples`).
                     if let Some(max_angle) = options.angular_bound() {
-                        crate::angular_refine::refine_face_mesh(&mut fm, &sof.geometry, max_angle);
+                        crate::angular_refine::refine_face_mesh(
+                            &mut fm,
+                            &sof.geometry,
+                            &chart,
+                            max_angle,
+                        );
                         crate::tilt_refine::finish_tilt(
                             &mut fm,
                             &sof.geometry,
+                            &chart,
                             options.chord_height,
                             max_angle,
                         );
@@ -161,21 +172,24 @@ pub(crate) fn tessellate_face_pass(
                         let flipped = crate::crease_flip::flip_creases(
                             &mut fm,
                             geometry,
+                            &chart,
                             chord,
                             max_angle,
                             f64::INFINITY,
                         );
                         if !flipped.is_empty() {
                             crate::angular_refine::refine_face_mesh_from(
-                                &mut fm, geometry, max_angle, &flipped,
+                                &mut fm, geometry, &chart, max_angle, &flipped,
                             );
                             crate::crease_flip::flip_creases(
-                                &mut fm, geometry, chord, max_angle, max_angle,
+                                &mut fm, geometry, &chart, chord, max_angle, max_angle,
                             );
                         }
                         // The facet-tilt passes run again: the crease
                         // flips judge creases, not lean, and can undo them.
-                        crate::tilt_refine::finish_tilt(&mut fm, geometry, chord, max_angle);
+                        crate::tilt_refine::finish_tilt(
+                            &mut fm, geometry, &chart, chord, max_angle,
+                        );
                         // The shading contract last (PK-914) narrows seam
                         // rows. Its split vertices lie on the surface but
                         // can still lean a neighbour past the tilt bound
@@ -185,11 +199,11 @@ pub(crate) fn tessellate_face_pass(
                         // wide again (cube_corner's seam back over HEAD).
                         let before = fm.triangles.len();
                         crate::angular_refine::refine_face_shading(
-                            &mut fm, geometry, max_angle, chord,
+                            &mut fm, geometry, &chart, max_angle, chord,
                         );
                         if fm.triangles.len() > before {
                             crate::tilt_refine::bisect_leaning_facets_from(
-                                &mut fm, geometry, max_angle, None,
+                                &mut fm, geometry, &chart, max_angle, None,
                             );
                         }
                     }
@@ -221,7 +235,11 @@ pub(crate) fn tessellate_face_pass(
                 mesh.as_mut(),
                 brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()),
             ) {
-                crate::vertex_normal::repair_singular_normals(fm, &sof.geometry);
+                let chart = popkern_core::geometry::chart::ChartDescriptor::of(
+                    &sof.geometry,
+                    &brep.tolerance,
+                );
+                crate::vertex_normal::repair_singular_normals(fm, &sof.geometry, &chart);
             }
             FacePassOutcome::UniformGrid {
                 seam_spine: crate::tessellate::outer_loop_is_seam_spine(brep, face_handle),

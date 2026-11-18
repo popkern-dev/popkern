@@ -121,11 +121,11 @@ pub(super) fn try_sphere_sphere_general(
             + arc_basis_v * (circle_radius * theta.psin());
         let dp_a = p3 - center_a;
         let lon_a = dp_a.y.patan2(dp_a.x);
-        let colat_a = (dp_a.z / radius_a).clamp(-1.0, 1.0).pacos();
+        let colat_a = crate::geometry::sphere_eval::colatitude(dp_a.x.phypot(dp_a.y), dp_a.z);
         pts_a.push(Point3::new(lon_a, colat_a, 0.0));
         let dp_b = p3 - center_b;
         let lon_b = dp_b.y.patan2(dp_b.x);
-        let colat_b = (dp_b.z / radius_b).clamp(-1.0, 1.0).pacos();
+        let colat_b = crate::geometry::sphere_eval::colatitude(dp_b.x.phypot(dp_b.y), dp_b.z);
         pts_b.push(Point3::new(lon_b, colat_b, 0.0));
         params.push(frac);
     }

@@ -1,5 +1,6 @@
 use super::*;
 use crate::mesh::MeshVertex;
+use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::topology::FaceHandle;
 
 fn torus() -> SurfaceGeometry {
@@ -104,7 +105,17 @@ fn a_chord_sliver_across_the_curvature_flips_to_the_ruling() {
         triangles: vec![[0, 2, 3], [2, 0, 1]],
     };
     let before = max_crease(&mesh);
-    flip_creases(&mut mesh, &surface, 0.005, 0.01, 0.21);
+    flip_creases(
+        &mut mesh,
+        &surface,
+        &popkern_core::geometry::chart::ChartDescriptor::of(
+            &surface,
+            &popkern_core::tolerance::Tolerance::default(),
+        ),
+        0.005,
+        0.01,
+        0.21,
+    );
     let after = max_crease(&mesh);
     assert!(
         edge_census(&mesh).contains_key(&key(1, 3)),
@@ -126,7 +137,17 @@ fn flips_keep_count_boundary_and_chart_orientation() {
     let (tris, edges) = (mesh.triangles.len(), boundary(&mesh));
     let sense = chart_area(&mesh, mesh.triangles[0]).signum();
     let before = max_crease(&mesh);
-    flip_creases(&mut mesh, &surface, 0.005, 0.01, 0.21);
+    flip_creases(
+        &mut mesh,
+        &surface,
+        &popkern_core::geometry::chart::ChartDescriptor::of(
+            &surface,
+            &popkern_core::tolerance::Tolerance::default(),
+        ),
+        0.005,
+        0.01,
+        0.21,
+    );
     assert!(
         max_crease(&mesh) <= before + 1e-12,
         "worst crease never grows"
@@ -152,6 +173,16 @@ fn a_plane_is_left_alone() {
     };
     let mut mesh = staggered_lattice(&plane, 3, 3);
     let original = mesh.triangles.clone();
-    flip_creases(&mut mesh, &plane, 0.005, 0.01, 0.21);
+    flip_creases(
+        &mut mesh,
+        &plane,
+        &popkern_core::geometry::chart::ChartDescriptor::of(
+            &plane,
+            &popkern_core::tolerance::Tolerance::default(),
+        ),
+        0.005,
+        0.01,
+        0.21,
+    );
     assert_eq!(mesh.triangles, original);
 }

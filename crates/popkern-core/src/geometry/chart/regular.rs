@@ -99,6 +99,25 @@ fn row_normal(s: &SurfaceGeometry, row: &SingularRow, d: &ChartDescriptor) -> Op
     Some(n)
 }
 
+/// The pole projection about `row` (a chart singularity), or `None` for a
+/// geometric singularity or a row whose normal cannot be read.
+pub fn pole_projection(
+    d: &ChartDescriptor,
+    s: &SurfaceGeometry,
+    row: &SingularRow,
+) -> Option<RegularChart> {
+    if row.kind != SingularKind::Chart {
+        return None;
+    }
+    let (e1, e2) = frame(row_normal(s, row, d)?);
+    Some(RegularChart::PoleProjection {
+        centre: row.point,
+        e1,
+        e2,
+        row: *row,
+    })
+}
+
 /// The regular chart for a point at parameters `at` (design §4): a pole
 /// projection within `radius` of a chart singularity, `Singular` within it
 /// of a geometric one, `Shifted` when a cut lies within it, else `Face`.
@@ -111,21 +130,8 @@ pub fn regular_chart(
     let p = s.point_at(at.0, at.1);
     for row in &d.singular_rows {
         if row.point.distance_to(&p) <= radius {
-            return match row.kind {
-                SingularKind::Chart => match row_normal(s, row, d) {
-                    Some(n) => {
-                        let (e1, e2) = frame(n);
-                        RegularChart::PoleProjection {
-                            centre: row.point,
-                            e1,
-                            e2,
-                            row: *row,
-                        }
-                    }
-                    None => RegularChart::Singular(row.kind, row.point),
-                },
-                kind => RegularChart::Singular(kind, row.point),
-            };
+            return pole_projection(d, s, row)
+                .unwrap_or(RegularChart::Singular(row.kind, row.point));
         }
     }
     let near_cut = |period: Option<super::descriptor::ChartPeriod>, value: f64, axis: Axis| {
@@ -171,6 +177,49 @@ fn in_domain(t: f64, (lo, hi): (f64, f64), period: Option<f64>) -> f64 {
 }
 
 impl RegularChart {
+    /// Whether this is the face chart itself (local coordinates are the
+    /// face parameters).
+    pub fn is_face(&self) -> bool {
+        matches!(self, RegularChart::Face | RegularChart::Singular(..))
+    }
+
+    /// Local coordinates of a surface point `p` at face parameters `uv`:
+    /// read from the point where the chart is a projection (exact for a
+    /// canonical position), from the parameters otherwise.
+    pub fn local_at(&self, uv: (f64, f64), p: &Point3) -> (f64, f64) {
+        match self {
+            RegularChart::PoleProjection { centre, e1, e2, .. } => {
+                let d = *p - *centre;
+                (d.dot(e1), d.dot(e2))
+            }
+            RegularChart::Shifted {
+                centre, periods, ..
+            } => (
+                near(uv.0, centre.0, periods.0),
+                near(uv.1, centre.1, periods.1),
+            ),
+            RegularChart::Face | RegularChart::Singular(..) => uv,
+        }
+    }
+
+    /// The point local coordinates `(0, 0)` stand for, where the chart is
+    /// a projection about one.
+    pub fn origin(&self) -> Option<Point3> {
+        match self {
+            RegularChart::PoleProjection { centre, .. } => Some(*centre),
+            _ => None,
+        }
+    }
+
+    /// The chart plane's normal (`e1 × e2`, the face chart's sense), where
+    /// the chart is a projection.
+    pub fn plane_normal(&self) -> Option<Vec3> {
+        match self {
+            RegularChart::PoleProjection { e1, e2, .. } => Some(e1.cross(e2)),
+            _ => None,
+        }
+    }
+
     /// Local coordinates of the face parameters `uv`.
     pub fn from_surface(&self, s: &SurfaceGeometry, uv: (f64, f64)) -> (f64, f64) {
         match self {
@@ -195,6 +244,33 @@ impl RegularChart {
         s: &SurfaceGeometry,
         xy: (f64, f64),
     ) -> Result<(f64, f64), ChartError> {
+        self.to_surface_near(s, xy, None)
+    }
+
+    /// [`Self::to_surface`] seeded by face parameters `seed` near the
+    /// answer (an interpolation's ends, a relaxed vertex): the inverse then
+    /// projects locally from the seed instead of searching the whole
+    /// surface (a NURBS closest point is a multi-start search, and a
+    /// vanishing fillet strip's collapsed row, its distortion radius most
+    /// of the strip, sent every interpolation through it: ten times the
+    /// tee saddle's time).
+    pub fn to_surface_near(
+        &self,
+        s: &SurfaceGeometry,
+        xy: (f64, f64),
+        seed: Option<(f64, f64)>,
+    ) -> Result<(f64, f64), ChartError> {
+        let project = |q: &Point3, near: Option<(f64, f64)>| match near {
+            Some(uv) => crate::geometry::surface_helpers::closest_point_from_seeds(
+                s,
+                q,
+                &[uv],
+                (false, false),
+                8,
+            )
+            .or_else(|| s.closest_point(q)),
+            None => s.closest_point(q),
+        };
         match self {
             RegularChart::Face | RegularChart::Singular(..) => Ok(xy),
             RegularChart::Shifted {
@@ -204,35 +280,50 @@ impl RegularChart {
                 in_domain(xy.1, domain.1, periods.1),
             )),
             RegularChart::PoleProjection { centre, e1, e2, .. } => {
-                // Newton on the tangent-plane projection, seeded by the
-                // surface's own closest point to the planar point.
+                // Newton in face parameters where the face chart is well
+                // conditioned (quadratic), a fixed-point step on the
+                // surface's own projection where it is not (beside the
+                // singular row, where the face partials vanish and Newton
+                // stalls: project the planar point onto the surface, read
+                // where that lands in the plane, move by the residual).
+                // Seeded by the projection of the planar point.
+                let n = e1.cross(e2);
+                let scale = (xy.0.phypot(xy.1))
+                    .max(centre.x.abs().max(centre.y.abs()).max(centre.z.abs()))
+                    .max(1.0);
                 let target = *centre + *e1 * xy.0 + *e2 * xy.1;
-                let (mut u, mut v) =
-                    s.closest_point(&target)
-                        .ok_or(ChartError::InverseDiverged {
-                            x: xy.0,
-                            y: xy.1,
-                            residual: f64::INFINITY,
-                        })?;
+                let Some((mut u, mut v)) = project(&target, seed) else {
+                    return Err(ChartError::InverseDiverged {
+                        x: xy.0,
+                        y: xy.1,
+                        residual: f64::INFINITY,
+                    });
+                };
+                let (mut tx, mut ty) = xy;
                 let mut residual = f64::INFINITY;
-                for _ in 0..30 {
+                for _ in 0..60 {
                     let d = s.point_at(u, v) - *centre;
                     let (rx, ry) = (d.dot(e1) - xy.0, d.dot(e2) - xy.1);
                     residual = rx.phypot(ry);
-                    let scale = (xy.0.phypot(xy.1))
-                        .max(centre.x.abs().max(centre.y.abs()).max(centre.z.abs()))
-                        .max(1.0);
                     if residual <= 1e-13 * scale {
                         return Ok((u, v));
                     }
                     let (su, sv) = s.first_partials(u, v);
                     let (a, b, c, e) = (su.dot(e1), sv.dot(e1), su.dot(e2), sv.dot(e2));
                     let det = a * e - b * c;
-                    if det.abs() < 1e-300 {
-                        break;
+                    let conditioned = det.abs() > 1e-3 * su.length() * sv.length();
+                    if conditioned {
+                        u -= (e * rx - b * ry) / det;
+                        v -= (a * ry - c * rx) / det;
+                    } else {
+                        tx -= rx;
+                        ty -= ry;
+                        let q = *centre + *e1 * tx + *e2 * ty + n * d.dot(&n);
+                        let Some(next) = project(&q, Some((u, v))) else {
+                            break;
+                        };
+                        (u, v) = next;
                     }
-                    u -= (e * rx - b * ry) / det;
-                    v -= (a * ry - c * rx) / det;
                 }
                 Err(ChartError::InverseDiverged {
                     x: xy.0,

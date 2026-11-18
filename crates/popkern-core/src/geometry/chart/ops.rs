@@ -7,6 +7,8 @@ use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
 use super::descriptor::{Axis, ChartDescriptor};
 
+pub use super::interpolate::{centroid, evaluate, interpolate};
+
 /// A lifted parameter polyline: continuous across cuts, and its winding
 /// about each closed direction (whole periods from first to last point).
 #[derive(Debug, Clone, PartialEq)]
@@ -131,9 +133,14 @@ pub fn near_artifact(
 }
 
 /// A chart singularity's distortion radius (design §4): the distance from
-/// its point within which the chart's speed across the row exceeds ten
-/// times its speed along it. Found by doubling a step off the row along
-/// the other parameter until the ratio falls to ten, then bisecting.
+/// its point within which the chart's speed along the row has collapsed
+/// under a tenth of its speed away from the row (at the middle of the
+/// domain across it). On a sphere it is where `sin v` falls under a tenth,
+/// as the across/along ratio of ten reads it; but a long thin strip is
+/// anisotropic everywhere, and the ratio read a vanishing fillet strip's
+/// whole length as distorted, sending every interpolation on it through
+/// the pole projection (ten times the tee saddle's time). The collapse is
+/// what a chart singularity is.
 pub fn distortion_radius(
     d: &ChartDescriptor,
     s: &SurfaceGeometry,
@@ -163,23 +170,24 @@ pub fn distortion_radius(
         Axis::V => (t, row.at + inward * step),
         Axis::U => (row.at + inward * step, t),
     };
-    let ratio = |step: f64| {
+    let along = |step: f64| {
         let (u, v) = at(step);
         let (su, sv) = s.first_partials(u, v);
-        let (along, across) = match row.axis {
-            Axis::V => (su.length(), sv.length()),
-            Axis::U => (sv.length(), su.length()),
-        };
-        across / along.max(1e-300)
+        match row.axis {
+            Axis::V => su.length(),
+            Axis::U => sv.length(),
+        }
     };
+    let reference = along(0.5 * span).max(1e-300);
+    let collapsed = |step: f64| along(step) < 0.1 * reference;
     let (mut inside, mut outside) = (1e-12 * span, 1e-12 * span);
-    while ratio(outside) > 10.0 && outside < 0.5 * span {
+    while collapsed(outside) && outside < 0.5 * span {
         inside = outside;
         outside *= 2.0;
     }
     for _ in 0..60 {
         let mid = 0.5 * (inside + outside);
-        if ratio(mid) > 10.0 {
+        if collapsed(mid) {
             inside = mid
         } else {
             outside = mid
@@ -243,10 +251,10 @@ pub const SINGULAR_RESOLVED: f64 = 1e-3;
 /// at the row rather than beside it: `share` of the row's distortion
 /// radius (beyond it the chart resolves the point's collapsed coordinate,
 /// so the point carries it).
-pub fn row_resolutions(d: &ChartDescriptor, s: &SurfaceGeometry, share: f64) -> Vec<f64> {
+pub fn row_resolutions(d: &ChartDescriptor, share: f64) -> Vec<f64> {
     d.singular_rows
         .iter()
-        .map(|row| share * distortion_radius(d, s, row))
+        .map(|row| share * row.distortion)
         .collect()
 }
 
@@ -277,4 +285,94 @@ pub fn corner_on_singular_row(
         (dist <= tolerance && (dist <= resolved || dist <= share * far))
             .then_some((*row, row.axis == Axis::V))
     })
+}
+
+/// The surface's unit normal at face parameters `uv` (its point `p`), in
+/// the face chart's sense (`S_u × S_v`, as its limit where that
+/// vanishes): at a chart singularity (a sphere's pole, a collapsed row on
+/// a smooth cap) the row's normal, which every approach shares; `None` at
+/// a geometric singularity (a cone's apex: the limit depends on the
+/// approach, so no facet can track one normal there) or where the chart
+/// is degenerate with no singular row to read. A point is at a singular
+/// row within `exact` of its point in space (rounding: a point a hair off
+/// a pole reads its own `S_u × S_v` accurately). Non-periodic coordinates
+/// outside the domain are clamped into it first (a projection can land a
+/// hair past an edge).
+pub fn chart_normal(
+    d: &ChartDescriptor,
+    s: &SurfaceGeometry,
+    uv: (f64, f64),
+    p: Point3,
+    exact: f64,
+) -> Option<crate::geometry::Vec3> {
+    // At a chart singularity and within 1e-5 of its collapse radius (where
+    // the speed along the row is a millionth of its speed away from it,
+    // and `S_u × S_v` is a cancellation, noise in direction) the row's
+    // normal, which the true one approaches: raw normals there sent a
+    // vanishing fillet strip's display refinement to its growth budget.
+    for row in &d.singular_rows {
+        let reach = match row.kind {
+            super::SingularKind::Chart => exact.max(1e-5 * row.distortion),
+            _ => exact,
+        };
+        if row.point.distance_to(&p) <= reach {
+            return match super::regular::pole_projection(d, s, row) {
+                Some(super::RegularChart::PoleProjection { e1, e2, .. }) => Some(e1.cross(&e2)),
+                _ => None,
+            };
+        }
+    }
+    let ((u0, u1), (v0, v1)) = d.domain;
+    let (c, _) = canonical(d, uv);
+    // A closure takes its representative, an evaluation period is used as
+    // given (as `evaluate`), and a coordinate with no period is clamped.
+    let place = |x: f64, cx: f64, lo: f64, hi: f64, axis: Axis| match d.period(axis) {
+        Some(p) if p.kind == super::PeriodKind::GeometricClosure => cx,
+        Some(_) => x,
+        None if lo.is_finite() && hi.is_finite() => x.clamp(lo, hi),
+        None => x,
+    };
+    let (u, v) = (
+        place(uv.0, c.0, u0, u1, Axis::U),
+        place(uv.1, c.1, v0, v1, Axis::V),
+    );
+    let (su, sv) = s.first_partials(u, v);
+    let n = su.cross(&sv);
+    let l = n.length();
+    if l.is_finite() && l > 1e-300 * su.length().max(sv.length()).max(1e-300) {
+        return Some(n * (1.0 / l));
+    }
+    // Degenerate where the clamp landed: a point a hair past a pole
+    // clamps onto the row itself, whose normal is the row's.
+    let q = s.point_at(u, v);
+    let scale = q.x.abs().max(q.y.abs()).max(q.z.abs()).max(1.0);
+    d.singular_rows
+        .iter()
+        .find(|row| row.point.distance_to(&q) <= exact.max(SINGULAR_EXACT * scale))
+        .and_then(|row| match super::regular::pole_projection(d, s, row) {
+            Some(super::RegularChart::PoleProjection { e1, e2, .. }) => Some(e1.cross(&e2)),
+            _ => None,
+        })
+}
+
+/// The regular chart for a neighbourhood reaching `radius` in space from
+/// `p0` (design §4): the pole projection about the first chart
+/// singularity the neighbourhood holds, else the face chart (which is
+/// right beside a singularity as long as the neighbourhood does not wrap
+/// round it; reading the distortion radius sent a fillet strip's every
+/// relaxed star through the projection). A consumer moving points within the neighbourhood works in
+/// it (a vertex star relaxed beside a pole, where face-chart moves are
+/// distorted without bound).
+pub fn neighbourhood_chart(
+    d: &ChartDescriptor,
+    s: &SurfaceGeometry,
+    p0: &Point3,
+    radius: f64,
+) -> super::RegularChart {
+    d.singular_rows
+        .iter()
+        .filter(|row| row.kind == super::SingularKind::Chart)
+        .find(|row| row.point.distance_to(p0) <= radius)
+        .and_then(|row| super::regular::pole_projection(d, s, row))
+        .unwrap_or(super::RegularChart::Face)
 }

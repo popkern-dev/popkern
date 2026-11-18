@@ -11,6 +11,11 @@ use crate::boundary_first::EdgeSamples;
 use crate::mesh::FaceMesh;
 use crate::{MeshError, TessellationOptions};
 
+/// A split request within this curve fraction of an existing sample is
+/// already served by it (the per-edge dedup; the atlas snaps a row
+/// crossing that close onto that sample instead of requesting it).
+pub(crate) const SAMPLE_DEDUP: f64 = 1e-4;
+
 /// Canonical edge samples, refined until no face's Delaunay coverage
 /// asks for more, and each face's checked mesh on those samples (kept
 /// for the final pass). `scope` limits both to a face subset and its
@@ -108,7 +113,7 @@ pub(crate) fn sample_and_refine_edges(
                 continue;
             }
             let idx = samples.fractions.partition_point(|&f| f < fraction);
-            let near = |f: f64| (f - fraction).abs() < 1e-4;
+            let near = |f: f64| (f - fraction).abs() < SAMPLE_DEDUP;
             if (idx > 0 && near(samples.fractions[idx - 1]))
                 || (idx < samples.fractions.len() && near(samples.fractions[idx]))
             {

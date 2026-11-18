@@ -54,6 +54,7 @@ fn angle_at(mesh: &FaceMesh, a: usize, b: usize, c: usize) -> f64 {
 pub(crate) fn delaunay_flips_3d_from(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &popkern_core::geometry::chart::ChartDescriptor,
     chord_height: f64,
     spread_bound: f64,
     seeds: Option<&[usize]>,
@@ -64,7 +65,7 @@ pub(crate) fn delaunay_flips_3d_from(
     let singular: Vec<bool> = mesh
         .vertices
         .iter()
-        .map(|v| singular_without_unique_normal(surface, v.uv.0, v.uv.1))
+        .map(|v| singular_without_unique_normal(chart, &v.position))
         .collect();
     let mut edge_tris: HashMap<EdgeKey, Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
@@ -142,8 +143,8 @@ pub(crate) fn delaunay_flips_3d_from(
         if !chart_ok || !facing_ok || !spread_ok || !tilt_ok {
             continue;
         }
-        let old_sag = chord_sag(mesh, surface, a, b).unwrap_or(0.0);
-        if chord_sag(mesh, surface, c, d).is_none_or(|s| s > chord_height.max(old_sag)) {
+        let old_sag = chord_sag(mesh, surface, chart, a, b).unwrap_or(0.0);
+        if chord_sag(mesh, surface, chart, c, d).is_none_or(|s| s > chord_height.max(old_sag)) {
             continue;
         }
         mesh.triangles[t0] = new0;

@@ -78,6 +78,10 @@ pub struct SingularRow {
     pub point: Point3,
     /// Chart or geometric singularity, as measured.
     pub kind: SingularKind,
+    /// The distortion radius (design §4): within this distance of the
+    /// point the chart's speed across the row exceeds ten times its speed
+    /// along it, and interpolation runs in the pole projection.
+    pub distortion: f64,
 }
 
 /// A surface's chart artifacts.
@@ -231,6 +235,7 @@ fn singular_rows(
             at,
             point: p0,
             kind: classify(s, axis, at, (a, b), domain, size, tol),
+            distortion: 0.0,
         });
     }
     out
@@ -304,7 +309,7 @@ impl ChartDescriptor {
                 let (w, a, b) = n.content_fingerprint();
                 Some((w, a, b, tolerance.linear().to_bits()))
             }
-            _ => None,
+            _ => analytic_key(surface).map(|(w, a, b)| (w, a, b, tolerance.linear().to_bits())),
         };
         if let Some(k) = key
             && let Some(hit) = CACHE.with(|c| c.borrow().get(&k).cloned())
@@ -343,13 +348,22 @@ impl ChartDescriptor {
                 }
             })
         };
-        ChartDescriptor {
+        let mut d = ChartDescriptor {
             u: period(pu, Axis::U),
             v: period(pv, Axis::V),
             singular_rows: singular_rows(s, domain, size, tol),
             domain,
             linear: tol.linear(),
+        };
+        let radii: Vec<f64> = d
+            .singular_rows
+            .iter()
+            .map(|row| super::ops::distortion_radius(&d, s, row))
+            .collect();
+        for (row, r) in d.singular_rows.iter_mut().zip(radii) {
+            row.distortion = r;
         }
+        d
     }
 
     /// Every closed direction's period (analytic, periodic form and a
@@ -408,4 +422,58 @@ impl ChartDescriptor {
             Axis::V => self.v,
         }
     }
+}
+
+/// A content key for an analytic surface: its kind and every defining
+/// value's bits, folded two ways (so a descriptor is measured once per
+/// distinct surface, as a NURBS's is by its fingerprint). `None` for the
+/// patch kinds, which are measured each time.
+fn analytic_key(s: &SurfaceGeometry) -> Option<(u64, u64, u64)> {
+    let p = |q: &Point3| [q.x, q.y, q.z];
+    let v = |q: &crate::geometry::Vec3| [q.x, q.y, q.z];
+    let (kind, values): (u64, Vec<f64>) = match s {
+        SurfaceGeometry::Plane {
+            origin,
+            normal,
+            u_axis,
+            v_axis,
+        } => (1, [p(origin), v(normal), v(u_axis), v(v_axis)].concat()),
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } => (2, [p(origin).as_slice(), &v(axis), &[*radius]].concat()),
+        SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle,
+        } => (3, [p(apex).as_slice(), &v(axis), &[*half_angle]].concat()),
+        SurfaceGeometry::Sphere {
+            center,
+            radius,
+            axis,
+        } => (4, [p(center).as_slice(), &v(axis), &[*radius]].concat()),
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius,
+        } => (
+            5,
+            [
+                p(center).as_slice(),
+                &v(axis),
+                &[*major_radius, *minor_radius],
+            ]
+            .concat(),
+        ),
+        _ => return None,
+    };
+    let (mut a, mut b) = (0xcbf2_9ce4_8422_2325_u64, 0x8422_2325_cbf2_9ce4_u64);
+    for x in values {
+        let bits = x.to_bits();
+        a = (a ^ bits).wrapping_mul(0x0000_0100_0000_01b3);
+        b = b.rotate_left(17) ^ bits.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+    Some((kind | 0x8000_0000_0000_0000, a, b))
 }

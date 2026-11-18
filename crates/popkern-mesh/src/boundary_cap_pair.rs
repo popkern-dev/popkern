@@ -14,10 +14,10 @@
 //! construction; the pair lands only when no new facet in any copy
 //! leans more than the facets it replaces (or the bound).
 
+use super::CapSurface;
 use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::curve::{CurveSamples, edge_curve_midpoint};
@@ -26,18 +26,15 @@ use super::{
     triangle_tilt,
 };
 use crate::mesh::{FaceMesh, MeshVertex};
-use crate::vertex_normal::{limit_normal, singular_without_unique_normal};
+use crate::vertex_normal::limit_normal;
 
 #[path = "boundary_cap_corner.rs"]
 mod corner;
 use corner::plan_chord_with_corners;
 
-/// The face mesh's surface.
-fn surface_of<'a>(brep: &'a BRep, fm: &FaceMesh) -> Option<&'a SurfaceGeometry> {
-    brep.faces
-        .get(fm.face)
-        .and_then(|f| f.surface.as_ref())
-        .map(|s| &s.geometry)
+/// The face mesh's surface and descriptor.
+fn surface_of<'a>(brep: &'a BRep, fm: &FaceMesh) -> Option<CapSurface<'a>> {
+    super::cap_surface(brep, fm.face)
 }
 
 /// The mesh vertex for edge point `m` between local vertices `a` and
@@ -46,32 +43,15 @@ fn surface_of<'a>(brep: &'a BRep, fm: &FaceMesh) -> Option<&'a SurfaceGeometry> 
 /// singularity.
 fn vertex_at(
     fm: &FaceMesh,
-    surface: &SurfaceGeometry,
+    surface: &CapSurface<'_>,
     a: usize,
     b: usize,
     m: Point3,
     gate: f64,
 ) -> Option<MeshVertex> {
     let (va, vb) = (&fm.vertices[a], &fm.vertices[b]);
-    let hint = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
-    let raw = popkern_core::geometry::uv_projection::project_point_to_uv_near(
-        surface, &m, hint.0, hint.1,
-    )?;
-    // The chord's own branch of a periodic chart: a projection lands in
-    // the principal range, and a helical strip's chart is unwrapped
-    // over many turns (the new vertex sat whole turns from its chord).
-    let (pu, pv) = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
-    let align = |x: f64, near: f64, period: Option<f64>| match period {
-        Some(p) if p > 0.0 => x - ((x - near) / p).round() * p,
-        _ => x,
-    };
-    let uv = (align(raw.0, hint.0, pu), align(raw.1, hint.1, pv));
-    if surface.point_at(uv.0, uv.1).distance_to(&m) > gate
-        || singular_without_unique_normal(surface, uv.0, uv.1)
-    {
-        return None;
-    }
-    let n = limit_normal(surface, uv.0, uv.1)?;
+    let uv = super::project_on_chord(surface, (va, vb), m, gate)?;
+    let n = limit_normal(&surface.chart, surface, uv, m)?;
     let facing = va.normal + vb.normal;
     let normal = if n.dot(&facing) < 0.0 { -n } else { n };
     Some(MeshVertex {
@@ -151,7 +131,7 @@ fn plan_copy(
 ) -> Option<MeshPlan> {
     let (mi, ti, a, b) = copy;
     let fm = &meshes[mi];
-    let surface = surface_of(brep, fm)?;
+    let surface = &surface_of(brep, fm)?;
     let t = fm.triangles[ti];
     let r = (0..3).find(|&k| t[k] == a && t[(k + 1) % 3] == b)?;
     let c = t[(r + 2) % 3];
@@ -216,7 +196,7 @@ fn plan_pair(
     maps: &mut EdgeMaps,
 ) -> Option<Vec<MeshPlan>> {
     let fm = &meshes[mi];
-    let surface = surface_of(brep, fm)?;
+    let surface = &surface_of(brep, fm)?;
     let tri1 = fm.triangles[t1];
     let r = (0..3).find(|&k| tri1[k] == p0 && tri1[(k + 1) % 3] == p1)?;
     let c = tri1[(r + 2) % 3];
@@ -374,7 +354,7 @@ pub(super) fn split_leaning_pairs(
     // every mesh's boundary per round cost the gallery ~5% display time).
     for &mi in leaning {
         let fm = &meshes[mi];
-        let Some(surface) = surface_of(brep, fm) else {
+        let Some(surface) = &surface_of(brep, fm) else {
             continue;
         };
         for (a, b, ti) in boundary_edges(fm) {

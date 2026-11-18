@@ -222,13 +222,14 @@ pub(crate) fn tessellate_face_with_samples(
     } else {
         max_subdivisions
     };
+    let chart = ChartDescriptor::of(surface, &brep.tolerance);
     let cells = adaptive_subdivide_bounded(
         surface,
         u_range,
         v_range,
         (options.min_subdivisions, max_subdivisions),
         options.chord_height,
-        angular,
+        angular.map(|a| (a, &*chart)),
     );
 
     // Deduplicate vertices by UV coordinate using bit-exact keys.
@@ -740,13 +741,12 @@ fn tessellate_brep_reusing(
                 .filter(|&t| fm.triangles[t].iter().any(|&v| v >= fresh))
                 .collect();
             if let Some(sof) = brep.faces.get(fm.face).and_then(|f| f.surface.as_ref()) {
-                crate::tilt_refine::finish_tilt_from(
-                    fm,
+                let (s, chart) = (
                     &sof.geometry,
-                    options.chord_height,
-                    bound,
-                    Some(&seeds),
+                    ChartDescriptor::of(&sof.geometry, &brep.tolerance),
                 );
+                let chord = options.chord_height;
+                crate::tilt_refine::finish_tilt_from(fm, s, &chart, chord, bound, Some(&seeds));
             }
         }
         tracker.finish_stage("tessellate.boundary_caps", t0, changed.len());

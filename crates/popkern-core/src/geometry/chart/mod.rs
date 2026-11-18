@@ -8,8 +8,10 @@
 //! topological seam edges (topology, asking here for chart questions) and
 //! continuity seams between faces (blend certification, unrelated).
 
+pub mod atlas;
 pub mod charted;
 pub mod descriptor;
+pub mod interpolate;
 pub mod ops;
 pub mod periods;
 pub mod regular;

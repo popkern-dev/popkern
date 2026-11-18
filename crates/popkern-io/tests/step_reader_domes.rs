@@ -74,6 +74,11 @@ fn check_dome(n: [f64; 3], d: f64) {
 
 /// `check_dome` with an explicit relative volume bound.
 fn check_dome_within(n: [f64; 3], d: f64, bound: f64) {
+    check_dome_meshed(n, d, bound, &popkern_mesh::TessellationOptions::default());
+}
+
+/// `check_dome_within` meshed with `options`.
+fn check_dome_meshed(n: [f64; 3], d: f64, bound: f64, options: &popkern_mesh::TessellationOptions) {
     let r = 10.0;
     let text = dome_step(r, n, d);
     let imported = import_step(text.as_bytes(), &StepImportOptions::default()).expect("import");
@@ -99,8 +104,7 @@ fn check_dome_within(n: [f64; 3], d: f64, bound: f64) {
             "n {n:?} d {d}: edge {eh:?} pcurve deviation {dev}"
         );
     }
-    let mesh = popkern_mesh::tessellate(dome, &popkern_mesh::TessellationOptions::default())
-        .expect("mesh");
+    let mesh = popkern_mesh::tessellate(dome, options).expect("mesh");
     assert_eq!(
         popkern_mesh::welded_open_edges(&mesh),
         0,

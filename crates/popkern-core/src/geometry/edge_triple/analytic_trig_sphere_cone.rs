@@ -94,7 +94,7 @@ pub(super) fn try_sphere_cone_axial(
     // colat on sphere: z-component of (circle_center − sphere_center)
     // divided by sphere radius. Result is in [0, π].
     let z_offset = (circle_center.z - sphere_center.z) / sphere_radius;
-    let colat = z_offset.clamp(-1.0, 1.0).pacos();
+    let colat = crate::geometry::sphere_eval::colatitude(circle_radius, z_offset * sphere_radius);
     // axis_sign sanity: surface evaluation only depends on z;
     // non-positive axis_sign means cone is upside-down relative to
     // popkern's sphere v=0 == +z convention. Skip for safety.

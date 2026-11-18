@@ -34,7 +34,7 @@
 
 use popkern_math::hash::FastHashMap as HashMap;
 
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_math::PortableMath;
 
@@ -124,17 +124,26 @@ fn crease(mesh: &FaceMesh, edge_tris: &HashMap<EdgeKey, Vec<usize>>, e: EdgeKey)
 pub(crate) fn chord_sag(
     mesh: &FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &popkern_core::geometry::chart::ChartDescriptor,
     a: usize,
     b: usize,
 ) -> Option<f64> {
     let (va, vb) = (&mesh.vertices[a], &mesh.vertices[b]);
-    let uv = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
+    // The surface point over the chord, interpolated in a regular chart.
+    let (_, on_surface) = popkern_core::geometry::chart::ops::interpolate(
+        chart,
+        surface,
+        (va.uv, va.position),
+        (vb.uv, vb.position),
+        0.5,
+    )
+    .ok()?;
     let mid = Point3::new(
         0.5 * (va.position.x + vb.position.x),
         0.5 * (va.position.y + vb.position.y),
         0.5 * (va.position.z + vb.position.z),
     );
-    let sag = surface.point_at(uv.0, uv.1).distance_to(&mid);
+    let sag = on_surface.distance_to(&mid);
     (sag <= 0.5 * va.position.distance_to(&vb.position)).then_some(sag)
 }
 
@@ -147,6 +156,7 @@ pub(crate) fn chord_sag(
 pub(crate) fn flip_creases(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &popkern_core::geometry::chart::ChartDescriptor,
     chord_height: f64,
     crease_bound: f64,
     spread_bound: f64,
@@ -157,7 +167,7 @@ pub(crate) fn flip_creases(
     let singular: Vec<bool> = mesh
         .vertices
         .iter()
-        .map(|v| singular_without_unique_normal(surface, v.uv.0, v.uv.1))
+        .map(|v| singular_without_unique_normal(chart, &v.position))
         .collect();
     let mut edge_tris: HashMap<EdgeKey, Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
@@ -238,8 +248,8 @@ pub(crate) fn flip_creases(
         {
             continue;
         }
-        let old_sag = chord_sag(mesh, surface, a, b).unwrap_or(0.0);
-        if chord_sag(mesh, surface, c, d).is_none_or(|s| s > chord_height.max(old_sag)) {
+        let old_sag = chord_sag(mesh, surface, chart, a, b).unwrap_or(0.0);
+        if chord_sag(mesh, surface, chart, c, d).is_none_or(|s| s > chord_height.max(old_sag)) {
             continue;
         }
         // Trial: apply, measure, keep or revert.

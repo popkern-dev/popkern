@@ -47,7 +47,7 @@ pub use error::MeshError;
 pub use general::{FaceRegions, GeneralMesh, WirePolyline, tessellate_general};
 pub use mesh::{FaceMesh, MeshVertex, TriMesh};
 pub use tessellate::tessellate_face;
-pub use vertex_normal::limit_normal as surface_limit_normal;
+pub use vertex_normal::limit_normal_at as surface_limit_normal;
 pub use watertight::welded_open_edges;
 
 use popkern_core::topology::BRep;
@@ -83,6 +83,15 @@ pub struct TessellationOptions {
     /// Default: `π` (off — the analysis-gate meshes stay chord-only).
     /// [`TessellationOptions::display`] turns it on.
     pub max_facet_angle: f64,
+    /// Mesh faces reaching a chart singularity on the chart service's
+    /// atlas (each piece in a chart with no singular row; design
+    /// `chart-service.md` §6a) instead of the face chart's pole handling.
+    ///
+    /// Default: `false` while the atlas is in its shadow phase (its
+    /// results compared with the face chart's on the suites and the
+    /// generated corpus, every difference explained, before it becomes
+    /// primary and the pole handling is deleted; PK-1267).
+    pub atlas: bool,
 }
 
 impl Default for TessellationOptions {
@@ -92,6 +101,7 @@ impl Default for TessellationOptions {
             min_subdivisions: 4,
             max_subdivisions: 64,
             max_facet_angle: std::f64::consts::PI,
+            atlas: false,
         }
     }
 }

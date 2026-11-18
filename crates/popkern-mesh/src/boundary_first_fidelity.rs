@@ -3,7 +3,7 @@
 //! 500-line file budget). See [`closed_chart_fidelity_ok`].
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::FaceHandle;
 
 use crate::TessellationOptions;
@@ -26,6 +26,7 @@ use crate::mesh::MeshVertex;
 pub(super) fn closed_chart_fidelity_ok(
     face_handle: FaceHandle,
     surface: &SurfaceGeometry,
+    chart: &popkern_core::geometry::chart::ChartDescriptor,
     vertices: &[MeshVertex],
     triangles: &[[usize; 3]],
     options: &TessellationOptions,
@@ -41,9 +42,16 @@ pub(super) fn closed_chart_fidelity_ok(
     for t in triangles {
         for (i, j) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
             let (a, b) = (&vertices[i], &vertices[j]);
-            let um = 0.5 * (a.uv.0 + b.uv.0);
-            let vm = 0.5 * (a.uv.1 + b.uv.1);
-            let on_surf = surface.point_at(um, vm);
+            // The surface over the chord, interpolated in a regular chart.
+            let Ok((_, on_surf)) = popkern_core::geometry::chart::ops::interpolate(
+                chart,
+                surface,
+                (a.uv, a.position),
+                (b.uv, b.position),
+                0.5,
+            ) else {
+                return false;
+            };
             let chord_mid = Point3::new(
                 0.5 * (a.position.x + b.position.x),
                 0.5 * (a.position.y + b.position.y),

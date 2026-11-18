@@ -13,7 +13,7 @@ use super::boundary_first_wrap_slit::{collapse_stubs, net_winding, slit_band};
 /// keeps the honest decline with the ring dump.
 pub(super) fn join_wrapped_rings(
     face_handle: popkern_core::topology::FaceHandle,
-    wrapped_rings: &[BoundaryRing],
+    (wrapped_rings, others): (&[BoundaryRing], &[BoundaryRing]),
     p: f64,
     surface: &SurfaceGeometry,
     orientation: bool,
@@ -48,7 +48,14 @@ pub(super) fn join_wrapped_rings(
             .all(|r| (1..=8).contains(&net_winding(r, p).abs()));
     let sided = band_side(wrapped_rings, p, surface, orientation, transposed);
     let wrapped_rings: &[BoundaryRing] = sided.as_deref().unwrap_or(wrapped_rings);
-    if in_scope && let Some(joined) = slit_band(wrapped_rings, p, surface, transposed, chord_height)
+    if in_scope
+        && let Some(joined) = slit_band(
+            (wrapped_rings, others),
+            p,
+            surface,
+            transposed,
+            chord_height,
+        )
     {
         // Rings that wrapped in v were slit as u bands; back to (u, v).
         let joined: Vec<BoundaryRing> = if transposed {

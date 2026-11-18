@@ -2,9 +2,8 @@
 //! cannot fix (see the parent module): flips that hand a cap a farther
 //! apex, and collapsing a cap-zone apex onto the new boundary vertex.
 
+use super::CapSurface;
 use popkern_math::hash::FastHashMap as HashMap;
-
-use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::{boundary_edges, chart_area, spread_of, tilt_of, triangle_spread, triangle_tilt};
 use crate::mesh::{FaceMesh, MeshVertex};
@@ -23,15 +22,16 @@ pub(super) const NEW: usize = usize::MAX;
 /// area or faces against its normals, and the star's worst tilt drops.
 pub(super) fn plan_apex_collapse(
     mesh: &FaceMesh,
-    surface: &SurfaceGeometry,
+    surface: &CapSurface<'_>,
     cap: usize,
     c: usize,
     m: &MeshVertex,
     topo: &MeshTopology,
     bound: f64,
 ) -> Option<Vec<(usize, [usize; 3])>> {
-    let uv = mesh.vertices[c].uv;
-    if topo.boundary.contains(&c) || singular_without_unique_normal(surface, uv.0, uv.1) {
+    if topo.boundary.contains(&c)
+        || singular_without_unique_normal(&surface.chart, &mesh.vertices[c].position)
+    {
         return None;
     }
     let star: Vec<usize> = topo
@@ -111,11 +111,7 @@ impl MeshTopology {
 /// chord split cannot help it: both halves keep the near apex). Guards:
 /// both new triangles keep the old pair's chart winding with area, and
 /// face along their vertex normals. Returns whether anything flipped.
-pub(super) fn flip_leaning_caps(
-    mesh: &mut FaceMesh,
-    surface: &SurfaceGeometry,
-    bound: f64,
-) -> bool {
+pub(super) fn flip_leaning_caps(mesh: &mut FaceMesh, surface: &CapSurface<'_>, bound: f64) -> bool {
     let mut edge_tris: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
     for (ti, t) in mesh.triangles.iter().enumerate() {
         for k in 0..3 {

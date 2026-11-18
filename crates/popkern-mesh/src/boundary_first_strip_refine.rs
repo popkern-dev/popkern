@@ -44,7 +44,10 @@ use crate::vertex_normal::singular_without_unique_normal;
 /// request count.
 pub(super) fn request_deviation_splits(
     fm: &FaceMesh,
-    surface: &SurfaceGeometry,
+    (surface, chart): (
+        &SurfaceGeometry,
+        &popkern_core::geometry::chart::ChartDescriptor,
+    ),
     ring: &BoundaryRing,
     chord_height: f64,
     max_angle: Option<f64>,
@@ -86,7 +89,8 @@ pub(super) fn request_deviation_splits(
             (a.uv.0 + b.uv.0 + c.uv.0) / 3.0,
             (a.uv.1 + b.uv.1 + c.uv.1) / 3.0,
         );
-        let over_angle = max_angle.is_some_and(|bound| normal_spread([a, b, c], surface) > bound);
+        let over_angle =
+            max_angle.is_some_and(|bound| normal_spread([a, b, c], (surface, chart)) > bound);
         if !over_angle && normal_gap(surface, cuv, centroid) <= chord_height {
             continue;
         }
@@ -132,10 +136,16 @@ const INSIDE_STEP: f64 = 1e-6;
 /// to ten million triangles, PK-1223). On a smooth surface the inside
 /// read differs from the vertex's by the normal's turn over a millionth
 /// of the facet.
-fn normal_spread(vertices: [&MeshVertex; 3], surface: &SurfaceGeometry) -> f64 {
+fn normal_spread(
+    vertices: [&MeshVertex; 3],
+    (surface, chart): (
+        &SurfaceGeometry,
+        &popkern_core::geometry::chart::ChartDescriptor,
+    ),
+) -> f64 {
     if vertices
         .iter()
-        .any(|v| singular_without_unique_normal(surface, v.uv.0, v.uv.1))
+        .any(|v| singular_without_unique_normal(chart, &v.position))
     {
         return 0.0;
     }

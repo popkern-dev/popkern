@@ -69,17 +69,20 @@ pub(super) fn reassign_seam_pixels(
                 continue;
             };
             let sense = sign_of(n.face);
+            let chart =
+                popkern_core::geometry::chart::ChartDescriptor::of(surface, &brep.tolerance);
             let query = locate::PixelQuery {
                 eye,
                 facet: sample.position,
                 reach: *reach,
                 sense,
+                chart: &chart,
             };
             let (uv, hit) = locate::locate_on_surface(surface, &[n.uv], &query);
             if hit != SurfaceHit::Ray {
                 continue;
             }
-            let Some(nrm) = popkern_mesh::surface_limit_normal(surface, uv.0, uv.1) else {
+            let Some(nrm) = popkern_mesh::surface_limit_normal(&chart, surface, uv) else {
                 continue;
             };
             out[idx] = Some(ZebraSample {

@@ -14,6 +14,7 @@ fn coarse() -> TessellationOptions {
         min_subdivisions: 2,
         max_subdivisions: 6,
         max_facet_angle: std::f64::consts::PI,
+        atlas: false,
     }
 }
 
@@ -23,6 +24,7 @@ fn fine() -> TessellationOptions {
         min_subdivisions: 8,
         max_subdivisions: 128,
         max_facet_angle: 3f64.to_radians(),
+        atlas: false,
     }
 }
 

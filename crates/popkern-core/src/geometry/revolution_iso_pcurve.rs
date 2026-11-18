@@ -78,7 +78,7 @@ pub fn iso_circle_pcurve(
         } => {
             let axial = *axis;
             let d = *center - *sc;
-            let polar = (d.dot(&axial) / sr).clamp(-1.0, 1.0).pacos();
+            let polar = crate::geometry::sphere_eval::colatitude_at_height(*sr, d.dot(&axial));
             let chart_radius = sr * polar.psin();
             arc.latitude(curve, range, *sc, axial, polar, chart_radius)
                 .or_else(|| arc.sphere_meridian(curve, range, surface, *sc, *sr, axial))

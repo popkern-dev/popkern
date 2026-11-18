@@ -19,7 +19,7 @@
 //! discarded and the previous round's mesh is kept.
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceEval;
 use popkern_math::PortableMath;
 
 use super::boundary_first_cdt::ConstrainedMesh;
@@ -37,8 +37,10 @@ const POINT_BUDGET: usize = 200_000;
 pub(super) struct Chart<'a> {
     /// The face (diagnostics only).
     pub face: popkern_core::topology::FaceHandle,
-    /// The face's surface.
-    pub surface: &'a SurfaceGeometry,
+    /// The face's surface (through a regular chart for an atlas cap).
+    pub surface: &'a dyn SurfaceEval,
+    /// Whether the surface is a plane (no deviation to refine).
+    pub planar: bool,
     /// Metric scale of the chart.
     pub scale: (f64, f64),
     /// The chart's Delaunay scale (the metric, anisotropically
@@ -60,7 +62,7 @@ pub(super) fn refine_by_deviation(
     triangles: &mut Vec<[usize; 3]>,
     chord_height: f64,
 ) {
-    if matches!(chart.surface, SurfaceGeometry::Plane { .. }) || chord_height <= 0.0 {
+    if chart.planar || chord_height <= 0.0 {
         return;
     }
     // Refinement inserts into the constrained triangulation, so every
@@ -321,7 +323,7 @@ fn is_ring_segment(ring_ranges: &[(usize, usize)], i: usize, j: usize) -> bool {
 /// distance to `S(uv)` adds the chart's tangential distortion (a
 /// non-affine helical NURBS parameterization), which is no facet error
 /// and over-refined a 48-turn thread flank about tenfold (PK-651).
-pub(super) fn normal_gap(surface: &SurfaceGeometry, uv: (f64, f64), p: Point3) -> f64 {
+pub(super) fn normal_gap(surface: &dyn SurfaceEval, uv: (f64, f64), p: Point3) -> f64 {
     let s = surface.point_at(uv.0, uv.1);
     let n = surface.normal_at(uv.0, uv.1);
     let len = n.length();

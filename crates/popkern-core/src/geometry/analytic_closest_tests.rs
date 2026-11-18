@@ -130,3 +130,27 @@ fn degenerate_points_have_defined_parameters() {
     assert_eq!(v, 0.0);
     assert!(f.distance_to(&Point3::new(0.0, 0.0, 0.0)) < 1e-15);
 }
+
+/// A point beside a sphere's pole projects back onto itself: the
+/// colatitude is read by atan2, not acos(z / |d|), whose error beside a
+/// pole is ~1e-16 / sin v (1.3e-10 of the radius a micro-radian off it
+/// read through acos; the chart service's pole projection could not
+/// resolve points there).
+#[test]
+fn a_point_beside_a_sphere_pole_projects_onto_itself() {
+    let s = SurfaceGeometry::Sphere {
+        center: Point3::new(1.0, -2.0, 0.5),
+        radius: 2.0,
+        axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    for &(u, v) in &[(0.3, 1e-6), (2.0, 3e-8), (4.0, std::f64::consts::PI - 1e-6)] {
+        let p = s.point_at(u, v);
+        let (pu, pv) = s.closest_point(&p).expect("projects");
+        let back = s.point_at(pu, pv);
+        assert!(
+            back.distance_to(&p) <= 1e-15 * 4.0,
+            "({u}, {v}): {}",
+            back.distance_to(&p)
+        );
+    }
+}

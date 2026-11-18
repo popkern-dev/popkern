@@ -71,6 +71,24 @@ pub(crate) fn sphere_first_partials(radius: f64, axis: &Vec3, u: f64, v: f64) ->
     (world(du), world(dv))
 }
 
+/// The colatitude of a point at distance `rho` from a sphere's axis and
+/// height `z` along it from the centre: `atan2(rho, z)`, well conditioned
+/// everywhere. Never `acos(z / r)`: its error beside a pole is ~1e-16 /
+/// sin v (1.3e-10 of the radius a micro-radian off), so a point charted
+/// there comes back off its own position (PK-1263). The one way every
+/// sphere chart reads a colatitude.
+pub(crate) fn colatitude(rho: f64, z: f64) -> f64 {
+    rho.patan2(z)
+}
+
+/// The colatitude of the latitude circle at height `h` on a sphere of
+/// `radius`: its radius read as `sqrt((r − h)(r + h))`, which keeps the
+/// precision `sqrt(r² − h²)` loses beside a pole.
+pub(crate) fn colatitude_at_height(radius: f64, h: f64) -> f64 {
+    let h = h.clamp(-radius, radius);
+    colatitude(((radius - h) * (radius + h)).max(0.0).sqrt(), h)
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::analytic_surfaces::sphere_to_world;

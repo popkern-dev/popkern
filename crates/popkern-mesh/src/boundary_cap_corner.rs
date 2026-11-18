@@ -42,7 +42,7 @@ fn plan_corner(
 ) -> Option<Vec<MeshPlan>> {
     let (mi, ti, a, b) = copy;
     let fm = &meshes[mi];
-    let surface = surface_of(brep, fm)?;
+    let surface = &surface_of(brep, fm)?;
     let t = fm.triangles[ti];
     let r = (0..3).find(|&k| t[k] == a && t[(k + 1) % 3] == b)?;
     let c = t[(r + 2) % 3];
@@ -214,7 +214,7 @@ pub(super) fn plan_chord_with_corners(
     maps: &mut EdgeMaps,
 ) -> Option<Vec<MeshPlan>> {
     let fm = &meshes[mi];
-    let surface = surface_of(brep, fm)?;
+    let surface = &surface_of(brep, fm)?;
     let key = edge_key(fm.vertices[a].position, fm.vertices[b].position);
     let list = copies.get(&key)?;
     let faces: Vec<FaceHandle> = list.iter().map(|&(m2, ..)| meshes[m2].face).collect();

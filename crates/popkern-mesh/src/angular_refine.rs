@@ -31,22 +31,18 @@ use popkern_math::PortableMath;
 use popkern_math::hash::FastHashMap as HashMap;
 use std::cell::RefCell;
 
+use popkern_core::geometry::chart::ChartDescriptor;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, Vec3};
 
 use crate::mesh::{FaceMesh, MeshVertex};
 use crate::shading_contract::{row_shading_bound, row_shading_error};
-use crate::vertex_normal::{chart_singular, limit_normal, singular_without_unique_normal};
+use crate::vertex_normal::{limit_normal, singular_without_unique_normal};
 
 /// Growth budget: the refined mesh may hold at most this many times
 /// the input triangle count (plus a floor for tiny inputs).
 const GROWTH_FACTOR: usize = 16;
 const GROWTH_FLOOR: usize = 4096;
-
-/// A chart coordinate whose 3D travel across an edge's parameter span
-/// is below this fraction of the edge length is collapsed at that
-/// endpoint (a pole): the coordinate carries no position there.
-const POLE_TRAVEL: f64 = 1.0e-3;
 
 /// Halvings of a seam band facet at most under the shading contract
 /// (its row narrows to a sixteenth). Near a vanishing strip end no row
@@ -67,9 +63,14 @@ fn angle_between(a: Vec3, b: Vec3) -> f64 {
 /// Refine `mesh` in place until every triangle's vertex-normal spread
 /// is within `max_angle` radians, or no admissible interior split
 /// remains, or the growth budget is spent.
-pub(crate) fn refine_face_mesh(mesh: &mut FaceMesh, surface: &SurfaceGeometry, max_angle: f64) {
+pub(crate) fn refine_face_mesh(
+    mesh: &mut FaceMesh,
+    surface: &SurfaceGeometry,
+    chart: &ChartDescriptor,
+    max_angle: f64,
+) {
     let all: Vec<usize> = (0..mesh.triangles.len()).collect();
-    refine_face_mesh_from(mesh, surface, max_angle, &all);
+    refine_face_mesh_from(mesh, surface, chart, max_angle, &all);
 }
 
 /// [`refine_face_mesh`] starting from the triangles `seeds` only:
@@ -79,10 +80,11 @@ pub(crate) fn refine_face_mesh(mesh: &mut FaceMesh, surface: &SurfaceGeometry, m
 pub(crate) fn refine_face_mesh_from(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &ChartDescriptor,
     max_angle: f64,
     seeds: &[usize],
 ) {
-    refine(mesh, surface, max_angle, seeds, None);
+    refine(mesh, surface, chart, max_angle, seeds, None);
 }
 
 /// Refine `mesh` in place until every needle row in its seam band
@@ -99,6 +101,7 @@ pub(crate) fn refine_face_mesh_from(
 pub(crate) fn refine_face_shading(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &ChartDescriptor,
     max_angle: f64,
     chord_height: f64,
 ) -> usize {
@@ -116,12 +119,19 @@ pub(crate) fn refine_face_shading(
         .collect();
     let over = |mesh: &FaceMesh, band: &[u8]| -> Vec<usize> {
         (0..mesh.triangles.len())
-            .filter(|&t| over_seam_bound(mesh, surface, t, band, seam))
+            .filter(|&t| over_seam_bound(mesh, (surface, chart), t, band, seam))
             .collect()
     };
     let seeds = over(mesh, &band);
     if !seeds.is_empty() {
-        refine(mesh, surface, max_angle, &seeds, Some((seam, &mut band)));
+        refine(
+            mesh,
+            surface,
+            chart,
+            max_angle,
+            &seeds,
+            Some((seam, &mut band)),
+        );
     }
     over(mesh, &band).len()
 }
@@ -134,7 +144,7 @@ fn edge_key(a: usize, b: usize) -> (usize, usize) {
 /// breaks the contract.
 fn over_seam_bound(
     mesh: &FaceMesh,
-    surface: &SurfaceGeometry,
+    surface: (&SurfaceGeometry, &ChartDescriptor),
     t: usize,
     band: &[u8],
     seam: SeamShading,
@@ -158,7 +168,12 @@ fn edge_use(mesh: &FaceMesh) -> HashMap<(usize, usize), usize> {
 
 /// The largest row shading error of facet `t` over its edges as the
 /// row's base (zero when no edge makes it a measurable needle).
-fn row_error(mesh: &FaceMesh, surface: &SurfaceGeometry, t: usize, chord_height: f64) -> f64 {
+fn row_error(
+    mesh: &FaceMesh,
+    surface: (&SurfaceGeometry, &ChartDescriptor),
+    t: usize,
+    chord_height: f64,
+) -> f64 {
     let tri = mesh.triangles[t];
     (0..3)
         .filter_map(|k| {
@@ -184,6 +199,7 @@ struct SeamShading {
 fn refine(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &ChartDescriptor,
     max_angle: f64,
     seeds: &[usize],
     mut seam: Option<(SeamShading, &mut Vec<u8>)>,
@@ -205,7 +221,7 @@ fn refine(
     let mut singular: Vec<bool> = mesh
         .vertices
         .iter()
-        .map(|v| singular_without_unique_normal(surface, v.uv.0, v.uv.1))
+        .map(|v| singular_without_unique_normal(chart, &v.position))
         .collect();
     let key = |a: usize, b: usize| (a.min(b), a.max(b));
     let mut edge_tris: HashMap<(usize, usize), Vec<usize>> = HashMap::default();
@@ -246,13 +262,25 @@ fn refine(
         if let Some(&foot) = foot_cache.borrow().get(&e) {
             return spread.max(foot);
         }
-        let uv_mid = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
-        let foot = crate::facet_angle::chord_foot_error(
+        // The chord's foot seed, interpolated in a regular chart (no
+        // foot where the pole projection's inverse fails: the spread
+        // still bounds the edge).
+        let foot = popkern_core::geometry::chart::ops::interpolate(
+            chart,
             surface,
-            uv_mid,
-            (va.position, vb.position),
-            (va.normal, vb.normal),
+            (va.uv, va.position),
+            (vb.uv, vb.position),
+            0.5,
         )
+        .ok()
+        .and_then(|(uv_mid, _)| {
+            crate::facet_angle::chord_foot_error(
+                (surface, chart),
+                uv_mid,
+                (va.position, vb.position),
+                (va.normal, vb.normal),
+            )
+        })
         .map_or(0.0, |x| x / crate::facet_angle::FOOT_SHARE);
         foot_cache.borrow_mut().insert(e, foot);
         spread.max(foot)
@@ -315,7 +343,7 @@ fn refine(
         if let Some((seam, band)) = seam.as_ref() {
             // A seam shading violation belongs to the facet, not an
             // edge: splitting either long edge narrows its row.
-            if !forced && !over_seam_bound(mesh, surface, ti, band, *seam) {
+            if !forced && !over_seam_bound(mesh, (surface, chart), ti, band, *seam) {
                 continue;
             }
         } else if !forced {
@@ -368,28 +396,22 @@ fn refine(
         }
         let len = edge_measure.1;
         let (va, vb) = (&mesh.vertices[a], &mesh.vertices[b]);
-        let mut uv = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
-        // An edge leaving a pole (or any point where one chart
-        // coordinate stops moving the surface) splits along the OTHER
-        // endpoint's iso-line in that coordinate: the pole's own value
-        // there is arbitrary (every meridian meets it), so the plain uv
-        // midpoint would land on a foreign meridian and the fold guard
-        // would refuse it. "Collapsed" is judged at the edge's scale —
-        // the coordinate's 3D travel over this edge's parameter span,
-        // against the edge length — not by a fixed ratio: a pole vertex
-        // inverted to v = π − 3e-6 is 1e-6-regular yet moves 1e-7 over
-        // a whole meridian gap.
-        let (du, dv) = ((va.uv.0 - vb.uv.0).abs(), (va.uv.1 - vb.uv.1).abs());
-        for (s_end, r_end) in [(va, vb), (vb, va)] {
-            let pu = surface.partial_u(s_end.uv.0, s_end.uv.1).length();
-            let pv = surface.partial_v(s_end.uv.0, s_end.uv.1).length();
-            if pu * du < POLE_TRAVEL * len && pv * dv >= POLE_TRAVEL * len {
-                uv.0 = r_end.uv.0;
-            } else if pv * dv < POLE_TRAVEL * len && pu * du >= POLE_TRAVEL * len {
-                uv.1 = r_end.uv.1;
-            }
-        }
-        let position = surface.point_at(uv.0, uv.1);
+        // The split point, interpolated in a regular chart (the chart
+        // service): beside a pole in its projection, where the pole's
+        // own collapsed coordinate is arbitrary and a face-chart
+        // midpoint lands on a foreign meridian; elsewhere the face-chart
+        // midpoint, unchanged.
+        let Ok((uv, position)) = popkern_core::geometry::chart::ops::interpolate(
+            chart,
+            surface,
+            (va.uv, va.position),
+            (vb.uv, vb.position),
+            0.5,
+        ) else {
+            unsplittable.insert((a, b));
+            queue.push((ti, forced));
+            continue;
+        };
         let chord_mid = Point3::new(
             0.5 * (va.position.x + vb.position.x),
             0.5 * (va.position.y + vb.position.y),
@@ -402,9 +424,7 @@ fn refine(
         // degenerate corner the chart midpoint barely moves the
         // surface, and it re-split one row thousands of times without
         // narrowing it (PK-914).
-        let unit_normal = (!chart_singular(surface, uv.0, uv.1))
-            .then(|| limit_normal(surface, uv.0, uv.1))
-            .flatten();
+        let unit_normal = limit_normal(chart, surface, uv, position);
         let fold = if seam.is_some() { 0.25 } else { 0.5 };
         let splits = position.distance_to(&chord_mid) <= fold * len;
         let Some(n) = unit_normal.filter(|_| splits) else {

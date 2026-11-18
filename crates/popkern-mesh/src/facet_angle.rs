@@ -61,7 +61,14 @@ pub(crate) fn curve_turn(pa: Point3, pm: Point3, pb: Point3) -> f64 {
 /// Largest pairwise angle (radians) between the surface normals at
 /// the corners and centre of the chart cell `[u0,u1] × [v0,v1]`,
 /// taking one-sided limit normals at chart singularities (poles).
-pub(crate) fn normal_spread(surface: &SurfaceGeometry, u: (f64, f64), v: (f64, f64)) -> f64 {
+pub(crate) fn normal_spread(
+    (surface, chart): (
+        &SurfaceGeometry,
+        &popkern_core::geometry::chart::ChartDescriptor,
+    ),
+    u: (f64, f64),
+    v: (f64, f64),
+) -> f64 {
     let samples = [
         (u.0, v.0),
         (u.1, v.0),
@@ -71,7 +78,7 @@ pub(crate) fn normal_spread(surface: &SurfaceGeometry, u: (f64, f64), v: (f64, f
     ];
     let normals: Vec<Vec3> = samples
         .iter()
-        .filter_map(|&(a, b)| crate::vertex_normal::limit_normal(surface, a, b))
+        .filter_map(|&(a, b)| crate::vertex_normal::limit_normal_at(chart, surface, (a, b)))
         .collect();
     let mut worst = 0.0_f64;
     for i in 0..normals.len() {
@@ -115,7 +122,10 @@ const FOOT_STEP_TOL: f64 = 1e-9;
 /// (across a chart singularity or seam), the chart is singular there,
 /// or the shaded normal cancels.
 pub(crate) fn chord_foot_error(
-    surface: &SurfaceGeometry,
+    (surface, chart): (
+        &SurfaceGeometry,
+        &popkern_core::geometry::chart::ChartDescriptor,
+    ),
     uv_mid: (f64, f64),
     (pa, pb): (Point3, Point3),
     (na, nb): (Vec3, Vec3),
@@ -170,14 +180,15 @@ pub(crate) fn chord_foot_error(
     if surface.point_at(uv.0, uv.1).distance_to(&q) > 0.5 * len {
         return None;
     }
-    // One partial pair serves both the singularity test and the normal
-    // (the `chart_singular` ratio, then the regular normal).
-    let (su, sv) = surface.first_partials(uv.0, uv.1);
-    let big = su.length().max(sv.length());
-    let cross = su.cross(&sv);
-    if big < 1e-300 || cross.length() < crate::vertex_normal::SINGULAR_RATIO * big * big {
+    // The normal from the chart service (the row's at a chart
+    // singularity, none at an apex or within its neighbourhood, where no
+    // facet bound can be met: the old partial-ratio gate's reach, without
+    // which edges beside a vanishing fillet strip's tip split without end).
+    let at = popkern_core::geometry::chart::ops::evaluate(chart, surface, uv);
+    if crate::vertex_normal::singular_without_unique_normal(chart, &at) {
         return None;
     }
+    let cross = crate::vertex_normal::limit_normal(chart, surface, uv, at)?;
     let shaded = Vec3::new(na.x + nb.x, na.y + nb.y, na.z + nb.z);
     if shaded.length() < 1e-12 {
         return None;
@@ -193,7 +204,10 @@ pub(crate) fn chord_foot_error(
 /// This only seeds the interior density — the conforming refinement
 /// pass (`angular_refine`) enforces the bound per triangle.
 pub(crate) fn densify_lattice(
-    surface: &SurfaceGeometry,
+    (surface, chart): (
+        &SurfaceGeometry,
+        &popkern_core::geometry::chart::ChartDescriptor,
+    ),
     ((u0, u1), (v0, v1)): ((f64, f64), (f64, f64)),
     mut n: usize,
     options: &crate::TessellationOptions,
@@ -204,7 +218,7 @@ pub(crate) fn densify_lattice(
     let (um, vm) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
     while n < options.max_subdivisions {
         let (hu, hv) = (0.5 * (u1 - u0) / n as f64, 0.5 * (v1 - v0) / n as f64);
-        if normal_spread(surface, (um - hu, um + hu), (vm - hv, vm + hv)) <= max_spread {
+        if normal_spread((surface, chart), (um - hu, um + hu), (vm - hv, vm + hv)) <= max_spread {
             break;
         }
         n *= 2;
@@ -217,6 +231,7 @@ pub(crate) fn densify_lattice(
 /// start).
 struct FaceTrace<'a> {
     surface: &'a SurfaceGeometry,
+    chart: std::rc::Rc<popkern_core::geometry::chart::ChartDescriptor>,
     pcurve: &'a Pcurve,
     reversed: bool,
 }
@@ -277,6 +292,7 @@ impl<'a> EdgeNormalProbe<'a> {
             };
             let reversed = image(t1 - 0.25 * (t1 - t0)) < image(t0 + 0.25 * (t1 - t0));
             traces.push(FaceTrace {
+                chart: popkern_core::geometry::chart::ChartDescriptor::of(surface, &brep.tolerance),
                 surface,
                 pcurve,
                 reversed,
@@ -302,12 +318,14 @@ impl<'a> EdgeNormalProbe<'a> {
                 (uv.x, uv.y)
             };
             let (ua, ub, um) = (uv_at(fa), uv_at(fb), uv_at(0.5 * (fa + fb)));
-            let normal =
-                |uv: (f64, f64)| crate::vertex_normal::limit_normal(trace.surface, uv.0, uv.1);
+            let normal = |uv: (f64, f64)| {
+                crate::vertex_normal::limit_normal_at(&trace.chart, trace.surface, uv)
+            };
             let (Some(na), Some(nb)) = (normal(ua), normal(ub)) else {
                 continue;
             };
-            if let Some(e) = chord_foot_error(trace.surface, um, (pa, pb), (na, nb)) {
+            if let Some(e) = chord_foot_error((trace.surface, &trace.chart), um, (pa, pb), (na, nb))
+            {
                 worst = Some(worst.map_or(e, |w| w.max(e)));
             }
         }
@@ -369,7 +387,7 @@ impl<'a> EdgeNormalProbe<'a> {
                     // where the raw ∂u×∂v vanishes; dropping that
                     // sample measured the interval without its pole
                     // end (a 21.6° last seam segment read as 10.8°).
-                    crate::vertex_normal::limit_normal(trace.surface, uv.x, uv.y)
+                    crate::vertex_normal::limit_normal_at(&trace.chart, trace.surface, (uv.x, uv.y))
                 })
                 .collect::<Option<Vec<Vec3>>>()
                 .unwrap_or_default();
@@ -384,117 +402,5 @@ impl<'a> EdgeNormalProbe<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn curve_turn_of_a_circular_arc_is_its_subtended_angle() {
-        let r = 0.04;
-        for &(a0, a1) in &[(0.0, 0.5 * std::f64::consts::PI), (0.3, 0.5), (1.0, 1.01)] {
-            let at = |t: f64| Point3::new(r * f64::cos(t), r * f64::sin(t), 0.0);
-            let turn = curve_turn(at(a0), at(0.5 * (a0 + a1)), at(a1));
-            assert!((turn - (a1 - a0)).abs() < 1e-9, "{turn} vs {}", a1 - a0);
-        }
-    }
-
-    #[test]
-    fn curve_turn_of_a_line_is_zero() {
-        let turn = curve_turn(
-            Point3::new(0.0, 0.0, 0.0),
-            Point3::new(1.0, 1.0, 1.0),
-            Point3::new(2.0, 2.0, 2.0),
-        );
-        assert!(turn.abs() < 1e-7);
-    }
-
-    #[test]
-    fn normal_spread_of_a_cylinder_cell_is_its_angular_width() {
-        let cyl = SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            radius: 0.1,
-        };
-        let spread = normal_spread(&cyl, (0.0, 0.4), (0.0, 5.0));
-        assert!((spread - 0.4).abs() < 1e-9, "{spread}");
-    }
-
-    /// The coil_spring defect in closed form (PK-587): a chord along
-    /// the TOP circle of a thin torus has identical vertex normals
-    /// (spread 0), yet its midpoint lies over the tube `atan(s / r)`
-    /// around from the top, `s = R (1 − cos(Δu/2))` the chord's
-    /// sagitta.
-    #[test]
-    fn chord_foot_error_sees_a_torus_top_chord_that_spread_cannot() {
-        let (big_r, r) = (1.0, 0.05);
-        let torus = SurfaceGeometry::Torus {
-            center: Point3::new(0.0, 0.0, 0.0),
-            axis: Vec3::new(0.0, 0.0, 1.0),
-            major_radius: big_r,
-            minor_radius: r,
-        };
-        let v = 0.5 * std::f64::consts::PI;
-        for du in [0.05_f64, 0.1, 0.2] {
-            let (pa, pb) = (torus.point_at(0.0, v), torus.point_at(du, v));
-            let n = |u: f64| crate::vertex_normal::limit_normal(&torus, u, v).expect("normal");
-            let (na, nb) = (n(0.0), n(du));
-            assert!(angle_between(na, nb) < 1e-12);
-            let err = chord_foot_error(&torus, (0.5 * du, v), (pa, pb), (na, nb)).expect("foot");
-            let expected = (big_r * (1.0 - (0.5 * du).cos()) / r).atan();
-            assert!(
-                (err - expected).abs() < 1e-4 * expected,
-                "du {du}: {err} vs {expected}"
-            );
-        }
-    }
-
-    /// Radial sagitta is invisible to the measure: a chord across a
-    /// cylinder, straight or diagonal, has its foot on the radial
-    /// projection, whose normal is the shaded one. Measured on an EXACT
-    /// rational quarter-cylinder (the evaluated path, in a non-angular
-    /// chart), this is what licenses the analytic short-circuit. The
-    /// sphere is the same identity in closed form: the shaded direction
-    /// `(pa − c) + (pb − c) = 2 (m − c)` is the foot normal.
-    #[test]
-    fn chord_foot_error_is_zero_on_an_exact_rational_cylinder() {
-        let (r, w) = (0.1, std::f64::consts::FRAC_1_SQRT_2);
-        let cps = [(r, 0.0), (r, r), (0.0, r)];
-        let nurbs = popkern_core::geometry::NurbsSurface {
-            degree_u: 2,
-            degree_v: 1,
-            knots_u: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
-            knots_v: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: cps
-                .iter()
-                .flat_map(|&(x, y)| [Point3::new(x, y, 0.0), Point3::new(x, y, 2.0)])
-                .collect(),
-            num_u: 3,
-            num_v: 2,
-            weights: vec![1.0, 1.0, w, w, 1.0, 1.0],
-        };
-        let s = SurfaceGeometry::Nurbs(nurbs);
-        for (a, b) in [((0.1, 0.0), (0.6, 0.0)), ((0.1, 0.05), (0.7, 0.95))] {
-            let (pa, pb) = (s.point_at(a.0, a.1), s.point_at(b.0, b.1));
-            assert!((pa.x.hypot(pa.y) - r).abs() < 1e-12, "exact cylinder");
-            let n = |uv: (f64, f64)| {
-                crate::vertex_normal::limit_normal(&s, uv.0, uv.1).expect("normal")
-            };
-            let mid = (0.5 * (a.0 + b.0), 0.5 * (a.1 + b.1));
-            let err = chord_foot_error(&s, mid, (pa, pb), (n(a), n(b))).expect("foot");
-            // Two Gauss–Newton steps leave <= 1.3e-4 rad of truncation
-            // in this non-angular chart (six leave 2e-8): 130x below
-            // the smallest foot share in use (1.5° at a 3° bound).
-            assert!(err < 2e-4, "{err}");
-        }
-    }
-
-    #[test]
-    fn normal_spread_of_a_plane_is_zero() {
-        let plane = SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        };
-        assert!(normal_spread(&plane, (-3.0, 3.0), (-3.0, 3.0)) < 1e-12);
-    }
-}
+#[path = "facet_angle_tests.rs"]
+mod tests;

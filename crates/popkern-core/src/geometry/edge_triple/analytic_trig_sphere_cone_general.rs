@@ -160,7 +160,7 @@ pub(super) fn try_sphere_cone_general(
         // Sphere uv: (lon, colat) of (p3 − sphere_centre).
         let dp_s = p3 - sphere_center;
         let lon = dp_s.y.patan2(dp_s.x);
-        let colat = (dp_s.z / sphere_radius).clamp(-1.0, 1.0).pacos();
+        let colat = crate::geometry::sphere_eval::colatitude(dp_s.x.phypot(dp_s.y), dp_s.z);
         pts_sphere.push(Point3::new(lon, colat, 0.0));
         // Cone uv: (u, v).
         pts_cone.push(Point3::new(u, v, 0.0));

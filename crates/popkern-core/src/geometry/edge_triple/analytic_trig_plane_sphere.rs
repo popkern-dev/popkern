@@ -96,7 +96,7 @@ pub(super) fn try_plane_sphere_polar(
 
     // Sphere pcurve: u = θ + offset (longitude), v = colatitude
     // = acos(h/r_sphere). Linear in (u, v) since v is constant.
-    let v_sphere = (h / sphere_radius).clamp(-1.0, 1.0).pacos();
+    let v_sphere = crate::geometry::sphere_eval::colatitude_at_height(sphere_radius, h);
     let pcurve_sphere = Pcurve::linear(
         (theta_start + sphere_u_offset, v_sphere),
         (theta_end + sphere_u_offset, v_sphere),

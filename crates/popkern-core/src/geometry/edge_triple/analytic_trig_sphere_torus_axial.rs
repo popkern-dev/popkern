@@ -174,7 +174,8 @@ pub(super) fn try_sphere_torus_axial(
     let pcurve_sphere = if torus_axis.dot(&polar).abs() >= 1.0 - tol.angular() {
         // Linear case. dp.z constant = circle_center.z − sphere_center.z.
         let z_offset = (circle_center.z - sphere_center.z) / sphere_radius;
-        let colat = z_offset.clamp(-1.0, 1.0).pacos();
+        let colat =
+            crate::geometry::sphere_eval::colatitude(circle_radius, z_offset * sphere_radius);
         let global_x = Vec3::new(1.0, 0.0, 0.0);
         let global_y = Vec3::new(0.0, 1.0, 0.0);
         let sphere_u_offset = arc_basis_u
@@ -200,7 +201,7 @@ pub(super) fn try_sphere_torus_axial(
                 + arc_basis_v * (circle_radius * theta.psin());
             let dp = p3 - sphere_center;
             let lon = dp.y.patan2(dp.x);
-            let colat = (dp.z / sphere_radius).clamp(-1.0, 1.0).pacos();
+            let colat = crate::geometry::sphere_eval::colatitude(dp.x.phypot(dp.y), dp.z);
             pts.push(Point3::new(lon, colat, 0.0));
             params.push(frac);
         }

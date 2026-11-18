@@ -19,9 +19,11 @@ pub(super) fn facing_signs(
         let Some(sof) = brep.faces.get(fm.face).and_then(|f| f.surface.as_ref()) else {
             continue;
         };
+        let chart =
+            popkern_core::geometry::chart::ChartDescriptor::of(&sof.geometry, &brep.tolerance);
         let (mut agree, mut oppose) = (0usize, 0usize);
         for v in &fm.vertices {
-            if let Some(n) = popkern_mesh::surface_limit_normal(&sof.geometry, v.uv.0, v.uv.1) {
+            if let Some(n) = popkern_mesh::surface_limit_normal(&chart, &sof.geometry, v.uv) {
                 let d = n.dot(&v.normal);
                 if d > 0.0 {
                     agree += 1;

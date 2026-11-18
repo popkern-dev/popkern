@@ -17,7 +17,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::chart::ChartDescriptor;
-use popkern_core::geometry::chart::ops::{aligned, singular_point_near};
+use popkern_core::geometry::chart::ops::{aligned, evaluate, singular_point_near};
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -182,7 +182,7 @@ pub(super) fn sliver_term(
     let at = |trim: &Trim<'_>, t: f64, q: (f64, f64)| {
         let c = trim.pcurve.point_at(t);
         let c = aligned(descriptor, (c.x, c.y), q);
-        surface.point_at(c.0, c.1)
+        evaluate(descriptor, surface, c)
     };
     // Off the trim in space: from the EDGE curve when the trim has one
     // (exact; a fitted pcurve sits up to ~1e-4 off it, PK-826, and the
@@ -202,7 +202,7 @@ pub(super) fn sliver_term(
         }
         let c = trim.pcurve.point_at(t);
         let c = aligned(descriptor, (c.x, c.y), q);
-        (surface.point_at(c.0, c.1).distance_to(&p), None)
+        (evaluate(descriptor, surface, c).distance_to(&p), None)
     };
     // In (u, v) the pcurve only picks the branch: within a twentieth of
     // the chord with an edge to decide in space, a thousandth without.
@@ -308,7 +308,7 @@ pub(super) fn sliver_term(
         // volume by -9e-7 per blade face against OCC).
         let q = match trim.edge {
             Some(edge) => {
-                let on_surface = surface.point_at(seed.0, seed.1);
+                let on_surface = evaluate(descriptor, surface, seed);
                 let (lo, hi) = (edge.t_start.min(edge.t_end), edge.t_start.max(edge.t_end));
                 let near = end_feet.and_then(|(fa, fb)| {
                     local_foot(&edge.geometry, &on_surface, fa + (fb - fa) * f, lo, hi)

@@ -120,25 +120,33 @@ fn surface_term(
     (gate, vertices): (f64, &FaceRows),
     kind: Integrand,
 ) -> Option<f64> {
-    for (q, p) in uv.iter().zip(points) {
-        if surface.point_at(q.0, q.1).distance_to(&p) > gate {
-            return None;
-        }
-    }
     // A corner at a chart pole (one partial vanishes: a sphere's pole,
     // a cone's apex) carries an arbitrary value of the collapsed
     // coordinate, so the (u, v) triangle covers only part of the strip
     // its facet spans (measured: a unit sphere read -3.3e-4). The pole
-    // is really an edge: integrate the quad from the pole row under the
-    // other two corners' collapsed coordinates.
-    if let Some((k, collapsed_u)) = singular_corner(descriptor, points, (vertices, gate)) {
-        let (u, v) = uv[k];
-        let (b, c) = (uv[(k + 1) % 3], uv[(k + 2) % 3]);
-        let (pb, pc) = if collapsed_u {
-            ((b.0, v), (c.0, v))
+    // is really an edge: integrate the quad from the pole row (at its
+    // own parameter) under the other two corners' collapsed coordinates.
+    // That corner's stored parameters are not read, so they need not
+    // reproduce it: a kilometre cone's apex vertex sat at v = 0.0018,
+    // 2e-3 off its point, past the gate, and its whole fan fell to flat
+    // facets (the volume 6.3e-6 low at a micron tolerance).
+    let corner = singular_corner(descriptor, points, (vertices, gate));
+    for (k, (q, p)) in uv.iter().zip(points).enumerate() {
+        if corner.is_some_and(|c| c.k == k) {
+            continue;
+        }
+        if surface.point_at(q.0, q.1).distance_to(&p) > gate {
+            return None;
+        }
+    }
+    if let Some(c) = corner {
+        let (b, cc) = (uv[(c.k + 1) % 3], uv[(c.k + 2) % 3]);
+        let (pb, pc) = if c.collapsed_u {
+            ((b.0, c.at), (cc.0, c.at))
         } else {
-            ((u, b.1), (u, c.1))
+            ((c.at, b.1), (c.at, cc.1))
         };
+        let c = cc;
         return Some(
             oriented_term(surface, [pb, b, c], kind) + oriented_term(surface, [pb, c, pc], kind),
         );
@@ -279,7 +287,7 @@ fn face_quadrature(
     let descriptor = surface.map(|s| ChartDescriptor::of(s, &brep.tolerance));
     // The face's vertices (where its loops meet a pole) and each pole's
     // resolution.
-    let vertices = face_rows(brep, fm.face, surface.zip(descriptor.as_deref()));
+    let vertices = face_rows(brep, fm.face, descriptor.as_deref());
     for t in &fm.triangles {
         let boundary = [0, 1, 2].map(|k| {
             let (i, j) = (t[k], t[(k + 1) % 3]);
@@ -358,11 +366,13 @@ fn face_quadrature(
                 let at_row = singular_corner(descriptor, points, (&vertices, gate));
                 let chord = |k: usize| {
                     let (mut p, mut q) = (corners[k], corners[(k + 1) % 3]);
+                    // The row corner at the row's own parameter, under its
+                    // chord partner's collapsed coordinate.
                     match at_row {
-                        Some((i, true)) if i == k => p.0 = q.0,
-                        Some((i, false)) if i == k => p.1 = q.1,
-                        Some((i, true)) if i == (k + 1) % 3 => q.0 = p.0,
-                        Some((i, false)) if i == (k + 1) % 3 => q.1 = p.1,
+                        Some(r) if r.k == k && r.collapsed_u => p = (q.0, r.at),
+                        Some(r) if r.k == k => p = (r.at, q.1),
+                        Some(r) if r.k == (k + 1) % 3 && r.collapsed_u => q = (p.0, r.at),
+                        Some(r) if r.k == (k + 1) % 3 => q = (r.at, p.1),
                         _ => {}
                     }
                     (p, q)

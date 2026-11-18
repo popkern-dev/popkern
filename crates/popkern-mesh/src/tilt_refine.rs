@@ -21,32 +21,13 @@ use popkern_core::geometry::{Point3, Vec3};
 
 use crate::crease_flip::{EdgeKey, angle_between, key, spread};
 use crate::mesh::{FaceMesh, MeshVertex};
-use crate::vertex_normal::{chart_singular, limit_normal, singular_without_unique_normal};
+use crate::vertex_normal::{limit_normal, singular_without_unique_normal};
+use popkern_core::geometry::chart::ChartDescriptor;
+use popkern_core::geometry::chart::ops::{aligned, centroid, interpolate};
 
 /// Bisection rounds; each splits every leaning interior facet at most
 /// once.
 const ROUNDS: usize = 4;
-
-/// `uv` moved by whole periods to lie within half a period of `near`:
-/// a seam vertex is stored once at one end of the face's window, so a
-/// facet across the seam mixes corners a period apart (measured: an
-/// arm bolt's cylinder facet at u 0.89 / 7.13 / 7.19, whose chart
-/// midpoints landed on the far side of the tube and every split was
-/// refused, leaving it leaning 15 deg).
-pub(crate) fn lift(
-    uv: (f64, f64),
-    near: (f64, f64),
-    periods: (Option<f64>, Option<f64>),
-) -> (f64, f64) {
-    let shift = |x: f64, c: f64, p: Option<f64>| match p {
-        Some(p) => x - p * ((x - c) / p).round(),
-        None => x,
-    };
-    (
-        shift(uv.0, near.0, periods.0),
-        shift(uv.1, near.1, periods.1),
-    )
-}
 
 fn tilt_of(p: [Point3; 3], n: [Vec3; 3]) -> f64 {
     let f = (p[1] - p[0]).cross(&(p[2] - p[0]));
@@ -65,10 +46,11 @@ fn tilt(mesh: &FaceMesh, t: [usize; 3]) -> f64 {
 pub(crate) fn finish_tilt(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &popkern_core::geometry::chart::ChartDescriptor,
     chord_height: f64,
     bound: f64,
 ) {
-    finish_tilt_from(mesh, surface, chord_height, bound, None);
+    finish_tilt_from(mesh, surface, chart, chord_height, bound, None);
 }
 
 /// [`finish_tilt`] around the triangles `seeds` only (`None`: the whole
@@ -77,20 +59,22 @@ pub(crate) fn finish_tilt(
 pub(crate) fn finish_tilt_from(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &popkern_core::geometry::chart::ChartDescriptor,
     chord_height: f64,
     bound: f64,
     seeds: Option<&[usize]>,
 ) {
     use crate::surface_delaunay_flip::delaunay_flips_3d_from;
-    delaunay_flips_3d_from(mesh, surface, chord_height, bound, seeds);
-    let split = bisect_leaning_facets_from(mesh, surface, bound, seeds);
+    delaunay_flips_3d_from(mesh, surface, chart, chord_height, bound, seeds);
+    let split = bisect_leaning_facets_from(mesh, surface, chart, bound, seeds);
     if !split.is_empty() {
-        delaunay_flips_3d_from(mesh, surface, chord_height, bound, Some(&split));
+        delaunay_flips_3d_from(mesh, surface, chart, chord_height, bound, Some(&split));
     }
     let sign = face_sense(mesh, surface);
-    let moved = crate::tilt_relax::relax_leaning_vertices(mesh, surface, sign, bound, seeds);
+    let moved =
+        crate::tilt_relax::relax_leaning_vertices(mesh, (surface, chart), sign, bound, seeds);
     if !moved.is_empty() {
-        delaunay_flips_3d_from(mesh, surface, chord_height, bound, Some(&moved));
+        delaunay_flips_3d_from(mesh, surface, chart, chord_height, bound, Some(&moved));
     }
 }
 
@@ -119,19 +103,16 @@ type FanPlan = (f64, MeshVertex, Vec<(usize, [usize; 3], [usize; 3])>);
 /// past the bound than before.
 fn plan_fan(
     mesh: &FaceMesh,
-    surface: &SurfaceGeometry,
+    (surface, chart): (&SurfaceGeometry, &ChartDescriptor),
     sign: f64,
     bound: f64,
     (t0, t1): (usize, usize),
     (a, b): (usize, usize),
-    uv: (f64, f64),
+    (uv, position): ((f64, f64), Point3),
 ) -> Option<FanPlan> {
-    if chart_singular(surface, uv.0, uv.1) {
-        return None;
-    }
-    let n = limit_normal(surface, uv.0, uv.1)?;
+    let n = limit_normal(chart, surface, uv, position)?;
     let m = MeshVertex {
-        position: surface.point_at(uv.0, uv.1),
+        position,
         normal: Vec3::new(sign * n.x, sign * n.y, sign * n.z),
         uv,
     };
@@ -158,11 +139,9 @@ fn plan_fan(
         old_tilt = old_tilt.max(tilt(mesh, tri));
         old_spread = old_spread.max(spread(mesh, tri));
         old_over += usize::from(tilt(mesh, tri) > bound);
-        let periods =
-            popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
         let sense = {
             let p0 = mesh.vertices[tri[0]].uv;
-            let p = tri.map(|i| lift(mesh.vertices[i].uv, p0, periods));
+            let p = tri.map(|i| aligned(chart, mesh.vertices[i].uv, p0));
             ((p[1].0 - p[0].0) * (p[2].1 - p[0].1) - (p[2].0 - p[0].0) * (p[1].1 - p[0].1)).signum()
         };
         for h in [[pp, usize::MAX, cc], [usize::MAX, qq, cc]] {
@@ -171,7 +150,7 @@ fn plan_fan(
                     (m.position, m.normal, m.uv)
                 } else {
                     let v = &mesh.vertices[i];
-                    (v.position, v.normal, lift(v.uv, m.uv, periods))
+                    (v.position, v.normal, aligned(chart, v.uv, m.uv))
                 }
             };
             let c = h.map(corner);
@@ -207,6 +186,7 @@ fn plan_fan(
 pub(crate) fn bisect_leaning_facets_from(
     mesh: &mut FaceMesh,
     surface: &SurfaceGeometry,
+    chart: &popkern_core::geometry::chart::ChartDescriptor,
     bound: f64,
     seeds: Option<&[usize]>,
 ) -> Vec<usize> {
@@ -222,7 +202,6 @@ pub(crate) fn bisect_leaning_facets_from(
             (d.abs() > 1e-6).then_some(if d > 0.0 { 1.0 } else { -1.0 })
         })
         .unwrap_or(1.0);
-    let periods = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut touched = Vec::new();
     let mut next_scope: Option<Vec<usize>> = seeds.map(<[usize]>::to_vec);
     for _ in 0..ROUNDS {
@@ -236,8 +215,7 @@ pub(crate) fn bisect_leaning_facets_from(
             }
         }
         let singular = |mesh: &FaceMesh, v: usize| {
-            let uv = mesh.vertices[v].uv;
-            singular_without_unique_normal(surface, uv.0, uv.1)
+            singular_without_unique_normal(chart, &mesh.vertices[v].position)
         };
         // Round 0 scans every facet; later rounds only the facets the
         // previous round created or rewrote (a facet whose candidates all
@@ -267,7 +245,6 @@ pub(crate) fn bisect_leaning_facets_from(
             // opposite apexes' midpoint (the flip the spread guard refused,
             // halved), and the quad's centre. The lowest new tilt wins.
             let uv_of = |i: usize| mesh.vertices[i].uv;
-            let mid = |p: (f64, f64), q: (f64, f64)| (0.5 * (p.0 + q.0), 0.5 * (p.1 + q.1));
             let mut best: Option<FanPlan> = None;
             for k in 0..3 {
                 let (a, b, c) = (t[k], t[(k + 1) % 3], t[(k + 2) % 3]);
@@ -289,21 +266,33 @@ pub(crate) fn bisect_leaning_facets_from(
                 // corners already share, so the new vertex sits with them.
                 let raw = [uv_of(a), uv_of(b), uv_of(c), uv_of(d)];
                 let near =
-                    |p: (f64, f64)| raw.iter().filter(|&&q| lift(q, p, periods) == q).count();
+                    |p: (f64, f64)| raw.iter().filter(|&&q| aligned(chart, q, p) == q).count();
                 let reference = raw
                     .iter()
                     .copied()
                     .max_by_key(|&p| near(p))
                     .unwrap_or(raw[0]);
-                let [pa, pb, pc, pd] = raw.map(|q| lift(q, reference, periods));
-                let centre = (
-                    0.25 * (pa.0 + pb.0 + pc.0 + pd.0),
-                    0.25 * (pa.1 + pb.1 + pc.1 + pd.1),
-                );
-                for uv in [mid(pa, pb), mid(pc, pd), centre] {
-                    if let Some((score, m, halves)) =
-                        plan_fan(mesh, surface, sign, bound, (ti, tn), (a, b), uv)
-                        && best.as_ref().is_none_or(|x| score < x.0)
+                let [pa, pb, pc, pd] = raw.map(|q| aligned(chart, q, reference));
+                let at = |q: (f64, f64), i: usize| (q, mesh.vertices[i].position);
+                let (qa, qb, qc, qd) = (at(pa, a), at(pb, b), at(pc, c), at(pd, d));
+                // The candidates, in a regular chart (the chart service):
+                // the shared edge's midpoint, the opposite apexes'
+                // midpoint, and the quad's centre.
+                let candidates = [
+                    interpolate(chart, surface, qa, qb, 0.5),
+                    interpolate(chart, surface, qc, qd, 0.5),
+                    centroid(chart, surface, &[qa, qb, qc, qd]),
+                ];
+                for candidate in candidates.into_iter().flatten() {
+                    if let Some((score, m, halves)) = plan_fan(
+                        mesh,
+                        (surface, chart),
+                        sign,
+                        bound,
+                        (ti, tn),
+                        (a, b),
+                        candidate,
+                    ) && best.as_ref().is_none_or(|x| score < x.0)
                     {
                         best = Some((score, m, halves));
                     }

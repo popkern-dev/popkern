@@ -23,7 +23,6 @@ use popkern_core::geometry::chart::ChartDescriptor;
 use popkern_core::geometry::chart::ops::{
     SINGULAR_EXACT, SINGULAR_RESOLVED, corner_on_singular_row, row_resolutions,
 };
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// A face's singular-row context: its loops' vertices, and per singular row of
@@ -44,9 +43,9 @@ pub(super) struct FaceVertex {
 pub(super) fn face_rows(
     brep: &BRep,
     face: FaceHandle,
-    surface: Option<(&SurfaceGeometry, &ChartDescriptor)>,
+    descriptor: Option<&ChartDescriptor>,
 ) -> FaceRows {
-    let resolved = surface.map_or_else(Vec::new, |(s, d)| row_resolutions(d, s, SINGULAR_RESOLVED));
+    let resolved = descriptor.map_or_else(Vec::new, |d| row_resolutions(d, SINGULAR_RESOLVED));
     FaceRows {
         vertices: face_vertices(brep, face),
         resolved,
@@ -81,6 +80,17 @@ fn face_vertices(brep: &BRep, face: FaceHandle) -> Vec<FaceVertex> {
     out
 }
 
+/// A triangle corner standing for a singular row: its index, whether the
+/// row collapses `u` (a row `v = at`) rather than `v`, and the row's own
+/// parameter `at` (a corner's stored parameter can sit off it: a
+/// kilometre cone's apex vertex at v = 0.0018).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct SingularCorner {
+    pub(super) k: usize,
+    pub(super) collapsed_u: bool,
+    pub(super) at: f64,
+}
+
 /// The corner of a triangle at a chart pole or a cone's apex, and whether
 /// its `u` (else its `v`) is the collapsed coordinate: asked of the chart
 /// service in space, never by partial ratios. A corner stands for its
@@ -95,7 +105,7 @@ pub(super) fn singular_corner(
     descriptor: &ChartDescriptor,
     points: [Point3; 3],
     (rows, gate): (&FaceRows, f64),
-) -> Option<(usize, bool)> {
+) -> Option<SingularCorner> {
     if descriptor.singular_rows.is_empty() {
         return None;
     }
@@ -117,6 +127,10 @@ pub(super) fn singular_corner(
             k,
             (tolerance, exact, SINGULAR_RESOLVED),
         )
-        .map(|(_, collapsed_u)| (k, collapsed_u))
+        .map(|(row, collapsed_u)| SingularCorner {
+            k,
+            collapsed_u,
+            at: row.at,
+        })
     })
 }

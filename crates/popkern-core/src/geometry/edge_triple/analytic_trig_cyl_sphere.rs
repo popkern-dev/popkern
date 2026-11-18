@@ -137,7 +137,7 @@ pub(super) fn try_cyl_sphere_axial(
     );
 
     // Sphere pcurve: u = θ + sphere offset, v = colatitude(sphere_h).
-    let v_sphere = (sphere_h / sphere_radius).clamp(-1.0, 1.0).pacos();
+    let v_sphere = crate::geometry::sphere_eval::colatitude_at_height(sphere_radius, sphere_h);
     let pcurve_sphere = Pcurve::linear(
         (theta_start + sphere_u_offset, v_sphere),
         (theta_end + sphere_u_offset, v_sphere),

@@ -73,9 +73,7 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
             if r < 1e-15 {
                 return Some((0.0, 0.0));
             }
-            let dz = d.z / r;
-            // Clamp to avoid NaN from acos outside [-1, 1].
-            let v = dz.clamp(-1.0, 1.0).pacos();
+            let v = crate::geometry::sphere_eval::colatitude(d.x.phypot(d.y), d.z);
             let mut u = f64::patan2(d.y, d.x);
             if u < 0.0 {
                 u += TAU;

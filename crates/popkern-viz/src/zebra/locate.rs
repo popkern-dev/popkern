@@ -101,7 +101,7 @@ fn damped_step(surface: &SurfaceGeometry, uv: (f64, f64), du: f64, dv: f64) -> (
 
 /// The query one pixel poses: its facet point, the eye, and how far
 /// from the facet an accepted surface point may lie.
-pub(super) struct PixelQuery {
+pub(super) struct PixelQuery<'a> {
     /// Eye position.
     pub eye: [f64; 3],
     /// Perspective-correct facet point on the pixel's ray.
@@ -111,9 +111,12 @@ pub(super) struct PixelQuery {
     /// Facing sign of the face's surface chart (`±1`): the visible
     /// point's facing normal is `sense · (S_u × S_v)`.
     pub sense: f64,
+    /// The surface's chart descriptor (the chart service's normal at
+    /// its singular rows).
+    pub chart: &'a popkern_core::geometry::chart::ChartDescriptor,
 }
 
-impl PixelQuery {
+impl PixelQuery<'_> {
     fn near(&self, surface: &SurfaceGeometry, uv: (f64, f64), reach: f64) -> bool {
         let q = point3(surface, uv);
         let r = [
@@ -128,7 +131,7 @@ impl PixelQuery {
     /// sees a surface point only from its outward side, so a ray
     /// root that faces away is the ray's EXIT through the body.
     fn faces_eye(&self, surface: &SurfaceGeometry, uv: (f64, f64), d: [f64; 3]) -> bool {
-        popkern_mesh::surface_limit_normal(surface, uv.0, uv.1)
+        popkern_mesh::surface_limit_normal(self.chart, surface, uv)
             .is_some_and(|n| self.sense * (n.x * d[0] + n.y * d[1] + n.z * d[2]) < 0.0)
     }
 
@@ -236,7 +239,7 @@ pub(super) fn active_bounds(surface: &SurfaceGeometry, uv: (f64, f64)) -> [Optio
     ]
 }
 
-impl PixelQuery {
+impl PixelQuery<'_> {
     /// Box-constrained Gauss–Newton on `|S(u, v) − (eye + t·d)|²`
     /// (active set: a coordinate a step would push past its bound is
     /// pinned there and the remaining unknowns re-solved). Beside a
@@ -345,9 +348,10 @@ impl PixelQuery {
                 facet: p,
                 reach: f64::INFINITY,
                 sense: self.sense,
+                chart: self.chart,
             };
             let uv = probe.closest_point(surface, warm)?;
-            let n = popkern_mesh::surface_limit_normal(surface, uv.0, uv.1)?;
+            let n = popkern_mesh::surface_limit_normal(self.chart, surface, uv)?;
             let q = point3(surface, uv);
             let r = [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
             Some((self.sense * (r[0] * n.x + r[1] * n.y + r[2] * n.z), uv))

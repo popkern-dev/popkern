@@ -146,7 +146,7 @@ pub(super) fn try_plane_sphere_general(
             + arc_basis_v * (circle_radius * theta.psin());
         let dp = p3 - sphere_center;
         let lon = dp.y.patan2(dp.x);
-        let colat = (dp.z / sphere_radius).clamp(-1.0, 1.0).pacos();
+        let colat = crate::geometry::sphere_eval::colatitude(dp.x.phypot(dp.y), dp.z);
         sphere_pts.push(Point3::new(lon, colat, 0.0));
         params.push(frac);
     }

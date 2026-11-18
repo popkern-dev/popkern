@@ -67,7 +67,7 @@ fn boundary_limited_triangles_are_left_unsplit() {
     let surface = cylinder();
     let mut mesh = coarse_quarter(&surface, false);
     let before = boundary_edges(&mesh);
-    refine_face_mesh(&mut mesh, &surface, 12f64.to_radians());
+    refine_face_mesh(&mut mesh, &surface, &chart(&surface), 12f64.to_radians());
     assert_eq!(boundary_edges(&mesh), before);
     assert_eq!(mesh.triangles.len(), 2);
     assert_eq!(mesh.vertices.len(), 4);
@@ -99,7 +99,7 @@ fn refinement_reaches_the_bound_when_the_boundary_is_fine() {
         triangles,
     };
     let bound = 12f64.to_radians();
-    refine_face_mesh(&mut mesh, &surface, bound);
+    refine_face_mesh(&mut mesh, &surface, &chart(&surface), bound);
     let worst = mesh
         .triangles
         .iter()
@@ -125,7 +125,7 @@ fn refinement_reaches_the_bound_when_the_boundary_is_fine() {
 fn inserted_normals_follow_a_flipped_face() {
     let surface = cylinder();
     let mut mesh = coarse_quarter(&surface, true);
-    refine_face_mesh(&mut mesh, &surface, 12f64.to_radians());
+    refine_face_mesh(&mut mesh, &surface, &chart(&surface), 12f64.to_radians());
     for v in &mesh.vertices {
         assert!(v.normal.dot(&unit(surface.normal_at(v.uv.0, v.uv.1))) < -0.99);
     }
@@ -144,7 +144,7 @@ fn winding_is_preserved_by_splits() {
         (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1)
     };
     let sign = uv_area(&mesh, &mesh.triangles[0]).signum();
-    refine_face_mesh(&mut mesh, &surface, 12f64.to_radians());
+    refine_face_mesh(&mut mesh, &surface, &chart(&surface), 12f64.to_radians());
     for t in &mesh.triangles {
         assert_eq!(uv_area(&mesh, t).signum(), sign);
     }
@@ -179,7 +179,7 @@ fn a_torus_top_chord_is_split_by_its_foot_error() {
         let (va, vb) = (&m.vertices[a], &m.vertices[b]);
         let mid = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
         crate::facet_angle::chord_foot_error(
-            &torus,
+            (&torus, &chart(&torus)),
             mid,
             (va.position, vb.position),
             (va.normal, vb.normal),
@@ -188,7 +188,7 @@ fn a_torus_top_chord_is_split_by_its_foot_error() {
     };
     assert!(foot(&mesh, 0, 1) > 5.0_f64.to_radians());
     let boundary_before = boundary_edges(&mesh);
-    refine_face_mesh(&mut mesh, &torus, bound);
+    refine_face_mesh(&mut mesh, &torus, &chart(&torus), bound);
     assert!(mesh.triangles.len() > 2, "the top chord must split");
     assert_eq!(boundary_edges(&mesh).len(), boundary_before.len());
     let boundary = boundary_edges(&mesh);
@@ -206,4 +206,14 @@ fn a_torus_top_chord_is_split_by_its_foot_error() {
             );
         }
     }
+}
+
+/// The surface's chart descriptor at the default tolerance.
+fn chart(
+    s: &popkern_core::geometry::surface::SurfaceGeometry,
+) -> std::rc::Rc<popkern_core::geometry::chart::ChartDescriptor> {
+    popkern_core::geometry::chart::ChartDescriptor::of(
+        s,
+        &popkern_core::tolerance::Tolerance::default(),
+    )
 }

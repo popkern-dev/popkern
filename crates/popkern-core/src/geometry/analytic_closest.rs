@@ -83,8 +83,12 @@ pub(crate) fn analytic_closest_point(surface: &SurfaceGeometry, p: &Point3) -> O
             if len <= DEGENERATE * radius.max(1.0) {
                 return Some((0.0, 0.0));
             }
-            let v = (d.z / len).clamp(-1.0, 1.0).pacos();
+            // The colatitude by atan2, never acos(z / |d|): acos is
+            // ill-conditioned beside a pole (its error ~1e-16 / sin v, so
+            // 1e-10 of the radius a micro-radian from it), and a point
+            // projected there came back off its own position.
             let rho = (d.x * d.x + d.y * d.y).sqrt();
+            let v = crate::geometry::sphere_eval::colatitude(rho, d.z);
             let u = if rho <= DEGENERATE * radius.max(1.0) {
                 0.0
             } else {

@@ -10,6 +10,10 @@ use crate::geometry::{Point3, Vec3};
 
 use super::regular::RegularChart;
 
+/// A remembered inverse: local coordinates and the face parameters they
+/// map to (`None` where the inverse failed).
+type LastInverse = ((f64, f64), Option<(f64, f64)>);
+
 /// `surface` seen through `chart`, over the local box `domain`.
 #[derive(Debug, Clone)]
 pub struct ChartedSurface<'a> {
@@ -20,13 +24,39 @@ pub struct ChartedSurface<'a> {
     /// The local coordinates' box the chart is valid over (a pole
     /// projection's disc's box; a shifted chart's lifted window).
     pub domain: ((f64, f64), (f64, f64)),
+    /// The last inverse, `(x, y) → (u, v)`: a consumer evaluates a point
+    /// and its normal (or partials) at one place in turn, each needing
+    /// the chart's inverse.
+    last: std::cell::Cell<Option<LastInverse>>,
 }
 
-impl ChartedSurface<'_> {
+impl<'a> ChartedSurface<'a> {
+    /// `surface` through `chart` over `domain`.
+    pub fn new(
+        surface: &'a SurfaceGeometry,
+        chart: RegularChart,
+        domain: ((f64, f64), (f64, f64)),
+    ) -> Self {
+        ChartedSurface {
+            surface,
+            chart,
+            domain,
+            last: std::cell::Cell::new(None),
+        }
+    }
+
     /// Face parameters of local coordinates `(x, y)`; `None` where the
     /// chart's inverse fails (a typed `ChartError` from `to_surface`).
     pub fn face_uv(&self, x: f64, y: f64) -> Option<(f64, f64)> {
-        self.chart.to_surface(self.surface, (x, y)).ok()
+        if let Some((at, uv)) = self.last.get()
+            && at.0.to_bits() == x.to_bits()
+            && at.1.to_bits() == y.to_bits()
+        {
+            return uv;
+        }
+        let uv = self.chart.to_surface(self.surface, (x, y)).ok();
+        self.last.set(Some(((x, y), uv)));
+        uv
     }
 
     /// Both partials with respect to the local coordinates. In a pole

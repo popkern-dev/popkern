@@ -92,7 +92,7 @@ pub(super) fn collapse_stubs(ring: &mut BoundaryRing) {
 /// leaves the window, or the walk cannot consume every piece in one
 /// cycle.
 pub(super) fn slit_band(
-    wrapped: &[BoundaryRing],
+    (wrapped, others): (&[BoundaryRing], &[BoundaryRing]),
     period: f64,
     surface: &SurfaceGeometry,
     transposed: bool,
@@ -125,9 +125,16 @@ pub(super) fn slit_band(
         }
         count
     };
+    // The face's other rings: the slit runs wall to wall, so it may cross
+    // none, nor graze their samples (a dome band's slit fell 7e-4 from a
+    // loop). A transposed band's rings are transposed; others are not read.
+    let others: &[BoundaryRing] = if transposed { &[] } else { others };
     let clear_of_samples = |u_star: f64| -> bool {
         let clearance = 1.0e-5 * period;
-        for ring in wrapped {
+        if others.iter().any(|r| crossings_of(r, u_star) > 0) {
+            return false;
+        }
+        for ring in wrapped.iter().chain(others) {
             for q in &ring.uv {
                 let d = popkern_math::periodic::offset_mod(q.0, u_star, period);
                 if d < clearance || period - d < clearance {
@@ -137,19 +144,32 @@ pub(super) fn slit_band(
         }
         true
     };
-    // Fewest total crossings wins (still >= 2 and even).
-    let mut best: Option<(usize, f64)> = None;
+    // Fewest total crossings wins (>= 2, even), then the azimuth farthest
+    // from the other rings' samples.
+    use popkern_core::geometry::chart::atlas::along_offset as offset;
+    let other_clearance = |u_star: f64| -> f64 {
+        let dist = |q: &(f64, f64)| offset(Some(period), u_star, q.0, 1.0);
+        let near = |d: f64| d.min(period - d);
+        others
+            .iter()
+            .flat_map(|r| r.uv.iter())
+            .map(|q| near(dist(q)))
+            .fold(f64::INFINITY, f64::min)
+    };
+    let mut best: Option<(usize, f64, f64)> = None;
     for k in 0..37 {
         let cand = ring0.uv[0].0 + period * (0.031 + k as f64 / 37.0);
         if !clear_of_samples(cand) {
             continue;
         }
         let total: usize = wrapped.iter().map(|r| crossings_of(r, cand)).sum();
-        if total >= 2 && total.is_multiple_of(2) && best.is_none_or(|(b, _)| total < b) {
-            best = Some((total, cand));
+        let clearance = other_clearance(cand);
+        let better = |(b, _, bc): (usize, f64, f64)| total < b || (total == b && clearance > bc);
+        if total >= 2 && total.is_multiple_of(2) && best.is_none_or(better) {
+            best = Some((total, cand, clearance));
         }
     }
-    let Some((_, u_star)) = best else {
+    let Some((_, u_star, _)) = best else {
         if popkern_core::trace::trace_enabled("boundary-first") {
             eprintln!("      [bf-slit] no clear even-crossing azimuth found");
         }

@@ -18,7 +18,7 @@
 
 use popkern_math::hash::FastHashMap as HashMap;
 
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -35,6 +35,62 @@ mod pair;
 mod repair;
 use crate::vertex_normal::{limit_normal, singular_without_unique_normal};
 use repair::{MeshTopology, NEW, flip_leaning_caps, plan_apex_collapse};
+
+/// A face mesh's surface and its chart descriptor (the chart service's
+/// answers about its poles and seams); dereferences to the surface.
+pub(super) struct CapSurface<'a> {
+    geometry: &'a SurfaceGeometry,
+    chart: std::rc::Rc<popkern_core::geometry::chart::ChartDescriptor>,
+}
+
+impl std::ops::Deref for CapSurface<'_> {
+    type Target = SurfaceGeometry;
+    fn deref(&self) -> &SurfaceGeometry {
+        self.geometry
+    }
+}
+
+/// The parameters of `m` projected onto the surface near the chord
+/// `(va, vb)`, on the chord's own branch (the chart service: the seed is
+/// the chord's midpoint interpolated in a regular chart, the result lifted
+/// to it; a helical strip's chart is unwrapped over many turns and a
+/// projection lands in the principal range). `None` off the surface by
+/// more than `gate`, or at a geometric singularity (no unique normal).
+pub(super) fn project_on_chord(
+    surface: &CapSurface<'_>,
+    (va, vb): (&MeshVertex, &MeshVertex),
+    m: Point3,
+    gate: f64,
+) -> Option<(f64, f64)> {
+    use popkern_core::geometry::chart::ops::{aligned, evaluate, interpolate};
+    let (hint, _) = interpolate(
+        &surface.chart,
+        surface.geometry,
+        (va.uv, va.position),
+        (vb.uv, vb.position),
+        0.5,
+    )
+    .ok()?;
+    let raw = popkern_core::geometry::uv_projection::project_point_to_uv_near(
+        surface.geometry,
+        &m,
+        hint.0,
+        hint.1,
+    )?;
+    let uv = aligned(&surface.chart, raw, hint);
+    (evaluate(&surface.chart, surface.geometry, uv).distance_to(&m) <= gate
+        && !singular_without_unique_normal(&surface.chart, &m))
+    .then_some(uv)
+}
+
+/// `face`'s surface with its descriptor, at the body's tolerance.
+pub(super) fn cap_surface(brep: &BRep, face: FaceHandle) -> Option<CapSurface<'_>> {
+    let geometry = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+    Some(CapSurface {
+        geometry,
+        chart: popkern_core::geometry::chart::ChartDescriptor::of(geometry, &brep.tolerance),
+    })
+}
 
 /// Rounds: each flips the leaning caps it can, or else splits each
 /// requested chord once.
@@ -85,11 +141,10 @@ fn triangle_spread(mesh: &FaceMesh, t: [usize; 3]) -> f64 {
 
 /// Tilt of triangle `t` of `mesh`, `None` when a vertex is chart-
 /// singular (no unique normal) or the facet has no area.
-fn triangle_tilt(mesh: &FaceMesh, surface: &SurfaceGeometry, t: [usize; 3]) -> Option<f64> {
-    if t.iter().any(|&i| {
-        let uv = mesh.vertices[i].uv;
-        singular_without_unique_normal(surface, uv.0, uv.1)
-    }) {
+fn triangle_tilt(mesh: &FaceMesh, surface: &CapSurface<'_>, t: [usize; 3]) -> Option<f64> {
+    if t.iter()
+        .any(|&i| singular_without_unique_normal(&surface.chart, &mesh.vertices[i].position))
+    {
         return None;
     }
     tilt_of(
@@ -160,12 +215,7 @@ pub(crate) fn split_leaning_boundary_caps(
         let mut requests: Vec<(f64, EdgeKey)> = Vec::new();
         let mut leaning: Vec<usize> = Vec::new();
         for (mi, fm) in meshes.iter().enumerate() {
-            let Some(surface) = brep
-                .faces
-                .get(fm.face)
-                .and_then(|f| f.surface.as_ref())
-                .map(|s| &s.geometry)
-            else {
+            let Some(surface) = cap_surface(brep, fm.face) else {
                 continue;
             };
             let edges = boundary_edges(fm);
@@ -178,7 +228,7 @@ pub(crate) fn split_leaning_boundary_caps(
                 let (pa, pb) = (fm.vertices[a].position, fm.vertices[b].position);
                 let key = edge_key(pa, pb);
                 copies.entry(key).or_default().push((mi, ti, a, b));
-                if triangle_tilt(fm, surface, fm.triangles[ti]).is_some_and(|t| t > bound) {
+                if triangle_tilt(fm, &surface, fm.triangles[ti]).is_some_and(|t| t > bound) {
                     requests.push((pa.distance_to(&pb), key));
                     any_leaning = true;
                 }
@@ -199,12 +249,8 @@ pub(crate) fn split_leaning_boundary_caps(
         let mut flipped_any = false;
         for &mi in &leaning {
             let fm = &mut meshes[mi];
-            if let Some(surface) = brep
-                .faces
-                .get(fm.face)
-                .and_then(|f| f.surface.as_ref())
-                .map(|s| &s.geometry)
-                && flip_leaning_caps(fm, surface, bound)
+            if let Some(surface) = cap_surface(brep, fm.face)
+                && flip_leaning_caps(fm, &surface, bound)
             {
                 changed.push(mi);
                 flipped_any = true;
@@ -239,8 +285,8 @@ pub(crate) fn split_leaning_boundary_caps(
                 .filter_map(|&(mi, ti, a, b)| {
                     let fm = &meshes[mi];
                     let t = fm.triangles[ti];
-                    let surface = brep.faces.get(fm.face).and_then(|f| f.surface.as_ref())?;
-                    let tilt = triangle_tilt(fm, &surface.geometry, t)?;
+                    let surface = cap_surface(brep, fm.face)?;
+                    let tilt = triangle_tilt(fm, &surface, t)?;
                     let c = t.iter().copied().find(|&v| v != a && v != b)?;
                     Some((tilt, fm.vertices[c].position))
                 })
@@ -257,27 +303,14 @@ pub(crate) fn split_leaning_boundary_caps(
                 let mut plan: Vec<Copy> = Vec::new();
                 let ok = list.iter().all(|&(mi, ti, a, b)| {
                     let fm = &meshes[mi];
-                    let Some(surface) = brep
-                        .faces
-                        .get(fm.face)
-                        .and_then(|f| f.surface.as_ref())
-                        .map(|s| &s.geometry)
-                    else {
+                    let Some(surface) = cap_surface(brep, fm.face) else {
                         return false;
                     };
                     let (va, vb) = (&fm.vertices[a], &fm.vertices[b]);
-                    let hint = (0.5 * (va.uv.0 + vb.uv.0), 0.5 * (va.uv.1 + vb.uv.1));
-                    let Some(uv) = popkern_core::geometry::uv_projection::project_point_to_uv_near(
-                        surface, &m, hint.0, hint.1,
-                    ) else {
+                    let Some(uv) = project_on_chord(&surface, (va, vb), m, gate) else {
                         return false;
                     };
-                    if surface.point_at(uv.0, uv.1).distance_to(&m) > gate
-                        || singular_without_unique_normal(surface, uv.0, uv.1)
-                    {
-                        return false;
-                    }
-                    let Some(n) = limit_normal(surface, uv.0, uv.1) else {
+                    let Some(n) = limit_normal(&surface.chart, &surface, uv, m) else {
                         return false;
                     };
                     let facing = va.normal + vb.normal;
@@ -288,7 +321,7 @@ pub(crate) fn split_leaning_boundary_caps(
                     };
                     let c = t[(r + 2) % 3];
                     let vc = &fm.vertices[c];
-                    let old = triangle_tilt(fm, surface, t).unwrap_or(f64::INFINITY);
+                    let old = triangle_tilt(fm, &surface, t).unwrap_or(f64::INFINITY);
                     let new = [
                         tilt_of([va.position, m, vc.position], [va.normal, n, vc.normal]),
                         tilt_of([m, vb.position, vc.position], [n, vb.normal, vc.normal]),
@@ -332,7 +365,9 @@ pub(crate) fn split_leaning_boundary_caps(
                         // keep leaning toward it. Remove it instead.
                         let mut topo = topology.borrow_mut();
                         let topo = topo.entry(mi).or_insert_with(|| MeshTopology::of(fm));
-                        Some(plan_apex_collapse(fm, surface, ti, c, &vertex, topo, bound))
+                        Some(plan_apex_collapse(
+                            fm, &surface, ti, c, &vertex, topo, bound,
+                        ))
                     } else {
                         None
                     };

@@ -39,7 +39,8 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{PortableMath, Vec3};
 
 use crate::mesh::MeshVertex;
-use crate::vertex_normal::{chart_singular, singular_without_unique_normal};
+use crate::vertex_normal::singular_without_unique_normal;
+use popkern_core::geometry::chart::ChartDescriptor;
 
 /// The row shading bound is the angular facet bound over this. The
 /// display bound of 12° gives 0.375° (6.5e-3 rad). The
@@ -75,7 +76,7 @@ pub const MIN_ROW_FRACTION: f64 = 1.0 / 16.0;
 /// measure (a chart-singular vertex or foot, where the normal is
 /// undefined, or a degenerate facet).
 pub fn row_shading_error(
-    surface: &SurfaceGeometry,
+    (surface, chart): (&SurfaceGeometry, &ChartDescriptor),
     a: &MeshVertex,
     b: &MeshVertex,
     c: &MeshVertex,
@@ -83,7 +84,7 @@ pub fn row_shading_error(
 ) -> Option<f64> {
     if [a, b, c]
         .iter()
-        .any(|x| singular_without_unique_normal(surface, x.uv.0, x.uv.1))
+        .any(|x| singular_without_unique_normal(chart, &x.position))
     {
         return None;
     }
@@ -104,11 +105,15 @@ pub fn row_shading_error(
     if !(0.0..=1.0).contains(&t) {
         return None;
     }
-    let lerp = |p: f64, q: f64| p + (q - p) * t;
-    let foot_uv = (lerp(a.uv.0, b.uv.0), lerp(a.uv.1, b.uv.1));
-    if chart_singular(surface, foot_uv.0, foot_uv.1) {
-        return None;
-    }
+    // The foot, interpolated in a regular chart (the chart service).
+    let (foot_uv, _) = popkern_core::geometry::chart::ops::interpolate(
+        chart,
+        surface,
+        (a.uv, a.position),
+        (b.uv, b.position),
+        t,
+    )
+    .ok()?;
     let (na, nb, nc) = (unit(a.normal)?, unit(b.normal)?, unit(c.normal)?);
     let n_foot = unit(na * (1.0 - t) + nb * t)?;
     let (u0, v0) = foot_uv;
@@ -159,6 +164,12 @@ pub fn row_shading_bound(max_angle: f64) -> f64 {
 fn unit(v: Vec3) -> Option<Vec3> {
     let l = v.length();
     (l > 1e-300).then(|| Vec3::new(v.x / l, v.y / l, v.z / l))
+}
+
+/// A surface's chart descriptor at the default tolerance (tests).
+#[cfg(test)]
+pub(crate) fn tests_chart(s: &SurfaceGeometry) -> std::rc::Rc<ChartDescriptor> {
+    ChartDescriptor::of(s, &popkern_core::tolerance::Tolerance::default())
 }
 
 #[cfg(test)]

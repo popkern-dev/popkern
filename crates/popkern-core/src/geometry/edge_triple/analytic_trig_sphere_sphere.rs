@@ -107,7 +107,7 @@ pub(super) fn try_sphere_sphere_polar(
 
     // Sphere A pcurve.
     let h_a = (circle_center - center_a).dot(&polar);
-    let v_sphere_a = (h_a / radius_a).clamp(-1.0, 1.0).pacos();
+    let v_sphere_a = crate::geometry::sphere_eval::colatitude_at_height(radius_a, h_a);
     let pcurve_a = Pcurve::linear(
         (theta_start + sphere_u_offset, v_sphere_a),
         (theta_end + sphere_u_offset, v_sphere_a),
@@ -116,7 +116,7 @@ pub(super) fn try_sphere_sphere_polar(
     );
     // Sphere B pcurve.
     let h_b = (circle_center - center_b).dot(&polar);
-    let v_sphere_b = (h_b / radius_b).clamp(-1.0, 1.0).pacos();
+    let v_sphere_b = crate::geometry::sphere_eval::colatitude_at_height(radius_b, h_b);
     let pcurve_b = Pcurve::linear(
         (theta_start + sphere_u_offset, v_sphere_b),
         (theta_end + sphere_u_offset, v_sphere_b),

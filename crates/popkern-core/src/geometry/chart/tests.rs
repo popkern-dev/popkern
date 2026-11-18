@@ -189,11 +189,7 @@ fn a_charted_pole_projection_evaluates_the_surface_with_consistent_partials() {
     let d = ChartDescriptor::of(&s, &tol);
     for at in [(0.3, 1e-6), (1.0, std::f64::consts::PI - 1e-4)] {
         let chart = regular_chart(&d, &s, at, 0.5);
-        let c = ChartedSurface {
-            surface: &s,
-            chart,
-            domain: ((-1.0, 1.0), (-1.0, 1.0)),
-        };
+        let c = ChartedSurface::new(&s, chart, ((-1.0, 1.0), (-1.0, 1.0)));
         for &(x, y) in &[(0.0, 0.0), (0.3, -0.2), (-0.6, 0.5)] {
             let p = c.point_at(x, y);
             let (u, v) = s.closest_point(&p).expect("on the sphere");
@@ -216,5 +212,55 @@ fn a_charted_pole_projection_evaluates_the_surface_with_consistent_partials() {
             let back = c.closest_point(&p).expect("projects");
             assert!(c.point_at(back.0, back.1).distance_to(&p) <= 1e-12);
         }
+    }
+}
+
+/// Interpolation in a regular chart: two points either side of a sphere's
+/// pole meet near the pole (the face-chart midpoint lands half a period
+/// round, on the far side of the sphere), and two points either side of
+/// the cut meet on the near side.
+#[test]
+fn interpolation_runs_through_the_pole_and_across_the_cut() {
+    use super::ops::interpolate;
+    let tol = Tolerance::default();
+    let s = sphere();
+    let d = ChartDescriptor::of(&s, &tol);
+    for row in &d.singular_rows {
+        assert!(row.distortion > 0.19 && row.distortion < 0.21, "{row:?}");
+    }
+    let at = |uv: (f64, f64)| (uv, s.point_at(uv.0, uv.1));
+    // Either side of the north pole (v = 0), half a period apart in u.
+    let (a, b) = (at((0.3, 0.02)), at((0.3 + std::f64::consts::PI, 0.02)));
+    let (uv, p) = interpolate(&d, &s, a, b, 0.5).expect("converges");
+    let pole = s.point_at(0.0, 0.0);
+    assert!(
+        p.distance_to(&pole) < 1e-9,
+        "{uv:?} {}",
+        p.distance_to(&pole)
+    );
+    // Either side of the cut, at the equator: the midpoint is at u = 0.
+    let (a, b) = (at((0.05, 1.5)), at((std::f64::consts::TAU - 0.05, 1.5)));
+    let (uv, p) = interpolate(&d, &s, a, b, 0.5).expect("face chart");
+    assert!(p.distance_to(&s.point_at(0.0, 1.5)) < 1e-12, "{uv:?}");
+}
+
+/// A sphere's cap rows sit where the normal has turned 45°: colatitude
+/// π/4 about the north pole and 3π/4 about the south.
+#[test]
+fn a_spheres_cap_rows_sit_at_a_quarter_turn() {
+    use super::atlas::cap_row;
+    let tol = Tolerance::default();
+    let s = sphere();
+    let d = ChartDescriptor::of(&s, &tol);
+    assert_eq!(d.singular_rows.len(), 2);
+    for row in &d.singular_rows {
+        let cap = cap_row(&d, &s, row).expect("cap row");
+        let want = if row.at < 1.0 {
+            std::f64::consts::FRAC_PI_4
+        } else {
+            3.0 * std::f64::consts::FRAC_PI_4
+        };
+        assert!(!cap.whole);
+        assert!((cap.at - want).abs() < 1e-5, "{row:?}: {}", cap.at);
     }
 }

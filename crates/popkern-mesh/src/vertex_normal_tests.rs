@@ -17,14 +17,31 @@ fn unit_normal(s: &SurfaceGeometry, u: f64, v: f64) -> Vec3 {
     Vec3::new(n.x / l, n.y / l, n.z / l)
 }
 
+fn chart(s: &SurfaceGeometry) -> std::rc::Rc<ChartDescriptor> {
+    ChartDescriptor::of(s, &popkern_core::tolerance::Tolerance::default())
+}
+
+/// A sphere's pole is a chart singularity with one normal; a cone's apex
+/// is a geometric one with none (the service's rows, in space).
 #[test]
-fn a_pole_just_past_the_range_reads_as_singular() {
+fn a_pole_has_a_unique_normal_and_an_apex_none() {
     let s = sphere();
-    let pi = std::f64::consts::PI;
-    for v in [pi, pi + 4e-8, pi - 4e-8, 0.0, -1e-9] {
-        assert!(chart_singular(&s, 3.9, v), "v = {v}");
-    }
-    assert!(!chart_singular(&s, 3.9, 2.0));
+    let pole = s.point_at(3.9, std::f64::consts::PI);
+    assert!(!singular_without_unique_normal(&chart(&s), &pole));
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis: popkern_core::geometry::Vec3::Z,
+        half_angle: 0.4,
+    };
+    let c = chart(&cone);
+    let apex = Point3::new(0.0, 0.0, 0.0);
+    assert!(
+        c.singular_rows
+            .iter()
+            .any(|r| r.point.distance_to(&apex) < 1e-12),
+        "the apex is a singular row: {c:?}"
+    );
+    assert!(singular_without_unique_normal(&c, &apex));
 }
 
 #[test]
@@ -35,7 +52,7 @@ fn limit_normal_at_a_pole_matches_the_chart_sense_nearby() {
     let pi = std::f64::consts::PI;
     let inside = unit_normal(&s, 3.9, pi - 0.05);
     for v in [pi, pi + 4e-8, pi - 4e-8] {
-        let n = limit_normal(&s, 3.9, v).expect("limit");
+        let n = limit_normal_at(&chart(&s), &s, (3.9, v)).expect("limit");
         assert!(n.dot(&inside) > 0.99, "v = {v}: {n:?} vs {inside:?}");
     }
 }
@@ -64,7 +81,7 @@ fn repair_fixes_only_the_flipped_pole_vertex() {
     // just inside it.
     let inside = unit_normal(&s, 3.9, pi - 0.05);
     assert!(mesh.vertices[0].normal.dot(&inside) < -0.99);
-    repair_singular_normals(&mut mesh, &s);
+    repair_singular_normals(&mut mesh, &s, &chart(&s));
     assert!(mesh.vertices[0].normal.dot(&inside) > 0.99);
     let healthy_after: Vec<Vec3> = mesh.vertices[1..].iter().map(|v| v.normal).collect();
     assert_eq!(healthy_before, healthy_after, "healthy normals untouched");
@@ -91,7 +108,7 @@ fn repair_keeps_an_inward_face_inward() {
         vertices,
         triangles: vec![[0, 1, 2]],
     };
-    repair_singular_normals(&mut mesh, &s);
+    repair_singular_normals(&mut mesh, &s, &chart(&s));
     let inside = unit_normal(&s, 3.9, pi - 0.05);
     assert!(mesh.vertices[0].normal.dot(&inside) < -0.99);
 }

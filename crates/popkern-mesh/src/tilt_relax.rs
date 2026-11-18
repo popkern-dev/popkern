@@ -17,14 +17,16 @@
 use popkern_math::hash::FastHashMap as HashMap;
 use popkern_math::hash::FastHashSet as HashSet;
 
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::chart::ops::{aligned, evaluate as evaluate_at, neighbourhood_chart};
+use popkern_core::geometry::chart::{ChartDescriptor, RegularChart};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 
 use popkern_math::PortableMath;
 
 use crate::crease_flip::{angle_between, key};
 use crate::mesh::FaceMesh;
-use crate::vertex_normal::{chart_singular, limit_normal, singular_without_unique_normal};
+use crate::vertex_normal::{limit_normal, singular_without_unique_normal};
 
 /// A candidate move: (leaning facets, worst tilt), chart point, and the
 /// position and normal there.
@@ -54,7 +56,7 @@ fn chart_area(p: [(f64, f64); 3]) -> f64 {
 /// triangles around the vertices that moved.
 pub(crate) fn relax_leaning_vertices(
     mesh: &mut FaceMesh,
-    surface: &SurfaceGeometry,
+    (surface, chart): (&SurfaceGeometry, &ChartDescriptor),
     sign: f64,
     bound: f64,
     seeds: Option<&[usize]>,
@@ -106,7 +108,7 @@ pub(crate) fn relax_leaning_vertices(
                 continue;
             };
             let uv0 = mesh.vertices[v].uv;
-            if singular_without_unique_normal(surface, uv0.0, uv0.1) {
+            if singular_without_unique_normal(chart, &mesh.vertices[v].position) {
                 continue;
             }
             let ring: HashSet<usize> = star
@@ -117,11 +119,23 @@ pub(crate) fn relax_leaning_vertices(
             if ring.is_empty() {
                 continue;
             }
-            // The star in one lift around `v`: across a periodic seam a
-            // ring vertex can be stored a period away (tilt_refine::lift).
-            let periods =
-                popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
-            let lifted = |w: usize| crate::tilt_refine::lift(mesh.vertices[w].uv, uv0, periods);
+            // The star in a regular chart about `v` (the chart service):
+            // the face chart lifted to `v`'s branch (a ring vertex across
+            // a periodic seam is stored a period away), or the pole
+            // projection when the star reaches within a chart
+            // singularity's distortion radius, where face-chart moves are
+            // distorted without bound.
+            let p0 = mesh.vertices[v].position;
+            let radius = ring
+                .iter()
+                .map(|&w| mesh.vertices[w].position.distance_to(&p0))
+                .fold(0.0, f64::max);
+            let regular = neighbourhood_chart(chart, surface, &p0, radius);
+            let local = |w: usize| {
+                let vw = &mesh.vertices[w];
+                to_local(&regular, chart, vw.uv, vw.position, uv0)
+            };
+            let lifted = local;
             let centroid = ring.iter().fold((0.0, 0.0), |a, &w| {
                 let q = lifted(w);
                 (a.0 + q.0 / ring.len() as f64, a.1 + q.1 / ring.len() as f64)
@@ -129,22 +143,17 @@ pub(crate) fn relax_leaning_vertices(
             // The worst tilt and spread of `v`'s star with `v` at chart
             // point `uv`, or `None` when a facet would flip its chart
             // winding, lose its area or face against its normals.
-            let evaluate = |uv: (f64, f64)| -> Option<(f64, f64, usize, Point3, Vec3)> {
-                if chart_singular(surface, uv.0, uv.1) {
-                    return None;
-                }
-                let n = limit_normal(surface, uv.0, uv.1)?;
-                let (position, normal) = (
-                    surface.point_at(uv.0, uv.1),
-                    Vec3::new(sign * n.x, sign * n.y, sign * n.z),
-                );
+            let evaluate = |xy: (f64, f64)| -> Option<StarScore> {
+                let (uv, position) = from_local(&regular, chart, surface, xy, uv0)?;
+                let n = limit_normal(chart, surface, uv, position)?;
+                let normal = Vec3::new(sign * n.x, sign * n.y, sign * n.z);
                 let (mut tilt_max, mut spread_max, mut over) = (0.0f64, 0.0f64, 0usize);
                 for &ti in star {
                     let t = mesh.triangles[ti];
                     let old_uv = t.map(lifted);
                     let new = t.map(|i| {
                         if i == v {
-                            (position, normal, uv)
+                            (position, normal, xy)
                         } else {
                             let w = &mesh.vertices[i];
                             (w.position, w.normal, lifted(i))
@@ -163,7 +172,7 @@ pub(crate) fn relax_leaning_vertices(
                     over += usize::from(x > bound);
                     spread_max = spread_max.max(spread_of(new.map(|x| x.1)));
                 }
-                Some((tilt_max, spread_max, over, position, normal))
+                Some((tilt_max, spread_max, over, position, normal, uv))
             };
             let (old_tilt, old_spread, old_over) =
                 star.iter().fold((0.0f64, 0.0f64, 0usize), |acc, &ti| {
@@ -184,23 +193,25 @@ pub(crate) fn relax_leaning_vertices(
                 .iter()
                 .map(|&w| {
                     let q = lifted(w);
-                    ((q.0 - uv0.0).powi(2) + (q.1 - uv0.1).powi(2)).sqrt()
+                    let o = to_local(&regular, chart, uv0, p0, uv0);
+                    ((q.0 - o.0).powi(2) + (q.1 - o.1).powi(2)).sqrt()
                 })
                 .sum::<f64>()
                 / ring.len() as f64;
+            let origin = to_local(&regular, chart, uv0, p0, uv0);
             let mut candidates = vec![centroid];
             for r in [0.25 * reach, 0.5 * reach] {
                 for k in 0..8 {
                     let a = std::f64::consts::FRAC_PI_4 * k as f64;
-                    candidates.push((uv0.0 + r * a.pcos(), uv0.1 + r * a.psin()));
+                    candidates.push((origin.0 + r * a.pcos(), origin.1 + r * a.psin()));
                 }
             }
             // Fewer leaning facets first, then a lower worst tilt; never
             // more leaning facets than before (a lower worst can still
             // tip more of the star past the bound).
             let mut best: Option<Move> = None;
-            for uv in candidates {
-                if let Some((t, sp, over, position, normal)) = evaluate(uv)
+            for xy in candidates {
+                if let Some((t, sp, over, position, normal, uv)) = evaluate(xy)
                     && t < old_tilt
                     && over <= old_over
                     && sp <= bound.max(old_spread)
@@ -227,4 +238,45 @@ pub(crate) fn relax_leaning_vertices(
     moved.sort_unstable();
     moved.dedup();
     moved
+}
+
+/// A candidate move's score: worst tilt, worst spread, facets past the
+/// bound, and the moved vertex's point, normal and face parameters.
+type StarScore = (f64, f64, usize, Point3, Vec3, (f64, f64));
+
+/// A star point's local coordinates: the face parameters lifted to the
+/// centre's branch in the face chart, the chart's own otherwise.
+fn to_local(
+    regular: &RegularChart,
+    chart: &ChartDescriptor,
+    uv: (f64, f64),
+    p: Point3,
+    uv0: (f64, f64),
+) -> (f64, f64) {
+    if regular.is_face() {
+        aligned(chart, uv, uv0)
+    } else {
+        regular.local_at(uv, &p)
+    }
+}
+
+/// Face parameters (on the centre's branch) and the surface point of
+/// local coordinates `xy`; `None` where the chart's inverse fails.
+fn from_local(
+    regular: &RegularChart,
+    chart: &ChartDescriptor,
+    surface: &SurfaceGeometry,
+    xy: (f64, f64),
+    uv0: (f64, f64),
+) -> Option<((f64, f64), Point3)> {
+    let uv = if regular.is_face() {
+        xy
+    } else {
+        aligned(
+            chart,
+            regular.to_surface_near(surface, xy, Some(uv0)).ok()?,
+            uv0,
+        )
+    };
+    Some((uv, evaluate_at(chart, surface, uv)))
 }

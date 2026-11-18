@@ -331,19 +331,22 @@ pub fn rasterize_zebra_frame(
                 .map(|sof| &sof.geometry);
             let uvs = locate::unwrapped_vertex_uvs(surface, &vs);
             let seed = locate::interpolate_uv(&uvs, c);
-            let (uv, hit, facet_uv) = match surface {
-                Some(s) => {
+            let chart = surface
+                .map(|s| popkern_core::geometry::chart::ChartDescriptor::of(s, &brep.tolerance));
+            let (uv, hit, facet_uv) = match (surface, chart.as_deref()) {
+                (Some(s), Some(chart)) => {
                     let query = locate::PixelQuery {
                         eye,
                         facet: position,
                         reach: locate::triangle_reach(&vs),
                         sense: sign_of(face),
+                        chart,
                     };
                     let (uv, hit) =
                         locate::locate_on_surface(s, &[seed, uvs[0], uvs[1], uvs[2]], &query);
                     (uv, hit, query.closest_point(s, seed))
                 }
-                None => (seed, SurfaceHit::NoSurface, None),
+                _ => (seed, SurfaceHit::NoSurface, None),
             };
             let corners = [0, 1, 2].map(|k| {
                 let p = vs[k].position;
@@ -355,8 +358,8 @@ pub fn rasterize_zebra_frame(
                     footprint::footprint_excess(&corners, [q.x, q.y, q.z]) > FACET_FOOTPRINT_SLACK
                 });
             let normal_at = |at: (f64, f64)| {
-                surface.and_then(|s| {
-                    let n = popkern_mesh::surface_limit_normal(s, at.0, at.1)?;
+                surface.zip(chart.as_deref()).and_then(|(s, chart)| {
+                    let n = popkern_mesh::surface_limit_normal(chart, s, at)?;
                     let sg = sign_of(face);
                     Some([sg * n.x, sg * n.y, sg * n.z])
                 })
