@@ -87,10 +87,10 @@ pub struct TessellationOptions {
     /// atlas (each piece in a chart with no singular row; design
     /// `chart-service.md` §6a) instead of the face chart's pole handling.
     ///
-    /// Default: `false` while the atlas is in its shadow phase (its
-    /// results compared with the face chart's on the suites and the
-    /// generated corpus, every difference explained, before it becomes
-    /// primary and the pole handling is deleted; PK-1267).
+    /// Default: `true`, the atlas primary (its shadow phase compared it
+    /// with the face chart's on the suites and the generated corpus,
+    /// every difference explained; PK-1267). `false` selects the face
+    /// chart's pole handling until it is deleted (W2 step 7).
     pub atlas: bool,
 }
 
@@ -101,7 +101,7 @@ impl Default for TessellationOptions {
             min_subdivisions: 4,
             max_subdivisions: 64,
             max_facet_angle: std::f64::consts::PI,
-            atlas: false,
+            atlas: true,
         }
     }
 }

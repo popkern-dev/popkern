@@ -501,7 +501,16 @@ fn build_ring(
                         ring_periods,
                     );
                     leg_shift = Some(shift);
-                    if shift == (0.0, 0.0) {
+                    if shift == (0.0, 0.0)
+                        && boundary_first_fold::starts_unfolded(
+                            &sof.geometry,
+                            first_leg_starts.get(&eh).copied(),
+                            (uu, vv),
+                            ring_periods,
+                        )
+                    {
+                        (uu, vv)
+                    } else if shift == (0.0, 0.0) {
                         lift_to_chain((uu, vv), uv.last().copied(), ring_periods)
                     } else {
                         uv.push((uu, vv));

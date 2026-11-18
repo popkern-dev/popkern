@@ -50,6 +50,11 @@ pub struct TriMesh {
     /// without repair; a consumer gating on "watertight without
     /// repair" asserts this is zero.
     pub zipped_t_junctions: usize,
+    /// Faces the boundary-first builder declined, meshed instead by the
+    /// uniform-grid fallback, in face order: the fallback boundary made
+    /// observable (a face reaching a chart singularity belongs to the
+    /// atlas, chart-service.md §6a, and is listed here if it fell back).
+    pub grid_faces: Vec<FaceHandle>,
 }
 
 impl TriMesh {
@@ -73,6 +78,7 @@ impl TriMesh {
 
         TriMesh {
             zipped_t_junctions: 0,
+            grid_faces: Vec::new(),
             vertices,
             triangles,
             face_map,

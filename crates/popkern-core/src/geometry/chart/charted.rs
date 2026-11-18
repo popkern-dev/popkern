@@ -6,13 +6,16 @@
 use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::surface_helpers::bounding_box_by_sampling;
-use crate::geometry::{Point3, Vec3};
+use crate::geometry::{Point3, PortableMath, Vec3};
 
 use super::regular::RegularChart;
 
 /// A remembered inverse: local coordinates and the face parameters they
 /// map to (`None` where the inverse failed).
 type LastInverse = ((f64, f64), Option<(f64, f64)>);
+
+/// A seed for the inverse: chart `(x, y)` and the face parameters there.
+type SeedEntry = ((f64, f64), (f64, f64));
 
 /// `surface` seen through `chart`, over the local box `domain`.
 #[derive(Debug, Clone)]
@@ -28,6 +31,9 @@ pub struct ChartedSurface<'a> {
     /// and its normal (or partials) at one place in turn, each needing
     /// the chart's inverse.
     last: std::cell::Cell<Option<LastInverse>>,
+    /// Seeds for the inverse, `(x, y)` with the face parameters there, on
+    /// a pole projection of a surface with no closed-form projection.
+    seeds: std::cell::OnceCell<Vec<SeedEntry>>,
 }
 
 impl<'a> ChartedSurface<'a> {
@@ -42,7 +48,88 @@ impl<'a> ChartedSurface<'a> {
             chart,
             domain,
             last: std::cell::Cell::new(None),
+            seeds: std::cell::OnceCell::new(),
         }
+    }
+
+    /// The inverse's seed at `(x, y)`: the face parameters of the nearest
+    /// of a polar table's samples round the singular point (a fixed
+    /// table, so the seed and the converged parameters depend on the
+    /// point alone). None for an analytic surface, whose projection is
+    /// closed-form: unseeded, a NURBS cap's every evaluation was a
+    /// multi-start closest point (a paraboloid cup's side meshed 18k
+    /// triangles in 10 s).
+    fn seed(&self, x: f64, y: f64) -> Option<(f64, f64)> {
+        let table = self.seeds.get_or_init(|| self.seed_table());
+        table
+            .iter()
+            .min_by(|a, b| {
+                let d = |q: (f64, f64)| (q.0 - x).phypot(q.1 - y);
+                d(a.0).total_cmp(&d(b.0))
+            })
+            .map(|&(_, uv)| uv)
+    }
+
+    /// Rings of samples about the singular row, at distances doubling from
+    /// 1/4096 of the face's range across it until a ring clears the
+    /// domain.
+    fn seed_table(&self) -> Vec<SeedEntry> {
+        let RegularChart::PoleProjection { row, .. } = &self.chart else {
+            return Vec::new();
+        };
+        if matches!(
+            self.surface,
+            SurfaceGeometry::Plane { .. }
+                | SurfaceGeometry::Cylinder { .. }
+                | SurfaceGeometry::Cone { .. }
+                | SurfaceGeometry::Sphere { .. }
+                | SurfaceGeometry::Torus { .. }
+        ) {
+            return Vec::new();
+        }
+        let ((u0, u1), (v0, v1)) = self.surface.parameter_range();
+        let ((across_lo, across_hi), (along_lo, along_hi)) = match row.axis {
+            super::Axis::V => ((v0, v1), (u0, u1)),
+            super::Axis::U => ((u0, u1), (v0, v1)),
+        };
+        if ![across_lo, across_hi, along_lo, along_hi]
+            .iter()
+            .all(|t| t.is_finite())
+        {
+            return Vec::new();
+        }
+        let span = across_hi - across_lo;
+        let inward = if row.at - across_lo <= across_hi - row.at {
+            1.0
+        } else {
+            -1.0
+        };
+        let reach = (self.domain.0.0.abs())
+            .max(self.domain.0.1.abs())
+            .max(self.domain.1.0.abs())
+            .max(self.domain.1.1.abs());
+        const AROUND: usize = 32;
+        let mut out = Vec::new();
+        let mut step = span / 4096.0;
+        while step <= span {
+            let across = (row.at + inward * step).clamp(across_lo, across_hi);
+            let mut nearest = f64::INFINITY;
+            for k in 0..AROUND {
+                let along = along_lo + (along_hi - along_lo) * (k as f64 + 0.5) / AROUND as f64;
+                let uv = match row.axis {
+                    super::Axis::V => (along, across),
+                    super::Axis::U => (across, along),
+                };
+                let xy = self.chart.from_surface(self.surface, uv);
+                nearest = nearest.min(xy.0.phypot(xy.1));
+                out.push((xy, uv));
+            }
+            if nearest > reach {
+                break;
+            }
+            step *= 2.0;
+        }
+        out
     }
 
     /// Face parameters of local coordinates `(x, y)`; `None` where the
@@ -54,7 +141,10 @@ impl<'a> ChartedSurface<'a> {
         {
             return uv;
         }
-        let uv = self.chart.to_surface(self.surface, (x, y)).ok();
+        let uv = self
+            .chart
+            .to_surface_near(self.surface, (x, y), self.seed(x, y))
+            .ok();
         self.last.set(Some(((x, y), uv)));
         uv
     }

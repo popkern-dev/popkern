@@ -27,6 +27,12 @@ fn smoke(pkg: &Path, script: &Path, max_ops: Option<u64>, timeout_ms: Option<f64
     smoke_dumping(pkg, script, max_ops, timeout_ms, None)
 }
 
+/// `smoke` with the session first seeded with `designs` (a file of
+/// solved generative designs), as the page's worker seeds a bake's.
+fn smoke_seeded(pkg: &Path, script: &Path, designs: &Path) -> Value {
+    run_smoke(pkg, script, (None, None), (None, Some(designs)))
+}
+
 fn smoke_dumping(
     pkg: &Path,
     script: &Path,
@@ -34,14 +40,24 @@ fn smoke_dumping(
     timeout_ms: Option<f64>,
     dump: Option<&Path>,
 ) -> Value {
+    run_smoke(pkg, script, (max_ops, timeout_ms), (dump, None))
+}
+
+fn run_smoke(
+    pkg: &Path,
+    script: &Path,
+    (max_ops, timeout_ms): (Option<u64>, Option<f64>),
+    (dump, designs): (Option<&Path>, Option<&Path>),
+) -> Value {
     let mut cmd = Command::new("node");
     cmd.arg(root().join("crates/popkern-live/tests/node/smoke.mjs"))
         .arg(pkg)
         .arg(script);
     cmd.arg(max_ops.map(|v| v.to_string()).unwrap_or_default());
     cmd.arg(timeout_ms.map(|v| v.to_string()).unwrap_or_default());
-    if let Some(dir) = dump {
-        cmd.arg(dir);
+    cmd.arg(dump.map(Path::as_os_str).unwrap_or_default());
+    if let Some(file) = designs {
+        cmd.arg(file);
     }
     let output = cmd.output().expect("node");
     assert!(
@@ -265,12 +281,37 @@ fn wasm_bundle_serves_every_gallery_script() {
             continue;
         };
         let script = root().join("crates/popkern-rhai/examples").join(file);
-        let out = smoke(&pkg, &script, None, None);
-        assert_eq!(out["outcome"], "served", "[{file}] {out}");
+        // A generative design is never solved in the bundle unless asked
+        // (PK-956): the page serves it from its bake's solved designs, so
+        // the smoke seeds the same ones (keyed by content: a bake of
+        // another script text or design space does not hit, and the run
+        // declines NeedsSolve). Without them, every generative example
+        // declined here.
+        let out = match bake_designs(file) {
+            Some(designs) => smoke_seeded(&pkg, &script, &designs),
+            None => smoke(&pkg, &script, None, None),
+        };
+        assert_eq!(
+            out["outcome"], "served",
+            "[{file}] {out} (a generative example serves from its bake: tools/bake-live.sh)"
+        );
         assert_eq!(out["features"], entry["features"], "[{file}] feature count");
         assert_eq!(out["report_failures"], 0, "[{file}]");
         for body in out["bodies"].as_array().expect("bodies") {
             assert_eq!(body["open_edges"], 0, "[{file}] watertight in wasm");
         }
     }
+}
+
+/// The solved generative designs in example `file`'s bake
+/// (`web/live/bakes/<stem>.bin`), written to a file for the harness;
+/// `None` when it has no bake or its bake solved none.
+fn bake_designs(file: &str) -> Option<PathBuf> {
+    let stem = Path::new(file).file_stem()?.to_str()?;
+    let bytes = std::fs::read(root().join("web/live/bakes").join(format!("{stem}.bin"))).ok()?;
+    let (header, _) = popkern_live::bake::decode_header(&bytes)?;
+    let designs = header.get("generative")?;
+    let path = std::env::temp_dir().join(format!("popkern_smoke_{stem}_designs.json"));
+    std::fs::write(&path, designs.to_string()).ok()?;
+    Some(path)
 }

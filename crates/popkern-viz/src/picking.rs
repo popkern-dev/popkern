@@ -321,6 +321,7 @@ mod tests {
             face_map: vec![FaceHandle::default()],
             face_meshes: vec![],
             zipped_t_junctions: 0,
+            grid_faces: Vec::new(),
         };
 
         // Click center of viewport
@@ -369,6 +370,7 @@ mod tests {
             face_map: vec![FaceHandle::default()],
             face_meshes: vec![],
             zipped_t_junctions: 0,
+            grid_faces: Vec::new(),
         };
 
         // Click far corner — should miss the tiny triangle
@@ -420,6 +422,7 @@ mod tests {
             face_map: vec![FaceHandle::default(), FaceHandle::default()],
             face_meshes: vec![],
             zipped_t_junctions: 0,
+            grid_faces: Vec::new(),
         };
 
         let hit = pick_face(&camera, (0.5, 0.5), &mesh);

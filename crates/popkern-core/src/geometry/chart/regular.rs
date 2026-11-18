@@ -317,7 +317,17 @@ impl RegularChart {
                     .max(centre.x.abs().max(centre.y.abs()).max(centre.z.abs()))
                     .max(1.0);
                 let target = *centre + *e1 * xy.0 + *e2 * xy.1;
-                let Some((mut u, mut v)) = project(&target, seed) else {
+                let residual_at = |(u, v): (f64, f64)| {
+                    let d = s.point_at(u, v) - *centre;
+                    (d.dot(e1) - xy.0).phypot(d.dot(e2) - xy.1)
+                };
+                let over = sphere_over(s, (*centre, *e1, *e2), xy);
+                if let Some(uv) = over
+                    && residual_at(uv) <= 1e-13 * scale
+                {
+                    return Ok(within_domain(s, uv));
+                }
+                let Some((mut u, mut v)) = over.or_else(|| project(&target, seed)) else {
                     return Err(ChartError::InverseDiverged {
                         x: xy.0,
                         y: xy.1,
@@ -358,6 +368,39 @@ impl RegularChart {
             }
         }
     }
+}
+
+/// A sphere's face parameters over planar point `xy` of the pole
+/// projection at `centre` (frame `e1`, `e2`, normal `n = e1 × e2`): the
+/// point `w + t n`, `w = centre + x e1 + y e2`, at distance `R` from the
+/// sphere's centre with `t` the root nearest the plane (the chart's own
+/// frame: its normal, read from the partials beside the row, is off the
+/// axis by rounding, so the height over the axial plane missed the
+/// residual by 5e-9), read back by the sphere's closed-form projection.
+/// The iterative inverse cost a cap's lattice sizing hundreds of Newton
+/// solves per face. `None` off a sphere, at the singular point (its
+/// along coordinate is the caller's seed's) and at the rim of the
+/// hemisphere over the plane (the height's derivative is unbounded).
+fn sphere_over(
+    s: &SurfaceGeometry,
+    (centre, e1, e2): (Point3, Vec3, Vec3),
+    xy: (f64, f64),
+) -> Option<(f64, f64)> {
+    let SurfaceGeometry::Sphere { center, radius, .. } = s else {
+        return None;
+    };
+    if xy.0 * xy.0 + xy.1 * xy.1 <= (1e-9 * radius).powi(2) {
+        return None;
+    }
+    let n = e1.cross(&e2);
+    let w = centre + e1 * xy.0 + e2 * xy.1 - *center;
+    let (b, c) = (w.dot(&n), w.dot(&w) - radius * radius);
+    let disc = b * b - c;
+    if disc <= (1e-3 * radius).powi(2) {
+        return None;
+    }
+    let t = -c / (b + b.signum() * disc.sqrt());
+    s.closest_point(&(*center + w + n * t))
 }
 
 /// `uv` when it lies in the surface's domain along every axis without a

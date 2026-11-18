@@ -75,7 +75,6 @@ pub(crate) fn fold_shift_for_leg(
     prev_point: Option<(f64, f64)>,
     periods: (Option<f64>, Option<f64>),
 ) -> (f64, f64) {
-    use popkern_core::geometry::SurfaceEval;
     let (Some(first), Some(_prev)) = (first_leg_start, prev_point) else {
         return (0.0, 0.0);
     };
@@ -87,23 +86,74 @@ pub(crate) fn fold_shift_for_leg(
         }
         // Degenerate junction: the leg's own first sample is the
         // shared vertex the period jump crosses (a revolution cap's
-        // pole); stepping the periodic axis there must not move in 3D
-        // (the pole-row test the chart walk uses). A seam pair
-        // meeting at a REGULAR vertex is a genuine slit and stays
-        // folded for the dissolvers.
-        let p0 = surface.point_at(leg_start.0, leg_start.1);
-        let (du, dv) = if axis == 0 {
-            (1.0e-4 * p, 0.0)
-        } else {
-            (0.0, 1.0e-4 * p)
-        };
-        let p1 = surface.point_at(leg_start.0 + du, leg_start.1 + dv);
-        let scale = 1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
-        if p0.distance_to(&p1) < 1.0e-11 * scale {
+        // pole). A seam pair meeting at a REGULAR vertex is a genuine
+        // slit and stays folded for the dissolvers.
+        if collapses_along(surface, leg_start, axis, p) {
             return if axis == 0 { (p, 0.0) } else { (0.0, p) };
         }
     }
     (0.0, 0.0)
+}
+
+/// Whether a leg's first sample already lies on the other border: its
+/// point inversion put it a whole period from its edge's first leg along
+/// an axis on which it is a collapsed point (a NURBS ball's pole keeps
+/// the seed's u, the far border's 1 where a sphere's inverts to 0). The
+/// leg is unfolded already; its start must keep its branch, not take the
+/// chain lift's nearest one back across the pole (a NURBS ball's second
+/// seam leg folded onto the first border, and the atlas's band ring ran
+/// back over itself: an ellipsoidal cavity meshed with its band turned
+/// inside out, the body 2.4e-3 of its volume high).
+pub(crate) fn starts_unfolded(
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    first_leg_start: Option<(f64, f64)>,
+    leg_start: (f64, f64),
+    periods: (Option<f64>, Option<f64>),
+) -> bool {
+    let Some(first) = first_leg_start else {
+        return false;
+    };
+    [(0usize, periods.0), (1usize, periods.1)]
+        .into_iter()
+        .any(|(axis, period)| {
+            let Some(p) = period else { return false };
+            let d = if axis == 0 {
+                leg_start.0 - first.0
+            } else {
+                leg_start.1 - first.1
+            };
+            let k = (d / p).round();
+            k != 0.0
+                && (d - k * p).abs() <= 1.0e-3 * p
+                && collapses_along(surface, leg_start, axis, p)
+        })
+}
+
+/// Whether stepping the periodic axis at `at` leaves the point where it
+/// is (the pole-row test the chart walk uses).
+fn collapses_along(
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    at: (f64, f64),
+    axis: usize,
+    p: f64,
+) -> bool {
+    use popkern_core::geometry::SurfaceEval;
+    let p0 = surface.point_at(at.0, at.1);
+    let (du, dv) = if axis == 0 {
+        (1.0e-4 * p, 0.0)
+    } else {
+        (0.0, 1.0e-4 * p)
+    };
+    // Stepped toward the domain's inside: at a clamped closure's far
+    // border a step past it extrapolates.
+    let sign = if (if axis == 0 { at.0 } else { at.1 }) > 0.5 * p {
+        -1.0
+    } else {
+        1.0
+    };
+    let p1 = surface.point_at(at.0 + sign * du, at.1 + sign * dv);
+    let scale = 1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
+    p0.distance_to(&p1) < 1.0e-11 * scale
 }
 
 /// Drop triangles with a zero-length edge (PK-455/PK-457): a ring
@@ -286,9 +336,24 @@ pub(super) fn close_through_collapsed_runs(
     if du == 0.0 && dv == 0.0 {
         return;
     }
-    let Some(run) =
-        (0..n - 1).find(|&i| ring.pos[i] == ring.pos[i + 1] && ring.uv[i] != ring.uv[i + 1])
-    else {
+    // A run stepping a whole period is an unfold across the pole, not a
+    // tie taken the wrong way: a seam spine's ring (a ball's meridian
+    // pair) runs down one border and up the other, its closure a period
+    // across the row it started on (`starts_unfolded`).
+    let whole_step = |a: f64, b: f64, period: Option<f64>| match period {
+        Some(p) if p > 0.0 => {
+            let k = ((b - a) / p).round();
+            k != 0.0 && ((b - a) - k * p).abs() <= 1.0e-3 * p
+        }
+        _ => false,
+    };
+    let Some(run) = (0..n - 1).find(|&i| {
+        let (a, b) = (ring.uv[i], ring.uv[i + 1]);
+        ring.pos[i] == ring.pos[i + 1]
+            && a != b
+            && !whole_step(a.0, b.0, period_u)
+            && !whole_step(a.1, b.1, period_v)
+    }) else {
         return;
     };
     for q in &mut ring.uv[run + 1..] {

@@ -3,16 +3,18 @@
 // against its native run — outcome classes, feature counts, and FNV-1a
 // hashes of every buffer (bit-identity without shipping buffers back).
 //
-//   node smoke.mjs <pkg-dir> <script.rhai> [max_ops] [timeout_ms] [dump-dir]
+//   node smoke.mjs <pkg-dir> <script.rhai> [max_ops] [timeout_ms] [dump-dir] [designs.json]
 //
 // Output: one JSON object on stdout. With a dump directory, every
 // body's buffers are written raw (`body<i>.positions.f32` …) so the
-// Rust side can measure deviations, not just detect them.
+// Rust side can measure deviations, not just detect them. With a
+// designs file (a bake's solved generative designs), the session is
+// seeded with it before the run, as the page's worker seeds a bake's.
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, basename, join } from "node:path";
 
-const [pkgDir, scriptPath, maxOps, timeoutMs, dumpDir] = process.argv.slice(2);
+const [pkgDir, scriptPath, maxOps, timeoutMs, dumpDir, designsPath] = process.argv.slice(2);
 if (!pkgDir || !scriptPath) {
   console.error("usage: node smoke.mjs <pkg-dir> <script.rhai> [max_ops] [timeout_ms]");
   process.exit(2);
@@ -39,6 +41,7 @@ const options = {
   timeout_ms: timeoutMs ? Number(timeoutMs) : null,
 };
 const session = new pkg.LiveSession(JSON.stringify(options));
+if (designsPath) session.seed_generative(readFileSync(designsPath, "utf8"));
 const source = readFileSync(scriptPath, "utf8");
 const envelope = JSON.parse(session.run(source, basename(scriptPath)));
 

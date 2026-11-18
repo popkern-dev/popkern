@@ -246,7 +246,8 @@ fn face_quadrature(
                     .copied()
                     .max_by(|x, y| jacobian(*x).total_cmp(&jacobian(*y)))
                     .unwrap_or(a.uv);
-                let [a, b, c] = corners.map(|q| aligned(descriptor, q, anchor));
+                let [a, b, c] =
+                    into_domain(descriptor, corners.map(|q| aligned(descriptor, q, anchor)));
                 let exact = surface_term(s, descriptor, [a, b, c], points, (gate, &vertices), kind)
                     .filter(|x| x.is_finite())?;
                 // The (u, v) triangle must be this facet's patch: its
@@ -343,6 +344,33 @@ fn face_quadrature(
             .unwrap_or(flat);
     }
     out
+}
+
+/// A triangle aligned across a geometric closure's cut moved by whole
+/// periods into the domain: a clamped closed NURBS evaluates past its
+/// domain by extrapolation, and a triangle anchored on a corner at u = 0
+/// put its neighbour at 0.992 on -0.008 (an atlas-meshed NURBS ball's
+/// seam triangles fell back to their facets, 1.3e-5 of its volume low).
+/// Periodic directions keep the anchor's branch.
+fn into_domain(d: &ChartDescriptor, uv: [(f64, f64); 3]) -> [(f64, f64); 3] {
+    use popkern_core::geometry::chart::{ChartPeriod, PeriodKind};
+    let ((u0, u1), (v0, v1)) = d.domain;
+    let shift = |period: Option<&ChartPeriod>, (lo, hi): (f64, f64), at: [f64; 3]| match period {
+        Some(c) if c.kind == PeriodKind::GeometricClosure => {
+            let (low, high) = (at[0].min(at[1]).min(at[2]), at[0].max(at[1]).max(at[2]));
+            if low < lo {
+                c.period * ((lo - low) / c.period).ceil()
+            } else if high > hi {
+                -c.period * ((high - hi) / c.period).ceil()
+            } else {
+                0.0
+            }
+        }
+        _ => 0.0,
+    };
+    let du = shift(d.u.as_ref(), (u0, u1), uv.map(|q| q.0));
+    let dv = shift(d.v.as_ref(), (v0, v1), uv.map(|q| q.1));
+    uv.map(|(u, v)| (u + du, v + dv))
 }
 
 /// Whether the (u, v) triangle `uv` of doubled signed area

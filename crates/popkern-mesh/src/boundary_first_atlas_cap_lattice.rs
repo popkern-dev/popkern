@@ -192,12 +192,17 @@ fn worst_at(
                 centre.1 + across.1 * c * extent,
             );
             let at = |t: f64| (base.0 + step.0 * t, base.1 + step.1 * t);
+            // A segment's end is the next one's start: evaluated once.
+            let mut start: Option<Point3> = None;
             for k in -steps..steps {
                 let (a, m, b) = (at(k as f64), at(k as f64 + 0.5), at(k as f64 + 1.0));
                 if !(inside(a) && inside(b)) {
+                    start = None;
                     continue;
                 }
-                let (pa, pm, pb) = (point(a), point(m), point(b));
+                let pa = start.unwrap_or_else(|| point(a));
+                let (pm, pb) = (point(m), point(b));
+                start = Some(pb);
                 let chord_mid = Point3::new(
                     0.5 * (pa.x + pb.x),
                     0.5 * (pa.y + pb.y),
@@ -232,12 +237,23 @@ pub(super) fn cap_lattice(
     let extent = (hi.0 - lo.0).max(hi.1 - lo.1);
     let max_n = options.max_subdivisions.max(1);
     let grow = |n: usize| (n + (n / 4).max(1)).min(max_n);
+    let target = FACET_SHARE * options.chord_height;
     let mut n = options.min_subdivisions.max(1);
-    while n < max_n
-        && worst_at((charted, &warp), (lo, hi), arc_reach, n, options)
-            > FACET_SHARE * options.chord_height
-    {
+    while n < max_n {
+        let worst = worst_at((charted, &warp), (lo, hi), arc_reach, n, options);
+        if worst <= target {
+            break;
+        }
+        // A sagitta falls as the square of the cell: the counts below
+        // 0.85 of the one that model predicts still fail, and are skipped
+        // unmeasured (each measure is ~120 n surface points; growing a
+        // quarter at a time from the minimum measured a boss plate's
+        // corner ball some 16k times per lattice).
+        let predicted = n as f64 * (worst / target).sqrt();
         n = grow(n);
+        while n < max_n && (n as f64) < 0.85 * predicted {
+            n = grow(n);
+        }
     }
     if let Some(angle) = options.angular_bound() {
         let c = (0.5 * (lo.0 + hi.0), 0.5 * (lo.1 + hi.1));

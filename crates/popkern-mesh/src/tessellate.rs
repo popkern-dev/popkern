@@ -680,32 +680,31 @@ fn tessellate_brep_reusing(
     // A token fired mid-pass leaves short-circuited outcomes; surface
     // the cancellation rather than a fabricated per-face error.
     stage_gate!();
+    let mut grid_faces = Vec::new();
     for outcome in outcomes {
         match outcome {
             crate::face_pass::FacePassOutcome::BoundaryFirst(fm) => face_meshes.push(fm),
             crate::face_pass::FacePassOutcome::UniformGrid { seam_spine, mesh } => {
-                // Seam-spine wall faces (full-periodic charts) keep
-                // their exact chart sampling: their boundary IS the
-                // seam iso-line plus pcurve-sampled hole rims, and the
-                // generous projection gate (20% of the face diagonal —
-                // the WHOLE model for a full sphere wall) drags rim
-                // vertices onto unrelated edge polylines (measured:
-                // cube∪sphere wall area inflated 7.93 → 8.95 by
-                // sewing flaps).
+                // Seam-spine wall faces (full-periodic charts) keep their
+                // exact chart sampling (the seam iso-line and pcurve hole
+                // rims): the projection gate, 20% of the face diagonal (a
+                // sphere wall's whole model), drags rim vertices onto
+                // unrelated edge polylines (cube∪sphere wall 7.93 → 8.95).
                 if !seam_spine {
                     sew_candidate_faces.push(face_meshes.len());
                 }
-                face_meshes.push(mesh?);
+                let fm = mesh?;
+                grid_faces.push(fm.face);
+                face_meshes.push(fm);
             }
         }
     }
     tracker.finish_stage("tessellate.face_pass", t0, built);
-    // The projection-based sewing stopgap applies ONLY to uniform-grid-path
-    // faces: boundary-first faces carry exact canonical boundary
-    // points, and re-projecting them can snap a point onto a
-    // DIFFERENT nearby incident edge (measured: floor arc points
-    // pulled onto the base-edge line, reopening the very seams the
-    // canonical sampling closed).
+    // The projection-based sewing stopgap applies ONLY to uniform-grid
+    // faces: boundary-first faces carry exact canonical boundary points,
+    // and re-projecting them can snap a point onto a DIFFERENT nearby
+    // incident edge (floor arc points pulled onto the base-edge line,
+    // reopening the seams the canonical sampling closed).
     stage_gate!();
     let t0 = popkern_core::time::Stopwatch::start();
     deepchord_trace(brep, &face_meshes, options, "pre-sew");
@@ -755,6 +754,7 @@ fn tessellate_brep_reusing(
     let t0 = popkern_core::time::Stopwatch::start();
     crate::vertex_snap::snap_to_vertices(brep, &mut face_meshes);
     let mut mesh = TriMesh::from_face_meshes(face_meshes);
+    mesh.grid_faces = grid_faces;
     // Tolerance-scoped T-junction zippering (PK-208): differently
     // sampled boundary chains along RECORDED-tolerance edges are
     // subdivided to share their points, so the weld closes. Unrecorded
@@ -767,13 +767,13 @@ fn tessellate_brep_reusing(
 }
 
 /// Global winding coherence: no per-face orientation witness is
-/// trustworthy on its own — `SurfaceOnFace.orientation` is measurably
-/// dishonest on extrude bottom caps (the breached-bore void floor
-/// meshed inside-out: −170516 wedge where +170516 is exact, 10% of
-/// the solid volume), while chamfer cones carry honest flags but
-/// loops wound AGAINST the CCW-about-outward convention (calibrating
-/// facing from loop winding inverted them instead). Adjacent faces of
-/// a closed solid must traverse a shared edge in OPPOSITE directions.
+/// trustworthy on its own: `SurfaceOnFace.orientation` is measurably
+/// dishonest on extrude bottom caps (the breached-bore void floor meshed
+/// inside-out: −170516 wedge where +170516 is exact, 10% of the solid
+/// volume), while chamfer cones carry honest flags but loops wound
+/// AGAINST the CCW-about-outward convention (calibrating facing from loop
+/// winding inverted them). Adjacent faces of a closed solid must traverse
+/// a shared edge in OPPOSITE directions.
 ///
 /// The traversal-direction constraint is measured against the BREP
 /// TOPOLOGY, not against bit-identical mesh vertices: for each edge

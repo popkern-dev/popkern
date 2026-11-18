@@ -199,6 +199,7 @@ mod tests {
 
         let mesh = TriMesh {
             zipped_t_junctions: 0,
+            grid_faces: Vec::new(),
             vertices: vec![
                 MeshVertex {
                     position: P3::new(-1.0, 0.0, 2.0),
