@@ -358,6 +358,7 @@ fn mesh_cap(
         tri_scale: (1.0, 0.0, 1.0),
         ring_index: &ring_index,
         ring_ranges: &ring_ranges,
+        alias: &alias,
     };
     super::super::boundary_first_deviation::refine_by_deviation(
         &deviation,

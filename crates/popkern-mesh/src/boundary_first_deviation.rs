@@ -5,8 +5,8 @@
 //! bridge a region the lattice cannot reach (a 3.5 mm tab on an
 //! r 37.5 cylinder wall spanned side to side, facets 0.036 off at a
 //! 0.005 chord height; PK-651). The chord height bounds the FACET:
-//! every triangle whose centroid lies farther than the chord height
-//! from the surface gets a Steiner point (the midpoint of its most
+//! every triangle whose centroid or interior chord midpoint lies
+//! farther than the chord height from the surface gets a Steiner point (the midpoint of its most
 //! sagging interior edge, else its chart centroid), inserted into the
 //! constrained Delaunay triangulation incrementally
 //! (`boundary_first_cdt::ConstrainedMesh`). Ring segments are
@@ -29,6 +29,14 @@ use super::boundary_first_ring_index::RingIndex;
 /// over-deviation triangle.
 const ROUNDS: usize = 8;
 
+/// Share of the chord height under which a facet's largest edge sag
+/// bounds its interior within the height (a quadratic surface's facet
+/// strays at most 4/3 of its largest edge sag).
+const INTERIOR_BOUND: f64 = 0.75;
+
+/// Each edge's midpoint sag and chart midpoint, by its ends' indices.
+type EdgeSags = popkern_math::hash::FastHashMap<(usize, usize), (f64, (f64, f64))>;
+
 /// Interior points one face may gain from refinement (a guard against
 /// a surface the chord height cannot resolve at any density).
 const POINT_BUDGET: usize = 200_000;
@@ -50,11 +58,14 @@ pub(super) struct Chart<'a> {
     pub ring_index: &'a RingIndex,
     /// Each ring's index range in the point list.
     pub ring_ranges: &'a [(usize, usize)],
+    /// The point each point stands for in the triangulation (coincident
+    /// ring points share one; `boundary_first_triangulate`).
+    pub alias: &'a [usize],
 }
 
 /// Refine `triangles` over `uv_pts` (with exact positions `pos_pts`
-/// where known) until every facet centroid lies within `chord_height`
-/// of the surface, the rounds run out, or the point budget is spent.
+/// where known) until every facet centroid and interior chord midpoint
+/// lies within `chord_height` of the surface, the rounds run out, or the point budget is spent.
 pub(super) fn refine_by_deviation(
     chart: &Chart<'_>,
     uv_pts: &mut Vec<(f64, f64)>,
@@ -68,15 +79,20 @@ pub(super) fn refine_by_deviation(
     // Refinement inserts into the constrained triangulation, so every
     // ring segment must already be an edge (a face that lost one goes
     // to the caller's coverage split instead).
-    if !covers_rings(triangles, chart.ring_ranges) {
+    // Ring segments between the points the triangulation kept: a point
+    // coincident with another (a seam's out-and-back, a ring sample
+    // repeated) stands for its alias, and a segment between two of one
+    // group is no segment. Read by index alone, a cap ring holding a
+    // coincident pair never counted as covered and its triangles went
+    // unrefined (a radius-40 ball's caps, 8.5e-3 off at a 5e-3 chord
+    // height; PK-1274).
+    let segments = ring_segments(chart);
+    if !covers_rings(triangles, &segments) {
         return;
     }
-    let segments: Vec<(usize, usize)> = chart
-        .ring_ranges
+    let segment_set: popkern_math::hash::FastHashSet<(usize, usize)> = segments
         .iter()
-        .flat_map(|&(start, end)| {
-            (start..end).map(move |a| (a, start + (a + 1 - start) % (end - start)))
-        })
+        .map(|&(a, b)| (a.min(b), a.max(b)))
         .collect();
     let (ku, kuv, kv) = chart.tri_scale;
     let scaled: Vec<(f64, f64)> = uv_pts
@@ -87,10 +103,17 @@ pub(super) fn refine_by_deviation(
         return;
     };
     let entry = uv_pts.len();
+    let mut sags = EdgeSags::default();
     // Only a fold refinement INTRODUCES discards a round.
     let folded_before = folds(triangles, uv_pts, pos_pts, chart);
     for round in 0..ROUNDS {
-        let added = steiner_candidates(chart, uv_pts, pos_pts, triangles, chord_height);
+        let added = steiner_candidates(
+            chart,
+            (uv_pts, pos_pts),
+            triangles,
+            (&segment_set, &mut sags),
+            chord_height,
+        );
         if added.is_empty() || uv_pts.len() + added.len() > entry + POINT_BUDGET {
             break;
         }
@@ -127,13 +150,17 @@ pub(super) fn refine_by_deviation(
     }
 }
 
-/// Chart centroids of the triangles whose facet strays more than
-/// `chord_height` from the surface, one per neighbourhood.
+/// Steiner points of the triangles whose facet strays more than
+/// `chord_height` from the surface (at the centroid or an interior
+/// chord's midpoint), one per neighbourhood.
 fn steiner_candidates(
     chart: &Chart<'_>,
-    uv_pts: &[(f64, f64)],
-    pos_pts: &[Option<Point3>],
+    (uv_pts, pos_pts): (&[(f64, f64)], &[Option<Point3>]),
     triangles: &[[usize; 3]],
+    (segments, sags): (
+        &popkern_math::hash::FastHashSet<(usize, usize)>,
+        &mut EdgeSags,
+    ),
     chord_height: f64,
 ) -> Vec<(f64, f64)> {
     let (su, sv) = chart.scale;
@@ -146,39 +173,73 @@ fn steiner_candidates(
         popkern_math::hash::FastHashMap::default();
     for t in triangles {
         let (a, b, c) = (point(t[0]), point(t[1]), point(t[2]));
-        let centroid = Point3::new(
-            (a.x + b.x + c.x) / 3.0,
-            (a.y + b.y + c.y) / 3.0,
-            (a.z + b.z + c.z) / 3.0,
-        );
         let (ua, ub, uc) = (uv_pts[t[0]], uv_pts[t[1]], uv_pts[t[2]]);
-        let cuv = ((ua.0 + ub.0 + uc.0) / 3.0, (ua.1 + ub.1 + uc.1) / 3.0);
-        if normal_gap(chart.surface, cuv, centroid) <= chord_height {
-            continue;
-        }
+        // Each edge's sag at its midpoint, measured once (two triangles
+        // share an interior edge, and edges outlive a round).
+        let mut sag_of = |i: usize, j: usize| -> (f64, (f64, f64)) {
+            *sags.entry((i.min(j), i.max(j))).or_insert_with(|| {
+                let (p, q) = (uv_pts[i], uv_pts[j]);
+                let m = (0.5 * (p.0 + q.0), 0.5 * (p.1 + q.1));
+                let (pi, pj) = (point(i), point(j));
+                let chord_mid = Point3::new(
+                    0.5 * (pi.x + pj.x),
+                    0.5 * (pi.y + pj.y),
+                    0.5 * (pi.z + pj.z),
+                );
+                (normal_gap(chart.surface, m, chord_mid), m)
+            })
+        };
         // The facet's worst chord: the interior edge whose midpoint
         // sags most. Bisecting it halves the curved extent per round
         // (a centroid shrinks it by a third and leaves the long edge
         // in place, slivering a narrow tab instead of resolving it).
         // Ring segments are shared with the neighbouring faces and
-        // never split here.
+        // never split here. A facet strays past the chord height where
+        // an interior chord sags past it (a right triangle's farthest
+        // point from the surface is its long edge's midpoint: a ball's
+        // band lattice diagonals sagged 5.6e-3 at a radius of 10 and
+        // 8.5e-3 at 40 against a 5e-3 chord height while the centroids
+        // read within it; PK-1274) or where its interior does.
         let mut worst = (chord_height, None);
+        let mut largest = 0.0_f64;
         for (i, j) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-            if is_ring_segment(chart.ring_ranges, i, j) {
-                continue;
-            }
-            let (p, q) = (uv_pts[i], uv_pts[j]);
-            let m = (0.5 * (p.0 + q.0), 0.5 * (p.1 + q.1));
-            let (pi, pj) = (point(i), point(j));
-            let chord_mid = Point3::new(
-                0.5 * (pi.x + pj.x),
-                0.5 * (pi.y + pj.y),
-                0.5 * (pi.z + pj.z),
-            );
-            let sag = normal_gap(chart.surface, m, chord_mid);
-            if sag > worst.0 {
+            let (sag, m) = sag_of(i, j);
+            largest = largest.max(sag);
+            if sag > worst.0 && !segments.contains(&(i.min(j), i.max(j))) {
                 worst = (sag, Some(m));
             }
+        }
+        // Over a locally quadratic surface a facet strays at most 4/3 of
+        // its largest edge sag (an equilateral facet on a sphere, its
+        // circumcentre): within 3/4 of the height there, its interior is
+        // within the height, and only the rest are evaluated inside (the
+        // centroid and an acute facet's circumcentre cost a chart
+        // inversion each on an atlas cap; read for every facet, the
+        // paraboloid cup's measure ran 1.7x slower).
+        if worst.1.is_none() && largest <= INTERIOR_BOUND * chord_height {
+            continue;
+        }
+        let centroid = Point3::new(
+            (a.x + b.x + c.x) / 3.0,
+            (a.y + b.y + c.y) / 3.0,
+            (a.z + b.z + c.z) / 3.0,
+        );
+        let cuv = ((ua.0 + ub.0 + uc.0) / 3.0, (ua.1 + ub.1 + uc.1) / 3.0);
+        // The facet's interior stray: at its centroid, and at its
+        // circumcentre when that lies inside (an acute facet's farthest
+        // point from a sphere: a radius-40 ball's band read 5.1e-3 there
+        // with its centroid and chords within 5e-3; PK-1274).
+        let interior_gap = match circumcentre_weights(a, b, c) {
+            Some(w) => {
+                let at = |p: f64, q: f64, r: f64| w[0] * p + w[1] * q + w[2] * r;
+                let p = Point3::new(at(a.x, b.x, c.x), at(a.y, b.y, c.y), at(a.z, b.z, c.z));
+                let quv = (at(ua.0, ub.0, uc.0), at(ua.1, ub.1, uc.1));
+                normal_gap(chart.surface, cuv, centroid).max(normal_gap(chart.surface, quv, p))
+            }
+            None => normal_gap(chart.surface, cuv, centroid),
+        };
+        if interior_gap <= chord_height && worst.1.is_none() {
+            continue;
         }
         let usable =
             |p: (f64, f64)| chart.ring_index.inside(p) && !chart.ring_index.within_clearance(p);
@@ -191,6 +252,11 @@ fn steiner_candidates(
         let cuv = match worst.1 {
             Some(m) if usable(m) => m,
             _ if usable(cuv) => cuv,
+            // A chord past the height with its midpoint and the centroid
+            // both in the band: the chord's midpoint, inside the trim (a
+            // radius-40 ball's cap triangle beside its row sagged 8.5e-3
+            // there; PK-1274).
+            Some(m) if chart.ring_index.inside(m) => m,
             // No chord sags past the height: the bulge is inside the
             // facet, and only its centroid cures it.
             None if chart.ring_index.inside(cuv) => cuv,
@@ -256,17 +322,46 @@ fn steiner_candidates(
 }
 
 /// Whether every ring segment is a triangle edge.
-fn covers_rings(triangles: &[[usize; 3]], ring_ranges: &[(usize, usize)]) -> bool {
+fn covers_rings(triangles: &[[usize; 3]], segments: &[(usize, usize)]) -> bool {
     let edges: popkern_math::hash::FastHashSet<(usize, usize)> = triangles
         .iter()
         .flat_map(|t| (0..3).map(move |k| (t[k].min(t[(k + 1) % 3]), t[k].max(t[(k + 1) % 3]))))
         .collect();
-    ring_ranges.iter().all(|&(start, end)| {
-        (start..end).all(|a| {
-            let b = start + (a + 1 - start) % (end - start);
-            edges.contains(&(a.min(b), a.max(b)))
+    segments
+        .iter()
+        .all(|&(a, b)| edges.contains(&(a.min(b), a.max(b))))
+}
+
+/// The barycentric weights of the circumcentre of the triangle `a b c`
+/// when it lies strictly inside (an acute triangle), else `None`.
+fn circumcentre_weights(a: Point3, b: Point3, c: Point3) -> Option<[f64; 3]> {
+    let (ab, ac) = (b - a, c - a);
+    let n = ab.cross(&ac);
+    let nn = n.dot(&n);
+    if nn <= 0.0 || !nn.is_finite() {
+        return None;
+    }
+    // a + s·ab + t·ac, from (p − a)·ab = |ab|²/2 and (p − a)·ac = |ac|²/2;
+    // the system's determinant is |ab × ac|².
+    let (bb, cc, d) = (ab.dot(&ab), ac.dot(&ac), ab.dot(&ac));
+    let s = cc * (bb - d) / (2.0 * nn);
+    let t = bb * (cc - d) / (2.0 * nn);
+    let w = [1.0 - s - t, s, t];
+    w.iter().all(|&x| x > 0.0).then_some(w)
+}
+
+/// Each ring segment between the points standing for its ends (their
+/// aliases), segments within one coincident group left out.
+fn ring_segments(chart: &Chart<'_>) -> Vec<(usize, usize)> {
+    let alias = |k: usize| chart.alias.get(k).copied().unwrap_or(k);
+    chart
+        .ring_ranges
+        .iter()
+        .flat_map(|&(start, end)| {
+            (start..end).map(move |a| (alias(a), alias(start + (a + 1 - start) % (end - start))))
         })
-    })
+        .filter(|&(a, b)| a != b)
+        .collect()
 }
 
 /// Whether some 3-D edge of the triangulation is walked the same way
@@ -305,17 +400,6 @@ fn folds(
         }
     }
     false
-}
-
-/// Whether `(i, j)` are consecutive points of one ring.
-fn is_ring_segment(ring_ranges: &[(usize, usize)], i: usize, j: usize) -> bool {
-    ring_ranges.iter().any(|&(start, end)| {
-        let inside = |k: usize| k >= start && k < end;
-        inside(i) && inside(j) && {
-            let next = |k: usize| start + (k + 1 - start) % (end - start);
-            next(i) == j || next(j) == i
-        }
-    })
 }
 
 /// The distance of `p` from the surface along the normal at `uv`: the

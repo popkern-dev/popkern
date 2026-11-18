@@ -287,6 +287,7 @@ pub(super) fn mesh_rings(
         tri_scale,
         ring_index: &ring_index,
         ring_ranges: &ring_ranges,
+        alias: &alias,
     };
     boundary_first_deviation::refine_by_deviation(
         &chart,

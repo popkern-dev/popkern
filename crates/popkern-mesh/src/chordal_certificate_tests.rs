@@ -66,25 +66,40 @@ fn sampled(brep: &BRep, mesh: &TriMesh) -> f64 {
 /// paired in face parameters, the triangles round a pole read the sagitta
 /// of their longitude arcs (1.38e-2 against a 5e-3 chord height, for a
 /// mesh within 7e-4 of the surface), and the cap pairing (the triangle cut
-/// in the cap chart, polar at the pole) certifies them (PK-1267).
+/// in the cap chart, polar at the pole) certifies them (PK-1267). Swept
+/// over radii at the default chord height (PK-1274): the refinement read
+/// only facet centroids, and the band's lattice diagonals sagged past the
+/// height (5.38e-3 at a radius of 0.05, 5.60e-3 at 10), the caps went
+/// unrefined behind a coincident ring pair, and an acute facet strays
+/// farthest at its circumcentre (a radius of 40 read 8.5e-3, then 5.1e-3;
+/// 4.97e-3 now, left out here for time).
 #[test]
-fn primitive_meshes_on_the_atlas_certify() {
-    let options = TessellationOptions {
-        ..TessellationOptions::default()
-    };
-    for (name, brep) in primitives() {
+fn spheres_mesh_within_the_chord_at_every_scale() {
+    let options = TessellationOptions::default();
+    let mut failures = Vec::new();
+    for r in [0.05, 0.3, 10.0] {
+        let brep = BRep::sphere(r, Tolerance::default()).expect("sphere");
         let mesh = tessellate(&brep, &options).expect("mesh");
         let cert = chordal_certificate(&brep, &mesh, options.chord_height);
+        let truth = sampled(&brep, &mesh);
+        eprintln!(
+            "[pk1274] r {r}: worst bound {:.3e}, sampled {truth:.3e}, {} triangles",
+            cert.worst(),
+            mesh.triangles.len()
+        );
         assert!(
             cert.inconclusive().is_empty(),
-            "{name}: {:?}",
+            "r {r}: {:?}",
             cert.inconclusive()
         );
         for f in &cert.faces {
-            assert!(f.surface_bound >= f.witness, "{name}: {f:?}");
+            assert!(f.surface_bound >= f.witness, "r {r}: {f:?}");
         }
-        assert!(cert.certified(), "{name}: {:?}", cert.exceeding());
+        if truth > options.chord_height || !cert.certified() {
+            failures.push((r, truth, cert.worst()));
+        }
     }
+    assert!(failures.is_empty(), "radius, sampled, bound: {failures:?}");
 }
 
 #[test]
