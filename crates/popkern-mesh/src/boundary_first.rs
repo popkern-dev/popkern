@@ -201,6 +201,7 @@ pub(crate) fn tessellate_face_boundary_first(
         options,
         split_requests,
         &descriptor,
+        None,
     )
 }
 

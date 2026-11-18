@@ -134,3 +134,85 @@ pub(super) fn with_band_row_samples(
         })
         .collect()
 }
+
+/// The band's rings with every pair sharing a seam traversal joined into
+/// one ring without it. The face's ring held both uses of its seam; split
+/// at the cap rows, a band straddling the seam came as two rings each
+/// holding one use, sharing their corners on the rows, and the
+/// triangulation met each corner twice (a rod beside a sphere's poles: its
+/// band declined every round). Where ring `a` runs `p0 … pk` and ring `b`
+/// runs `pk … p0` (positions to the bit), the seam lies inside the band:
+/// the joined ring is `p0`, `b` past the run, `pk`, `a` past the run. The
+/// run's ends stay (the rows' points, which the caps share); its interior
+/// samples go (the band is meshed across the seam, as each cap is).
+pub(super) fn join_seam_rings(mut rings: Vec<BoundaryRing>) -> Vec<BoundaryRing> {
+    let bits = |p: &Point3| [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
+    'join: loop {
+        for a in 0..rings.len() {
+            for b in (a + 1)..rings.len() {
+                let (ra, rb) = (&rings[a], &rings[b]);
+                let (na, nb) = (ra.pos.len(), rb.pos.len());
+                let at_b: HashMap<[u64; 3], usize> = rb
+                    .pos
+                    .iter()
+                    .enumerate()
+                    .map(|(j, p)| (bits(p), j))
+                    .collect();
+                // A shared run's start in `a`: shared, its successor in `a`
+                // is its predecessor in `b`, and its predecessor in `a` is
+                // not `b`'s successor (so the run starts here).
+                let reversed_step = |i: usize| -> Option<usize> {
+                    let &j = at_b.get(&bits(&ra.pos[i]))?;
+                    (bits(&ra.pos[(i + 1) % na]) == bits(&rb.pos[(j + nb - 1) % nb])).then_some(j)
+                };
+                for i in 0..na {
+                    if reversed_step(i).is_none() || reversed_step((i + na - 1) % na).is_some() {
+                        continue;
+                    }
+                    // The run p0 = a[i] … pk = a[i + k].
+                    let mut k = 1;
+                    while k + 1 < na && reversed_step((i + k) % na).is_some() {
+                        k += 1;
+                    }
+                    let (Some(&j_end), Some(&j_start)) = (
+                        at_b.get(&bits(&ra.pos[(i + k) % na])),
+                        at_b.get(&bits(&ra.pos[i])),
+                    ) else {
+                        continue;
+                    };
+                    // `b` past the run: from after p0 (j_start) to before
+                    // pk (j_end), cyclic; `a` past the run likewise.
+                    let b_len = (j_end + nb - j_start) % nb;
+                    let a_len = (i + na - (i + k) % na) % na;
+                    let mut order: Vec<(usize, usize)> = vec![(a, i)];
+                    order.extend((1..b_len).map(|t| (b, (j_start + t) % nb)));
+                    order.push((a, (i + k) % na));
+                    order.extend((1..a_len).map(|t| (a, (i + k + t) % na)));
+                    // Each kept sample keeps the source of the segment it
+                    // starts: the ends start segments into `b` and `a`.
+                    let source = |&(r, idx): &(usize, usize), slot: usize| match slot {
+                        0 => rings[b].sources[j_start],
+                        s if s == b_len => rings[a].sources[(i + k) % na],
+                        _ => rings[r].sources[idx],
+                    };
+                    let joined = BoundaryRing {
+                        uv: order.iter().map(|&(r, idx)| rings[r].uv[idx]).collect(),
+                        pos: order.iter().map(|&(r, idx)| rings[r].pos[idx]).collect(),
+                        sources: order
+                            .iter()
+                            .enumerate()
+                            .map(|(s, o)| source(o, s))
+                            .collect(),
+                    };
+                    if joined.uv.len() < 3 {
+                        continue;
+                    }
+                    rings.remove(b);
+                    rings[a] = joined;
+                    continue 'join;
+                }
+            }
+        }
+        return rings;
+    }
+}

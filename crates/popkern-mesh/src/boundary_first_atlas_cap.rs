@@ -21,7 +21,12 @@ use super::{Cut, Piece, Pieces};
 mod rows;
 use crate::TessellationOptions;
 use crate::mesh::{FaceMesh, MeshVertex};
-use rows::{exposed_row_edge, merge, with_band_row_samples};
+use rows::{exposed_row_edge, join_seam_rings, merge, with_band_row_samples};
+
+#[path = "boundary_first_atlas_cap_lattice.rs"]
+mod lattice;
+use lattice::cap_lattice;
+pub(super) use lattice::{band_row_cells, estimated_cap_cell};
 
 /// Mesh every piece and merge them. `None` when a piece declines.
 pub(super) fn mesh_pieces(
@@ -38,12 +43,21 @@ pub(super) fn mesh_pieces(
     // circle, and each cap must carry every sample of the rows it shares
     // with the band (else a T-junction on the row).
     let mut pieces = pieces;
+    // The caps the face reaches: the band is sized over its box extended
+    // to their singular rows, the face's box (`mesh_rings`'s `sizing`).
+    let caps: Vec<usize> = pieces
+        .iter()
+        .filter_map(|(p, _)| match p {
+            Piece::Cap(k) => Some(*k),
+            Piece::Band => None,
+        })
+        .collect();
     pieces.sort_by_key(|(piece, _)| !matches!(piece, Piece::Band));
     let mut band_row_samples: Vec<((f64, f64), Point3)> = Vec::new();
     for (piece, rings) in pieces {
         let rings = match piece {
             Piece::Cap(k) => with_band_row_samples(rings, &cuts[k], &band_row_samples),
-            Piece::Band => rings,
+            Piece::Band => join_seam_rings(rings),
         };
         let piece_name = piece;
         let before = split_requests.len();
@@ -88,12 +102,14 @@ pub(super) fn mesh_pieces(
                         {
                             rings.swap(0, outer);
                         }
+                        let sizing = face_box(&rings, cuts, &caps);
                         super::super::mesh_rings(
                             (face, surface, orientation),
                             rings,
                             options,
                             split_requests,
                             descriptor,
+                            sizing,
                         )
                     }
                     super::super::Charted::Mesh(fm) => Some(fm),
@@ -147,6 +163,36 @@ pub(super) fn mesh_pieces(
         return None;
     }
     Some(merged)
+}
+
+/// The band's outer ring box extended across to the singular rows of the
+/// caps `caps`: the face's box in its chart.
+fn face_box(
+    rings: &[BoundaryRing],
+    cuts: &[Cut],
+    caps: &[usize],
+) -> Option<((f64, f64), (f64, f64))> {
+    let outer = rings.first()?;
+    let (mut lo, mut hi) = (
+        (f64::INFINITY, f64::INFINITY),
+        (f64::NEG_INFINITY, f64::NEG_INFINITY),
+    );
+    for &(u, v) in &outer.uv {
+        lo = (lo.0.min(u), lo.1.min(v));
+        hi = (hi.0.max(u), hi.1.max(v));
+    }
+    for &k in caps {
+        let at = cuts.get(k)?.cap.singular.at;
+        match cuts[k].cap.singular.axis {
+            popkern_core::geometry::chart::Axis::V => {
+                (lo.1, hi.1) = (lo.1.min(at), hi.1.max(at));
+            }
+            popkern_core::geometry::chart::Axis::U => {
+                (lo.0, hi.0) = (lo.0.min(at), hi.0.max(at));
+            }
+        }
+    }
+    (lo.0 <= hi.0 && lo.1 <= hi.1).then_some(((lo.0, hi.0), (lo.1, hi.1)))
 }
 
 /// Mesh one cap piece in the pole projection about its singular row.
@@ -212,7 +258,13 @@ fn mesh_cap(
         return None;
     }
     let charted = ChartedSurface::new(surface, chart, ((lo.0, hi.0), (lo.1, hi.1)));
-    let (n, cell) = cap_lattice(&charted, (lo, hi), options);
+    let reach = rings_xy
+        .iter()
+        .flat_map(|r| r.uv.iter())
+        .map(|p| p.0.phypot(p.1))
+        .fold(0.0_f64, f64::max);
+    let lattice = cap_lattice(&charted, (lo, hi), reach, options);
+    let (n, cell) = (lattice.n, lattice.cell);
 
     let mut uv_pts: Vec<(f64, f64)> = Vec::new();
     let mut pos_pts: Vec<Option<Point3>> = Vec::new();
@@ -234,9 +286,9 @@ fn mesh_cap(
     for ring in &rings_xy {
         let m = ring.uv.len();
         for k in 0..m {
-            let (a, b) = (ring.uv[k], ring.uv[(k + 1) % m]);
             let (edge, f0, f1) = ring.sources[k];
-            let length = (b.0 - a.0).phypot(b.1 - a.1);
+            // In space: the cell is arc length (the lattice's warp).
+            let length = ring.pos[k].distance_to(&ring.pos[(k + 1) % m]);
             if length <= 1.5 * cell || edge == popkern_core::topology::EdgeHandle::default() {
                 continue;
             }
@@ -249,8 +301,12 @@ fn mesh_cap(
             }
         }
     }
-    let ring_index =
-        super::super::boundary_first_ring_index::RingIndex::new(&rings_xy, 1.0, 1.0, (cell, cell));
+    let ring_index = super::super::boundary_first_ring_index::RingIndex::new(
+        &rings_xy,
+        1.0,
+        1.0,
+        (lattice.rim_cell, lattice.rim_cell),
+    );
     // The singular point itself, when the piece holds it: every triangle
     // round it then has it as a corner, whose face parameters stand for
     // the whole pole row (the measuring quadrature's pole corner), and no
@@ -266,10 +322,7 @@ fn mesh_cap(
     // recovery cannot resolve.
     for i in 0..n {
         for j in 0..n {
-            let p = (
-                lo.0 + cell * (i as f64 + 0.5),
-                lo.1 + cell * (j as f64 + 0.5),
-            );
+            let p = lattice.station(i, j);
             let clear_of_origin = !holds_origin || p.0.phypot(p.1) > cell / 3.0;
             if clear_of_origin && ring_index.inside(p) && !ring_index.within_clearance(p) {
                 uv_pts.push(p);
@@ -395,71 +448,4 @@ fn mesh_cap(
         vertices,
         triangles,
     })
-}
-
-/// A cap's lattice: station count and cell over the chart box `(lo, hi)`,
-/// as the band's pipeline counts them so the face's density does not
-/// change across the row: doubled from the minimum while the box
-/// diagonal's deviation over n² exceeds the chord height, then while a
-/// cell's normal spread at the centre exceeds the angular bound.
-pub(super) fn cap_lattice(
-    charted: &ChartedSurface<'_>,
-    (lo, hi): ((f64, f64), (f64, f64)),
-    options: &TessellationOptions,
-) -> (usize, f64) {
-    let extent = (hi.0 - lo.0).max(hi.1 - lo.1);
-    let (p00, p11) = (charted.point_at(lo.0, lo.1), charted.point_at(hi.0, hi.1));
-    let pm = charted.point_at(0.5 * (lo.0 + hi.0), 0.5 * (lo.1 + hi.1));
-    let dev = pm.distance_to(&Point3::new(
-        0.5 * (p00.x + p11.x),
-        0.5 * (p00.y + p11.y),
-        0.5 * (p00.z + p11.z),
-    ));
-    let max_n = options.max_subdivisions.max(1);
-    let mut n = options.min_subdivisions.max(1);
-    while dev / (n as f64 * n as f64) > options.chord_height && n < max_n {
-        n *= 2;
-    }
-    if let Some(angle) = options.angular_bound() {
-        let c = (0.5 * (lo.0 + hi.0), 0.5 * (lo.1 + hi.1));
-        let n0 = charted.normal_at(c.0, c.1);
-        let spread = |n: usize| {
-            let h = 0.5 * extent / n as f64;
-            [(-h, -h), (h, -h), (-h, h), (h, h)]
-                .iter()
-                .map(|&(dx, dy)| {
-                    charted
-                        .normal_at(c.0 + dx, c.1 + dy)
-                        .dot(&n0)
-                        .clamp(-1.0, 1.0)
-                        .pacos()
-                })
-                .fold(0.0_f64, f64::max)
-        };
-        while spread(n) > angle && n < max_n {
-            n *= 2;
-        }
-    }
-    let n = n.min(max_n);
-    (n, extent / n as f64)
-}
-
-/// The cell a cap about `cut` will be meshed at, estimated before its
-/// rings are known from the box of its row's disc (assembly samples the
-/// row to it, so the cap's boundary is as fine as its lattice).
-pub(super) fn estimated_cap_cell(
-    descriptor: &ChartDescriptor,
-    surface: &SurfaceGeometry,
-    cut: &Cut,
-    options: &TessellationOptions,
-) -> Option<f64> {
-    let chart = cap_chart(descriptor, surface, &cut.cap)?;
-    let rim = popkern_core::geometry::chart::ops::evaluate(descriptor, surface, cut.uv(cut.start));
-    let (x, y) = chart.local_at(cut.uv(cut.start), &rim);
-    let r = x.phypot(y);
-    if !(r.is_finite() && r > 0.0) {
-        return None;
-    }
-    let charted = ChartedSurface::new(surface, chart, ((-r, r), (-r, r)));
-    Some(cap_lattice(&charted, ((-r, -r), (r, r)), options).1)
 }

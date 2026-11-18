@@ -302,7 +302,23 @@ fn row_samples(
             .normalized()
             .unwrap_or(popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0))
     };
-    let mut canon = vec![at(lo), at(hi)];
+    // Seeded at most a quarter period apart along the row: a walk round
+    // the whole row starts and ends at one point, and a row smaller than
+    // the chord height (a die's pip, its whole circle under 5e-3) took no
+    // sample at all, leaving the cap only its seam's out-and-back.
+    let seeds = match cut.period {
+        Some(p) if p > 0.0 => ((hi - lo) / (0.25 * p)).ceil().max(1.0) as usize,
+        _ => 1,
+    };
+    let mut canon: Vec<(f64, Point3)> = (0..=seeds)
+        .map(|k| {
+            if k == seeds {
+                at(hi)
+            } else {
+                at(lo + (hi - lo) * k as f64 / seeds as f64)
+            }
+        })
+        .collect();
     let mut i = 0;
     while i + 1 < canon.len() && canon.len() < 4096 {
         let (a, b) = (canon[i].0, canon[i + 1].0);

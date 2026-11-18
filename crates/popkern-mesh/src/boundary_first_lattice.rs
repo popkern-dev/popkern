@@ -5,7 +5,72 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
+use popkern_core::geometry::chart::ChartDescriptor;
+
 use crate::TessellationOptions;
+
+/// A parameter box `((u0, u1), (v0, v1))`.
+type Box2 = ((f64, f64), (f64, f64));
+
+/// The interior lattice's grid count and per-direction station counts
+/// `(n, n_u, n_v)` over the chart box `own`.
+///
+/// The grid count follows the uniform-grid path: the box diagonal's
+/// deviation over n² against the chord height, then the angular bound
+/// (`densify_lattice`); per-direction counts by [`lattice_counts`].
+///
+/// A piece of a face (an atlas band) is sized over `sizing`, the face's
+/// whole box, so its density is the face's, and given its share of the
+/// stations over its own box: sized over its own box, a sphere's band took
+/// the whole face's count over half its height (twice the triangles,
+/// PK-1271); laid over the face's box, a grid line fell on the band's row
+/// whenever the count divided by four (row samples on a lattice line,
+/// T-points recovery cannot resolve).
+pub(super) fn face_stations(
+    (surface, descriptor): (&SurfaceGeometry, &ChartDescriptor),
+    own: Box2,
+    sizing: Option<Box2>,
+    options: &TessellationOptions,
+) -> (usize, usize, usize) {
+    let ((mut u0, mut u1), (mut v0, mut v1)) = own;
+    if let Some(((su0, su1), (sv0, sv1))) = sizing {
+        (u0, u1, v0, v1) = (u0.min(su0), u1.max(su1), v0.min(sv0), v1.max(sv1));
+    }
+    let mut n = options.min_subdivisions.max(1);
+    let p00 = surface.point_at(u0, v0);
+    let p11 = surface.point_at(u1, v1);
+    let pm = surface.point_at(0.5 * (u0 + u1), 0.5 * (v0 + v1));
+    let chord_mid = Point3::new(
+        0.5 * (p00.x + p11.x),
+        0.5 * (p00.y + p11.y),
+        0.5 * (p00.z + p11.z),
+    );
+    let dev = pm.distance_to(&chord_mid);
+    while (dev / (n as f64 * n as f64)) > options.chord_height && n < options.max_subdivisions {
+        n *= 2;
+    }
+    n = crate::facet_angle::densify_lattice(
+        (surface, descriptor),
+        ((u0, u1), (v0, v1)),
+        n,
+        options,
+    );
+    let (n_u, n_v) = lattice_counts(surface, (u0, u1), (v0, v1), n, options);
+    if sizing.is_none() {
+        return (n, n_u, n_v);
+    }
+    let share = |part: (f64, f64), whole: (f64, f64)| {
+        let w = whole.1 - whole.0;
+        if w > 0.0 {
+            ((part.1 - part.0) / w).clamp(0.0, 1.0)
+        } else {
+            1.0
+        }
+    };
+    let (ru, rv) = (share(own.0, (u0, u1)), share(own.1, (v0, v1)));
+    let part = |count: usize, r: f64| ((count as f64 * r).ceil() as usize).max(2);
+    (part(n, ru.max(rv)), part(n_u, ru), part(n_v, rv))
+}
 
 /// The interior lattice's station counts `(n_u, n_v)` given the grid
 /// count `n` from the chart-diagonal probe. NURBS charts use

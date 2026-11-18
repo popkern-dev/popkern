@@ -21,7 +21,6 @@ use popkern_core::geometry::chart::{Axis, ChartDescriptor, SingularKind};
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
-use popkern_math::PortableMath;
 
 use super::*;
 
@@ -33,6 +32,10 @@ mod cap;
 mod meridian;
 use assemble::{Pieces, assemble};
 use meridian::Meridian;
+
+#[path = "boundary_first_atlas_parity.rs"]
+mod parity;
+use parity::row_in_face_by_parity;
 
 /// Where a ring sample lies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,8 +91,11 @@ impl Cut {
     fn in_cap(&self, uv: (f64, f64)) -> bool {
         (self.coordinate(uv) - self.cap.at) * self.toward_band < -self.eps
     }
+    /// On the row; never for a whole cap, which has none (its `at` is the
+    /// domain's far end: a revolved disc's rim read as an exposed row and
+    /// the atlas declined it).
     fn on_row(&self, uv: (f64, f64)) -> bool {
-        (self.coordinate(uv) - self.cap.at).abs() <= self.eps
+        !self.cap.whole && (self.coordinate(uv) - self.cap.at).abs() <= self.eps
     }
 }
 
@@ -239,13 +245,17 @@ pub(super) fn tessellate_on_atlas(
             );
         }
     }
-    // Rows are sampled to their cap's lattice (a row segment has no edge
-    // for the cap to split): at most one and a half estimated cells.
+    // Rows are sampled to their cap's lattice and the band's (a row
+    // segment has no edge to split): at most one and a half of the finer.
+    let band = cap::band_row_cells((descriptor, surface), (&cuts, &reached), built, options);
     let steps: Vec<f64> = cuts
         .iter()
-        .map(|c| {
-            cap::estimated_cap_cell(descriptor, surface, c, options)
-                .map_or(f64::INFINITY, |c| 1.5 * c)
+        .enumerate()
+        .map(|(k, c)| {
+            let cell = cap::estimated_cap_cell(descriptor, surface, c, options)
+                .unwrap_or(f64::INFINITY)
+                .min(band.get(k).copied().flatten().unwrap_or(f64::INFINITY));
+            1.5 * cell
         })
         .collect();
     let pieces = assemble(
@@ -410,87 +420,4 @@ fn turning_clearance(cut: &Cut, surface: &SurfaceGeometry, built: &[BoundaryRing
         }
     }
     clearance
-}
-
-/// Whether `cut`'s row lies in the face, by parity in the band chart (see
-/// the call site): a reference point a hair to the face side of a ring
-/// sample lying in the band (the face lies left of its loops when the
-/// flag is set), the vertical segment from it to the row at its own
-/// along coordinate, and the rings' crossings of that segment. `false`
-/// when no ring sample lies in the band.
-fn row_in_face_by_parity(
-    cut: &Cut,
-    surface: &SurfaceGeometry,
-    built: &[BoundaryRing],
-    orientation: bool,
-) -> bool {
-    let coordinate_of =
-        |uv: (f64, f64), p: &Point3| cut.coordinate(surface.closest_point(p).unwrap_or(uv));
-    let in_band = |c: f64| (c - cut.cap.at) * cut.toward_band > cut.eps;
-    // The reference: the band sample of the longest ring segment (a
-    // well-conditioned left side), offset a thousandth of its length.
-    let mut reference: Option<((f64, f64), f64)> = None;
-    for ring in built {
-        let n = ring.uv.len();
-        for i in 0..n {
-            let (a, b) = (ring.uv[i], ring.uv[(i + 1) % n]);
-            let len = (b.0 - a.0).phypot(b.1 - a.1);
-            if len > 0.0
-                && in_band(coordinate_of(a, &ring.pos[i]))
-                && in_band(coordinate_of(b, &ring.pos[(i + 1) % n]))
-                && reference.is_none_or(|(_, l)| len > l)
-            {
-                let m = (0.5 * (a.0 + b.0), 0.5 * (a.1 + b.1));
-                let side = if orientation { 1.0 } else { -1.0 };
-                let left = (-(b.1 - a.1) / len * side, (b.0 - a.0) / len * side);
-                reference = Some(((m.0 + 1e-3 * len * left.0, m.1 + 1e-3 * len * left.1), len));
-            }
-        }
-    }
-    let Some((r, _)) = reference else {
-        return false;
-    };
-    // The vertical segment from r to the row, in (along, coordinate).
-    let (ra, rc) = (cut.along(r), cut.coordinate(r));
-    let (lo, hi) = (rc.min(cut.cap.at), rc.max(cut.cap.at));
-    let period = cut.period;
-    let mut crossings = 0usize;
-    for ring in built {
-        let n = ring.uv.len();
-        for i in 0..n {
-            let (a, b) = (ring.uv[i], ring.uv[(i + 1) % n]);
-            let (aa, ac, mut ba, bc) = (
-                cut.along(a),
-                cut.coordinate(a),
-                cut.along(b),
-                cut.coordinate(b),
-            );
-            // The segment on one branch, then every branch reaching ra.
-            if let Some(p) = period {
-                ba = aa + popkern_core::geometry::chart::atlas::along_offset(Some(p), aa, ba, 1.0);
-                if ba - aa > 0.5 * p {
-                    ba -= p;
-                }
-            }
-            let shifts: Vec<f64> = match period {
-                Some(p) => {
-                    let k = ((ra - aa.min(ba)) / p).floor();
-                    vec![k * p, (k - 1.0) * p, (k + 1.0) * p]
-                }
-                None => vec![0.0],
-            };
-            for s in shifts {
-                let (x0, x1) = (aa + s, ba + s);
-                if (x0 - ra) * (x1 - ra) >= 0.0 || x0 == x1 {
-                    continue;
-                }
-                let t = (ra - x0) / (x1 - x0);
-                let c = ac + (bc - ac) * t;
-                if c > lo && c < hi {
-                    crossings += 1;
-                }
-            }
-        }
-    }
-    crossings.is_multiple_of(2)
 }

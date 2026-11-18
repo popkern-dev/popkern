@@ -31,64 +31,14 @@ use popkern_mesh::TriMesh;
 
 #[path = "body_quadrature_analytic.rs"]
 mod analytic;
+#[path = "body_quadrature_rule.rs"]
+mod rule;
 #[path = "body_quadrature_singular.rs"]
 mod singular;
 #[path = "body_quadrature_sliver.rs"]
 mod sliver;
+pub(super) use rule::oriented_term;
 use singular::{FaceRows, face_rows, singular_corner};
-
-/// Dunavant degree-5 rule: barycentric points and weights (sum 1).
-const RULE: [([f64; 3], f64); 7] = [
-    ([1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0], 0.225),
-    (
-        [
-            0.059_715_871_789_77,
-            0.470_142_064_105_115,
-            0.470_142_064_105_115,
-        ],
-        0.132_394_152_788_506,
-    ),
-    (
-        [
-            0.470_142_064_105_115,
-            0.059_715_871_789_77,
-            0.470_142_064_105_115,
-        ],
-        0.132_394_152_788_506,
-    ),
-    (
-        [
-            0.470_142_064_105_115,
-            0.470_142_064_105_115,
-            0.059_715_871_789_77,
-        ],
-        0.132_394_152_788_506,
-    ),
-    (
-        [
-            0.797_426_985_353_087,
-            0.101_286_507_323_456,
-            0.101_286_507_323_456,
-        ],
-        0.125_939_180_544_827,
-    ),
-    (
-        [
-            0.101_286_507_323_456,
-            0.797_426_985_353_087,
-            0.101_286_507_323_456,
-        ],
-        0.125_939_180_544_827,
-    ),
-    (
-        [
-            0.101_286_507_323_456,
-            0.101_286_507_323_456,
-            0.797_426_985_353_087,
-        ],
-        0.125_939_180_544_827,
-    ),
-];
 
 fn as_vec(p: Point3) -> Vec3 {
     Vec3::new(p.x, p.y, p.z)
@@ -152,27 +102,6 @@ fn surface_term(
         );
     }
     Some(oriented_term(surface, uv, kind))
-}
-
-/// `kind`'s integrand over the oriented (u, v) triangle `uv`.
-pub(super) fn oriented_term(
-    surface: &SurfaceGeometry,
-    uv: [(f64, f64); 3],
-    kind: Integrand,
-) -> f64 {
-    let signed_area = 0.5
-        * ((uv[1].0 - uv[0].0) * (uv[2].1 - uv[0].1) - (uv[2].0 - uv[0].0) * (uv[1].1 - uv[0].1));
-    let mut sum = 0.0;
-    for (bary, w) in RULE {
-        let u = bary[0] * uv[0].0 + bary[1] * uv[1].0 + bary[2] * uv[2].0;
-        let v = bary[0] * uv[0].1 + bary[1] * uv[1].1 + bary[2] * uv[2].1;
-        let n = surface.partial_u(u, v).cross(&surface.partial_v(u, v));
-        sum += w * match kind {
-            Integrand::Volume => as_vec(surface.point_at(u, v)).dot(&n) / 3.0,
-            Integrand::Area => n.length(),
-        };
-    }
-    sum * signed_area
 }
 
 /// The (u, v) winding sign of a face mesh's outward-wound triangles:
@@ -353,17 +282,38 @@ fn face_quadrature(
                 // common read 1.6e-3 low with its area exact (PK-1138).
                 let signed_area = (b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1);
                 let uv_sign = winding?;
-                if signed_area * uv_sign <= 0.0 && !collinear_uv([a, b, c], signed_area) {
+                let corners = [a, b, c];
+                let at_row = singular_corner(descriptor, points, (&vertices, gate));
+                // A pole corner's stored collapsed coordinate is arbitrary:
+                // the orientation is the integrated quad's, from the row
+                // under the other two corners (a ball's own pole vertex
+                // at the longitude it was made with read the triangle
+                // mirrored, and its facet stood: two bodies one volume
+                // read 2.3e-6 apart).
+                let oriented = match at_row {
+                    Some(r) => {
+                        let (q, w) = (corners[(r.k + 1) % 3], corners[(r.k + 2) % 3]);
+                        let (pq, pw) = if r.collapsed_u {
+                            ((q.0, r.at), (w.0, r.at))
+                        } else {
+                            ((r.at, q.1), (r.at, w.1))
+                        };
+                        let twice = |x: (f64, f64), y: (f64, f64), z: (f64, f64)| {
+                            (y.0 - x.0) * (z.1 - x.1) - (z.0 - x.0) * (y.1 - x.1)
+                        };
+                        twice(pq, q, w) + twice(pq, w, pw)
+                    }
+                    None => signed_area,
+                };
+                if oriented * uv_sign <= 0.0 && !collinear_uv([a, b, c], signed_area) {
                     return None;
                 }
-                let corners = [a, b, c];
                 // A chord from a pole corner runs in (u, v) from the pole
                 // row under its other end: read at the pole's stored
                 // coordinate, a turned cone's apex half a period from its
                 // seam made the seam sliver a wedge of the whole fan (a
                 // kilometre ice-cream cone read 4/3 of its area,
                 // PK-1133).
-                let at_row = singular_corner(descriptor, points, (&vertices, gate));
                 let chord = |k: usize| {
                     let (mut p, mut q) = (corners[k], corners[(k + 1) % 3]);
                     // The row corner at the row's own parameter, under its

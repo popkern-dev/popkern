@@ -359,14 +359,20 @@ pub(super) fn slit_band(
             .collect();
         // A wall along a CURVED iso-line (a torus band's major circle in
         // a transposed chart) also refines until each chord sits within
-        // the chord height (PK-641: elbows sagged 0.025 at 0.005).
+        // a quarter of the chord height (PK-641: elbows sagged 0.025 at
+        // 0.005): its stations are the tensor lattice's rows across the
+        // band, whose cell diagonals sag up to twice a side's and whose
+        // over-chord cells can only split the rails (a sphere band on the
+        // atlas kept 7 rows at the chord height and sagged 5.7e-3 while
+        // its rails split every round).
+        let wall_chord = 0.25 * chord_height;
         for _ in 0..6 {
             let mut next = vec![vs[0]];
             for w in vs.windows(2) {
                 let (a, b) = (wall_point(from.0, w[0]), wall_point(from.0, w[1]));
                 let m = wall_point(from.0, 0.5 * (w[0] + w[1]));
                 let mid = Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
-                if m.distance_to(&mid) > chord_height && next.len() < 512 {
+                if m.distance_to(&mid) > wall_chord && next.len() < 512 {
                     next.push(0.5 * (w[0] + w[1]));
                 }
                 next.push(w[1]);

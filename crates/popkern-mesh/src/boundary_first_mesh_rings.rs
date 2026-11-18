@@ -19,6 +19,7 @@ pub(super) fn mesh_rings(
     options: &TessellationOptions,
     split_requests: &mut Vec<SplitRequest>,
     descriptor: &ChartDescriptor,
+    sizing: Option<((f64, f64), (f64, f64))>,
 ) -> Option<FaceMesh> {
     if rings.is_empty() {
         return None;
@@ -91,33 +92,14 @@ pub(super) fn mesh_rings(
         v0 = v0.min(v);
         v1 = v1.max(v);
     }
-    // Refine like the uniform-grid path would for curved surfaces: sample
-    // the surface diagonal and bump density if it deviates from the
-    // chord more than chord_height (then the angular facet bound).
-    let mut n = options.min_subdivisions.max(1);
-    {
-        let p00 = surface.point_at(u0, v0);
-        let p11 = surface.point_at(u1, v1);
-        let pm = surface.point_at(0.5 * (u0 + u1), 0.5 * (v0 + v1));
-        let chord_mid = Point3::new(
-            0.5 * (p00.x + p11.x),
-            0.5 * (p00.y + p11.y),
-            0.5 * (p00.z + p11.z),
-        );
-        let dev = pm.distance_to(&chord_mid);
-        while (dev / (n as f64 * n as f64)) > options.chord_height && n < options.max_subdivisions {
-            n *= 2;
-        }
-        n = crate::facet_angle::densify_lattice(
-            (surface, descriptor),
-            ((u0, u1), (v0, v1)),
-            n,
-            options,
-        );
-    }
-    // Per-direction station counts (see `boundary_first_lattice::lattice_counts`).
-    let (n_u, n_v) =
-        boundary_first_lattice::lattice_counts(surface, (u0, u1), (v0, v1), n, options);
+    // Station counts (`boundary_first_lattice::face_stations`): a piece of
+    // a face (an atlas band) sized over the face's box, laid over its own.
+    let (n, n_u, n_v) = boundary_first_lattice::face_stations(
+        (surface, descriptor),
+        ((u0, u1), (v0, v1)),
+        sizing,
+        options,
+    );
     // Chart metric scale (mm per parameter unit at the chart
     // centre). The chart mixes units (radians × millimetres on a
     // cylinder), and every proximity quantity below — cell size,

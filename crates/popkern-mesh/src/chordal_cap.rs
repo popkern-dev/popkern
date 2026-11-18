@@ -31,10 +31,11 @@
 use popkern_math::hash::FastHashMap as HashMap;
 use popkern_math::hash::FastHashSet as HashSet;
 
-use popkern_core::geometry::chart::RegularChart;
+use popkern_core::geometry::Vec3;
 use popkern_core::geometry::chart::atlas::{CAP_LIMIT, cap_chart, cap_row};
 use popkern_core::geometry::chart::ops::singular_point_near;
 use popkern_core::geometry::chart::{ChartDescriptor, SingularKind};
+use popkern_core::geometry::chart::{ChartedSurface, RegularChart};
 use popkern_core::geometry::{Point3, SurfaceEval, SurfaceGeometry};
 use popkern_math::PortableMath;
 
@@ -135,6 +136,27 @@ pub(super) fn cap_pass(
             }
         }
         let users = edge_users(tris, &member);
+        // Each member's unit facet normal, facing the chart's, and each
+        // edge's sum of its members' (the direction both triangles on it
+        // pair its points along, so they read one point).
+        let Some(axis) = chart.plane_normal() else {
+            continue;
+        };
+        let facet = |t: &CapTriangle| -> Vec3 {
+            let m = (t.p[1] - t.p[0]).cross(&(t.p[2] - t.p[0]));
+            let m = m.normalized().unwrap_or(axis);
+            if m.dot(&axis) < 0.0 { -m } else { m }
+        };
+        let mut edge_normal: HashMap<(usize, usize), Vec3> = HashMap::default();
+        for (_, t) in tris.iter().enumerate().filter(|(k, _)| member[*k]) {
+            let m = facet(t);
+            for e in 0..3 {
+                let sum = edge_normal
+                    .entry(edge_key(t, e))
+                    .or_insert(Vec3::new(0.0, 0.0, 0.0));
+                *sum = *sum + m;
+            }
+        }
         let old = (0..tris.len())
             .filter(|&k| member[k])
             .map(|k| bounds[k])
@@ -146,10 +168,14 @@ pub(super) fn cap_pass(
                 // An edge follows the chart only between two members;
                 // else it stays straight in face parameters.
                 let curved = [0, 1, 2].map(|e| users.get(&edge_key(t, e)).is_some_and(|&u| u == 2));
+                let normals = (
+                    [0, 1, 2].map(|e| edge_normal.get(&edge_key(t, e)).copied().unwrap_or(axis)),
+                    facet(t),
+                );
                 match triangle_at_level(
                     (surface, descriptor),
                     (chart, periods),
-                    t,
+                    (t, normals),
                     curved,
                     n,
                     &mut bound,
@@ -204,11 +230,16 @@ fn edge_users(tris: &[CapTriangle], member: &[bool]) -> HashMap<(usize, usize), 
 fn triangle_at_level(
     (surface, descriptor): (&SurfaceGeometry, &ChartDescriptor),
     (chart, periods): (&RegularChart, (Option<f64>, Option<f64>)),
-    t: &CapTriangle,
+    (t, (edge_normals, facet_normal)): (&CapTriangle, ([Vec3; 3], Vec3)),
     curved: [bool; 3],
     n: usize,
     bound: &mut impl FnMut(&Piece) -> Option<f64>,
 ) -> Option<f64> {
+    let charted = ChartedSurface::new(
+        surface,
+        chart.clone(),
+        ((f64::MIN, f64::MAX), (f64::MIN, f64::MAX)),
+    );
     let y: [Uv; 3] = [0, 1, 2].map(|i| chart.local_at(t.w[i], &t.p[i]));
     // Corner parameters on one branch, about corner 0.
     let w = unwrap(t.w, periods);
@@ -221,7 +252,11 @@ fn triangle_at_level(
     };
     let lerp2 = |a: Uv, b: Uv, s: f64| (a.0 + (b.0 - a.0) * s, a.1 + (b.1 - a.1) * s);
     let lerp3 = |a: Point3, b: Point3, s: f64| a + (b - a) * s;
-    let preimage = |yy: Uv, seed: Uv| chart.to_surface_near(surface, yy, Some(seed)).ok();
+    // The surface point paired with the facet point `l`: along `d` from
+    // it, found from the chart point `yy` (`along_normal`).
+    let preimage = |l: Point3, d: Vec3, yy: Uv, seed: Uv| {
+        along_normal((surface, chart, &charted), l, d, (yy, seed))
+    };
     // A point of edge `e` (corner e → e + 1) at fraction `s` from e, cut
     // from its lower-keyed corner so both triangles on it read one point.
     let edge_point = |e: usize, s: f64| -> Option<Sub> {
@@ -232,9 +267,22 @@ fn triangle_at_level(
             (b, a, 1.0 - s)
         };
         let l = lerp3(t.p[lo], t.p[hi], f);
-        let wl = lerp2(w[lo], w[hi], f);
+        // A corner on the singular point carries an arbitrary collapsed
+        // coordinate: an edge into it is read from the row at its
+        // partner's (a corner ball's boundary meridian lerped from the
+        // pole's stored longitude spiralled off the meridian, and the
+        // region declined at every level).
+        let on_row = |at: usize, partner: usize| -> Uv {
+            let exact = 1e-12 * (1.0 + t.p[at].x.abs().max(t.p[at].y.abs()).max(t.p[at].z.abs()));
+            match singular_point_near(descriptor, &t.p[at], exact) {
+                Some((row, true)) => (w[partner].0, row.at),
+                Some((row, false)) => (row.at, w[partner].1),
+                None => w[at],
+            }
+        };
+        let wl = lerp2(on_row(lo, hi), on_row(hi, lo), f);
         if curved[e] {
-            Some((preimage(lerp2(y[lo], y[hi], f), wl)?, l))
+            Some((preimage(l, edge_normals[e], lerp2(y[lo], y[hi], f), wl)?, l))
         } else {
             Some((wl, l))
         }
@@ -252,7 +300,7 @@ fn triangle_at_level(
             k[0] * t.p[0].y + k[1] * t.p[1].y + k[2] * t.p[2].y,
             k[0] * t.p[0].z + k[1] * t.p[1].z + k[2] * t.p[2].z,
         );
-        Some((preimage(mix2(y), mix2(w))?, l))
+        Some((preimage(l, facet_normal, mix2(y), mix2(w))?, l))
     };
     let nf = n as f64;
     let mut subs: HashMap<(usize, usize), Sub> = HashMap::default();
@@ -345,6 +393,49 @@ fn triangle_at_level(
         }
     }
     Some(worst)
+}
+
+/// The face parameters of the surface point on the line through `l`
+/// along `d`, by Newton in the chart's coordinates from `yy` (face
+/// parameters `seed` near it). Paired along the chart's axis instead (the
+/// chart point's preimage), a facet tilted from the axis read its
+/// deviation over the cosine of the tilt: 5.5e-3 for a 4.1e-3 witness by a
+/// 45° row, at every level. Unconverged, the last iterate stands: any
+/// surface point is a sound pairing, only a looser one.
+fn along_normal(
+    (surface, chart, charted): (&SurfaceGeometry, &RegularChart, &ChartedSurface<'_>),
+    l: Point3,
+    d: Vec3,
+    (yy, seed): (Uv, Uv),
+) -> Option<Uv> {
+    let d = d.normalized()?;
+    let scale = 1.0 + l.x.abs().max(l.y.abs()).max(l.z.abs());
+    let mut y = yy;
+    let mut w = chart.to_surface_near(surface, y, Some(seed)).ok()?;
+    for _ in 0..24 {
+        let r = surface.point_at(w.0, w.1) - l;
+        let rp = r - d * r.dot(&d);
+        if rp.length() <= 1e-14 * scale {
+            break;
+        }
+        let (px, py) = charted.first_partials(y.0, y.1);
+        let (ax, ay) = (px - d * px.dot(&d), py - d * py.dot(&d));
+        let (a11, a12, a22) = (ax.dot(&ax), ax.dot(&ay), ay.dot(&ay));
+        let (b1, b2) = (-ax.dot(&rp), -ay.dot(&rp));
+        let det = a11 * a22 - a12 * a12;
+        if !det.is_finite() || det.abs() <= 1e-300 {
+            break;
+        }
+        let next = (
+            y.0 + (b1 * a22 - b2 * a12) / det,
+            y.1 + (a11 * b2 - a12 * b1) / det,
+        );
+        let Ok(wn) = chart.to_surface_near(surface, next, Some(w)) else {
+            break;
+        };
+        (y, w) = (next, wn);
+    }
+    Some(w)
 }
 
 /// A sub-triangle's parameter pieces. A corner on a singular point (to
