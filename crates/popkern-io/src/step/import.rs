@@ -177,7 +177,7 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
         // Edges through a sphere pole split there (import_pole_split);
         // closed NURBS bands bounded by their rims alone get the seam
         // their chart needs (import_missing_seam).
-        crate::step::import_pole_split::split_edges_at_poles(brep, &mut log);
+        crate::step::import_pole_split::split_edges_at_chart_singularities(brep, &mut log);
         crate::step::import_missing_seam::add_missing_seams(brep, &mut log);
         // Deviations are measured once every half-edge has its pcurve:
         // an edge without one measures zero, so measuring first left

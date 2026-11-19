@@ -21,24 +21,27 @@
 //! body validates; every repair and decline is logged.
 
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::chart::{ChartDescriptor, SingularKind};
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 
 /// Split every edge that passes through a pole of an adjacent sphere
 /// face's chart at that pole; returns the number of splits.
-pub(crate) fn split_edges_at_poles(brep: &mut BRep, log: &mut DiagnosticLog) -> usize {
+pub(crate) fn split_edges_at_chart_singularities(
+    brep: &mut BRep,
+    log: &mut DiagnosticLog,
+) -> usize {
     let mut splits = 0;
     // Each split changes the edge set; rescan until none is left (an
     // edge over both poles splits twice).
     for _ in 0..2 * brep.edges.len() + 2 {
-        let Some((edge, pole, faces)) = next_pole_crossing(brep) else {
+        let Some((edge, point, faces)) = next_singular_crossing(brep) else {
             break;
         };
         let mut candidate = brep.clone();
-        match split_at_pole(&mut candidate, edge, pole, &faces) {
+        match split_at_singular_point(&mut candidate, edge, point, &faces) {
             Ok(()) => match candidate.validate() {
                 Ok(()) => {
                     *brep = candidate;
@@ -48,13 +51,13 @@ pub(crate) fn split_edges_at_poles(brep: &mut BRep, log: &mut DiagnosticLog) -> 
                 Err(e) => log.warn(
                     Phase::MapTopology,
                     None,
-                    format!("{edge:?} through a sphere pole not split: the split body failed validation: {e}"),
+                    format!("{edge:?} through a sphere point not split: the split body failed validation: {e}"),
                 ),
             },
             Err(reason) => log.warn(
                 Phase::MapTopology,
                 None,
-                format!("{edge:?} through a sphere pole not split: {reason}"),
+                format!("{edge:?} through a sphere point not split: {reason}"),
             ),
         }
         break;
@@ -63,7 +66,7 @@ pub(crate) fn split_edges_at_poles(brep: &mut BRep, log: &mut DiagnosticLog) -> 
         log.warn(
             Phase::MapTopology,
             None,
-            format!("split {splits} edge(s) at the sphere pole they pass through"),
+            format!("split {splits} edge(s) at the sphere point they pass through"),
         );
     }
     splits
@@ -71,7 +74,7 @@ pub(crate) fn split_edges_at_poles(brep: &mut BRep, log: &mut DiagnosticLog) -> 
 
 /// The first edge passing through (not ending at) a pole of an
 /// adjacent sphere face, with the pole and the edge's two faces.
-fn next_pole_crossing(brep: &BRep) -> Option<(EdgeHandle, Point3, [FaceHandle; 2])> {
+fn next_singular_crossing(brep: &BRep) -> Option<(EdgeHandle, Point3, [FaceHandle; 2])> {
     let gate = 10.0 * brep.tolerance.linear();
     for (eh, edge) in brep.edges.iter() {
         let Some(curve) = edge.curve.as_ref() else {
@@ -88,18 +91,22 @@ fn next_pole_crossing(brep: &BRep) -> Option<(EdgeHandle, Point3, [FaceHandle; 2
             brep.vertices.get(twin.origin)?.position,
         ];
         for face in faces {
-            let Some(SurfaceGeometry::Sphere { .. }) =
-                brep.faces.get(face)?.surface.as_ref().map(|s| &s.geometry)
-            else {
+            let Some(surface) = brep.faces.get(face)?.surface.as_ref().map(|s| &s.geometry) else {
                 continue;
             };
-            let sphere = &brep.faces.get(face)?.surface.as_ref()?.geometry;
-            for v_pole in [0.0, std::f64::consts::PI] {
-                let pole = sphere.point_at(0.0, v_pole);
-                if ends.iter().any(|p| p.distance_to(&pole) <= gate) {
-                    continue; // the pole is already a vertex
+            // The chart service's chart singularities of the face's
+            // surface: a sphere's poles, a NURBS ball's collapsed rows.
+            let descriptor = ChartDescriptor::of(surface, &brep.tolerance);
+            for row in descriptor
+                .singular_rows
+                .iter()
+                .filter(|r| r.kind == SingularKind::Chart)
+            {
+                let point = row.point;
+                if ends.iter().any(|p| p.distance_to(&point) <= gate) {
+                    continue; // the singular point is already a vertex
                 }
-                let (t, distance) = closest_parameter(curve, &pole);
+                let (t, distance) = closest_parameter(curve, &point);
                 let span = curve.t_end - curve.t_start;
                 let fraction = (t - curve.t_start) / span;
                 if distance <= gate && fraction > 1e-6 && fraction < 1.0 - 1e-6 {
@@ -145,7 +152,7 @@ fn closest_parameter(
     (t, d(t))
 }
 
-fn split_at_pole(
+fn split_at_singular_point(
     brep: &mut BRep,
     edge: EdgeHandle,
     at: Point3,
@@ -173,7 +180,7 @@ fn split_at_pole(
             break;
         }
     }
-    let split = split.ok_or("the split vertex missed the pole both ways")?;
+    let split = split.ok_or("the split vertex missed the point both ways")?;
     // Both halves' pcurves were cut from the smeared projection;
     // re-project them on both faces.
     for half in [split.edge_a, split.edge_b] {

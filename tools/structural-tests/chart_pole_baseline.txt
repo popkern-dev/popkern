@@ -74,7 +74,6 @@ crates/popkern-core/src/healing/repair/hole_commit_geometry.rs 17
 crates/popkern-core/src/healing/repair/hole_polar_fan.rs 3
 crates/popkern-core/src/healing/repair/hole_polar_fan_wedges.rs 26
 crates/popkern-core/src/healing/repair/hole_ruled_fan.rs 14
-crates/popkern-core/src/healing/singularity.rs 21
 crates/popkern-core/src/topology/loop_chart_continuity.rs 7
 crates/popkern-core/src/topology/pcurve_loop_chart_coherence.rs 3
 crates/popkern-core/src/topology/pcurve_recompute.rs 5
@@ -90,8 +89,7 @@ crates/popkern-history/src/replay_primitive.rs 4
 crates/popkern-history/src/replay_primitive_nurbs.rs 3
 crates/popkern-io/src/step/export_periodic_branches.rs 5
 crates/popkern-io/src/step/export_periodic_chain.rs 7
-crates/popkern-io/src/step/import.rs 2
-crates/popkern-io/src/step/import_pole_split.rs 16
+crates/popkern-io/src/step/import.rs 1
 crates/popkern-io/src/step/mod.rs 1
 crates/popkern-measure/src/body_quadrature_sliver.rs 14
 crates/popkern-measure/src/face_green.rs 3
