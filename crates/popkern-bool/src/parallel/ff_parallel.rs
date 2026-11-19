@@ -21,6 +21,8 @@ use crate::intersect::{IntersectionRecord, bounded_parameter_range};
 
 #[path = "ff_parallel_clip.rs"]
 mod ff_parallel_clip;
+#[path = "ff_parallel_contacts.rs"]
+mod ff_parallel_contacts;
 #[path = "ff_parallel_reach.rs"]
 pub(crate) mod ff_parallel_reach;
 #[path = "ff_parallel_residue.rs"]
@@ -163,6 +165,7 @@ pub(crate) fn process_pairs(
         )
         .map_err(|e| e.to_string())
     };
+    let solve_clock = popkern_core::time::Stopwatch::start();
     let ssi: Vec<
         Result<popkern_core::geometry::intersection::SurfaceSurfaceIntersectionResult, String>,
     > = {
@@ -181,6 +184,11 @@ pub(crate) fn process_pairs(
         }
     };
 
+    ff_parallel_contacts::shadow_discover(
+        &unique,
+        tolerance,
+        solve_clock.elapsed_ms().unwrap_or(0.0),
+    );
     // Per-task clip + classify from the shared solve, in task
     // order (rayon's ordered collect keeps the output positionally
     // identical to sequential processing at any thread count). Pairs
