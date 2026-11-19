@@ -43,6 +43,13 @@ pub(super) fn clip_and_classify(
                         super::ff_parallel_reach::curve_clear_of_face(&curve.curve_3d, s, b, pad)
                     }) => {}
             SurfaceSurfaceIntersection::Curve(curve) => {
+                let anchored = super::ff_parallel_anchor::anchored(
+                    curve,
+                    &task.anchors,
+                    ((a, face_a), (b, face_b)),
+                    tolerance,
+                );
+                let curve = anchored.as_ref().unwrap_or(curve);
                 let mut residues: Vec<crate::clip::TrimResidue> = Vec::new();
                 let clipped_list = clip_curve_to_faces_cached(
                     a,

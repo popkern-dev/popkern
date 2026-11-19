@@ -224,6 +224,12 @@ pub(crate) fn find_intersections_with_aabbs(
         (FaceHandle, FaceHandle),
         Vec<popkern_core::geometry::Point3>,
     > = popkern_math::hash::FastHashMap::default();
+    // The hits of edges bounding two faces (no seam), where a closed record
+    // can touch its pair's boundary (`ff_parallel_anchor`).
+    let mut pair_anchors: popkern_math::hash::FastHashMap<
+        (FaceHandle, FaceHandle),
+        Vec<popkern_core::geometry::Point3>,
+    > = popkern_math::hash::FastHashMap::default();
     let faces_of_edge =
         |brep: &BRep, eh: popkern_core::topology::EdgeHandle| -> Option<(FaceHandle, FaceHandle)> {
             let he_h = brep.edges.get(eh)?.half_edge;
@@ -262,6 +268,9 @@ pub(crate) fn find_intersections_with_aabbs(
             {
                 seeds.push(h.point);
             }
+            if f1 != f2 {
+                pair_anchors.entry(key).or_default().push(h.point);
+            }
         }
     }
 
@@ -299,6 +308,10 @@ pub(crate) fn find_intersections_with_aabbs(
                 face_b,
                 boxes: [box_a.clone(), box_b.clone()],
                 seeds: pair_seeds
+                    .get(&(face_a, face_b))
+                    .cloned()
+                    .unwrap_or_default(),
+                anchors: pair_anchors
                     .get(&(face_a, face_b))
                     .cloned()
                     .unwrap_or_default(),

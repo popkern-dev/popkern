@@ -238,7 +238,8 @@ fn closure_pair(
     Some([one, end])
 }
 
-/// Remove each pair of consecutive crossings of one boundary edge whose
+/// Remove the one pair of crossings of a record (its only ones), on one
+/// boundary edge, whose
 /// stretch of the record between stays within the linear reach of that
 /// edge in space, plus the crossings' own fit deviation (nine stations
 /// across it): a touch, not two crossings.
@@ -250,7 +251,10 @@ fn drop_touch_excursions(
 ) {
     use popkern_core::geometry::curve::closest_point_in_window;
     use popkern_core::geometry::surface::SurfaceEval as _;
-    let Some(surface) = surface else {
+    // Only a record whose crossings are that one pair: a cluster of
+    // near-tangent crossings (a record passing through a rim's extreme)
+    // holds real crossings among its pairs.
+    let Some(surface) = surface.filter(|_| crossings.len() == 2) else {
         return;
     };
     let reach = brep.tolerance.linear_reach();
@@ -275,12 +279,34 @@ fn drop_touch_excursions(
         // The reach plus the crossings' own fit deviation (their distance
         // from the edge in space: a uv crossing a pcurve's fit puts off
         // the edge), as two records are read to meet (PK-1165).
+        // Two places, farther apart than the reach: one crossing reported
+        // twice at a point (a rim extreme's duplicate) is not an excursion.
+        let (qa, qb) = (query.point_at(a.t_curve), query.point_at(b.t_curve));
+        if surface
+            .point_at(qa.x, qa.y)
+            .distance_to(&surface.point_at(qb.x, qb.y))
+            <= reach
+        {
+            return false;
+        }
         let allowance = reach + gap(a.t_curve).max(gap(b.t_curve));
         (1..10).all(|k| gap(a.t_curve + (b.t_curve - a.t_curve) * k as f64 / 10.0) <= allowance)
     };
+    // A stretch riding an edge from corner to corner (its ends crossings of
+    // the neighbouring edges too) is the boundary-riding class, not a
+    // touch: only a pair whose crossings no other edge shares is one.
+    let (q0, q1) = query.parameter_range();
+    let eps = 1e-6 * (q1 - q0).abs();
+    let at_corner = |c: &UvCrossing, all: &[UvCrossing]| {
+        all.iter()
+            .any(|o| o.boundary_he != c.boundary_he && (o.t_curve - c.t_curve).abs() <= eps)
+    };
     let mut i = 0;
     while i + 1 < crossings.len() {
-        if within(&crossings[i], &crossings[i + 1]) {
+        if within(&crossings[i], &crossings[i + 1])
+            && !at_corner(&crossings[i], crossings)
+            && !at_corner(&crossings[i + 1], crossings)
+        {
             crossings.drain(i..i + 2);
         } else {
             i += 1;

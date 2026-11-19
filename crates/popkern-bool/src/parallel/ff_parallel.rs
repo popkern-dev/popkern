@@ -19,6 +19,8 @@ use popkern_core::topology::{BRep, FaceHandle};
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::intersect::{IntersectionRecord, bounded_parameter_range};
 
+#[path = "ff_parallel_anchor.rs"]
+mod ff_parallel_anchor;
 #[path = "ff_parallel_clip.rs"]
 mod ff_parallel_clip;
 #[path = "ff_parallel_contacts.rs"]
@@ -44,6 +46,10 @@ pub(crate) struct FacePairTask {
     /// SSI as march seeds (rescues narrow near-tangent lenses the
     /// interior seeding misses — PK-465).
     pub seeds: Vec<popkern_core::geometry::Point3>,
+    /// The hits among `seeds` of edges bounding two faces (no seam use):
+    /// where a closed record can touch the pair's boundary
+    /// (`ff_parallel_anchor`).
+    pub anchors: Vec<popkern_core::geometry::Point3>,
     /// Each face's box (`compute_face_aabbs`): a curve provably clear
     /// of an analytic face's box is not clipped (PK-1166).
     pub boxes: [popkern_core::geometry::intersection::surface_subdivision::Aabb; 2],

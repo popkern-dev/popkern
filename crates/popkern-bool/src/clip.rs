@@ -54,7 +54,7 @@ pub(crate) use clip_pierce_windows::PierceInventoryCache;
 use clip_seam_shift::{is_near_seam, shift_curve_u};
 #[cfg(test)]
 use clip_uv::uv_range_from_crossings;
-pub(crate) use clip_uv::{UvCrossing, clip_curve_to_crossings};
+pub(crate) use clip_uv::{UvCrossing, clip_curve_to_crossings, clip_curve_wrapped};
 pub(crate) use clip_uv_crossings::find_uv_crossings;
 
 /// Stage 2b.58: extract the underlying `CurveOnSurface` (NURBS
