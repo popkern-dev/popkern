@@ -65,7 +65,11 @@ pub(super) fn record_vertex_reaches(body: &mut BRep, reaches: &[(Point3, f64)]) 
         let Some(cap) = body.vertices.get(v).and_then(|x| at_anchor(&x.position)) else {
             continue;
         };
-        if d > cap {
+        // The reach with its rounding allowance: the record's foot
+        // evaluated again for the end read 1e-16 past the anchor's
+        // recorded reach (a cylinder x cone record end 1.14e-6 off its
+        // vertex left the vertex at the bare tolerance and the shell open).
+        if d > cap * (1.0 + 1e-6) {
             continue;
         }
         // With the reach's rounding allowance (`linear_reach`): a

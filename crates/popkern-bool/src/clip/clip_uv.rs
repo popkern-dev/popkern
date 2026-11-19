@@ -348,18 +348,24 @@ pub(super) fn uv_clip_one_face(
             let (t_min, t_max) = curve_uv.parameter_range();
             let span = (t_max - t_min).max(1e-12);
             let inset = span * 1e-3;
-            let start_in = super::clip_seam_inside::point_inside_face_uv_seam_aware(
-                brep,
-                face,
-                curve_uv.point_at(t_min + inset),
-                &brep.tolerance,
-            );
-            let end_in = super::clip_seam_inside::point_inside_face_uv_seam_aware(
-                brep,
-                face,
-                curve_uv.point_at(t_max - inset),
-                &brep.tolerance,
-            );
+            // The seam-aware test reads the boundary as a coarse polygon
+            // (eight samples a pcurve): inside a disc of radius 1.2 its
+            // octagon's sides pass 1.11 from the centre, and a cylinder
+            // cap's line record ending at radius 1.19 read both ends out
+            // and was dropped (the generated corpus's cylinder x cylinder
+            // crossings). The dense banded verdict decides away from the
+            // boundary; a point within the band keeps the coarse one.
+            let band = uv_boundary_band(brep, curve_uv);
+            let end_inside = |q| {
+                super::clip_seam_inside::point_inside_face_uv_seam_aware(
+                    brep,
+                    face,
+                    q,
+                    &brep.tolerance,
+                ) || super::clip_uv_banded::banded_inside(brep, face, q, band) == Some(true)
+            };
+            let start_in = end_inside(curve_uv.point_at(t_min + inset));
+            let end_in = end_inside(curve_uv.point_at(t_max - inset));
             if trace {
                 use popkern_core::geometry::curve::CurveEval as _;
                 let p0 = curve_uv.point_at(t_min + inset);
@@ -463,7 +469,8 @@ pub(super) fn uv_clip_one_face(
                     );
                     if (t_last - t_first).abs() < span * 1e-6 || clustered {
                         let inset = span * 1e-3;
-                        let banded_inside = |q| banded_inside(brep, face, q, band);
+                        let banded_inside =
+                            |q| super::clip_uv_banded::banded_inside(brep, face, q, band);
                         let start_in = banded_inside(curve_uv.point_at(t_min + inset));
                         let end_in = banded_inside(curve_uv.point_at(t_max - inset));
                         if trace {
@@ -537,42 +544,6 @@ pub(super) fn uv_clip_one_face(
     }
 }
 
-/// Containment of `q` decided away from the face's uv boundary: `None`
-/// when `q` lies within `band` of the boundary (an on-boundary verdict
-/// is a coin flip), else the dense inside test.
-fn banded_inside(
-    brep: &BRep,
-    face: FaceHandle,
-    q: popkern_core::geometry::Point3,
-    band: f64,
-) -> Option<bool> {
-    let boundary_ring = crate::clip::face_uv_boundary(brep, face);
-    let mut best = f64::INFINITY;
-    for (_, pc) in boundary_ring.iter().flatten() {
-        let (a, b) = pc.parameter_range();
-        if !(a.is_finite() && b.is_finite()) {
-            continue;
-        }
-        for i in 0..=64 {
-            let t = a + (b - a) * i as f64 / 64.0;
-            let s = pc.point_at(t);
-            best = best.min(((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt());
-        }
-    }
-    if best < band {
-        return None;
-    }
-    Some(
-        crate::split_inner_loop::point_inside_face_region_uv_with_density(
-            brep,
-            face,
-            q,
-            &brep.tolerance,
-            64,
-        ),
-    )
-}
-
 /// An OPEN record's crossing hull `[t_enter, t_exit]` is kept on the
 /// premise that the span between two boundary crossings runs inside
 /// the face. That premise fails when the crossings are the record's
@@ -623,7 +594,7 @@ fn hull_decisively_outside(
     }
     [0.25, 0.5, 0.75].iter().all(|f| {
         let q = curve_uv.point_at(t_enter + (t_exit - t_enter) * f);
-        banded_inside(brep, face, q, band) == Some(false)
+        super::clip_uv_banded::banded_inside(brep, face, q, band) == Some(false)
     })
 }
 
@@ -647,7 +618,7 @@ fn inside_end_windows(
         b - a > span * 1e-6
             && [0.25, 0.5, 0.75].iter().all(|f| {
                 let q = curve_uv.point_at(a + (b - a) * f);
-                banded_inside(brep, face, q, band) == Some(true)
+                super::clip_uv_banded::banded_inside(brep, face, q, band) == Some(true)
             })
     };
     let mut out = Vec::new();

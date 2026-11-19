@@ -142,6 +142,20 @@ pub(super) fn refine_record_junction_endpoints(
             if gap <= 1.0e-10 {
                 continue; // already exact
             }
+            // An end already on either face's boundary, in space, is a
+            // junction the clip found exactly: the nearest chart iso-line
+            // is no better a pin. A plane has no chart cell, so its
+            // boundary was never a candidate, and a box-edge end was
+            // dragged 3.2e-2 along the record onto a torus patch's
+            // iso-line past the box face (gaps in two charts' units are
+            // not comparable): the box face's walk never split along the
+            // record (the generated corpus's box x torus crossings).
+            let reach = tolerance.linear_reach();
+            if a.point_near_face_boundary(face_a, &p, reach)
+                || b.point_near_face_boundary(face_b, &p, reach)
+            {
+                continue;
+            }
             let Some((u1r, v1r, u2r, v2r, refined)) = refine_boundary_crossing(
                 surf_a, uv1.x, uv1.y, surf_b, uv2.x, uv2.y, pin, tolerance,
             ) else {

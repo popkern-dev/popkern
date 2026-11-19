@@ -152,16 +152,57 @@ pub(super) fn case_oblique(
             .find(|s| s.is_finite() && *s > 0.0 && *s < 1.0)
     };
 
-    use std::f64::consts::FRAC_PI_2;
-    let mut control_points: Vec<Point3> = Vec::with_capacity(9);
-    let mut weights: Vec<f64> = Vec::with_capacity(9);
+    // Each arc between cone angles u0 and u2 is the rational quadratic
+    // inside its tangent triangle, the short way round the section from
+    // p0 to p2: valid only while the section's tangent turns under a half
+    // turn over it. A near-parabolic ellipse turns most of a turn round
+    // its far end within one quarter of cone angle, and its quarter there
+    // came out as the complementary arc, retracing the next one (a box
+    // face's edge crossed the record twice at one point and the face
+    // dropped it: the generated corpus's box x cone crossings). The
+    // quarters are halved until every arc turns under a quarter turn;
+    // the cardinal phase (knot k/4 at cone angle k·π/2) is kept.
+    let in_plane = |t: Vec3| (t.dot(&e1), t.dot(&e2));
+    // Accumulated over substeps: the angle between the end tangents
+    // alone wraps (three quarters of a turn reads as one).
+    let turn = |u0: f64, u2: f64| {
+        const SUBSTEPS: u32 = 16;
+        (0..SUBSTEPS)
+            .map(|i| {
+                let at = |j: u32| u0 + (u2 - u0) * f64::from(j) / f64::from(SUBSTEPS);
+                let (a0, b0) = in_plane(tang(at(i)));
+                let (a2, b2) = in_plane(tang(at(i + 1)));
+                (a0 * b2 - b0 * a2).patan2(a0 * a2 + b0 * b2).abs()
+            })
+            .sum::<f64>()
+    };
+    let mut per_quarter = 1u32;
+    while per_quarter < 64 {
+        let n = 4 * per_quarter;
+        let step = std::f64::consts::TAU / f64::from(n);
+        let worst = (0..n)
+            .map(|k| turn(f64::from(k) * step, f64::from(k + 1) * step))
+            .fold(0.0_f64, f64::max);
+        if worst < std::f64::consts::FRAC_PI_2 {
+            break;
+        }
+        per_quarter *= 2;
+    }
+    let arcs = 4 * per_quarter;
+    let step = std::f64::consts::TAU / f64::from(arcs);
+    let mut control_points: Vec<Point3> = Vec::with_capacity(2 * arcs as usize + 1);
+    let mut weights: Vec<f64> = Vec::with_capacity(2 * arcs as usize + 1);
     control_points.push(pt(0.0));
     weights.push(1.0);
-    for k in 0..4u32 {
-        let u0 = f64::from(k) * FRAC_PI_2;
-        let u2 = u0 + FRAC_PI_2;
+    for k in 0..arcs {
+        let u0 = f64::from(k) * step;
+        let u2 = u0 + step;
         let p0 = pt(u0);
-        let p2 = if k == 3 { control_points[0] } else { pt(u2) };
+        let p2 = if k + 1 == arcs {
+            control_points[0]
+        } else {
+            pt(u2)
+        };
         let t0 = tang(u0);
         let t2 = tang(u2);
         // Tangent-line intersection in the cutting plane.
@@ -171,7 +212,7 @@ pub(super) fn case_oblique(
         let (dx2, dy2) = (t2.dot(&e1), t2.dot(&e2));
         let det = dx0 * (-dy2) - (-dx2) * dy0;
         if det.abs() < 1.0e-14 {
-            // Degenerate quarter (near-parabolic): let marching serve it.
+            // Degenerate arc (near-parabolic): let marching serve it.
             return None;
         }
         let rhs = (x2 - x0, y2 - y0);
@@ -189,12 +230,15 @@ pub(super) fn case_oblique(
         control_points.push(p2);
         weights.push(1.0);
     }
-
+    let mut knots = vec![0.0; 3];
+    for k in 1..arcs {
+        let at = f64::from(k) / f64::from(arcs);
+        knots.extend([at, at]);
+    }
+    knots.extend([1.0; 3]);
     let curve_3d = NurbsCurve {
         degree: 2,
-        knots: vec![
-            0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
-        ],
+        knots,
         control_points,
         weights,
     };
@@ -230,3 +274,7 @@ pub(super) fn case_oblique(
         is_closed: true,
     })])
 }
+
+#[cfg(test)]
+#[path = "plane_cone_oblique_tests.rs"]
+mod tests;

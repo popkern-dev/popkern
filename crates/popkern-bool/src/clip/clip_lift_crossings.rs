@@ -188,11 +188,18 @@ pub(super) fn boundary_leaves_loop_window(
 ///   [−0.002, 6.281] against a cube-wall record on [5.83, 6.73], which
 ///   met the band's rim only on its k = −1 lift);
 /// - a record lying ENTIRELY outside the window (a cylinder wall on
-///   [−0.89, 5.39] against a cube-wall line at u = 5.5).
+///   [−0.89, 5.39] against a cube-wall line at u = 5.5);
+/// - an OPEN record straddling the moved seam (a cylinder wall on
+///   [2.31, 8.59] against a sphere record on [0, 6.03] dipping under the
+///   wall's top edge on both branches: the plain pass found one of its
+///   two crossings and dropped the record as outside, and the wall's
+///   second branch of the intersection went missing; the generated
+///   corpus's cylinder x sphere crossings).
 ///
-/// An OPEN record straddling a seam is the ±π dance's tuned class:
-/// lifting it added phantom crossings at an equal-radius tee's
-/// tangential singular points, and the union stranded record sides.
+/// An open straddling record spanning under half a period stays the ±π
+/// dance's: lifting it added phantom crossings at an equal-radius tee's
+/// tangential singular points, and on a cone dimple turned 0.7 rad split
+/// a shell in two.
 pub(super) fn query_leaves_wrapping_window(
     boundary: &[(HalfEdgeHandle, NurbsCurve)],
     curve_uv: &NurbsCurve,
@@ -215,7 +222,11 @@ pub(super) fn query_leaves_wrapping_window(
     let closed = curve_uv.point_at(t0).distance_to(&curve_uv.point_at(t1)) < 1e-5 * period;
     let straddles = q_lo < b_lo - gate || q_hi > b_hi + gate;
     let outside = q_lo > b_hi + gate || q_hi < b_lo - gate;
-    (closed && straddles) || outside
+    // An open record straddling the seam is the ±π dance's while it
+    // spans under half a period (shifted by half a period it lies on one
+    // branch); past that no shift puts it on one branch.
+    let wide = q_hi - q_lo > 0.5 * period;
+    (straddles && (closed || wide)) || outside
 }
 
 fn boundary_u_range(boundary: &[(HalfEdgeHandle, NurbsCurve)]) -> (f64, f64) {

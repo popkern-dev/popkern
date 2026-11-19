@@ -150,7 +150,7 @@ pub struct Outcome {
     pub volume: Option<f64>,
 }
 
-pub(super) fn run(
+pub fn run(
     placed: &Placed,
     op: Op,
     policy: NonManifoldPolicy,

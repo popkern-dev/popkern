@@ -32,6 +32,7 @@ mod clip_seam_inside;
 mod clip_seam_shift;
 mod clip_sphere_region;
 mod clip_uv;
+mod clip_uv_banded;
 mod clip_uv_crossings;
 mod clip_windows;
 mod clip_windows_clearance;

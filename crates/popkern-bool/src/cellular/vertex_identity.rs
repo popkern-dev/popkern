@@ -116,7 +116,7 @@ pub(super) fn decide(
             Vec::new()
         },
         ends: Some(ends),
-        reaches: table.vertex_reaches(),
+        reaches: table.vertex_reaches(&records),
         hits,
     };
     (records, identity)

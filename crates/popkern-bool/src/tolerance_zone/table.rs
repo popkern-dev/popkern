@@ -282,15 +282,40 @@ impl VertexTable {
     }
 
     /// Each vertex the resolution decided: its group's anchor and the
-    /// tolerance it grew to (the reach its members lie within). Empty
-    /// when the resolution declined.
-    pub(crate) fn vertex_reaches(&self) -> Vec<(Point3, f64)> {
+    /// tolerance it grew to (the reach its members lie within), widened to
+    /// the feet of the records split at its members. A candidate lies on
+    /// a record's interior within its radius, the precise reach and the
+    /// record's fit deviation, and the record is split at its foot: the
+    /// piece's end lies that far from the vertex at the anchor (a cylinder
+    /// x cone record split at a seam hit 1.14e-6 beside it, the shell read
+    /// open against the bare tolerance; the generated corpus's cylinder x
+    /// cone crossings). Empty when the resolution declined.
+    pub(crate) fn vertex_reaches(&self, records: &[IntersectionRecord]) -> Vec<(Point3, f64)> {
+        use popkern_core::geometry::curve::CurveEval as _;
         self.resolution.as_ref().map_or_else(
             |_| Vec::new(),
             |res| {
                 res.groups
                     .iter()
-                    .map(|g| (self.cands[g.anchor].position, g.tolerance))
+                    .map(|g| {
+                        let anchor = self.cands[g.anchor].position;
+                        let feet = g
+                            .members
+                            .iter()
+                            .flat_map(|&m| self.cands[m].incidence.iter())
+                            .filter_map(|i| match i {
+                                Incidence::Record {
+                                    record,
+                                    s,
+                                    end: None,
+                                } => records
+                                    .get(*record)
+                                    .map(|r| r.curve.curve_3d.point_at(*s).distance_to(&anchor)),
+                                _ => None,
+                            })
+                            .fold(0.0_f64, f64::max);
+                        (anchor, g.tolerance.max(feet))
+                    })
                     .collect()
             },
         )
