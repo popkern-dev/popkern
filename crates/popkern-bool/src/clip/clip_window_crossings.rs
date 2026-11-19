@@ -30,6 +30,10 @@ pub(super) fn window_crossings(
     // record's sides against the boundary in uv: a lift's crossings read
     // against the unlifted record took a cone dimple's touches along its
     // edge for crossings), then merged.
+    // The boundary on the branch its edges lie on in space (a pcurve stored
+    // the long way round re-lifted from its edge).
+    let read = surface.map(|s| super::clip_window_boundary::on_its_edges(brep, s, boundary));
+    let boundary = read.as_deref().unwrap_or(boundary);
     let Some((k_min, k_max)) = super::clip_lift_crossings::lift_range(boundary, query, period)
     else {
         return Vec::new();
@@ -90,6 +94,12 @@ pub(super) fn window_crossings(
         (Some(period), period_v),
     ) {
         crossings.insert(0, c);
+    } else if let Some(pair) =
+        closure_pair(brep, boundary, query, &crossings, (Some(period), period_v))
+    {
+        let [first, last] = pair;
+        crossings.insert(0, first);
+        crossings.push(last);
     }
     crossings
 }
@@ -178,4 +188,47 @@ pub(super) fn shadow(
         s.point_at(qa.x, qa.y).distance_to(&s.point_at(qb.x, qb.y))
     };
     shadow_compare(face, query, (production, &window), &gap);
+}
+
+/// The closure pair of a closed record whose closure point lies on the
+/// boundary and no crossing found anywhere (the window's per-lift filters
+/// read a record meeting the boundary at its closure alone as a touch):
+/// one crossing at each end of the record's range, on the boundary edge
+/// the closure lies on. The clip's arms read this pair as the record kept
+/// whole between its ends, as they read the plain pass's two reports at
+/// the closure. `None` when any crossing was found, the record is open,
+/// or its closure is off the boundary.
+fn closure_pair(
+    brep: &BRep,
+    boundary: &[(HalfEdgeHandle, NurbsCurve)],
+    curve_uv: &NurbsCurve,
+    crossings: &[UvCrossing],
+    periods: (Option<f64>, Option<f64>),
+) -> Option<[UvCrossing; 2]> {
+    // Only a record meeting the boundary at its closure alone: one that
+    // crosses or rides the boundary elsewhere is windowed by those
+    // crossings (a slot collar's rim riding its edge across the closure
+    // took a spurious pair there).
+    if !crossings.is_empty() {
+        return None;
+    }
+    let (_, t1) = curve_uv.parameter_range();
+    // The closure's crossing as the odd-count rule finds it (closed in the
+    // chart, its point on a non-seam boundary edge within the band).
+    let one = super::clip_lift_crossings::closure_crossing(
+        brep,
+        boundary,
+        curve_uv,
+        &[UvCrossing {
+            t_curve: f64::NAN,
+            boundary_he: HalfEdgeHandle::default(),
+            t_boundary: f64::NAN,
+        }],
+        periods,
+    )?;
+    let end = UvCrossing {
+        t_curve: t1,
+        ..one.clone()
+    };
+    Some([one, end])
 }

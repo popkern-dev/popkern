@@ -315,85 +315,10 @@ fn shift_curve_u_preserves_degree_and_knots() {
     assert_eq!(shifted.weights, curve.weights);
 }
 
-// ── find_uv_crossings with seam-crossing boundary ───────────────────────
-
-/// Helper: build a quad face and assign pcurves to its half-edges.
-fn build_face_with_pcurves(
-    uv_corners: [(Point3, Point3); 4],
-) -> (BRep, popkern_core::topology::FaceHandle) {
-    let tol = Tolerance::default();
-    let mut brep = BRep::new(tol);
-    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).expect("mvfs");
-    let mev1 = brep
-        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
-        .expect("mev1");
-    let mev2 = brep
-        .mev(mev1.half_edge_twin, Point3::new(1.0, 1.0, 0.0))
-        .expect("mev2");
-    let mev3 = brep
-        .mev(mev2.half_edge_twin, Point3::new(0.0, 1.0, 0.0))
-        .expect("mev3");
-    let mef = brep.mef(mev3.half_edge_twin, mev1.half_edge).expect("mef");
-
-    let face_data = &brep.faces[mef.face];
-    let loop_data = brep.loops.get(face_data.outer_loop).expect("loop");
-    let start = loop_data.half_edge;
-    let mut cursor = start;
-    for (i, (p0, p1)) in uv_corners.iter().enumerate() {
-        let pcurve = NurbsCurve {
-            degree: 1,
-            knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![*p0, *p1],
-            weights: vec![1.0, 1.0],
-        };
-        brep.half_edges[cursor].pcurve = Some(pcurve.into());
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start && i < 3 {
-            break;
-        }
-    }
-    (brep, mef.face)
-}
-
-#[test]
-fn find_uv_crossings_near_seam_finds_crossings() {
-    // Boundary spans the seam: u=[5.5, 0.8]. The seam-shift dance
-    // is gated on the face carrying a PERIODIC surface (the raw
-    // u-value thresholds fired spuriously on planar faces whose UV
-    // coordinates are plain lengths), so this fixture must attach
-    // the cylinder its pcurves imply.
-    let (mut brep, face) = build_face_with_pcurves([
-        (Point3::new(5.5, 0.0, 0.0), Point3::new(0.8, 0.0, 0.0)),
-        (Point3::new(0.8, 0.0, 0.0), Point3::new(0.8, 1.0, 0.0)),
-        (Point3::new(0.8, 1.0, 0.0), Point3::new(5.5, 1.0, 0.0)),
-        (Point3::new(5.5, 1.0, 0.0), Point3::new(5.5, 0.0, 0.0)),
-    ]);
-    brep.faces[face].surface = Some(popkern_core::geometry::SurfaceOnFace {
-        geometry: popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            axis: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        },
-        orientation: true,
-    });
-
-    // Curve near u=0.1 crossing the face in v direction.
-    let curve_uv = NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(0.1, -0.5, 0.0), Point3::new(0.1, 1.5, 0.0)],
-        weights: vec![1.0, 1.0],
-    };
-
-    let crossings = super::find_uv_crossings(&brep, face, &curve_uv, &tol());
-    assert!(crossings.is_some(), "should produce crossings");
-    let crossings = crossings.expect("verified");
-    assert!(
-        crossings.len() >= 2,
-        "curve crossing seam-spanning face should have >= 2 crossings, got {}",
-        crossings.len()
-    );
-}
+// find_uv_crossings with a seam-crossing boundary: clip_uv_seam_tests.rs.
+#[path = "clip_uv_seam_tests.rs"]
+mod seam;
+pub(super) use seam::build_face_with_pcurves;
 
 #[test]
 fn find_uv_crossings_far_from_seam_unaffected() {

@@ -34,6 +34,7 @@ mod clip_sphere_region;
 mod clip_uv;
 mod clip_uv_banded;
 mod clip_uv_crossings;
+mod clip_window_boundary;
 mod clip_window_crossings;
 mod clip_windows;
 mod clip_windows_clearance;

@@ -103,6 +103,15 @@ pub enum PolarFanCapError {
         /// The constructor's reason.
         detail: String,
     },
+    /// A wedge's hub row is not the smooth collapsed row the fan builds
+    /// (the chart service's measurement disagrees with the statement).
+    #[error("polar fan cap: wedge {wedge} hub row: {detail}")]
+    HubRow {
+        /// Wedge index in ring order.
+        wedge: usize,
+        /// The mismatch, with the measured rows.
+        detail: String,
+    },
     /// The measured cap↔wall G1 exceeded the gate mid-side.
     #[error("polar fan cap: side {side} measured cap-wall G1 {worst:.3e} exceeds {gate:.1e}")]
     WallG1Exceeded {
@@ -170,6 +179,22 @@ pub fn polar_fan_g1_cap(
         })
         .collect();
 
+    // Each wedge collapses its u = 1 edge onto the hub, a smooth point of
+    // the cap: stated through the chart service (chart-service.md §6c), so
+    // a wedge whose hub is not that row declines here with the
+    // measurement rather than being read wrong by every consumer.
+    for (wedge, surface) in surfaces.iter().enumerate() {
+        crate::geometry::chart::authored_row(
+            surface,
+            &brep.tolerance,
+            (crate::geometry::chart::Axis::U, 1.0),
+            Some(crate::geometry::chart::SingularKind::Chart),
+        )
+        .map_err(|e| PolarFanCapError::HubRow {
+            wedge,
+            detail: e.to_string(),
+        })?;
+    }
     // Gate 1 — cap↔wall mid-band G1 per rim side (the u = 0 edge of
     // wedge k, walked by v).
     for (side, surface) in surfaces.iter().enumerate() {

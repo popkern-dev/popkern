@@ -134,6 +134,27 @@ pub(crate) fn construct_inner_apex_patch_prototype(
         ));
     }
 
+    // The patch's v = 1 row collapses onto the corner's apex: stated
+    // through the chart service (chart-service.md §6c), of whichever kind
+    // the patch's geometry gives (a sector of the corner meets it), so a
+    // patch whose apex row is not collapsed declines here.
+    if popkern_core::geometry::chart::authored_row(
+        &popkern_core::geometry::surface::SurfaceGeometry::Nurbs(surface.clone()),
+        &popkern_core::tolerance::Tolerance::default().with_linear(tolerance),
+        (popkern_core::geometry::chart::Axis::V, 1.0),
+        None,
+    )
+    .is_err()
+    {
+        return Err(ExactBoundaryMultiPatchDiagnostic::apex_position(
+            sector,
+            strip,
+            interface_inventory,
+            f64::INFINITY,
+            1.0,
+            tolerance,
+        ));
+    }
     Ok(ExactBoundaryInnerApexPatchPrototype {
         patch_name: interface.inner_patch_name.clone(),
         interface_name: interface.interface_name.clone(),

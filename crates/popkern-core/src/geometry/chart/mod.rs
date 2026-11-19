@@ -9,6 +9,7 @@
 //! continuity seams between faces (blend certification, unrelated).
 
 pub mod atlas;
+pub mod authored;
 pub mod charted;
 pub mod descriptor;
 pub mod interpolate;
@@ -18,6 +19,7 @@ pub mod regular;
 pub mod singularity;
 pub mod wrap;
 
+pub use authored::{AuthoredRowMismatch, authored_row};
 pub use charted::ChartedSurface;
 pub use descriptor::{
     Axis, ChartDescriptor, ChartPeriod, Continuity, PeriodKind, SingularKind, SingularRow,

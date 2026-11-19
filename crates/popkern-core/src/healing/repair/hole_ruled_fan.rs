@@ -104,8 +104,23 @@ pub fn ruled_fan_cap(
         };
         let spoke_at_rim_start = spoke(start)?;
         let spoke_at_rim_end = spoke(end)?;
+        let surface = SurfaceGeometry::Nurbs(ruled_to_hub(&rim, hub));
+        // The sector's v = 0 row collapses onto the hub, smooth on a flat
+        // fan and an apex otherwise: stated through the chart service
+        // (chart-service.md §6c), so a sector that is not that row declines
+        // here with the measurement.
+        crate::geometry::chart::authored_row(
+            &surface,
+            &brep.tolerance,
+            (crate::geometry::chart::Axis::V, 0.0),
+            None,
+        )
+        .map_err(|e| HoleCommitError::UnsupportedSurfaceForm {
+            sector: index,
+            detail: format!("hub row: {e}"),
+        })?;
         sectors.push(HoleCapSectorGeometry {
-            surface: SurfaceGeometry::Nurbs(ruled_to_hub(&rim, hub)),
+            surface,
             rim_start: start,
             rim_end: end,
             spoke_at_rim_start,
