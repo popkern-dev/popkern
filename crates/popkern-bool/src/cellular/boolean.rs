@@ -54,6 +54,7 @@ pub(crate) fn cellular_graph_merge(
 ) -> Result<(BRep, crate::serve_region::Carried), BoolDiagnostics> {
     let snap_tol = tolerance.linear_reach();
     let mut graph = IntersectionGraph::new();
+    graph.linear = tolerance.linear();
 
     // Process edge-face hits.
     if popkern_core::trace::trace_enabled("boolean") {

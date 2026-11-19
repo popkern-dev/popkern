@@ -72,7 +72,10 @@ fn a_profile_touching_the_axis_between_its_poles_declines() {
         [0.0, 0.0],
     ]);
     let err = turn(&bowtie, FRAC_PI_2).expect_err("declines");
-    assert!(err.to_string().contains("between its ends on the axis"), "{err}");
+    assert!(
+        err.to_string().contains("between its ends on the axis"),
+        "{err}"
+    );
 }
 
 /// Two separate runs on the axis decline.

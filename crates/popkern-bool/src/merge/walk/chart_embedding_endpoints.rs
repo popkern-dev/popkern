@@ -52,7 +52,7 @@ pub(crate) fn endpoint_projection(
 /// (PK-1176). The node is the meeting's authority: every run there
 /// takes its azimuth.
 pub(crate) fn snap_end_azimuths(
-    surface: &SurfaceGeometry,
+    (surface, linear): (&SurfaceGeometry, f64),
     uv: &mut [(f64, f64)],
     ends: (Point3, Point3),
     refined: (Option<Uv>, Option<Uv>),
@@ -64,7 +64,7 @@ pub(crate) fn snap_end_azimuths(
     ) {
         for (end, node) in [(0, ends.0), (n - 1, ends.1)] {
             let (u, v) = uv[end];
-            if super::chart_poles::row_collapses(surface, u, v) {
+            if super::chart_poles::row_collapses(surface, linear, u, v) {
                 continue;
             }
             let band = 1e-4 * surface.partial_u(u, v).length().max(1e-12) * period;
@@ -76,5 +76,5 @@ pub(crate) fn snap_end_azimuths(
             }
         }
     }
-    super::chart_poles::snap_pole_end_azimuths(surface, uv, refined.0, refined.1);
+    super::chart_poles::snap_singular_end_azimuths((surface, linear), uv, refined.0, refined.1);
 }

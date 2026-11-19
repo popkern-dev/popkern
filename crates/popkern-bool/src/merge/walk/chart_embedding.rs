@@ -294,7 +294,7 @@ pub(crate) fn build_embedding(
         std::mem::swap(&mut refined_first, &mut refined_last);
     }
     super::chart_embedding_endpoints::snap_end_azimuths(
-        surface,
+        (surface, graph.linear),
         &mut uv,
         (p_start, p_end),
         (refined_first, refined_last),

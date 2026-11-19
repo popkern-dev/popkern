@@ -9,26 +9,30 @@
 //! folds σ with the pole side (rotation sense reverses between the
 //! two poles).
 
+use popkern_core::geometry::chart::{ChartDescriptor, ops};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
 use super::chart_subdivision::FaceChartSubdivision;
 use crate::merge::graph::IntersectionGraph;
 
-/// Whether the chart can carry a collapsed row (see `detect_pole_nodes`).
-fn pole_shaped(surface: &SurfaceGeometry) -> bool {
-    matches!(
-        surface,
-        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cone { .. } | SurfaceGeometry::Nurbs(_)
-    )
+/// Whether the chart has a singular row, from the chart service.
+fn singular_rows_present(surface: &SurfaceGeometry, linear: f64) -> bool {
+    let tolerance = popkern_core::tolerance::Tolerance::default().with_linear(linear);
+    !ChartDescriptor::of(surface, &tolerance)
+        .singular_rows
+        .is_empty()
 }
 
-/// Whether the chart's u-row through `(u, v)` collapses to one point
-/// (a sphere pole, cone apex or a revolved profile on its axis).
-pub(crate) fn row_collapses(surface: &SurfaceGeometry, u: f64, v: f64) -> bool {
-    let p0 = surface.point_at(u, v);
-    let p1 = surface.point_at(u + 1e-4, v);
-    let scale = 1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
-    p0.distance_to(&p1) < 1e-11 * scale
+/// Whether the chart's u-row through `(u, v)` is a singular row (a sphere
+/// pole, cone apex or a revolved profile on its axis), asked of the chart
+/// service in space: its image within `linear` of a singular row's point,
+/// the row collapsing u. It compared two images 1e-4 apart in u at 1e-11
+/// of an absolute scale.
+pub(crate) fn row_collapses(surface: &SurfaceGeometry, linear: f64, u: f64, v: f64) -> bool {
+    let tolerance = popkern_core::tolerance::Tolerance::default().with_linear(linear);
+    let descriptor = ChartDescriptor::of(surface, &tolerance);
+    ops::singular_point_near(&descriptor, &surface.point_at(u, v), linear)
+        .is_some_and(|(_, collapses_u)| collapses_u)
 }
 
 /// Give a run's pole endpoints their arrival azimuth (PK-877).
@@ -54,31 +58,31 @@ pub(crate) fn row_collapses(surface: &SurfaceGeometry, u: f64, v: f64) -> bool {
 /// rebalance balanced the rim node by moving the closed rim ring's
 /// start a period, against its own embedding. The δ azimuth is folded
 /// onto the neighbouring off-pole sample's period branch.
-pub(crate) fn snap_pole_end_azimuths(
-    surface: &SurfaceGeometry,
+pub(crate) fn snap_singular_end_azimuths(
+    (surface, linear): (&SurfaceGeometry, f64),
     uv: &mut [(f64, f64)],
     refined_first: Option<(f64, f64)>,
     refined_last: Option<(f64, f64)>,
 ) {
     let n = uv.len();
-    if n < 2 || !pole_shaped(surface) {
+    if n < 2 || !singular_rows_present(surface, linear) {
         return;
     }
-    let off_pole = |q: &(f64, f64)| !row_collapses(surface, q.0, q.1);
+    let off_row = |q: &(f64, f64)| !row_collapses(surface, linear, q.0, q.1);
     let period = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface).0;
     for (end, inward, refined) in [(0, true, refined_first), (n - 1, false, refined_last)] {
-        if off_pole(&uv[end]) {
+        if off_row(&uv[end]) {
             continue;
         }
         // The nearest sample off the pole along the run: on a seam stub
         // 1e-5 long the next sample can sit on the pole row too (a rod's
         // rim crossing a ball's seam that close to its pole, PK-1176).
         let neighbour = if inward {
-            uv[1..].iter().copied().find(off_pole)
+            uv[1..].iter().copied().find(off_row)
         } else {
-            uv[..n - 1].iter().rev().copied().find(off_pole)
+            uv[..n - 1].iter().rev().copied().find(off_row)
         };
-        let toward = match (refined.filter(off_pole), neighbour, period) {
+        let toward = match (refined.filter(off_row), neighbour, period) {
             (Some((u, v)), Some((u_in, _)), Some(p)) if p > 0.0 => {
                 Some((u + ((u_in - u) / p).round() * p, v))
             }
@@ -99,7 +103,7 @@ pub(crate) fn detect_pole_nodes(
     sub: &mut FaceChartSubdivision,
     u_period: Option<f64>,
 ) {
-    if u_period.is_some() && pole_shaped(surface) {
+    if u_period.is_some() && singular_rows_present(surface, graph.linear) {
         // NURBS included since PK-456: a u-closed surface of
         // revolution whose profile touches the axis collapses a whole
         // v-border row to one point — the same pole shape as the
@@ -137,7 +141,7 @@ pub(crate) fn detect_pole_nodes(
                         p0.distance_to(&surface.point_at(u + 1e-4, v))
                     );
                 }
-                if row_collapses(surface, u, v) {
+                if row_collapses(surface, graph.linear, u, v) {
                     // Pole side decides the rotation sense; σ is not
                     // yet calibrated here, so store the side and fold
                     // σ in at the end of the build.
@@ -151,7 +155,7 @@ pub(crate) fn detect_pole_nodes(
 
 #[cfg(test)]
 mod tests {
-    use super::snap_pole_end_azimuths;
+    use super::snap_singular_end_azimuths;
     use popkern_core::geometry::surface::SurfaceGeometry;
     use popkern_core::geometry::{Point3, Vec3};
     use std::f64::consts::TAU;
@@ -169,19 +173,19 @@ mod tests {
         // The upright drilled dome's seam piece (PK-691): samples on
         // the u = 2π meridian, the δ-sample projected to u = 0.
         let mut uv = vec![(0.0, 0.0), (TAU, 0.018), (TAU, 0.036)];
-        snap_pole_end_azimuths(&sphere(), &mut uv, Some((0.0, 0.001)), None);
+        snap_singular_end_azimuths((&sphere(), 1e-6), &mut uv, Some((0.0, 0.001)), None);
         assert_eq!(uv[0].0, TAU);
         // The arrival end too, and a δ-sample already on the branch
         // keeps its own azimuth.
         let mut uv = vec![(1.0, 0.036), (1.0, 0.018), (-3.0, 0.0)];
-        snap_pole_end_azimuths(&sphere(), &mut uv, None, Some((1.01, 0.001)));
+        snap_singular_end_azimuths((&sphere(), 1e-6), &mut uv, None, Some((1.01, 0.001)));
         assert_eq!(uv[2].0, 1.01);
     }
 
     #[test]
     fn a_pole_end_without_a_delta_sample_takes_its_neighbours_azimuth() {
         let mut uv = vec![(0.0, 0.0), (TAU, 0.018), (TAU, 0.036)];
-        snap_pole_end_azimuths(&sphere(), &mut uv, None, None);
+        snap_singular_end_azimuths((&sphere(), 1e-6), &mut uv, None, None);
         assert_eq!(uv[0].0, TAU);
     }
 }

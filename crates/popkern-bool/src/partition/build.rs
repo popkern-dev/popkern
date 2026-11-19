@@ -69,6 +69,7 @@ pub(super) fn build(
         .map(|b| crate::intersect::compute_face_aabbs(b))
         .collect();
     let mut graph = IntersectionGraph::new();
+    graph.linear = tolerance.linear();
     for (i, body) in bodies.iter().enumerate() {
         crate::merge::graph_build::insert_operand_topology_scoped(
             &mut graph,

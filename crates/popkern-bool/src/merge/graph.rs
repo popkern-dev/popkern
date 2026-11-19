@@ -108,6 +108,11 @@ pub(crate) struct GraphHalfEdge {
 /// reconstruction.
 #[derive(Debug)]
 pub(crate) struct IntersectionGraph {
+    /// The boolean's linear tolerance, read by the chart service queries
+    /// the walk asks of its faces (a row singular within it). Set by the
+    /// operation building the graph; a test-built graph carries the
+    /// default model tolerance.
+    pub linear: f64,
     /// All nodes (vertices) in the graph.
     pub nodes: Vec<GraphNode>,
     /// All directed half-edges in the graph.
@@ -155,6 +160,7 @@ impl IntersectionGraph {
     /// Create an empty intersection graph.
     pub fn new() -> Self {
         Self {
+            linear: popkern_core::tolerance::Tolerance::default().linear(),
             nodes: Vec::new(),
             half_edges: Vec::new(),
             face_edges: BTreeMap::new(),
