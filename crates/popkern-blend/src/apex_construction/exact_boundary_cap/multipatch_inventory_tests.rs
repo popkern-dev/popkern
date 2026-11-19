@@ -32,7 +32,7 @@ fn inventory_from_sector_preserves_source_ownership_without_brep_mutation() {
             .inner_patch
             .as_ref()
             .map(|patch| patch.patch_name.as_str()),
-        Some("direct_apex.cap_sector.0.inner_pole_patch")
+        Some("direct_apex.cap_sector.0.inner_apex_patch")
     );
     assert_eq!(
         strip.edge,

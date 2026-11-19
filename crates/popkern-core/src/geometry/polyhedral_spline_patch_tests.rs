@@ -95,10 +95,10 @@ fn corners_interpolate_the_control_net() {
 }
 
 #[test]
-fn pole_is_the_zero_corner() {
+fn hub_is_the_zero_corner() {
     let patch = sample_patch();
-    assert!(patch.pole().distance_to(&patch.net[0][0]) < 1e-15);
-    assert!(patch.pole().distance_to(&patch.point_at(0.0, 0.0)) < 1e-12);
+    assert!(patch.hub().distance_to(&patch.net[0][0]) < 1e-15);
+    assert!(patch.hub().distance_to(&patch.point_at(0.0, 0.0)) < 1e-12);
 }
 
 #[test]

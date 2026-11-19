@@ -189,7 +189,7 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
         support_samples: &support_samples,
         support_authority_boundary: (candidate_boundary != boundary.curve)
             .then_some(&candidate_boundary),
-        pole: inner_spokes.pole,
+        apex: inner_spokes.apex,
         budget,
     });
     match attempt.report.outcome {

@@ -5,7 +5,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::{
-    construct_inner_pole_patch_prototype, construct_strip_inner_interface_curve,
+    construct_inner_apex_patch_prototype, construct_strip_inner_interface_curve,
     decline_g0_only_inner_prototype_before_commit, measure_inner_interface_g1,
 };
 use crate::apex_construction::exact_boundary_cap::multipatch::budget::ExactBoundaryMultiPatchBudget;
@@ -136,18 +136,18 @@ fn interface_ownership_mismatch_declines_with_interface_diagnostic() {
 }
 
 #[test]
-fn inner_pole_patch_prototype_connects_interface_curve_and_pole_g0() {
+fn inner_apex_patch_prototype_connects_interface_curve_and_apex_g0() {
     let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
     let interface = interface_for_fixture(&fixture);
-    let pole = Point3::new(0.5, 0.7, 0.0);
+    let apex = Point3::new(0.5, 0.7, 0.0);
 
-    let prototype = construct_inner_pole_patch_prototype(
+    let prototype = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
         &fixture.strip_candidate,
         &interface,
-        pole,
+        apex,
         1.0e-6,
     )
     .expect("inner G0 prototype constructs");
@@ -158,7 +158,7 @@ fn inner_pole_patch_prototype_connects_interface_curve_and_pole_g0() {
     assert_eq!(prototype.surface.knots_u, interface.curve.knots);
     assert_eq!(prototype.surface.degree_v, 2);
     assert!(prototype.max_interface_g0 <= 1.0e-6);
-    assert!(prototype.max_pole_g0 <= 1.0e-6);
+    assert!(prototype.max_apex_g0 <= 1.0e-6);
     assert!(!prototype.interface_g1_validated);
     for parameter in [0.0, 0.5, 1.0] {
         let uv = prototype.interface_pcurve.point_at(parameter);
@@ -169,7 +169,7 @@ fn inner_pole_patch_prototype_connects_interface_curve_and_pole_g0() {
             prototype
                 .surface
                 .point_at(parameter, 1.0)
-                .distance_to(&pole)
+                .distance_to(&apex)
                 <= 1.0e-6
         );
     }
@@ -179,7 +179,7 @@ fn inner_pole_patch_prototype_connects_interface_curve_and_pole_g0() {
 fn g0_only_inner_prototype_declines_before_commit_with_g1_diagnostic() {
     let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
     let interface = interface_for_fixture(&fixture);
-    let prototype = construct_inner_pole_patch_prototype(
+    let prototype = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
@@ -223,11 +223,11 @@ fn g0_only_inner_prototype_declines_before_commit_with_g1_diagnostic() {
 }
 
 #[test]
-fn inner_pole_patch_reports_interface_g0_and_pole_g0_diagnostics() {
+fn inner_apex_patch_reports_interface_g0_and_apex_g0_diagnostics() {
     let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
     let mut interface = interface_for_fixture(&fixture);
     interface.curve.control_points[0].z = f64::NAN;
-    let interface_diag = construct_inner_pole_patch_prototype(
+    let interface_diag = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
@@ -248,7 +248,7 @@ fn inner_pole_patch_reports_interface_g0_and_pole_g0_diagnostics() {
     );
 
     let interface = interface_for_fixture(&fixture);
-    let pole_diag = construct_inner_pole_patch_prototype(
+    let apex_diag = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
@@ -257,15 +257,15 @@ fn inner_pole_patch_reports_interface_g0_and_pole_g0_diagnostics() {
         Point3::new(f64::NAN, 0.7, 0.0),
         1.0e-6,
     )
-    .expect_err("invalid pole declines");
+    .expect_err("invalid apex declines");
 
     assert_eq!(
-        pole_diag.reason,
-        ExactBoundaryMultiPatchDeclineReason::InnerPolePositionUnsatisfied
+        apex_diag.reason,
+        ExactBoundaryMultiPatchDeclineReason::InnerApexPositionUnsatisfied
     );
     assert_eq!(
-        pole_diag.code,
-        "exact_boundary_cap.multipatch.pole_g0_exceeded"
+        apex_diag.code,
+        "exact_boundary_cap.multipatch.apex_g0_exceeded"
     );
 }
 
@@ -273,7 +273,7 @@ fn inner_pole_patch_reports_interface_g0_and_pole_g0_diagnostics() {
 fn interface_g1_measurement_marks_compatible_candidate_validated() {
     let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
     let interface = interface_for_fixture(&fixture);
-    let prototype = construct_inner_pole_patch_prototype(
+    let prototype = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
@@ -303,10 +303,10 @@ fn interface_g1_measurement_marks_compatible_candidate_validated() {
 }
 
 #[test]
-fn interface_g1_measurement_is_decoupled_from_pole_row_height() {
+fn interface_g1_measurement_is_decoupled_from_apex_row_height() {
     let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
     let interface = interface_for_fixture(&fixture);
-    let prototype = construct_inner_pole_patch_prototype(
+    let prototype = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
@@ -326,7 +326,7 @@ fn interface_g1_measurement_is_decoupled_from_pole_row_height() {
         &prototype,
         5.0e-2,
     )
-    .expect("interface G1 row is solved independently from pole height");
+    .expect("interface G1 row is solved independently from apex height");
 
     assert!(measured.interface_g1_validated);
     assert!(
@@ -337,10 +337,10 @@ fn interface_g1_measurement_is_decoupled_from_pole_row_height() {
 }
 
 #[test]
-fn interface_g1_measurement_leaves_endpoints_to_pole_closure() {
+fn interface_g1_measurement_leaves_endpoints_to_apex_closure() {
     let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
     let interface = interface_for_fixture(&fixture);
-    let prototype = construct_inner_pole_patch_prototype(
+    let prototype = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
@@ -349,7 +349,7 @@ fn interface_g1_measurement_leaves_endpoints_to_pole_closure() {
         Point3::new(0.5, 0.7, 1.5),
         1.0e-6,
     )
-    .expect("tilted pole prototype constructs");
+    .expect("tilted apex prototype constructs");
 
     assert!(
         measure_inner_interface_g1(
@@ -361,7 +361,7 @@ fn interface_g1_measurement_leaves_endpoints_to_pole_closure() {
             &prototype,
             5.0e-2,
         )
-        .expect("endpoint-only pole closure should not block open interface G1")
+        .expect("endpoint-only apex closure should not block open interface G1")
         .interface_g1_report
         .is_some_and(|report| report.max_interface_g1_deficit <= 5.0e-2)
     );

@@ -1,5 +1,5 @@
-//! Search hints for the PK-255 pole-placement search (see
-//! docs/architecture/exact-boundary-pole-placement.md): the blend-ward
+//! Search hints for the PK-255 apex-placement search (see
+//! docs/architecture/exact-boundary-apex-placement.md): the blend-ward
 //! pull direction and scale, derived from the prepared fillet-end
 //! arcs alone. Each arc spans its strip's end-section plane (three
 //! arc samples give the plane); the OTHER arcs' midpoints give the
@@ -14,8 +14,8 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 const ORIENTATION_CONFIDENCE_FRACTION: f64 = 1.0e-2;
 
 /// `Some((direction, scale))` when at least one plane orientation is
-/// confident; `None` disables the pole search for the corner.
-pub(super) fn pole_search_hints(fillet_arcs: &[&NurbsCurve]) -> Option<(Vec3, f64)> {
+/// confident; `None` disables the apex search for the corner.
+pub(super) fn apex_search_hints(fillet_arcs: &[&NurbsCurve]) -> Option<(Vec3, f64)> {
     let mids: Vec<Point3> = fillet_arcs
         .iter()
         .map(|arc| {

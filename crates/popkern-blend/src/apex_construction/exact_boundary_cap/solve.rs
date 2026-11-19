@@ -221,9 +221,9 @@ fn solve_sector(
     // u = 0, poisoning unit normals along the REAL fillet seam near
     // the corner (measured pyramid4_uniform cap_outer_g1 0.65, all
     // of it chart noise at the collapse — PK-125). The polar-wedge
-    // layout moves the collapse to the POLE (the standard degenerate
-    // quad every kernel uses for sphere-pole class charts): outer
-    // seams are regular everywhere, and the pole singularity is
+    // layout moves the collapse to the APEX (the standard degenerate
+    // quad every kernel uses for sphere-apex class charts): outer
+    // seams are regular everywhere, and the apex singularity is
     // interior and shared by every sector.
     let face_chord = face
         .curve
@@ -236,17 +236,17 @@ fn solve_sector(
     // anchor tangents that give the seam ends their G1.
     let face_spoke =
         spoke_in_basis(&sector.face_inner_spoke.curve, &fillet.curve).unwrap_or_else(|| {
-            line_curve_like(&fillet.curve, sector.face_inner_spoke.anchor, sector.pole())
+            line_curve_like(&fillet.curve, sector.face_inner_spoke.anchor, sector.apex())
         });
     let fillet_spoke = spoke_in_basis(&sector.fillet_inner_spoke.curve, &face.curve)
         .unwrap_or_else(|| {
-            line_curve_like(&face.curve, sector.fillet_inner_spoke.anchor, sector.pole())
+            line_curve_like(&face.curve, sector.fillet_inner_spoke.anchor, sector.apex())
         });
     let (left, top) = if degenerate_face_side {
         (
             spoke_in_basis(&sector.face_inner_spoke.curve, &face.curve)
-                .unwrap_or_else(|| line_curve_like(&face.curve, shared, sector.pole())),
-            line_curve_like(&fillet.curve, sector.pole(), sector.pole()),
+                .unwrap_or_else(|| line_curve_like(&face.curve, shared, sector.apex())),
+            line_curve_like(&fillet.curve, sector.apex(), sector.apex()),
         )
     } else {
         (face.curve.clone(), face_spoke)
@@ -304,13 +304,13 @@ fn solve_sector(
     })
 }
 
-trait SectorPole {
-    fn pole(&self) -> Point3;
+trait SectorApex {
+    fn apex(&self) -> Point3;
 }
 
-impl SectorPole for PreparedExactBoundarySectorBoundary {
-    fn pole(&self) -> Point3 {
-        self.fillet_inner_spoke.pole
+impl SectorApex for PreparedExactBoundarySectorBoundary {
+    fn apex(&self) -> Point3 {
+        self.fillet_inner_spoke.apex
     }
 }
 

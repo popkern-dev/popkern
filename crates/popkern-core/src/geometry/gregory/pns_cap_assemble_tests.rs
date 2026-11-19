@@ -31,7 +31,7 @@ pub(super) fn planar_ring(n: usize, radius: f64) -> Bi2TensorBorderRing {
                 pt(radius * a1.cos(), radius * a1.sin(), 0.0),
                 pt(radius * a2.cos(), radius * a2.sin(), 0.0),
             ],
-            deriv: [pt(0.0, 0.0, -1.0); 3], // inward-pointing (toward pole)
+            deriv: [pt(0.0, 0.0, -1.0); 3], // inward-pointing (toward hub)
         });
     }
     Bi2TensorBorderRing { sectors }
@@ -45,7 +45,7 @@ fn even_valence_assembles_successfully() {
             boundary: planar_ring(n, 1.0),
             beta: BetaReparam::bi4(n),
             sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-            pole: pt(0.0, 0.0, 0.5),
+            hub: pt(0.0, 0.0, 0.5),
             kappa: 3,
         };
         let result = assemble_pns_bi4_cap(&input);
@@ -60,41 +60,41 @@ fn even_valence_assembles_successfully() {
 }
 
 #[test]
-fn pole_from_boundary_gives_centroid_for_symmetric_ring() {
+fn hub_from_boundary_gives_centroid_for_symmetric_ring() {
     // For the planar_ring test fixture with deriv = (0, 0, -1),
     // b^k_{i, 1} = pos[i] + (0, 0, -0.5). Symmetric around the
     // z-axis, so the x, y components average to 0 and the z
     // component averages to -0.5 for both d_1 and (d_2+d_4)/2.
-    // Therefore pole ≈ (0, 0, -0.5) for any e.
+    // Therefore hub ≈ (0, 0, -0.5) for any e.
     let n = 5;
     let ring = planar_ring(n, 1.0);
-    let pole = pole_from_boundary(&ring);
-    assert!(pole.x.abs() < 1e-12, "pole.x = {}", pole.x);
-    assert!(pole.y.abs() < 1e-12, "pole.y = {}", pole.y);
+    let hub = hub_from_boundary(&ring);
+    assert!(hub.x.abs() < 1e-12, "hub.x = {}", hub.x);
+    assert!(hub.y.abs() < 1e-12, "hub.y = {}", hub.y);
     assert!(
-        (pole.z - (-0.5)).abs() < 1e-12,
-        "pole.z = {} (expected -0.5)",
-        pole.z
+        (hub.z - (-0.5)).abs() < 1e-12,
+        "hub.z = {} (expected -0.5)",
+        hub.z
     );
 }
 
 #[test]
-fn pole_from_boundary_feeds_assembly() {
-    // End-to-end: auto-pole + assembly produces a cap consistent
-    // with the derived pole.
+fn hub_from_boundary_feeds_assembly() {
+    // End-to-end: auto-hub + assembly produces a cap consistent
+    // with the derived hub.
     let n = 5;
     let ring = planar_ring(n, 1.5);
-    let pole = pole_from_boundary(&ring);
+    let hub = hub_from_boundary(&ring);
     let input = CapAssembleInput {
         boundary: ring,
         beta: BetaReparam::bi4(n),
         sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-        pole,
+        hub,
         kappa: 3,
     };
-    let result = assemble_pns_bi4_cap(&input).expect("auto-pole assembly should succeed");
+    let result = assemble_pns_bi4_cap(&input).expect("auto-hub assembly should succeed");
     for k in 0..n {
-        assert!(approx_pt(result.patches[k][0][0], pole, 1e-12));
+        assert!(approx_pt(result.patches[k][0][0], hub, 1e-12));
     }
 }
 
@@ -108,7 +108,7 @@ fn scaffold_invalid_valence_errors() {
             boundary: planar_ring(n.max(3), 1.0),
             beta: BetaReparam::bi4(n.max(3)),
             sigma: sigma_center_jet_default(n.max(3)).expect("paper defaults yield a finite σ jet"),
-            pole: pt(0.0, 0.0, 0.5),
+            hub: pt(0.0, 0.0, 0.5),
             kappa: 3,
         };
         // Actually, we pass planar_ring(n) so n must be ≥ 3.
@@ -129,22 +129,22 @@ fn scaffold_invalid_valence_errors() {
 }
 
 #[test]
-fn scaffold_pole_pinned_at_all_sector_origins() {
+fn scaffold_hub_pinned_at_all_sector_origins() {
     let n = 5;
-    let pole = pt(0.1, 0.2, 0.3);
+    let hub = pt(0.1, 0.2, 0.3);
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.0),
         beta: BetaReparam::bi4(n),
         sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-        pole,
+        hub,
         kappa: 3,
     };
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
     assert_eq!(result.patches.len(), n);
     for k in 0..n {
         assert!(
-            approx_pt(result.patches[k][0][0], pole, 1e-12),
-            "sector {k} pole at (0,0) is {:?}, expected {pole:?}",
+            approx_pt(result.patches[k][0][0], hub, 1e-12),
+            "sector {k} hub at (0,0) is {:?}, expected {hub:?}",
             result.patches[k][0][0]
         );
     }
@@ -156,14 +156,14 @@ fn canonical_v4_edge_matches_b_o_beta_row0() {
     // axis-swap convention). Check patches[k][i][4] == row0[i].
     use super::super::pns_boundary::compose_bi4_outer_layers;
     let n = 5;
-    let pole = pt(0.0, 0.0, 1.0);
+    let hub = pt(0.0, 0.0, 1.0);
     let boundary = planar_ring(n, 2.0);
     let beta = BetaReparam::bi4(n);
     let input = CapAssembleInput {
         boundary: boundary.clone(),
         beta,
         sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-        pole,
+        hub,
         kappa: 3,
     };
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
@@ -188,7 +188,7 @@ fn scaffold_returns_n_patches() {
             boundary: planar_ring(n, 1.0),
             beta: BetaReparam::bi4(n),
             sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-            pole: pt(0.0, 0.0, 0.0),
+            hub: pt(0.0, 0.0, 0.0),
             kappa: 3,
         };
         let result = assemble_pns_bi4_cap(&input).expect("odd n should succeed");
@@ -206,7 +206,7 @@ fn cur_nxt_seam_sharing_holds() {
         boundary: planar_ring(n, 1.0),
         beta: BetaReparam::bi4(n),
         sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-        pole: pt(0.0, 0.0, 0.0),
+        hub: pt(0.0, 0.0, 0.0),
         kappa: 3,
     };
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
@@ -224,20 +224,20 @@ fn cur_nxt_seam_sharing_holds() {
 }
 
 #[test]
-fn a_0_pinned_to_pole() {
-    let pole = pt(0.3, -0.7, 0.2);
+fn a_0_pinned_to_hub() {
+    let hub = pt(0.3, -0.7, 0.2);
     let n = 5;
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.0),
         beta: BetaReparam::bi4(n),
         sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-        pole,
+        hub,
         kappa: 3,
     };
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
     assert!(
-        approx_pt(result.a.a_0, pole, 1e-12),
-        "a.a_0 = {:?}, expected {pole:?}",
+        approx_pt(result.a.a_0, hub, 1e-12),
+        "a.a_0 = {:?}, expected {hub:?}",
         result.a.a_0
     );
 }
@@ -260,7 +260,7 @@ fn eq2_g1_all_outputs_hold_after_solve() {
         boundary: planar_ring(n, 1.5),
         beta: BetaReparam::bi4(n),
         sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-        pole: pt(0.0, 0.0, 0.3),
+        hub: pt(0.0, 0.0, 0.3),
         kappa: 3,
     };
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
@@ -333,13 +333,13 @@ fn f_kappa_reduced_relative_to_zero_fill() {
     use super::super::pns_f_kappa::f_kappa_bi4;
 
     let n = 5;
-    let pole = pt(0.0, 0.0, 0.3);
+    let hub = pt(0.0, 0.0, 0.3);
     let kappa = 3;
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.5),
         beta: BetaReparam::bi4(n),
         sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-        pole,
+        hub,
         kappa,
     };
     let result = assemble_pns_bi4_cap(&input).expect("n=5 should succeed");
@@ -349,7 +349,7 @@ fn f_kappa_reduced_relative_to_zero_fill() {
 
     // Baseline: place free CPs at zero, a=0 — reconstruct by
     // calling assemble with a proxy via scaffold-style. Instead,
-    // just use a patch with pole + boundary + zeros elsewhere.
+    // just use a patch with hub + boundary + zeros elsewhere.
     // Compute baseline F_κ by reconstructing the cap WITHOUT the
     // joint solve (free CPs = 0, a = 0).
     use super::super::pns_boundary::compose_bi4_outer_layers;
@@ -365,7 +365,7 @@ fn f_kappa_reduced_relative_to_zero_fill() {
                 row0[j].z + 0.25 * row1[j].z,
             );
         }
-        baseline_patches[k][0][0] = pole;
+        baseline_patches[k][0][0] = hub;
     }
     let f_baseline: f64 = (0..n)
         .map(|k| f_kappa_bi4(&baseline_patches[k], kappa))

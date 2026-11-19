@@ -20,12 +20,12 @@ pub(crate) struct ExactBoundaryMultiPatchInventory {
     pub expected_outer_strip_count: usize,
     /// Expected number of strip/inner interfaces for the first implementation.
     pub expected_interface_count: usize,
-    /// Expected number of inner pole patches for the first implementation.
+    /// Expected number of inner apex patches for the first implementation.
     pub expected_inner_patch_count: usize,
     /// Candidate-owned outer strip patch inventories.
     pub outer_strips: Vec<ExactBoundaryOuterStripPatchInventory>,
-    /// Candidate-owned inner pole patch inventory.
-    pub inner_patch: Option<ExactBoundaryInnerPolePatchInventory>,
+    /// Candidate-owned inner apex patch inventory.
+    pub inner_patch: Option<ExactBoundaryInnerApexPatchInventory>,
     /// Candidate-owned interface inventories.
     pub interfaces: Vec<ExactBoundaryPatchInterfaceInventory>,
 }
@@ -38,7 +38,7 @@ impl ExactBoundaryMultiPatchInventory {
     ) -> Self {
         let seam = outer_seam(sector, side).unwrap_or(&sector.fillet_seam);
         let strip = ExactBoundaryOuterStripPatchInventory::from_seam(sector, seam);
-        let inner_patch = ExactBoundaryInnerPolePatchInventory::new(sector);
+        let inner_patch = ExactBoundaryInnerApexPatchInventory::new(sector);
         let interface = ExactBoundaryPatchInterfaceInventory::new(
             sector,
             side,
@@ -169,17 +169,17 @@ impl ExactBoundaryOuterStripPatchInventory {
     }
 }
 
-/// Candidate-only inner pole patch ownership.
+/// Candidate-only inner apex patch ownership.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ExactBoundaryInnerPolePatchInventory {
+pub(crate) struct ExactBoundaryInnerApexPatchInventory {
     /// Stable semantic patch name.
     pub patch_name: String,
 }
 
-impl ExactBoundaryInnerPolePatchInventory {
+impl ExactBoundaryInnerApexPatchInventory {
     fn new(sector: &ExactBoundaryCapSectorInput) -> Self {
         Self {
-            patch_name: format!("{}.inner_pole_patch", sector.sector_name),
+            patch_name: format!("{}.inner_apex_patch", sector.sector_name),
         }
     }
 }
@@ -193,7 +193,7 @@ pub(crate) struct ExactBoundaryPatchInterfaceInventory {
     pub side: ExactBoundaryOuterSide,
     /// Adjacent outer strip patch name.
     pub strip_patch_name: String,
-    /// Adjacent inner pole patch name.
+    /// Adjacent inner apex patch name.
     pub inner_patch_name: String,
 }
 
@@ -235,7 +235,7 @@ pub(crate) enum ExactBoundaryMultiPatchInventoryDeclineReason {
     MissingOuterStrip,
     /// Expected strip/inner interface is missing.
     MissingInterface,
-    /// Expected inner pole patch is missing.
+    /// Expected inner apex patch is missing.
     MissingInnerPatch,
     /// Patch or interface names are not unique.
     DuplicatePatchName,

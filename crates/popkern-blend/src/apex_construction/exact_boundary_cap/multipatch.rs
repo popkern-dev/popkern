@@ -40,8 +40,8 @@ mod validation;
 
 use budget::ExactBoundaryMultiPatchBudget;
 use inner::{
-    ExactBoundaryInnerPolePatchPrototype, ExactBoundaryStripInnerInterfaceCurve,
-    construct_inner_pole_patch_prototype, construct_strip_inner_interface_curve,
+    ExactBoundaryInnerApexPatchPrototype, ExactBoundaryStripInnerInterfaceCurve,
+    construct_inner_apex_patch_prototype, construct_strip_inner_interface_curve,
     measure_inner_interface_g1,
 };
 use inventory::{
@@ -57,8 +57,8 @@ use strip::{
     scaffold_outer_strip_boundary, solve_strip_support_normal_row,
 };
 use validation::{
-    ExactBoundaryInnerPoleValidationReport, ExactBoundaryOuterStripValidationReport,
-    validate_inner_pole_patch_prototype, validate_outer_strip_candidate,
+    ExactBoundaryInnerApexValidationReport, ExactBoundaryOuterStripValidationReport,
+    validate_inner_apex_patch_prototype, validate_outer_strip_candidate,
 };
 
 /// Inputs for candidate-only multi-patch orchestration.
@@ -75,8 +75,8 @@ pub(crate) struct ExactBoundaryMultiPatchCandidateRequest<'a> {
     pub support_samples: &'a [ExactBoundaryRibbonSample],
     /// Optional support-authority 3-D boundary replacing stale source edge authority.
     pub support_authority_boundary: Option<&'a NurbsCurve>,
-    /// Candidate inner pole point.
-    pub pole: Point3,
+    /// Candidate inner apex point.
+    pub apex: Point3,
     /// Local explicit tolerances and iteration budgets.
     pub budget: ExactBoundaryMultiPatchBudget,
 }
@@ -134,10 +134,10 @@ pub(crate) struct ExactBoundaryMultiPatchCandidate {
     pub strip_validation: ExactBoundaryOuterStripValidationReport,
     /// Candidate strip/inner interface curve.
     pub interface: ExactBoundaryStripInnerInterfaceCurve,
-    /// G1-validated inner pole patch candidate.
-    pub inner_patch: ExactBoundaryInnerPolePatchPrototype,
+    /// G1-validated inner apex patch candidate.
+    pub inner_patch: ExactBoundaryInnerApexPatchPrototype,
     /// Inner-patch validation evidence.
-    pub inner_validation: ExactBoundaryInnerPoleValidationReport,
+    pub inner_validation: ExactBoundaryInnerApexValidationReport,
 }
 
 /// Build a candidate-only multi-patch sector split behind the dormant facade.
@@ -286,14 +286,14 @@ pub(crate) fn prepare_multipatch_candidate(
     performance.interface_sample_count += interface.sample_count;
     performance.bounded_iteration_count += interface.curve.control_points.len();
 
-    let prototype = match construct_inner_pole_patch_prototype(
+    let prototype = match construct_inner_apex_patch_prototype(
         request.sector,
         strip,
         interface_inventory,
         &strip_candidate,
         &interface,
-        request.pole,
-        request.budget.pole_g0,
+        request.apex,
+        request.budget.apex_g0,
     ) {
         Ok(prototype) => prototype,
         Err(diagnostic) => {
@@ -332,7 +332,7 @@ pub(crate) fn prepare_multipatch_candidate(
     performance.inner_control_point_count += inner_patch.surface.control_points.len();
     performance.bounded_iteration_count += inner_patch.surface.num_u;
 
-    let inner_validation = match validate_inner_pole_patch_prototype(
+    let inner_validation = match validate_inner_apex_patch_prototype(
         request.sector,
         strip,
         interface_inventory,

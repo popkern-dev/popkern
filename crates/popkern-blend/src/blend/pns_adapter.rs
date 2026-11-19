@@ -21,11 +21,11 @@
 //!   tangent. The cap consumes this row two ways, both of which
 //!   need the inward sense: `b ∘ β` composes the cap's first
 //!   interior row as `b·∂_u b + a·∂_v b` with `a(u) > 0`, and the
-//!   pole (eq 5) is a convex combination of `pos + deriv/2` — the
+//!   hub (eq 5) is a convex combination of `pos + deriv/2` — the
 //!   net's inner ring. An outward row (the pre-PK-517 convention)
 //!   folds the cap's first row back over the fillet and drags the
-//!   pole below the rim on every convex corner (measured on the
-//!   carved-pentagon boundary ring: pole z 0.9528 under a rim at
+//!   hub below the rim on every convex corner (measured on the
+//!   carved-pentagon boundary ring: hub z 0.9528 under a rim at
 //!   0.9603; inward: 0.9995, above the rim's arc crowns at 0.9762).
 //!
 //! # Two entry points
@@ -46,7 +46,7 @@
 //! `poke_n_gon_face_into_n_quads` on a `2N`-HE blend face.
 //!
 //! Accepted valences: `N_fillets ∈ [3, 12]`, matching the cap
-//! assembly (`n = 4`'s σ pole is removable — see
+//! assembly (`n = 4`'s σ hub is removable — see
 //! `popkern_core::geometry::gregory::pns_sigma`). Acceptance here is
 //! *representational*; which valences the production dispatch
 //! actually serves is decided by measurement. PK-192's recorded

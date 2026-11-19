@@ -1,7 +1,7 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::corner::{
     ExactBoundaryInnerSpokeBudget, ExactBoundaryInnerSpokeDeclineReason,
-    prepare_exact_boundary_inner_spokes_with_pole,
+    prepare_exact_boundary_inner_spokes_with_apex,
 };
 use super::sector::extract_exact_boundary_cap_sectors;
 use crate::apex_construction::cap_kind::CapKind;
@@ -26,7 +26,7 @@ fn generated_inner_spokes_complete_four_sided_sector_boundaries() {
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
 
-    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
+    let spokes = prepare_exact_boundary_inner_spokes_with_apex(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget::default(),
@@ -38,8 +38,8 @@ fn generated_inner_spokes_complete_four_sided_sector_boundaries() {
     for sector in &spokes.sectors {
         assert_eq!(sector.fillet_inner_spoke.curve.degree, 1);
         assert_eq!(sector.face_inner_spoke.curve.degree, 1);
-        assert_eq!(sector.fillet_inner_spoke.pole, spokes.pole);
-        assert_eq!(sector.face_inner_spoke.pole, spokes.pole);
+        assert_eq!(sector.fillet_inner_spoke.apex, spokes.apex);
+        assert_eq!(sector.face_inner_spoke.apex, spokes.apex);
         assert!(sector.outer_corner_gap <= 1.0e-7);
         assert!(
             sector
@@ -84,7 +84,7 @@ fn collapsed_spoke_declines_without_topology_mutation() {
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
 
-    let diagnostic = prepare_exact_boundary_inner_spokes_with_pole(
+    let diagnostic = prepare_exact_boundary_inner_spokes_with_apex(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget {

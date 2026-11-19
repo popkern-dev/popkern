@@ -54,7 +54,7 @@ fn solve_locks_boundary_rows_and_derivative_controls() {
             surface.control_points[index(i, surface.num_v - 1, surface.num_v)],
             point_on_line(
                 sector.face_inner_spoke.anchor,
-                sector.face_inner_spoke.pole,
+                sector.face_inner_spoke.apex,
                 i,
             ),
         );
@@ -68,7 +68,7 @@ fn solve_locks_boundary_rows_and_derivative_controls() {
             surface.control_points[index(surface.num_u - 1, j, surface.num_v)],
             point_on_line(
                 sector.fillet_inner_spoke.anchor,
-                sector.fillet_inner_spoke.pole,
+                sector.fillet_inner_spoke.apex,
                 j,
             ),
         );
@@ -174,7 +174,7 @@ fn fixture_spokes(corner_conflict: bool) -> PreparedExactBoundaryInnerSpokes {
         shared
     };
     let face_anchor = Point3::new(0.0, 1.0, 0.0);
-    let pole = Point3::new(1.0, 1.0, 0.2);
+    let apex = Point3::new(1.0, 1.0, 0.2);
     let fillet_boundary = prepared_boundary(
         ExactBoundaryOuterSide::FilletEnd,
         edge,
@@ -186,27 +186,27 @@ fn fixture_spokes(corner_conflict: bool) -> PreparedExactBoundaryInnerSpokes {
         cubic_line(face_start, face_anchor),
     );
     PreparedExactBoundaryInnerSpokes {
-        pole_search: None,
+        apex_search: None,
         sectors: vec![PreparedExactBoundarySectorBoundary {
             sector_index: 0,
             sector_name: "direct_apex.cap_sector.0".to_string(),
             fillet_boundary,
             face_boundary,
             fillet_inner_spoke: generated_spoke(
-                "direct_apex.cap_sector.0.inner_spoke.fillet_anchor_to_pole",
+                "direct_apex.cap_sector.0.inner_spoke.fillet_anchor_to_apex",
                 ExactBoundaryOuterSide::FilletEnd,
                 fillet_anchor,
-                pole,
+                apex,
             ),
             face_inner_spoke: generated_spoke(
-                "direct_apex.cap_sector.0.inner_spoke.face_anchor_to_pole",
+                "direct_apex.cap_sector.0.inner_spoke.face_anchor_to_apex",
                 ExactBoundaryOuterSide::FaceEdge,
                 face_anchor,
-                pole,
+                apex,
             ),
             outer_corner_gap: 0.0,
         }],
-        pole,
+        apex,
     }
 }
 
@@ -296,17 +296,17 @@ fn generated_spoke(
     name: &str,
     source_side: ExactBoundaryOuterSide,
     anchor: Point3,
-    pole: Point3,
+    apex: Point3,
 ) -> GeneratedInnerSpoke {
     GeneratedInnerSpoke {
         name: name.to_string(),
         source_side,
         anchor,
-        pole,
+        apex,
         curve: NurbsCurve {
             degree: 1,
             knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![anchor, pole],
+            control_points: vec![anchor, apex],
             weights: vec![1.0, 1.0],
         },
     }

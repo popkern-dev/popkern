@@ -1,4 +1,4 @@
-//! Inner pole patch construction for multi-patch exact-boundary candidates.
+//! Inner apex patch construction for multi-patch exact-boundary candidates.
 #![allow(dead_code, clippy::result_large_err)]
 
 use popkern_core::geometry::pcurve::Pcurve;
@@ -7,9 +7,9 @@ use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 use crate::apex_construction::exact_boundary_cap::sector::ExactBoundaryCapSectorInput;
 
 use super::inner_geometry::{
-    INTERFACE_SAMPLE_COUNT, curve_geometry_is_finite, inner_interface_g0, inner_interface_pcurve,
-    inner_pole_surface, interface_g1_report, interface_residual, point_is_finite, pole_g0,
-    strip_inner_boundary_curve, strip_inner_boundary_pcurve,
+    INTERFACE_SAMPLE_COUNT, apex_g0, curve_geometry_is_finite, inner_apex_surface,
+    inner_interface_g0, inner_interface_pcurve, interface_g1_report, interface_residual,
+    point_is_finite, strip_inner_boundary_curve, strip_inner_boundary_pcurve,
 };
 use super::inner_optimizer::optimize_inner_interface_g1;
 use super::inventory::{
@@ -25,7 +25,7 @@ pub(crate) struct ExactBoundaryStripInnerInterfaceCurve {
     pub interface_name: String,
     /// Adjacent strip patch name.
     pub strip_patch_name: String,
-    /// Adjacent inner pole patch name reserved for MP-009.
+    /// Adjacent inner apex patch name reserved for MP-009.
     pub inner_patch_name: String,
     /// Interface 3-D curve copied from strip `v=1`.
     pub curve: NurbsCurve,
@@ -43,9 +43,9 @@ pub(crate) struct ExactBoundaryStripInnerInterfaceCurve {
     pub tolerance: f64,
 }
 
-/// Candidate-only inner pole patch prototype with G0 validation evidence.
+/// Candidate-only inner apex patch prototype with G0 validation evidence.
 #[derive(Debug, Clone)]
-pub(crate) struct ExactBoundaryInnerPolePatchPrototype {
+pub(crate) struct ExactBoundaryInnerApexPatchPrototype {
     /// Stable semantic inner patch name.
     pub patch_name: String,
     /// Adjacent interface name.
@@ -56,8 +56,8 @@ pub(crate) struct ExactBoundaryInnerPolePatchPrototype {
     pub interface_pcurve: Pcurve,
     /// Maximum sampled gap between inner patch and interface curve.
     pub max_interface_g0: f64,
-    /// Maximum sampled gap between inner patch pole row and pole point.
-    pub max_pole_g0: f64,
+    /// Maximum sampled gap between inner patch apex row and apex point.
+    pub max_apex_g0: f64,
     /// Local explicit G0 tolerance.
     pub tolerance: f64,
     /// Interface tangent-plane compatibility evidence, when measured.
@@ -79,16 +79,16 @@ pub(crate) struct ExactBoundaryInterfaceG1Report {
     pub tolerance: f64,
 }
 
-/// Build a G0-only inner pole patch prototype from interface curve to pole.
-pub(crate) fn construct_inner_pole_patch_prototype(
+/// Build a G0-only inner apex patch prototype from interface curve to apex.
+pub(crate) fn construct_inner_apex_patch_prototype(
     sector: &ExactBoundaryCapSectorInput,
     strip: &ExactBoundaryOuterStripPatchInventory,
     interface_inventory: &ExactBoundaryPatchInterfaceInventory,
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    pole: Point3,
+    apex: Point3,
     tolerance: f64,
-) -> Result<ExactBoundaryInnerPolePatchPrototype, ExactBoundaryMultiPatchDiagnostic> {
+) -> Result<ExactBoundaryInnerApexPatchPrototype, ExactBoundaryMultiPatchDiagnostic> {
     if !curve_geometry_is_finite(&interface.curve) {
         return Err(ExactBoundaryMultiPatchDiagnostic::interface_position(
             sector,
@@ -99,8 +99,8 @@ pub(crate) fn construct_inner_pole_patch_prototype(
             tolerance,
         ));
     }
-    if !point_is_finite(pole) {
-        return Err(ExactBoundaryMultiPatchDiagnostic::pole_position(
+    if !point_is_finite(apex) {
+        return Err(ExactBoundaryMultiPatchDiagnostic::apex_position(
             sector,
             strip,
             interface_inventory,
@@ -109,7 +109,7 @@ pub(crate) fn construct_inner_pole_patch_prototype(
             tolerance,
         ));
     }
-    let surface = inner_pole_surface(strip_candidate, interface, pole);
+    let surface = inner_apex_surface(strip_candidate, interface, apex);
     let interface_pcurve = inner_interface_pcurve(interface);
     let interface_g0 = inner_interface_g0(&surface, interface, &interface_pcurve);
     if interface_g0.max_residual > tolerance {
@@ -122,25 +122,25 @@ pub(crate) fn construct_inner_pole_patch_prototype(
             tolerance,
         ));
     }
-    let pole_g0 = pole_g0(&surface, pole);
-    if pole_g0.max_residual > tolerance {
-        return Err(ExactBoundaryMultiPatchDiagnostic::pole_position(
+    let apex_g0 = apex_g0(&surface, apex);
+    if apex_g0.max_residual > tolerance {
+        return Err(ExactBoundaryMultiPatchDiagnostic::apex_position(
             sector,
             strip,
             interface_inventory,
-            pole_g0.max_residual,
-            pole_g0.sample_parameter,
+            apex_g0.max_residual,
+            apex_g0.sample_parameter,
             tolerance,
         ));
     }
 
-    Ok(ExactBoundaryInnerPolePatchPrototype {
+    Ok(ExactBoundaryInnerApexPatchPrototype {
         patch_name: interface.inner_patch_name.clone(),
         interface_name: interface.interface_name.clone(),
         surface,
         interface_pcurve,
         max_interface_g0: interface_g0.max_residual,
-        max_pole_g0: pole_g0.max_residual,
+        max_apex_g0: apex_g0.max_residual,
         tolerance,
         interface_g1_report: None,
         interface_g1_validated: false,
@@ -154,9 +154,9 @@ pub(crate) fn measure_inner_interface_g1(
     interface_inventory: &ExactBoundaryPatchInterfaceInventory,
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    prototype: &ExactBoundaryInnerApexPatchPrototype,
     tolerance: f64,
-) -> Result<ExactBoundaryInnerPolePatchPrototype, ExactBoundaryMultiPatchDiagnostic> {
+) -> Result<ExactBoundaryInnerApexPatchPrototype, ExactBoundaryMultiPatchDiagnostic> {
     let optimized = optimize_inner_interface_g1(strip_candidate, interface, prototype, tolerance);
     let report = interface_g1_report(strip_candidate, interface, &optimized, tolerance);
     if report.max_interface_g1_deficit > tolerance {
@@ -181,7 +181,7 @@ pub(crate) fn decline_g0_only_inner_prototype_before_commit(
     strip: &ExactBoundaryOuterStripPatchInventory,
     interface_inventory: &ExactBoundaryPatchInterfaceInventory,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    prototype: &ExactBoundaryInnerApexPatchPrototype,
     interface_g1_tolerance: f64,
 ) -> ExactBoundaryMultiPatchDiagnostic {
     let report = prototype.interface_g1_report;

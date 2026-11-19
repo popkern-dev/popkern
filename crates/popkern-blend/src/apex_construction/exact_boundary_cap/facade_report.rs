@@ -50,7 +50,7 @@ pub(super) fn declined_curve_preparation_result(
         performance,
         diagnostics,
         report,
-        pole: None,
+        apex: None,
     }
 }
 

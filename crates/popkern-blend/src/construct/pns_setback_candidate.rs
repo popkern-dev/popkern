@@ -23,7 +23,7 @@
 
 use popkern_core::geometry::gregory::{
     BetaReparam, Bi2BorderStrip, Bi2TensorBorderRing, CapAssembleInput, assemble_pns_bi4_cap,
-    pole_from_boundary, sigma_center_jet_default,
+    hub_from_boundary, sigma_center_jet_default,
 };
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
@@ -65,8 +65,8 @@ pub struct PnsSetbackCandidate {
     /// Per-sector half-arc cubics (border spans) with their fillet
     /// index, in ring order — sector k's border is half_cubics[k].
     pub half_cubics: Vec<([Point3; 4], usize)>,
-    /// The cap's central pole point.
-    pub pole: Point3,
+    /// The cap's central hub point.
+    pub hub: Point3,
     /// Quality report.
     pub report: PnsSetbackReport,
 }
@@ -159,14 +159,14 @@ pub fn try_pns_setback_candidate(
     let ring = Bi2TensorBorderRing { sectors };
 
     // ---- paper-faithful assembly ----------------------------------------
-    let pole = pole_from_boundary(&ring);
+    let hub = hub_from_boundary(&ring);
     let sigma = sigma_center_jet_default(n).map_err(|e| format!("PnS σ jet: {e}"))?;
     let beta = BetaReparam::bi4(n);
     let cap = assemble_pns_bi4_cap(&CapAssembleInput {
         boundary: ring,
         beta,
         sigma,
-        pole,
+        hub,
         kappa: DEFAULT_KAPPA,
     })
     .map_err(|e| format!("PnS assembly: {e}"))?;
@@ -358,7 +358,7 @@ pub fn try_pns_setback_candidate(
     // against the cap gates and the corpus. The assembler stores
     // `patch[u_c][v_c]`; the variant's net is `net[j][i]` with `i`
     // the u index — transpose or the shipped chart swaps u and v.
-    // Valence is the number of sectors meeting at the pole — this
+    // Valence is the number of sectors meeting at the hub — this
     // ring splits every arc at its midpoint, so that is 2n, not n.
     let cap_valence = patches.len();
     let surfaces = patches
@@ -382,7 +382,7 @@ pub fn try_pns_setback_candidate(
         patches,
         surfaces,
         half_cubics,
-        pole,
+        hub,
         report: PnsSetbackReport {
             g0_border_before,
             g0_border_after,

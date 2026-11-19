@@ -1,11 +1,11 @@
 //! PnS cap — End-to-end bi-4 cap assembly.
 //!
 //! Composes the PnS pipeline primitives into a single function
-//! [`assemble_pns_bi4_cap`] that turns a boundary ring + pole into
+//! [`assemble_pns_bi4_cap`] that turns a boundary ring + hub into
 //! `N` bi-4 sector patches:
 //!
 //! ```text
-//! (Bi2TensorBorderRing, β, σ, pole) → N × [[Point3; 5]; 5]
+//! (Bi2TensorBorderRing, β, σ, hub) → N × [[Point3; 5]; 5]
 //! ```
 //!
 //! # Architecture
@@ -16,8 +16,8 @@
 //!
 //! | Source                          | Canonical `(u_c, v_c)`             | Count |
 //! |---------------------------------|------------------------------------|-------|
-//! | Pole (constant)                 | `(0, 0)`                           | 1     |
-//! | Central `a∘σ^k`                 | `u_c+v_c ≤ 2` (excl. pole)         | 5     |
+//! | Hub (constant)                 | `(0, 0)`                           | 1     |
+//! | Central `a∘σ^k`                 | `u_c+v_c ≤ 2` (excl. hub)         | 5     |
 //! | Boundary `b∘β` (v_c=3)          | `(0..4, 3)`                        | 5     |
 //! | Boundary `b∘β` (v_c=4)          | `(0..4, 4)`                        | 5     |
 //! | Prev-sharing (cur-prev seam)    | `(1..4, 0)`                        | 4     |
@@ -50,7 +50,7 @@
 //! minimisation (paper eq 6), are:
 //!
 //! - `a`'s 5 Point3 components `(a_x, a_y, a_xx, a_xy, a_yy)` — 15
-//!   scalars (shared across sectors; `a_0` pinned to pole)
+//!   scalars (shared across sectors; `a_0` pinned to hub)
 //! - `4 × N` free interior CPs per sector — `12·N` scalars
 //!
 //! Total: `15 + 12·N` scalars. Problem is separable per coordinate
@@ -71,11 +71,11 @@
 //! `(2, 1)` one-way from the previous sector's data. No rank
 //! deficiency to resolve.
 //!
-//! # Auto-compute pole
+//! # Auto-compute hub
 //!
-//! [`pole_from_boundary`] derives the central pole from the
+//! [`hub_from_boundary`] derives the central hub from the
 //! boundary ring via paper's eq (5) (see [`super::pns_center`]).
-//! Useful for callers who don't want to compute the pole
+//! Useful for callers who don't want to compute the hub
 //! manually. Assumes bi-4 e_def weight.
 //!
 //! # Paper reference
@@ -111,8 +111,8 @@ pub struct CapAssembleInput {
     pub beta: BetaReparam,
     /// Canonical σ centre jet.
     pub sigma: SigmaCenterJet,
-    /// Pole (central point, eq 5).
-    pub pole: Point3,
+    /// Hub (central point, eq 5).
+    pub hub: Point3,
     /// F_κ order, `κ ∈ 1..=4`.
     pub kappa: usize,
 }
@@ -120,7 +120,7 @@ pub struct CapAssembleInput {
 /// Result of the bi-4 cap assembly.
 #[derive(Debug, Clone)]
 pub struct CapAssembleResult {
-    /// Fitted quadratic map `a` (with `a.a_0 = pole`).
+    /// Fitted quadratic map `a` (with `a.a_0 = hub`).
     pub a: QuadMapJet,
     /// `N` bi-4 sector patches.
     pub patches: Vec<[[Point3; 5]; 5]>,
@@ -136,7 +136,7 @@ pub enum CapAssembleError {
     ///
     /// Assembly consumes a jet it did not build, so this is the
     /// backstop against a caller passing a divergent σ — most
-    /// plausibly a hand-rolled `n = 4` jet whose `1/c` pole did not
+    /// plausibly a hand-rolled `n = 4` jet whose `1/c` hub did not
     /// cancel. Callers building σ through
     /// [`super::pns_sigma::sigma_center_jet`] get a typed
     /// `SigmaJetError` at construction instead and never reach here.
@@ -154,7 +154,7 @@ pub enum CapAssembleError {
     SingularSystem,
 }
 
-/// Compute the central pole via paper's eq (5) from the boundary
+/// Compute the central hub via paper's eq (5) from the boundary
 /// ring alone. The DS-net points `d^k_1, d^k_2, d^k_4` are
 /// interpreted from the bi-2 tensor-border's inner row:
 ///
@@ -166,9 +166,9 @@ pub enum CapAssembleError {
 ///   d^k_4 = b^k_{0, 1}    (inner-row left)
 /// ```
 ///
-/// Returns `pole = e·avg_k(d^k_1) + (1−e)·avg_k((d^k_2+d^k_4)/2)`
+/// Returns `hub = e·avg_k(d^k_1) + (1−e)·avg_k((d^k_2+d^k_4)/2)`
 /// with `e = e_def_bi4(n)`.
-pub fn pole_from_boundary(boundary: &Bi2TensorBorderRing) -> Point3 {
+pub fn hub_from_boundary(boundary: &Bi2TensorBorderRing) -> Point3 {
     let n = boundary.n();
     let e = e_def_bi4(n);
     let mut d1 = Vec::with_capacity(n);
@@ -205,7 +205,7 @@ pub fn pole_from_boundary(boundary: &Bi2TensorBorderRing) -> Point3 {
 ///
 /// Assembly receives σ as data rather than building it, so a caller
 /// that hand-rolls a divergent jet (classically an `n = 4` jet whose
-/// `1/c` pole did not cancel) would otherwise propagate NaN silently
+/// `1/c` hub did not cancel) would otherwise propagate NaN silently
 /// into every patch. Jets built via
 /// [`super::pns_sigma::sigma_center_jet`] are already checked at
 /// construction and always pass here.
@@ -225,7 +225,7 @@ fn check_sigma_jet_finite(sigma: &SigmaCenterJet) -> Result<(), CapAssembleError
     Ok(())
 }
 
-/// Assemble a PnS bi-4 cap from boundary + pole + σ jet.
+/// Assemble a PnS bi-4 cap from boundary + hub + σ jet.
 pub fn assemble_pns_bi4_cap(
     input: &CapAssembleInput,
 ) -> Result<CapAssembleResult, CapAssembleError> {
@@ -237,8 +237,8 @@ pub fn assemble_pns_bi4_cap(
     // makes σ_{20,x}'s `1/(3c)` factor singular. That reading was
     // wrong: regrouped as `d₁ + (4/(3c))·(cos(α/2)·d₂ − d₁)`, the
     // residue vanishes bit-exactly at n=4 under the paper's Appendix B
-    // scalings, so the pole is removable and the jet is finite. σ now
-    // carries that limit itself, and reports an irremovable pole as a
+    // scalings, so the hub is removable and the jet is finite. σ now
+    // carries that limit itself, and reports an irremovable hub as a
     // typed error for non-default scalings — see `pns_sigma`. Nothing
     // else in this assembly divides by c, so n=4 needs no other guard.
     // Other even n (6, 8, 10, 12) work fine — my asymmetric
@@ -279,7 +279,7 @@ pub fn assemble_pns_bi4_cap(
     // reconstruct patches.
     let dofs = solve_dof_system(&coef_map, input.kappa, n)?;
     let patches = reconstruct_patches(&coef_map, &dofs, n);
-    let a = reconstruct_a(&dofs, input.pole);
+    let a = reconstruct_a(&dofs, input.hub);
 
     Ok(CapAssembleResult { a, patches })
 }

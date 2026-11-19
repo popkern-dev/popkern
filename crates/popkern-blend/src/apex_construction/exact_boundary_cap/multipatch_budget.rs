@@ -23,8 +23,8 @@ pub(crate) struct ExactBoundaryMultiPatchBudget {
     pub interface_g0: f64,
     /// Maximum tangent-plane deficit across strip/inner interfaces.
     pub interface_g1_deficit: f64,
-    /// Maximum positional gap where generated spokes meet the pole.
-    pub pole_g0: f64,
+    /// Maximum positional gap where generated spokes meet the apex.
+    pub apex_g0: f64,
     /// Minimum sampled normal length before foldover decline.
     pub min_normal_length: f64,
     /// Width-direction control cap for the first strip builder.
@@ -44,7 +44,7 @@ impl ExactBoundaryMultiPatchBudget {
             support_normal_deficit: DEFAULT_MAX_SUPPORT_NORMAL_DEFICIT,
             interface_g0: tolerance.linear(),
             interface_g1_deficit: DEFAULT_INTERFACE_G1_DEFICIT,
-            pole_g0: tolerance.linear(),
+            apex_g0: tolerance.linear(),
             min_normal_length: DEFAULT_MIN_NORMAL_LENGTH,
             max_width_direction_controls: DEFAULT_MAX_WIDTH_DIRECTION_CONTROLS,
             max_interface_iterations: DEFAULT_MAX_INTERFACE_ITERATIONS,
@@ -59,7 +59,7 @@ impl ExactBoundaryMultiPatchBudget {
             max_outer_boundary_residual: self.outer_boundary_residual,
             max_support_boundary_residual: self.outer_boundary_residual,
             max_pair_boundary_residual: self.outer_boundary_residual,
-            max_internal_g0_gap: self.pole_g0,
+            max_internal_g0_gap: self.apex_g0,
             max_support_normal_deficit: self.support_normal_deficit,
             min_normal_length: self.min_normal_length,
         }
@@ -85,7 +85,7 @@ mod tests {
 
         assert_eq!(budget.outer_boundary_residual, tolerance.linear());
         assert_eq!(budget.interface_g0, tolerance.linear());
-        assert_eq!(budget.pole_g0, tolerance.linear());
+        assert_eq!(budget.apex_g0, tolerance.linear());
         assert_eq!(budget.support_normal_deficit, 5.0e-2);
         assert_eq!(budget.interface_g1_deficit, 5.0e-2);
         assert_eq!(budget.min_normal_length, 1.0e-12);
@@ -111,7 +111,7 @@ mod tests {
             validation.max_pair_boundary_residual,
             budget.outer_boundary_residual
         );
-        assert_eq!(validation.max_internal_g0_gap, budget.pole_g0);
+        assert_eq!(validation.max_internal_g0_gap, budget.apex_g0);
         assert_eq!(
             validation.max_support_normal_deficit,
             budget.support_normal_deficit

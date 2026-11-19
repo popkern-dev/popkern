@@ -93,7 +93,7 @@ fn pns_setback_candidate_on_pentagon_g1() {
         for k in 0..2 {
             let p2 = &full.patches[k];
             eprintln!(
-                "patch {k} corners [0][0]=({:.3},{:.3},{:.3}) [0][4]=({:.3},{:.3},{:.3}) [4][0]=({:.3},{:.3},{:.3}) [4][4]=({:.3},{:.3},{:.3}) pole=({:.3},{:.3},{:.3})",
+                "patch {k} corners [0][0]=({:.3},{:.3},{:.3}) [0][4]=({:.3},{:.3},{:.3}) [4][0]=({:.3},{:.3},{:.3}) [4][4]=({:.3},{:.3},{:.3}) hub=({:.3},{:.3},{:.3})",
                 p2[0][0].x,
                 p2[0][0].y,
                 p2[0][0].z,
@@ -106,9 +106,9 @@ fn pns_setback_candidate_on_pentagon_g1() {
                 p2[4][4].x,
                 p2[4][4].y,
                 p2[4][4].z,
-                full.pole.x,
-                full.pole.y,
-                full.pole.z
+                full.hub.x,
+                full.hub.y,
+                full.hub.z
             );
         }
         // Side layout matrix for patches 0..2: each side's midpoint

@@ -28,7 +28,7 @@ pub(crate) struct ExactBoundaryValidationBudget {
     pub max_support_boundary_residual: f64,
     /// Maximum cap/support image disagreement along shared outer seams.
     pub max_pair_boundary_residual: f64,
-    /// Maximum gap where generated inner spokes meet the shared pole.
+    /// Maximum gap where generated inner spokes meet the shared apex.
     pub max_internal_g0_gap: f64,
     /// Maximum cap/support unit-normal coplanarity deficit along outer seams.
     pub max_support_normal_deficit: f64,
@@ -87,7 +87,7 @@ pub(crate) enum ExactBoundaryValidationDeclineReason {
     SupportBoundaryResidualExceeded,
     /// Cap/support pcurve images did not agree along a shared seam.
     PairBoundaryResidualExceeded,
-    /// Generated inner spokes did not meet at the shared pole on the solved surface.
+    /// Generated inner spokes did not meet at the shared apex on the solved surface.
     InternalG0Exceeded,
     /// Sampled sector surface normal collapsed or flipped grossly.
     FoldoverDetected,
@@ -458,12 +458,12 @@ fn validate_internal_spokes(
                     None,
                 )
             })?;
-        let pole_gap = surface.surface.point_at(1.0, 1.0).distance_to(&spokes.pole);
-        if pole_gap > budget.max_internal_g0_gap {
+        let apex_gap = surface.surface.point_at(1.0, 1.0).distance_to(&spokes.apex);
+        if apex_gap > budget.max_internal_g0_gap {
             return Err(ExactBoundaryValidationDiagnostic::new(
                 ExactBoundaryValidationDeclineReason::InternalG0Exceeded,
                 Some(sector.sector_name.clone()),
-                Some(pole_gap),
+                Some(apex_gap),
             ));
         }
     }

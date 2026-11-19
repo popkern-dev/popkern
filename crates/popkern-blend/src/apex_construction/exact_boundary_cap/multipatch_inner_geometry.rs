@@ -1,4 +1,4 @@
-//! Geometry helpers for multi-patch inner pole candidates.
+//! Geometry helpers for multi-patch inner apex candidates.
 #![allow(dead_code)]
 
 use popkern_core::geometry::curve::CurveEval;
@@ -7,13 +7,13 @@ use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
 
 use super::inner::{
-    ExactBoundaryInnerPolePatchPrototype, ExactBoundaryInterfaceG1Report,
+    ExactBoundaryInnerApexPatchPrototype, ExactBoundaryInterfaceG1Report,
     ExactBoundaryStripInnerInterfaceCurve,
 };
 use super::strip::{ExactBoundaryOuterStripBoundaryScaffold, ExactBoundaryStripBoundaryDirection};
 
 pub(super) const INTERFACE_SAMPLE_COUNT: usize = 17;
-pub(super) const POLE_SAMPLE_COUNT: usize = 9;
+pub(super) const APEX_SAMPLE_COUNT: usize = 9;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct InterfaceResidual {
@@ -99,12 +99,12 @@ pub(super) fn interface_residual(
     report
 }
 
-pub(super) fn inner_pole_surface(
+pub(super) fn inner_apex_surface(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    pole: Point3,
+    apex: Point3,
 ) -> NurbsSurface {
-    let normal_row_points = interface_normal_row_points(strip_candidate, interface, pole);
+    let normal_row_points = interface_normal_row_points(strip_candidate, interface, apex);
     let mut control_points = Vec::with_capacity(interface.curve.control_points.len() * 3);
     let mut weights = Vec::with_capacity(interface.curve.weights.len() * 3);
     for (index, (point, weight)) in interface
@@ -116,7 +116,7 @@ pub(super) fn inner_pole_surface(
     {
         control_points.push(*point);
         control_points.push(normal_row_points[index]);
-        control_points.push(pole);
+        control_points.push(apex);
         weights.push(*weight);
         weights.push(*weight);
         weights.push(1.0);
@@ -136,14 +136,14 @@ pub(super) fn inner_pole_surface(
 fn interface_normal_row_points(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    pole: Point3,
+    apex: Point3,
 ) -> Vec<Point3> {
     let parameters = (0..interface.curve.control_points.len())
         .map(|index| control_row_parameter(&interface.curve, index))
         .collect::<Vec<_>>();
     let targets = parameters
         .iter()
-        .map(|parameter| interface_normal_row_target(strip_candidate, interface, *parameter, pole))
+        .map(|parameter| interface_normal_row_target(strip_candidate, interface, *parameter, apex))
         .collect::<Vec<_>>();
     fixed_knot_interpolation_controls(
         &targets,
@@ -158,7 +158,7 @@ fn interface_normal_row_points(
             .iter()
             .enumerate()
             .map(|(index, point)| {
-                interface_normal_row_point(strip_candidate, interface, index, *point, pole)
+                interface_normal_row_point(strip_candidate, interface, index, *point, apex)
             })
             .collect()
     })
@@ -168,7 +168,7 @@ pub(super) fn interface_normal_row_target(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
     parameter: f64,
-    pole: Point3,
+    apex: Point3,
 ) -> Point3 {
     let point = interface.curve.point_at(parameter);
     let strip_uv = interface.strip_pcurve.point_at(parameter);
@@ -177,17 +177,17 @@ pub(super) fn interface_normal_row_target(
         .partial_u(strip_uv.x, strip_uv.y)
         .normalized()
         .or_else(|| interface.curve.derivative_at(parameter, 1).normalized())
-        .unwrap_or_else(|| fallback_tangent(point, pole));
+        .unwrap_or_else(|| fallback_tangent(point, apex));
     let target_normal = strip_candidate
         .surface
         .normal_at(strip_uv.x, strip_uv.y)
         .normalized()
-        .unwrap_or_else(|| fallback_normal(tangent, point, pole));
+        .unwrap_or_else(|| fallback_normal(tangent, point, apex));
     let direction = target_normal
         .cross(&tangent)
         .normalized()
-        .unwrap_or_else(|| fallback_tangent(point, pole));
-    let width = point.distance_to(&pole).max(1.0e-6) * 0.35;
+        .unwrap_or_else(|| fallback_tangent(point, apex));
+    let width = point.distance_to(&apex).max(1.0e-6) * 0.35;
     point + direction * width
 }
 
@@ -196,7 +196,7 @@ fn interface_normal_row_point(
     interface: &ExactBoundaryStripInnerInterfaceCurve,
     index: usize,
     point: Point3,
-    pole: Point3,
+    apex: Point3,
 ) -> Point3 {
     let parameter = control_row_parameter(&interface.curve, index);
     let strip_uv = interface.strip_pcurve.point_at(parameter);
@@ -205,17 +205,17 @@ fn interface_normal_row_point(
         .partial_u(strip_uv.x, strip_uv.y)
         .normalized()
         .or_else(|| interface.curve.derivative_at(parameter, 1).normalized())
-        .unwrap_or_else(|| fallback_tangent(point, pole));
+        .unwrap_or_else(|| fallback_tangent(point, apex));
     let target_normal = strip_candidate
         .surface
         .normal_at(strip_uv.x, strip_uv.y)
         .normalized()
-        .unwrap_or_else(|| fallback_normal(tangent, point, pole));
+        .unwrap_or_else(|| fallback_normal(tangent, point, apex));
     let direction = target_normal
         .cross(&tangent)
         .normalized()
-        .unwrap_or_else(|| fallback_tangent(point, pole));
-    let width = point.distance_to(&pole).max(1.0e-6) * 0.35;
+        .unwrap_or_else(|| fallback_tangent(point, apex));
+    let width = point.distance_to(&apex).max(1.0e-6) * 0.35;
     point + direction * width
 }
 
@@ -344,15 +344,15 @@ fn control_row_parameter(curve: &NurbsCurve, index: usize) -> f64 {
     curve.knots[start_index..end_index].iter().sum::<f64>() / curve.degree as f64
 }
 
-fn fallback_tangent(point: Point3, pole: Point3) -> Vec3 {
-    (pole - point)
+fn fallback_tangent(point: Point3, apex: Point3) -> Vec3 {
+    (apex - point)
         .normalized()
         .unwrap_or_else(|| Vec3::new(1.0, 0.0, 0.0))
 }
 
-fn fallback_normal(tangent: Vec3, point: Point3, pole: Point3) -> Vec3 {
+fn fallback_normal(tangent: Vec3, point: Point3, apex: Point3) -> Vec3 {
     tangent
-        .cross(&(pole - point))
+        .cross(&(apex - point))
         .normalized()
         .unwrap_or_else(|| Vec3::new(0.0, 0.0, 1.0))
 }
@@ -396,7 +396,7 @@ pub(super) fn inner_interface_g0(
 pub(super) fn interface_g1_report(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    prototype: &ExactBoundaryInnerApexPatchPrototype,
     tolerance: f64,
 ) -> ExactBoundaryInterfaceG1Report {
     let (t_start, t_end) = interface.curve.parameter_range();
@@ -468,16 +468,16 @@ fn interior_parameter(parameter: f64, min: f64, max: f64) -> f64 {
     parameter.clamp(min + inset, max - inset)
 }
 
-pub(super) fn pole_g0(surface: &NurbsSurface, pole: Point3) -> InterfaceResidual {
+pub(super) fn apex_g0(surface: &NurbsSurface, apex: Point3) -> InterfaceResidual {
     let ((t_start, t_end), _) = surface.parameter_range();
     let mut report = InterfaceResidual {
         max_residual: 0.0,
         sample_parameter: t_start,
     };
-    for index in 0..POLE_SAMPLE_COUNT {
-        let parameter = t_start + (t_end - t_start) * index as f64 / (POLE_SAMPLE_COUNT - 1) as f64;
+    for index in 0..APEX_SAMPLE_COUNT {
+        let parameter = t_start + (t_end - t_start) * index as f64 / (APEX_SAMPLE_COUNT - 1) as f64;
         let patch_point = surface.point_at(parameter, 1.0);
-        let residual = patch_point.distance_to(&pole);
+        let residual = patch_point.distance_to(&apex);
         if residual > report.max_residual {
             report = InterfaceResidual {
                 max_residual: residual,

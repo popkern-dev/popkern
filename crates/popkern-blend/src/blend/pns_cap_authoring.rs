@@ -9,7 +9,7 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 /// rewritten them (the corner-patch support completion "repairs" cap
 /// boundary pcurves with 2-D projection, which on these bi-4 patches
 /// lands interior preimages and replaces a rate-matched 6.5e-3 pcurve
-/// with a 3.1e-2 one). The pole vertex is recovered as the unique
+/// with a 3.1e-2 one). The hub vertex is recovered as the unique
 /// vertex shared by every cap face's outer loop.
 pub(crate) fn reauthor_pns_cap_edge_geometry(brep: &mut BRep, cap_faces: &[FaceHandle]) {
     use std::collections::BTreeMap;
@@ -35,14 +35,14 @@ pub(crate) fn reauthor_pns_cap_edge_geometry(brep: &mut BRep, cap_faces: &[FaceH
             }
         }
     }
-    let Some(pole) = counts
+    let Some(hub) = counts
         .into_iter()
         .find(|&(_, c)| c == cap_faces.len())
         .map(|(v, _)| v)
     else {
         return;
     };
-    author_pns_cap_edge_geometry(brep, cap_faces, pole);
+    author_pns_cap_edge_geometry(brep, cap_faces, hub);
 }
 
 /// Author the cap sub-faces' edge curves and cap-side pcurves from
@@ -51,8 +51,8 @@ pub(crate) fn reauthor_pns_cap_edge_geometry(brep: &mut BRep, cap_faces: &[FaceH
 /// Chart contract (fixed by the aligned boundary + poke pairing):
 /// sub-face `k`'s rim is the patch's `v = 1` row — arc on
 /// `u ∈ [0, 0.5]`, bridge on `[0.5, 1]`, junction at `(0.5, 1)` —
-/// and its spokes are the `u = 1` (junction → pole) and `u = 0`
-/// (pole → next junction) iso-curves, with the pole at `v = 0`.
+/// and its spokes are the `u = 1` (junction → hub) and `u = 0`
+/// (hub → next junction) iso-curves, with the hub at `v = 0`.
 ///
 /// Rim pcurves are rate-matched by a 1-D solve constrained to the
 /// `v = 1` row: 2-D closest-point projection on these patches falls
@@ -110,7 +110,7 @@ pub(crate) fn author_pns_cap_edge_geometry(
                 if is_spoke {
                     // Tiling contract, read from `pns_cap_assemble`
                     // (`cur[0][v_c] = nxt[v_c][0]`): the seam curve
-                    // pole -> rim-start(A) is the u = 0 BOUNDARY of the
+                    // hub -> rim-start(A) is the u = 0 BOUNDARY of the
                     // patch whose rim starts at A, and an INTERIOR curve
                     // of the other adjacent patch. So the spoke edge
                     // takes the boundary patch's u = 0 iso as its 3-D
@@ -158,7 +158,7 @@ pub(crate) fn author_pns_cap_edge_geometry(
                         .get(he_edge)
                         .and_then(|e| brep.half_edges.get(e.half_edge))
                         .map(|c| c.origin);
-                    let canonical_starts_at_pole = canonical_origin == Some(central_vertex);
+                    let canonical_starts_at_hub = canonical_origin == Some(central_vertex);
                     if is_boundary_side {
                         // Author the shared edge curve from this patch's
                         // u = 0 iso (degree-4 LSQ reproduces the
@@ -168,7 +168,7 @@ pub(crate) fn author_pns_cap_edge_geometry(
                             let samples: Vec<Point3> = (0..=12)
                                 .map(|j| {
                                     let s = f64::from(j) / 12.0;
-                                    let v = if canonical_starts_at_pole { s } else { 1.0 - s };
+                                    let v = if canonical_starts_at_hub { s } else { 1.0 - s };
                                     surface.point_at(0.0, v)
                                 })
                                 .collect();
@@ -185,7 +185,7 @@ pub(crate) fn author_pns_cap_edge_geometry(
                                 }
                             }
                         }
-                        let (v_from, v_to) = if canonical_starts_at_pole {
+                        let (v_from, v_to) = if canonical_starts_at_hub {
                             (0.0, 1.0)
                         } else {
                             (1.0, 0.0)
@@ -201,7 +201,7 @@ pub(crate) fn author_pns_cap_edge_geometry(
                             Some(Pcurve::linear((0.0, v_from), (0.0, v_to), t_start, t_end));
                     } else {
                         // Interior side: fit the seam curve's preimage in
-                        // THIS chart, seeded along the diagonal (pole at
+                        // THIS chart, seeded along the diagonal (hub at
                         // (0,0), far corner at (1,1)). Local coordinate
                         // descent per sample keeps the projection out of
                         // the interior minima that defeat the generic
@@ -245,8 +245,8 @@ pub(crate) fn author_pns_cap_edge_geometry(
                         let n_samples = 12usize;
                         let (ct0, ct1) = (curve.t_start, curve.t_end);
                         // Sample in canonical curve direction; seed s from
-                        // pole (0,0) to far corner (1,1) matching whether
-                        // the canonical direction starts at the pole.
+                        // hub (0,0) to far corner (1,1) matching whether
+                        // the canonical direction starts at the hub.
                         let mut uv_points = Vec::with_capacity(n_samples + 1);
                         let mut params = Vec::with_capacity(n_samples + 1);
                         let (lo_t, hi_t) = (ct0.min(ct1), ct0.max(ct1));
@@ -258,14 +258,14 @@ pub(crate) fn author_pns_cap_edge_geometry(
                                 (g as &dyn CurveEval).point_at(t)
                             };
                             // Which end of the seed diagonal is this t?
-                            let curve_start_is_pole = {
+                            let curve_start_is_hub = {
                                 let g = &curve.geometry;
                                 (g as &dyn CurveEval)
                                     .point_at(lo_t)
                                     .distance_to(&brep.vertices[central_vertex].position)
                                     < 1.0e-6
                             };
-                            let seed = if curve_start_is_pole { s } else { 1.0 - s };
+                            let seed = if curve_start_is_hub { s } else { 1.0 - s };
                             let (mut u, mut v) = (seed, seed);
                             for _ in 0..4 {
                                 u = refine_axis(

@@ -2,7 +2,7 @@
 //!
 //! A welded sector's face side collapses to the corner point, so
 //! BOTH of its spoke lines are columns: A's u=0 column coincides
-//! with its neighbour B's right column. A collapsed line (the pole
+//! with its neighbour B's right column. A collapsed line (the apex
 //! row) would match everything, so candidates must have real extent.
 
 use popkern_core::geometry::Point3;
@@ -58,7 +58,7 @@ pub(super) fn find_welded_shared_spokes(
 }
 
 /// True when the line has no real extent (every point within
-/// tolerance of the first — e.g. the collapsed pole row).
+/// tolerance of the first — e.g. the collapsed apex row).
 fn line_is_collapsed(line: &[Point3], tolerance: f64) -> bool {
     let Some(first) = line.first() else {
         return true;

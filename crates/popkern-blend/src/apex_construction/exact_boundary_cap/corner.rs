@@ -33,13 +33,13 @@ impl Default for ExactBoundaryInnerSpokeBudget {
 pub(crate) struct PreparedExactBoundaryInnerSpokes {
     /// One generated sector-boundary record per exact-boundary sector.
     pub sectors: Vec<PreparedExactBoundarySectorBoundary>,
-    /// Deterministic pole used by all generated spokes.
-    pub pole: Point3,
-    /// Blend-ward pull direction for the PK-255 pole search (the
+    /// Deterministic apex used by all generated spokes.
+    pub apex: Point3,
+    /// Blend-ward pull direction for the PK-255 apex search (the
     /// negated sum of the confident end-section plane normals), and
     /// the search scale (the largest fillet-end arc chord). `None`
     /// when no plane orientation was confident.
-    pub pole_search: Option<(popkern_core::geometry::Vec3, f64)>,
+    pub apex_search: Option<(popkern_core::geometry::Vec3, f64)>,
 }
 
 /// Four-sided sector boundary data before surface solve.
@@ -57,9 +57,9 @@ pub(crate) struct PreparedExactBoundarySectorBoundary {
     /// degenerate-outer-side machinery drives the solve; commit
     /// skips the edge-less side via the welded seam records.
     pub face_boundary: PreparedExactBoundaryCurve,
-    /// Generated spoke from the fillet-side inner anchor to the pole.
+    /// Generated spoke from the fillet-side inner anchor to the apex.
     pub fillet_inner_spoke: GeneratedInnerSpoke,
-    /// Generated spoke from the face-side inner anchor to the pole.
+    /// Generated spoke from the face-side inner anchor to the apex.
     pub face_inner_spoke: GeneratedInnerSpoke,
     /// Measured G0 gap where the two immutable outer boundaries meet.
     pub outer_corner_gap: f64,
@@ -74,9 +74,9 @@ pub(crate) struct GeneratedInnerSpoke {
     pub source_side: ExactBoundaryOuterSide,
     /// Anchor on the immutable outer boundary.
     pub anchor: Point3,
-    /// Shared deterministic pole.
-    pub pole: Point3,
-    /// Degree-1 generated curve from anchor to pole.
+    /// Shared deterministic apex.
+    pub apex: Point3,
+    /// Degree-1 generated curve from anchor to apex.
     pub curve: NurbsCurve,
 }
 
@@ -160,14 +160,14 @@ mod corner_spoke_shaping;
 use corner_spoke_shaping::shape_spokes_for_corner_compatibility;
 
 /// Prepare generated inner spokes and complete four-sided sector boundaries.
-/// Prepare the inner spokes; `pole_override` supplies an explicit
-/// pole (PK-255 pole-search candidates), `None` keeps the
+/// Prepare the inner spokes; `apex_override` supplies an explicit
+/// apex (PK-255 apex-search candidates), `None` keeps the
 /// shared-corner centroid.
-pub(crate) fn prepare_exact_boundary_inner_spokes_with_pole(
+pub(crate) fn prepare_exact_boundary_inner_spokes_with_apex(
     sectors: &[ExactBoundaryCapSectorInput],
     boundaries: &PreparedExactBoundaryCurves,
     budget: ExactBoundaryInnerSpokeBudget,
-    pole_override: Option<Point3>,
+    apex_override: Option<Point3>,
 ) -> Result<PreparedExactBoundaryInnerSpokes, ExactBoundaryInnerSpokeDiagnostic> {
     let mut sector_inputs = Vec::with_capacity(sectors.len());
     let mut shared_corners = Vec::with_capacity(sectors.len());
@@ -222,8 +222,8 @@ pub(crate) fn prepare_exact_boundary_inner_spokes_with_pole(
         sector_inputs.push((sector, fillet.clone(), face.clone(), corner));
     }
 
-    let pole = match pole_override {
-        Some(pole) => pole,
+    let apex = match apex_override {
+        Some(apex) => apex,
         None => centroid(&shared_corners).ok_or_else(|| {
             ExactBoundaryInnerSpokeDiagnostic::new(
                 ExactBoundaryInnerSpokeDeclineReason::BoundaryMissing,
@@ -232,7 +232,7 @@ pub(crate) fn prepare_exact_boundary_inner_spokes_with_pole(
             )
         })?,
     };
-    let pole_search = super::corner_pole_search_hints::pole_search_hints(
+    let apex_search = super::corner_apex_search_hints::apex_search_hints(
         &sector_inputs
             .iter()
             .map(|(_, fillet, _, _)| &fillet.curve)
@@ -245,14 +245,14 @@ pub(crate) fn prepare_exact_boundary_inner_spokes_with_pole(
             sector,
             ExactBoundaryOuterSide::FilletEnd,
             corner.fillet_far_point,
-            pole,
+            apex,
             budget,
         )?;
         let face_inner_spoke = generated_spoke(
             sector,
             ExactBoundaryOuterSide::FaceEdge,
             corner.face_far_point,
-            pole,
+            apex,
             budget,
         )?;
         prepared.push(PreparedExactBoundarySectorBoundary {
@@ -271,8 +271,8 @@ pub(crate) fn prepare_exact_boundary_inner_spokes_with_pole(
     validate_adjacent_spoke_g0(&prepared, budget)?;
     Ok(PreparedExactBoundaryInnerSpokes {
         sectors: prepared,
-        pole,
-        pole_search,
+        apex,
+        apex_search,
     })
 }
 
@@ -318,10 +318,10 @@ fn generated_spoke(
     sector: &ExactBoundaryCapSectorInput,
     source_side: ExactBoundaryOuterSide,
     anchor: Point3,
-    pole: Point3,
+    apex: Point3,
     budget: ExactBoundaryInnerSpokeBudget,
 ) -> Result<GeneratedInnerSpoke, ExactBoundaryInnerSpokeDiagnostic> {
-    let length = anchor.distance_to(&pole);
+    let length = anchor.distance_to(&apex);
     if length < budget.min_spoke_length {
         return Err(ExactBoundaryInnerSpokeDiagnostic::new(
             ExactBoundaryInnerSpokeDeclineReason::CollapsedSpoke,
@@ -334,17 +334,17 @@ fn generated_spoke(
             "{}.inner_spoke.{}",
             sector.sector_name,
             match source_side {
-                ExactBoundaryOuterSide::FilletEnd => "fillet_anchor_to_pole",
-                ExactBoundaryOuterSide::FaceEdge => "face_anchor_to_pole",
+                ExactBoundaryOuterSide::FilletEnd => "fillet_anchor_to_apex",
+                ExactBoundaryOuterSide::FaceEdge => "face_anchor_to_apex",
             }
         ),
         source_side,
         anchor,
-        pole,
+        apex,
         curve: NurbsCurve {
             degree: 1,
             knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![anchor, pole],
+            control_points: vec![anchor, apex],
             weights: vec![1.0, 1.0],
         },
     })
@@ -423,7 +423,7 @@ fn nearest_fillet_anchor_index(
 
 fn reset_generated_spoke_anchor(spoke: &mut GeneratedInnerSpoke, anchor: Point3) {
     spoke.anchor = anchor;
-    spoke.curve.control_points = vec![anchor, spoke.pole];
+    spoke.curve.control_points = vec![anchor, spoke.apex];
 }
 
 fn boundary_for(

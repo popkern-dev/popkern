@@ -1,5 +1,5 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
-use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
+use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_apex};
 use super::sector::extract_exact_boundary_cap_sectors;
 use super::topology::materialize_exact_boundary_sector_topology;
 use crate::apex_construction::cap_kind::CapKind;
@@ -14,7 +14,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 #[test]
-fn materializes_sector_faces_around_shared_pole() {
+fn materializes_sector_faces_around_shared_apex() {
     let (mut brep, cap_face, edges) = hex_cap_fixture();
     let plan = trihedral_plan(&brep, &edges);
     let sectors =
@@ -23,7 +23,7 @@ fn materializes_sector_faces_around_shared_pole() {
     let boundaries =
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
-    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
+    let spokes = prepare_exact_boundary_inner_spokes_with_apex(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget::default(),
@@ -43,7 +43,7 @@ fn materializes_sector_faces_around_shared_pole() {
 
     assert_eq!(topology.sectors.len(), 3);
     assert_eq!(topology.spoke_edges.len(), 3);
-    assert!(brep.vertices.contains_key(topology.pole_vertex));
+    assert!(brep.vertices.contains_key(topology.apex_vertex));
     assert_eq!(brep.vertices.len(), before.0 + 1);
     assert_eq!(brep.edges.len(), before.1 + 3);
     assert_eq!(brep.half_edges.len(), before.2 + 6);
@@ -68,7 +68,7 @@ fn topology_decline_rolls_back_on_stale_cap_face() {
     let boundaries =
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
-    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
+    let spokes = prepare_exact_boundary_inner_spokes_with_apex(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget::default(),

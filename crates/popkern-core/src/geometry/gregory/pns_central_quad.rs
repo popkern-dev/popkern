@@ -14,7 +14,7 @@
 //!
 //! This module implements that composition explicitly. The
 //! quadratic `a` is shared across all N sectors (gives a consistent
-//! `G²` expansion at the pole); each sector's contribution uses a
+//! `G²` expansion at the hub); each sector's contribution uses a
 //! rotated σ jet.
 //!
 //! # Convention for `a`
@@ -26,7 +26,7 @@
 //! ```
 //!
 //! So `∂²a/∂x² = a_xx`, `∂²a/∂y² = a_yy`, `∂²a/∂x∂y = a_xy`.
-//! `a_0` is pinned to the **pole** (central point from eq 5).
+//! `a_0` is pinned to the **hub** (central point from eq 5).
 //! The remaining `(a_x, a_y, a_xx, a_xy, a_yy)` are 5 `Point3`
 //! quantities = 15 free scalars, determined jointly with the cap's
 //! other free DoFs by the F_κ minimisation.
@@ -48,7 +48,7 @@ use popkern_math::PortableMath;
 /// the cap's central quadratic expansion.
 #[derive(Debug, Clone, Copy)]
 pub struct QuadMapJet {
-    /// `a(0, 0)` — pinned to the pole (central point from eq 5).
+    /// `a(0, 0)` — pinned to the hub (central point from eq 5).
     pub a_0: Point3,
     /// `∂a/∂x` at `(0, 0)`.
     pub a_x: Point3,
@@ -65,7 +65,7 @@ pub struct QuadMapJet {
 /// Six order-`≤ 2` BB coefs of one bi-4 sector patch.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CentralSixBB {
-    /// `p_{0, 0}` — shared pole.
+    /// `p_{0, 0}` — shared hub.
     pub p00: Point3,
     /// `p_{1, 0}`.
     pub p10: Point3,

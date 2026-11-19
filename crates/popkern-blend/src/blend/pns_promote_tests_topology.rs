@@ -68,10 +68,10 @@ fn insert_pns_cap_creates_n_subfaces_with_nurbs_surfaces() {
         .get(result.central_vertex)
         .expect("central vertex exists");
     use super::super::pns_adapter::blend_boundary_to_pns_ring_with_surfaces;
-    use popkern_core::geometry::gregory::pole_from_boundary;
+    use popkern_core::geometry::gregory::hub_from_boundary;
     let ring = blend_boundary_to_pns_ring_with_surfaces(&boundary, &fillets, &brep).unwrap();
-    let expected_pole = pole_from_boundary(&ring);
-    assert!(cv.position.distance_to(&expected_pole) < 1e-10);
+    let expected_hub = hub_from_boundary(&ring);
+    assert!(cv.position.distance_to(&expected_hub) < 1e-10);
 }
 
 #[test]

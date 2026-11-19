@@ -43,7 +43,7 @@ pub(crate) fn measure_sub_face_patch_assignment(
                 // orientation-free: skip edges shorter than nothing;
                 // simply sample every edge, spokes included, but only
                 // rim samples separate the candidates (spokes meet at
-                // the shared pole for every patch).
+                // the shared hub for every patch).
                 if let Some(curve) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref()) {
                     let g = &curve.geometry;
                     for k in 1..8 {

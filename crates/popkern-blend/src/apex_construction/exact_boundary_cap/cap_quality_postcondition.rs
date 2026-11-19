@@ -27,7 +27,7 @@
 //! # Where it samples, and why that matters
 //!
 //! Only the **middle** of each seam. Adjacent cap sectors meet at a
-//! pole where one partial derivative vanishes; a finite-difference
+//! apex where one partial derivative vanishes; a finite-difference
 //! normal there is direction noise, and gating on it would reject
 //! good caps for a chart artifact. The distinction is not cosmetic —
 //! it is what separates the two routes here. The Coons fan is bad
@@ -41,7 +41,7 @@
 //! The commit-time number is measured MID-PIPELINE, through pcurves
 //! that are not yet final (the fillet pipeline recomputes every
 //! pcurve at its tail). Measured on the welded pyramid fixtures, the
-//! commit-time seam resolution mis-parameterizes the pole half of
+//! commit-time seam resolution mis-parameterizes the apex half of
 //! each spoke: the profile reads clean for fractions < 0.5, exactly
 //! zero at 0.5, and climbs to tens of degrees above 0.5 — while the
 //! served body, with identical control points (checksum-equal), is
@@ -51,7 +51,7 @@
 //! below re-measures on the final body and appends
 //! `served_mid_seam_normal` to the diagnostic, with the whole-seam
 //! `served_cap_seam_g1` beside it (PK-607): the mid-seam fractions
-//! are blind to a cap that creases toward its pole or rim, so gates pin
+//! are blind to a cap that creases toward its apex or rim, so gates pin
 //! the whole-seam value.
 
 use popkern_core::topology::{BRep, FaceHandle};
@@ -95,7 +95,7 @@ pub(crate) fn worst_mid_seam_misalignment(brep: &BRep, cap_faces: &[FaceHandle])
 /// row and the top-level apex diagnostic copy). Runs at the fillet
 /// pipeline tail, after every pcurve author, because the commit-time
 /// number is measured through not-yet-final pcurves and over-reads
-/// the pole half of each spoke (see module doc). Caps whose faces
+/// the apex half of each spoke (see module doc). Caps whose faces
 /// did not survive to serving (absorbed or re-partitioned) keep the
 /// commit-time value — a missing re-measurement must stay visible,
 /// not silently pass. Returns the number of diagnostics refreshed.
@@ -114,7 +114,7 @@ pub(crate) fn refresh_served_mid_seam_diagnostics(
             continue;
         };
         // The mid-seam number reads fractions 0.4-0.6 only; a cap that
-        // creases toward its pole or its rim reads clean there (the
+        // creases toward its apex or its rim reads clean there (the
         // pyramid-4 mixed Coons cap: 1.5e-8 mid-seam against 28° at
         // the seam ends, PK-607). The whole-seam reading beside it is
         // the one to gate on.

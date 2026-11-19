@@ -51,7 +51,7 @@ const ORDER: usize = DEGREE + 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PolyhedralSplineProvenance {
     /// Valence of the cap or vertex this patch belongs to — the
-    /// number of sectors meeting at its pole.
+    /// number of sectors meeting at its hub.
     pub valence: usize,
     /// Which sector of that cap this patch is, in `0..valence`.
     pub sector: usize,
@@ -60,7 +60,7 @@ pub struct PolyhedralSplineProvenance {
 /// A bi-quartic polyhedral-net spline patch.
 ///
 /// The control net is stored as `net[j][i]` matching the cap
-/// assembler's own indexing, where `net[0][0]` is the pole corner.
+/// assembler's own indexing, where `net[0][0]` is the hub corner.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PolyhedralSplinePatch {
     /// Bézier control net, `net[j][i]`.
@@ -108,8 +108,8 @@ impl PolyhedralSplinePatch {
         }
     }
 
-    /// The pole corner — the point all sectors of a cap share.
-    pub fn pole(&self) -> Point3 {
+    /// The hub corner — the point all sectors of a cap share.
+    pub fn hub(&self) -> Point3 {
         self.net[0][0]
     }
 }

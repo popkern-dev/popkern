@@ -138,12 +138,12 @@ fn coons_shaped_patch_set_commits_through_the_same_operator() {
     let ring = hole_vertex_ring(&brep, &hole);
     let count = ring.len();
     let inverse = 1.0 / count as f64;
-    let mut pole = Point3::new(0.0, 0.0, 0.0);
+    let mut hub = Point3::new(0.0, 0.0, 0.0);
     for point in &ring {
-        pole = Point3::new(
-            pole.x + point.x * inverse,
-            pole.y + point.y * inverse,
-            pole.z + point.z * inverse,
+        hub = Point3::new(
+            hub.x + point.x * inverse,
+            hub.y + point.y * inverse,
+            hub.z + point.z * inverse,
         );
     }
 
@@ -151,14 +151,14 @@ fn coons_shaped_patch_set_commits_through_the_same_operator() {
         .map(|k| {
             let rim_start = ring[k];
             let rim_end = ring[(k + 1) % count];
-            // Bilinear sector with the top edge collapsed at the pole
+            // Bilinear sector with the top edge collapsed at the hub
             // — the Coons fan's patch shape over a planar opening.
             let surface = NurbsSurface {
                 degree_u: 1,
                 degree_v: 1,
                 knots_u: vec![0.0, 0.0, 1.0, 1.0],
                 knots_v: vec![0.0, 0.0, 1.0, 1.0],
-                control_points: vec![rim_start, pole, rim_end, pole],
+                control_points: vec![rim_start, hub, rim_end, hub],
                 num_u: 2,
                 num_v: 2,
                 weights: vec![1.0; 4],
@@ -166,7 +166,7 @@ fn coons_shaped_patch_set_commits_through_the_same_operator() {
             CoonsPatchResult {
                 surface,
                 max_boundary_deviation: 0.0,
-                corners: [rim_start, rim_end, pole, pole],
+                corners: [rim_start, rim_end, hub, hub],
             }
         })
         .collect();

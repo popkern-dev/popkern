@@ -9,7 +9,7 @@ use crate::apex_construction::exact_boundary_cap::ribbon::ExactBoundaryRibbonSam
 use crate::apex_construction::exact_boundary_cap::sector::ExactBoundaryCapSectorInput;
 
 use super::budget::ExactBoundaryMultiPatchBudget;
-use super::inner::{ExactBoundaryInnerPolePatchPrototype, ExactBoundaryStripInnerInterfaceCurve};
+use super::inner::{ExactBoundaryInnerApexPatchPrototype, ExactBoundaryStripInnerInterfaceCurve};
 use super::inventory::{
     ExactBoundaryMultiPatchInventoryDiagnostic, ExactBoundaryOuterStripPatchInventory,
     ExactBoundaryPatchInterfaceInventory,
@@ -41,17 +41,17 @@ pub(crate) struct ExactBoundaryOuterStripValidationReport {
     pub midpoint_refinement_count: usize,
 }
 
-/// Validated inner pole G0 evidence before commit eligibility.
+/// Validated inner apex G0 evidence before commit eligibility.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ExactBoundaryInnerPoleValidationReport {
+pub(crate) struct ExactBoundaryInnerApexValidationReport {
     /// Candidate inner patch name.
     pub patch_name: String,
     /// Adjacent interface name.
     pub interface_name: String,
     /// Worst interface G0 residual.
     pub max_interface_g0: f64,
-    /// Worst pole/spoke G0 residual.
-    pub max_pole_g0: f64,
+    /// Worst apex/spoke G0 residual.
+    pub max_apex_g0: f64,
     /// Worst measured interface G1 deficit.
     pub max_interface_g1_deficit: f64,
     /// Whether interface G1 has been validated by a later slice.
@@ -139,15 +139,15 @@ pub(crate) fn validate_outer_strip_candidate(
     })
 }
 
-/// Validate inner pole prototype G0 and decline G0-only candidates before commit.
-pub(crate) fn validate_inner_pole_patch_prototype(
+/// Validate inner apex prototype G0 and decline G0-only candidates before commit.
+pub(crate) fn validate_inner_apex_patch_prototype(
     sector: &ExactBoundaryCapSectorInput,
     strip: &ExactBoundaryOuterStripPatchInventory,
     interface_inventory: &ExactBoundaryPatchInterfaceInventory,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    prototype: &ExactBoundaryInnerApexPatchPrototype,
     budget: ExactBoundaryMultiPatchBudget,
-) -> Result<ExactBoundaryInnerPoleValidationReport, ExactBoundaryMultiPatchDiagnostic> {
+) -> Result<ExactBoundaryInnerApexValidationReport, ExactBoundaryMultiPatchDiagnostic> {
     if prototype.max_interface_g0 > budget.interface_g0 {
         return Err(ExactBoundaryMultiPatchDiagnostic::interface_position(
             sector,
@@ -158,14 +158,14 @@ pub(crate) fn validate_inner_pole_patch_prototype(
             budget.interface_g0,
         ));
     }
-    if prototype.max_pole_g0 > budget.pole_g0 {
-        return Err(ExactBoundaryMultiPatchDiagnostic::pole_position(
+    if prototype.max_apex_g0 > budget.apex_g0 {
+        return Err(ExactBoundaryMultiPatchDiagnostic::apex_position(
             sector,
             strip,
             interface_inventory,
-            prototype.max_pole_g0,
+            prototype.max_apex_g0,
             0.0,
-            budget.pole_g0,
+            budget.apex_g0,
         ));
     }
     let interface_g1_report = prototype.interface_g1_report;
@@ -195,11 +195,11 @@ pub(crate) fn validate_inner_pole_patch_prototype(
             budget.interface_g1_deficit,
         ));
     }
-    Ok(ExactBoundaryInnerPoleValidationReport {
+    Ok(ExactBoundaryInnerApexValidationReport {
         patch_name: prototype.patch_name.clone(),
         interface_name: prototype.interface_name.clone(),
         max_interface_g0: prototype.max_interface_g0,
-        max_pole_g0: prototype.max_pole_g0,
+        max_apex_g0: prototype.max_apex_g0,
         max_interface_g1_deficit: interface_g1_report
             .map(|report| report.max_interface_g1_deficit)
             .unwrap_or(f64::INFINITY),

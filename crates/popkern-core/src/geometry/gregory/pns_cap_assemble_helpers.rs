@@ -9,7 +9,7 @@ use popkern_math::PortableMath;
 /// The 4 "free" CPs per sector, in fixed order for DOF indexing.
 /// **Canonical** `(u_c, v_c)` indexing. These are the deep-interior
 /// CPs not pinned by:
-/// - pole `(0, 0)`
+/// - hub `(0, 0)`
 /// - central `u_c + v_c ≤ 2` (via a∘σ^k)
 /// - prev-sharing on `v_c = 0` (cur's seam with prev)
 /// - boundary `v_c ∈ {3, 4}` (via b∘β)
@@ -46,7 +46,7 @@ struct CpRepr {
     /// Scalar coefficients (same across x/y/z by separability).
     /// Length `dof_count(n)`.
     coef: Vec<f64>,
-    /// Constant Point3 (contribution from pole + boundary).
+    /// Constant Point3 (contribution from hub + boundary).
     constant: Point3,
 }
 
@@ -76,7 +76,7 @@ pub(super) fn build_coef_map(
     let n = input.boundary.n();
     let mut sector_cps: Vec<Vec<CpRepr>> = (0..n).map(|_| vec![CpRepr::zeros(n); 25]).collect();
 
-    // Pass 1: fill in pole, central (a∘σ^k), boundary, free CPs.
+    // Pass 1: fill in hub, central (a∘σ^k), boundary, free CPs.
     for k in 0..n {
         for i in 0..5 {
             for j in 0..5 {
@@ -96,13 +96,13 @@ pub(super) fn build_coef_map(
     //
     // For pair (cur=k, nxt=k+1): seam sits at cur's canonical u_c=0.
     // Parametric identification along this seam: cur's (0, v) = nxt's (v, 0)
-    // for v=0..4 (pole at v=0, outer end at v=4).
+    // for v=0..4 (hub at v=0, outer end at v=4).
     //
     // Rewritten: patches[cur][0][v] = patches[nxt][v][0].
     // Equivalently (renaming): patches[k][u][0] = patches[prev][0][u].
     //
     // We pin cur's canonical v_c=0 edge from prev's u_c=0 edge.
-    // (Except (0, 0) which is pole, already pinned.)
+    // (Except (0, 0) which is hub, already pinned.)
     for k in 0..n {
         let prev = (k + n - 1) % n;
         for u in 1..5 {
@@ -208,7 +208,7 @@ fn compute_non_shared_cp(
 ) -> Option<CpRepr> {
     let n = input.boundary.n();
 
-    // Deferred: prev-sharing on v_c=0 (pass 2, except pole at (0,0)),
+    // Deferred: prev-sharing on v_c=0 (pass 2, except hub at (0,0)),
     // eq (2) closed-forms for (2, 1), (3, 1), (4, 1) (pass 3).
     if v == 0 && u >= 1 {
         return None;
@@ -219,9 +219,9 @@ fn compute_non_shared_cp(
 
     let mut repr = CpRepr::zeros(n);
 
-    // Pole at canonical (0, 0).
+    // Hub at canonical (0, 0).
     if (u, v) == (0, 0) {
-        repr.constant = input.pole;
+        repr.constant = input.hub;
         return Some(repr);
     }
 
@@ -244,7 +244,7 @@ fn compute_non_shared_cp(
 
     // Central (a∘σ^k) at canonical (u, v) with u+v ≤ 2 and (u, v) ≠ (0, 0).
     if u + v <= 2 {
-        central_cp_repr(&mut repr, &sigma_k[k], input.pole, u, v);
+        central_cp_repr(&mut repr, &sigma_k[k], input.hub, u, v);
         return Some(repr);
     }
 
@@ -262,9 +262,9 @@ fn compute_non_shared_cp(
 }
 
 /// Fill `repr` for a central CP `(i, j)` with `i+j ≤ 2` (excluding
-/// the pole). Coefficients depend on `sigma_k` via the chain rule
-/// in [`central_bb_from_a_and_sigma`]; constants = pole.
-fn central_cp_repr(repr: &mut CpRepr, sigma: &SigmaCenterJet, pole: Point3, i: usize, j: usize) {
+/// the hub). Coefficients depend on `sigma_k` via the chain rule
+/// in [`central_bb_from_a_and_sigma`]; constants = hub.
+fn central_cp_repr(repr: &mut CpRepr, sigma: &SigmaCenterJet, hub: Point3, i: usize, j: usize) {
     // Use unit-basis evaluation: for each a-DOF, set that
     // component of `a` to (1, 0, 0), others zero, evaluate
     // central_bb_from_a_and_sigma; the resulting Point3.x = coef.
@@ -274,14 +274,14 @@ fn central_cp_repr(repr: &mut CpRepr, sigma: &SigmaCenterJet, pole: Point3, i: u
     let zero = Point3::new(0.0, 0.0, 0.0);
     let basis = Point3::new(1.0, 0.0, 0.0);
 
-    // Baseline (a = zero, a_0 = pole): central CP = pole.
+    // Baseline (a = zero, a_0 = hub): central CP = hub.
     // Already handled as constant.
-    repr.constant = pole;
+    repr.constant = hub;
 
     // a_x
     {
         let a = QuadMapJet {
-            a_0: pole,
+            a_0: hub,
             a_x: basis,
             a_y: zero,
             a_xx: zero,
@@ -289,12 +289,12 @@ fn central_cp_repr(repr: &mut CpRepr, sigma: &SigmaCenterJet, pole: Point3, i: u
             a_yy: zero,
         };
         let cp = cp_at_ij(central_bb_from_a_and_sigma(&a, sigma), i, j);
-        repr.coef[dof_a(0)] = cp.x - pole.x;
+        repr.coef[dof_a(0)] = cp.x - hub.x;
     }
     // a_y
     {
         let a = QuadMapJet {
-            a_0: pole,
+            a_0: hub,
             a_x: zero,
             a_y: basis,
             a_xx: zero,
@@ -302,12 +302,12 @@ fn central_cp_repr(repr: &mut CpRepr, sigma: &SigmaCenterJet, pole: Point3, i: u
             a_yy: zero,
         };
         let cp = cp_at_ij(central_bb_from_a_and_sigma(&a, sigma), i, j);
-        repr.coef[dof_a(1)] = cp.x - pole.x;
+        repr.coef[dof_a(1)] = cp.x - hub.x;
     }
     // a_xx
     {
         let a = QuadMapJet {
-            a_0: pole,
+            a_0: hub,
             a_x: zero,
             a_y: zero,
             a_xx: basis,
@@ -315,12 +315,12 @@ fn central_cp_repr(repr: &mut CpRepr, sigma: &SigmaCenterJet, pole: Point3, i: u
             a_yy: zero,
         };
         let cp = cp_at_ij(central_bb_from_a_and_sigma(&a, sigma), i, j);
-        repr.coef[dof_a(2)] = cp.x - pole.x;
+        repr.coef[dof_a(2)] = cp.x - hub.x;
     }
     // a_xy
     {
         let a = QuadMapJet {
-            a_0: pole,
+            a_0: hub,
             a_x: zero,
             a_y: zero,
             a_xx: zero,
@@ -328,12 +328,12 @@ fn central_cp_repr(repr: &mut CpRepr, sigma: &SigmaCenterJet, pole: Point3, i: u
             a_yy: zero,
         };
         let cp = cp_at_ij(central_bb_from_a_and_sigma(&a, sigma), i, j);
-        repr.coef[dof_a(3)] = cp.x - pole.x;
+        repr.coef[dof_a(3)] = cp.x - hub.x;
     }
     // a_yy
     {
         let a = QuadMapJet {
-            a_0: pole,
+            a_0: hub,
             a_x: zero,
             a_y: zero,
             a_xx: zero,
@@ -341,7 +341,7 @@ fn central_cp_repr(repr: &mut CpRepr, sigma: &SigmaCenterJet, pole: Point3, i: u
             a_yy: basis,
         };
         let cp = cp_at_ij(central_bb_from_a_and_sigma(&a, sigma), i, j);
-        repr.coef[dof_a(4)] = cp.x - pole.x;
+        repr.coef[dof_a(4)] = cp.x - hub.x;
     }
 }
 
@@ -467,10 +467,10 @@ pub(super) fn reconstruct_patches(
 }
 
 /// Reconstruct `a` from the DOF solution (first 5 DOFs, per coord).
-pub(super) fn reconstruct_a(dofs: &[[f64; 3]], pole: Point3) -> QuadMapJet {
+pub(super) fn reconstruct_a(dofs: &[[f64; 3]], hub: Point3) -> QuadMapJet {
     let dof_to_p3 = |d: usize| Point3::new(dofs[d][0], dofs[d][1], dofs[d][2]);
     QuadMapJet {
-        a_0: pole,
+        a_0: hub,
         a_x: dof_to_p3(dof_a(0)),
         a_y: dof_to_p3(dof_a(1)),
         a_xx: dof_to_p3(dof_a(2)),

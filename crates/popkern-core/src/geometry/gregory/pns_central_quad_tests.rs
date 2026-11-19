@@ -14,7 +14,7 @@ fn approx_pt(a: Point3, b: Point3, eps: f64) -> bool {
     (a.x - b.x).abs() < eps && (a.y - b.y).abs() < eps && (a.z - b.z).abs() < eps
 }
 
-/// Zero `a` (everything 0, including the pole) gives the all-zero cap.
+/// Zero `a` (everything 0, including the hub) gives the all-zero cap.
 #[test]
 fn zero_a_gives_zero_bb_coefs() {
     let zero = pt(0.0, 0.0, 0.0);
@@ -33,13 +33,13 @@ fn zero_a_gives_zero_bb_coefs() {
     }
 }
 
-/// Constant `a` (only `a_0` non-zero) gives all 6 CPs at the pole.
+/// Constant `a` (only `a_0` non-zero) gives all 6 CPs at the hub.
 #[test]
-fn constant_a_pins_all_central_coefs_to_pole() {
-    let pole = pt(1.5, 2.7, 3.9);
+fn constant_a_pins_all_central_coefs_to_hub() {
+    let hub = pt(1.5, 2.7, 3.9);
     let zero = pt(0.0, 0.0, 0.0);
     let a = QuadMapJet {
-        a_0: pole,
+        a_0: hub,
         a_x: zero,
         a_y: zero,
         a_xx: zero,
@@ -49,16 +49,16 @@ fn constant_a_pins_all_central_coefs_to_pole() {
     let sigma = sigma_center_jet_default(7).expect("paper defaults yield a finite σ jet");
     let bb = central_bb_from_a_and_sigma(&a, &sigma);
     for p in [bb.p00, bb.p10, bb.p01, bb.p20, bb.p11, bb.p02] {
-        assert!(approx_pt(p, pole, 1e-12), "got {p:?}");
+        assert!(approx_pt(p, hub, 1e-12), "got {p:?}");
     }
 }
 
-/// Sanity: `p_{00}` is always the pole, regardless of `a`'s other components.
+/// Sanity: `p_{00}` is always the hub, regardless of `a`'s other components.
 #[test]
-fn p00_is_always_pole() {
-    let pole = pt(7.0, -3.0, 0.5);
+fn p00_is_always_hub() {
+    let hub = pt(7.0, -3.0, 0.5);
     let a = QuadMapJet {
-        a_0: pole,
+        a_0: hub,
         a_x: pt(1.0, 0.0, 0.0),
         a_y: pt(0.0, 2.0, 0.0),
         a_xx: pt(3.0, 0.0, 0.0),
@@ -68,7 +68,7 @@ fn p00_is_always_pole() {
     for n in [5_usize, 6, 7, 8] {
         let sigma = sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet");
         let bb = central_bb_from_a_and_sigma(&a, &sigma);
-        assert!(approx_pt(bb.p00, pole, 1e-12), "n={n}");
+        assert!(approx_pt(bb.p00, hub, 1e-12), "n={n}");
     }
 }
 
@@ -127,7 +127,7 @@ fn paraboloid_a_gives_rotationally_symmetric_cap() {
     };
     let sigma = sigma_center_jet_default(6).expect("paper defaults yield a finite σ jet");
     let all = central_bb_all_sectors(&a, &sigma, 6);
-    // All 6 sectors' p_{00} = pole.
+    // All 6 sectors' p_{00} = hub.
     for bb in &all {
         assert!(approx_pt(bb.p00, zero, 1e-12));
     }
@@ -148,9 +148,9 @@ fn paraboloid_a_gives_rotationally_symmetric_cap() {
 /// 5 distinct sectors' worth of BB sextuples.
 #[test]
 fn central_bb_all_sectors_count_and_finite() {
-    let pole = pt(0.1, 0.2, 0.3);
+    let hub = pt(0.1, 0.2, 0.3);
     let a = QuadMapJet {
-        a_0: pole,
+        a_0: hub,
         a_x: pt(1.0, 0.0, 0.5),
         a_y: pt(0.0, 1.0, 0.3),
         a_xx: pt(0.2, 0.0, 0.0),

@@ -231,15 +231,15 @@ fn surface_aware_derivs_are_perpendicular_to_curve_tangents() {
 fn surface_aware_derivs_point_into_the_cap_like_the_placeholder() {
     // PK-517: the derivative row is ∂_v b(u, 0) with v increasing
     // INTO the cap — `b ∘ β` builds the cap's first interior row
-    // from it (a(u) > 0) and the eq-5 pole averages pos + deriv/2,
+    // from it (a(u) > 0) and the eq-5 hub averages pos + deriv/2,
     // the net's inner ring. The pre-PK-517 surface-aware adapter
-    // pointed it outward, which put every convex cap's pole below
+    // pointed it outward, which put every convex cap's hub below
     // its rim. Planar supports (z = 0) around a ring centred on the
     // vertex's footprint: every surface-aware row must point toward
     // the ring centre, agree with the placeholder row's sense, and
-    // the eq-5 pole must land strictly inside the ring.
+    // the eq-5 hub must land strictly inside the ring.
     use popkern_core::geometry::Vec3;
-    use popkern_core::geometry::gregory::pole_from_boundary;
+    use popkern_core::geometry::gregory::hub_from_boundary;
     use popkern_core::geometry::surface::SurfaceGeometry;
     use popkern_core::tolerance::Tolerance;
     use popkern_core::topology::BRep;
@@ -299,41 +299,41 @@ fn surface_aware_derivs_point_into_the_cap_like_the_placeholder() {
             );
         }
     }
-    let pole = pole_from_boundary(&surface_ring);
+    let hub = hub_from_boundary(&surface_ring);
     let inradius = radius * (std::f64::consts::PI / (2 * n_fillets) as f64).cos();
     assert!(
-        (pole.x * pole.x + pole.y * pole.y).sqrt() < inradius,
-        "eq-5 pole must land inside the ring, got {pole:?}"
+        (hub.x * hub.x + hub.y * hub.y).sqrt() < inradius,
+        "eq-5 hub must land inside the ring, got {hub:?}"
     );
 }
 
 #[test]
 fn blend_boundary_to_ring_feeds_pns_cap_assembly() {
-    // End-to-end: adapter output + pole_from_boundary + assembly.
+    // End-to-end: adapter output + hub_from_boundary + assembly.
     use popkern_core::geometry::gregory::{
-        BetaReparam, CapAssembleInput, assemble_pns_bi4_cap, pole_from_boundary,
+        BetaReparam, CapAssembleInput, assemble_pns_bi4_cap, hub_from_boundary,
         sigma_center_jet_default,
     };
     let bb = synth_blend_boundary(3, 1.5);
     let ring = blend_boundary_to_pns_ring(&bb).expect("adapter conversion should succeed");
     let n = ring.n();
-    let pole = pole_from_boundary(&ring);
+    let hub = hub_from_boundary(&ring);
     let input = CapAssembleInput {
         boundary: ring,
         beta: BetaReparam::bi4(n),
         sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-        pole,
+        hub,
         kappa: 3,
     };
     let cap = assemble_pns_bi4_cap(&input).expect("end-to-end assembly should succeed");
     assert_eq!(cap.patches.len(), n);
-    // All patch poles land at the derived pole.
+    // All patch hubs land at the derived hub.
     for k in 0..n {
         let p00 = cap.patches[k][0][0];
         assert!(
-            (p00.x - pole.x).abs() < 1e-10
-                && (p00.y - pole.y).abs() < 1e-10
-                && (p00.z - pole.z).abs() < 1e-10
+            (p00.x - hub.x).abs() < 1e-10
+                && (p00.y - hub.y).abs() < 1e-10
+                && (p00.z - hub.z).abs() < 1e-10
         );
     }
 }

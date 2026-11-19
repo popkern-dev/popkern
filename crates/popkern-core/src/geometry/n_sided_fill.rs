@@ -38,7 +38,7 @@
 
 use super::gregory::{
     BetaReparam, Bi2BorderStrip, Bi2TensorBorderRing, CapAssembleInput, assemble_pns_bi4_cap,
-    pns_bi4_to_nurbs, pole_from_boundary, sigma_center_jet_default,
+    hub_from_boundary, pns_bi4_to_nurbs, sigma_center_jet_default,
 };
 use super::surface::SurfaceGeometry;
 use super::{Point3, Vec3};
@@ -166,8 +166,8 @@ pub enum NSidedFillError {
 pub struct NSidedFill {
     /// One surface per side of the opening, in boundary order.
     pub surfaces: Vec<SurfaceGeometry>,
-    /// The central pole all patches meet at.
-    pub pole: Point3,
+    /// The central hub all patches meet at.
+    pub hub: Point3,
     /// Worst deviation between a patch corner and the boundary point
     /// it was built from. A fill that does not interpolate its own
     /// boundary is not usable, so callers gate on this.
@@ -205,14 +205,14 @@ pub fn fill_n_sided_boundary(
     }
     let ring = Bi2TensorBorderRing { sectors };
 
-    let pole = pole_from_boundary(&ring);
+    let hub = hub_from_boundary(&ring);
     let sigma =
         sigma_center_jet_default(n).map_err(|e| NSidedFillError::Assembly(e.to_string()))?;
     let cap = assemble_pns_bi4_cap(&CapAssembleInput {
         boundary: ring,
         beta: BetaReparam::bi4(n),
         sigma,
-        pole,
+        hub,
         kappa: FILL_KAPPA,
     })
     .map_err(|e| NSidedFillError::Assembly(e.to_string()))?;
@@ -225,7 +225,7 @@ pub fn fill_n_sided_boundary(
         let patch = &cap.patches[k];
         // Sector k's rim is the column i = 4: `patch[0][4]` sits at
         // that side's start and `patch[4][4]` at its end, while
-        // `patch[0][0]` is the pole. (Measured, not assumed — the
+        // `patch[0][0]` is the hub. (Measured, not assumed — the
         // first cut of this check read the wrong row and reported a
         // 1.1-unit "gap" on a cap that interpolates exactly.)
         worst_boundary_gap = worst_boundary_gap
@@ -241,7 +241,7 @@ pub fn fill_n_sided_boundary(
 
     Ok(NSidedFill {
         surfaces,
-        pole,
+        hub,
         worst_boundary_gap,
     })
 }

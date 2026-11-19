@@ -28,7 +28,7 @@ pub(crate) struct ExactBoundaryMultiPatchCommitPreflightReport {
     pub reused_outer_edges: Vec<EdgeHandle>,
     /// Number of pcurves required by the candidate commit.
     pub pcurve_count: usize,
-    /// Number of generated pole spokes required by the candidate commit.
+    /// Number of generated apex spokes required by the candidate commit.
     pub generated_spoke_count: usize,
 }
 
@@ -39,7 +39,7 @@ pub(crate) struct ExactBoundaryMultiPatchCommitReport {
     pub preflight: ExactBoundaryMultiPatchCommitPreflightReport,
     /// Source cap face reused as the outer strip patch face.
     pub strip_face: FaceHandle,
-    /// Generated cap face for the inner pole patch.
+    /// Generated cap face for the inner apex patch.
     pub inner_face: FaceHandle,
     /// Generated strip/inner interface edge.
     pub internal_interface_edges: Vec<EdgeHandle>,
@@ -252,13 +252,13 @@ fn generated_spoke_count(surface: &NurbsSurface) -> usize {
     if surface.num_v < 2 || surface.control_points.len() < surface.num_u.saturating_mul(2) {
         return 0;
     }
-    let pole_row_start = surface.num_v - 1;
-    let Some(reference) = surface.control_points.get(pole_row_start).copied() else {
+    let apex_row_start = surface.num_v - 1;
+    let Some(reference) = surface.control_points.get(apex_row_start).copied() else {
         return 0;
     };
     let mut count = 0;
     for index in 0..surface.num_u {
-        let point_index = index * surface.num_v + pole_row_start;
+        let point_index = index * surface.num_v + apex_row_start;
         let Some(point) = surface.control_points.get(point_index) else {
             return 0;
         };

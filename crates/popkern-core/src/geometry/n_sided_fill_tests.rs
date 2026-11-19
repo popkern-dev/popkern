@@ -66,14 +66,14 @@ fn fills_every_supported_valence() {
 }
 
 #[test]
-fn patches_meet_at_a_single_pole() {
+fn patches_meet_at_a_single_hub() {
     let fill = fill_n_sided_boundary(&planar_opening(5, 1.0), 1e-9).expect("pentagon fill");
     for (k, surface) in fill.surfaces.iter().enumerate() {
         let corner = surface.point_at(0.0, 0.0);
         assert!(
-            corner.distance_to(&fill.pole) < 1e-9,
-            "patch {k} corner {corner:?} does not sit at the pole {:?}",
-            fill.pole
+            corner.distance_to(&fill.hub) < 1e-9,
+            "patch {k} corner {corner:?} does not sit at the hub {:?}",
+            fill.hub
         );
     }
 }

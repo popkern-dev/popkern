@@ -16,8 +16,8 @@ use super::{
 /// cap tangent plane at the anchor — the plane spanned by the real
 /// outer-boundary tangents meeting there (PK-125).
 ///
-/// A straight anchor→pole spoke leaves the anchor OUT of that plane
-/// (the pole sits above the cap), so the solved sector surface tears
+/// A straight anchor→apex spoke leaves the anchor OUT of that plane
+/// (the apex sits above the cap), so the solved sector surface tears
 /// away from the support tangent plane exactly at the seam ends
 /// (measured pyramid4_uniform: cap-vs-cylinder unit-normal deficit
 /// 4.8e-1 at s = 0.05/0.95 on every fillet seam, chart-independent).
@@ -26,8 +26,8 @@ use super::{
 /// tangency lines), so an in-plane spoke start makes the cap tangent
 /// plane at the corner EQUAL the support's — G1 at the seam ends by
 /// construction. The spoke stays a point-anchored cubic ending
-/// straight into the pole; anchors and pole are unchanged, so spoke
-/// G0 reconciliation and the pole meeting point are unaffected.
+/// straight into the apex; anchors and apex are unchanged, so spoke
+/// G0 reconciliation and the apex meeting point are unaffected.
 pub(super) fn shape_spokes_for_corner_compatibility(
     sectors: &mut [PreparedExactBoundarySectorBoundary],
 ) {
@@ -63,7 +63,7 @@ fn shape_one_spoke(
     boundary_end_tangents: &[(Point3, popkern_core::geometry::Vec3)],
 ) {
     let anchor = spoke.anchor;
-    let chord = spoke.pole - anchor;
+    let chord = spoke.apex - anchor;
     let Some(chord_dir) = chord.normalized() else {
         return;
     };
@@ -99,8 +99,8 @@ fn shape_one_spoke(
         control_points: vec![
             anchor,
             anchor + start_dir * handle,
-            spoke.pole - chord_dir * handle,
-            spoke.pole,
+            spoke.apex - chord_dir * handle,
+            spoke.apex,
         ],
         weights: vec![1.0; 4],
     };

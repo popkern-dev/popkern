@@ -108,10 +108,10 @@ fn commit_preflight_declines_missing_pcurve_or_interface_or_spokes() {
 
     let mut missing_spokes = commit_eligible_candidate(&sector);
     for index in 1..missing_spokes.inner_patch.surface.num_u {
-        let pole_index = index * missing_spokes.inner_patch.surface.num_v
+        let apex_index = index * missing_spokes.inner_patch.surface.num_v
             + missing_spokes.inner_patch.surface.num_v
             - 1;
-        missing_spokes.inner_patch.surface.control_points[pole_index].x += index as f64;
+        missing_spokes.inner_patch.surface.control_points[apex_index].x += index as f64;
     }
     let spoke_diagnostic = preflight_multipatch_commit(&sector, &missing_spokes)
         .expect_err("missing generated spokes must decline");
@@ -123,14 +123,14 @@ fn commit_preflight_declines_missing_pcurve_or_interface_or_spokes() {
 
 #[test]
 fn transactional_commit_materializes_split_faces_and_validates_brep() {
-    let (mut brep, sector, boundary, samples, pole) = live_sector_fixture();
+    let (mut brep, sector, boundary, samples, apex) = live_sector_fixture();
     let initial_face_count = brep.faces.len();
     let initial_edge_count = brep.edges.len();
     let initial_vertex_count = brep.vertices.len();
     let support_pcurve_before = brep.half_edges[bridged(&sector).support_half_edge]
         .pcurve
         .clone();
-    let candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
+    let candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, apex);
 
     let report = commit_multipatch_candidate_transactionally(&mut brep, &sector, &candidate)
         .expect("validated candidate should commit transactionally");
@@ -162,8 +162,8 @@ fn transactional_commit_materializes_split_faces_and_validates_brep() {
 
 #[test]
 fn transactional_commit_authors_support_authority_edge_curve() {
-    let (mut brep, sector, boundary, samples, pole) = live_sector_fixture();
-    let mut candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
+    let (mut brep, sector, boundary, samples, apex) = live_sector_fixture();
+    let mut candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, apex);
     let authority_boundary = quadratic_boundary_on_same_line(&boundary);
     candidate.support_authority_boundary = Some(authority_boundary.clone());
 
@@ -190,8 +190,8 @@ fn transactional_commit_authors_support_authority_edge_curve() {
 
 #[test]
 fn transactional_commit_rolls_back_when_source_face_is_stale() {
-    let (mut brep, mut sector, boundary, samples, pole) = live_sector_fixture();
-    let candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
+    let (mut brep, mut sector, boundary, samples, apex) = live_sector_fixture();
+    let candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, apex);
     let before_counts = topology_counts(&brep);
     sector.cap_face = FaceHandle::default();
 
@@ -207,8 +207,8 @@ fn transactional_commit_rolls_back_when_source_face_is_stale() {
 
 #[test]
 fn transactional_commit_rolls_back_post_validation_failure() {
-    let (mut brep, sector, boundary, samples, pole) = live_sector_fixture();
-    let mut candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
+    let (mut brep, sector, boundary, samples, apex) = live_sector_fixture();
+    let mut candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, apex);
     let before_counts = topology_counts(&brep);
     let source_surface_before = brep.faces[sector.cap_face].surface.clone();
     let collapsed = candidate.inner_patch.surface.control_points[0];
@@ -246,7 +246,7 @@ fn commit_eligible_candidate_from_boundary(
     sector: &ExactBoundaryCapSectorInput,
     boundary: &NurbsCurve,
     samples: &[ExactBoundaryRibbonSample],
-    pole: Point3,
+    apex: Point3,
 ) -> ExactBoundaryMultiPatchCandidate {
     let budget = ExactBoundaryMultiPatchBudget {
         support_normal_deficit: 1.0e-8,
@@ -259,7 +259,7 @@ fn commit_eligible_candidate_from_boundary(
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
         support_samples: samples,
         support_authority_boundary: None,
-        pole,
+        apex,
         budget,
     });
     assert_eq!(
@@ -298,7 +298,7 @@ fn live_sector_fixture() -> (
     let normal = tangent.cross(&inward).normalized().expect("face normal");
     let boundary = line_boundary(start, end);
     let samples = live_support_samples(start, end, normal, inward);
-    let pole = midpoint + inward * 0.45;
+    let apex = midpoint + inward * 0.45;
     let sector = ExactBoundaryCapSectorInput {
         sector_index: 0,
         sector_name: "direct_apex.cap_sector.live".to_string(),
@@ -323,7 +323,7 @@ fn live_sector_fixture() -> (
             selected_support_face,
         )),
     };
-    (brep, sector, boundary, samples, pole)
+    (brep, sector, boundary, samples, apex)
 }
 
 fn cubic_boundary() -> NurbsCurve {

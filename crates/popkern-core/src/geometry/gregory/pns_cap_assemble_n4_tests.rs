@@ -4,11 +4,11 @@
 //! Split out of `pns_cap_assemble_tests.rs` to stay under the 500-line
 //! structural limit. These belong together: every one of them exists
 //! because `n = 4` was long believed impossible for this cap, and each
-//! pins a different part of why that was wrong — the σ pole is
-//! removable, the eq (2) pole is presentational, and the solved form
+//! pins a different part of why that was wrong — the σ hub is
+//! removable, the eq (2) hub is presentational, and the solved form
 //! must decline rather than fabricate a row where the system is
 //! underdetermined. See
-//! `docs/decisions/2026-07-25-pns-n4-removable-pole.md`.
+//! `docs/decisions/2026-07-25-pns-n4-removable-hub.md`.
 
 use super::super::pns_beta::BetaReparam;
 use super::super::pns_sigma::sigma_center_jet_default;
@@ -19,7 +19,7 @@ use super::tests::{approx_pt, planar_ring, pt};
 /// `n = 4` used to be rejected outright on the belief that σ's `1/c`
 /// factor was structurally singular there. It is not: regrouped as
 /// `d₁ + (4/(3c))·(cos(α/2)·d₂ − d₁)`, the residue vanishes exactly
-/// under the Appendix B defaults, so the pole is removable and the
+/// under the Appendix B defaults, so the hub is removable and the
 /// cap assembles like any other valence. This is the four-valent
 /// corner — pyramid apexes and cross junctions — so the old guard cost
 /// the bi-4 cap a whole class of real geometry.
@@ -29,15 +29,15 @@ fn n4_assembles_with_paper_defaults() {
         boundary: planar_ring(4, 1.0),
         beta: BetaReparam::bi4(4),
         sigma: sigma_center_jet_default(4).expect("paper defaults yield a finite σ jet"),
-        pole: pt(0.0, 0.0, 0.5),
+        hub: pt(0.0, 0.0, 0.5),
         kappa: 3,
     };
-    let result = assemble_pns_bi4_cap(&input).expect("n=4 must assemble; its σ pole is removable");
+    let result = assemble_pns_bi4_cap(&input).expect("n=4 must assemble; its σ hub is removable");
     assert_eq!(result.patches.len(), 4, "n=4 cap must have 4 sectors");
     for (k, patch) in result.patches.iter().enumerate() {
         assert!(
             approx_pt(patch[0][0], pt(0.0, 0.0, 0.5), 1e-12),
-            "n=4 sector {k} must meet the pole"
+            "n=4 sector {k} must meet the hub"
         );
         for row in patch.iter() {
             for cp in row.iter() {
@@ -50,22 +50,22 @@ fn n4_assembles_with_paper_defaults() {
     }
 }
 
-/// The removable pole is a property of the *scalings*, not of `n = 4`
+/// The removable hub is a property of the *scalings*, not of `n = 4`
 /// itself. A caller supplying `(d₁, d₂)` that leave a residue gets a
 /// typed error naming the measured residue, not a NaN cap.
 #[test]
-fn n4_irremovable_pole_is_a_typed_error() {
+fn n4_irremovable_hub_is_a_typed_error() {
     use super::super::pns_sigma::{SigmaJetError, d1_def, d2_def, sigma_center_jet};
     // Perturb d₂ off the cancelling value; d₁ is left at the default.
     let bad = sigma_center_jet(4, d1_def(4), d2_def(4) * 1.05);
     match bad {
-        Err(SigmaJetError::IrremovablePole { residue, .. }) => {
+        Err(SigmaJetError::IrremovableHub { residue, .. }) => {
             assert!(
                 residue.abs() > 1e-3,
                 "a 5% d₂ perturbation should leave a clearly non-zero residue, got {residue:e}"
             );
         }
-        other => panic!("expected IrremovablePole for off-default n=4 scalings, got {other:?}"),
+        other => panic!("expected IrremovableHub for off-default n=4 scalings, got {other:?}"),
     }
 }
 
@@ -79,7 +79,7 @@ fn non_finite_sigma_jet_is_rejected_by_assembly() {
         boundary: planar_ring(5, 1.0),
         beta: BetaReparam::bi4(5),
         sigma,
-        pole: pt(0.0, 0.0, 0.5),
+        hub: pt(0.0, 0.0, 0.5),
         kappa: 3,
     };
     assert!(
@@ -112,7 +112,7 @@ fn eq2_g1_holds_division_free_at_every_valence() {
             boundary: planar_ring(n, 1.3),
             beta: BetaReparam::bi4(n),
             sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
-            pole: pt(0.0, 0.0, 0.2),
+            hub: pt(0.0, 0.0, 0.2),
             kappa: 3,
         };
         let result = assemble_pns_bi4_cap(&input)

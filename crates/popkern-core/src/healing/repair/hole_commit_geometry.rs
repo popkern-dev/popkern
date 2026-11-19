@@ -1,6 +1,6 @@
 //! Normalize hole-filler output into committable cap geometry.
 //!
-//! Both fillers produce a fan of N sector patches around a pole, but
+//! Both fillers produce a fan of N sector patches around a hub, but
 //! in different containers: the G¹ PnS cap returns bi-4 NURBS sectors
 //! whose spoke iso-curves are shared exactly, while the Coons fan
 //! returns per-sector surfaces plus corner points and rebuilds its
@@ -20,13 +20,13 @@ use super::hole_commit::HoleCommitError;
 pub enum HoleCapChart {
     /// Fan-shaped patch sets whose sectors admit 2-D projection
     /// (Coons-fan wedges, PnS bi-4 attempts). Pcurves come from
-    /// `recompute_face_pcurves` plus the pole-corner snap; the
+    /// `recompute_face_pcurves` plus the hub-corner snap; the
     /// coherence gate then measures whether the sectors genuinely
     /// meet — the PnS bi-4 complex declines here with its real
     /// internal fan-seam gap (9.7e-2 on the open-box fill; see the
     /// PK-199 resolution notes for the falsified tilings).
     ProjectableFan,
-    /// Ruled pole↔rim sectors from [`super::hole_ruled_fan`]: every
+    /// Ruled hub↔rim sectors from [`super::hole_ruled_fan`]: every
     /// boundary curve lies on its sector by construction, so all
     /// pcurves are authored as exact parameter lines — no projection.
     RuledFanAnalytic,
@@ -41,17 +41,17 @@ pub struct HoleCapSectorGeometry {
     pub rim_start: Point3,
     /// Rim end position (the next hole ring vertex).
     pub rim_end: Point3,
-    /// Spoke curve from the pole to `rim_start`.
+    /// Spoke curve from the hub to `rim_start`.
     pub spoke_at_rim_start: CurveOnEdge,
-    /// Spoke curve from the pole to `rim_end`.
+    /// Spoke curve from the hub to `rim_end`.
     pub spoke_at_rim_end: CurveOnEdge,
 }
 
 /// A hole cap normalized from either filler.
 #[derive(Debug, Clone)]
 pub struct HoleCapGeometry {
-    /// The pole all sectors meet at (becomes the fan's pole vertex).
-    pub pole: Point3,
+    /// The hub all sectors meet at (becomes the fan's hub vertex).
+    pub hub: Point3,
     /// One sector per hole side, in filler order.
     pub sectors: Vec<HoleCapSectorGeometry>,
     /// Chart family of the sector surfaces.
@@ -62,22 +62,22 @@ impl HoleCapGeometry {
     /// Normalize a G¹ PnS fill.
     ///
     /// Sector k of an [`NSidedFill`] is a bi-4 NURBS whose control
-    /// net has the pole at `cp(0,0)`, the rim as the `v = 1` iso from
+    /// net has the hub at `cp(0,0)`, the rim as the `v = 1` iso from
     /// `cp(0,4)` to `cp(4,4)`, and the spoke at its rim start as the
     /// `u = 0` iso. The sector *quads overlap*: `cp(4,0)` is the
-    /// previous ring vertex, not the pole (measured on the open-box
+    /// previous ring vertex, not the hub (measured on the open-box
     /// fill — the collapsed-wedge reading was falsified at 0.73 from
-    /// the pole), so the committed face is a trimmed triangle of the
+    /// the hub), so the committed face is a trimmed triangle of the
     /// patch and the spoke at a sector's rim END is the *next*
     /// sector's `u = 0` iso, shared in 3D by the cap's eq (2)
-    /// machinery. Pole corners and spoke handoffs are verified within
+    /// machinery. Hub corners and spoke handoffs are verified within
     /// `tolerance`, measured.
     ///
     /// # Errors
     ///
     /// [`HoleCommitError::UnsupportedSurfaceForm`] when a sector is
     /// not a 5×5 NURBS; [`HoleCommitError::EndpointMismatch`] when a
-    /// pole corner misses the pole or consecutive sectors do not hand
+    /// hub corner misses the hub or consecutive sectors do not hand
     /// their rim over within `tolerance`.
     pub fn from_pns_fill(fill: &NSidedFill, tolerance: f64) -> Result<Self, HoleCommitError> {
         let count = fill.surfaces.len();
@@ -97,12 +97,12 @@ impl HoleCapGeometry {
                 }
             };
             let cp = |u: usize, v: usize| nurbs.control_points[5 * u + v];
-            let pole_distance = cp(0, 0).distance_to(&fill.pole);
-            if pole_distance > tolerance {
+            let hub_distance = cp(0, 0).distance_to(&fill.hub);
+            if hub_distance > tolerance {
                 return Err(HoleCommitError::EndpointMismatch {
                     sector: index,
-                    role: "pole corner (0,0)",
-                    distance: pole_distance,
+                    role: "hub corner (0,0)",
+                    distance: hub_distance,
                     budget: tolerance,
                 });
             }
@@ -130,7 +130,7 @@ impl HoleCapGeometry {
             });
         }
         Ok(Self {
-            pole: fill.pole,
+            hub: fill.hub,
             sectors,
             chart: HoleCapChart::ProjectableFan,
         })
@@ -141,7 +141,7 @@ impl HoleCapGeometry {
     /// The fan's spokes are straight centroid lines that the filler
     /// does not return, so they are rebuilt here from the patch
     /// corners: `corners[0]` / `corners[1]` are the rim endpoints and
-    /// the pole is the mean of the rim starts — exactly the centroid
+    /// the hub is the mean of the rim starts — exactly the centroid
     /// the fan radiated from. The known ~1% `center_near` offset of
     /// each patch's collapsed top edge is not hidden: it surfaces in
     /// the commit's coherence gate as measured L2 disagreement.
@@ -165,13 +165,13 @@ impl HoleCapGeometry {
             });
         }
         let inverse_count = 1.0 / patches.len() as f64;
-        let mut pole = Point3::new(0.0, 0.0, 0.0);
+        let mut hub = Point3::new(0.0, 0.0, 0.0);
         for patch in patches {
             let start = patch.corners[0];
-            pole = Point3::new(
-                pole.x + start.x * inverse_count,
-                pole.y + start.y * inverse_count,
-                pole.z + start.z * inverse_count,
+            hub = Point3::new(
+                hub.x + start.x * inverse_count,
+                hub.y + start.y * inverse_count,
+                hub.z + start.z * inverse_count,
             );
         }
         let mut sectors = Vec::with_capacity(patches.len());
@@ -179,10 +179,10 @@ impl HoleCapGeometry {
             let rim_start = patch.corners[0];
             let rim_end = patch.corners[1];
             let spoke = |rim: Point3| {
-                CurveOnEdge::line_segment(pole, rim, tolerance).ok_or_else(|| {
+                CurveOnEdge::line_segment(hub, rim, tolerance).ok_or_else(|| {
                     HoleCommitError::UnsupportedSurfaceForm {
                         sector: index,
-                        detail: format!("spoke from pole {pole:?} to rim {rim:?} is degenerate"),
+                        detail: format!("spoke from hub {hub:?} to rim {rim:?} is degenerate"),
                     }
                 })
             };
@@ -195,7 +195,7 @@ impl HoleCapGeometry {
             });
         }
         Ok(Self {
-            pole,
+            hub,
             sectors,
             chart: HoleCapChart::ProjectableFan,
         })

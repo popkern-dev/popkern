@@ -138,28 +138,28 @@ fn promote_produces_n_surfaces_matching_pairs() {
 }
 
 #[test]
-fn promoted_surfaces_interpolate_pole_at_canonical_origin() {
+fn promoted_surfaces_interpolate_hub_at_canonical_origin() {
     // Sanity: each surface's NURBS point at (u=0, v=0) = canonical
-    // patch pole = the auto-derived central point.
+    // patch hub = the auto-derived central point.
     let (bb, fillets, brep) = synth_planar_blend_for_promote(1.5);
     let surfaces = promote_blend_boundary_to_pns_surfaces(&bb, &fillets, &brep).unwrap();
 
-    // Derive the auto-pole the same way promote does, for the
+    // Derive the auto-hub the same way promote does, for the
     // expected value.
     use super::pns_adapter::blend_boundary_to_pns_ring_with_surfaces;
-    use popkern_core::geometry::gregory::pole_from_boundary;
+    use popkern_core::geometry::gregory::hub_from_boundary;
     let ring = blend_boundary_to_pns_ring_with_surfaces(&bb, &fillets, &brep).unwrap();
-    let expected_pole = pole_from_boundary(&ring);
+    let expected_hub = hub_from_boundary(&ring);
 
     for (k, surf) in surfaces.iter().enumerate() {
         let ns = pns_nurbs(surf);
         let p00 = ns.point_at(0.0, 0.0);
-        let diff = (p00.x - expected_pole.x).abs()
-            + (p00.y - expected_pole.y).abs()
-            + (p00.z - expected_pole.z).abs();
+        let diff = (p00.x - expected_hub.x).abs()
+            + (p00.y - expected_hub.y).abs()
+            + (p00.z - expected_hub.z).abs();
         assert!(
             diff < 1e-10,
-            "sector {k} pole at (0, 0) = {p00:?}, expected {expected_pole:?}"
+            "sector {k} hub at (0, 0) = {p00:?}, expected {expected_hub:?}"
         );
     }
 }

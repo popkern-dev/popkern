@@ -8,7 +8,7 @@
 //! spoke curves, tangent
 //! to the surviving walls through the shared rim-ribbon machinery,
 //! G1 to each other across the spokes by midpoint-offset member
-//! pairing, with the pole enclosure closed by the Shirman-Séquin
+//! pairing, with the hub enclosure closed by the Shirman-Séquin
 //! solve (see [`super::hole_polar_fan_wedges`] for the construction
 //! and per-seam mechanisms).
 //!
@@ -23,7 +23,7 @@
 //! whose coherence gate and validation are the final authority.
 //! Corner points are excluded from the G1 claim for the same
 //! structural reason as the single-patch rung: at a rim corner the
-//! two walls disagree, and at the pole the parameterization
+//! two walls disagree, and at the hub the parameterization
 //! collapses.
 
 use crate::geometry::curve::CurveGeometry;
@@ -92,8 +92,8 @@ pub enum PolarFanCapError {
         /// What was degenerate, with the measured value.
         detail: String,
     },
-    /// The pole vertex-enclosure solve was unavailable.
-    #[error("polar fan cap: the pole vertex-enclosure solve is unavailable for this ring")]
+    /// The hub vertex-enclosure solve was unavailable.
+    #[error("polar fan cap: the hub vertex-enclosure solve is unavailable for this ring")]
     EnclosureUnsolvable,
     /// A wedge's Gregory assembly failed.
     #[error("polar fan cap: wedge {wedge} assembly failed: {detail}")]
@@ -201,7 +201,7 @@ pub fn polar_fan_g1_cap(
 
     // Gate 2 — cross-spoke mid-band G1. Spoke k is wedge k's v = 0
     // edge and wedge k−1's v = 1 edge; along both, u = 1 − s where s
-    // is the spoke fraction from the pole.
+    // is the spoke fraction from the hub.
     let n = surfaces.len();
     for spoke in 0..n {
         let ccw = &surfaces[spoke];
@@ -239,7 +239,7 @@ pub fn polar_fan_g1_cap(
         .collect();
 
     Ok(HoleCapGeometry {
-        pole: set.pole,
+        hub: set.hub,
         sectors,
         chart: HoleCapChart::ProjectableFan,
     })

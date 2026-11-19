@@ -1,13 +1,13 @@
-//! PK-255 pole-placement search (design:
-//! docs/architecture/exact-boundary-pole-placement.md).
+//! PK-255 apex-placement search (design:
+//! docs/architecture/exact-boundary-apex-placement.md).
 //!
-//! The exact-boundary pole defaults to the ring shared-corner
+//! The exact-boundary apex defaults to the ring shared-corner
 //! centroid, which at high radius asymmetry lands ON strip
 //! end-section planes and fans sector sheets into a corner-anchored
 //! cap×strip crossing no interior-push repair can clear. Plane-margin
 //! heuristics were measured non-monotone across the fixture×corner
 //! matrix, so placement is a SEARCH accepted by measurement on the
-//! solved sheets: candidate poles along the blend-ward ray, each
+//! solved sheets: candidate apexs along the blend-ward ray, each
 //! evaluated by the validator's own crossing verdict plus the
 //! cap-outer G0/G1 bars, smallest displacement wins, explicit
 //! centroid fallback otherwise.
@@ -31,7 +31,7 @@ const CANDIDATE_FRACTIONS: [f64; 4] = [0.075, 0.15, 0.225, 0.3];
 const MAX_CAP_OUTER_G0: f64 = 5.0e-3;
 const MAX_CAP_OUTER_G1: f64 = 5.0e-2;
 
-pub(super) fn run_with_pole_search(
+pub(super) fn run_with_apex_search(
     brep: &mut BRep,
     cap_face: FaceHandle,
     plan: &ApexPlan,
@@ -58,12 +58,12 @@ pub(super) fn run_with_pole_search(
     {
         return Ok(baseline);
     }
-    let Some((pole, Some((direction, scale)))) = baseline.pole else {
+    let Some((apex, Some((direction, scale)))) = baseline.apex else {
         return Ok(baseline);
     };
     if crate::direct_apex_trace::enabled() {
         eprintln!(
-            "[direct-apex-trace] pole search: baseline commit is crossing-flagged; \
+            "[direct-apex-trace] apex search: baseline commit is crossing-flagged; \
              trying {} candidates along ({:.3},{:.3},{:.3}) scale {scale:.4}",
             CANDIDATE_FRACTIONS.len(),
             direction.x,
@@ -73,14 +73,14 @@ pub(super) fn run_with_pole_search(
     }
     for fraction in CANDIDATE_FRACTIONS {
         *brep = entry_snapshot.clone();
-        let candidate_pole = pole + direction * (scale * fraction);
+        let candidate_apex = apex + direction * (scale * fraction);
         let candidate = run_exact_boundary_cap_candidate_attempt(
             brep,
             cap_face,
             plan,
             sectors,
             &baseline_validation_errors,
-            Some(candidate_pole),
+            Some(candidate_apex),
         )?;
         if candidate.status == ExactBoundaryCapCandidateStatus::Accepted
             && committed_region_is_clean(brep, &candidate.committed_faces)
@@ -88,7 +88,7 @@ pub(super) fn run_with_pole_search(
         {
             if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[direct-apex-trace] pole search: candidate at fraction {fraction} \
+                    "[direct-apex-trace] apex search: candidate at fraction {fraction} \
                      serves crossing-free within the commercial bars"
                 );
             }

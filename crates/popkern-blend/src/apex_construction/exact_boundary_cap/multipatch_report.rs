@@ -31,8 +31,8 @@ pub(crate) enum ExactBoundaryMultiPatchValidationOrder {
     InterfacePosition = 6,
     /// Strip/inner interface tangent continuity is within tolerance.
     InterfaceTangent = 7,
-    /// Inner pole spokes meet at the sector apex within tolerance.
-    InnerPolePosition = 8,
+    /// Inner apex spokes meet at the sector apex within tolerance.
+    InnerApexPosition = 8,
     /// Candidate patch domains remain orientation-preserving.
     Foldover = 9,
     /// Final report is internally consistent before routing can observe it.
@@ -77,8 +77,8 @@ pub(crate) enum ExactBoundaryMultiPatchDeclineReason {
     InterfacePositionUnsatisfied,
     /// Candidate strip/inner interface exceeds the tangent gate.
     InterfaceTangentUnsatisfied,
-    /// Inner pole spoke closure exceeds the position gate.
-    InnerPolePositionUnsatisfied,
+    /// Inner apex spoke closure exceeds the position gate.
+    InnerApexPositionUnsatisfied,
     /// Candidate patch domain folds over.
     PatchFoldover,
     /// Commit preflight found a required candidate surface missing or invalid.
@@ -139,7 +139,7 @@ impl ExactBoundaryMultiPatchDeclineReason {
             Self::InterfaceTangentUnsatisfied => {
                 "exact_boundary_cap.multipatch.interface_g1_exceeded"
             }
-            Self::InnerPolePositionUnsatisfied => "exact_boundary_cap.multipatch.pole_g0_exceeded",
+            Self::InnerApexPositionUnsatisfied => "exact_boundary_cap.multipatch.apex_g0_exceeded",
             Self::PatchFoldover => "exact_boundary_cap.multipatch.patch_foldover",
             Self::CommitPreflightMissingSurface => {
                 "exact_boundary_cap.multipatch.commit_preflight_missing_surface"
@@ -199,8 +199,8 @@ impl ExactBoundaryMultiPatchDeclineReason {
             Self::InterfaceTangentUnsatisfied => {
                 ExactBoundaryMultiPatchValidationOrder::InterfaceTangent
             }
-            Self::InnerPolePositionUnsatisfied => {
-                ExactBoundaryMultiPatchValidationOrder::InnerPolePosition
+            Self::InnerApexPositionUnsatisfied => {
+                ExactBoundaryMultiPatchValidationOrder::InnerApexPosition
             }
             Self::PatchFoldover => ExactBoundaryMultiPatchValidationOrder::Foldover,
             Self::CommitPreflightMissingSurface
@@ -235,11 +235,11 @@ pub(crate) struct ExactBoundaryMultiPatchPerformanceReport {
     pub outer_strip_patch_count: usize,
     /// Candidate strip/inner interfaces considered.
     pub interface_count: usize,
-    /// Candidate inner pole patches considered.
+    /// Candidate inner apex patches considered.
     pub inner_patch_count: usize,
     /// Strip surface control points allocated by accepted candidates.
     pub strip_control_point_count: usize,
-    /// Inner-pole surface control points allocated by accepted candidates.
+    /// Inner-apex surface control points allocated by accepted candidates.
     pub inner_control_point_count: usize,
     /// Support strip samples evaluated.
     pub support_strip_sample_count: usize,

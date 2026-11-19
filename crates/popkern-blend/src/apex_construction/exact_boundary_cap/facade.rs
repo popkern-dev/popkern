@@ -21,7 +21,7 @@ mod report;
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::cap_quality_postcondition::worst_mid_seam_misalignment;
 use super::commit::{commit_exact_boundary_sector_surfaces, post_commit_validation_diagnostic};
-use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
+use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_apex};
 use super::cross_spoke_g1::enforce_cross_spoke_g1;
 use super::facts::attach_shared_repair_fact_ids;
 use super::pcurves::{ExactBoundaryPcurveBudget, prepare_exact_boundary_pcurves};
@@ -69,15 +69,15 @@ pub(crate) fn run_exact_boundary_cap_candidate(
     plan: &ApexPlan,
     sectors: &[GregoryCapSector],
 ) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
-    super::facade_pole_search::run_with_pole_search(brep, cap_face, plan, sectors)
+    super::facade_apex_search::run_with_apex_search(brep, cap_face, plan, sectors)
 }
 
-/// One exact-boundary candidate attempt at a fixed pole (`None` =
-/// shared-corner centroid). The PK-255 pole search drives this;
+/// One exact-boundary candidate attempt at a fixed apex (`None` =
+/// shared-corner centroid). The PK-255 apex search drives this;
 /// everything below is the historical transactional candidate.
 ///
 /// `baseline_validation_errors` is the region-scoped fast-validation
-/// baseline of the ENTRY state — every attempt in one pole search
+/// baseline of the ENTRY state — every attempt in one apex search
 /// starts from the same entry snapshot, so the caller computes it
 /// once (PK-273; it was previously recomputed whole-model per
 /// attempt, up to 6× per corner).
@@ -87,7 +87,7 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
     plan: &ApexPlan,
     sectors: &[GregoryCapSector],
     baseline_validation_errors: &[popkern_core::error::ValidationError],
-    pole_override: Option<popkern_core::geometry::Point3>,
+    apex_override: Option<popkern_core::geometry::Point3>,
 ) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
     let started = popkern_core::time::Stopwatch::start();
     let snapshot = brep.clone();
@@ -129,11 +129,11 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
     };
     performance.prepared_curve_count = boundary_curves.curves.len();
 
-    let inner_spokes = match prepare_exact_boundary_inner_spokes_with_pole(
+    let inner_spokes = match prepare_exact_boundary_inner_spokes_with_apex(
         &candidate_sectors,
         &boundary_curves,
         ExactBoundaryInnerSpokeBudget::default(),
-        pole_override,
+        apex_override,
     ) {
         Ok(prepared) => Some(prepared),
         Err(diagnostic) => {
@@ -241,7 +241,7 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
             Ok(pcurves) => {
                 refine_support_normal_strips_with_pcurves(solved_surfaces, &pcurves, ribbons);
                 record_pcurve_report(&mut performance, &pcurves);
-                let _topology_evidence = (topology.pole_vertex, topology.spoke_edges.len());
+                let _topology_evidence = (topology.apex_vertex, topology.spoke_edges.len());
                 match validate_exact_boundary_candidate(ExactBoundaryValidationInputs {
                     brep,
                     topology,
@@ -453,8 +453,8 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
         performance,
         report,
         diagnostics,
-        pole: inner_spokes
+        apex: inner_spokes
             .as_ref()
-            .map(|spokes| (spokes.pole, spokes.pole_search)),
+            .map(|spokes| (spokes.apex, spokes.apex_search)),
     })
 }

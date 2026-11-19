@@ -1,5 +1,5 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
-use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
+use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_apex};
 use super::facade::{ExactBoundaryCapCandidateStatus, run_exact_boundary_cap_candidate};
 use super::sector::{
     ExactBoundaryOuterSide, ExactBoundarySectorDeclineReason, extract_exact_boundary_cap_sectors,
@@ -78,7 +78,7 @@ fn four_sector_inner_spokes_and_topology_preserve_cyclic_ownership() {
         prepare_exact_boundary_curves(&brep, &exact_sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
 
-    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
+    let spokes = prepare_exact_boundary_inner_spokes_with_apex(
         &exact_sectors,
         &boundary_curves,
         ExactBoundaryInnerSpokeBudget::default(),
@@ -98,13 +98,13 @@ fn four_sector_inner_spokes_and_topology_preserve_cyclic_ownership() {
             current
                 .face_inner_spoke
                 .name
-                .contains("face_anchor_to_pole")
+                .contains("face_anchor_to_apex")
         );
         assert!(
             current
                 .fillet_inner_spoke
                 .name
-                .contains("fillet_anchor_to_pole")
+                .contains("fillet_anchor_to_apex")
         );
         assert!(
             current
@@ -113,8 +113,8 @@ fn four_sector_inner_spokes_and_topology_preserve_cyclic_ownership() {
                 .distance_to(&next.fillet_inner_spoke.anchor)
                 <= 1.0e-7
         );
-        assert_eq!(current.face_inner_spoke.pole, spokes.pole);
-        assert_eq!(current.fillet_inner_spoke.pole, spokes.pole);
+        assert_eq!(current.face_inner_spoke.apex, spokes.apex);
+        assert_eq!(current.fillet_inner_spoke.apex, spokes.apex);
     }
 
     let topology =

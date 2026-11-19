@@ -1,7 +1,7 @@
 //! Ruled fan cap — the always-constructible hole filler.
 //!
-//! Per hole side, the sector surface is the ruling between the pole
-//! and the side's own rim curve: `S(u, v) = (1−v)·pole + v·rim(u)`,
+//! Per hole side, the sector surface is the ruling between the hub
+//! and the side's own rim curve: `S(u, v) = (1−v)·hub + v·rim(u)`,
 //! with `u` in the rim curve's own parameter. Every boundary curve of
 //! the committed fan face lies on its sector **by construction** —
 //! the rim is the `v = 1` row verbatim, and the spokes are the
@@ -26,15 +26,15 @@ use super::hole_fill::DetectedHole;
 
 /// Build a ruled fan cap for a detected hole.
 ///
-/// The pole is the centroid of the hole's ring vertices. Each sector
-/// rules between the pole and one rim edge's curve, taken in the
+/// The hub is the centroid of the hole's ring vertices. Each sector
+/// rules between the hub and one rim edge's curve, taken in the
 /// edge's own parameterization so the committed rim pcurve is exactly
 /// linear.
 ///
 /// # Errors
 ///
 /// [`HoleCommitError::UnsupportedSurfaceForm`] when a rim edge has no
-/// curve to rule against or a spoke ruling is degenerate (pole
+/// curve to rule against or a spoke ruling is degenerate (hub
 /// coincides with a ring vertex within `tolerance`).
 pub fn ruled_fan_cap(
     brep: &BRep,
@@ -69,12 +69,12 @@ pub fn ruled_fan_cap(
         rims.push((rim, start, end));
     }
 
-    // Pole: centroid of the distinct ring vertex positions. Rim curve
+    // Hub: centroid of the distinct ring vertex positions. Rim curve
     // endpoints are the ring vertices (each appears twice — once as an
     // end, once as the next start), so averaging the starts covers
     // every vertex exactly once whichever way each edge is oriented.
     let inverse = 1.0 / rims.len() as f64;
-    let mut pole = Point3::new(0.0, 0.0, 0.0);
+    let mut hub = Point3::new(0.0, 0.0, 0.0);
     for (_, start, end) in &rims {
         let mid = Point3::new(
             0.5 * (start.x + end.x),
@@ -83,21 +83,21 @@ pub fn ruled_fan_cap(
         );
         // Side midpoints of endpoints reproduce the vertex centroid on
         // a closed ring (each vertex contributes half twice).
-        pole = Point3::new(
-            pole.x + mid.x * inverse,
-            pole.y + mid.y * inverse,
-            pole.z + mid.z * inverse,
+        hub = Point3::new(
+            hub.x + mid.x * inverse,
+            hub.y + mid.y * inverse,
+            hub.z + mid.z * inverse,
         );
     }
 
     let mut sectors = Vec::with_capacity(rims.len());
     for (index, (rim, start, end)) in rims.into_iter().enumerate() {
         let spoke = |target: Point3| {
-            CurveOnEdge::line_segment(pole, target, tolerance).ok_or_else(|| {
+            CurveOnEdge::line_segment(hub, target, tolerance).ok_or_else(|| {
                 HoleCommitError::UnsupportedSurfaceForm {
                     sector: index,
                     detail: format!(
-                        "spoke ruling from pole {pole:?} to ring vertex {target:?} is degenerate"
+                        "spoke ruling from hub {hub:?} to ring vertex {target:?} is degenerate"
                     ),
                 }
             })
@@ -105,7 +105,7 @@ pub fn ruled_fan_cap(
         let spoke_at_rim_start = spoke(start)?;
         let spoke_at_rim_end = spoke(end)?;
         sectors.push(HoleCapSectorGeometry {
-            surface: SurfaceGeometry::Nurbs(ruled_to_pole(&rim, pole)),
+            surface: SurfaceGeometry::Nurbs(ruled_to_hub(&rim, hub)),
             rim_start: start,
             rim_end: end,
             spoke_at_rim_start,
@@ -113,21 +113,21 @@ pub fn ruled_fan_cap(
         });
     }
     Ok(HoleCapGeometry {
-        pole,
+        hub,
         sectors,
         chart: HoleCapChart::RuledFanAnalytic,
     })
 }
 
 /// Ruling between a point and a NURBS curve: `v = 0` row collapsed at
-/// the pole (with the rim's weights, so rational rims rule exactly),
+/// the hub (with the rim's weights, so rational rims rule exactly),
 /// `v = 1` row the rim verbatim, `u` in the rim's own parameter.
-fn ruled_to_pole(rim: &crate::geometry::NurbsCurve, pole: Point3) -> NurbsSurface {
+fn ruled_to_hub(rim: &crate::geometry::NurbsCurve, hub: Point3) -> NurbsSurface {
     let count = rim.control_points.len();
     let mut control_points = Vec::with_capacity(count * 2);
     let mut weights = Vec::with_capacity(count * 2);
     for (point, weight) in rim.control_points.iter().zip(&rim.weights) {
-        control_points.push(pole);
+        control_points.push(hub);
         control_points.push(*point);
         weights.push(*weight);
         weights.push(*weight);
@@ -216,8 +216,8 @@ pub(crate) fn author_ruled_sector_pcurves(
                         budget: tolerance,
                     });
                 }
-                // Spoke curves run pole (t_start) → junction (t_end),
-                // and the ruling runs pole (v=0) → rim (v=1).
+                // Spoke curves run hub (t_start) → junction (t_end),
+                // and the ruling runs hub (v=0) → rim (v=1).
                 Pcurve::linear((ruling_u, 0.0), (ruling_u, 1.0), t_start, t_end)
             } else {
                 // Rim: the surface's u axis IS the edge curve's own

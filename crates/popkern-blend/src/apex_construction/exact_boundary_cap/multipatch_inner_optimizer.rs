@@ -1,11 +1,11 @@
-//! Bounded normal-row optimization for multi-patch inner pole candidates.
+//! Bounded normal-row optimization for multi-patch inner apex candidates.
 #![allow(dead_code)]
 
 use popkern_core::geometry::{Point3, Vec3};
 
-use super::inner::{ExactBoundaryInnerPolePatchPrototype, ExactBoundaryStripInnerInterfaceCurve};
+use super::inner::{ExactBoundaryInnerApexPatchPrototype, ExactBoundaryStripInnerInterfaceCurve};
 use super::inner_geometry::{
-    basis_function, inner_interface_g0, interface_g1_report, interface_normal_row_target, pole_g0,
+    apex_g0, basis_function, inner_interface_g0, interface_g1_report, interface_normal_row_target,
 };
 use super::strip::ExactBoundaryOuterStripBoundaryScaffold;
 
@@ -15,9 +15,9 @@ const IMPROVEMENT_EPSILON: f64 = 1.0e-12;
 pub(super) fn optimize_inner_interface_g1(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    prototype: &ExactBoundaryInnerApexPatchPrototype,
     tolerance: f64,
-) -> ExactBoundaryInnerPolePatchPrototype {
+) -> ExactBoundaryInnerApexPatchPrototype {
     let mut best = prototype.clone();
     let mut best_report = interface_g1_report(strip_candidate, interface, &best, tolerance);
     if best_report.max_interface_g1_deficit <= tolerance {
@@ -65,7 +65,7 @@ pub(super) fn optimize_inner_interface_g1(
 fn normal_row_update(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    prototype: &ExactBoundaryInnerApexPatchPrototype,
     parameter: f64,
 ) -> Option<Vec<Vec3>> {
     let target = interface_normal_row_target(
@@ -96,7 +96,7 @@ fn normal_row_update(
 }
 
 fn apply_normal_row_update(
-    prototype: &mut ExactBoundaryInnerPolePatchPrototype,
+    prototype: &mut ExactBoundaryInnerApexPatchPrototype,
     update: &[Vec3],
     damping: f64,
 ) {
@@ -111,8 +111,8 @@ fn apply_normal_row_update(
 
 fn preserves_g0_invariants(
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    baseline: &ExactBoundaryInnerPolePatchPrototype,
-    candidate: &ExactBoundaryInnerPolePatchPrototype,
+    baseline: &ExactBoundaryInnerApexPatchPrototype,
+    candidate: &ExactBoundaryInnerApexPatchPrototype,
 ) -> bool {
     if candidate.surface.num_u != baseline.surface.num_u
         || candidate.surface.num_v != baseline.surface.num_v
@@ -121,15 +121,15 @@ fn preserves_g0_invariants(
     }
     for index in 0..candidate.surface.num_u {
         let interface_index = index * candidate.surface.num_v;
-        let pole_index = interface_index + candidate.surface.num_v - 1;
+        let apex_index = interface_index + candidate.surface.num_v - 1;
         if candidate.surface.control_points[interface_index]
             .distance_to(&baseline.surface.control_points[interface_index])
             > baseline.tolerance
         {
             return false;
         }
-        if candidate.surface.control_points[pole_index]
-            .distance_to(&baseline.surface.control_points[pole_index])
+        if candidate.surface.control_points[apex_index]
+            .distance_to(&baseline.surface.control_points[apex_index])
             > baseline.tolerance
         {
             return false;
@@ -137,12 +137,12 @@ fn preserves_g0_invariants(
     }
     let interface_g0 =
         inner_interface_g0(&candidate.surface, interface, &candidate.interface_pcurve);
-    let pole_g0 = pole_g0(&candidate.surface, candidate.surface.control_points[2]);
-    interface_g0.max_residual <= baseline.tolerance && pole_g0.max_residual <= baseline.tolerance
+    let apex_g0 = apex_g0(&candidate.surface, candidate.surface.control_points[2]);
+    interface_g0.max_residual <= baseline.tolerance && apex_g0.max_residual <= baseline.tolerance
 }
 
 fn normal_row_point_at(
-    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    prototype: &ExactBoundaryInnerApexPatchPrototype,
     parameter: f64,
 ) -> Option<Point3> {
     let basis = normal_row_rational_basis(prototype, parameter)?;
@@ -160,7 +160,7 @@ fn normal_row_point_at(
 }
 
 fn normal_row_rational_basis(
-    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    prototype: &ExactBoundaryInnerApexPatchPrototype,
     parameter: f64,
 ) -> Option<Vec<f64>> {
     let mut weighted = Vec::with_capacity(prototype.surface.num_u);
@@ -202,7 +202,7 @@ mod tests {
         let interface = straight_interface();
         let prototype = tilted_inner_patch();
         let original_interface = row_points(&prototype, 0);
-        let original_pole = row_points(&prototype, 2);
+        let original_apex = row_points(&prototype, 2);
 
         let optimized = optimize_inner_interface_g1(&strip, &interface, &prototype, 5.0e-2);
         let report = interface_g1_report(&strip, &interface, &optimized, 5.0e-2);
@@ -210,13 +210,13 @@ mod tests {
         assert!(optimized.interface_g1_validated);
         assert!(report.max_interface_g1_deficit <= 5.0e-2);
         assert_eq!(row_points(&optimized, 0), original_interface);
-        assert_eq!(row_points(&optimized, 2), original_pole);
+        assert_eq!(row_points(&optimized, 2), original_apex);
         assert!(
             inner_interface_g0(&optimized.surface, &interface, &optimized.interface_pcurve)
                 .max_residual
                 <= 1.0e-8
         );
-        assert!(pole_g0(&optimized.surface, Point3::new(0.5, 1.0, 0.0)).max_residual <= 1.0e-8);
+        assert!(apex_g0(&optimized.surface, Point3::new(0.5, 1.0, 0.0)).max_residual <= 1.0e-8);
     }
 
     fn flat_strip() -> ExactBoundaryOuterStripBoundaryScaffold {
@@ -268,8 +268,8 @@ mod tests {
         }
     }
 
-    fn tilted_inner_patch() -> ExactBoundaryInnerPolePatchPrototype {
-        ExactBoundaryInnerPolePatchPrototype {
+    fn tilted_inner_patch() -> ExactBoundaryInnerApexPatchPrototype {
+        ExactBoundaryInnerApexPatchPrototype {
             patch_name: "inner".to_string(),
             interface_name: "interface".to_string(),
             surface: NurbsSurface {
@@ -291,14 +291,14 @@ mod tests {
             },
             interface_pcurve: Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0),
             max_interface_g0: 0.0,
-            max_pole_g0: 0.0,
+            max_apex_g0: 0.0,
             tolerance: 1.0e-8,
             interface_g1_report: None,
             interface_g1_validated: false,
         }
     }
 
-    fn row_points(prototype: &ExactBoundaryInnerPolePatchPrototype, row: usize) -> Vec<Point3> {
+    fn row_points(prototype: &ExactBoundaryInnerApexPatchPrototype, row: usize) -> Vec<Point3> {
         (0..prototype.surface.num_u)
             .map(|index| prototype.surface.control_points[index * prototype.surface.num_v + row])
             .collect()

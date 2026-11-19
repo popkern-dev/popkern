@@ -20,11 +20,11 @@
 //!   i = 0            left    — face bridge     (OUTER RIM)
 //!   i = num_u - 1    right   — fillet spoke    (SHARED)
 //!   j = num_v - 1    top     — face spoke      (SHARED)
-//!   (num_u-1, num_v-1)       — the pole
+//!   (num_u-1, num_v-1)       — the apex
 //! ```
 //!
 //! So one sector's *right column* and its neighbour's *top row* are
-//! the same physical spoke, each running rim → pole.
+//! the same physical spoke, each running rim → apex.
 //!
 //! # The condition
 //!
@@ -44,7 +44,7 @@
 //! Both ends of the spoke are excluded. `k = 0` sits on the outer rim,
 //! and moving its interior neighbour breaks the exact-boundary
 //! contract that the cap *contains* the rim curve. The far end is the
-//! pole, whose interior neighbour lies on the sector's *other* shared
+//! apex, whose interior neighbour lies on the sector's *other* shared
 //! spoke — moving it would break that spoke's G⁰. Only the strictly
 //! interior span is corrected.
 //!
@@ -400,7 +400,7 @@ fn spoke_endpoints_touch(
 fn correct_spoke(solved: &mut ExactBoundarySolvedSurfaces, spoke: &SharedSpoke) -> usize {
     let mut corrected = 0;
     // Strictly interior only: k = 0 is on the outer rim and the far
-    // end is the pole, whose neighbour lies on the other shared spoke.
+    // end is the apex, whose neighbour lies on the other shared spoke.
     for k in 1..spoke.len.saturating_sub(1) {
         let k_row = if spoke.reversed { spoke.len - 1 - k } else { k };
         let (Some(shared), Some(a_int), Some(b_int)) = (

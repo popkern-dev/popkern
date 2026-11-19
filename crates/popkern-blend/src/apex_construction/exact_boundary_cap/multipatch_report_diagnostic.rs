@@ -148,7 +148,7 @@ impl ExactBoundaryMultiPatchDiagnostic {
         )
     }
 
-    pub(crate) fn pole_position(
+    pub(crate) fn apex_position(
         sector: &ExactBoundaryCapSectorInput,
         strip: &ExactBoundaryOuterStripPatchInventory,
         interface: &ExactBoundaryPatchInterfaceInventory,
@@ -157,7 +157,7 @@ impl ExactBoundaryMultiPatchDiagnostic {
         tolerance: f64,
     ) -> Self {
         Self::interface_decline(
-            ExactBoundaryMultiPatchDeclineReason::InnerPolePositionUnsatisfied,
+            ExactBoundaryMultiPatchDeclineReason::InnerApexPositionUnsatisfied,
             sector,
             strip,
             interface,

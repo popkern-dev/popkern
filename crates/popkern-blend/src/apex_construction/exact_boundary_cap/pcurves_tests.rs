@@ -105,9 +105,9 @@ fn fixture_spokes() -> PreparedExactBoundaryInnerSpokes {
     let shared = Point3::new(0.0, 0.0, 0.0);
     let fillet_anchor = Point3::new(1.0, 0.0, 0.0);
     let face_anchor = Point3::new(0.0, 1.0, 0.0);
-    let pole = Point3::new(1.0, 1.0, 0.2);
+    let apex = Point3::new(1.0, 1.0, 0.2);
     PreparedExactBoundaryInnerSpokes {
-        pole_search: None,
+        apex_search: None,
         sectors: vec![PreparedExactBoundarySectorBoundary {
             sector_index: 0,
             sector_name: "direct_apex.cap_sector.0".to_string(),
@@ -124,12 +124,12 @@ fn fixture_spokes() -> PreparedExactBoundaryInnerSpokes {
             fillet_inner_spoke: generated_spoke(
                 ExactBoundaryOuterSide::FilletEnd,
                 fillet_anchor,
-                pole,
+                apex,
             ),
-            face_inner_spoke: generated_spoke(ExactBoundaryOuterSide::FaceEdge, face_anchor, pole),
+            face_inner_spoke: generated_spoke(ExactBoundaryOuterSide::FaceEdge, face_anchor, apex),
             outer_corner_gap: 0.0,
         }],
-        pole,
+        apex,
     }
 }
 
@@ -227,17 +227,17 @@ fn prepared_boundary(
 fn generated_spoke(
     source_side: ExactBoundaryOuterSide,
     anchor: Point3,
-    pole: Point3,
+    apex: Point3,
 ) -> GeneratedInnerSpoke {
     GeneratedInnerSpoke {
         name: "direct_apex.cap_sector.0.inner_spoke".to_string(),
         source_side,
         anchor,
-        pole,
+        apex,
         curve: NurbsCurve {
             degree: 1,
             knots: vec![0.0, 0.0, 1.0, 1.0],
-            control_points: vec![anchor, pole],
+            control_points: vec![anchor, apex],
             weights: vec![1.0, 1.0],
         },
     }

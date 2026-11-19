@@ -32,7 +32,7 @@ pub enum HoleFillerKind {
     PnsG1,
     /// The Coons fan.
     CoonsFan,
-    /// The ruled pole↔rim fan (G⁰ across spokes, exact containment).
+    /// The ruled hub↔rim fan (G⁰ across spokes, exact containment).
     RuledFan,
 }
 

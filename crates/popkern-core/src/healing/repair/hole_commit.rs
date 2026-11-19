@@ -47,7 +47,7 @@ pub enum HoleCommitError {
     EndpointMismatch {
         /// Index of the offending sector.
         sector: usize,
-        /// Which endpoint missed (e.g. "pole corner", "spoke end").
+        /// Which endpoint missed (e.g. "hub corner", "spoke end").
         role: &'static str,
         /// Measured distance.
         distance: f64,
@@ -127,7 +127,7 @@ pub fn commit_hole_cap(
     }
 
     let mut candidate = brep.clone();
-    let fan = candidate.cap_boundary_ring_fan(&hole.boundary_edges, geometry.pole)?;
+    let fan = candidate.cap_boundary_ring_fan(&hole.boundary_edges, geometry.hub)?;
 
     let rim_positions = fan_rim_positions(&candidate, &fan)?;
     let assignments = match_sectors(geometry, &rim_positions, tolerance)?;
@@ -151,7 +151,7 @@ pub fn commit_hole_cap(
             for &face in &fan.sector_faces {
                 candidate.recompute_face_pcurves(face)?;
             }
-            snap_pole_pcurve_endpoints(&mut candidate, &fan, geometry.pole, tolerance)?;
+            snap_hub_pcurve_endpoints(&mut candidate, &fan, geometry.hub, tolerance)?;
         }
     }
 
@@ -247,13 +247,13 @@ fn attach_sector_geometry(
     let count = rim_positions.len();
     for (k, &(sector_index, _)) in assignments.iter().enumerate() {
         let sector = &geometry.sectors[sector_index];
-        // The sector loop runs rim (w_k → w_{k+1}), spoke to pole,
+        // The sector loop runs rim (w_k → w_{k+1}), spoke to hub,
         // spoke back — its Newell normal is the face normal the
         // orientation flag is measured against.
         let newell = newell_normal(&[
             rim_positions[k],
             rim_positions[(k + 1) % count],
-            geometry.pole,
+            geometry.hub,
         ]);
         let surface_normal = sector.surface.normal_at(0.5, 0.5);
         let orientation = newell.dot(&surface_normal) >= 0.0;
@@ -279,7 +279,7 @@ fn attach_spoke_curves(
 ) -> Result<(), HoleCommitError> {
     for (k, &(sector_index, forward)) in assignments.iter().enumerate() {
         let sector = &geometry.sectors[sector_index];
-        // Spoke k connects w_k to the pole; sector k carries it as
+        // Spoke k connects w_k to the hub; sector k carries it as
         // the spoke at whichever rim endpoint sits at w_k.
         let spoke_curve = if forward {
             &sector.spoke_at_rim_start
@@ -289,14 +289,14 @@ fn attach_spoke_curves(
         let eval = &spoke_curve.geometry as &dyn crate::geometry::curve::CurveEval;
         let start = eval.point_at(spoke_curve.t_start);
         let end = eval.point_at(spoke_curve.t_end);
-        let pole_gap = start.distance_to(&geometry.pole);
+        let hub_gap = start.distance_to(&geometry.hub);
         let rim_gap = end.distance_to(&rim_positions[k]);
         let budget = tolerance;
-        if pole_gap > budget || rim_gap > budget {
+        if hub_gap > budget || rim_gap > budget {
             return Err(HoleCommitError::EndpointMismatch {
                 sector: sector_index,
                 role: "spoke end",
-                distance: pole_gap.max(rim_gap),
+                distance: hub_gap.max(rim_gap),
                 budget,
             });
         }
@@ -309,24 +309,24 @@ fn attach_spoke_curves(
     Ok(())
 }
 
-/// Snap the pole end of every new pcurve to the sector surface's
-/// exact pole preimage.
+/// Snap the hub end of every new pcurve to the sector surface's
+/// exact hub preimage.
 ///
 /// Fan sector patches can overlap (measured on the PnS cap: sector
 /// quads reach past their committed triangle), which makes the
 /// point-to-surface distance field multi-modal. Projection-derived
-/// pcurves then land the pole endpoint in a wrong local minimum —
+/// pcurves then land the hub endpoint in a wrong local minimum —
 /// measured 9.85e-2 off on the open-box fill while the true corner
-/// preimage evaluates to the pole exactly. Every sane fan filler puts
-/// the pole at a corner of the sector's parameter domain, so the
+/// preimage evaluates to the hub exactly. Every sane fan filler puts
+/// the hub at a corner of the sector's parameter domain, so the
 /// preimage is recovered by evaluating the domain corners and
-/// declining, measured, when none lands on the pole. The coherence
+/// declining, measured, when none lands on the hub. The coherence
 /// gate re-verifies the result afterwards; this snap is never the
 /// acceptance authority.
-fn snap_pole_pcurve_endpoints(
+fn snap_hub_pcurve_endpoints(
     brep: &mut BRep,
     fan: &BoundaryRingFanResult,
-    pole: Point3,
+    hub: Point3,
     tolerance: f64,
 ) -> Result<(), HoleCommitError> {
     for (sector, &face) in fan.sector_faces.iter().enumerate() {
@@ -348,25 +348,25 @@ fn snap_pole_pcurve_endpoints(
             (u_max, v_min),
             (u_max, v_max),
         ];
-        // A sector can have MORE than one pole-preimage corner — the
-        // polar-wedge chart collapses a whole domain edge at the pole
+        // A sector can have MORE than one hub-preimage corner — the
+        // polar-wedge chart collapses a whole domain edge at the hub
         // (PK-248), so both of that edge's corners evaluate to it.
         // Each pcurve endpoint must snap to ITS OWN nearest preimage;
         // snapping every spoke to one global corner would drag one
         // spoke's pcurve across the collapsed edge.
-        let pole_corners: Vec<(f64, f64)> = corners
+        let hub_corners: Vec<(f64, f64)> = corners
             .iter()
             .copied()
-            .filter(|&(u, v)| surface.point_at(u, v).distance_to(&pole) <= tolerance)
+            .filter(|&(u, v)| surface.point_at(u, v).distance_to(&hub) <= tolerance)
             .collect();
-        if pole_corners.is_empty() {
+        if hub_corners.is_empty() {
             let nearest = corners
                 .iter()
-                .map(|&(u, v)| surface.point_at(u, v).distance_to(&pole))
+                .map(|&(u, v)| surface.point_at(u, v).distance_to(&hub))
                 .fold(f64::INFINITY, f64::min);
             return Err(HoleCommitError::EndpointMismatch {
                 sector,
-                role: "pole preimage (no domain corner evaluates to the pole)",
+                role: "hub preimage (no domain corner evaluates to the hub)",
                 distance: nearest,
                 budget: tolerance,
             });
@@ -378,9 +378,9 @@ fn snap_pole_pcurve_endpoints(
         loop {
             let half_edge = &brep.half_edges[cursor];
             let next = half_edge.next;
-            let touches_pole = half_edge.origin == fan.hub_vertex
+            let touches_hub = half_edge.origin == fan.hub_vertex
                 || brep.half_edges[next].origin == fan.hub_vertex;
-            if let Some(nurbs) = touches_pole
+            if let Some(nurbs) = touches_hub
                 .then(|| brep.half_edges[cursor].pcurve.as_mut())
                 .flatten()
                 .and_then(|pcurve| pcurve.as_nurbs_mut())
@@ -389,15 +389,15 @@ fn snap_pole_pcurve_endpoints(
                     nurbs.control_points.last().copied(),
                 )
             {
-                let first_gap = surface.point_at(first.x, first.y).distance_to(&pole);
-                let last_gap = surface.point_at(last.x, last.y).distance_to(&pole);
+                let first_gap = surface.point_at(first.x, first.y).distance_to(&hub);
+                let last_gap = surface.point_at(last.x, last.y).distance_to(&hub);
                 let snap_index = if first_gap <= last_gap {
                     0
                 } else {
                     nurbs.control_points.len() - 1
                 };
                 let current = nurbs.control_points[snap_index];
-                let nearest = pole_corners
+                let nearest = hub_corners
                     .iter()
                     .copied()
                     .min_by(|a, b| {
@@ -405,7 +405,7 @@ fn snap_pole_pcurve_endpoints(
                         let db = (b.0 - current.x).phypot(b.1 - current.y);
                         da.total_cmp(&db)
                     })
-                    .unwrap_or(pole_corners[0]);
+                    .unwrap_or(hub_corners[0]);
                 nurbs.control_points[snap_index] = Point3::new(nearest.0, nearest.1, 0.0);
             }
             cursor = next;

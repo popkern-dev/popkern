@@ -6,7 +6,7 @@
 //! ```text
 //! BlendBoundary
 //!   → Bi2TensorBorderRing   (pns_adapter)
-//!   → pole                  (pns_center eq (5))
+//!   → hub                  (pns_center eq (5))
 //!   → assemble_pns_bi4_cap  (pns_cap_assemble)
 //!   → Vec<SurfaceGeometry::PolyhedralSpline> (net + provenance per patch)
 //!   → Vec<SurfaceGeometry>  (wrapped)
@@ -23,7 +23,7 @@
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::gregory::{
-    BetaReparam, CapAssembleInput, assemble_pns_bi4_cap, pole_from_boundary,
+    BetaReparam, CapAssembleInput, assemble_pns_bi4_cap, hub_from_boundary,
     sigma_center_jet_default,
 };
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
@@ -72,7 +72,7 @@ pub enum PnsPromoteError {
 pub struct PnsInsertResult {
     /// `N` sub-faces after poke, each assigned a PnS NURBS surface.
     pub sub_faces: Vec<FaceHandle>,
-    /// Central pole vertex (all N sub-faces meet here).
+    /// Central hub vertex (all N sub-faces meet here).
     pub central_vertex: VertexHandle,
 }
 
@@ -87,7 +87,7 @@ const DEFAULT_KAPPA: usize = 3;
 /// both since been retired:
 ///
 /// - `n = 4` was believed structurally impossible (σ's `1/cos(2π/n)`
-///   pole). It is not — the pole is removable and cancels exactly
+///   hub). It is not — the hub is removable and cancels exactly
 ///   under the paper's Appendix B scalings. See
 ///   `popkern_core::geometry::gregory::pns_sigma`.
 /// - `n = 3` was simply never wired up, even though the adapter has
@@ -114,14 +114,14 @@ pub fn promote_blend_boundary_to_pns_surfaces(
 ) -> Result<Vec<SurfaceGeometry>, PnsPromoteError> {
     let ring = blend_boundary_to_pns_ring_with_surfaces(boundary, fillet_surfaces, brep)?;
     let n = ring.n();
-    let pole = pole_from_boundary(&ring);
+    let hub = hub_from_boundary(&ring);
     let sigma = sigma_center_jet_default(n)?;
     let beta = BetaReparam::bi4(n);
     let input = CapAssembleInput {
         boundary: ring,
         beta,
         sigma,
-        pole,
+        hub,
         kappa: DEFAULT_KAPPA,
     };
     let cap = assemble_pns_bi4_cap(&input)?;
@@ -162,7 +162,7 @@ pub fn promote_blend_boundary_to_pns_surfaces(
 
 /// End-to-end PnS insertion: promote a blend boundary to N PnS
 /// cap surfaces, poke the `blend_face` into N sub-faces meeting
-/// at the central pole, and assign each sub-face its corresponding
+/// at the central hub, and assign each sub-face its corresponding
 /// PnS NURBS surface.
 ///
 /// Returns the N sub-face handles + the central vertex.
@@ -217,12 +217,12 @@ pub fn insert_pns_cap_into_blend_face(
 
     let surfaces = promote_blend_boundary_to_pns_surfaces(boundary, fillet_surfaces, brep)?;
 
-    // Derive the pole the same way `promote_...` did, so the
-    // topology's central vertex sits at the cap's geometric pole.
+    // Derive the hub the same way `promote_...` did, so the
+    // topology's central vertex sits at the cap's geometric hub.
     let ring = blend_boundary_to_pns_ring_with_surfaces(boundary, fillet_surfaces, brep)?;
-    let pole = pole_from_boundary(&ring);
+    let hub = hub_from_boundary(&ring);
 
-    let poke = poke_n_gon_face_into_n_quads(brep, blend_face, pole)?;
+    let poke = poke_n_gon_face_into_n_quads(brep, blend_face, hub)?;
     if poke.sub_faces.len() != surfaces.len() {
         return Err(PnsPromoteError::SubFaceCountMismatch {
             n_sub_faces: poke.sub_faces.len(),

@@ -21,9 +21,9 @@ use crate::apex_construction::repeated_apex_partition_topology::{
 pub(crate) struct ExactBoundarySectorTopology {
     /// Sector inputs remapped to the materialized sector face handles.
     pub sectors: Vec<ExactBoundaryCapSectorInput>,
-    /// Shared pole vertex used by all generated inner spokes.
-    pub pole_vertex: VertexHandle,
-    /// Generated spoke edges from boundary anchors to the pole.
+    /// Shared apex vertex used by all generated inner spokes.
+    pub apex_vertex: VertexHandle,
+    /// Generated spoke edges from boundary anchors to the apex.
     pub spoke_edges: Vec<popkern_core::topology::EdgeHandle>,
 }
 
@@ -150,8 +150,8 @@ fn materialize_validated_sector_topology(
         ));
     }
 
-    let pole_vertex = brep.vertices.insert(Vertex {
-        position: spokes.pole,
+    let apex_vertex = brep.vertices.insert(Vertex {
+        position: spokes.apex,
         outgoing: HalfEdgeHandle::default(),
         name: None,
         tolerance: None,
@@ -160,8 +160,8 @@ fn materialize_validated_sector_topology(
     let mut spoke_half_edges = Vec::with_capacity(sectors.len());
     for (index, sector) in spokes.sectors.iter().enumerate() {
         let vertex = vertex_for_spoke_anchor(brep, sectors, index, sector)?;
-        let (edge, anchor_to_pole, pole_to_anchor) =
-            insert_unwired_edge_pair(brep, vertex, pole_vertex);
+        let (edge, anchor_to_apex, apex_to_anchor) =
+            insert_unwired_edge_pair(brep, vertex, apex_vertex);
         brep.edges[edge].role = TopologyRole::Production;
         // Semantic line storage (PK-092): a spoke whose IMAGE is
         // straight is stored as an analytic Line at construction
@@ -180,7 +180,7 @@ fn materialize_validated_sector_topology(
             t_end: 1.0,
         });
         spoke_edges.push(edge);
-        spoke_half_edges.push((anchor_to_pole, pole_to_anchor));
+        spoke_half_edges.push((anchor_to_apex, apex_to_anchor));
     }
 
     let mut remapped = sectors.to_vec();
@@ -227,7 +227,7 @@ fn materialize_validated_sector_topology(
     }
     Ok(ExactBoundarySectorTopology {
         sectors: remapped,
-        pole_vertex,
+        apex_vertex,
         spoke_edges,
     })
 }

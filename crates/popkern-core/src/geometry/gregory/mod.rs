@@ -372,7 +372,7 @@ pub use pns_beta::BetaReparam;
 pub use pns_bi4_to_nurbs::pns_bi4_to_nurbs;
 pub use pns_boundary::{Bi2BorderStrip, Bi2TensorBorderRing};
 pub use pns_cap_assemble::{
-    CapAssembleError, CapAssembleInput, CapAssembleResult, assemble_pns_bi4_cap, pole_from_boundary,
+    CapAssembleError, CapAssembleInput, CapAssembleResult, assemble_pns_bi4_cap, hub_from_boundary,
 };
 pub use pns_central_quad::QuadMapJet;
 pub use pns_sigma::{SigmaCenterJet, SigmaJetError, sigma_center_jet, sigma_center_jet_default};

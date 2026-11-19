@@ -2,10 +2,10 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
-use super::{validate_inner_pole_patch_prototype, validate_outer_strip_candidate};
+use super::{validate_inner_apex_patch_prototype, validate_outer_strip_candidate};
 use crate::apex_construction::exact_boundary_cap::multipatch::budget::ExactBoundaryMultiPatchBudget;
 use crate::apex_construction::exact_boundary_cap::multipatch::inner::{
-    construct_inner_pole_patch_prototype, construct_strip_inner_interface_curve,
+    construct_inner_apex_patch_prototype, construct_strip_inner_interface_curve,
     measure_inner_interface_g1,
 };
 use crate::apex_construction::exact_boundary_cap::multipatch::inventory::{
@@ -211,7 +211,7 @@ fn strip_validation_reports_foldover_after_support_band_passes() {
 }
 
 #[test]
-fn inner_pole_validation_declines_g0_only_candidate_before_commit() {
+fn inner_apex_validation_declines_g0_only_candidate_before_commit() {
     let fixture = solved_fixture(Vec3::new(0.0, 0.0, 1.0));
     let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
         &fixture.sector,
@@ -225,18 +225,18 @@ fn inner_pole_validation_declines_g0_only_candidate_before_commit() {
         fixture.budget.interface_g0,
     )
     .expect("interface constructs");
-    let prototype = construct_inner_pole_patch_prototype(
+    let prototype = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.strip,
         &inventory.interfaces[0],
         &fixture.candidate,
         &interface,
         Point3::new(0.5, 0.7, 0.0),
-        fixture.budget.pole_g0,
+        fixture.budget.apex_g0,
     )
     .expect("inner G0 prototype constructs");
 
-    let diagnostic = validate_inner_pole_patch_prototype(
+    let diagnostic = validate_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.strip,
         &inventory.interfaces[0],
@@ -261,7 +261,7 @@ fn inner_pole_validation_declines_g0_only_candidate_before_commit() {
 }
 
 #[test]
-fn inner_pole_validation_accepts_candidate_after_interface_g1_measurement() {
+fn inner_apex_validation_accepts_candidate_after_interface_g1_measurement() {
     let fixture = solved_fixture(Vec3::new(0.0, 0.0, 1.0));
     let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
         &fixture.sector,
@@ -275,14 +275,14 @@ fn inner_pole_validation_accepts_candidate_after_interface_g1_measurement() {
         fixture.budget.interface_g0,
     )
     .expect("interface constructs");
-    let prototype = construct_inner_pole_patch_prototype(
+    let prototype = construct_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.strip,
         &inventory.interfaces[0],
         &fixture.candidate,
         &interface,
         Point3::new(0.5, 0.7, 0.0),
-        fixture.budget.pole_g0,
+        fixture.budget.apex_g0,
     )
     .expect("inner G0 prototype constructs");
     let measured = measure_inner_interface_g1(
@@ -296,7 +296,7 @@ fn inner_pole_validation_accepts_candidate_after_interface_g1_measurement() {
     )
     .expect("interface G1 passes");
 
-    let report = validate_inner_pole_patch_prototype(
+    let report = validate_inner_apex_patch_prototype(
         &fixture.sector,
         &fixture.strip,
         &inventory.interfaces[0],
@@ -309,7 +309,7 @@ fn inner_pole_validation_accepts_candidate_after_interface_g1_measurement() {
     assert!(report.interface_g1_validated);
     assert!(report.max_interface_g1_deficit <= fixture.budget.interface_g1_deficit);
     assert!(report.max_interface_g0 <= fixture.budget.interface_g0);
-    assert!(report.max_pole_g0 <= fixture.budget.pole_g0);
+    assert!(report.max_apex_g0 <= fixture.budget.apex_g0);
 }
 
 struct StripFixture {
