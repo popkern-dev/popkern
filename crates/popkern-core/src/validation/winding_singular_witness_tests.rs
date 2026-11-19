@@ -66,13 +66,19 @@ fn lateral_verdict(cone: &BRep) -> (Option<bool>, &'static str) {
 #[test]
 fn the_pole_side_witness_reads_the_cone_lateral() {
     let cone = BRep::cone(1.0, 2.0, Tolerance::default()).unwrap();
-    assert_eq!(lateral_verdict(&cone), (Some(true), "pole-side-witness"));
+    assert_eq!(
+        lateral_verdict(&cone),
+        (Some(true), "singular-side-witness")
+    );
     assert!(cone.validate_winding_honesty_all().is_empty());
 }
 
 #[test]
 fn the_pole_side_witness_flags_the_pre_pk881_cone() {
     let cone = pre_pk881_cone();
-    assert_eq!(lateral_verdict(&cone), (Some(false), "pole-side-witness"));
+    assert_eq!(
+        lateral_verdict(&cone),
+        (Some(false), "singular-side-witness")
+    );
     assert!(!cone.validate_winding_honesty_all().is_empty());
 }

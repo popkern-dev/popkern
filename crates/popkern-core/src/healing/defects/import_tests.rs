@@ -276,7 +276,7 @@ fn lost_singularity_topology_on_sphere_face() {
         !report.is_empty(),
         "Should detect missing singularity topology at pole"
     );
-    assert!(report.defects()[0].description.contains("pole"));
+    assert!(report.defects()[0].description.contains("singularity"));
 }
 
 #[test]

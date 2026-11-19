@@ -155,38 +155,35 @@ pub fn check_lost_singularity_topology(brep: &BRep, report: &mut HealingReport) 
             continue;
         };
 
-        // Identify pole locations based on surface type.
-        let poles: Vec<crate::geometry::Point3> = match &surface_on_face.geometry {
-            sphere @ SurfaceGeometry::Sphere { .. } => {
-                // The chart poles at v = 0 and v = π (along its axis).
-                use crate::geometry::surface::SurfaceEval;
-                vec![
-                    sphere.point_at(0.0, std::f64::consts::PI),
-                    sphere.point_at(0.0, 0.0),
-                ]
-            }
-            SurfaceGeometry::Cone { apex, .. } => {
-                // Cone singularity at the apex.
-                vec![*apex]
-            }
-            _ => continue,
-        };
+        // The surface's singular points (poles, apexes), from the chart
+        // service: any kind of surface, not a list of analytic ones.
+        let singular: Vec<crate::geometry::Point3> =
+            crate::geometry::chart::ChartDescriptor::of(&surface_on_face.geometry, &brep.tolerance)
+                .singular_rows
+                .iter()
+                .map(|r| r.point)
+                .collect();
+        if singular.is_empty() {
+            continue;
+        }
 
-        // Check if any outer loop vertex is near a pole.
+        // Check if any outer loop vertex is near a singular point.
         let positions = brep.face_outer_loop_positions(face_handle);
         let has_zero_length_edge = has_zero_length_edge_in_loop(brep, face_data.outer_loop);
 
-        for pole in &poles {
-            let near_pole = positions.iter().any(|p| p.distance_to(pole) < 1e-6);
-            if near_pole && !has_zero_length_edge {
+        for point in &singular {
+            let near_singular = positions
+                .iter()
+                .any(|p| p.distance_to(point) <= brep.tolerance.linear());
+            if near_singular && !has_zero_length_edge {
                 report.push(DefectRecord {
                     category: DefectCategory::Import,
                     severity: Severity::Warning,
                     description: format!(
-                        "Face near surface pole at ({:.4}, {:.4}, {:.4}) \
+                        "Face near a surface singularity at ({:.4}, {:.4}, {:.4}) \
                          but has no degenerate edge; singularity topology \
                          may have been lost during import",
-                        pole.x, pole.y, pole.z
+                        point.x, point.y, point.z
                     ),
                     entities: vec![EntityRef::Face(face_handle)],
                     location: None,
@@ -196,7 +193,7 @@ pub fn check_lost_singularity_topology(brep: &BRep, report: &mut HealingReport) 
                         action: RemediationAction::RestoreSingularityTopology,
                         parameter: None,
                         value: None,
-                        rationale: "Reconstruct degenerate edge at surface pole".into(),
+                        rationale: "Reconstruct degenerate edge at the surface singularity".into(),
                     }),
                 });
             }

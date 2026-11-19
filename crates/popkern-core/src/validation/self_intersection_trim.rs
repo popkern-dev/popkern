@@ -16,10 +16,10 @@ mod self_intersection_trim_touch;
 mod self_intersection_trim_trace;
 #[path = "self_intersection_uv_containment.rs"]
 mod self_intersection_uv_containment;
-#[path = "self_intersection_uv_pole_runs.rs"]
-mod self_intersection_uv_pole_runs;
 #[path = "self_intersection_uv_polygon.rs"]
 mod self_intersection_uv_polygon;
+#[path = "self_intersection_uv_row_runs.rs"]
+mod self_intersection_uv_row_runs;
 pub use interior_overlap_samples::InteriorOverlapSample;
 pub(in crate::validation) use self_intersection_uv_containment::{
     TrimContainment as TrimContainmentForSense, UvPoint as UvPointForSense,

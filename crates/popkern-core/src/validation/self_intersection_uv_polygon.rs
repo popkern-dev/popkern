@@ -7,7 +7,7 @@ use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::topology::{BRep, LoopHandle};
 
 use super::self_intersection_uv_containment::{RawLoopSample, UvPoint, assemble_periodic_polygon};
-use super::self_intersection_uv_pole_runs::ruled_pole_polygon;
+use super::self_intersection_uv_row_runs::ruled_row_polygon;
 
 impl BRep {
     pub(in crate::validation) fn loop_uv_polygon(
@@ -83,13 +83,13 @@ impl BRep {
                     // same raw branch (a seam walked down to a pole and
                     // back up). Chains only add assembly variants for a
                     // folded polygon that tears or has no area.
-                    let pole_jump = sample == 0
+                    let row_jump = sample == 0
                         && periodic_u
                         && !raw_samples.is_empty()
                         && degenerate_row_witness(surface, raw.v, true, linear);
                     raw_samples.push(RawLoopSample {
                         uv: raw,
-                        pole_jump_before: pole_jump,
+                        row_jump_before: row_jump,
                     });
                 }
             } else {
@@ -98,7 +98,7 @@ impl BRep {
                     crate::geometry::uv_projection::project_point_to_uv(surface, &vertex.position)?;
                 raw_samples.push(RawLoopSample {
                     uv: UvPoint { u, v },
-                    pole_jump_before: false,
+                    row_jump_before: false,
                 });
             }
 
@@ -118,7 +118,7 @@ impl BRep {
                 .map(|s| s.orientation)
         {
             let on_row = |v: f64| degenerate_row_witness(surface, v, true, linear);
-            if let Some(polygon) = ruled_pole_polygon(&raw_samples, &on_row, ccw) {
+            if let Some(polygon) = ruled_row_polygon(&raw_samples, &on_row, ccw) {
                 return Some(polygon);
             }
         }
@@ -237,23 +237,16 @@ fn degenerate_row_witness(
     vary_u: bool,
     linear: f64,
 ) -> bool {
-    use std::f64::consts::TAU;
-    let at = |s: f64| {
-        if vary_u {
-            surface.point_at(s, fixed)
-        } else {
-            surface.point_at(fixed, s)
-        }
+    // Asked of the chart service: the row's image within the linear
+    // tolerance of a singular row's point, the row collapsing the
+    // coordinate that varies along it.
+    let tolerance = crate::tolerance::Tolerance::default().with_linear(linear);
+    let descriptor = crate::geometry::chart::ChartDescriptor::of(surface, &tolerance);
+    let p = if vary_u {
+        surface.point_at(0.0, fixed)
+    } else {
+        surface.point_at(fixed, 0.0)
     };
-    let p0 = at(0.0);
-    let p1 = at(TAU / 3.0);
-    let p2 = at(2.0 * TAU / 3.0);
-    let scale = 1.0
-        + p0.x
-            .abs()
-            .max(p0.y.abs())
-            .max(p0.z.abs())
-            .max(p1.x.abs().max(p1.y.abs()).max(p1.z.abs()));
-    let eps = (1.0e-9 * scale).max(linear);
-    p0.distance_to(&p1) < eps && p0.distance_to(&p2) < eps && p1.distance_to(&p2) < eps
+    crate::geometry::chart::ops::singular_point_near(&descriptor, &p, linear)
+        .is_some_and(|(_, collapses_u)| collapses_u == vary_u)
 }

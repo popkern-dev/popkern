@@ -3,14 +3,14 @@ use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 use super::super::self_intersection_uv_containment::{
     RawLoopSample, TrimContainment, UvPoint, point_in_uv_loop,
 };
-use super::ruled_pole_polygon;
+use super::ruled_row_polygon;
 
 fn raw(points: &[(f64, f64)]) -> Vec<RawLoopSample> {
     points
         .iter()
         .map(|&(u, v)| RawLoopSample {
             uv: UvPoint { u, v },
-            pole_jump_before: false,
+            row_jump_before: false,
         })
         .collect()
 }
@@ -40,7 +40,7 @@ fn a_seam_loop_on_one_branch_is_the_whole_chart() {
         (0.0, FRAC_PI_2),
         (0.0, PI),
     ]);
-    let polygon = ruled_pole_polygon(&samples, &on_row, false).expect("closes");
+    let polygon = ruled_row_polygon(&samples, &on_row, false).expect("closes");
     let width = polygon.iter().map(|p| p.u).fold(f64::MIN, f64::max)
         - polygon.iter().map(|p| p.u).fold(f64::MAX, f64::min);
     assert!((width - TAU).abs() < 1e-9, "{polygon:?}");
@@ -68,7 +68,7 @@ fn a_loop_visiting_a_pole_three_times_bounds_the_face_once() {
         (s + 3.0 * FRAC_PI_2, FRAC_PI_2),
         (s + 7.0 * FRAC_PI_4, PI),
     ]);
-    let polygon = ruled_pole_polygon(&samples, &on_row, false).expect("closes");
+    let polygon = ruled_row_polygon(&samples, &on_row, false).expect("closes");
     let at = |du: f64, v: f64| inside(&polygon, s + du, v) || inside(&polygon, s + du - TAU, v);
     assert!(!at(FRAC_PI_2, 2.9), "inside the first tongue");
     assert!(!at(3.0 * FRAC_PI_2, 2.9), "inside the second tongue");
@@ -82,5 +82,5 @@ fn a_loop_visiting_a_pole_three_times_bounds_the_face_once() {
 #[test]
 fn a_loop_off_the_poles_is_not_ruled() {
     let samples = raw(&[(0.0, 1.0), (1.0, 1.0), (1.0, 2.0), (0.0, 2.0)]);
-    assert!(ruled_pole_polygon(&samples, &on_row, true).is_none());
+    assert!(ruled_row_polygon(&samples, &on_row, true).is_none());
 }

@@ -52,7 +52,7 @@ fn sphere_wall_seam_spine_is_indeterminate_not_dishonest() {
     let audit = sphere.audit_winding_honesty();
     assert!(
         audit.iter().any(|v| v.honest.is_none()
-            && matches!(v.reason, "degenerate-uv-area" | "pole-touching-loop")),
+            && matches!(v.reason, "degenerate-uv-area" | "singular-touching-loop")),
         "sphere wall must decline with a chart-degeneracy reason, got {:?}",
         audit
             .iter()

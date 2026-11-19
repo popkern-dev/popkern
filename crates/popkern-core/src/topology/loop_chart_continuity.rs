@@ -63,16 +63,26 @@ fn translate_pcurve(pc: &mut Pcurve, du: f64, dv: f64) {
 /// trims and the pole instead of the face (Viviani's cut with the ball's
 /// pole at the double point meshed 3.0 short and measured 33.7 low,
 /// PK-1139).
-fn on_one_pole(surface: &SurfaceGeometry, a: (f64, f64), b: (f64, f64)) -> bool {
-    let degenerate = |(u, v): (f64, f64)| {
-        surface.partial_u(u, v).length() <= POLE_RATIO * surface.partial_v(u, v).length()
+fn on_one_singular_row(
+    surface: &SurfaceGeometry,
+    tolerance: &crate::tolerance::Tolerance,
+    a: (f64, f64),
+    b: (f64, f64),
+) -> bool {
+    // Asked of the chart service in space: both images within the linear
+    // tolerance of one singular row's point (read by the partials' ratio,
+    // a fixed fraction of the scale).
+    let descriptor = crate::geometry::chart::ChartDescriptor::of(surface, tolerance);
+    let row = |(u, v): (f64, f64)| {
+        crate::geometry::chart::ops::singular_point_near(
+            &descriptor,
+            &surface.point_at(u, v),
+            tolerance.linear(),
+        )
+        .filter(|(_, collapses_u)| *collapses_u)
+        .map(|(r, _)| r.point)
     };
-    degenerate(a)
-        && degenerate(b)
-        && surface
-            .point_at(a.0, a.1)
-            .distance_to(&surface.point_at(b.0, b.1))
-            <= POLE_RATIO * surface.partial_v(a.0, a.1).length()
+    matches!((row(a), row(b)), (Some(p), Some(q)) if p.distance_to(&q) <= tolerance.linear())
 }
 
 /// The u-shift for `pc`, entering the loop across a pole: a whole
@@ -85,7 +95,7 @@ fn on_one_pole(surface: &SurfaceGeometry, a: (f64, f64), b: (f64, f64)) -> bool 
 /// the classify ray rejected every hit on the ball as off its trim (a
 /// golf ball's last dimple kept its outer cap, PK-1194). The gap free
 /// along the pole is spent where the loop needs it.
-fn seam_side_across_pole(
+fn seam_side_across_singular_row(
     pc: &Pcurve,
     edge: super::EdgeHandle,
     first_use: &[(super::EdgeHandle, (f64, f64))],
@@ -107,10 +117,6 @@ fn seam_side_across_pole(
         -period
     }
 }
-
-/// `S_u` against `S_v` at a pole (a sphere's reads ~1e-16), and the
-/// coincidence of the two points relative to the chart's scale.
-const POLE_RATIO: f64 = 1e-9;
 
 impl BRep {
     /// Make every loop of `faces` chart-continuous on geometrically
@@ -169,10 +175,15 @@ impl BRep {
                             // u there is one point, and the loop moves
                             // along it freely (a sphere face's seam
                             // sides meet the pole a period apart).
-                            if !on_one_pole(&surface.geometry, pe, (s.x, s.y)) {
+                            if !on_one_singular_row(
+                                &surface.geometry,
+                                &self.tolerance,
+                                pe,
+                                (s.x, s.y),
+                            ) {
                                 du = wrap(pe.0 - s.x, period_u);
                             } else if let Some(p) = period_u {
-                                du = seam_side_across_pole(pc, h.edge, &first_use, p);
+                                du = seam_side_across_singular_row(pc, h.edge, &first_use, p);
                             }
                             dv = wrap(pe.1 - s.y, period_v);
                         }

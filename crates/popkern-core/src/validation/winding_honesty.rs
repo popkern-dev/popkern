@@ -89,8 +89,8 @@ impl BRep {
             Err(reason) => {
                 // Pole loops: the pole-side witness (PK-882).
                 let witness = reason
-                    .starts_with("pole-")
-                    .then(|| self.pole_side_witness(face, &sof.geometry, sof.orientation))
+                    .starts_with("singular-")
+                    .then(|| self.singular_side_witness(face, &sof.geometry, sof.orientation))
                     .flatten();
                 FaceWindingHonesty {
                     face,
@@ -98,7 +98,7 @@ impl BRep {
                     orientation: sof.orientation,
                     honest: witness,
                     reason: if witness.is_some() {
-                        "pole-side-witness"
+                        "singular-side-witness"
                     } else {
                         reason
                     },
@@ -346,16 +346,24 @@ impl BRep {
         let wraps =
             |gap: f64, period: Option<f64>| period.is_some_and(|p| p > 0.0 && gap.abs() > 0.25 * p);
         if wraps(first.0 - last.0, period_u) || wraps(first.1 - last.1, period_v) {
-            return Err("pole-encircling-loop");
+            return Err("singular-encircling-loop");
         }
-        let mut normal_mags: Vec<f64> = polygon
-            .iter()
-            .map(|&(u, v)| surface.normal_at(u, v).length())
-            .collect();
-        normal_mags.sort_by(|a, b| a.total_cmp(b));
-        let median = normal_mags[normal_mags.len() / 2];
-        if median > 0.0 && normal_mags[0] < median * 1.0e-6 {
-            return Err("pole-touching-loop");
+        // A sample at a singular row (asked of the chart service in space,
+        // within the linear tolerance of a row's point; read by the
+        // normal's length against the loop's median, a point a fixed
+        // fraction of the radius off a pole read as on it at any scale).
+        let descriptor = crate::geometry::chart::ChartDescriptor::of(surface, &self.tolerance);
+        if !descriptor.singular_rows.is_empty()
+            && polygon.iter().any(|&(u, v)| {
+                crate::geometry::chart::ops::singular_point_near(
+                    &descriptor,
+                    &surface.point_at(u, v),
+                    self.tolerance.linear(),
+                )
+                .is_some()
+            })
+        {
+            return Err("singular-touching-loop");
         }
         let mut signed = 0.0;
         let mut perimeter = 0.0;

@@ -220,12 +220,12 @@ pub(super) fn sliver_term(
     // area). Located in (u, v) it lay a longitude step off the trim and
     // the sliver went missing: Viviani's cap with the ball's poles on
     // its rim read 3.4e-4 short (PK-1169).
-    let (pole_a, pole_b) = (
-        at_pole(surface, descriptor, a),
-        at_pole(surface, descriptor, b),
+    let (singular_a, singular_b) = (
+        at_singular_point(surface, descriptor, a),
+        at_singular_point(surface, descriptor, b),
     );
-    let find = |trim: &Trim<'_>, q: (f64, f64), p, pole: bool| -> (f64, f64) {
-        if !pole {
+    let find = |trim: &Trim<'_>, q: (f64, f64), p, singular: bool| -> (f64, f64) {
+        if !singular {
             return locate(trim, q, descriptor);
         }
         let t = [trim.lo, trim.hi]
@@ -242,7 +242,7 @@ pub(super) fn sliver_term(
     // only for trims the chord could lie on (the same verdicts).
     let mut best: Option<Carrier<'_>> = None;
     for trim in trims {
-        let (ta, uva) = find(trim, a, pa, pole_a);
+        let (ta, uva) = find(trim, a, pa, singular_a);
         if uva > uv_band(trim) || at(trim, ta, a).distance_to(&pa) > branch {
             continue;
         }
@@ -250,7 +250,7 @@ pub(super) fn sliver_term(
         if da > gate {
             continue;
         }
-        let (tb, uvb) = find(trim, b, pb, pole_b);
+        let (tb, uvb) = find(trim, b, pb, singular_b);
         if uvb > uv_band(trim) || at(trim, tb, b).distance_to(&pb) > branch || ta == tb {
             continue;
         }
@@ -262,13 +262,13 @@ pub(super) fn sliver_term(
     }
     let (trim, ta, tb, _, feet) = best?;
     // The trim's own chart point at a pole end, on the chord's branch.
-    let pole_point = |t: f64, q: (f64, f64)| {
+    let singular_chart_point = |t: f64, q: (f64, f64)| {
         let c = trim.pcurve.point_at(t);
         aligned(descriptor, (c.x, c.y), q)
     };
     let (via_a, via_b) = (
-        pole_a.then(|| pole_point(ta, a)),
-        pole_b.then(|| pole_point(tb, b)),
+        singular_a.then(|| singular_chart_point(ta, a)),
+        singular_b.then(|| singular_chart_point(tb, b)),
     );
     // A closed trim's short way round may cross its parameter seam.
     let span = trim.hi - trim.lo;
@@ -386,7 +386,11 @@ fn local_foot(curve: &dyn CurveEval, p: &Point3, seed: f64, lo: f64, hi: f64) ->
 /// Whether the chart point `q` lies on a pole or apex of `surface`, asked
 /// of the chart service in space: its image within the linear tolerance
 /// of a singular row's point (the fan from a pole runs along its row).
-fn at_pole(surface: &SurfaceGeometry, descriptor: &ChartDescriptor, q: (f64, f64)) -> bool {
+fn at_singular_point(
+    surface: &SurfaceGeometry,
+    descriptor: &ChartDescriptor,
+    q: (f64, f64),
+) -> bool {
     singular_point_near(descriptor, &surface.point_at(q.0, q.1), descriptor.linear).is_some()
 }
 

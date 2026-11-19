@@ -27,7 +27,7 @@ const EDGE_STATIONS: usize = 8;
 impl BRep {
     /// `Some(honest)` from the pole-side rule (module docs) for a face
     /// whose outer loop touches exactly one chart pole, else `None`.
-    pub(super) fn pole_side_witness(
+    pub(super) fn singular_side_witness(
         &self,
         face: FaceHandle,
         surface: &SurfaceGeometry,
@@ -35,26 +35,32 @@ impl BRep {
     ) -> Option<bool> {
         let start = self.loops.get(self.faces.get(face)?.outer_loop)?.half_edge;
         let members = self.loop_half_edges(start)?;
-        // Pole samples: the loop's uv samples where the chart normal
-        // collapses (the audit's own pole test).
+        // The loop's samples at a singular row of the chart (a pole, an
+        // apex), asked of the chart service in space: within the linear
+        // tolerance of a row's point, on a row collapsing u (the far
+        // side is read in v). Read by the normal's length against the
+        // loop's median, a fixed fraction of the radius off the pole read
+        // as the pole whatever the scale.
+        let descriptor = crate::geometry::chart::ChartDescriptor::of(surface, &self.tolerance);
         let mut samples = Vec::new();
         for &he in &members {
             samples.extend(self.half_edge_uv_samples(he, surface).ok()?);
         }
-        let mut mags: Vec<f64> = samples
+        let rows: Vec<f64> = samples
             .iter()
-            .map(|&(u, v)| surface.normal_at(u, v).length())
+            .filter_map(|&(u, v)| {
+                crate::geometry::chart::ops::singular_point_near(
+                    &descriptor,
+                    &surface.point_at(u, v),
+                    self.tolerance.linear(),
+                )
+            })
+            .filter(|(_, collapses_u)| *collapses_u)
+            .map(|(row, _)| row.at)
             .collect();
-        mags.sort_by(f64::total_cmp);
-        let median = *mags.get(mags.len() / 2)?;
-        let poles: Vec<f64> = samples
-            .iter()
-            .filter(|&&(u, v)| surface.normal_at(u, v).length() < median * 1.0e-6)
-            .map(|&(_, v)| v)
-            .collect();
-        let pole_v = *poles.first()?;
-        if poles.iter().any(|v| (v - pole_v).abs() > 1.0e-6) {
-            return None; // two poles: no far side
+        let row_v = *rows.first()?;
+        if rows.iter().any(|v| (v - row_v).abs() > 1.0e-6) {
+            return None; // two rows: no far side
         }
         // The boundary point farthest from the pole in v, on a
         // non-seam use with a curve.
@@ -76,7 +82,7 @@ impl BRep {
                 let t =
                     curve.t_start + (curve.t_end - curve.t_start) * k as f64 / EDGE_STATIONS as f64;
                 let (_, v) = surface.closest_point(&curve.geometry.point_at(t))?;
-                let gap = (v - pole_v).abs();
+                let gap = (v - row_v).abs();
                 if far.is_none_or(|(g, _, _)| gap > g) {
                     far = Some((gap, he, t));
                 }
@@ -110,8 +116,8 @@ impl BRep {
             .length()
             .max(self.tolerance.linear());
         let (_, v_left) = surface.closest_point(&(p + normal.cross(&tangent) * reach))?;
-        let toward_pole = (v_left - v) * (pole_v - v);
-        (toward_pole.abs() > 0.0).then_some(toward_pole > 0.0)
+        let toward_row = (v_left - v) * (row_v - v);
+        (toward_row.abs() > 0.0).then_some(toward_row > 0.0)
     }
 
     /// The half-edges of the loop starting at `start`, in order.
@@ -130,5 +136,5 @@ impl BRep {
 }
 
 #[cfg(test)]
-#[path = "winding_pole_witness_tests.rs"]
+#[path = "winding_singular_witness_tests.rs"]
 mod tests;

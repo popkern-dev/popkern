@@ -178,7 +178,7 @@ fn distance_to_uv_segment(point: UvPoint, a: UvPoint, b: UvPoint) -> f64 {
 /// with a period-sized branch jump (sphere pole, cone apex).
 pub(super) struct RawLoopSample {
     pub(super) uv: UvPoint,
-    pub(super) pole_jump_before: bool,
+    pub(super) row_jump_before: bool,
 }
 
 /// Assemble a loop's UV trim polygon from raw samples.
@@ -212,7 +212,7 @@ pub(super) fn assemble_periodic_polygon(
     let chain_starts: Vec<usize> = raw
         .iter()
         .enumerate()
-        .filter_map(|(i, s)| s.pole_jump_before.then_some(i))
+        .filter_map(|(i, s)| s.row_jump_before.then_some(i))
         .collect();
 
     // `raw_branch_chains`: (chain start, extra whole periods) — a
@@ -231,7 +231,7 @@ pub(super) fn assemble_periodic_polygon(
             }
             if let Some(&(_, extra)) = raw_branch_chains
                 .iter()
-                .find(|(start, _)| s.pole_jump_before && *start == i)
+                .find(|(start, _)| s.row_jump_before && *start == i)
             {
                 // Bridge along the degenerate row: enter the row at the
                 // previous chain's branch, exit at this chain's raw
@@ -282,15 +282,15 @@ pub(super) fn assemble_periodic_polygon(
     // a sphere whose cutout straddles the seam folded both seam sides
     // onto u = 2π, the cutout's two halves supplying area, and every
     // query on the face read inverted, PK-1057).
-    let mut pole_rows: Vec<f64> = chain_starts.iter().map(|&i| raw[i].uv.v).collect();
+    let mut row_ats: Vec<f64> = chain_starts.iter().map(|&i| raw[i].uv.v).collect();
     if closure_on_degenerate_rows && let Some(first) = raw.first() {
-        pole_rows.push(first.uv.v);
+        row_ats.push(first.uv.v);
     }
     let sound = |polygon: &[UvPoint]| -> bool {
         polygon.len() >= 3
             && closure_ok(polygon)
             && area(polygon).abs() > 1.0e-9
-            && !retraces_at_rows(polygon, &pole_rows, periodic_v)
+            && !retraces_at_rows(polygon, &row_ats, periodic_v)
     };
 
     if sound(&folded_polygon) {

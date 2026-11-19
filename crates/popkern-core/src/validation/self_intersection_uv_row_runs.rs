@@ -34,7 +34,7 @@ const MAX_FREE_RUNS: u32 = 6;
 /// its predecessor's branch. `None` when the loop runs along no pole
 /// row, or no choice of the zero-gap runs closes the polygon with
 /// signed area of the flag's sign (`ccw`).
-pub(super) fn ruled_pole_polygon(
+pub(super) fn ruled_row_polygon(
     raw: &[RawLoopSample],
     on_row: &dyn Fn(f64) -> bool,
     ccw: bool,
@@ -115,5 +115,5 @@ fn signed_area(polygon: &[UvPoint]) -> f64 {
 }
 
 #[cfg(test)]
-#[path = "self_intersection_uv_pole_runs_tests.rs"]
+#[path = "self_intersection_uv_row_runs_tests.rs"]
 mod tests;
