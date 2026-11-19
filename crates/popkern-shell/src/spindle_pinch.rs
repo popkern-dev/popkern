@@ -126,7 +126,6 @@ pub(crate) fn serve_spindle_group(
     let theta0 = (-rr / r_minor).pacos();
     let dead_lo = theta0;
     let dead_hi = 2.0 * std::f64::consts::PI - theta0;
-    let w = (r_minor * r_minor - rr * rr).sqrt();
 
     // Orientation flag to inherit onto the cap sectors.
     let orientation = group
@@ -188,17 +187,22 @@ pub(crate) fn serve_spindle_group(
         let radial = rel - group.axis * z_loc;
         let rho = radial.length();
         let v_ring = normalize_angle(z_loc.patan2(rho - rr));
-        // Pole side: caps on the upper half close at v = θ₀, lower at
-        // v = 2π − θ₀.
-        let (v_pole, pole) = if v_ring < std::f64::consts::PI {
-            (theta0, group.center + group.axis * w)
-        } else {
-            (dead_hi, group.center - group.axis * w)
-        };
+        // The apex the ring closes at: the chart service's apex row on
+        // its side (caps on the upper half close at v = θ₀, the lower at
+        // v = 2π − θ₀), its point the pinch.
+        let upper = v_ring < std::f64::consts::PI;
+        let row = popkern_core::geometry::chart::ChartDescriptor::of(&torus_geometry, tolerance)
+            .singular_rows
+            .iter()
+            .filter(|r| r.kind == popkern_core::geometry::chart::SingularKind::Apex)
+            .find(|r| (r.at < std::f64::consts::PI) == upper)
+            .copied()
+            .ok_or_else(|| ShellError::Topology("spindle torus without its apex rows".into()))?;
+        let (v_apex, apex) = (row.at, row.point);
 
         let ring_vec: Vec<EdgeHandle> = ring.to_vec();
         let fan = body
-            .cap_boundary_ring_fan(&ring_vec, pole)
+            .cap_boundary_ring_fan(&ring_vec, apex)
             .map_err(|e| ShellError::Topology(format!("spindle pinch fan failed: {e}")))?;
 
         // Author sector surfaces, spoke curves, and pcurves.
@@ -210,7 +214,7 @@ pub(crate) fn serve_spindle_group(
             group,
             (perp1, perp2),
             v_ring,
-            v_pole,
+            v_apex,
             tolerance,
         )?;
     }
@@ -295,7 +299,7 @@ fn author_fan_geometry(
     group: &SpindleGroup,
     (perp1, perp2): (Vec3, Vec3),
     v_ring: f64,
-    v_pole: f64,
+    v_apex: f64,
     tolerance: &Tolerance,
 ) -> Result<(), ShellError> {
     let tol = tolerance.linear();
@@ -312,7 +316,7 @@ fn author_fan_geometry(
         let he_data = &body.half_edges[he];
         let origin = he_data.origin;
         let next_origin = body.half_edges[he_data.next].origin;
-        let (ring_vertex, forward) = if origin == fan.pole_vertex {
+        let (ring_vertex, forward) = if origin == fan.hub_vertex {
             (next_origin, false)
         } else {
             (origin, true)
@@ -329,21 +333,21 @@ fn author_fan_geometry(
         };
         // Verify the frame reproduces both endpoints before committing.
         let at = |t: f64| geometry.point_at(t);
-        let pole_pos = body.vertices[fan.pole_vertex].position;
+        let apex_pos = body.vertices[fan.hub_vertex].position;
         if at(v_ring).distance_to(&p_ring) > tol * 100.0
-            || at(v_pole).distance_to(&pole_pos) > tol * 100.0
+            || at(v_apex).distance_to(&apex_pos) > tol * 100.0
         {
             return Err(ShellError::Topology(format!(
                 "spindle spoke frame mismatch at φ={phi:.4} (ring residual {:.3e}, \
-                 pole residual {:.3e})",
+                 apex residual {:.3e})",
                 at(v_ring).distance_to(&p_ring),
-                at(v_pole).distance_to(&pole_pos)
+                at(v_apex).distance_to(&apex_pos)
             )));
         }
         let (t_start, t_end) = if forward {
-            (v_ring, v_pole)
+            (v_ring, v_apex)
         } else {
-            (v_pole, v_ring)
+            (v_apex, v_ring)
         };
         body.edges[spoke].curve = Some(CurveOnEdge {
             geometry,
@@ -373,11 +377,11 @@ fn author_fan_geometry(
             let origin_pos = body.vertices[he.origin].position;
             let dest = body.half_edges[he.next].origin;
             let dest_pos = body.vertices[dest].position;
-            let uv_of = |p: Point3, is_pole: bool, phi_hint: Option<f64>| -> (f64, f64) {
-                if is_pole {
+            let uv_of = |p: Point3, is_apex: bool, phi_hint: Option<f64>| -> (f64, f64) {
+                if is_apex {
                     // The pole keeps the neighbour's azimuth so the
                     // pcurve polygon stays chart-coherent.
-                    (phi_hint.unwrap_or(0.0), v_pole)
+                    (phi_hint.unwrap_or(0.0), v_apex)
                 } else {
                     let mut phi = azimuth(p);
                     if let Some(prev) = phi_hint {
@@ -392,21 +396,21 @@ fn author_fan_geometry(
                     (phi, v_ring)
                 }
             };
-            let o_is_pole = he.origin == fan.pole_vertex;
-            let d_is_pole = dest == fan.pole_vertex;
+            let o_is_apex = he.origin == fan.hub_vertex;
+            let d_is_apex = dest == fan.hub_vertex;
             // A spoke is a meridian: its pole end takes its RING end's
             // azimuth (the collapsed pole row carries the loop between
             // spokes, as on a sphere). Interpolating from the previous
             // spoke's azimuth ran the spoke's pcurve diagonally across
             // the torus, 0.18 off its meridian (PK-819 pcurve-consistency
             // census).
-            let (u0, v0, u1, v1) = if o_is_pole {
+            let (u0, v0, u1, v1) = if o_is_apex {
                 let (u1, v1) = uv_of(dest_pos, false, phi_prev);
-                (u1, v_pole, u1, v1)
+                (u1, v_apex, u1, v1)
             } else {
                 let (u0, v0) = uv_of(origin_pos, false, phi_prev);
-                let (u1, v1) = if d_is_pole {
-                    (u0, v_pole)
+                let (u1, v1) = if d_is_apex {
+                    (u0, v_apex)
                 } else {
                     uv_of(dest_pos, false, Some(u0))
                 };

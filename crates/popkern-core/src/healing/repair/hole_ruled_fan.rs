@@ -150,7 +150,7 @@ fn ruled_to_pole(rim: &crate::geometry::NurbsCurve, pole: Point3) -> NurbsSurfac
 pub(crate) fn author_ruled_sector_pcurves(
     brep: &mut BRep,
     face: crate::topology::FaceHandle,
-    pole_vertex: crate::topology::VertexHandle,
+    hub_vertex: crate::topology::VertexHandle,
     tolerance: f64,
 ) -> Result<(), HoleCommitError> {
     let Some(surface) = brep
@@ -180,7 +180,7 @@ pub(crate) fn author_ruled_sector_pcurves(
             return Ok(());
         };
         let destination = brep.half_edges.get(next).map(|half_edge| half_edge.origin);
-        let is_spoke = origin == pole_vertex || destination == Some(pole_vertex);
+        let is_spoke = origin == hub_vertex || destination == Some(hub_vertex);
         let curve_range = brep
             .edges
             .get(edge)
@@ -190,7 +190,7 @@ pub(crate) fn author_ruled_sector_pcurves(
             let pcurve = if is_spoke {
                 // Which ruling: the junction vertex sits at one end of
                 // the rim row.
-                let junction_vertex = if origin == pole_vertex {
+                let junction_vertex = if origin == hub_vertex {
                     destination
                 } else {
                     Some(origin)

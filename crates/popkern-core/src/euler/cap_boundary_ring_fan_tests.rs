@@ -46,7 +46,7 @@ fn fan_sectors_are_triangles_with_shared_spokes() {
     let count = result.sector_faces.len();
 
     assert_eq!(
-        brep.vertices[result.pole_vertex].position,
+        brep.vertices[result.hub_vertex].position,
         fan_pole(),
         "pole vertex sits at the requested position"
     );
@@ -106,7 +106,7 @@ fn fan_spokes_connect_ring_vertices_to_pole() {
         let endpoints = std::collections::BTreeSet::from([origin, end]);
         assert_eq!(
             endpoints,
-            std::collections::BTreeSet::from([ring_vertex, result.pole_vertex]),
+            std::collections::BTreeSet::from([ring_vertex, result.hub_vertex]),
             "spoke {index} must connect ring vertex {index} to the pole"
         );
     }

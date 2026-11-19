@@ -215,6 +215,22 @@ fn singular_rows(
             },
         ));
     }
+    // A spindle torus (tube radius at least the major radius) collapses
+    // its rows where the distance from the axis, R + r cos v, vanishes:
+    // its two pinch points, apexes the tube passes through.
+    if let SurfaceGeometry::Torus {
+        major_radius,
+        minor_radius,
+        ..
+    } = s
+        && *minor_radius > 0.0
+        && *minor_radius >= *major_radius
+    {
+        let v = (-major_radius / minor_radius).clamp(-1.0, 1.0).pacos();
+        for at in [v, std::f64::consts::TAU - v] {
+            candidates.push((Axis::V, at, (0.0, std::f64::consts::TAU)));
+        }
+    }
     for (axis, at, (a, b)) in candidates {
         let eval = |t: f64| match axis {
             Axis::V => s.point_at(t, at),

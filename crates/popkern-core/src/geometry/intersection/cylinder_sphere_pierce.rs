@@ -34,7 +34,7 @@ const MAX_LOOP_SAMPLES: usize = 16_384;
 const FIT_BUDGET: f64 = 0.1;
 /// The largest step in sphere-chart longitude between consecutive
 /// samples the scan fits (radians); a larger one is a pole sweep.
-const POLE_SWEEP: f64 = 0.25;
+const SINGULAR_SWEEP: f64 = 0.25;
 /// The largest step in sphere-chart longitude the refinement beside a
 /// pole leaves (radians): the fit's cubic through coarser steps
 /// overshoots the longitude between them, 8e-5 off the ball at points
@@ -42,9 +42,9 @@ const POLE_SWEEP: f64 = 0.25;
 const REFINED_SWEEP: f64 = 0.005;
 /// The longitude step of a scan gap (radians) that marks it a pole's
 /// sweep, to be refined.
-const POLE_SWEEP_GAP: f64 = 0.0625;
+const SINGULAR_SWEEP_GAP: f64 = 0.0625;
 /// Bisections of one gap between samples beside a pole.
-const MAX_POLE_DEPTH: usize = 48;
+const MAX_SINGULAR_DEPTH: usize = 48;
 
 /// The pierce of the cylinder `(origin, axis, rc)` and the sphere
 /// `(center, rs)`; `swapped` when the caller's first surface is the
@@ -62,10 +62,27 @@ pub(super) fn pierce(
     swapped: bool,
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
     let a = axis.normalized()?;
-    let SurfaceGeometry::Sphere { axis: pole, .. } = sphere_surface else {
+    let SurfaceGeometry::Sphere {
+        axis: sphere_axis, ..
+    } = sphere_surface
+    else {
         return None;
     };
-    let pole_axis = pole.normalized()?;
+    // The sphere's axis frames its longitudes; its singular points are the
+    // chart service's (the descriptor's singular rows).
+    let frame_axis = sphere_axis.normalized()?;
+    let singular: Vec<Point3> =
+        crate::geometry::chart::ChartDescriptor::of(sphere_surface, tolerance)
+            .singular_rows
+            .iter()
+            .map(|r| r.point)
+            .collect();
+    let near_singular = |p: Point3| {
+        singular
+            .iter()
+            .map(|q| q.distance_to(&p))
+            .fold(f64::INFINITY, f64::min)
+    };
     let (e1, e2) = orthonormal_basis(a);
     let (rc, rs) = (rc.abs(), rs.abs());
     let foot = |theta: f64| origin + e1 * (rc * theta.pcos()) + e2 * (rc * theta.psin());
@@ -95,11 +112,11 @@ pub(super) fn pierce(
         let (u, v) = project_point_to_uv(sphere_surface, &p)?;
         Some((unwrap(u, prev), v))
     };
-    // The sphere's poles lying on the cylinder: a branch through one
-    // is split there (`split_at_poles`).
-    let poles: Vec<Point3> = [1.0, -1.0]
-        .into_iter()
-        .map(|s| center + pole_axis * (s * rs))
+    // The sphere's singular points lying on the cylinder: a branch
+    // through one is split there (`split_at_singular_points`).
+    let on_cylinder: Vec<Point3> = singular
+        .iter()
+        .copied()
         .filter(|p| {
             let rel = *p - origin;
             let off = (rel - a * rel.dot(&a)).length();
@@ -113,16 +130,13 @@ pub(super) fn pierce(
             super::ruling_pierce::ruling_loops(&quad, &discs, 1.0, &crossings, density);
         let mut worst = 0.0_f64;
         let mut results = Vec::new();
-        let (p1, p2) = orthonormal_basis(pole_axis);
+        let (p1, p2) = orthonormal_basis(frame_axis);
         let longitude = |p: Point3| {
             let d = p - center;
             d.dot(&p2).patan2(d.dot(&p1))
         };
         let floor = 1e-3 * tolerance.linear();
-        let off_axis = |p: Point3| {
-            let d = p - center;
-            (d - pole_axis * d.dot(&pole_axis)).length()
-        };
+        let off_singular = |p: Point3| near_singular(p);
         let root_near = |theta: f64, near: f64| {
             let (disc, b, _) = quad(theta);
             let s = disc.max(0.0).sqrt();
@@ -135,16 +149,16 @@ pub(super) fn pierce(
         };
         let pieces = loops.iter().flat_map(|pts| {
             let before = pts.len();
-            let pts = refine_pole_sweeps(
+            let pts = refine_singular_sweeps(
                 pts,
                 &|theta, t| foot(theta) + a * t,
                 &longitude,
                 &root_near,
-                (floor, tolerance.linear(), &off_axis),
+                (floor, tolerance.linear(), &off_singular),
             );
             let refined = pts.len() > before;
             let points: Vec<Point3> = pts.iter().map(|&(theta, t)| foot(theta) + a * t).collect();
-            split_at_poles(points, !open, &poles)
+            split_at_singular_points(points, !open, &on_cylinder)
                 .into_iter()
                 .map(move |(piece, closed)| (piece, closed, refined))
         });
@@ -159,11 +173,11 @@ pub(super) fn pierce(
             let tangent_at = |p: Point3| -> Option<Vec3> {
                 let rel = p - origin;
                 let radial = (rel - a * rel.dot(&a)).normalized()?;
-                let t = pole_axis.cross(&radial);
+                let t = frame_axis.cross(&radial);
                 (t.length() > 1e-3).then_some(t)
             };
             let longitudes =
-                pole_safe_longitudes(&points, (center, pole_axis), sphere_chart, tangent_at)?;
+                singular_safe_longitudes(&points, &near_singular, sphere_chart, tangent_at)?;
             for (k, &p) in points.iter().enumerate() {
                 let (cu, cv) = cyl_chart(p, uc);
                 let (raw_u, sv) = sphere_chart(p, us)?;
@@ -173,7 +187,7 @@ pub(super) fn pierce(
                 // scan's to make (a rod beside a sphere's poles lost
                 // its faces' areas). Decline to the marching path,
                 // which owns pole sweeps (PK-1055).
-                if us.is_some_and(|prev: f64| (su - prev).abs() > POLE_SWEEP) {
+                if us.is_some_and(|prev: f64| (su - prev).abs() > SINGULAR_SWEEP) {
                     return None;
                 }
                 uc = Some(cu);
@@ -259,17 +273,12 @@ pub(super) fn pierce(
 /// own motion: within a thousandth of the step to the next sample of
 /// the axis (a crossing refined by golden section lies 1e-7 off it,
 /// its longitude noise).
-fn pole_safe_longitudes(
+fn singular_safe_longitudes(
     points: &[Point3],
-    axis: (Point3, Vec3),
+    near_singular: &dyn Fn(Point3) -> f64,
     chart: impl Fn(Point3, Option<f64>) -> Option<(f64, f64)>,
     tangent_at: impl Fn(Point3) -> Option<Vec3>,
 ) -> Option<Vec<Option<f64>>> {
-    let (centre, pole) = axis;
-    let off_axis = |p: &Point3| {
-        let d = *p - centre;
-        (d - pole * d.dot(&pole)).length()
-    };
     let step = |k: usize| {
         let next = if k + 1 < points.len() {
             k + 1
@@ -278,19 +287,19 @@ fn pole_safe_longitudes(
         };
         points[k].distance_to(&points[next])
     };
-    let on_pole: Vec<bool> = (0..points.len())
-        .map(|k| off_axis(&points[k]) <= 1e-3 * step(k))
+    let at_singular: Vec<bool> = (0..points.len())
+        .map(|k| near_singular(points[k]) <= 1e-3 * step(k))
         .collect();
-    if on_pole.iter().all(|&b| b) {
+    if at_singular.iter().all(|&b| b) {
         return None;
     }
     let mut out = vec![None; points.len()];
-    for k in (0..points.len()).filter(|&k| on_pole[k]) {
+    for k in (0..points.len()).filter(|&k| at_singular[k]) {
         let neighbour = (1..points.len()).find_map(|d| {
             [k.checked_sub(d), Some(k + d)]
                 .into_iter()
                 .flatten()
-                .find(|&j| j < points.len() && !on_pole[j])
+                .find(|&j| j < points.len() && !at_singular[j])
         })?;
         let toward = points[neighbour] - points[k];
         let along = match tangent_at(points[k]) {
@@ -304,7 +313,7 @@ fn pole_safe_longitudes(
 }
 
 /// The branch's `(θ, t)` samples with more between any two whose
-/// sphere longitudes differ by more than `POLE_SWEEP`, while their
+/// sphere longitudes differ by more than `SINGULAR_SWEEP`, while their
 /// chord exceeds `floor`: a branch passing beside a pole of the ball
 /// sweeps half a turn of longitude over a stretch as short as its
 /// distance from the pole, which the scan's uniform θ steps jump, and
@@ -315,18 +324,18 @@ fn pole_safe_longitudes(
 /// the pole axis is at the pole, its longitude the pole handling's
 /// (`split_at_poles`, `pole_safe_longitudes`): a gap reaching one is
 /// not refined.
-fn refine_pole_sweeps(
+fn refine_singular_sweeps(
     pts: &[(f64, f64)],
     at: &dyn Fn(f64, f64) -> Point3,
     longitude: &dyn Fn(Point3) -> f64,
     root_near: &dyn Fn(f64, f64) -> f64,
-    (floor, tol, off_axis): (f64, f64, &dyn Fn(Point3) -> f64),
+    (floor, tol, off_singular): (f64, f64, &dyn Fn(Point3) -> f64),
 ) -> Vec<(f64, f64)> {
     let step = |x: (f64, f64), y: (f64, f64)| {
         let (p, q) = (at(x.0, x.1), at(y.0, y.1));
         let d = longitude(q) - longitude(p);
         let d = d - TAU * (d / TAU).round();
-        let open = p.distance_to(&q) > floor && off_axis(p) > tol && off_axis(q) > tol;
+        let open = p.distance_to(&q) > floor && off_singular(p) > tol && off_singular(q) > tol;
         (d.abs(), open)
     };
     let sweep = |x: (f64, f64), y: (f64, f64)| {
@@ -339,14 +348,14 @@ fn refine_pole_sweeps(
         // Only a gap stepping a pole's sweep (a sixteenth of a radian or
         // more: a loop far from the poles steps a hundredth at 512 a
         // turn) is refined, down to `REFINED_SWEEP`.
-        if !matches!(step(w[0], w[1]), (d, true) if d > POLE_SWEEP_GAP) {
+        if !matches!(step(w[0], w[1]), (d, true) if d > SINGULAR_SWEEP_GAP) {
             continue;
         }
         // Depth-first bisection of this gap, emitted in order.
         let mut stack = vec![(w[0], w[1], 0usize)];
         let mut pending: Vec<(f64, f64)> = Vec::new();
         while let Some((x, y, depth)) = stack.pop() {
-            if depth >= MAX_POLE_DEPTH || !sweep(x, y) {
+            if depth >= MAX_SINGULAR_DEPTH || !sweep(x, y) {
                 pending.push(y);
                 continue;
             }
@@ -378,13 +387,13 @@ fn refine_pole_sweeps(
 /// through a pole where the pole lies within a sample step of a chord
 /// of the branch; the sample nearest it within a thousandth of the step
 /// is replaced, otherwise the pole is put in between.
-fn split_at_poles(
+fn split_at_singular_points(
     mut points: Vec<Point3>,
     closed: bool,
-    poles: &[Point3],
+    singular: &[Point3],
 ) -> Vec<(Vec<Point3>, bool)> {
     let mut cuts: Vec<usize> = Vec::new();
-    for pole in poles {
+    for point in singular {
         let n = points.len();
         if n < 2 {
             break;
@@ -394,11 +403,11 @@ fn split_at_poles(
                 let (p, q) = (points[k], points[k + 1]);
                 let w = q - p;
                 let s = if w.length_squared() > 0.0 {
-                    ((*pole - p).dot(&w) / w.length_squared()).clamp(0.0, 1.0)
+                    ((*point - p).dot(&w) / w.length_squared()).clamp(0.0, 1.0)
                 } else {
                     0.0
                 };
-                (k, pole.distance_to(&(p + w * s)))
+                (k, point.distance_to(&(p + w * s)))
             })
             .min_by(|x, y| x.1.total_cmp(&y.1))
         else {
@@ -408,14 +417,14 @@ fn split_at_poles(
         if d > step {
             continue;
         }
-        let at = if points[k].distance_to(pole) <= 1e-3 * step {
-            points[k] = *pole;
+        let at = if points[k].distance_to(point) <= 1e-3 * step {
+            points[k] = *point;
             k
-        } else if points[k + 1].distance_to(pole) <= 1e-3 * step {
-            points[k + 1] = *pole;
+        } else if points[k + 1].distance_to(point) <= 1e-3 * step {
+            points[k + 1] = *point;
             k + 1
         } else {
-            points.insert(k + 1, *pole);
+            points.insert(k + 1, *point);
             for c in &mut cuts {
                 if *c > k {
                     *c += 1;

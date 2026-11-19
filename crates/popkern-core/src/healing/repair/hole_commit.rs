@@ -144,7 +144,7 @@ pub fn commit_hole_cap(
     match geometry.chart {
         HoleCapChart::RuledFanAnalytic => {
             for &face in &fan.sector_faces {
-                author_ruled_sector_pcurves(&mut candidate, face, fan.pole_vertex, tolerance)?;
+                author_ruled_sector_pcurves(&mut candidate, face, fan.hub_vertex, tolerance)?;
             }
         }
         HoleCapChart::ProjectableFan => {
@@ -378,8 +378,8 @@ fn snap_pole_pcurve_endpoints(
         loop {
             let half_edge = &brep.half_edges[cursor];
             let next = half_edge.next;
-            let touches_pole = half_edge.origin == fan.pole_vertex
-                || brep.half_edges[next].origin == fan.pole_vertex;
+            let touches_pole = half_edge.origin == fan.hub_vertex
+                || brep.half_edges[next].origin == fan.hub_vertex;
             if let Some(nurbs) = touches_pole
                 .then(|| brep.half_edges[cursor].pcurve.as_mut())
                 .flatten()

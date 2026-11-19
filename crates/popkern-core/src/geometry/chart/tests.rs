@@ -264,3 +264,40 @@ fn a_spheres_cap_rows_sit_at_a_quarter_turn() {
         assert!((cap.at - want).abs() < 1e-5, "{row:?}: {}", cap.at);
     }
 }
+
+/// A spindle torus (tube radius past the major radius) passes through its
+/// axis at two points where R + r cos v vanishes: the descriptor reports
+/// them as apex rows (the shell's spindle pinch reads them there). A ring
+/// torus has none; without the candidate rows the descriptor reported no
+/// singular row on a spindle torus either.
+#[test]
+fn a_spindle_torus_reports_its_pinch_points_as_apexes() {
+    let tol = Tolerance::default();
+    let (r_major, r_minor) = (1.0, 1.6);
+    let spindle = SurfaceGeometry::Torus {
+        center: Point3::new(0.5, -0.2, 0.3),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: r_major,
+        minor_radius: r_minor,
+    };
+    let d = ChartDescriptor::of(&spindle, &tol);
+    let apexes: Vec<_> = d
+        .singular_rows
+        .iter()
+        .filter(|r| r.kind == SingularKind::Apex)
+        .collect();
+    assert_eq!(apexes.len(), 2, "{:?}", d.singular_rows);
+    let w = (r_minor * r_minor - r_major * r_major).sqrt();
+    for r in &apexes {
+        let z = r.point.z - 0.3;
+        assert!((z.abs() - w).abs() < 1e-9, "pinch at {:?}", r.point);
+        assert!((r.point.x - 0.5).abs() < 1e-9 && (r.point.y + 0.2).abs() < 1e-9);
+    }
+    let ring = SurfaceGeometry::Torus {
+        center: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        major_radius: 3.0,
+        minor_radius: 1.0,
+    };
+    assert!(ChartDescriptor::of(&ring, &tol).singular_rows.is_empty());
+}

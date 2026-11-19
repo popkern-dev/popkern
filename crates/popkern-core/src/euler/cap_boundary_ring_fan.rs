@@ -20,8 +20,8 @@ use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle
 /// runs from ring vertex `w_k` to `w_{k+1}` on the hole side.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoundaryRingFanResult {
-    /// The new pole vertex all sectors meet at.
-    pub pole_vertex: VertexHandle,
+    /// The new hub vertex all sectors meet at (the cap's centre).
+    pub hub_vertex: VertexHandle,
     /// Sector faces in ring order: face k's rim is rim half-edge k.
     pub sector_faces: Vec<FaceHandle>,
     /// Spoke edges in ring order: spoke k runs ring vertex `w_k` ↔
@@ -74,7 +74,7 @@ impl BRep {
         // Plant the pole spur at rim vertex w_0: he_out runs w_0 → pole,
         // he_in runs pole → w_0 with he_in.next == rim[0].
         let spur = self.mev(rim[0], pole)?;
-        let pole_vertex = spur.vertex;
+        let hub_vertex = spur.vertex;
         let mut spoke_edges = Vec::with_capacity(count);
         spoke_edges.push(spur.edge);
 
@@ -94,7 +94,7 @@ impl BRep {
         sector_faces.push(cap.face);
 
         Ok(BoundaryRingFanResult {
-            pole_vertex,
+            hub_vertex,
             sector_faces,
             spoke_edges,
             rim_half_edges: rim,

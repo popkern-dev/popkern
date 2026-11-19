@@ -301,19 +301,19 @@ fn both_operand_orders_fit_the_same_samples() {
 /// it whole.
 #[test]
 fn a_branch_is_cut_at_each_pole_it_passes() {
-    use super::split_at_poles;
+    use super::split_at_singular_points;
     let line: Vec<Point3> = (0..=10)
         .map(|i| Point3::new(f64::from(i), 0.0, 0.0))
         .collect();
     let pole = Point3::new(4.5, 0.0, 0.0);
-    let pieces = split_at_poles(line.clone(), false, &[pole]);
+    let pieces = split_at_singular_points(line.clone(), false, &[pole]);
     assert_eq!(pieces.len(), 2);
     assert!(pieces.iter().all(|(_, closed)| !closed));
     assert_eq!(pieces[0].0.last(), Some(&pole));
     assert_eq!(pieces[1].0.first(), Some(&pole));
     assert_eq!(pieces[0].0.len() + pieces[1].0.len(), 13);
     let far = Point3::new(4.5, 3.0, 0.0);
-    assert_eq!(split_at_poles(line, false, &[far]).len(), 1);
+    assert_eq!(split_at_singular_points(line, false, &[far]).len(), 1);
     // A closed square loop, its last sample its first.
     let ring = vec![
         Point3::new(0.0, 0.0, 0.0),
@@ -323,7 +323,7 @@ fn a_branch_is_cut_at_each_pole_it_passes() {
         Point3::new(0.0, 0.0, 0.0),
     ];
     let corner = Point3::new(1.0, 1.0, 0.0);
-    let pieces = split_at_poles(ring, true, &[corner]);
+    let pieces = split_at_singular_points(ring, true, &[corner]);
     assert_eq!(pieces.len(), 1);
     let (arc, closed) = &pieces[0];
     assert!(!closed);
