@@ -388,7 +388,7 @@ pub(super) fn uv_clip_one_face(
             if is_closed && rides_boundary_everywhere(brep, face, curve_uv) {
                 return UvClipResult::Windows(vec![curve_uv.parameter_range()]);
             }
-            // THREE OR MORE crossings on a CLOSED record: the curve
+            // TWO+ crossings on a CLOSED record (the hull kept a dip): it
             // enters and leaves the face repeatedly — the crossing
             // hull below would span regions outside the face
             // (measured: a sphere×plane circle crossing a cube face's
@@ -397,13 +397,13 @@ pub(super) fn uv_clip_one_face(
             // every inter-crossing interval honestly; ambiguous
             // verdicts (boundary-hugging curves) fall back to the
             // tuned hull logic. OPEN records take windows only when
-            // the caller MEASURED them safe (PK-114: transversality +
-            // the boundary-hugging guard in decisive_windows) —
+            // the caller MEASURED them safe (PK-114: transversality, the
+            // decisive_windows hugging guard) —
             // flush/coincident boundary-running traces keep the tuned
             // hull; splitting them starved the gap-substitute
             // completion (46 opens + 32% volume, flush gusset).
-            if (is_closed || open_windows_allowed)
-                && crossings.len() >= 3
+            if ((is_closed && crossings.len() >= 2)
+                || (open_windows_allowed && crossings.len() >= 3))
                 && let Some(ws) = super::clip_windows_decisive::decisive_windows(
                     brep, face, curve_uv, &crossings, is_closed,
                 )
