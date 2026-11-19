@@ -13,7 +13,6 @@ use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
-use popkern_math::PortableMath as _;
 
 use super::clip_uv::UvCrossing;
 
@@ -67,27 +66,19 @@ pub(super) fn window_crossings(
             tolerance,
         ));
     }
-    // A closed record's closure is one place: a crossing found at (or a
-    // rounding past) its end parameter is the one at its start; and a
-    // crossing found on two lifts (at a lift's window edge) is one.
+    // A crossing found on two lifts (at a lift's window edge) is one: the
+    // same boundary edge at the same parameters. Reports at a closed
+    // record's closure (at its start and its end, or on two edges meeting
+    // there) are kept as the plain pass keeps them: the clip's arms read
+    // them as its pair.
     let (t0, t1) = query.parameter_range();
-    let (a, b) = (query.point_at(t0), query.point_at(t1));
-    let du = (b.x - a.x) - period * ((b.x - a.x) / period).round();
     let eps = 1e-6 * (t1 - t0).abs();
-    if du.phypot(b.y - a.y) < 1e-6 * period {
-        let at_start = crossings.iter().any(|c| (c.t_curve - t0).abs() <= eps);
-        if at_start {
-            crossings.retain(|c| c.t_curve < t1 - eps);
-        } else {
-            for c in &mut crossings {
-                if c.t_curve >= t1 - eps {
-                    c.t_curve = t0;
-                }
-            }
-        }
-    }
     crossings.sort_by(|a, b| a.t_curve.total_cmp(&b.t_curve));
-    crossings.dedup_by(|x, y| (x.t_curve - y.t_curve).abs() <= eps);
+    crossings.dedup_by(|x, y| {
+        x.boundary_he == y.boundary_he
+            && (x.t_curve - y.t_curve).abs() <= eps
+            && (x.t_boundary - y.t_boundary).abs() <= eps.max(1e-9)
+    });
     // A closed record on the boundary at its closure point (PK-775).
     let period_v = surface
         .and_then(|s| popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(s).1);
