@@ -252,6 +252,20 @@ pub(super) fn lifted_loop_crossings(
     period: f64,
     tolerance: &Tolerance,
 ) -> Vec<UvCrossing> {
+    lifted_crossings(brep, boundary, curve_uv, period, tolerance, false)
+}
+
+/// [`lifted_loop_crossings`], the identity lift included when
+/// `with_identity` (every crossing of the record with the boundary on
+/// any turn of the chart).
+pub(super) fn lifted_crossings(
+    brep: &BRep,
+    boundary: &[(HalfEdgeHandle, NurbsCurve)],
+    curve_uv: &NurbsCurve,
+    period: f64,
+    tolerance: &Tolerance,
+    with_identity: bool,
+) -> Vec<UvCrossing> {
     let (b_lo, b_hi) = boundary_u_range(boundary);
     let (q_lo, q_hi) = curve_uv
         .control_points
@@ -268,7 +282,7 @@ pub(super) fn lifted_loop_crossings(
     let curve_range = curve_uv.parameter_range();
     let mut found = Vec::new();
     for k in k_min..=k_max {
-        if k == 0 {
+        if k == 0 && !with_identity {
             continue;
         }
         let mut lift = curve_uv.clone();

@@ -112,20 +112,7 @@ pub(crate) fn find_uv_crossings(
     // wall got its intersection segment shifted by π and clipped to
     // ±5.78 instead of ±10, so the pocket never met the wall
     // corners and the boolean output carried degenerate stubs).
-    let surface_is_periodic = brep
-        .faces
-        .get(face)
-        .and_then(|f| f.surface.as_ref())
-        .map(|s| {
-            matches!(
-                s.geometry,
-                popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }
-                    | popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. }
-                    | popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
-                    | popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
-            )
-        })
-        .unwrap_or(false);
+    let surface_is_periodic = super::clip_window_crossings::rotational_chart(brep, face);
     // The query as the record authored it — continuous in the chart.
     // Both crossing passes judge tears against it (see TEAR
     // CONSISTENCY below).
@@ -494,6 +481,11 @@ pub(crate) fn find_uv_crossings(
         (period, period_v),
     ) {
         crossings.insert(0, c);
+    }
+    if surface_is_periodic {
+        let on = (face_surface, &boundary_nurbs[..]);
+        let query = (query_authored, period_of());
+        super::clip_window_crossings::shadow(brep, face, on, query, &crossings, tolerance);
     }
     Some(crossings)
 }
