@@ -279,7 +279,6 @@ pub(super) fn lifted_crossings(
     }
     let k_min = ((b_lo - q_hi) / period).floor() as i64;
     let k_max = ((b_hi - q_lo) / period).ceil() as i64;
-    let curve_range = curve_uv.parameter_range();
     let mut found = Vec::new();
     for k in k_min..=k_max {
         if k == 0 && !with_identity {
@@ -289,51 +288,7 @@ pub(super) fn lifted_crossings(
         for p in &mut lift.control_points {
             p.x += k as f64 * period;
         }
-        for (he, pc) in boundary {
-            let range = pc.parameter_range();
-            if (range.1 - range.0).abs() < tolerance.numerical_floor() {
-                continue;
-            }
-            let twin = brep.half_edges[*he].mate().unwrap_or_default();
-            if brep.half_edges.contains_key(twin)
-                && brep.half_edges[twin].loop_ == brep.half_edges[*he].loop_
-            {
-                continue;
-            }
-            let Ok(result) = intersect_curves(
-                &CurveGeometry::Nurbs(pc.clone()),
-                range,
-                &CurveGeometry::Nurbs(lift.clone()),
-                curve_range,
-                tolerance,
-            ) else {
-                continue;
-            };
-            for hit in &result.intersections {
-                match hit {
-                    CurveIntersection::Point { t1, t2, .. } => {
-                        let periods = (Some(period), None);
-                        if super::clip_overlap_ends::point_crosses(periods, (pc, &lift), *t2) {
-                            found.push(UvCrossing {
-                                t_curve: *t2,
-                                boundary_he: *he,
-                                t_boundary: *t1,
-                            });
-                        }
-                    }
-                    CurveIntersection::Overlap { t1_range, t2_range } => {
-                        // Ends where the lift leaves the edge only.
-                        found.extend(super::clip_overlap_ends::overlap_exits(
-                            (Some(period), None),
-                            (pc, &lift),
-                            *he,
-                            *t1_range,
-                            *t2_range,
-                        ));
-                    }
-                }
-            }
-        }
+        found.extend(lift_crossings(brep, boundary, &lift, period, tolerance));
     }
     if popkern_core::trace::trace_enabled("clip") && !found.is_empty() {
         eprintln!(
@@ -385,6 +340,88 @@ pub(super) fn extend_with_lifted_loop_crossings(
             crossings.push(c);
         }
     }
+}
+
+/// The range of whole-period lifts of `curve_uv` that reach the
+/// boundary's unrolled u-range (`None` when either is unbounded).
+pub(super) fn lift_range(
+    boundary: &[(HalfEdgeHandle, NurbsCurve)],
+    curve_uv: &NurbsCurve,
+    period: f64,
+) -> Option<(i64, i64)> {
+    let (b_lo, b_hi) = boundary_u_range(boundary);
+    let (q_lo, q_hi) = curve_uv
+        .control_points
+        .iter()
+        .map(|p| p.x)
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), u| {
+            (lo.min(u), hi.max(u))
+        });
+    (b_lo.is_finite() && b_hi.is_finite() && q_lo.is_finite() && q_hi.is_finite()).then(|| {
+        (
+            ((b_lo - q_hi) / period).floor() as i64,
+            ((b_hi - q_lo) / period).ceil() as i64,
+        )
+    })
+}
+
+/// The crossings of one lift `lift` of a record with the boundary
+/// pcurves (seam uses skipped), at the lift's own parameters.
+pub(super) fn lift_crossings(
+    brep: &BRep,
+    boundary: &[(HalfEdgeHandle, NurbsCurve)],
+    lift: &NurbsCurve,
+    period: f64,
+    tolerance: &Tolerance,
+) -> Vec<UvCrossing> {
+    let curve_range = lift.parameter_range();
+    let mut found = Vec::new();
+    for (he, pc) in boundary {
+        let range = pc.parameter_range();
+        if (range.1 - range.0).abs() < tolerance.numerical_floor() {
+            continue;
+        }
+        let twin = brep.half_edges[*he].mate().unwrap_or_default();
+        if brep.half_edges.contains_key(twin)
+            && brep.half_edges[twin].loop_ == brep.half_edges[*he].loop_
+        {
+            continue;
+        }
+        let Ok(result) = intersect_curves(
+            &CurveGeometry::Nurbs(pc.clone()),
+            range,
+            &CurveGeometry::Nurbs(lift.clone()),
+            curve_range,
+            tolerance,
+        ) else {
+            continue;
+        };
+        for hit in &result.intersections {
+            match hit {
+                CurveIntersection::Point { t1, t2, .. } => {
+                    let periods = (Some(period), None);
+                    if super::clip_overlap_ends::point_crosses(periods, (pc, lift), *t2) {
+                        found.push(UvCrossing {
+                            t_curve: *t2,
+                            boundary_he: *he,
+                            t_boundary: *t1,
+                        });
+                    }
+                }
+                CurveIntersection::Overlap { t1_range, t2_range } => {
+                    // Ends where the lift leaves the edge only.
+                    found.extend(super::clip_overlap_ends::overlap_exits(
+                        (Some(period), None),
+                        (pc, lift),
+                        *he,
+                        *t1_range,
+                        *t2_range,
+                    ));
+                }
+            }
+        }
+    }
+    found
 }
 
 #[cfg(test)]

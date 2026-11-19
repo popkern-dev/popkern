@@ -233,7 +233,25 @@ pub(super) fn resolve_contact_runs(
         .and_then(|f| f.surface.as_ref())
         .map(|s| popkern_core::geometry::surface::SurfaceEval::parameter_periodicity(&s.geometry))
         .is_none_or(|(u, v)| u.is_some() || v.is_some());
-    if periodic || crossings.len() < 2 {
+    if periodic {
+        return crossings;
+    }
+    resolve_contact_runs_in_frame(brep, face, curve_uv, crossings, (tolerance, false))
+}
+
+/// [`resolve_contact_runs`] on a record already on the boundary's branch
+/// (a window lift: the record's signed side of a boundary pcurve is then
+/// a chart-local fact on a periodic chart too). With `drop_touches`, a
+/// run with the record on one side beyond both its ends is a touch and
+/// no crossing (the window clip has no tuned arms reading its reports).
+pub(super) fn resolve_contact_runs_in_frame(
+    brep: &BRep,
+    face: FaceHandle,
+    curve_uv: &NurbsCurve,
+    crossings: Vec<UvCrossing>,
+    (tolerance, drop_touches): (&Tolerance, bool),
+) -> Vec<UvCrossing> {
+    if crossings.len() < 2 {
         return crossings;
     }
     let Some(surface) = brep
@@ -304,8 +322,9 @@ pub(super) fn resolve_contact_runs(
                 if sa.signum() == sb.signum() {
                     // Same side beyond the run: a graze, or a record
                     // running along the edge — the tuned clip arms own
-                    // those reports as they are.
-                    return None;
+                    // those reports as they are; the window clip reads
+                    // it as the touch it is.
+                    return drop_touches.then(Vec::new);
                 }
                 for _ in 0..RUN_BISECTIONS {
                     let m = 0.5 * (a + b);

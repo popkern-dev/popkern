@@ -27,18 +27,54 @@ pub(super) fn window_crossings(
     period: f64,
     tolerance: &Tolerance,
 ) -> Vec<UvCrossing> {
-    let mut crossings = super::clip_lift_crossings::lifted_crossings(
-        brep, boundary, query, period, tolerance, true,
-    );
+    // Each lift judged in its own frame (contact runs and grazes read the
+    // record's sides against the boundary in uv: a lift's crossings read
+    // against the unlifted record took a cone dimple's touches along its
+    // edge for crossings), then merged.
+    let Some((k_min, k_max)) = super::clip_lift_crossings::lift_range(boundary, query, period)
+    else {
+        return Vec::new();
+    };
+    let mut crossings: Vec<UvCrossing> = Vec::new();
+    for k in k_min..=k_max {
+        let mut lift = query.clone();
+        for p in &mut lift.control_points {
+            p.x += k as f64 * period;
+        }
+        let mut found =
+            super::clip_lift_crossings::lift_crossings(brep, boundary, &lift, period, tolerance);
+        if found.is_empty() {
+            continue;
+        }
+        super::clip_crossing_gap::keep_one_place(
+            surface, boundary, &lift, &mut found, 0, tolerance,
+        );
+        found.sort_by(|a, b| a.t_curve.total_cmp(&b.t_curve));
+        let found = super::clip_crossing_reports::collapse_crossing_reports(
+            brep, face, &lift, found, tolerance,
+        );
+        let found = super::clip_crossing_reports::resolve_contact_runs_in_frame(
+            brep,
+            face,
+            &lift,
+            found,
+            (tolerance, true),
+        );
+        crossings.extend(super::clip_crossing_graze::drop_grazes(
+            (surface, boundary),
+            &lift,
+            found,
+            tolerance,
+        ));
+    }
     // A closed record's closure is one place: a crossing found at (or a
-    // rounding past) its end parameter is the one at its start.
+    // rounding past) its end parameter is the one at its start; and a
+    // crossing found on two lifts (at a lift's window edge) is one.
     let (t0, t1) = query.parameter_range();
-    // Closed modulo the period: a loop winding the chart once ends a
-    // period from its start.
     let (a, b) = (query.point_at(t0), query.point_at(t1));
     let du = (b.x - a.x) - period * ((b.x - a.x) / period).round();
+    let eps = 1e-6 * (t1 - t0).abs();
     if du.phypot(b.y - a.y) < 1e-6 * period {
-        let eps = 1e-6 * (t1 - t0).abs();
         let at_start = crossings.iter().any(|c| (c.t_curve - t0).abs() <= eps);
         if at_start {
             crossings.retain(|c| c.t_curve < t1 - eps);
@@ -50,22 +86,8 @@ pub(super) fn window_crossings(
             }
         }
     }
-    super::clip_crossing_gap::keep_one_place(
-        surface,
-        boundary,
-        query,
-        &mut crossings,
-        0,
-        tolerance,
-    );
     crossings.sort_by(|a, b| a.t_curve.total_cmp(&b.t_curve));
-    let crossings = super::clip_crossing_reports::collapse_crossing_reports(
-        brep, face, query, crossings, tolerance,
-    );
-    let crossings =
-        super::clip_crossing_reports::resolve_contact_runs(brep, face, query, crossings, tolerance);
-    let mut crossings =
-        super::clip_crossing_graze::drop_grazes((surface, boundary), query, crossings, tolerance);
+    crossings.dedup_by(|x, y| (x.t_curve - y.t_curve).abs() <= eps);
     // A closed record on the boundary at its closure point (PK-775).
     let period_v = surface
         .and_then(|s| popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(s).1);
@@ -86,8 +108,8 @@ pub(super) fn window_crossings(
 pub(super) fn shadow_compare(
     face: FaceHandle,
     query: &NurbsCurve,
-    production: &[UvCrossing],
-    window: &[UvCrossing],
+    (production, window): (&[UvCrossing], &[UvCrossing]),
+    gap: &dyn Fn(&UvCrossing) -> f64,
 ) {
     let (t0, t1) = query.parameter_range();
     let eps = 1e-6 * (t1 - t0).abs().max(1e-12);
@@ -107,10 +129,17 @@ pub(super) fn shadow_compare(
     let same = p.len() == w.len() && p.iter().zip(&w).all(|(a, b)| (a - b).abs() < eps);
     if !same {
         let a = query.point_at(t0);
-        let b = query.point_at(t1);
+        let gaps = |c: &[UvCrossing]| -> Vec<String> {
+            c.iter()
+                .map(|x| format!("{:.6}@{:.1e}", x.t_curve, gap(x)))
+                .collect()
+        };
         crate::complex_shadow::append_log_line(&format!(
-            "ClipWindowShadow face {face:?} query_start ({:.4},{:.4}) end ({:.6},{:.6}) range ({t0},{t1}) production {p:?} window {w:?}",
-            a.x, a.y, b.x, b.y
+            "ClipWindowShadow face {face:?} query_start ({:.4},{:.4}) production {p:?} window {w:?} gaps production {:?} window {:?}",
+            a.x,
+            a.y,
+            gaps(production),
+            gaps(window)
         ));
     }
 }
@@ -146,5 +175,16 @@ pub(super) fn shadow(
         return;
     }
     let window = window_crossings(brep, face, on, query, period, tolerance);
-    shadow_compare(face, query, production, &window);
+    // Each crossing's gap in space between the record's point and the
+    // boundary's: a crossing far past the reach is a phantom.
+    let gap = |c: &UvCrossing| -> f64 {
+        use popkern_core::geometry::surface::SurfaceEval as _;
+        let (Some(s), Some((_, pc))) = (on.0, on.1.iter().find(|(h, _)| *h == c.boundary_he))
+        else {
+            return f64::NAN;
+        };
+        let (qa, qb) = (query.point_at(c.t_curve), pc.point_at(c.t_boundary));
+        s.point_at(qa.x, qa.y).distance_to(&s.point_at(qb.x, qb.y))
+    };
+    shadow_compare(face, query, (production, &window), &gap);
 }
