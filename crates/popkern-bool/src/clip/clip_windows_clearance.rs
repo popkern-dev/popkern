@@ -53,7 +53,7 @@ pub(super) fn boundary_clearance_samples(
 pub(super) fn fold_signed(d: f64, period: Option<f64>) -> f64 {
     match period {
         Some(p) if p > 0.0 => {
-            let mut r = popkern_core::geometry::chart::periodic::modulo(d, p);
+            let mut r = popkern_core::geometry::chart::ops::wrap_into(d, 0.0, p);
             if r > p / 2.0 {
                 r -= p;
             }

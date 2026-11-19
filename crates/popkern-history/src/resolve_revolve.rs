@@ -95,7 +95,7 @@ fn first_hit_angle(
     // profile, so it is no angle of the revolve.
     let angle_to = |q: Point3| {
         let to = q - center;
-        popkern_core::geometry::chart::periodic::modulo(
+        popkern_core::geometry::chart::ops::reduce(
             axis.dot(&radial.cross(&to)).patan2(radial.dot(&to)),
             std::f64::consts::TAU,
         )

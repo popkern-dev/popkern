@@ -50,7 +50,7 @@ impl SourceWindow {
     /// Fold an unwrapped parameter back into the source domain.
     pub(crate) fn wrap(&self, t: f64) -> f64 {
         match self.period {
-            Some(p) => self.s0 + popkern_core::geometry::chart::periodic::modulo(t - self.s0, p),
+            Some(p) => self.s0 + popkern_core::geometry::chart::ops::wrap_into(t - self.s0, 0.0, p),
             None => t,
         }
     }

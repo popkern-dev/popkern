@@ -68,7 +68,7 @@ fn partial_seam(brep: &BRep, face: FaceHandle) -> Option<PartialSeam> {
                     seam = Some(match seam {
                         Some((u, l0, h0)) => (u, l0.min(lo), h0.max(hi)),
                         None => (
-                            popkern_core::geometry::chart::periodic::modulo(a.x, period),
+                            popkern_core::geometry::chart::ops::wrap_into(a.x, 0.0, period),
                             lo,
                             hi,
                         ),

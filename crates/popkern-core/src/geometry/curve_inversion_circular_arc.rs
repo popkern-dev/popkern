@@ -135,8 +135,8 @@ fn detect_circular_arc_from_samples(
 fn signed_arc_sweep(start: f64, end: f64, mid: f64) -> f64 {
     use std::f64::consts::TAU;
     // Shift everything so start is 0; CCW sweep is in [0, 2π).
-    let end_shifted = crate::geometry::chart::periodic::modulo(end - start, TAU);
-    let mid_shifted = crate::geometry::chart::periodic::modulo(mid - start, TAU);
+    let end_shifted = crate::geometry::chart::ops::wrap_into(end - start, 0.0, TAU);
+    let mid_shifted = crate::geometry::chart::ops::wrap_into(mid - start, 0.0, TAU);
     if mid_shifted <= end_shifted {
         // Mid lies in CCW arc from start to end; sweep is +end_shifted.
         end_shifted

@@ -91,7 +91,7 @@ fn written_parameter_range(curve: &CurveOnEdge) -> Option<(f64, f64)> {
             let x = super::export_nurbs::compute_perpendicular(normal);
             let y = normal.normalized()?.cross(&x);
             let d = curve.geometry.point_at(t0) - *center;
-            let s0 = popkern_core::geometry::chart::periodic::modulo(
+            let s0 = popkern_core::geometry::chart::ops::reduce(
                 d.dot(&y).patan2(d.dot(&x)),
                 std::f64::consts::TAU,
             );

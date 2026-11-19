@@ -82,12 +82,12 @@ impl FootPath {
             std::f64::consts::TAU
         } else {
             // The trim's own way round, read at its middle.
-            let mid = popkern_core::geometry::chart::periodic::modulo(
+            let mid = popkern_core::geometry::chart::ops::reduce(
                 angle(trim.point_at(0.5 * (t0 + t1))),
                 std::f64::consts::TAU,
             );
             let end =
-                popkern_core::geometry::chart::periodic::modulo(angle(z), std::f64::consts::TAU);
+                popkern_core::geometry::chart::ops::wrap_into(angle(z), 0.0, std::f64::consts::TAU);
             if mid <= end {
                 end
             } else {

@@ -200,7 +200,7 @@ pub(super) fn periodic_ring_project(
     let ((u_lo, _), (v_lo, _)) = nurbs.parameter_range();
     let wrap = |x: f64, lo: f64, p: Option<f64>| {
         p.map_or(x, |p| {
-            lo + crate::geometry::chart::periodic::modulo(x - lo, p)
+            lo + crate::geometry::chart::ops::wrap_into(x - lo, 0.0, p)
         })
     };
     let land = |(u, v): (f64, f64)| (wrap(u, u_lo, period.0), wrap(v, v_lo, period.1));

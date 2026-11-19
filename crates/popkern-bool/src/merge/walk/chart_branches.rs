@@ -70,7 +70,7 @@ pub(super) fn anchor_periodic(
 
     // The period lattice sits on the face's own seam line (PK-919).
     let lattice_u0 = seam_hes.first().map_or(0.0, |h| {
-        popkern_core::geometry::chart::periodic::modulo(sub.embeddings[h].uv[0].0, period)
+        popkern_core::geometry::chart::ops::wrap_into(sub.embeddings[h].uv[0].0, 0.0, period)
     });
     // Consensus anchoring: BFS over interior (non-seam) hes through
     // shared non-seam nodes, translating each newcomer by whole

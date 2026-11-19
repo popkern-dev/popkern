@@ -40,7 +40,7 @@ const DEGENERATE: f64 = 1e-14;
 
 /// An angle in the principal branch `[0, 2π)`.
 fn principal(angle: f64) -> f64 {
-    let a = crate::geometry::chart::periodic::modulo(angle, TAU);
+    let a = crate::geometry::chart::ops::wrap_into(angle, 0.0, TAU);
     if a >= TAU { 0.0 } else { a }
 }
 

@@ -82,8 +82,8 @@ pub(super) fn slit_band(
         }
         for ring in wrapped.iter().chain(others) {
             for q in &ring.uv {
-                let d = popkern_math::periodic::offset_mod(q.0, u_star, period);
-                if d < clearance || period - d < clearance {
+                if popkern_core::geometry::chart::ops::periodic_gap(q.0, u_star, period) < clearance
+                {
                     return false;
                 }
             }

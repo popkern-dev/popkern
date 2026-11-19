@@ -97,7 +97,7 @@ fn check_uv_box(pcurve: &Pcurve, surf: &SurfaceGeometry, tol: &Tolerance) -> Res
                 if (span - p).abs() > 1.0e-9 {
                     return c; // box doesn't span a full period — treat strict
                 }
-                lo + crate::geometry::chart::periodic::modulo(c - lo, p)
+                lo + crate::geometry::chart::ops::wrap_into(c - lo, 0.0, p)
             }
             _ => c,
         }

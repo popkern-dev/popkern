@@ -104,8 +104,8 @@ pub(super) fn normalize_periodic_parameter_order(
     // t = −15.6 → 3.2, a 3-turn trim whose pcurves then spanned 4π and
     // livelocked the mesher). The trim is the vertex angles folded to
     // one turn, then ordered.
-    *start_t = popkern_core::geometry::chart::periodic::modulo(*start_t, std::f64::consts::TAU);
-    *end_t = popkern_core::geometry::chart::periodic::modulo(*end_t, std::f64::consts::TAU);
+    *start_t = popkern_core::geometry::chart::ops::wrap_into(*start_t, 0.0, std::f64::consts::TAU);
+    *end_t = popkern_core::geometry::chart::ops::wrap_into(*end_t, 0.0, std::f64::consts::TAU);
 
     if same_sense {
         while *end_t < *start_t {

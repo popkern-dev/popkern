@@ -115,7 +115,7 @@ pub(super) fn three_point_arc(
         let r = p - center;
         r.dot(&e2).patan2(r.dot(&e1))
     };
-    let sweep = popkern_core::geometry::chart::periodic::modulo(angle(b) - angle(a), TAU);
+    let sweep = popkern_core::geometry::chart::ops::reduce(angle(b) - angle(a), TAU);
     Ok(chain(
         &[a, b],
         vec![arc(center, normal, a, sweep)],

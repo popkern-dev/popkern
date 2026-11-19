@@ -363,7 +363,7 @@ fn newton_critical(
     let settle = |x: f64, (lo, hi): (f64, f64), wrap: bool, period: Option<f64>| {
         let (lo, hi) = (lo.min(hi), lo.max(hi));
         match period.filter(|_| wrap) {
-            Some(p) => lo + crate::geometry::chart::periodic::modulo(x - lo, p),
+            Some(p) => lo + crate::geometry::chart::ops::wrap_into(x - lo, 0.0, p),
             None => x.clamp(lo, hi),
         }
     };

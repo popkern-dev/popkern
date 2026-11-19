@@ -376,3 +376,35 @@ pub fn neighbourhood_chart(
         .and_then(|row| super::regular::pole_projection(d, s, row))
         .unwrap_or(super::RegularChart::Face)
 }
+
+/// The shortest distance between `a` and `b` along an axis of period
+/// `period` (no farther than half a period): the one place a consumer
+/// compares two periodic parameters.
+pub fn periodic_gap(a: f64, b: f64, period: f64) -> f64 {
+    let d = popkern_math::periodic::offset_mod(a, b, period);
+    d.min(period - d)
+}
+
+/// The signed offset from `b` to `a` on the branch nearest `b`, in
+/// `(-period / 2, period / 2]`: the step an unwrap adds.
+pub fn nearest_offset(a: f64, b: f64, period: f64) -> f64 {
+    let d = popkern_math::periodic::offset_mod(a, b, period);
+    if d > 0.5 * period { d - period } else { d }
+}
+
+/// `x` brought into `[lo, lo + period)` by whole periods (a curve's
+/// angle into its parameter window).
+pub fn wrap_into(x: f64, lo: f64, period: f64) -> f64 {
+    popkern_math::periodic::wrap_from(x, lo, period)
+}
+
+/// The offset from `b` to `a` reduced into `[0, period)` (forward along
+/// the axis).
+pub fn forward_offset(a: f64, b: f64, period: f64) -> f64 {
+    popkern_math::periodic::offset_mod(a, b, period)
+}
+
+/// `x` reduced into `[0, period)`.
+pub fn reduce(x: f64, period: f64) -> f64 {
+    popkern_math::periodic::modulo(x, period)
+}

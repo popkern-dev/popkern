@@ -156,11 +156,7 @@ pub(super) fn try_tessellate(
         us.push(prev);
         for &i in middle.iter().skip(1) {
             let raw = ring.uv[i].0;
-            let mut delta = popkern_math::periodic::offset_mod(raw, prev, period_u);
-            if delta > period_u * 0.5 {
-                delta -= period_u;
-            }
-            prev += delta;
+            prev += popkern_core::geometry::chart::ops::nearest_offset(raw, prev, period_u);
             us.push(prev);
         }
         us
@@ -176,10 +172,8 @@ pub(super) fn try_tessellate(
     // Azimuth comparisons are periodic: the unwrap phase may leave a
     // ladder on the far branch (u = period while its circle end reads
     // 0 — the same seam azimuth).
-    let periodic_du = |a: f64, b: f64| {
-        let d = popkern_math::periodic::offset_mod(a, b, period_u);
-        d.min(period_u - d)
-    };
+    let periodic_du =
+        |a: f64, b: f64| popkern_core::geometry::chart::ops::periodic_gap(a, b, period_u);
     for &i in &lead {
         if periodic_du(ring.uv[i].0, u_first) > eps_u {
             trace("lead meridian ladder leaves the seam azimuth");

@@ -105,10 +105,8 @@ pub(super) fn try_tessellate(
     }
     let eps_u = 1e-6 * period_u;
     let eps_v = 1e-6 * (v2 - v1).abs().max(1e-9);
-    let periodic_du = |a: f64, b: f64| {
-        let d = popkern_math::periodic::offset_mod(a, b, period_u);
-        d.min(period_u - d)
-    };
+    let periodic_du =
+        |a: f64, b: f64| popkern_core::geometry::chart::ops::periodic_gap(a, b, period_u);
     let u1 = ring.uv[ladder1[0]].0;
     let u2 = ring.uv[ladder2[0]].0;
     for &i in ladder1 {

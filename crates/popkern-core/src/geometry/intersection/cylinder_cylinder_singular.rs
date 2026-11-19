@@ -102,8 +102,9 @@ pub(super) fn singular_crossings(
             continue;
         }
         let theta = i as f64 * step;
-        let star = crate::geometry::chart::periodic::modulo(
+        let star = crate::geometry::chart::ops::wrap_into(
             refine_minimum(quad, theta - step, theta + step),
+            0.0,
             TAU,
         );
         let (d, b, c) = quad(star);

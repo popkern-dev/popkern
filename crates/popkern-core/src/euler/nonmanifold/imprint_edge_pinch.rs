@@ -148,7 +148,7 @@ impl BRep {
                 let (e1, b) = (dir(out)?, dir(back)?);
                 let e2 = n.cross(&e1);
                 let angle = |x: &Vec3| {
-                    crate::geometry::chart::periodic::modulo(
+                    crate::geometry::chart::ops::reduce(
                         x.dot(&e2).patan2(x.dot(&e1)),
                         std::f64::consts::TAU,
                     )

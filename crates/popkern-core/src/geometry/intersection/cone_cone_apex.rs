@@ -167,8 +167,9 @@ fn ruling_u(s: &SurfaceGeometry, d: Vec3, a: Vec3) -> Option<f64> {
     let sign = v.signum();
     let u = (sign * radial.dot(&p2)).patan2(sign * radial.dot(&p1));
     let _ = s;
-    Some(crate::geometry::chart::periodic::modulo(
+    Some(crate::geometry::chart::ops::wrap_into(
         u,
+        0.0,
         std::f64::consts::TAU,
     ))
 }

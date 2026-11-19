@@ -207,8 +207,9 @@ pub(crate) fn mate_rows(
                 Some(k) => {
                     let signed = ua.cross(&ub).dot(&k).patan2(ua.dot(&ub));
                     let mut d = signed - theta;
-                    d = popkern_core::geometry::chart::periodic::modulo(
+                    d = popkern_core::geometry::chart::ops::wrap_into(
                         d + std::f64::consts::PI,
+                        0.0,
                         std::f64::consts::TAU,
                     ) - std::f64::consts::PI;
                     vec![d]

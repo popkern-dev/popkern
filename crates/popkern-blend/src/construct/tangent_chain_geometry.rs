@@ -105,7 +105,7 @@ pub(super) fn trim_piece(
         };
         let a0 = ang(a);
         let mut sweep =
-            popkern_core::geometry::chart::periodic::modulo(ang(b) - a0, std::f64::consts::TAU);
+            popkern_core::geometry::chart::ops::wrap_into(ang(b) - a0, 0.0, std::f64::consts::TAU);
         if sweep < 1e-12 {
             sweep = std::f64::consts::TAU;
         }
@@ -299,7 +299,7 @@ pub(super) fn section_arc(
         };
         let a0 = ang(cp);
         let sweep =
-            popkern_core::geometry::chart::periodic::modulo(ang(cq) - a0, std::f64::consts::TAU);
+            popkern_core::geometry::chart::ops::wrap_into(ang(cq) - a0, 0.0, std::f64::consts::TAU);
         if sweep > 1e-12 && sweep < std::f64::consts::PI {
             return Some(CurveOnEdge {
                 geometry: CurveGeometry::Arc {

@@ -363,8 +363,9 @@ pub(crate) fn rescue(
         }
     }
     let wrap = |a: f64| {
-        popkern_core::geometry::chart::periodic::modulo(
+        popkern_core::geometry::chart::ops::wrap_into(
             a + std::f64::consts::PI,
+            0.0,
             std::f64::consts::TAU,
         ) - std::f64::consts::PI
     };

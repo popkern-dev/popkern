@@ -326,12 +326,14 @@ fn solve_circle_plane_intersection(
     let theta1 = phi + alpha;
     let theta2 = phi - alpha;
     // Pick the solution in `[0, TAU)`.
-    let theta1 = crate::geometry::chart::periodic::modulo(
-        crate::geometry::chart::periodic::modulo(theta1, TAU),
+    let theta1 = crate::geometry::chart::ops::wrap_into(
+        crate::geometry::chart::ops::reduce(theta1, TAU),
+        0.0,
         TAU,
     );
-    let theta2 = crate::geometry::chart::periodic::modulo(
-        crate::geometry::chart::periodic::modulo(theta2, TAU),
+    let theta2 = crate::geometry::chart::ops::wrap_into(
+        crate::geometry::chart::ops::reduce(theta2, TAU),
+        0.0,
         TAU,
     );
     // Disambiguation: pick the smaller angle (closer to theta=0).
