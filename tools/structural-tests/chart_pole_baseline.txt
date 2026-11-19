@@ -1,14 +1,4 @@
 # Chart-service POLE ratchet baseline (PK-1228): per-file counts of the
 # `pole` token in non-comment code outside the service. Only ever
 # lowered; W2 exits with this file empty.
-crates/popkern-core/src/geometry/edge_triple/tests_sphere_frame.rs 3
-crates/popkern-core/src/geometry/intersection/line_sphere.rs 3
-crates/popkern-core/src/healing/interval_curvature.rs 3
-crates/popkern-mesh/src/chordal_certificate.rs 2
-crates/popkern-mesh/src/chordal_pieces.rs 11
-crates/popkern-mesh/src/integration_tests/mod.rs 2
-crates/popkern-mesh/src/lib.rs 1
-crates/popkern-mesh/src/tessellate.rs 1
-crates/popkern-mesh/src/trim.rs 7
-crates/popkern-mesh/src/trim_pole_lift.rs 16
-# total 895
+# total 0

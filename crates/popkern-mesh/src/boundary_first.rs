@@ -105,6 +105,18 @@ struct BoundaryRing {
 /// samples, so watertightness is preserved by construction).
 pub(crate) type SplitRequest = (EdgeHandle, f64);
 
+/// The atlas's lattice rung for `face_handle`, a face its structured
+/// meshing declined on the final edge samples: `None` when the face
+/// reaches no cap (not the atlas's), `Some(None)` when the rung declined.
+pub(crate) fn tessellate_face_atlas_lattice(
+    brep: &BRep,
+    face_handle: FaceHandle,
+    edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
+    options: &TessellationOptions,
+) -> Option<Option<FaceMesh>> {
+    boundary_first_atlas::tessellate_on_atlas_lattice(brep, face_handle, edge_samples, options)
+}
+
 /// Tessellate a face against canonical edge samples. Returns `None`
 /// when the face lacks the data (pcurves / curves) — caller falls
 /// back to the uniform-grid path.
@@ -151,7 +163,11 @@ pub(crate) fn tessellate_face_boundary_first(
             face_handle,
             (surface, orientation),
             built,
-            (&descriptor, options),
+            (
+                &descriptor,
+                options,
+                boundary_first_atlas::PieceMeshing::Structured,
+            ),
             split_requests,
         )
     {

@@ -19,6 +19,7 @@ mod export;
 mod face_pass;
 mod facet_angle;
 mod general;
+mod grid_lattice;
 mod mesh;
 pub mod offset_oracle;
 mod point_box_index;
@@ -29,10 +30,10 @@ mod tessellate;
 mod tilt_refine;
 mod tilt_relax;
 mod trim;
+mod trim_apex_lift;
 mod trim_canonical;
 mod trim_clip;
 mod trim_periodic_holes;
-mod trim_pole_lift;
 mod trim_sampling;
 mod vertex_normal;
 mod vertex_snap;
@@ -133,6 +134,30 @@ pub fn tessellate(brep: &BRep, options: &TessellationOptions) -> Result<TriMesh,
         options,
         &mut popkern_core::progress::StageTracker::inert(),
     )
+}
+
+/// Which rung of the atlas meshes the faces reaching a chart singularity
+/// (a sphere's or a NURBS ball's pole): the structured rung, falling to
+/// the lattice rung where it declines (the default, what [`tessellate`]
+/// does), or the lattice rung for every such face.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AtlasRung {
+    /// The structured rung first, the lattice rung where it declines.
+    #[default]
+    Structured,
+    /// The lattice rung for every face reaching a chart singularity: the
+    /// fallback's acceptance control, exercising it on bodies the
+    /// structured rung serves.
+    Lattice,
+}
+
+/// [`tessellate`] with the atlas's rung chosen ([`AtlasRung`]).
+pub fn tessellate_on_rung(
+    brep: &BRep,
+    options: &TessellationOptions,
+    rung: AtlasRung,
+) -> Result<TriMesh, MeshError> {
+    tessellate::tessellate_brep_on_rung(brep, options, rung)
 }
 
 /// [`tessellate`] with PK-276 interactive control (cooperative

@@ -6,7 +6,7 @@
 use popkern_math::hash::FastHashMap as HashMap;
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceEval;
 
 use crate::mesh::MeshVertex;
 use crate::trim::{TriClass, TrimLoop, classify_triangle, point_inside_trim_loops};
@@ -28,7 +28,7 @@ pub(crate) fn apply_trim(
     vertices: &[MeshVertex],
     triangles: &[[usize; 3]],
     trim_loops: &[TrimLoop],
-    surface: &SurfaceGeometry,
+    surface: &dyn SurfaceEval,
     orientation: bool,
 ) -> (Vec<MeshVertex>, Vec<[usize; 3]>) {
     let mut new_verts: Vec<MeshVertex> = vertices.to_vec();
@@ -110,7 +110,7 @@ fn clip_boundary_triangle(
     tri: &[usize; 3],
     vertices: &[MeshVertex],
     trim_loops: &[TrimLoop],
-    surface: &SurfaceGeometry,
+    surface: &dyn SurfaceEval,
     orientation: bool,
     new_verts: &mut Vec<MeshVertex>,
     new_tris: &mut Vec<[usize; 3]>,

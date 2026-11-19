@@ -33,6 +33,9 @@ mod meridian;
 use assemble::{Pieces, assemble};
 use meridian::Meridian;
 
+#[path = "boundary_first_atlas_lattice.rs"]
+mod lattice;
+pub(super) use lattice::tessellate_on_atlas_lattice;
 #[path = "boundary_first_atlas_parity.rs"]
 mod parity;
 use parity::row_in_face_by_parity;
@@ -46,6 +49,18 @@ enum Side {
     Row(usize),
     /// In the band (no cap).
     Band,
+}
+
+/// Which meshers mesh the atlas's pieces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PieceMeshing {
+    /// The structured meshers: the band's boundary-first chart mesh, the
+    /// cap's lattice in its pole projection.
+    Structured,
+    /// The lattice rung: the band a quadtree lattice clipped by its rings
+    /// (its rows the lattice box's edges, so the caps carry its row
+    /// samples), the cap's lattice as in the structured rung.
+    Lattice,
 }
 
 /// One piece's side, for assembly.
@@ -146,13 +161,15 @@ fn cut_at(descriptor: &ChartDescriptor, cap: CapRow) -> Cut {
 /// Tessellate `face` on the atlas, or `None` when it reaches no chart
 /// singularity (the caller's path meshes it). `Some(None)`: the atlas
 /// owns the face but declined this round (it requested canonical samples
-/// at its row crossings, or a piece declined).
+/// at its row crossings, or a piece declined). `meshing` picks the
+/// pieces' meshers: the structured rung, or the lattice rung the caller
+/// falls back to when the structured one declines.
 pub(super) fn tessellate_on_atlas(
     brep: &BRep,
     face_handle: FaceHandle,
     (surface, orientation): (&SurfaceGeometry, bool),
     built: &[BoundaryRing],
-    (descriptor, options): (&ChartDescriptor, &TessellationOptions),
+    (descriptor, options, meshing): (&ChartDescriptor, &TessellationOptions, PieceMeshing),
     split_requests: &mut Vec<SplitRequest>,
 ) -> Option<Option<FaceMesh>> {
     let cut_at = |cap: CapRow| cut_at(descriptor, cap);
@@ -209,7 +226,7 @@ pub(super) fn tessellate_on_atlas(
             brep,
             face_handle,
             (surface, orientation),
-            (descriptor, options),
+            (descriptor, options, meshing),
             (&cuts, pieces, None),
             split_requests,
         ));
@@ -317,7 +334,7 @@ pub(super) fn tessellate_on_atlas(
         brep,
         face_handle,
         (surface, orientation),
-        (descriptor, options),
+        (descriptor, options, meshing),
         (&cuts, pieces, azimuth),
         split_requests,
     ))

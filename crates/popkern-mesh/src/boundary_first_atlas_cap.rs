@@ -33,11 +33,10 @@ pub(super) fn mesh_pieces(
     brep: &BRep,
     face: FaceHandle,
     (surface, orientation): (&SurfaceGeometry, bool),
-    (descriptor, options): (&ChartDescriptor, &TessellationOptions),
+    (descriptor, options, meshing): (&ChartDescriptor, &TessellationOptions, super::PieceMeshing),
     (cuts, pieces, meridian): (&[Cut], Pieces, Option<f64>),
     split_requests: &mut Vec<SplitRequest>,
 ) -> Option<FaceMesh> {
-    let _ = brep;
     let mut meshes = Vec::new();
     // The band first: its slit can add samples where it crosses a row
     // circle, and each cap must carry every sample of the rows it shares
@@ -74,12 +73,16 @@ pub(super) fn mesh_pieces(
                     }
                 }
                 let periods = ChartDescriptor::evaluation_periods_of(surface);
-                match super::super::chart_rings(
+                let charted = super::super::chart_rings(
                     (face, surface, orientation),
                     rings,
                     (periods, meridian, descriptor),
                     options,
-                )? {
+                );
+                if charted.is_none() && popkern_core::trace::trace_enabled("atlas") {
+                    eprintln!("    [atlas] face {face:?}: the band's rings could not be charted");
+                }
+                match charted? {
                     super::super::Charted::Rings(mut rings) => {
                         // The pipeline reads ring 0 as the outer boundary (hole
                         // placement aligns the others to its branch): in a band
@@ -103,14 +106,23 @@ pub(super) fn mesh_pieces(
                             rings.swap(0, outer);
                         }
                         let sizing = face_box(&rings, cuts, &caps);
-                        super::super::mesh_rings(
-                            (face, surface, orientation),
-                            rings,
-                            options,
-                            split_requests,
-                            descriptor,
-                            sizing,
-                        )
+                        if meshing == super::PieceMeshing::Lattice {
+                            super::lattice::mesh_band(
+                                (face, surface, orientation),
+                                &rings,
+                                (brep, descriptor),
+                                options,
+                            )
+                        } else {
+                            super::super::mesh_rings(
+                                (face, surface, orientation),
+                                rings,
+                                options,
+                                split_requests,
+                                descriptor,
+                                sizing,
+                            )
+                        }
                     }
                     super::super::Charted::Mesh(fm) => Some(fm),
                 }

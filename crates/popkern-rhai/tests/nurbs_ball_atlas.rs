@@ -60,13 +60,35 @@ fn ellipsoid_volume() -> f64 {
 /// facet of the ball's face turned outward from its centre (`cavity`:
 /// toward it); returns the mesh's enclosed volume.
 fn assert_meshes(name: &str, body: &BRep, cavity: bool) -> f64 {
-    let options = TessellationOptions::default();
-    let mesh = popkern_mesh::tessellate(body, &options).expect("mesh");
+    let lattice = assert_meshes_on(name, body, cavity, popkern_mesh::AtlasRung::Lattice);
+    let structured = assert_meshes_on(name, body, cavity, popkern_mesh::AtlasRung::Structured);
+    let chord = TessellationOptions::default().chord_height;
     assert!(
-        mesh.grid_faces.is_empty(),
-        "{name}: {:?} fell back to the grid",
-        mesh.grid_faces
+        (lattice - structured).abs() <= 6.0 * chord / (0.95 * RADIUS) * structured.abs(),
+        "{name}: the lattice rung's volume {lattice} for the structured {structured}"
     );
+    structured
+}
+
+/// [`assert_meshes`] on one atlas rung: the structured rung serves every
+/// face itself; the lattice rung forced lists the ball's face as a grid
+/// face.
+fn assert_meshes_on(name: &str, body: &BRep, cavity: bool, rung: popkern_mesh::AtlasRung) -> f64 {
+    let options = TessellationOptions::default();
+    let mesh = popkern_mesh::tessellate_on_rung(body, &options, rung).expect("mesh");
+    let name = format!("{name} ({rung:?})");
+    if rung == popkern_mesh::AtlasRung::Structured {
+        assert!(
+            mesh.grid_faces.is_empty(),
+            "{name}: {:?} fell back to the grid",
+            mesh.grid_faces
+        );
+    } else {
+        assert!(
+            !mesh.grid_faces.is_empty(),
+            "{name}: the lattice rung took no face"
+        );
+    }
     assert_eq!(
         popkern_mesh::welded_open_edges(&mesh),
         0,

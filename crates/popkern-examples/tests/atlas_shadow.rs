@@ -34,8 +34,15 @@ fn atlas(display: bool) -> TessellationOptions {
 /// (1e-6; the midsphere's patches, which do not reach a pole and so do
 /// not take the atlas, read 1.5e-3 high on both paths, PK-1272).
 fn assert_meshes(name: &str, body: &BRep, tol: &Tolerance, over: f64) {
-    for display in [false, true] {
-        let mesh = popkern_mesh::tessellate(body, &atlas(display)).expect("mesh");
+    use popkern_mesh::AtlasRung;
+    for (display, rung) in [
+        (false, AtlasRung::Structured),
+        (true, AtlasRung::Structured),
+        (false, AtlasRung::Lattice),
+        (true, AtlasRung::Lattice),
+    ] {
+        let name = format!("{name} ({rung:?})");
+        let mesh = popkern_mesh::tessellate_on_rung(body, &atlas(display), rung).expect("mesh");
         assert_eq!(
             popkern_mesh::welded_open_edges(&mesh),
             0,

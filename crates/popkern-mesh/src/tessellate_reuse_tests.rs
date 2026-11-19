@@ -56,8 +56,16 @@ fn mesh(brep: &BRep, reuse: bool) -> (TriMesh, Vec<ProgressEvent>) {
     let mut stages = Stages::default();
     let mesh = {
         let mut tracker = StageTracker::new(None, Some(&mut stages), 64);
-        super::tessellate_brep_reusing(brep, &TessellationOptions::default(), &mut tracker, reuse)
-            .unwrap()
+        super::tessellate_brep_reusing(
+            brep,
+            (
+                &TessellationOptions::default(),
+                crate::AtlasRung::Structured,
+            ),
+            &mut tracker,
+            reuse,
+        )
+        .unwrap()
     };
     (mesh, stages.0)
 }

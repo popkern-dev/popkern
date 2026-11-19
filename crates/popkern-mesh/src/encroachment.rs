@@ -210,7 +210,7 @@ pub fn tessellate_faces(
         &faces,
         checked,
         &edge_samples,
-        options,
+        (options, crate::AtlasRung::Structured),
         trace,
         None,
     )

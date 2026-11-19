@@ -36,7 +36,11 @@ fn sampled(brep: &BRep, mesh: &TriMesh) -> f64 {
         for (k, (&t, p)) in tris.iter().zip(&all).enumerate() {
             let tri = mesh.triangles[t];
             let w = unwrap(tri.map(|i| mesh.vertices[i].uv), s.geometry.periodicity());
-            for piece in pole_pieces(&s.geometry, w, *p, 0.005)
+            let d = popkern_core::geometry::chart::ChartDescriptor::of(
+                &s.geometry,
+                &popkern_core::tolerance::Tolerance::default(),
+            );
+            for piece in corner_pieces(&d, w, *p, 0.005e-2)
                 .iter()
                 .filter(|_| k % 4 == 0)
             {

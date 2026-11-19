@@ -77,8 +77,11 @@ fn a_cone_wall_folded_through_its_apex_meshes_its_whole_region() {
 
 /// The 7/8 sphere face of a cube ∪ a sphere centred on its corner runs
 /// a seam spine to the north pole and back, then enters and leaves its
-/// octant hole along the south pole row; the grid meshed nothing. The
-/// grid's own chord error on a whole sphere is 4.4e-3 here.
+/// octant hole along the south pole row; the face-chart grid meshed
+/// nothing. The face reaches its poles, so `tessellate_face` meshes it on
+/// the atlas (chart-service.md step 7): its area must lie in the inscribed
+/// band of the exact one, under it by at most the chord deficit (twice the
+/// chord height over the radius, relative) and never over it.
 #[test]
 fn a_sphere_face_through_both_poles_meshes_its_whole_region() {
     let tol = Tolerance::default();
@@ -93,8 +96,10 @@ fn a_sphere_face_through_both_poles_meshes_its_whole_region() {
             .expect("ball");
         let body = boolean(BoolOperation::Union, cube, ball, tol, None).expect("union");
         let got = grid_area(&body, |s| matches!(s, SurfaceGeometry::Sphere { .. }));
+        let chord = TessellationOptions::default().chord_height;
+        let rel = (got - want) / want;
         assert!(
-            (got - want).abs() < 5e-3 * want,
+            (-2.0 * chord / 0.5..1e-6).contains(&rel),
             "{name}: sphere face area {got} vs {want}"
         );
     }

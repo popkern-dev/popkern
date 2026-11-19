@@ -104,11 +104,27 @@ fn check_dome_meshed(n: [f64; 3], d: f64, bound: f64, options: &popkern_mesh::Te
             "n {n:?} d {d}: edge {eh:?} pcurve deviation {dev}"
         );
     }
-    let mesh = popkern_mesh::tessellate(dome, options).expect("mesh");
+    // Both atlas rungs: the structured, and the lattice rung forced (the
+    // fallback's acceptance control).
+    for rung in [
+        popkern_mesh::AtlasRung::Structured,
+        popkern_mesh::AtlasRung::Lattice,
+    ] {
+        check_dome_mesh(dome, (n, d, r, bound), options, rung);
+    }
+}
+
+fn check_dome_mesh(
+    dome: &popkern_core::topology::BRep,
+    (n, d, r, bound): ([f64; 3], f64, f64, f64),
+    options: &popkern_mesh::TessellationOptions,
+    rung: popkern_mesh::AtlasRung,
+) {
+    let mesh = popkern_mesh::tessellate_on_rung(dome, options, rung).expect("mesh");
     assert_eq!(
         popkern_mesh::welded_open_edges(&mesh),
         0,
-        "n {n:?} d {d}: watertight"
+        "n {n:?} d {d} {rung:?}: watertight"
     );
     // Facets on the sphere sit within the chord height: deviation
     // refinement bounds the facet itself, where the lattice alone
@@ -136,14 +152,14 @@ fn check_dome_meshed(n: [f64; 3], d: f64, bound: f64, options: &popkern_mesh::Te
         .fold(0.0_f64, f64::max);
     assert!(
         worst_sag <= chord,
-        "n {n:?} d {d}: a facet sags {worst_sag} off the sphere"
+        "n {n:?} d {d} {rung:?}: a facet sags {worst_sag} off the sphere"
     );
     let h = r - d;
     let exact = std::f64::consts::PI * h * h * (3.0 * r - h) / 3.0;
     let got = mesh_volume(&mesh);
     assert!(
         (got - exact).abs() < bound * exact,
-        "n {n:?} d {d}: volume {got} vs {exact}"
+        "n {n:?} d {d} {rung:?}: volume {got} vs {exact}"
     );
 }
 

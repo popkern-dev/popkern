@@ -6,7 +6,7 @@
 
 // Items are pub(crate) for use by the trim pipeline modules.
 
-use crate::trim_pole_lift::{is_pole, lift_through_pole, signed_area};
+use crate::trim_apex_lift::{lift_through_apex, signed_area};
 use crate::trim_sampling::sample_loop_with_samples;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -56,6 +56,17 @@ pub(crate) fn build_trim_loops_with_samples(
     // when set, holes the other way.
     let orientation = face.surface.as_ref().is_none_or(|s| s.orientation);
     let mut result = Vec::new();
+    // Which loop samples lie at an apex (a row collapsing u), from the
+    // chart service in space at the body's tolerance.
+    let descriptor = popkern_core::geometry::chart::ChartDescriptor::of(surface, &brep.tolerance);
+    let reach = brep.tolerance.linear();
+    let at_apex = |p: &Point3| {
+        popkern_core::geometry::chart::ops::singular_point_near(&descriptor, p, reach).is_some_and(
+            |(row, collapses_u)| {
+                collapses_u && row.kind == popkern_core::geometry::chart::SingularKind::Apex
+            },
+        )
+    };
 
     // Outer loop.
     let (mut outer_points, mut outer_points_3d, outer_from_pcurves) =
@@ -65,7 +76,7 @@ pub(crate) fn build_trim_loops_with_samples(
         unwrap_periodic_loop(
             &mut outer_points,
             &mut outer_points_3d,
-            surface,
+            (surface, &at_apex),
             orientation,
         );
         // Canonical winding: outer loops CCW in UV. Half-edge order
@@ -91,7 +102,7 @@ pub(crate) fn build_trim_loops_with_samples(
             unwrap_periodic_loop(
                 &mut inner_points,
                 &mut inner_points_3d,
-                surface,
+                (surface, &at_apex),
                 !orientation,
             );
             dedup_loop(&mut inner_points, &mut inner_points_3d);
@@ -108,25 +119,26 @@ pub(crate) fn build_trim_loops_with_samples(
     result
 }
 
-/// Make a loop contiguous on a periodic chart. A loop through a chart
-/// pole that crosses the seam, or winds against the face flag, gets
-/// explicit pole-row runs ([`lift_through_pole`]); a seam-crossing loop
-/// otherwise folds about its circular mean ([`unwrap_periodic`]).
-/// `ccw`: the loop must run counter-clockwise in the chart.
+/// Make a loop contiguous on a periodic chart. A loop through an apex
+/// that crosses the seam, or winds against the face flag, gets explicit
+/// apex-row runs ([`lift_through_apex`]); a seam-crossing loop otherwise
+/// folds about its circular mean ([`unwrap_periodic`]). `at_apex` is the
+/// chart service's answer for a position (an apex row collapsing u, in
+/// space at the tolerance). `ccw`: the loop must run counter-clockwise in
+/// the chart.
 fn unwrap_periodic_loop(
     points: &mut Vec<(f64, f64)>,
     points_3d: &mut Vec<Point3>,
-    surface: &SurfaceGeometry,
+    (surface, at_apex): (&SurfaceGeometry, &dyn Fn(&Point3) -> bool),
     ccw: bool,
 ) {
     let (period_u, period_v) =
         popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let crosses = crosses_seam(points, period_u, period_v);
-    let pole_period = period_u
-        .filter(|&p| period_v.is_none() && points.iter().any(|&(u, v)| is_pole(surface, u, v, p)));
-    if let Some(p) = pole_period
+    let apex_period = period_u.filter(|_| period_v.is_none() && points_3d.iter().any(at_apex));
+    if let Some(p) = apex_period
         && (crosses || (signed_area(points) > 0.0) != ccw)
-        && lift_through_pole(points, points_3d, surface, p, ccw)
+        && lift_through_apex(points, points_3d, at_apex, p, ccw)
     {
         return;
     }

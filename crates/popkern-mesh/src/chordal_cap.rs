@@ -388,7 +388,7 @@ fn triangle_at_level(
             }
             sense = Some(a);
         }
-        for piece in corner_pieces(descriptor, ws, ls) {
+        for piece in corner_pieces(descriptor, ws, ls, 0.0) {
             worst = worst.max(bound(&piece)?);
         }
     }
@@ -444,10 +444,22 @@ fn along_normal(
 /// through `P` to `A`'s and `B`'s lines, mapped with both row corners at
 /// `P` (a rectangle when `A` and `B` share the across coordinate, else two
 /// triangles), so the pieces round the point tile it.
-fn corner_pieces(d: &ChartDescriptor, w: [Uv; 3], p: [Point3; 3]) -> Vec<Piece> {
+/// A triangle's pairing pieces when a corner lies at a singular row (read
+/// from the descriptor in space within `reach`, or to rounding): the
+/// corner stands for the whole row line, so the triangle is the rectangle
+/// (or the quad split in two) from the row to its other corners, both row
+/// corners at the singular point. The one authority for a corner at a
+/// chart singularity in the certificate, for its first pass and its cap
+/// pass alike.
+pub(super) fn corner_pieces(
+    d: &ChartDescriptor,
+    w: [Uv; 3],
+    p: [Point3; 3],
+    reach: f64,
+) -> Vec<Piece> {
     for k in 0..3 {
         let exact = 1e-12 * (1.0 + p[k].x.abs().max(p[k].y.abs()).max(p[k].z.abs()));
-        let Some((row, collapses_u)) = singular_point_near(d, &p[k], exact) else {
+        let Some((row, collapses_u)) = singular_point_near(d, &p[k], exact.max(reach)) else {
             continue;
         };
         let (a, b) = ((k + 1) % 3, (k + 2) % 3);

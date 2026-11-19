@@ -18,7 +18,10 @@ fn boundary_segments_come_out_in_one_order() {
         &[face],
         Default::default(),
         &crate::boundary_first::sample_edges(&brep, &TessellationOptions::default(), None),
-        &TessellationOptions::default(),
+        (
+            &TessellationOptions::default(),
+            crate::AtlasRung::Structured,
+        ),
         false,
         None,
     );

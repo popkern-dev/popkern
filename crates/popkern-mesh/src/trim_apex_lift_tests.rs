@@ -1,6 +1,15 @@
 use super::*;
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::{Point3, SurfaceEval, Vec3};
 use std::f64::consts::{PI, TAU};
+
+/// The cone's apex, as the chart service reads it.
+fn at_apex(p: &Point3) -> bool {
+    let d = popkern_core::geometry::chart::ChartDescriptor::of(
+        &cone(),
+        &popkern_core::tolerance::Tolerance::default(),
+    );
+    popkern_core::geometry::chart::ops::singular_point_near(&d, p, 1e-9).is_some()
+}
 
 fn cone() -> SurfaceGeometry {
     SurfaceGeometry::Cone {
@@ -35,7 +44,7 @@ fn a_loop_folded_through_the_apex_walks_the_apex_row() {
     let s = cone();
     let mut uv = folded_notched_wall();
     let mut xyz: Vec<_> = uv.iter().map(|&(u, v)| s.point_at(u, v)).collect();
-    assert!(lift_through_pole(&mut uv, &mut xyz, &s, TAU, true));
+    assert!(lift_through_apex(&mut uv, &mut xyz, &at_apex, TAU, true));
     assert_eq!(uv.len(), xyz.len());
     let (first, last) = (uv[0], uv[uv.len() - 1]);
     assert!((first.0 - last.0).abs() < 1e-12 && (first.1 - last.1).abs() < 1e-12);
@@ -55,12 +64,12 @@ fn a_loop_closing_without_a_period_is_left_alone() {
     let mut uv = vec![(-0.3, 1.0), (0.3, 1.0), (0.3, 1.5), (-0.3, 1.5)];
     let mut xyz: Vec<_> = uv.iter().map(|&(u, v)| s.point_at(u, v)).collect();
     let before = uv.clone();
-    assert!(!lift_through_pole(&mut uv, &mut xyz, &s, TAU, true));
+    assert!(!lift_through_apex(&mut uv, &mut xyz, &at_apex, TAU, true));
     assert_eq!(uv, before);
 }
 
 #[test]
-fn a_full_period_loop_with_no_pole_is_left_alone() {
+fn a_full_period_loop_with_no_apex_is_left_alone() {
     let s = cone();
     // Rim to rim with no apex visit: nowhere to absorb the period.
     let mut uv = vec![
@@ -72,5 +81,5 @@ fn a_full_period_loop_with_no_pole_is_left_alone() {
         (0.0, 1.0),
     ];
     let mut xyz: Vec<_> = uv.iter().map(|&(u, v)| s.point_at(u, v)).collect();
-    assert!(!lift_through_pole(&mut uv, &mut xyz, &s, TAU, true));
+    assert!(!lift_through_apex(&mut uv, &mut xyz, &at_apex, TAU, true));
 }

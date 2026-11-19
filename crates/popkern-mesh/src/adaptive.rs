@@ -84,7 +84,7 @@ pub(crate) fn chord_station_count(
 /// UV midpoint.
 /// A flat (zero-curvature) surface will return approximately zero; a curved
 /// surface will return a positive value proportional to its local curvature.
-pub(crate) fn chord_height(surface: &SurfaceGeometry, cell: &UvCell) -> f64 {
+pub(crate) fn chord_height(surface: &dyn SurfaceEval, cell: &UvCell) -> f64 {
     let p00 = surface.point_at(cell.u_min, cell.v_min);
     let p10 = surface.point_at(cell.u_max, cell.v_min);
     let p01 = surface.point_at(cell.u_min, cell.v_max);
@@ -202,6 +202,35 @@ pub(crate) fn adaptive_subdivide_bounded(
     chord_tolerance: f64,
     max_normal_spread: Option<(f64, &popkern_core::geometry::chart::ChartDescriptor)>,
 ) -> Vec<UvCell> {
+    let flat_enough = |cell: &UvCell| {
+        max_normal_spread.is_none_or(|(m, chart)| {
+            crate::facet_angle::normal_spread(
+                (surface, chart),
+                (cell.u_min, cell.u_max),
+                (cell.v_min, cell.v_max),
+            ) <= m
+        })
+    };
+    subdivide_chart(
+        surface,
+        (u_range, v_range),
+        (min_subdivisions, max_subdivisions),
+        chord_tolerance,
+        &flat_enough,
+    )
+}
+
+/// The chart quadtree's leaves over `u_range` × `v_range` on any charted
+/// surface: a cell refines while its chord height passes
+/// `chord_tolerance` or `flat_enough` refuses it, within the depth cap
+/// `max_subdivisions` (cells per axis).
+pub(crate) fn subdivide_chart(
+    surface: &dyn SurfaceEval,
+    (u_range, v_range): ((f64, f64), (f64, f64)),
+    (min_subdivisions, max_subdivisions): (usize, usize),
+    chord_tolerance: f64,
+    flat_enough: &dyn Fn(&UvCell) -> bool,
+) -> Vec<UvCell> {
     // Compute max refinement depth: how many times we can double min_subdivisions
     // before reaching max_subdivisions.
     //   depth 0: min_subdivisions cells/axis
@@ -244,14 +273,7 @@ pub(crate) fn adaptive_subdivide_bounded(
 
     while let Some((cell, depth)) = queue.pop() {
         let ch = chord_height(surface, &cell);
-        let flat_enough = max_normal_spread.is_none_or(|(m, chart)| {
-            crate::facet_angle::normal_spread(
-                (surface, chart),
-                (cell.u_min, cell.u_max),
-                (cell.v_min, cell.v_max),
-            ) <= m
-        });
-        if (ch <= chord_tolerance && flat_enough) || depth >= max_depth {
+        if (ch <= chord_tolerance && flat_enough(&cell)) || depth >= max_depth {
             leaves.push(cell);
         } else {
             // Subdivide into 4 children.

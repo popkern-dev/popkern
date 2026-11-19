@@ -74,21 +74,37 @@ pub(super) fn row_in_face_by_parity(
     let mut crossings = 0usize;
     for ring in built {
         let n = ring.uv.len();
+        // Each sample's along coordinate unwrapped once round the ring
+        // (each step to the branch nearest the last): a sample two
+        // segments share is one number, so the half-open test counts a
+        // ray through it once. Unwrapped per segment, its two copies
+        // differed by a rounding and the ray through it counted both (a
+        // dome's inner face read the lower row as in the face).
+        let mut along = Vec::with_capacity(n + 1);
+        if let Some(first) = ring.uv.first() {
+            along.push(cut.along(*first));
+        }
         for i in 0..n {
-            let (a, b) = (ring.uv[i], ring.uv[(i + 1) % n]);
-            let (aa, ac, mut ba, bc) = (
-                cut.along(a),
-                cut.coordinate(a),
-                cut.along(b),
-                cut.coordinate(b),
-            );
-            // The segment on one branch, then every branch reaching ra.
-            if let Some(p) = period {
-                ba = aa + popkern_core::geometry::chart::atlas::along_offset(Some(p), aa, ba, 1.0);
-                if ba - aa > 0.5 * p {
-                    ba -= p;
+            let (prev, next) = (along[i], cut.along(ring.uv[(i + 1) % n]));
+            along.push(match period {
+                Some(p) => {
+                    let d = popkern_core::geometry::chart::atlas::along_offset(
+                        Some(p),
+                        prev,
+                        next,
+                        1.0,
+                    );
+                    prev + if d > 0.5 * p { d - p } else { d }
                 }
-            }
+                None => next,
+            });
+        }
+        for i in 0..n {
+            let (ac, bc) = (
+                cut.coordinate(ring.uv[i]),
+                cut.coordinate(ring.uv[(i + 1) % n]),
+            );
+            let (aa, ba) = (along[i], along[i + 1]);
             let shifts: Vec<f64> = match period {
                 Some(p) => {
                     let k = ((ra - aa.min(ba)) / p).floor();
@@ -98,7 +114,13 @@ pub(super) fn row_in_face_by_parity(
             };
             for s in shifts {
                 let (x0, x1) = (aa + s, ba + s);
-                if (x0 - ra) * (x1 - ra) >= 0.0 || x0 == x1 {
+                // Half-open in along (a segment holds its low end, not its
+                // high one): a ray through a ring sample counts it once.
+                // Strict on both ends, a ray through a sample counted
+                // neither segment (a sphere zone's top and bottom rims
+                // share their azimuths, and the reference sat on one: the
+                // lower row read as in the face, PK-1225).
+                if (x0 <= ra) == (x1 <= ra) {
                     continue;
                 }
                 let t = (ra - x0) / (x1 - x0);

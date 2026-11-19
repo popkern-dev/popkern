@@ -109,7 +109,7 @@ pub(crate) fn tessellate_face_pass(
     faces: &[FaceHandle],
     mut checked: HashMap<FaceHandle, Option<FaceMesh>>,
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
-    options: &TessellationOptions,
+    (options, rung): (&TessellationOptions, crate::AtlasRung),
     trace: bool,
     cancel: Option<&popkern_core::cancellation::CancellationToken>,
 ) -> Vec<FacePassOutcome> {
@@ -127,6 +127,21 @@ pub(crate) fn tessellate_face_pass(
                     seam_spine: false,
                     mesh: Err(MeshError::Cancelled),
                 };
+            }
+            // The lattice rung forced (its acceptance control): an atlas
+            // face skips the structured rung.
+            let lattice = (rung == crate::AtlasRung::Lattice)
+                .then(|| {
+                    crate::boundary_first::tessellate_face_atlas_lattice(
+                        brep,
+                        face_handle,
+                        edge_samples,
+                        options,
+                    )
+                })
+                .flatten();
+            if let Some(out) = lattice {
+                return lattice_outcome(brep, face_handle, out);
             }
             let boundary_first = checked.unwrap_or_else(|| {
                 crate::boundary_first::tessellate_face_boundary_first(
@@ -225,6 +240,16 @@ pub(crate) fn tessellate_face_pass(
                     .unwrap_or("None");
                 eprintln!("  [bf] face {face_handle:?} ({kind}) fell back");
             }
+            // A face reaching a chart singularity falls to the atlas's
+            // lattice rung, never the face-chart grid (one pole authority).
+            if let Some(out) = crate::boundary_first::tessellate_face_atlas_lattice(
+                brep,
+                face_handle,
+                edge_samples,
+                options,
+            ) {
+                return lattice_outcome(brep, face_handle, out);
+            }
             let mut mesh = crate::tessellate::tessellate_face_with_samples(
                 brep,
                 face_handle,
@@ -247,6 +272,59 @@ pub(crate) fn tessellate_face_pass(
             }
         };
     dispatch(items, trace, per_face)
+}
+
+/// The face pass's outcome for an atlas face on the lattice rung: a grid
+/// face (sewn and listed in `TriMesh::grid_faces`), or the rung's decline
+/// as an error naming the face.
+fn lattice_outcome(brep: &BRep, face_handle: FaceHandle, out: Option<FaceMesh>) -> FacePassOutcome {
+    let mesh = match out {
+        Some(mut fm) => {
+            if let Some(sof) = brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
+                let chart = popkern_core::geometry::chart::ChartDescriptor::of(
+                    &sof.geometry,
+                    &brep.tolerance,
+                );
+                crate::vertex_normal::repair_singular_normals(&mut fm, &sof.geometry, &chart);
+            }
+            Ok(fm)
+        }
+        None => Err(MeshError::TessellationFailed(format!(
+            "face {face_handle:?} reaches a chart singularity and the atlas declined it on every rung"
+        ))),
+    };
+    FacePassOutcome::UniformGrid {
+        seam_spine: false,
+        mesh,
+    }
+}
+
+/// One face reaching a chart singularity meshed on the atlas alone (the
+/// single-face entry point): the whole-body face pass scoped to the face
+/// (canonical samples on its own edges, encroachment refined among them,
+/// its structured rung, then its lattice rung). `None` when its surface
+/// has no chart singularity.
+pub(crate) fn tessellate_atlas_face(
+    brep: &BRep,
+    face_handle: FaceHandle,
+    options: &TessellationOptions,
+) -> Option<Result<FaceMesh, MeshError>> {
+    let sof = brep.faces.get(face_handle)?.surface.as_ref()?;
+    let chart = popkern_core::geometry::chart::ChartDescriptor::of(&sof.geometry, &brep.tolerance);
+    if !chart
+        .singular_rows
+        .iter()
+        .any(|r| r.kind == popkern_core::geometry::chart::SingularKind::Chart)
+    {
+        return None;
+    }
+    Some(
+        crate::encroachment::tessellate_faces(brep, &[face_handle], options).and_then(|meshes| {
+            meshes.into_iter().next().ok_or_else(|| {
+                MeshError::TessellationFailed(format!("face {face_handle:?} produced no mesh"))
+            })
+        }),
+    )
 }
 
 /// Faces incident to any edge in `edges` (both half-edge sides).

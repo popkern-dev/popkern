@@ -126,7 +126,14 @@ pub(super) fn assemble(
                     ring.sources.push(row_source());
                     let walk = walk_sense(cut, piece, orientation);
                     let at = cut.along(src.uv[end]);
-                    let target = next_entry(&arcs, built, (k, cut), piece, at, walk)?;
+                    let (target, span) = next_entry(
+                        &arcs,
+                        built,
+                        (k, cut),
+                        piece,
+                        (at, &src.pos[end], surface.1.linear),
+                        walk,
+                    )?;
                     let t_uv = built[arcs[target].ring].uv[arcs[target].idx[0]];
                     // A segment two pieces share is generated from the same
                     // crossing (the smaller ring/sample key) in its own
@@ -134,21 +141,12 @@ pub(super) fn assemble(
                     // other piece takes them reversed.
                     let (here, there) = ((arc.ring, end), (arcs[target].ring, arcs[target].idx[0]));
                     let samples = if here <= there {
-                        row_samples(
-                            cut,
-                            surface,
-                            at,
-                            cut.along(t_uv),
-                            walk,
-                            (chord, angular, steps[k]),
-                        )
+                        row_samples(cut, surface, (at, span, walk), (chord, angular, steps[k]))
                     } else {
                         let mut s = row_samples(
                             cut,
                             surface,
-                            cut.along(t_uv),
-                            at,
-                            -walk,
+                            (cut.along(t_uv), span, -walk),
                             (chord, angular, steps[k]),
                         );
                         s.reverse();
@@ -183,11 +181,7 @@ pub(super) fn assemble(
             let walk = walk_sense(cut, piece, orientation);
             let period = cut.period?;
             let lo = cut.start;
-            let (start, end) = if walk > 0.0 {
-                (lo, lo + period)
-            } else {
-                (lo + period, lo)
-            };
+            let start = if walk > 0.0 { lo } else { lo + period };
             // The start's position read at the row's own start for both
             // pieces (the band walks from a period on): the pieces weld
             // there by position bits.
@@ -197,7 +191,12 @@ pub(super) fn assemble(
                 pos: vec![evaluate(surface.1, surface.0, cut.uv(lo))],
                 sources: vec![row_source()],
             };
-            for (uv, p) in row_samples(cut, surface, start, end, walk, (chord, angular, steps[k])) {
+            for (uv, p) in row_samples(
+                cut,
+                surface,
+                (start, period, walk),
+                (chord, angular, steps[k]),
+            ) {
                 ring.uv.push(uv);
                 ring.pos.push(p);
                 ring.sources.push(row_source());
@@ -244,44 +243,53 @@ fn walk_sense(cut: &Cut, piece: Piece, orientation: bool) -> f64 {
 }
 
 /// The next arc entering `piece` from row `k` in the walk direction from
-/// `at`, by the along coordinate (circular when the row closes).
+/// `at` (the crossing at `here` in space), by the along coordinate
+/// (circular when the row closes). An entry at the crossing's own place in
+/// space, within the linear tolerance `linear`, is a whole turn away (a
+/// seam's two uses crossing the row at one point read along values a
+/// rounding apart: 6.7e-11 rad, under the parameter test, took the step
+/// of no width and the band lost its row circle). Returns the arc and the
+/// walk's length along the row to it.
 fn next_entry(
     arcs: &[Arc],
     built: &[BoundaryRing],
     (k, cut): (usize, &Cut),
     piece: Piece,
-    at: f64,
+    (at, here, linear): (f64, &Point3, f64),
     walk: f64,
-) -> Option<usize> {
+) -> Option<(usize, f64)> {
     let surface_period = cut.period;
     arcs.iter()
         .enumerate()
         .filter(|(_, a)| a.piece == piece && a.from_row == k)
         .map(|(i, a)| {
             let along = cut.along(built[a.ring].uv[a.idx[0]]);
-            (i, walk_offset(surface_period, at, along, walk))
+            let d = walk_offset(surface_period, at, along, walk);
+            let one_place = built[a.ring].pos[a.idx[0]].distance_to(here) <= linear;
+            let d = match surface_period {
+                Some(p) if one_place && d < 0.5 * p => d + p,
+                _ => d,
+            };
+            (i, d)
         })
         .filter(|&(_, d)| d > 0.0)
         .min_by(|x, y| x.1.total_cmp(&y.1))
-        .map(|(i, _)| i)
 }
 
-/// Samples along row `cut` strictly between `from` and `to` (along
-/// coordinate, `walk` its sign; the ends are the crossings' own samples),
+/// Samples along row `cut` strictly between `from` and the place `span`
+/// further along it (along coordinate, `walk` the walk's sign; the ends
+/// are the crossings' own samples),
 /// split by halving until each chord's midpoint lies within `chord` of the
 /// row in space.
 fn row_samples(
     cut: &Cut,
     (surface, descriptor): (&SurfaceGeometry, &ChartDescriptor),
-    from: f64,
-    to: f64,
-    walk: f64,
+    (from, span, walk): (f64, f64, f64),
     (chord, angular, max_step): (f64, Option<f64>, f64),
 ) -> Vec<((f64, f64), Point3)> {
-    let end = match cut.period {
-        Some(_) => from + walk * walk_offset(cut.period, from, to, walk),
-        None => to,
-    };
+    // The walk's own length, decided where its end was chosen (a whole
+    // turn between crossings at one place).
+    let end = from + walk * span;
     // Generated in the +along sense so both pieces sharing a segment get
     // the same points (one reversed).
     let (lo, hi) = if from <= end {

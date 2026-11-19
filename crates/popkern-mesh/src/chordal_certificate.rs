@@ -168,6 +168,7 @@ fn certify_face(
     };
     let breaks = c0_breaks(surface);
     let periods = popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
+    let descriptor = popkern_core::geometry::chart::ChartDescriptor::of(surface, &brep.tolerance);
     let bound_piece = |source: &mut SurfaceJetSource, piece: &Piece| {
         piece_bound(source, &breaks, piece, tolerance)
     };
@@ -179,7 +180,9 @@ fn certify_face(
         let tri = mesh.triangles[t];
         let p = tri.map(|i| mesh.vertices[i].position);
         let w = unwrap(tri.map(|i| mesh.vertices[i].uv), periods);
-        let pieces = pole_pieces(surface, w, p, tolerance);
+        // "At the row": a hundredth of the tolerance; each piece's bound
+        // still measures its residual (the corner discrepancies) exactly.
+        let pieces = corner_pieces(&descriptor, w, p, 1e-2 * tolerance);
         plain.push(matches!(pieces[..], [Piece::Triangle(..)]).then_some(w));
         let mut worst = (0.0_f64, Piece::Triangle(w, p));
         for piece in pieces {
@@ -369,8 +372,8 @@ mod chordal_pieces;
 mod chordal_refine;
 use chordal_bend::{BendTriangle, bend_pass};
 use chordal_boundary::boundary_bound;
-use chordal_cap::{CapTriangle, cap_pass};
-pub(crate) use chordal_pieces::{Piece, c0_breaks, pole_pieces, quad_piece, unwrap};
+use chordal_cap::{CapTriangle, cap_pass, corner_pieces};
+pub(crate) use chordal_pieces::{Piece, c0_breaks, quad_piece, unwrap};
 use chordal_refine::refine_pass;
 
 #[cfg(test)]
