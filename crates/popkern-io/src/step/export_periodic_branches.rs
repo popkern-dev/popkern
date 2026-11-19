@@ -38,10 +38,6 @@ pub(super) type BranchShifts = HashMap<(FaceHandle, HalfEdgeHandle), (f64, f64)>
 /// (true = the walk traverses the pcurve from t_start to t_end).
 pub(super) type ChainDirections = HashMap<(FaceHandle, HalfEdgeHandle), bool>;
 
-/// A partial below this fraction of the other marks a pole (a
-/// collapsed chart point: a sphere's poles, `|S_u| = r cos v`).
-const POLE_RATIO: f64 = 1e-7;
-
 /// Result of the periodic loop normalization pre-pass.
 #[derive(Default)]
 pub(crate) struct PeriodicNormalization {
@@ -314,15 +310,22 @@ fn normalize_loop(
         return;
     }
 
-    // A junction on a collapsed chart point (a pole) leaves the
-    // coordinate whose partial vanishes free.
-    let pole_at = |uv: (f64, f64)| -> (bool, bool) {
-        let su = geometry.partial_u(uv.0, uv.1).length();
-        let sv = geometry.partial_v(uv.0, uv.1).length();
-        (su <= POLE_RATIO * sv, sv <= POLE_RATIO * su)
+    // A junction on a singular row of the chart (asked of the chart
+    // service in space, within the linear tolerance of a row's point)
+    // leaves the coordinate the row collapses free: u on a row along u.
+    let descriptor = popkern_core::geometry::chart::ChartDescriptor::of(geometry, &brep.tolerance);
+    let singular_at = |uv: (f64, f64)| -> (bool, bool) {
+        popkern_core::geometry::chart::ops::singular_point_near(
+            &descriptor,
+            &geometry.point_at(uv.0, uv.1),
+            brep.tolerance.linear(),
+        )
+        .map_or((false, false), |(_, collapses_u)| {
+            (collapses_u, !collapses_u)
+        })
     };
     let Some((score, _violations, _flips, _winding_ok, assignment)) =
-        super::export_periodic_chain::best_assignment(&uses, periods, want_ccw, &pole_at)
+        super::export_periodic_chain::best_assignment(&uses, periods, want_ccw, &singular_at)
     else {
         return;
     };

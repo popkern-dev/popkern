@@ -232,22 +232,22 @@ pub(crate) fn recognize_revolved_span(
             // Sphere: its chart's pole is the revolve axis, so the
             // seam stays a meridian for any axis (the sense is folded
             // so an axis along -z keeps the world-z chart).
-            let pole = if axis.z < 0.0 { -axis } else { axis };
+            let sphere_axis = if axis.z < 0.0 { -axis } else { axis };
             let geometry = SurfaceGeometry::Sphere {
                 center,
                 radius,
-                axis: pole,
+                axis: sphere_axis,
             };
             if !surface_agrees(nurbs, &geometry, gate) {
                 return None;
             }
             let polar = |p: &Point3| {
                 let d = *p - center;
-                (d.dot(&pole) / radius).clamp(-1.0, 1.0).pacos()
+                (d.dot(&sphere_axis) / radius).clamp(-1.0, 1.0).pacos()
             };
-            let basis = orthonormal_basis(pole);
-            let phi0 = azimuth(&nurbs.point_at(0.5, 0.0), &center, &pole, basis);
-            let sense = azimuth_sense(nurbs, &center, &pole, basis);
+            let basis = orthonormal_basis(sphere_axis);
+            let phi0 = azimuth(&nurbs.point_at(0.5, 0.0), &center, &sphere_axis, basis);
+            let sense = azimuth_sense(nurbs, &center, &sphere_axis, basis);
             return Some(RevolvedSurface {
                 geometry,
                 chart: RevolutionChart::Angular {

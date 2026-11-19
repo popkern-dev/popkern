@@ -52,13 +52,13 @@ pub(super) fn best_assignment(
     uses: &[ChainUse],
     periods: (Option<f64>, Option<f64>),
     want_ccw: bool,
-    pole_at: &dyn Fn((f64, f64)) -> (bool, bool),
+    singular_at: &dyn Fn((f64, f64)) -> (bool, bool),
 ) -> Option<ChainChoice> {
     let search = Search {
         uses,
         periods,
         want_ccw,
-        pole_at,
+        singular_at,
     };
     let mut best: Option<ChainChoice> = None;
     let mut budget = MAX_CANDIDATES;
@@ -80,7 +80,7 @@ struct Search<'a> {
     uses: &'a [ChainUse],
     periods: (Option<f64>, Option<f64>),
     want_ccw: bool,
-    pole_at: &'a dyn Fn((f64, f64)) -> (bool, bool),
+    singular_at: &'a dyn Fn((f64, f64)) -> (bool, bool),
 }
 
 /// `(start, end)` of `use_` walked forward or reversed.
@@ -105,15 +105,15 @@ impl Search<'_> {
     /// Distance between `a` and `b`, ignoring the coordinates that are
     /// free at the junction `at`.
     fn junction_gap(&self, a: (f64, f64), b: (f64, f64), at: (f64, f64)) -> f64 {
-        let (u_free, v_free) = (self.pole_at)(at);
+        let (u_free, v_free) = (self.singular_at)(at);
         let du = if u_free { 0.0 } else { a.0 - b.0 };
         let dv = if v_free { 0.0 } else { a.1 - b.1 };
         (du * du + dv * dv).sqrt()
     }
 
     /// Branch alternatives for a use starting at pole junction `at`.
-    fn pole_offsets(&self, at: (f64, f64)) -> Vec<(f64, f64)> {
-        let (u_free, v_free) = (self.pole_at)(at);
+    fn singular_offsets(&self, at: (f64, f64)) -> Vec<(f64, f64)> {
+        let (u_free, v_free) = (self.singular_at)(at);
         let options = |free: bool, period: Option<f64>| match (free, period) {
             (true, Some(p)) => vec![0.0, p, -p],
             _ => vec![0.0],
@@ -154,7 +154,7 @@ impl Search<'_> {
         for &fwd in dirs {
             let (start, end) = oriented(use_, fwd);
             let base = self.shift_for(start, cursor);
-            for (pu, pv) in self.pole_offsets(cursor) {
+            for (pu, pv) in self.singular_offsets(cursor) {
                 let shift = (base.0 + pu, base.1 + pv);
                 let shifted_start = (start.0 + shift.0, start.1 + shift.1);
                 let gap = self.junction_gap(shifted_start, cursor, cursor);

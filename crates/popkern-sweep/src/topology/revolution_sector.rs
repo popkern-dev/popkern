@@ -99,16 +99,16 @@ pub(crate) fn build_sector_topology(
 
     // Profile vertex j at the start and end angles; the poles (j = 0
     // and j = n) are one vertex each.
-    let first_pole = builder.add_vertex(eval_surface_corner(&surfaces[0], 0.0, 0.0));
-    let last_pole = builder.add_vertex(eval_surface_corner(&surfaces[n - 1], 1.0, 0.0));
-    let mut start_vertices = vec![first_pole];
-    let mut end_vertices = vec![first_pole];
+    let first_axis_end = builder.add_vertex(eval_surface_corner(&surfaces[0], 0.0, 0.0));
+    let last_axis_end = builder.add_vertex(eval_surface_corner(&surfaces[n - 1], 1.0, 0.0));
+    let mut start_vertices = vec![first_axis_end];
+    let mut end_vertices = vec![first_axis_end];
     for surface in &surfaces[1..] {
         start_vertices.push(builder.add_vertex(eval_surface_corner(surface, 0.0, 0.0)));
         end_vertices.push(builder.add_vertex(eval_surface_corner(surface, 0.0, 1.0)));
     }
-    start_vertices.push(last_pole);
-    end_vertices.push(last_pole);
+    start_vertices.push(last_axis_end);
+    end_vertices.push(last_axis_end);
 
     // The arc each interior profile vertex sweeps, shared by the two
     // side faces on either side of it.
@@ -194,7 +194,7 @@ pub(crate) fn build_sector_topology(
 
     // The axis edge runs from the last pole to the first, as the
     // profile does; the end cap walks it that way, the start cap back.
-    let (_, axis_fwd, axis_rev) = builder.add_edge(last_pole, first_pole);
+    let (_, axis_fwd, axis_rev) = builder.add_edge(last_axis_end, first_axis_end);
     start_cap_hes.push(axis_rev);
     end_cap_hes.push(axis_fwd);
     let mut start_curves: Vec<NurbsCurve> = spans.to_vec();

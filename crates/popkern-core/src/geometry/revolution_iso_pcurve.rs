@@ -172,13 +172,13 @@ impl ArcClass {
         surface: &SurfaceGeometry,
         center: Point3,
         radius: f64,
-        pole: Vec3,
+        sphere_axis: Vec3,
     ) -> Option<Pcurve> {
         use crate::geometry::analytic_surfaces::sphere_to_local;
         let concentric = (self.center - center).length() <= self.gate;
         let great = (self.radius - radius).abs() <= self.gate;
-        let through_poles = self.normal.dot(&pole).abs() <= GATE;
-        if !(concentric && great && through_poles) {
+        let meridian = self.normal.dot(&sphere_axis).abs() <= GATE;
+        if !(concentric && great && meridian) {
             return None;
         }
         // The polar angle by atan2, not acos: acos(z / r) loses half its
@@ -188,15 +188,15 @@ impl ArcClass {
         // (measured: the cube-corner union's octant arc ran its sphere
         // pcurve to u = 2π at the pole instead of 3.84, PK-930).
         let polar = |t: f64| {
-            let d = sphere_to_local(&pole, curve.point_at(t) - center);
+            let d = sphere_to_local(&sphere_axis, curve.point_at(t) - center);
             (d.x * d.x + d.y * d.y).sqrt().patan2(d.z)
         };
         let mid = 0.5 * (range.0 + range.1);
         let (v0, v1, vm) = (polar(range.0), polar(range.1), polar(mid));
         if (vm - 0.5 * (v0 + v1)).abs() > GATE {
-            return None; // crosses a pole: v folds
+            return None; // passes the axis: v folds
         }
-        let m = sphere_to_local(&pole, curve.point_at(mid) - center);
+        let m = sphere_to_local(&sphere_axis, curve.point_at(mid) - center);
         let u = azimuth(m.y.patan2(m.x));
         let sense = sense_along_v(curve, mid, surface, u, vm)?;
         Some(linear(
