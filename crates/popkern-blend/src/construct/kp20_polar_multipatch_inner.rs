@@ -1,4 +1,4 @@
-//! Candidate-only KP20 inner-pole patch prototype.
+//! Candidate-only KP20 inner-hub patch prototype.
 
 // Index loops follow the coefficient-grid index algebra (PK-795).
 #![allow(clippy::needless_range_loop)]

@@ -7,7 +7,7 @@ use super::{
 use crate::construct::kp20_polar_fold_summary::Kp20SamplerFoldSummary;
 use crate::construct::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport;
 use crate::construct::kp20_polar_multipatch_interface::Kp20MultiPatchInterfaceBuildReport;
-use crate::construct::kp20_polar_support_surface_split::propagate_support_pole_interfaces;
+use crate::construct::kp20_polar_support_surface_split::propagate_support_hub_interfaces;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn apply_exact_worst_coupled_support_inner(
@@ -45,7 +45,7 @@ pub(super) fn apply_exact_worst_coupled_support_inner(
     }
     let before = changed_patches.to_vec();
     apply_side_aligned_inner_patches(macro_patches, changed_patches, interfaces, inner);
-    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
+    propagate_support_hub_interfaces(macro_patches, changed_patches, support_changed);
     reauthor_coupled_inner_shoulder(
         macro_patches,
         changed_patches,
@@ -71,7 +71,7 @@ fn apply_exact_fold_set_shared_support_inner(
 ) -> usize {
     let before = changed_patches.to_vec();
     apply_side_aligned_inner_patches(macro_patches, changed_patches, interfaces, inner);
-    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
+    propagate_support_hub_interfaces(macro_patches, changed_patches, support_changed);
     let expand = matches!(
         mode,
         Kp20InnerConstructionMode::ExactFoldSetSharedSupportInnerExpand

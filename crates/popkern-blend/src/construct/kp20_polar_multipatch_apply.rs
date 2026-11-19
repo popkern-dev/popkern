@@ -15,7 +15,7 @@ use super::kp20_polar_multipatch_strip_optimize::{
     Kp20StripInteriorOptimizerMode, optimized_strip_surface,
 };
 use super::kp20_polar_support_surface_split::{
-    propagate_support_pole_interfaces, support_side_index,
+    propagate_support_hub_interfaces, support_side_index,
 };
 #[path = "kp20_polar_multipatch_apply_coupled.rs"]
 mod coupled;
@@ -252,7 +252,7 @@ fn propagate_strip_owned_inner_pieces(
     support_changed: Vec<[bool; 2]>,
 ) -> usize {
     let before = changed_patches.to_vec();
-    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
+    propagate_support_hub_interfaces(macro_patches, changed_patches, support_changed);
     changed_patches
         .iter()
         .zip(before)
@@ -274,7 +274,7 @@ fn apply_side_aligned_propagated_inner_patches(
 ) -> usize {
     let before = changed_patches.to_vec();
     apply_side_aligned_inner_patches(macro_patches, changed_patches, interfaces, inner);
-    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
+    propagate_support_hub_interfaces(macro_patches, changed_patches, support_changed);
     changed_inner_count(changed_patches, &before)
 }
 
@@ -296,7 +296,7 @@ fn apply_exact_worst_propagated_shoulder(
         return 0;
     }
     let before = changed_patches.to_vec();
-    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
+    propagate_support_hub_interfaces(macro_patches, changed_patches, support_changed);
     if site.sector >= macro_patches.len() {
         return changed_inner_count(changed_patches, &before);
     }

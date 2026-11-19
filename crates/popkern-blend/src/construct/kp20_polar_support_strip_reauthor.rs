@@ -17,7 +17,7 @@ use super::kp20_polar_multipatch_strip_optimize::{
 };
 use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::kp20_polar_support_surface_split::{
-    propagate_support_pole_interfaces, support_owner_piece, support_side_index,
+    propagate_support_hub_interfaces, support_owner_piece, support_side_index,
 };
 
 type FoldSummary = (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport);
@@ -176,7 +176,7 @@ struct Kp20SelectedStripTrial {
 
 #[derive(Debug, Clone, Copy)]
 enum Kp20SupportStripCouplingMode {
-    PropagateSupportPole,
+    PropagateSupportHub,
     SharedFrameExpand,
     SharedFrameContract,
 }
@@ -184,7 +184,7 @@ enum Kp20SupportStripCouplingMode {
 impl Kp20SupportStripCouplingMode {
     fn all() -> [Self; 3] {
         [
-            Self::PropagateSupportPole,
+            Self::PropagateSupportHub,
             Self::SharedFrameExpand,
             Self::SharedFrameContract,
         ]
@@ -192,14 +192,14 @@ impl Kp20SupportStripCouplingMode {
 
     fn label(self) -> &'static str {
         match self {
-            Self::PropagateSupportPole => "propagate_support_pole",
+            Self::PropagateSupportHub => "propagate_support_hub",
             Self::SharedFrameExpand => "shared_frame_expand",
             Self::SharedFrameContract => "shared_frame_contract",
         }
     }
 
     fn family_label() -> &'static str {
-        "propagate_support_pole|shared_frame_expand|shared_frame_contract"
+        "propagate_support_hub|shared_frame_expand|shared_frame_contract"
     }
 }
 
@@ -266,8 +266,8 @@ fn apply_support_strip_coupling(
 ) {
     let mut support_changed = vec![[false; 2]; macro_patches.len()];
     support_changed[strip.sector_index][support_side_index(strip.strip_piece)] = true;
-    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
-    if matches!(coupling, Kp20SupportStripCouplingMode::PropagateSupportPole) {
+    propagate_support_hub_interfaces(macro_patches, changed_patches, support_changed);
+    if matches!(coupling, Kp20SupportStripCouplingMode::PropagateSupportHub) {
         return;
     }
     let Some(site) = worst_strip_site(accepted_summary, strip) else {

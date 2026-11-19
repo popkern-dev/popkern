@@ -23,9 +23,9 @@
 //!   perpendicular to the spine). The stubs stay lines with plane-chart
 //!   pcurves.
 //! - **Rounded:** the quarter ball's rim is two meridians, from each
-//!   contact to the outward pole, so the corner moves to the pole.
+//!   contact to the outward hub, so the corner moves to the hub.
 //! - **TangentMatch:** the cap of revolution (PK-536) closes at the
-//!   same pole. Its rim is the surface's own meridian iso-curves
+//!   same hub. Its rim is the surface's own meridian iso-curves
 //!   u = 0 and u = 1, with exact linear pcurves.
 //!
 //! **Fallback.** A decline hands the reason back. The caller restores
@@ -209,22 +209,22 @@ pub(super) fn author_cap_boundary(
             }
         }
         (CapKind::Rounded, SurfaceGeometry::Sphere { center, radius, .. }) => {
-            let pole = *center + normal * *radius;
+            let hub = *center + normal * *radius;
             if let Some(v) = brep.vertices.get_mut(corner) {
-                v.position = pole;
+                v.position = hub;
             }
             for (stub, contact) in [(s1, from), (s2, to)] {
-                meridian(brep, stub, cap_face, &cap_surface, *center, contact, pole)?;
+                meridian(brep, stub, cap_face, &cap_surface, *center, contact, hub)?;
             }
         }
         (CapKind::TangentMatch, SurfaceGeometry::Nurbs(surface)) => {
-            let pole = surface
+            let hub = surface
                 .control_points
                 .get(surface.num_v - 1)
                 .copied()
-                .ok_or("tangent-match cap has no pole")?;
+                .ok_or("tangent-match cap has no hub")?;
             if let Some(v) = brep.vertices.get_mut(corner) {
-                v.position = pole;
+                v.position = hub;
             }
             for (stub, contact) in [(s1, from), (s2, to)] {
                 iso_meridian(brep, stub, cap_face, surface, contact, pos_tol)?;
@@ -297,7 +297,7 @@ fn rim_line(
 }
 
 /// A rounded cap's rim stub: the quarter meridian from `contact` to
-/// `pole` on the sphere about `center`, with its projected pcurve.
+/// `hub` on the sphere about `center`, with its projected pcurve.
 fn meridian(
     brep: &mut BRep,
     stub: HalfEdgeHandle,
@@ -305,11 +305,11 @@ fn meridian(
     sphere: &SurfaceGeometry,
     center: Point3,
     contact: Point3,
-    pole: Point3,
+    hub: Point3,
 ) -> Result<(), String> {
     let edge = brep.half_edges[stub].edge;
     let primary = brep.edges.get(edge).ok_or("edge missing")?.half_edge;
-    // The stub runs contact → pole along `stub`'s direction iff it
+    // The stub runs contact → hub along `stub`'s direction iff it
     // leaves the contact; the curve follows the primary half-edge.
     let stub_from_contact = brep
         .vertices
@@ -317,9 +317,9 @@ fn meridian(
         .is_some_and(|v| (v.position - contact).length() < 1e-12);
     let forward = (primary == stub) == stub_from_contact;
     let (u_basis, v_basis) = if forward {
-        (contact - center, pole - center)
+        (contact - center, hub - center)
     } else {
-        (pole - center, contact - center)
+        (hub - center, contact - center)
     };
     let curve = CurveOnEdge {
         geometry: CurveGeometry::Ellipse {
@@ -435,9 +435,9 @@ pub(super) fn projected_pcurve_sampled(
         uv.push((u, v));
         params.push(f);
     }
-    // A sample at a chart pole (a sphere's, where ∂/∂u vanishes) has
+    // A sample at a chart hub (a sphere's, where ∂/∂u vanishes) has
     // no meaningful u: a meridian keeps its neighbour's u there. The
-    // outward pole of a rounded cap is such a point whenever the spine
+    // outward hub of a rounded cap is such a point whenever the spine
     // is along the sphere chart's axis (measured 9.4e-4 pcurve miss
     // before this).
     let degenerate = |(u, v): (f64, f64)| surface.partial_u(u, v).length() < 1e-9;

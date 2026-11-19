@@ -1,4 +1,4 @@
-//! Support/pole ownership helpers for KP20 support-surface candidates.
+//! Support/hub ownership helpers for KP20 support-surface candidates.
 
 use popkern_core::geometry::gregory::{
     Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId, bernstein_bi6_all, bernstein_bi6_deriv_all,
@@ -22,11 +22,11 @@ pub(super) fn support_side_index(piece: Kp20PieceId) -> usize {
     match piece {
         Kp20PieceId::NearMidpointLeft => 0,
         Kp20PieceId::NearMidpointRight => 1,
-        _ => unreachable!("support-pole split trials target support-owned pieces"),
+        _ => unreachable!("support-hub split trials target support-owned pieces"),
     }
 }
 
-pub(super) fn propagate_support_pole_interfaces(
+pub(super) fn propagate_support_hub_interfaces(
     macro_patches: &mut [Kp20MacroPatch],
     changed_patches: &mut [[bool; 4]],
     support_changed: Vec<[bool; 2]>,

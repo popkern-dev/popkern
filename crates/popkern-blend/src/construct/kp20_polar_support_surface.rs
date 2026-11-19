@@ -32,8 +32,8 @@ use super::kp20_polar_multipatch_validate::{
 };
 use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::kp20_polar_support_surface_split::{
-    evaluate_bi6_normal, evaluate_bi6_patch, propagate_support_pole_interfaces,
-    support_owner_piece, support_side_index,
+    evaluate_bi6_normal, evaluate_bi6_patch, propagate_support_hub_interfaces, support_owner_piece,
+    support_side_index,
 };
 
 type Kp20SupportSurfaceFastSelection = (
@@ -92,7 +92,7 @@ enum Kp20SupportSurfaceMode {
     CoupledSupportRing,
     FoldAwareSurfaceFrame,
     FoldAwareNormalFrame,
-    SupportPoleInterfaceSplit,
+    SupportHubInterfaceSplit,
 }
 
 pub(super) fn support_surface_candidate_summary(
@@ -255,7 +255,7 @@ impl Kp20SupportSurfaceMode {
             Self::CoupledSupportRing,
             Self::FoldAwareSurfaceFrame,
             Self::FoldAwareNormalFrame,
-            Self::SupportPoleInterfaceSplit,
+            Self::SupportHubInterfaceSplit,
         ]
     }
 
@@ -267,7 +267,7 @@ impl Kp20SupportSurfaceMode {
             Self::CoupledSupportRing => "coupled_support_ring",
             Self::FoldAwareSurfaceFrame => "fold_aware_surface_frame",
             Self::FoldAwareNormalFrame => "fold_aware_normal_frame",
-            Self::SupportPoleInterfaceSplit => "support_pole_interface_split",
+            Self::SupportHubInterfaceSplit => "support_hub_interface_split",
         }
     }
 }
@@ -290,7 +290,7 @@ fn active_trial_pieces(
     summary: &Kp20SamplerFoldSummary,
 ) -> Vec<Kp20PieceId> {
     let mut pieces = active_fold_pieces(summary);
-    if matches!(mode, Kp20SupportSurfaceMode::SupportPoleInterfaceSplit) {
+    if matches!(mode, Kp20SupportSurfaceMode::SupportHubInterfaceSplit) {
         pieces = pieces.into_iter().map(support_owner_piece).collect();
         pieces.sort_by_key(|piece| piece.index());
         pieces.dedup();
@@ -342,20 +342,14 @@ fn apply_orientation_row_trial(
                 }
                 piece.cps[i][j] = piece.cps[i][j] + direction * (trial.scale * span * weight);
                 changed_patches[site.sector][target_piece.index()] = true;
-                if matches!(
-                    trial.mode,
-                    Kp20SupportSurfaceMode::SupportPoleInterfaceSplit
-                ) {
+                if matches!(trial.mode, Kp20SupportSurfaceMode::SupportHubInterfaceSplit) {
                     split_support_changed[site.sector][support_side_index(target_piece)] = true;
                 }
             }
         }
     }
-    if matches!(
-        trial.mode,
-        Kp20SupportSurfaceMode::SupportPoleInterfaceSplit
-    ) {
-        propagate_support_pole_interfaces(
+    if matches!(trial.mode, Kp20SupportSurfaceMode::SupportHubInterfaceSplit) {
+        propagate_support_hub_interfaces(
             macro_patches,
             &mut changed_patches,
             split_support_changed,
@@ -365,10 +359,7 @@ fn apply_orientation_row_trial(
 }
 
 fn trial_affects_site(trial: Kp20SupportSurfaceTrial, site: Kp20FoldSite) -> bool {
-    if matches!(
-        trial.mode,
-        Kp20SupportSurfaceMode::SupportPoleInterfaceSplit
-    ) {
+    if matches!(trial.mode, Kp20SupportSurfaceMode::SupportHubInterfaceSplit) {
         support_owner_piece(site.piece) == trial.piece
     } else {
         site.piece == trial.piece
@@ -376,10 +367,7 @@ fn trial_affects_site(trial: Kp20SupportSurfaceTrial, site: Kp20FoldSite) -> boo
 }
 
 fn target_piece_for_trial(trial: Kp20SupportSurfaceTrial, site_piece: Kp20PieceId) -> Kp20PieceId {
-    if matches!(
-        trial.mode,
-        Kp20SupportSurfaceMode::SupportPoleInterfaceSplit
-    ) {
+    if matches!(trial.mode, Kp20SupportSurfaceMode::SupportHubInterfaceSplit) {
         support_owner_piece(site_piece)
     } else {
         site_piece
@@ -408,7 +396,7 @@ fn support_surface_direction(
             (point - star_point).normalized().unwrap_or(normal)
         }
         Kp20SupportSurfaceMode::FoldAwareNormalFrame
-        | Kp20SupportSurfaceMode::SupportPoleInterfaceSplit => {
+        | Kp20SupportSurfaceMode::SupportHubInterfaceSplit => {
             evaluate_bi6_normal(piece, site.u, site.v)
                 .map(|local| {
                     if local.dot(&normal) < 0.0 {
@@ -434,7 +422,7 @@ fn can_adjust_orientation_row(
                 Kp20SupportSurfaceMode::CoupledSupportRing
                 | Kp20SupportSurfaceMode::FoldAwareSurfaceFrame
                 | Kp20SupportSurfaceMode::FoldAwareNormalFrame
-                | Kp20SupportSurfaceMode::SupportPoleInterfaceSplit => (2..=4).contains(&i),
+                | Kp20SupportSurfaceMode::SupportHubInterfaceSplit => (2..=4).contains(&i),
                 _ => i == 3,
             };
             row_ok && (2..=4).contains(&j)
@@ -444,7 +432,7 @@ fn can_adjust_orientation_row(
                 Kp20SupportSurfaceMode::CoupledSupportRing
                 | Kp20SupportSurfaceMode::FoldAwareSurfaceFrame
                 | Kp20SupportSurfaceMode::FoldAwareNormalFrame
-                | Kp20SupportSurfaceMode::SupportPoleInterfaceSplit => (2..=4).contains(&j),
+                | Kp20SupportSurfaceMode::SupportHubInterfaceSplit => (2..=4).contains(&j),
                 _ => j == 3,
             };
             row_ok && (2..=4).contains(&i)
@@ -470,7 +458,7 @@ fn orientation_row_weight(
         Kp20SupportSurfaceMode::CoupledSupportRing
         | Kp20SupportSurfaceMode::FoldAwareSurfaceFrame
         | Kp20SupportSurfaceMode::FoldAwareNormalFrame
-        | Kp20SupportSurfaceMode::SupportPoleInterfaceSplit => match target_piece {
+        | Kp20SupportSurfaceMode::SupportHubInterfaceSplit => match target_piece {
             Kp20PieceId::NearMidpointLeft | Kp20PieceId::NearMidpointRight => {
                 coupled_row_weight(site, i)
             }

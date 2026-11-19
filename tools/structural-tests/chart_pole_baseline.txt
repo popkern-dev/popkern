@@ -1,16 +1,6 @@
 # Chart-service POLE ratchet baseline (PK-1228): per-file counts of the
 # `pole` token in non-comment code outside the service. Only ever
 # lowered; W2 exits with this file empty.
-crates/popkern-blend/src/construct/cap_insert_boundary.rs 9
-crates/popkern-blend/src/construct/kp20_polar_multipatch_apply.rs 4
-crates/popkern-blend/src/construct/kp20_polar_multipatch_apply_coupled.rs 3
-crates/popkern-blend/src/construct/kp20_polar_multipatch_inventory.rs 2
-crates/popkern-blend/src/construct/kp20_polar_support_macro_construction.rs 2
-crates/popkern-blend/src/construct/kp20_polar_support_strip_reauthor.rs 8
-crates/popkern-blend/src/construct/kp20_polar_support_surface.rs 15
-crates/popkern-blend/src/construct/kp20_polar_support_surface_split.rs 2
-crates/popkern-blend/src/construct/kp20_polar_support_transition_strip.rs 2
-crates/popkern-blend/src/construct/kp20_polar_support_two_lane.rs 2
 crates/popkern-blend/src/rolling_ball_surface.rs 2
 crates/popkern-bool/src/cellular/fragment_interior.rs 5
 crates/popkern-bool/src/classify_ray_chart_trim.rs 8

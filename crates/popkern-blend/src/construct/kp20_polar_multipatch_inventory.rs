@@ -1,4 +1,4 @@
-//! Candidate-only KP20 support-strip/inner-pole ownership inventory.
+//! Candidate-only KP20 support-strip/inner-hub ownership inventory.
 
 use popkern_core::geometry::gregory::Kp20PieceId;
 
@@ -46,7 +46,7 @@ pub(super) fn multipatch_inventory_from_fold_summary(
             .filter_map(|(side_sector, side)| (*side_sector == sector).then_some(*side))
             .collect::<Vec<_>>();
         let sector_name = format!("kp20_polar_macro.sector_{sector}");
-        let inner_patch_name = format!("{sector_name}.inner_pole_patch");
+        let inner_patch_name = format!("{sector_name}.inner_hub_patch");
         let strip_names = sides
             .iter()
             .map(|side| format!("{sector_name}.{}_support_strip", side_label(*side)))
@@ -171,7 +171,7 @@ mod tests {
         );
         assert_eq!(
             sector.inner_patch_name,
-            "kp20_polar_macro.sector_4.inner_pole_patch"
+            "kp20_polar_macro.sector_4.inner_hub_patch"
         );
         assert!(
             sector

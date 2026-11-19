@@ -14,7 +14,7 @@ use super::kp20_polar_fold_summary::{
 };
 use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::kp20_polar_support_surface_split::{
-    evaluate_bi6_normal, propagate_support_pole_interfaces, support_owner_piece, support_side_index,
+    evaluate_bi6_normal, propagate_support_hub_interfaces, support_owner_piece, support_side_index,
 };
 
 type FoldSummary = (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport);
@@ -227,7 +227,7 @@ fn transition_candidate(
     );
     changed_patches[target.sector][support_piece.index()] = true;
     support_changed[target.sector][support_side_index(support_piece)] = true;
-    propagate_support_pole_interfaces(&mut macro_patches, &mut changed_patches, support_changed);
+    propagate_support_hub_interfaces(&mut macro_patches, &mut changed_patches, support_changed);
     Kp20TransitionApplied {
         macro_patches,
         changed_patches,

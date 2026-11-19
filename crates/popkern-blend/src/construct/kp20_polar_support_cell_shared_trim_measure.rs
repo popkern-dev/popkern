@@ -323,7 +323,7 @@ fn record_trim_g2_residual(
         }
         _ => {
             // Parametric degeneracy at an isolated sample (e.g.
-            // pole-adjacent first-form collapse) — curvature is
+            // hub-adjacent first-form collapse) — curvature is
             // undefined there by parameterization, not by
             // missing coverage. Counted separately so the
             // fail-closed unsupported gate stays strict.

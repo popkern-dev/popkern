@@ -36,7 +36,7 @@ fn inner_builder_copies_named_interface_boundary_controls() {
     assert_eq!(report.inner_patches[0].sector_index, 0);
     assert_eq!(
         report.inner_patches[0].patch_name,
-        "kp20_polar_macro.sector_0.inner_pole_patch"
+        "kp20_polar_macro.sector_0.inner_hub_patch"
     );
     assert_eq!(
         report.inner_patches[0].boundary_interface_names,
