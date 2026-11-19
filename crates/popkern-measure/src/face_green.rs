@@ -253,7 +253,7 @@ fn misfits(
 /// Whether the chart point `q` lies on a pole or apex of `surface`, asked
 /// of the chart service in space: its image within the linear tolerance
 /// of a singular row's point.
-fn at_pole(surface: &SurfaceGeometry, descriptor: &ChartDescriptor, q: Point3) -> bool {
+fn at_singular_point(surface: &SurfaceGeometry, descriptor: &ChartDescriptor, q: Point3) -> bool {
     singular_point_near(descriptor, &surface.point_at(q.x, q.y), descriptor.linear).is_some()
 }
 
@@ -334,8 +334,8 @@ pub(crate) fn boundary_integral_area(brep: &BRep, face: FaceHandle) -> Option<f6
                 // bounds no area, where one at the end does (Viviani's
                 // cap with the ball's poles on its rim read 1.9e-5
                 // short, its pole ends' longitude 4e-7 off, PK-1169).
-                let at = if at_pole(&surface.geometry, &descriptor, start)
-                    && !at_pole(&surface.geometry, &descriptor, end)
+                let at = if at_singular_point(&surface.geometry, &descriptor, start)
+                    && !at_singular_point(&surface.geometry, &descriptor, end)
                 {
                     start
                 } else {

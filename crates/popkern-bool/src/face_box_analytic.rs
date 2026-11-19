@@ -41,8 +41,8 @@ pub(crate) fn trim_scale_points(
             .flat_map(|e| [e, -e])
             .map(|e| {
                 // A pole's u is arbitrary: its window test is v alone.
-                let pole = e.cross(axis).length() < 1e-9;
-                (*center + e * *radius, pole)
+                let on_axis = e.cross(axis).length() < 1e-9;
+                (*center + e * *radius, on_axis)
             })
             .collect(),
         SurfaceGeometry::Torus {

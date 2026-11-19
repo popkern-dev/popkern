@@ -253,7 +253,7 @@ fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64, region: &ServeRegion) 
         .collect();
     for he_into_tip in candidates {
         if brep.half_edges.contains_key(he_into_tip)
-            && !tip_at_chart_pole(brep, he_into_tip)
+            && !tip_at_chart_singularity(brep, he_into_tip)
             && brep.kev(he_into_tip).is_ok()
         {
             return true;
@@ -270,8 +270,10 @@ fn retire_one_mev_spur(brep: &mut BRep, length_gate: f64, region: &ServeRegion) 
 /// crossed the seam that far from the pole, took the pole with it, and
 /// the face's chart lost the pole the mesher closes it through (the
 /// ball meshed as slivers, its volume read 7.13 for 120.22, PK-1176).
-fn tip_at_chart_pole(brep: &BRep, he_into_tip: popkern_core::topology::HalfEdgeHandle) -> bool {
-    use popkern_core::geometry::surface::SurfaceEval;
+fn tip_at_chart_singularity(
+    brep: &BRep,
+    he_into_tip: popkern_core::topology::HalfEdgeHandle,
+) -> bool {
     let Some(he) = brep.half_edges.get(he_into_tip) else {
         return false;
     };
@@ -291,16 +293,17 @@ fn tip_at_chart_pole(brep: &BRep, he_into_tip: popkern_core::topology::HalfEdgeH
     else {
         return false;
     };
-    let Some((u, v)) =
-        popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &tip)
-    else {
-        return false;
-    };
-    let (su, sv) = (
-        surface.geometry.partial_u(u, v).length(),
-        surface.geometry.partial_v(u, v).length(),
-    );
-    su <= 1e-6 * sv || sv <= 1e-6 * su
+    // Asked of the chart service in space: the tip within the linear
+    // tolerance of a singular row's point (it compared the partials at
+    // 1e-6).
+    let descriptor =
+        popkern_core::geometry::chart::ChartDescriptor::of(&surface.geometry, &brep.tolerance);
+    popkern_core::geometry::chart::ops::singular_point_near(
+        &descriptor,
+        &tip,
+        brep.tolerance.linear(),
+    )
+    .is_some()
 }
 
 /// Excise ONE degenerate self-twinned stub half-edge from its loop

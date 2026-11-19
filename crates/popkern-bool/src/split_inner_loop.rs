@@ -226,7 +226,7 @@ pub(crate) fn point_inside_face_uv_with_density(
         // on-surface query is inside.
         return true;
     }
-    crossings_above += top_pole_crossings(brep, face, &runs, &u_probe, uv_point.y);
+    crossings_above += top_row_crossings(brep, face, &runs, &u_probe, uv_point.y);
     crossings_above % 2 == 1
 }
 
@@ -240,7 +240,7 @@ pub(crate) fn point_inside_face_uv_with_density(
 /// boolean stranded their sides). The pole row bounds the region as
 /// truly as any edge: count it once per probe within the contour's u
 /// extent. A bottom pole needs nothing — it lies below every query.
-fn top_pole_crossings(
+fn top_row_crossings(
     brep: &BRep,
     face: FaceHandle,
     runs: &[Vec<Point3>],
@@ -263,11 +263,18 @@ fn top_pole_crossings(
     if v_top <= v_query || !v_top.is_finite() {
         return 0;
     }
-    // A collapsed row: the u partial vanishes against the v partial.
+    // A singular row collapsing u at the contour's top, asked of the
+    // chart service in space (it compared the partials at 1e-9).
     use popkern_core::geometry::surface::SurfaceEval;
     let at = 0.5 * (u_lo + u_hi);
-    let (pu, pv) = surface.first_partials(at, v_top);
-    if pu.length() > 1e-9 * pv.length().max(1e-300) {
+    let descriptor = popkern_core::geometry::chart::ChartDescriptor::of(surface, &brep.tolerance);
+    let collapsed = popkern_core::geometry::chart::ops::singular_point_near(
+        &descriptor,
+        &surface.point_at(at, v_top),
+        brep.tolerance.linear(),
+    )
+    .is_some_and(|(_, collapses_u)| collapses_u);
+    if !collapsed {
         return 0;
     }
     // A run already along the pole row counts itself.

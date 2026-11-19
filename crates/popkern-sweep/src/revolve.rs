@@ -326,7 +326,7 @@ pub(crate) fn revolve_impl(
 /// back to the first. `chain` is the whole profile starting at the
 /// first off-axis span, `off_axis` its off-axis spans. Declines a
 /// profile whose axis spans are not one run (it would meet the axis
-/// twice) or that touches the axis at a vertex between its poles (the
+/// twice) or that touches the axis at a vertex between its ends on the axis (the
 /// sector would pinch there).
 fn sector_axis_run(
     chain: &[NurbsCurve],
@@ -360,7 +360,7 @@ fn sector_axis_run(
         .find(|p| radius(*p) < tolerance.linear() * 10.0)
     {
         return Err(SweepError::InvalidProfile(format!(
-            "a sector's profile touches the axis at ({:.6}, {:.6}, {:.6}) between its poles",
+            "a sector's profile touches the axis at ({:.6}, {:.6}, {:.6}) between its ends on the axis",
             pinch.x, pinch.y, pinch.z
         )));
     }

@@ -22,11 +22,11 @@ fn ball_chart_axis(toward: Vec3, reach: f64) -> Vec3 {
         return Vec3::Z;
     };
     let margin = 10f64.to_radians();
-    let to_pole =
+    let to_axis =
         d.z.clamp(-1.0, 1.0)
             .pacos()
             .min((-d.z).clamp(-1.0, 1.0).pacos());
-    if to_pole > reach + margin {
+    if to_axis > reach + margin {
         return Vec3::Z;
     }
     let (p, q) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(d);

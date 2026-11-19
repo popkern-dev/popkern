@@ -62,8 +62,19 @@ pub(super) fn sheet(
             <= lin
     });
     if u_closed {
-        let pole = |v: f64| iso_spread(None, Some(v)) <= lin;
-        if pole(v0) && pole(v1) {
+        // Both v rows singular rows collapsing u, asked of the chart
+        // service in space.
+        let geometry = popkern_core::geometry::surface::SurfaceGeometry::Nurbs(surface.clone());
+        let descriptor = popkern_core::geometry::chart::ChartDescriptor::of(&geometry, &tolerance);
+        let collapsed = |v: f64| {
+            popkern_core::geometry::chart::ops::singular_point_near(
+                &descriptor,
+                &surface.point_at(u0, v),
+                lin,
+            )
+            .is_some_and(|(_, collapses_u)| collapses_u)
+        };
+        if collapsed(v0) && collapsed(v1) {
             return replay_primitive_nurbs_ball::ball(shape, &surface, tolerance);
         }
         return closed_sheet(shape, &surface, tolerance);

@@ -233,17 +233,17 @@ pub(super) fn execute(
                 ));
             }
             let on = |a: f64| [r * a.pcos(), r * a.psin()];
-            let pole = |a: f64| (a.abs() - half_pi).abs() <= 1e-12;
+            let at_axis = |a: f64| (a.abs() - half_pi).abs() <= 1e-12;
             let start = [0.0, r * lo.psin()];
             let mut segments = Vec::new();
-            if !pole(lo) {
+            if !at_axis(lo) {
                 segments.push(PathSegment::Line { to: on(lo) });
             }
             segments.push(PathSegment::Arc {
                 via: on((lo + hi) / 2.0),
-                to: if pole(hi) { [0.0, r] } else { on(hi) },
+                to: if at_axis(hi) { [0.0, r] } else { on(hi) },
             });
-            if !pole(hi) {
+            if !at_axis(hi) {
                 segments.push(PathSegment::Line {
                     to: [0.0, r * hi.psin()],
                 });

@@ -72,7 +72,7 @@ fn run() -> Result<(), String> {
         report,
         "\nContinuity is measured across the cap's OWN internal seams\n\
          (cap sector vs adjacent cap sector), sampled away from the\n\
-         degenerate pole. Acceptance in the exact-boundary route gates\n\
+         degenerate apex. Acceptance in the exact-boundary route gates\n\
          cap-vs-SUPPORT coplanarity only, so this is the number that\n\
          route never checks.\n"
     )

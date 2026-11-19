@@ -1,10 +1,8 @@
 # Chart-service POLE ratchet baseline (PK-1228): per-file counts of the
 # `pole` token in non-comment code outside the service. Only ever
 # lowered; W2 exits with this file empty.
-crates/popkern-blend/src/rolling_ball_surface.rs 2
 crates/popkern-bool/src/cellular/fragment_interior.rs 5
 crates/popkern-bool/src/classify_ray_chart_trim.rs 8
-crates/popkern-bool/src/face_box_analytic.rs 2
 crates/popkern-bool/src/merge/walk/chart_branch_anchoring.rs 1
 crates/popkern-bool/src/merge/walk/chart_branch_clustering.rs 6
 crates/popkern-bool/src/merge/walk/chart_branch_float.rs 2
@@ -15,17 +13,9 @@ crates/popkern-bool/src/merge/walk/chart_subdivision.rs 14
 crates/popkern-bool/src/merge/walk/chart_walk_next.rs 1
 crates/popkern-bool/src/merge/walk/mod.rs 1
 crates/popkern-bool/src/periodic_chart_parity.rs 10
-crates/popkern-bool/src/postprocess/spur_edge.rs 2
-crates/popkern-bool/src/split_inner_loop.rs 2
 crates/popkern-core/src/geometry/edge_triple/tests_sphere_frame.rs 3
 crates/popkern-core/src/geometry/intersection/line_sphere.rs 3
 crates/popkern-core/src/healing/interval_curvature.rs 3
-crates/popkern-examples/src/low_valence_cap_showcase.rs 1
-crates/popkern-history/src/replay_primitive.rs 4
-crates/popkern-history/src/replay_primitive_nurbs.rs 3
-crates/popkern-io/src/step/import.rs 1
-crates/popkern-io/src/step/mod.rs 1
-crates/popkern-measure/src/face_green.rs 3
 crates/popkern-mesh/src/chordal_certificate.rs 2
 crates/popkern-mesh/src/chordal_pieces.rs 11
 crates/popkern-mesh/src/integration_tests/mod.rs 2
@@ -33,6 +23,4 @@ crates/popkern-mesh/src/lib.rs 1
 crates/popkern-mesh/src/tessellate.rs 1
 crates/popkern-mesh/src/trim.rs 7
 crates/popkern-mesh/src/trim_pole_lift.rs 16
-crates/popkern-shell/src/arc_join_apex.rs 4
-crates/popkern-sweep/src/revolve.rs 1
 # total 895

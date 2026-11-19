@@ -241,18 +241,18 @@ fn construct_one_apex_cap(
         .ok_or("apex tip face not found after mef")?;
 
     if trace {
-        eprintln!("[apex] mef ok, tip_face={tip_face:?}; repositioning pole");
+        eprintln!("[apex] mef ok, tip_face={tip_face:?}; repositioning the tip");
     }
     // Keep the seam remnant as the cap's pole meridian (the shape the
     // sphere-cap machinery serves natively — a bare circle boundary
     // gives the mesher a zero-v-extent trim and the dome collapses to
     // a flat ring, measured on the first probe). Move the apex vertex
     // to the sphere's pole and author the meridian as a great arc.
-    let pole = *orig_apex + a_hat * (-d);
-    skin.vertices[vh].position = pole;
+    let tip = *orig_apex + a_hat * (-d);
+    skin.vertices[vh].position = tip;
     let spur = loop_spur_into(skin, tip_face, vh).ok_or("apex spur not found in tip face")?;
     let seam_remnant = skin.half_edges[spur].edge;
-    let meridian = crate::arc_join_geometry::great_arc(*orig_apex, d, t_exact, pole, tolerance)
+    let meridian = crate::arc_join_geometry::great_arc(*orig_apex, d, t_exact, tip, tolerance)
         .ok_or("apex meridian arc is degenerate")?;
     skin.edges[seam_remnant].curve = Some(meridian);
 
