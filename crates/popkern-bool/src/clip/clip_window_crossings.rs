@@ -83,6 +83,11 @@ pub(super) fn window_crossings(
             && (x.t_curve - y.t_curve).abs() <= eps
             && (x.t_boundary - y.t_boundary).abs() <= eps.max(1e-9)
     });
+    // A record running beside one boundary edge within the reach, its two
+    // crossings of that edge either end of the stretch, touches it: two
+    // curves within the tolerance meet once (tangency design §4.8; a
+    // ball-ball circle grazing a rim crossed it 3.7e-3 apart, 7e-7 deep).
+    drop_touch_excursions(brep, surface, query, &mut crossings);
     // A closed record on the boundary at its closure point (PK-775).
     let period_v = surface
         .and_then(|s| popkern_core::geometry::chart::ChartDescriptor::evaluation_periods_of(s).1);
@@ -231,4 +236,54 @@ fn closure_pair(
         ..one.clone()
     };
     Some([one, end])
+}
+
+/// Remove each pair of consecutive crossings of one boundary edge whose
+/// stretch of the record between stays within the linear reach of that
+/// edge in space, plus the crossings' own fit deviation (nine stations
+/// across it): a touch, not two crossings.
+fn drop_touch_excursions(
+    brep: &BRep,
+    surface: Option<&SurfaceGeometry>,
+    query: &NurbsCurve,
+    crossings: &mut Vec<UvCrossing>,
+) {
+    use popkern_core::geometry::curve::closest_point_in_window;
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let Some(surface) = surface else {
+        return;
+    };
+    let reach = brep.tolerance.linear_reach();
+    let within = |a: &UvCrossing, b: &UvCrossing| -> bool {
+        if a.boundary_he != b.boundary_he || b.t_curve <= a.t_curve {
+            return false;
+        }
+        let Some(curve) = brep
+            .half_edges
+            .get(a.boundary_he)
+            .and_then(|he| brep.edges.get(he.edge))
+            .and_then(|e| e.curve.as_ref())
+        else {
+            return false;
+        };
+        let gap = |t: f64| {
+            let q = query.point_at(t);
+            let p = surface.point_at(q.x, q.y);
+            let s = closest_point_in_window(&curve.geometry, &p, curve.t_start, curve.t_end);
+            curve.geometry.point_at(s).distance_to(&p)
+        };
+        // The reach plus the crossings' own fit deviation (their distance
+        // from the edge in space: a uv crossing a pcurve's fit puts off
+        // the edge), as two records are read to meet (PK-1165).
+        let allowance = reach + gap(a.t_curve).max(gap(b.t_curve));
+        (1..10).all(|k| gap(a.t_curve + (b.t_curve - a.t_curve) * k as f64 / 10.0) <= allowance)
+    };
+    let mut i = 0;
+    while i + 1 < crossings.len() {
+        if within(&crossings[i], &crossings[i + 1]) {
+            crossings.drain(i..i + 2);
+        } else {
+            i += 1;
+        }
+    }
 }
