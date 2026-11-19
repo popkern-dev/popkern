@@ -71,7 +71,7 @@ fn run_flood(
             // match it would smear the frame (the boundary-first
             // unwrap learned the same lesson with degenerate
             // anchors).
-            if !barrier.contains(&n) && !sub.poles.contains_key(&n) {
+            if !barrier.contains(&n) && !sub.singular_nodes.contains_key(&n) {
                 node_to_hes.entry(n).or_default().push(h);
             }
         }

@@ -121,7 +121,14 @@ pub(super) fn resolve_floating_and_cluster(
     let cluster_with = |bumped: &BTreeSet<usize>| {
         let (u_start, u_end) = base_maps(bumped);
         cluster_branches(
-            hes, ends, &u_start, &u_end, period, &sub.poles, wrap_nodes, v_split,
+            hes,
+            ends,
+            &u_start,
+            &u_end,
+            period,
+            &sub.singular_nodes,
+            wrap_nodes,
+            v_split,
         )
     };
     // Imbalance restricted to a node set.
@@ -288,7 +295,14 @@ pub(super) fn resolve_floating_and_cluster(
             u_end.insert(h, ue);
         }
         Some(cluster_branches(
-            hes, ends, &u_start, &u_end, period, &sub.poles, wrap_nodes, v_split,
+            hes,
+            ends,
+            &u_start,
+            &u_end,
+            period,
+            &sub.singular_nodes,
+            wrap_nodes,
+            v_split,
         ))
     };
     let first_result: Option<(BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>)> = None;

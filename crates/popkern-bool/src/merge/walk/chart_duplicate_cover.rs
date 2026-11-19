@@ -78,8 +78,8 @@ pub(super) fn dedup_duplicate_covers(
         let he = &graph.half_edges[h];
         (he.origin, graph.half_edges[he.twin].origin)
     };
-    let at_pole = |p: (f64, f64), q: (f64, f64), m: usize, n: usize| {
-        near(p, q) || (m == n && sub.poles.contains_key(&m))
+    let at_singular = |p: (f64, f64), q: (f64, f64), m: usize, n: usize| {
+        near(p, q) || (m == n && sub.singular_nodes.contains_key(&m))
     };
     let mut drop: Vec<(usize, usize)> = Vec::new();
     for (i, &a) in hes.iter().enumerate() {
@@ -91,8 +91,9 @@ pub(super) fn dedup_duplicate_covers(
             let (sb, mb, eb) = seg(b);
             let middles = near(ma, mb) || (on_polyline(ma, b) && on_polyline(mb, a));
             let ((na0, na1), (nb0, nb1)) = (ends(a), ends(b));
-            let same = at_pole(sa, sb, na0, nb0) && at_pole(ea, eb, na1, nb1) && middles;
-            let reversed = at_pole(sa, eb, na0, nb1) && at_pole(ea, sb, na1, nb0) && middles;
+            let same = at_singular(sa, sb, na0, nb0) && at_singular(ea, eb, na1, nb1) && middles;
+            let reversed =
+                at_singular(sa, eb, na0, nb1) && at_singular(ea, sb, na1, nb0) && middles;
             if !(same || reversed) || apart_in_space(graph, a, b, linear) {
                 continue;
             }

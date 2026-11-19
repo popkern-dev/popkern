@@ -163,10 +163,15 @@ pub(super) fn fragment_interior_sample(
             .is_none()
         {
             use crate::periodic_chart_parity::{
-                cancel_coincident_pairs, contains_on_u_periodic_chart_with_poles,
+                cancel_coincident_pairs, contains_on_u_periodic_chart_with_singular_rows,
             };
             let singular_row = |v: f64| {
-                crate::merge::walk::chart_poles::row_collapses(surface, graph.linear, 0.0, v)
+                crate::merge::walk::chart_singular_nodes::row_collapses(
+                    surface,
+                    graph.linear,
+                    0.0,
+                    v,
+                )
             };
             let raw: Vec<f64> = outer_x
                 .iter()
@@ -191,8 +196,13 @@ pub(super) fn fragment_interior_sample(
             let mut best: Option<(f64, f64)> = None;
             for (a, b) in arcs {
                 let mid = 0.5 * (a + b);
-                let material =
-                    contains_on_u_periodic_chart_with_poles(&loops, mid, cv, p, &singular_row);
+                let material = contains_on_u_periodic_chart_with_singular_rows(
+                    &loops,
+                    mid,
+                    cv,
+                    p,
+                    &singular_row,
+                );
                 if popkern_core::trace::trace_enabled("face-selection") {
                     eprintln!(
                         "      [selpoly-arc] [{a:.3},{b:.3}] mid={mid:.3} contains={material}"

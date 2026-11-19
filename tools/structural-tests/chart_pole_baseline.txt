@@ -1,18 +1,6 @@
 # Chart-service POLE ratchet baseline (PK-1228): per-file counts of the
 # `pole` token in non-comment code outside the service. Only ever
 # lowered; W2 exits with this file empty.
-crates/popkern-bool/src/cellular/fragment_interior.rs 3
-crates/popkern-bool/src/classify_ray_chart_trim.rs 8
-crates/popkern-bool/src/merge/walk/chart_branch_anchoring.rs 1
-crates/popkern-bool/src/merge/walk/chart_branch_clustering.rs 6
-crates/popkern-bool/src/merge/walk/chart_branch_float.rs 2
-crates/popkern-bool/src/merge/walk/chart_duplicate_cover.rs 6
-crates/popkern-bool/src/merge/walk/chart_embedding_endpoints.rs 2
-crates/popkern-bool/src/merge/walk/chart_poles.rs 7
-crates/popkern-bool/src/merge/walk/chart_subdivision.rs 14
-crates/popkern-bool/src/merge/walk/chart_walk_next.rs 1
-crates/popkern-bool/src/merge/walk/mod.rs 1
-crates/popkern-bool/src/periodic_chart_parity.rs 10
 crates/popkern-core/src/geometry/edge_triple/tests_sphere_frame.rs 3
 crates/popkern-core/src/geometry/intersection/line_sphere.rs 3
 crates/popkern-core/src/healing/interval_curvature.rs 3

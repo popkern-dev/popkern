@@ -97,7 +97,7 @@ pub(crate) fn snap_singular_end_azimuths(
 
 /// Record pole nodes (with rotation side) on `sub` for sphere/cone
 /// charts.
-pub(crate) fn detect_pole_nodes(
+pub(crate) fn detect_singular_nodes(
     graph: &IntersectionGraph,
     surface: &SurfaceGeometry,
     sub: &mut FaceChartSubdivision,
@@ -128,13 +128,13 @@ pub(crate) fn detect_pole_nodes(
                 graph.half_edges[graph.half_edges[h].twin].origin,
             );
             for (node, &(u, v)) in [(n_start, &emb.uv[0]), (n_end, &emb.uv[emb.uv.len() - 1])] {
-                if sub.poles.contains_key(&node) {
+                if sub.singular_nodes.contains_key(&node) {
                     continue;
                 }
-                if popkern_core::trace::trace_enabled("pole") {
+                if popkern_core::trace::trace_enabled("singular-node") {
                     let p0 = surface.point_at(u, v);
                     eprintln!(
-                        "  [pole?] node {node} uv=({u:.4},{v:.4}) p0=({:.3},{:.3},{:.3}) du-dist={:.3e}",
+                        "  [singular?] node {node} uv=({u:.4},{v:.4}) p0=({:.3},{:.3},{:.3}) du-dist={:.3e}",
                         p0.x,
                         p0.y,
                         p0.z,
@@ -146,7 +146,7 @@ pub(crate) fn detect_pole_nodes(
                     // yet calibrated here, so store the side and fold
                     // σ in at the end of the build.
                     let side = if v >= v_mid { 1.0 } else { -1.0 };
-                    sub.poles.insert(node, side);
+                    sub.singular_nodes.insert(node, side);
                 }
             }
         }
@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pole_end_takes_its_runs_azimuth_on_the_runs_period_branch() {
+    fn a_singular_end_takes_its_runs_azimuth_on_the_runs_period_branch() {
         // The upright drilled dome's seam piece (PK-691): samples on
         // the u = 2π meridian, the δ-sample projected to u = 0.
         let mut uv = vec![(0.0, 0.0), (TAU, 0.018), (TAU, 0.036)];
@@ -183,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn a_pole_end_without_a_delta_sample_takes_its_neighbours_azimuth() {
+    fn a_singular_end_without_a_delta_sample_takes_its_neighbours_azimuth() {
         let mut uv = vec![(0.0, 0.0), (TAU, 0.018), (TAU, 0.036)];
         snap_singular_end_azimuths((&sphere(), 1e-6), &mut uv, None, None);
         assert_eq!(uv[0].0, TAU);

@@ -35,7 +35,7 @@ pub(crate) fn cluster_branches(
     u_start: &BTreeMap<usize, f64>,
     u_end: &BTreeMap<usize, f64>,
     period: f64,
-    poles: &BTreeMap<usize, f64>,
+    singular_nodes: &BTreeMap<usize, f64>,
     wrap_nodes: &std::collections::BTreeSet<usize>,
     v_split: Option<(&dyn Fn(usize, bool) -> f64, f64)>,
 ) -> (BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>) {
@@ -84,7 +84,7 @@ pub(crate) fn cluster_branches(
         // A POLE node is one geometric point whose incident endpoints
         // carry their meridians' azimuths — never split it by u. A
         // WRAP node's copies are one azimuth mod the period — same.
-        let mut is_pole = poles.contains_key(&node) || wrap_nodes.contains(&node);
+        let mut is_singular = singular_nodes.contains_key(&node) || wrap_nodes.contains(&node);
         // DATA-DRIVEN lattice junction: entries whose u values fold to
         // ONE azimuth mod the period are period copies of a single
         // junction even when the anchoring did not mark the node (a
@@ -95,7 +95,7 @@ pub(crate) fn cluster_branches(
         // to the 3D-Newell walker, PK-465). Folding is gated tightly:
         // the residues must be exact period multiples within the
         // anchoring lattice eps.
-        if !is_pole && entries.len() > 1 {
+        if !is_singular && entries.len() > 1 {
             let eps = period * 5e-4;
             let base = entries[0].0;
             let on_lattice = |u: f64| {
@@ -126,7 +126,7 @@ pub(crate) fn cluster_branches(
                 .map(|&(u, _, _)| u)
                 .fold((f64::MAX, f64::MIN), |(lo, hi), u| (lo.min(u), hi.max(u)));
             if one_azimuth && strays_are_twins && spread.1 - spread.0 > period * 0.5 {
-                is_pole = true;
+                is_singular = true;
             }
         }
         entries.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
@@ -134,7 +134,7 @@ pub(crate) fn cluster_branches(
         let mut branch = *first;
         let mut prev_u: Option<f64> = None;
         for (u, h, is_start) in entries {
-            if !is_pole
+            if !is_singular
                 && let Some(p) = prev_u
                 && u - p > period * 0.5
             {

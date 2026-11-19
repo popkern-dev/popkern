@@ -42,7 +42,7 @@ pub(crate) fn contains_on_u_periodic_chart(
     v: f64,
     period: f64,
 ) -> bool {
-    contains_on_u_periodic_chart_with_poles(loops, u, v, period, &|_| false)
+    contains_on_u_periodic_chart_with_singular_rows(loops, u, v, period, &|_| false)
 }
 
 /// [`contains_on_u_periodic_chart`] on a chart with collapsed rows:
@@ -53,12 +53,12 @@ pub(crate) fn contains_on_u_periodic_chart(
 /// joins them along its pole rows, and with those rows read as branch
 /// jumps the face's parity inverted and its holes read as material
 /// (PK-937).
-pub(crate) fn contains_on_u_periodic_chart_with_poles(
+pub(crate) fn contains_on_u_periodic_chart_with_singular_rows(
     loops: &[&[(f64, f64)]],
     u: f64,
     v: f64,
     period: f64,
-    pole_row: &dyn Fn(f64) -> bool,
+    singular_row: &dyn Fn(f64) -> bool,
 ) -> bool {
     let mut crossings = 0usize;
     for poly in loops {
@@ -68,11 +68,11 @@ pub(crate) fn contains_on_u_periodic_chart_with_poles(
             let (u1_raw, v1) = poly[(i + 1) % n];
             let raw = u1_raw - u0;
             let wrapped = raw - period * (raw / period).round();
-            let along_pole = wrapped.abs() <= 1e-9 * period
+            let along_row = wrapped.abs() <= 1e-9 * period
                 && raw.abs() > 0.5 * period
                 && (v1 - v0).abs() <= 1e-9 * (1.0 + v0.abs())
-                && pole_row(v0);
-            let du = if along_pole { raw } else { wrapped };
+                && singular_row(v0);
+            let du = if along_row { raw } else { wrapped };
             let u1 = u0 + du;
             if du == 0.0 {
                 continue;
@@ -183,7 +183,7 @@ mod tests {
     /// as the material; read as the rows they are, the region is the
     /// chart less the hole, on every branch.
     #[test]
-    fn pole_rows_bound_a_sphere_face() {
+    fn singular_rows_bound_a_sphere_face() {
         use std::f64::consts::PI;
         let outer = vec![(0.0, PI), (0.0, 0.0), (TAU, 0.0), (TAU, PI)];
         let hole: Vec<(f64, f64)> = (0..16)
@@ -193,10 +193,10 @@ mod tests {
             })
             .collect();
         let loops: [&[(f64, f64)]; 2] = [&outer, &hole];
-        let poles = |v: f64| v == 0.0 || v == PI;
+        let rows = |v: f64| v == 0.0 || v == PI;
         for lift in [-TAU, 0.0, TAU] {
             let inside = |u: f64, v: f64| {
-                contains_on_u_periodic_chart_with_poles(&loops, u + lift, v, TAU, &poles)
+                contains_on_u_periodic_chart_with_singular_rows(&loops, u + lift, v, TAU, &rows)
             };
             assert!(inside(3.0, 1.5) && inside(1.0, 0.5) && inside(5.9, 2.9));
             assert!(!inside(1.0, 1.5), "the hole is not material");

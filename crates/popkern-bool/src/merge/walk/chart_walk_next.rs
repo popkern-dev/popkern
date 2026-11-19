@@ -30,7 +30,7 @@ pub(crate) fn next_in_chart(
     // pole side (rotation sense reverses between poles); the twin
     // sits at the arrival azimuth (angle → period) and ranks last
     // naturally.
-    if let Some(&dir) = sub.poles.get(&bp.node)
+    if let Some(&dir) = sub.singular_nodes.get(&bp.node)
         && let Some(period) = sub.u_period
     {
         let emb_h = sub.embeddings.get(&h)?;

@@ -64,7 +64,7 @@ pub(crate) fn snap_end_azimuths(
     ) {
         for (end, node) in [(0, ends.0), (n - 1, ends.1)] {
             let (u, v) = uv[end];
-            if super::chart_poles::row_collapses(surface, linear, u, v) {
+            if super::chart_singular_nodes::row_collapses(surface, linear, u, v) {
                 continue;
             }
             let band = 1e-4 * surface.partial_u(u, v).length().max(1e-12) * period;
@@ -76,5 +76,10 @@ pub(crate) fn snap_end_azimuths(
             }
         }
     }
-    super::chart_poles::snap_singular_end_azimuths((surface, linear), uv, refined.0, refined.1);
+    super::chart_singular_nodes::snap_singular_end_azimuths(
+        (surface, linear),
+        uv,
+        refined.0,
+        refined.1,
+    );
 }

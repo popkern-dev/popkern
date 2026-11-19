@@ -188,10 +188,31 @@ fn chart_trim_verdict(
     // is a real full-period chart segment (a full sphere's seam spine
     // is two meridians joined there), not a branch jump. At v = 0 it
     // lies below every +v parity ray; at v = π it crosses each once.
-    let mut pole_crossings = 0usize;
+    let mut row_crossings = 0usize;
     if sphere {
+        // A sample's singular row (low or high in v), asked of the chart
+        // service in space at the tolerance (it read v within 1e-6 rad of
+        // 0 or π).
+        let descriptor = popkern_core::geometry::chart::ChartDescriptor::of(surface, tolerance);
+        let rows: Vec<f64> = descriptor
+            .singular_rows
+            .iter()
+            .filter(|r| r.axis == popkern_core::geometry::chart::Axis::V)
+            .map(|r| r.at)
+            .collect();
+        let middle = rows.iter().sum::<f64>() / rows.len().max(1) as f64;
+        let row_of = |v: f64| -> Option<bool> {
+            let p = surface.point_at(0.0, v);
+            popkern_core::geometry::chart::ops::singular_point_near(
+                &descriptor,
+                &p,
+                tolerance.linear(),
+            )
+            .filter(|(_, collapses_u)| *collapses_u)
+            .map(|(r, _)| r.at > middle)
+        };
         for ring in &rings {
-            pole_crossings += pole_row_closure(ring, period)?;
+            row_crossings += row_closure(ring, period, &row_of)?;
         }
     }
     // A torus is periodic in v too: the parity runs on the rings' own v
@@ -209,7 +230,7 @@ fn chart_trim_verdict(
     }
     let loops: Vec<&[(f64, f64)]> = rings.iter().map(Vec::as_slice).collect();
     let on_trim = crate::periodic_chart_parity::contains_on_u_periodic_chart(&loops, u, v, period)
-        != (pole_crossings % 2 == 1);
+        != (row_crossings % 2 == 1);
     let boundary = brep.face_boundary_sample_points(face_handle, STATIONS);
     let (lo, hi) = boundary.iter().fold(
         (
@@ -334,25 +355,11 @@ fn winds(values: impl Iterator<Item = f64>, period: f64) -> bool {
     net.abs() > 0.5 * period
 }
 
-/// Distance in v, in radians, within which a ring sample is on a pole.
-const POLE_TOUCH: f64 = 1.0e-6;
-
-/// The full periods a sphere ring's v = π pole-row steps traverse
-/// (each crosses a +v parity ray once per period), or `None` when the
-/// ring still winds around the chart with its pole-row steps taken
-/// literally: it then separates the poles without closing through
-/// either, and which one the region holds is undecided.
-fn pole_row_closure(ring: &[(f64, f64)], period: f64) -> Option<usize> {
-    let pi = std::f64::consts::PI;
-    let row = |v: f64| {
-        if v < POLE_TOUCH {
-            Some(false)
-        } else if v > pi - POLE_TOUCH {
-            Some(true)
-        } else {
-            None
-        }
-    };
+fn row_closure(
+    ring: &[(f64, f64)],
+    period: f64,
+    row: &dyn Fn(f64) -> Option<bool>,
+) -> Option<usize> {
     let n = ring.len();
     let (mut net, mut high) = (0.0_f64, 0usize);
     for i in 0..n {

@@ -63,7 +63,7 @@ pub(crate) enum SubdivisionIssue {
     /// carries degenerate pole-border topology (full-sphere BReps
     /// hold zero-length pole edges) whose semantics the pole-azimuth
     /// rotation does not model — recorded fallback.
-    PoleAdjacentDegeneracy { node: usize },
+    SingularAdjacentDegeneracy { node: usize },
 }
 
 impl std::fmt::Display for SubdivisionIssue {
@@ -92,8 +92,8 @@ impl std::fmt::Display for SubdivisionIssue {
                 write!(f, "duplicate chart segment: he {a} vs he {b}")
             }
             Self::SeamSearchExhausted => write!(f, "seam balance search exceeded budget"),
-            Self::PoleAdjacentDegeneracy { node } => {
-                write!(f, "degenerate pole-border topology at node {node}")
+            Self::SingularAdjacentDegeneracy { node } => {
+                write!(f, "degenerate singular-row border topology at node {node}")
             }
         }
     }
@@ -166,7 +166,7 @@ pub(crate) struct FaceChartSubdivision {
     /// apices) → rotation direction for the azimuth successor:
     /// +1 ⇒ smallest positive (u_arrive − u_depart) mod period wins,
     /// −1 ⇒ the mirrored order (σ and pole side folded in).
-    pub poles: BTreeMap<usize, f64>,
+    pub singular_nodes: BTreeMap<usize, f64>,
     /// The cut domain of a face wrapping both periods (PK-459): its
     /// v window and v-seam halves; branch points split by v copy.
     pub cut_domain: Option<super::chart_cut_domain::CutDomain>,
@@ -225,9 +225,9 @@ pub(crate) fn build_face_subdivision(
     );
     if popkern_core::trace::trace_enabled("chart-dump") {
         eprintln!(
-            "  [chart] {face:?} sigma={} poles={:?} cut_v={:?} issues={:?} filtered={:?}",
+            "  [chart] {face:?} sigma={} singular_nodes={:?} cut_v={:?} issues={:?} filtered={:?}",
             sub.sigma,
-            sub.poles,
+            sub.singular_nodes,
             sub.cut_domain.as_ref().map(|d| (d.v0, d.v0 + d.v_period)),
             sub.report.issues,
             sub.report.filtered
@@ -431,7 +431,7 @@ fn build_face_subdivision_inner(
     // POLE NODES (design doc §5) — detection extracted to
     // `chart_poles.rs`; the pole is a single branch point and the
     // rotational successor orders departures by azimuth.
-    super::chart_poles::detect_pole_nodes(graph, surface, &mut sub, u_period);
+    super::chart_singular_nodes::detect_singular_nodes(graph, surface, &mut sub, u_period);
 
     // I5 — duplicate-cover dedup, extracted to
     // `chart_duplicate_cover.rs` per the file-size rule.
@@ -642,7 +642,7 @@ fn build_face_subdivision_inner(
     // meridian makes a record that IS the seam's upper piece; dropping
     // it for the seam sent the sphere face to the 3D walk, which lost
     // the remainder region at the pole).
-    if !sub.poles.is_empty() {
+    if !sub.singular_nodes.is_empty() {
         let same_segment = |a: usize, b: usize| {
             let (ea, eb) = (ends(a), ends(b));
             ea == eb || ea == (eb.1, eb.0)
@@ -664,20 +664,20 @@ fn build_face_subdivision_inner(
             })
             .collect();
         for (h, zero_extent) in dropped {
-            let benign_pole_border = zero_extent
+            let benign_singular_border = zero_extent
                 && !matches!(
                     graph.half_edges[h].source,
                     crate::merge::graph::EdgeSource::Shared { .. }
                 );
-            if benign_pole_border {
+            if benign_singular_border {
                 continue;
             }
             let (a, b) = ends(h);
             for n in [a, b] {
-                if sub.poles.contains_key(&n) {
+                if sub.singular_nodes.contains_key(&n) {
                     sub.report
                         .issues
-                        .push(SubdivisionIssue::PoleAdjacentDegeneracy { node: n });
+                        .push(SubdivisionIssue::SingularAdjacentDegeneracy { node: n });
                 }
             }
         }
@@ -733,7 +733,7 @@ fn build_face_subdivision_inner(
     // Fold the calibrated σ into the pole rotation directions (σ can
     // change during the periodic anchoring's shoelace calibration).
     let sigma = sub.sigma;
-    for dir in sub.poles.values_mut() {
+    for dir in sub.singular_nodes.values_mut() {
         *dir *= sigma;
     }
     sub
