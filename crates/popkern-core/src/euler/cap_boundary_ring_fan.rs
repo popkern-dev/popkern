@@ -51,11 +51,11 @@ impl BRep {
     pub fn cap_boundary_ring_fan(
         &mut self,
         ring: &[EdgeHandle],
-        pole: Point3,
+        hub: Point3,
     ) -> Result<BoundaryRingFanResult, CoreError> {
         let before = EulerTopologyCounts::from_brep(self);
         let mut candidate = self.clone();
-        let result = candidate.apply_boundary_ring_fan(ring, pole)?;
+        let result = candidate.apply_boundary_ring_fan(ring, hub)?;
         candidate.verify_boundary_ring_fan_postconditions(before, &result)?;
         candidate.fill_closed_shells();
         *self = candidate;
@@ -65,7 +65,7 @@ impl BRep {
     fn apply_boundary_ring_fan(
         &mut self,
         ring: &[EdgeHandle],
-        pole: Point3,
+        hub: Point3,
     ) -> Result<BoundaryRingFanResult, CoreError> {
         let cap = self.cap_boundary_ring_unfilled(ring)?;
         let rim = cap.half_edges;
@@ -73,7 +73,7 @@ impl BRep {
 
         // Plant the pole spur at rim vertex w_0: he_out runs w_0 → pole,
         // he_in runs pole → w_0 with he_in.next == rim[0].
-        let spur = self.mev(rim[0], pole)?;
+        let spur = self.mev(rim[0], hub)?;
         let hub_vertex = spur.vertex;
         let mut spoke_edges = Vec::with_capacity(count);
         spoke_edges.push(spur.edge);
@@ -82,12 +82,12 @@ impl BRep {
         // Each mef mints the spoke edge pole ↔ w_k and the sector face
         // whose loop is {rim[k−1], spoke w_k → pole, spoke pole → w_{k−1}}.
         let mut sector_faces = Vec::with_capacity(count);
-        let mut pole_side = spur.half_edge_twin;
+        let mut hub_side = spur.half_edge_twin;
         for &rim_half_edge in rim.iter().skip(1) {
-            let sector = self.mef(pole_side, rim_half_edge)?;
+            let sector = self.mef(hub_side, rim_half_edge)?;
             sector_faces.push(sector.face);
             spoke_edges.push(sector.edge);
-            pole_side = sector.half_edge;
+            hub_side = sector.half_edge;
         }
         // The residual cap loop {he_out w_0 → pole, pole → w_{N−1},
         // rim[N−1]} is the last sector, still on the original cap face.

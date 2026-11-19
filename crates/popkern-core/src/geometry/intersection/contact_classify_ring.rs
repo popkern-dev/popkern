@@ -135,7 +135,10 @@ pub(super) fn ring_pattern(
     linear: f64,
 ) -> Option<RingPattern> {
     let mut signs = Vec::with_capacity(RING_SAMPLES);
-    let (mut w1, mut w2) = (off_pole(s1, uv1), off_pole(s2, uv2));
+    let (mut w1, mut w2) = (
+        off_degenerate_jacobian(s1, uv1),
+        off_degenerate_jacobian(s2, uv2),
+    );
     for k in 0..RING_SAMPLES {
         let a = std::f64::consts::TAU * k as f64 / RING_SAMPLES as f64;
         let q = p + (e1 * a.pcos() + e2 * a.psin()) * rho;
@@ -174,14 +177,14 @@ pub(super) fn ring_pattern(
 
 /// A parameter beside `uv` where the chart is regular (the pole itself
 /// has no Jacobian for Newton).
-fn off_pole(s: &SurfaceGeometry, uv: (f64, f64)) -> (f64, f64) {
-    beside_pole(s, uv, 1e-3).unwrap_or(uv)
+fn off_degenerate_jacobian(s: &SurfaceGeometry, uv: (f64, f64)) -> (f64, f64) {
+    beside_degenerate_jacobian(s, uv, 1e-3).unwrap_or(uv)
 }
 
 /// A parameter `fraction` of the v range beside `uv` (into the range),
 /// where a chart singular at `uv` (a pole) is read; `None` at a regular
 /// `uv`.
-pub(super) fn beside_pole(
+pub(super) fn beside_degenerate_jacobian(
     s: &SurfaceGeometry,
     uv: (f64, f64),
     fraction: f64,

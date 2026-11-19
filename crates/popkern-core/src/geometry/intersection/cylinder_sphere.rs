@@ -145,11 +145,11 @@ fn intersect_impl(
     }
     // With the sphere chart's pole along the cylinder axis both
     // images are constant-v lines; across it the sphere's is a fit.
-    let pole = match sphere_surface {
+    let sphere_axis = match sphere_surface {
         SurfaceGeometry::Sphere { axis, .. } => *axis,
         _ => return None,
     };
-    let iso_rows = axis_n.cross(&pole).length() <= tolerance.angular();
+    let iso_rows = axis_n.cross(&sphere_axis).length() <= tolerance.angular();
     let cyl_v_range = cyl_windows.1;
     let h = (rs * rs - rc * rc).sqrt();
     let (p1, p2) = orthonormal_basis(axis_n);

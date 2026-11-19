@@ -151,7 +151,8 @@ pub fn classify_contact(
         unit_normal(s, uv)
             .or_else(|| s.normal_at(uv.0, uv.1).normalized())
             .or_else(|| {
-                ring::beside_pole(s, uv, 1e-9).and_then(|w| s.normal_at(w.0, w.1).normalized())
+                ring::beside_degenerate_jacobian(s, uv, 1e-9)
+                    .and_then(|w| s.normal_at(w.0, w.1).normalized())
             })
     };
     let n = normal(s1, uv1)
@@ -177,7 +178,9 @@ pub fn classify_contact(
     // of radius 1 in a cup, read on a ring of radius 2.5, PK-1179).
     // At a pole the forms are none: the bending is read just beside it.
     let beside = |s: &SurfaceGeometry, uv: (f64, f64), f: Option<[[f64; 2]; 2]>| {
-        f.or_else(|| ring::beside_pole(s, uv, 1e-3).and_then(|w| frame_form(s, w, n, e1, e2)))
+        f.or_else(|| {
+            ring::beside_degenerate_jacobian(s, uv, 1e-3).and_then(|w| frame_form(s, w, n, e1, e2))
+        })
     };
     let bending = [beside(s1, uv1, form1), beside(s2, uv2, form2)]
         .into_iter()

@@ -30,7 +30,7 @@ use crate::tolerance::Tolerance;
 use popkern_math::PortableMath;
 
 /// The sphere's chart pole, if `surface` is a sphere.
-fn sphere_pole(surface: &SurfaceGeometry) -> Option<(Point3, Vec3)> {
+fn sphere_frame(surface: &SurfaceGeometry) -> Option<(Point3, Vec3)> {
     match surface {
         SurfaceGeometry::Sphere { center, axis, .. } => Some((*center, *axis)),
         _ => None,
@@ -128,7 +128,7 @@ pub(super) fn try_in_sphere_frame(
     hint: Option<&EdgeHint>,
     tol: &Tolerance,
 ) -> Option<Result<EdgeTriple, EdgeTripleError>> {
-    let (center, axis) = match (sphere_pole(surf_a), sphere_pole(surf_b)) {
+    let (center, axis) = match (sphere_frame(surf_a), sphere_frame(surf_b)) {
         (Some((ca, aa)), Some((_, ab))) => {
             // One frame must make both poles world: equal poles only.
             if aa.cross(&ab).length() > 1e-12 || aa.dot(&ab) <= 0.0 {

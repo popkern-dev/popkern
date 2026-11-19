@@ -41,7 +41,7 @@ crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part3
 crates/popkern-core/src/geometry/gregory/kp20_bi6_tau_solve_assemble_tests_part4.rs 2344
 crates/popkern-core/src/geometry/gregory/kp20_paper_guide.rs 679
 crates/popkern-core/src/geometry/uv_projection.rs 502
-crates/popkern-core/src/topology/pcurve_recompute.rs 622
+crates/popkern-core/src/topology/pcurve_recompute.rs 613
 crates/popkern-examples/src/dice_set.rs 1186
 crates/popkern-examples/src/flagship_boss_plate.rs 798
 crates/popkern-examples/src/kp15_bi6_cap_variants_compare.rs 825

@@ -41,21 +41,6 @@ impl ChartAxis {
             ChartAxis::V => pcurve.translated_uv(0.0, delta),
         }
     }
-
-    /// Magnitude of the surface partial along this axis at `uv` —
-    /// zero at a parametric degeneracy of the axis (cone apex,
-    /// sphere pole), where the axis coordinate carries no geometry.
-    fn partial_len(
-        self,
-        surface: &crate::geometry::surface::SurfaceGeometry,
-        uv: crate::geometry::Point3,
-    ) -> f64 {
-        use crate::geometry::surface::SurfaceEval;
-        match self {
-            ChartAxis::U => surface.partial_u(uv.x, uv.y).length(),
-            ChartAxis::V => surface.partial_v(uv.x, uv.y).length(),
-        }
-    }
 }
 
 impl BRep {
@@ -133,7 +118,9 @@ impl BRep {
                 let mut prev_end: Option<f64> = None;
                 let mut first_start: Option<f64> = None;
                 let mut deltas: Vec<f64> = Vec::with_capacity(hes.len());
-                let mut pole_joints: Vec<usize> = Vec::new();
+                let descriptor =
+                    crate::geometry::chart::ChartDescriptor::of(&surface_geom, &self.tolerance);
+                let mut singular_joints: Vec<usize> = Vec::new();
                 let mut complete = true;
                 for (i, &heh) in hes.iter().enumerate() {
                     let Some(pc) = self.half_edges[heh].pcurve.as_ref() else {
@@ -153,19 +140,24 @@ impl BRep {
                     // one branch: the lateral loop tore at the seam,
                     // its trim polygon degenerated, and the mesh both
                     // cracked and lost the tail of the period (PK-332).
-                    let mid_uv = pc.point_at(0.5 * (t0 + t1));
-                    // Gate at 1e-4 relative: an axis partial that small
-                    // moves the joint by sub-tolerance 3D distance per
-                    // period, so no genuine continuity constraint is
-                    // lost. A projected pole endpoint lands at
-                    // v ≈ 1e-6 off the exact pole (partial ratio
-                    // ~1.4e-6), so the old 1e-6 gate read PK-325's
-                    // corner-cap pole joints as REAL and k-shifted the
-                    // meridian arcs off their authored branch.
-                    let joint_degenerate = axis.partial_len(&surface_geom, joint_uv)
-                        < 1.0e-4 * (axis.partial_len(&surface_geom, mid_uv) + 1.0e-12);
+                    // Asked of the chart service in space: the joint's
+                    // image within the linear tolerance of a singular row
+                    // collapsing this axis. It was the axis partial
+                    // against the edge's middle (1e-4: a projected pole
+                    // endpoint lands 1e-6 off the exact pole, and PK-325's
+                    // corner-cap pole joints read as real at 1e-6).
+                    let joint_degenerate = crate::geometry::chart::ops::singular_point_near(
+                        &descriptor,
+                        &crate::geometry::surface::SurfaceEval::point_at(
+                            &surface_geom,
+                            joint_uv.x,
+                            joint_uv.y,
+                        ),
+                        self.tolerance.linear(),
+                    )
+                    .is_some_and(|(_, collapses_u)| collapses_u == (axis == ChartAxis::U));
                     if joint_degenerate {
-                        pole_joints.push(i);
+                        singular_joints.push(i);
                     }
                     if let Some(pe) = prev_end {
                         if joint_degenerate {
@@ -233,7 +225,7 @@ impl BRep {
                 // closing joint already absorbs it. A liar with twin
                 // evidence is still flipped first.
                 if liar.is_none()
-                    && let Some(&j) = pole_joints.last()
+                    && let Some(&j) = singular_joints.last()
                 {
                     if j > 0 {
                         let k = (net / period).round();

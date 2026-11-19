@@ -269,19 +269,11 @@ impl BRep {
                 // u = −π/2 clamped to 0).
                 let mut u_snapped = false;
                 if let Some(&(_, first_u, _)) = quarter_samples.first() {
-                    use crate::geometry::surface::SurfaceEval;
-                    // Row-degeneracy gate: ∂u under 1e-4 of the edge's
-                    // interior ∂u (a projected pole lands at ∂u ≈ r·1e-6,
-                    // so an exact-zero gate never fires). Not ∂v: ∂u/∂v
-                    // has length units on a cylinder, so r < 1e-4 read
-                    // as a pole and lost its exact line (PK-860).
-                    let du_in = quarter_samples
-                        .iter()
-                        .map(|&(_, u, v)| surface.partial_u(u, v).length())
-                        .fold(0.0_f64, f64::max);
-                    let pole_at = |u: f64, v: f64| -> bool {
-                        du_in > 0.0 && surface.partial_u(u, v).length() <= 1.0e-4 * du_in
-                    };
+                    let at_singular_row = pcurve_recompute_ends::end_at_singular_row(
+                        &surface,
+                        &self.tolerance,
+                        &quarter_samples,
+                    );
                     // The free azimuth at a pole is the curve's limit:
                     // the direction it arrives from (leaves toward),
                     // read a hair inside the edge. A quarter sample's
@@ -294,14 +286,14 @@ impl BRep {
                     // a NURBS chart's collapsed row is not (measured:
                     // the pyramid3 apex cap's projections there lost
                     // the cap's G1 rim, 0.975 vs a 5e-2 gate).
-                    let analytic_pole = matches!(
+                    let analytic_singular_row = matches!(
                         surface,
                         crate::geometry::surface::SurfaceGeometry::Sphere { .. }
                             | crate::geometry::surface::SurfaceGeometry::Cone { .. }
                     );
                     let limit_u = |fraction: f64, reference: f64| -> f64 {
                         let t = t_lo + (t_hi - t_lo) * fraction;
-                        match analytic_pole {
+                        match analytic_singular_row {
                             true => {
                                 project_point_to_uv(&surface, &curve_on_edge.geometry.point_at(t))
                                     .map_or(reference, |(u, _)| align(u, reference, period_u))
@@ -309,11 +301,11 @@ impl BRep {
                             false => reference,
                         }
                     };
-                    if pole_at(u_s, v_s) {
+                    if at_singular_row(u_s, v_s) {
                         u_s = limit_u(1.0e-7, first_u);
                         u_snapped = true;
                     }
-                    if pole_at(u_e, v_e) {
+                    if at_singular_row(u_e, v_e) {
                         u_e = limit_u(1.0 - 1.0e-7, chain.0);
                         u_snapped = true;
                     }
@@ -601,6 +593,8 @@ impl BRep {
 #[path = "pcurve_loop_chart_coherence.rs"]
 mod pcurve_loop_chart_coherence;
 
+#[path = "pcurve_recompute_ends.rs"]
+mod pcurve_recompute_ends;
 #[path = "pcurve_stale_repair.rs"]
 mod pcurve_stale_repair;
 
