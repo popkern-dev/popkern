@@ -78,11 +78,26 @@ pub(super) fn window_crossings(
     let (t0, t1) = query.parameter_range();
     let eps = 1e-6 * (t1 - t0).abs();
     crossings.sort_by(|a, b| a.t_curve.total_cmp(&b.t_curve));
+    // One place in space within the reach is one crossing (two lifts read
+    // a crossing 1.15e-6 apart in the record's parameter, over a
+    // parameter test of a millionth).
+    let reach = brep.tolerance.linear_reach();
+    let place = |c: &UvCrossing| {
+        use popkern_core::geometry::surface::SurfaceEval as _;
+        let q = query.point_at(c.t_curve);
+        surface.map(|s| s.point_at(q.x, q.y))
+    };
     crossings.dedup_by(|x, y| {
         x.boundary_he == y.boundary_he
-            && (x.t_curve - y.t_curve).abs() <= eps
-            && (x.t_boundary - y.t_boundary).abs() <= eps.max(1e-9)
+            && match (place(x), place(y)) {
+                (Some(a), Some(b)) => a.distance_to(&b) <= reach,
+                _ => {
+                    (x.t_curve - y.t_curve).abs() <= eps
+                        && (x.t_boundary - y.t_boundary).abs() <= eps.max(1e-9)
+                }
+            }
     });
+    merge_one_pass(brep, surface, query, &mut crossings);
     // A record running beside one boundary edge within the reach, its two
     // crossings of that edge either end of the stretch, touches it: two
     // curves within the tolerance meet once (tangency design §4.8; a
@@ -308,6 +323,87 @@ fn drop_touch_excursions(
             && !at_corner(&crossings[i + 1], crossings)
         {
             crossings.drain(i..i + 2);
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// Merge consecutive crossings of one boundary edge where the record stays
+/// within the linear reach of that edge between them (three stations), as
+/// one pass: kept at the crossing lying on the edge in space (two lifts
+/// read one shallow crossing of a rim apart along it, one of them a
+/// crossing of the pcurve's fit off the edge: a pass meets once).
+fn merge_one_pass(
+    brep: &BRep,
+    surface: Option<&SurfaceGeometry>,
+    query: &NurbsCurve,
+    crossings: &mut Vec<UvCrossing>,
+) {
+    use popkern_core::geometry::curve::closest_point_in_window;
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let Some(surface) = surface else {
+        return;
+    };
+    let reach = brep.tolerance.linear_reach();
+    let at = |t: f64| {
+        let q = query.point_at(t);
+        surface.point_at(q.x, q.y)
+    };
+    let edge_of = |c: &UvCrossing| {
+        brep.half_edges
+            .get(c.boundary_he)
+            .and_then(|he| brep.edges.get(he.edge))
+            .and_then(|e| e.curve.as_ref())
+    };
+    let edge_gap = |c: &UvCrossing, t: f64| -> f64 {
+        let Some(curve) = edge_of(c) else {
+            return f64::INFINITY;
+        };
+        let p = at(t);
+        let s = closest_point_in_window(&curve.geometry, &p, curve.t_start, curve.t_end);
+        curve.geometry.point_at(s).distance_to(&p)
+    };
+    // The record's side of the edge at `t`: the sign of its offset from
+    // the edge across the surface (normal × edge tangent).
+    let side = |c: &UvCrossing, t: f64| -> f64 {
+        let Some(curve) = edge_of(c) else {
+            return 0.0;
+        };
+        let p = at(t);
+        let s = closest_point_in_window(&curve.geometry, &p, curve.t_start, curve.t_end);
+        let foot = curve.geometry.point_at(s);
+        let Some((u, v)) = surface.closest_point(&foot) else {
+            return 0.0;
+        };
+        let n = surface.normal_at(u, v);
+        (p - foot)
+            .dot(&n.cross(&curve.geometry.derivative_at(s, 1)))
+            .signum()
+    };
+    let (t0, t1) = query.parameter_range();
+    let short = 1e-3 * (t1 - t0).abs();
+    let mut i = 0;
+    while i + 1 < crossings.len() {
+        let (a, b) = (&crossings[i], &crossings[i + 1]);
+        // One pass changes sides once: a touch (in and back out within the
+        // reach) is the excursion rule's, never merged here.
+        let step = (b.t_curve - a.t_curve).abs().max(1e-6 * (t1 - t0).abs());
+        // The two are one pass where one of them lies on the edge in space
+        // (the other a crossing of the pcurve's fit, off the edge: 2e-5
+        // along a shallow crossing, 3e-6 from the edge, 3.2e-7 from the
+        // pcurve's image).
+        let one = a.boundary_he == b.boundary_he
+            && (b.t_curve - a.t_curve).abs() <= short
+            && edge_gap(a, a.t_curve).min(edge_gap(b, b.t_curve)) <= reach
+            && side(a, a.t_curve - step) * side(a, b.t_curve + step) < 0.0;
+        if one {
+            let drop = if edge_gap(a, a.t_curve) <= edge_gap(b, b.t_curve) {
+                i + 1
+            } else {
+                i
+            };
+            crossings.remove(drop);
         } else {
             i += 1;
         }
