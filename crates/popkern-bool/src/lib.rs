@@ -50,6 +50,7 @@ pub mod coincidence;
 /// The merged cell complex (PK-964).
 pub(crate) mod complex;
 pub mod complex_shadow;
+mod contact_curves;
 pub mod csg;
 mod curve_projection;
 mod diagnostics_contacts;

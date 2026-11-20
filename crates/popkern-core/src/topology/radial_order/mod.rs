@@ -115,6 +115,8 @@ struct EdgeScale {
     ladder: TieLadder,
     /// The shortest probe the ladder takes (a few linear tolerances).
     floor: f64,
+    /// The operation's linear tolerance.
+    linear: f64,
 }
 
 /// One fin's sort keys at a station.
@@ -160,6 +162,7 @@ pub fn order_fins(
         feature: length.max(tolerance.linear * 100.0),
         ladder: tolerance.ladder,
         floor: tolerance.linear * 10.0,
+        linear: tolerance.linear,
     };
     let stations = stations(src, length, tolerance.linear);
     let first = order_at(src, stations[0], &scale)?;
@@ -243,7 +246,7 @@ fn break_tie(
     mut cluster: Vec<Key>,
     frames: &[RadialFrame<'_>],
     (p, t): (Point3, Vec3),
-    station: f64,
+    (station, beyond): (f64, f64),
     scale: &EdgeScale,
 ) -> Result<Vec<Key>, RadialOrderDecline> {
     let unevaluable = |fin| RadialOrderDecline::Unevaluable { fin: Some(fin) };
@@ -260,7 +263,7 @@ fn break_tie(
         .iter()
         .map(|k| src.clearance(k.fin, p))
         .fold(f64::INFINITY, f64::min);
-    let near = (0.5 * reach).max(scale.floor).min(scale.probe);
+    let near = (0.5 * reach).max(scale.floor).min(scale.probe).max(beyond);
     if scale.ladder.offset_probe {
         let mut narrow = cluster.clone();
         for k in &mut narrow {
@@ -358,14 +361,88 @@ fn order_at(
         })
         .collect();
     keyed.sort_by(|a, b| a.angle.total_cmp(&b.angle));
+    let kappa: Vec<Option<f64>> = frames
+        .iter()
+        .map(|f| ladder::cross_section_curvature(f.surface, f.uv, f.d, t))
+        .collect();
     let mut out = Vec::with_capacity(keyed.len());
-    for cluster in runs(keyed, |k| k.angle, scale.tie_angle) {
+    for (cluster, beyond) in tie_runs(keyed, &kappa, scale) {
         let cluster = if cluster.len() > 1 {
-            break_tie(src, cluster, &frames, (p, t), s, scale)?
+            break_tie(src, cluster, &frames, (p, t), (s, beyond), scale)?
         } else {
             cluster
         };
         out.extend(cluster.iter().map(|k| k.fin));
     }
     Ok(out)
+}
+
+/// The first-order ties among `keyed` (sorted by angle), each with the
+/// distance its probe must reach. Neighbours within the angular
+/// tolerance are tied; so are neighbours `θ` apart whose cross-section
+/// curvatures, `Δκ` apart, bring them back across each other within the
+/// linear tolerance: the lens between them is at most `θ² / 2Δκ` thick,
+/// and where that is within the tolerance the faces are tangent at the
+/// model's resolution (two cylinders on a ruling overlapping by 5e-7
+/// cross at 1.4e-3 rad and recross 1.3e-3 away; ordered by the crossing,
+/// the wedge between them lay in both solids). A tie is probed beyond
+/// the lens its faces can enclose, twice its width with the faces up to
+/// the tolerance apart at the edge (the glued edge of those cylinders sat
+/// on the overlap's midline, the faces parallel there and 5e-7 apart:
+/// probed 1e-5 out, they read the overlap's order), at most the edge's
+/// length. A real crossing's lens (5.9e-4 rad into a 1e-5 lens) stays
+/// untied. The run wrapping past 2π joins the first.
+fn tie_runs(keyed: Vec<Key>, kappa: &[Option<f64>], scale: &EdgeScale) -> Vec<(Vec<Key>, f64)> {
+    // The lens's width when the faces lie up to the tolerance apart at
+    // the edge: they separate as `θ r + Δκ r² / 2` against the gap.
+    let width = |gap: f64, dk: f64| (gap + (gap * gap + 2.0 * dk * scale.linear).sqrt()) / dk;
+    let lens = |a: &Key, b: &Key, gap: f64| -> Option<f64> {
+        let dk = match (kappa[a.fin], kappa[b.fin]) {
+            (Some(ka), Some(kb)) => (ka - kb).abs(),
+            _ => 0.0,
+        };
+        let beyond = if dk > 0.0 {
+            (2.0 * width(gap.max(0.0), dk)).min(scale.feature)
+        } else {
+            0.0
+        };
+        if gap <= scale.tie_angle {
+            return Some(beyond);
+        }
+        (dk > 0.0 && gap * gap <= 2.0 * scale.linear * dk).then_some(beyond)
+    };
+    let mut out: Vec<(Vec<Key>, f64)> = Vec::new();
+    for k in keyed {
+        let joined = out.last_mut().and_then(|(run, beyond)| {
+            let last = run.last()?;
+            let reach = lens(last, &k, k.angle - last.angle)?;
+            *beyond = beyond.max(reach);
+            Some(run)
+        });
+        match joined {
+            Some(run) => run.push(k),
+            None => out.push((vec![k], 0.0)),
+        }
+    }
+    if out.len() > 1
+        && let (Some(first), Some(last)) = (
+            out.first().and_then(|r| r.0.first()).copied(),
+            out.last().and_then(|r| r.0.last()).copied(),
+        )
+        && let Some(reach) = lens(
+            &last,
+            &first,
+            first.angle + std::f64::consts::TAU - last.angle,
+        )
+        && let Some((mut tail, beyond)) = out.pop()
+    {
+        for k in &mut tail {
+            k.angle -= std::f64::consts::TAU;
+        }
+        let head = &mut out[0];
+        tail.append(&mut head.0);
+        head.0 = tail;
+        head.1 = head.1.max(beyond).max(reach);
+    }
+    out
 }

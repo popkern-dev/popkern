@@ -12,9 +12,10 @@
 
 use std::collections::BTreeMap;
 
+use super::touch_detect::TouchPlan;
 use super::{CoincidentGlue, EulerError};
 use crate::geometry::Point3;
-use crate::geometry::curve::CurveEval;
+use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 /// What [`BRep::glue_touching`] did.
@@ -53,8 +54,63 @@ impl BRep {
     /// ([`EulerError::NotImprintable`]), or the glue's (a ring whose
     /// order is undecided, a wedge between two regions).
     pub fn glue_touching(&mut self) -> Result<TouchGlue, EulerError> {
+        let plan = self.touch_plan();
+        self.glue_plan(plan)
+    }
+
+    /// [`Self::glue_touching`] at the contacts a construction found,
+    /// detecting none: each point a vertex every touching piece uses,
+    /// each curve (its ends among the points; a closed one in two halves)
+    /// an edge every touching piece uses, glued. A boolean's general
+    /// policy glues at its construction's touches (tangency design §4.8),
+    /// where detecting them again from the geometry placed a contact
+    /// curve's end 3.5e-6 off the vertex it ends at.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::glue_touching`].
+    pub fn glue_touching_at(
+        &mut self,
+        points: &[Point3],
+        curves: &[CurveOnEdge],
+    ) -> Result<TouchGlue, EulerError> {
+        let tol = self.tolerance.linear_reach();
+        let mut plan = TouchPlan {
+            points: points.to_vec(),
+            curves: Vec::new(),
+        };
+        let add_point = |plan: &mut TouchPlan, p: Point3| {
+            if plan.points.iter().all(|q| q.distance_to(&p) > tol) {
+                plan.points.push(p);
+            }
+        };
+        for c in curves {
+            let at = |t: f64| c.geometry.point_at(t);
+            let (p0, p1) = (at(c.t_start), at(c.t_end));
+            if p0.distance_to(&p1) <= tol {
+                let tm = 0.5 * (c.t_start + c.t_end);
+                add_point(&mut plan, p0);
+                add_point(&mut plan, at(tm));
+                plan.curves.push(CurveOnEdge {
+                    t_end: tm,
+                    ..c.clone()
+                });
+                plan.curves.push(CurveOnEdge {
+                    t_start: tm,
+                    ..c.clone()
+                });
+            } else {
+                add_point(&mut plan, p0);
+                add_point(&mut plan, p1);
+                plan.curves.push(c.clone());
+            }
+        }
+        self.glue_plan(plan)
+    }
+
+    /// Glue at `plan`'s points and curves (see [`Self::glue_touching`]).
+    fn glue_plan(&mut self, plan: TouchPlan) -> Result<TouchGlue, EulerError> {
         let mut work = self.clone();
-        let plan = work.touch_plan();
         let tol = work.tolerance.linear_reach();
         let mut out = TouchGlue {
             points: plan.points.len(),
@@ -145,6 +201,80 @@ impl BRep {
         work.vertex_for(&faces, p, tol, &mut out)?;
         *self = work;
         Ok(out.edges_split + out.vertex_loops)
+    }
+
+    /// Imprint the contact curve `curve` on every face it lies across,
+    /// between vertices at its ends (each face's vertex there, or its
+    /// nearest boundary edge split there), as the glue imprints the
+    /// curves it finds: the boolean's contact reading calls it for a
+    /// tangent record its construction left out (tangency design §4.8,
+    /// W3c), so the line contact is two edges in one place, read from
+    /// the topology. A curve only one entity holds (one face across it,
+    /// or one edge along it) is no contact of the body, and nothing is
+    /// made. Returns how many edges it imprinted. All or nothing.
+    ///
+    /// # Errors
+    ///
+    /// An end vertex's or an imprint's decline.
+    pub fn mark_contact_curve(&mut self, curve: &CurveOnEdge) -> Result<usize, EulerError> {
+        let tol = self.tolerance.linear_reach();
+        let at = |t: f64| curve.geometry.point_at(t);
+        let (p0, p1) = (at(curve.t_start), at(curve.t_end));
+        // Read where no construction puts a vertex (a torus's patches
+        // meet at its quarters).
+        let m = at(curve.t_start + 0.381_966 * (curve.t_end - curve.t_start));
+        let across: Vec<FaceHandle> = self
+            .faces
+            .keys()
+            .filter(|&f| self.face_interior_holds(f, &m, tol))
+            .collect();
+        let along = self
+            .edges
+            .keys()
+            .filter(|&e| self.edge_interior_holds(e, &m, tol))
+            .count();
+        if across.len() + along < 2 {
+            return Ok(0);
+        }
+        // A closed curve (a torus lying on a plane) goes in as two halves
+        // between two points of it: an edge from a vertex loop back to
+        // itself is no imprint.
+        let pieces: Vec<CurveOnEdge> = if p0.distance_to(&p1) <= tol {
+            let tm = 0.5 * (curve.t_start + curve.t_end);
+            vec![
+                CurveOnEdge {
+                    t_end: tm,
+                    ..curve.clone()
+                },
+                CurveOnEdge {
+                    t_start: tm,
+                    ..curve.clone()
+                },
+            ]
+        } else {
+            vec![curve.clone()]
+        };
+        let mut work = self.clone();
+        let mut out = TouchGlue::default();
+        // The ends first, as the glue marks its points: an end inside a
+        // face (the line stopping at a rod's cap rim mid-face) gets a
+        // vertex loop there, an end inside an edge splits it.
+        for piece in &pieces {
+            for t in [piece.t_start, piece.t_end] {
+                work.vertex_for(&across, at(t), tol, &mut out)?;
+            }
+        }
+        for piece in pieces {
+            let (q0, q1) = (at(piece.t_start), at(piece.t_end));
+            for &f in &across {
+                let v0 = work.vertex_at_curve_end(f, q0, tol, &mut out)?;
+                let v1 = work.vertex_at_curve_end(f, q1, tol, &mut out)?;
+                work.imprint_edge(f, v0, v1, piece.clone())?;
+                out.imprinted += 1;
+            }
+        }
+        *self = work;
+        Ok(out.imprinted)
     }
 
     /// The vertex of face `f` at a contact curve's end `p`: one within

@@ -322,6 +322,9 @@ impl BRep {
             .map(|fs| fs.iter().fold(Box3::empty(), |b, f| b.union(boxes[f])))
             .collect();
         let mut plan = TouchPlan::default();
+        // Edges resting on faces last, so a touch already found as a
+        // contact curve's end or a vertex is adopted (`edge_touch_points`).
+        let mut edge_touches: Vec<(FaceHandle, FaceHandle, bool)> = Vec::new();
         for i in 0..count {
             for j in 0..count {
                 if i == j || !piece_box[i].meets(&piece_box[j]) {
@@ -363,8 +366,8 @@ impl BRep {
                             self.tangent_contacts(f, g, &boxes, &mut plan);
                             // An edge of one resting on the other: a
                             // ball on a box's edge (PK-1155).
-                            self.edge_touch_points(f, g, false, &mut plan);
-                            self.edge_touch_points(g, f, false, &mut plan);
+                            edge_touches.push((f, g, false));
+                            edge_touches.push((g, f, false));
                         }
                     }
                 }
@@ -384,11 +387,14 @@ impl BRep {
                     {
                         self.tangent_contacts(f, g, &boxes, &mut plan);
                         // An edge of one resting on the other (PK-1155).
-                        self.edge_touch_points(f, g, true, &mut plan);
-                        self.edge_touch_points(g, f, true, &mut plan);
+                        edge_touches.push((f, g, true));
+                        edge_touches.push((g, f, true));
                     }
                 }
             }
+        }
+        for (f, g, ends_too) in edge_touches {
+            self.edge_touch_points(f, g, ends_too, &mut plan);
         }
         plan
     }

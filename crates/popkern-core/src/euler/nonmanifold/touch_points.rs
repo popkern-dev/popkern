@@ -98,7 +98,28 @@ impl BRep {
                         .copied()
                         .find(|q| q.distance_to(&p) <= tol)
                         .unwrap_or(p);
-                    plan.add_point(p, tol);
+                    // A contact already found within this touch's band
+                    // (the edge within the tolerance of the face all the
+                    // way to it) is this touch, as a pass running into a
+                    // record's end is that end: the root of C' · N, read
+                    // through a projection, landed 3.6e-6 from a contact
+                    // curve's exact end in a turned scene, and the glue
+                    // split a rim circle 4e-6 from its vertex.
+                    let known = plan
+                        .points
+                        .iter()
+                        .copied()
+                        .chain(plan.curves.iter().flat_map(|k| {
+                            [k.geometry.point_at(k.t_start), k.geometry.point_at(k.t_end)]
+                        }))
+                        .find(|q| {
+                            q.distance_to(&p) <= hi - lo
+                                && c.geometry.closest_point(q).is_some_and(|tq| {
+                                    let mid = 0.5 * (t + tq);
+                                    c.geometry.point_at(tq).distance_to(q) <= tol && gap(mid) <= tol
+                                })
+                        });
+                    plan.add_point(known.unwrap_or(p), tol);
                 }
             }
         }

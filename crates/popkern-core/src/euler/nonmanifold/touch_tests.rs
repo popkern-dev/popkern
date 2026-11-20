@@ -171,3 +171,109 @@ fn a_rod_on_its_seam_touches_along_one_curve_near_and_far() {
         assert_valid(&body, "rod on its seam");
     }
 }
+
+/// Two rods on a ruling, touching exactly and overlapping by 5e-7 (within
+/// the tolerance), each turned about its axis or not: one contact curve
+/// imprinted and glued. Overlapping, the glued edge sat on the overlap's
+/// midline, the faces parallel there and 5e-7 apart, and the radial
+/// order's first probe, 1e-5 out, read the overlap's order: the glue
+/// declined `RegionConflict` (the wedge between the rods' fins in both
+/// solids). Ties are now probed beyond the lens their faces can enclose.
+#[test]
+fn rods_on_a_ruling_glue_touching_or_overlapping_within_the_tolerance() {
+    for (gap, turn) in [(0.0, 0.0), (-5e-7, 0.0), (0.0, 0.7), (-5e-7, 0.7)] {
+        let a = moved(
+            BRep::cylinder(0.8, 2.0, tol()).expect("a"),
+            &[Transform3::rotation_z(turn)],
+        );
+        let b = moved(
+            BRep::cylinder(1.2, 2.5, tol()).expect("b"),
+            &[
+                Transform3::rotation_z(turn),
+                Transform3::translation(2.0 + gap, 0.0, -0.25),
+            ],
+        );
+        let mut body = a;
+        body.append_body(&b);
+        let done = body
+            .glue_touching()
+            .unwrap_or_else(|e| panic!("gap {gap} turn {turn}: {e}"));
+        assert_eq!(
+            (done.curves, done.glued.edges),
+            (1, 1),
+            "gap {gap} turn {turn}"
+        );
+        assert_eq!(body.body_kind(), BodyKind::General);
+        assert_valid(&body, &format!("gap {gap} turn {turn}"));
+    }
+}
+
+/// A torus lying on the cube's top touches it along a circle. Marked
+/// from that circle (`mark_contact_curve`, the boolean's contact reading
+/// for a tangent record), it goes in as two halves: the first a slit
+/// between two vertex loops of the top, the second closing that hole into
+/// a disc face (the imprint declined "both ends lie on one hole"); the
+/// torus holds it along its patches' edges already. The body validates.
+#[test]
+fn a_closed_contact_curve_imprints_a_disc() {
+    let (major, minor) = (0.25, 0.1);
+    let torus = moved(
+        BRep::torus(major, minor, tol()).expect("torus"),
+        &[Transform3::translation(0.5, 0.5, 1.0 + minor)],
+    );
+    let mut body = with(&torus);
+    let faces_before = body.faces.len();
+    let circle = crate::geometry::curve::CurveOnEdge {
+        geometry: crate::geometry::curve::CurveGeometry::Circle {
+            center: crate::geometry::Point3::new(0.5, 0.5, 1.0),
+            normal: crate::geometry::Vec3::new(0.0, 0.0, 1.0),
+            radius: major,
+        },
+        t_start: 0.0,
+        t_end: std::f64::consts::TAU,
+    };
+    let made = body.mark_contact_curve(&circle).expect("marked");
+    assert!(made >= 1, "{made} edges imprinted");
+    assert!(
+        body.faces.len() > faces_before,
+        "the top closed into a disc"
+    );
+    assert_valid(&body, "torus on the top");
+}
+
+/// A rod spanning the cube's top, its caps flush with the cube's sides,
+/// the scene turned in space and the rod about its axis: one contact
+/// curve between the top's edges, glued. Turned in space, the cube's top
+/// edge resting on the rod found its touch by the root of C' · N 3.6e-6
+/// from the curve's exact end, a second point: unturned about its axis
+/// the glue split the rod's cap circle 4e-6 from its vertex and
+/// declined, turned the glued ring's order was ambiguous. A touch within
+/// a known contact's band now adopts it, and edge touches are found
+/// after the curves and vertices.
+#[test]
+fn a_rod_spanning_a_turned_cube_glues_along_one_curve() {
+    let rot = Transform3::rotation_around_axis(
+        crate::geometry::Point3::new(0.3, -0.2, 0.1),
+        crate::geometry::Vec3::new(1.0, 2.0, 3.0),
+        0.37,
+    )
+    .expect("rotation");
+    for turn in [0.0, 0.4, 0.7, 2.0] {
+        let rod = moved(
+            BRep::cylinder(0.5, 1.0, tol()).expect("rod"),
+            &[
+                Transform3::rotation_z(turn),
+                Transform3::rotation_y(std::f64::consts::FRAC_PI_2),
+                Transform3::translation(0.0, 0.5, 1.5),
+                rot,
+            ],
+        );
+        let mut body = placed(cube_at(0.0, 0.0, 0.0), rot);
+        body.append_body(&rod);
+        let done = body
+            .glue_touching()
+            .unwrap_or_else(|e| panic!("turn {turn}: {e}"));
+        assert_eq!((done.points, done.curves), (2, 1), "turn {turn}");
+        assert_valid(&body, &format!("turn {turn}"));
+    }
+}

@@ -48,7 +48,7 @@ pub(super) fn select_and_serve(
     metrics: &mut Vec<PhaseMetric>,
     progress: &mut Option<&mut dyn ProgressReporter>,
     policy: crate::options::NonManifoldPolicy,
-    touches: &mut Vec<popkern_core::geometry::Point3>,
+    touches: &mut crate::contact_curves::Touches,
 ) -> Result<BRep, BoolError> {
     // Stage 5: Cellular graph merge — order-independent fragment selection.
     // Every cellular decline is recorded structurally and said once on
@@ -214,7 +214,7 @@ pub(super) fn select_and_serve(
     };
     // The touches the vertex table resolved on no record go to the
     // contact reading with the body (`answer_contacts`, W3b).
-    touches.clone_from(&carried.contacts);
+    touches.points.clone_from(&carried.contacts);
     // A cellular result arrives validated in full (its acceptance).
     let merged = (result, t_merge.elapsed());
     let served = serve(

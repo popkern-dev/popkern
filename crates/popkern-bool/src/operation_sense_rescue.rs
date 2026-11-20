@@ -77,7 +77,7 @@ pub(crate) fn execute_boolean_full(
 /// (PK-1181).
 pub(crate) fn answer_contacts(
     served: BRep,
-    touches: &[popkern_core::geometry::Point3],
+    touches: &crate::contact_curves::Touches,
     tolerance: &Tolerance,
     policy: NonManifoldPolicy,
 ) -> Result<BRep, BoolError> {
@@ -128,9 +128,20 @@ pub(crate) fn answer_contacts(
 /// it holding the touch (`BRep::mark_contact_point`): two in one place
 /// where both touching faces survive; one alone (the result kept one of
 /// the touching faces) is no touch and makes nothing.
-fn marked_with(body: &BRep, touches: &[popkern_core::geometry::Point3]) -> Result<BRep, BoolError> {
+fn marked_with(body: &BRep, touches: &crate::contact_curves::Touches) -> Result<BRep, BoolError> {
     let mut marked = body.clone();
-    for &p in touches {
+    for c in &touches.curves {
+        marked
+            .mark_contact_curve(c)
+            .map_err(|e| BoolError::MergeFailed {
+                stage: "contact curve".into(),
+                reason: format!("the tangent curve from {:?}: {e}", {
+                    use popkern_core::geometry::curve::CurveEval;
+                    c.geometry.point_at(c.t_start)
+                }),
+            })?;
+    }
+    for &p in &touches.points {
         marked
             .mark_contact_point(p)
             .map_err(|e| BoolError::MergeFailed {
@@ -166,7 +177,7 @@ fn execute_boolean_routes(
     progress: Option<&mut dyn ProgressReporter>,
     policy: NonManifoldPolicy,
     boxes: Option<super::OperandBoxes<'_>>,
-) -> Result<(BRep, Vec<popkern_core::geometry::Point3>), BoolError> {
+) -> Result<(BRep, crate::contact_curves::Touches), BoolError> {
     // PK-478 stage 4: MIXED-sense rescue retry. A mixed operand pair
     // (one majority-inward — every blend-rebuilt body; one
     // majority-outward — sweep/extrude output) has walks that

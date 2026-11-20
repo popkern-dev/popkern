@@ -99,11 +99,13 @@ impl BRep {
             self.stand(face, v0, &curve, true)?,
             self.stand(face, v1, &curve, false)?,
         );
+        let mut closes_hole = false;
         let (edge, from_v0, new_face) = match (s0, s1) {
             (Stand::Fin(h0, l0), Stand::Fin(h1, l1)) if l0 == l1 => {
-                if l0 != outer {
-                    return Err(decline("both ends lie on one hole"));
-                }
+                // Both ends on one hole: the edge closes it into a disc
+                // (a closed contact curve's second half, the first a
+                // slit), the disc a new face (`settle_closed_hole`).
+                closes_hole = l0 != outer;
                 let m = self.mef(h0, h1).map_err(core)?;
                 (m.edge, m.half_edge, Some(m.face))
             }
@@ -137,6 +139,9 @@ impl BRep {
         self.recompute_face_pcurves(face).map_err(core)?;
         if let Some(new) = new_face {
             self.recompute_face_pcurves(new).map_err(core)?;
+            if closes_hole {
+                self.settle_closed_hole(face, new).map_err(decline)?;
+            }
             self.rehome_loops(face, new);
         }
         Ok(ImprintedEdge { edge, new_face })

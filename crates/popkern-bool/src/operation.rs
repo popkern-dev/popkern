@@ -212,7 +212,7 @@ pub(super) fn execute_boolean_pipeline(
     mut progress: Option<&mut dyn ProgressReporter>,
     policy: crate::options::NonManifoldPolicy,
     boxes: Option<OperandBoxes<'_>>,
-) -> Result<(BRep, Vec<popkern_core::geometry::Point3>), BoolError> {
+) -> Result<(BRep, crate::contact_curves::Touches), BoolError> {
     check_cancel(cancel)?;
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
@@ -224,7 +224,7 @@ pub(super) fn execute_boolean_pipeline(
 
     // Stage 1: Intersect — compute face-face intersection curves.
     let t_intersect = popkern_core::time::Stopwatch::start();
-    let intersection_result =
+    let mut intersection_result =
         find_intersections_with_aabbs(a, b, boxes.map(|x| x[0]), boxes.map(|x| x[1]), tolerance)
             .map_err(|diag| diag.into_error())?;
     let elapsed_intersect = t_intersect.elapsed();
@@ -250,15 +250,37 @@ pub(super) fn execute_boolean_pipeline(
             intersection_result.coincidence.face_overlaps.len(),
         );
     }
+    // Records along which the faces are tangent are where the operands
+    // touch: when every record is one, they meet in no crossing, and the
+    // records go to the contact reading as curves (W3c).
+    let mut contact_curves = Vec::new();
+    if !intersection_result.records.is_empty()
+        && intersection_result.records.iter().all(|r| {
+            crate::contact_curves::is_contact_curve(
+                r,
+                (a, b),
+                (tolerance.linear(), tolerance.angular()),
+            )
+        })
+    {
+        contact_curves = intersection_result
+            .records
+            .drain(..)
+            .map(|r| crate::contact_curves::as_contact_curve(&r))
+            .collect();
+    }
     if intersection_result.records.is_empty() {
         if popkern_core::trace::trace_enabled("boolean") {
             eprintln!("  [exec] -> no-records containment path");
         }
-        let touches = crate::tolerance_zone::contact_candidates::touches_without_records(
-            (a, b),
-            &intersection_result,
-            tolerance.linear(),
-        );
+        let touches = crate::contact_curves::Touches {
+            points: crate::tolerance_zone::contact_candidates::touches_without_records(
+                (a, b),
+                &intersection_result,
+                tolerance.linear(),
+            ),
+            curves: contact_curves,
+        };
         let result = handle_no_intersection(
             op,
             a.clone(),
@@ -305,7 +327,7 @@ pub(super) fn execute_boolean_pipeline(
             let ix = &intersection_result;
             shortcut_oracle::compare("containment", op, (a, b), ix, tolerance, policy, &result);
         }
-        return result.map(|body| (body, Vec::new()));
+        return result.map(|body| (body, Default::default()));
     }
 
     // Bodies that only touch (opposite contact faces, point records).
@@ -316,7 +338,7 @@ pub(super) fn execute_boolean_pipeline(
             let ix = &intersection_result;
             shortcut_oracle::compare("touching", op, (a, b), ix, tolerance, policy, &result);
         }
-        return result.map(|body| (body, Vec::new()));
+        return result.map(|body| (body, Default::default()));
     }
 
     // The cellular stage serves from the operands and the
@@ -326,7 +348,7 @@ pub(super) fn execute_boolean_pipeline(
     // them skipped the workspace suite (10101 tests) passed unchanged,
     // and a 64-slot disc's late cut took 8.0 ms instead of 10.2 (the
     // first 3.9 instead of 5.0; PK-814).
-    let mut touches = Vec::new();
+    let mut touches = crate::contact_curves::Touches::default();
     serve::select_and_serve(
         a,
         b,

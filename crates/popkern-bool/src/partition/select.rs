@@ -210,7 +210,7 @@ impl Partition {
         // itself (three records touching pairwise at one point pinch
         // the space outside there, PK-1181): it answers as a
         // two-operand result does.
-        crate::operation::answer_contacts(body, &[], &self.tolerance, policy)
+        crate::operation::answer_contacts(body, &Default::default(), &self.tolerance, policy)
     }
 }
 

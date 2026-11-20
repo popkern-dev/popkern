@@ -63,7 +63,7 @@ fn a_flush_ring_on_a_shaft_serves_on_the_general_path_in_any_rotation() {
                 &mut Vec::new(),
                 &mut None,
                 NonManifoldPolicy::Decline,
-                &mut Vec::new(),
+                &mut Default::default(),
             );
             match (op, body) {
                 (BoolOperation::Intersection, Ok(b)) => {

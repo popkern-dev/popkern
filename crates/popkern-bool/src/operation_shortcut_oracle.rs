@@ -49,7 +49,7 @@ pub(super) fn compare(
         &mut metrics,
         &mut None,
         policy,
-        &mut Vec::new(),
+        &mut Default::default(),
     );
     let verdict = match (shortcut, &general) {
         (Ok(s), Ok(g)) => {
