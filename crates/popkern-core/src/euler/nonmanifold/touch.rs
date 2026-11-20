@@ -74,6 +74,50 @@ impl BRep {
         points: &[Point3],
         curves: &[CurveOnEdge],
     ) -> Result<TouchGlue, EulerError> {
+        let plan = self.given_plan(points, curves);
+        self.glue_plan(plan)
+    }
+
+    /// [`Self::glue_touching_at`] completed by detection: the given
+    /// contacts first (exact, a construction's), then whatever the
+    /// geometric detection finds that none of them covers (a point
+    /// within the tolerance of a given one, a curve with the same ends
+    /// and middle, is the given one). A boolean's construction does not
+    /// yet trace a tangent curve its analytic arm is silent on (a rod
+    /// lying on a face with its seam off the line, W3c), which the
+    /// detection finds in closed form.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::glue_touching`].
+    pub fn glue_touching_with(
+        &mut self,
+        points: &[Point3],
+        curves: &[CurveOnEdge],
+    ) -> Result<TouchGlue, EulerError> {
+        let tol = self.tolerance.linear_reach();
+        let mut plan = self.given_plan(points, curves);
+        let found = self.touch_plan();
+        let ends = |c: &CurveOnEdge| [c.geometry.point_at(c.t_start), c.geometry.point_at(c.t_end)];
+        for c in found.curves {
+            // A detected curve ending where a given point or curve end
+            // lies takes that place exactly (detection's ends are only
+            // as exact as its run search).
+            plan.add_curve(c, tol);
+        }
+        for p in found.points {
+            plan.add_point(p, tol);
+        }
+        let curve_ends: Vec<Point3> = plan.curves.iter().flat_map(ends).collect();
+        for p in curve_ends {
+            plan.add_point(p, tol);
+        }
+        self.glue_plan(plan)
+    }
+
+    /// The plan of the given contacts: each point, each curve with its
+    /// ends among the points, a closed curve in two halves.
+    fn given_plan(&self, points: &[Point3], curves: &[CurveOnEdge]) -> TouchPlan {
         let tol = self.tolerance.linear_reach();
         let mut plan = TouchPlan {
             points: points.to_vec(),
@@ -105,7 +149,7 @@ impl BRep {
                 plan.curves.push(c.clone());
             }
         }
-        self.glue_plan(plan)
+        plan
     }
 
     /// Glue at `plan`'s points and curves (see [`Self::glue_touching`]).

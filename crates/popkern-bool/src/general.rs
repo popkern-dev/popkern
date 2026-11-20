@@ -59,8 +59,10 @@ pub(crate) fn glue_result(pieces: BRep, tolerance: &Tolerance) -> Result<BRep, B
 
 /// The pieces glued at construction's touches (tangency design §4.8):
 /// the general policy's glue where the boolean's construction found
-/// where its operands touch, nothing detected again; the pieces as they
-/// are when it found none (the glue then detects, [`glue_result`]).
+/// where its operands touch, those contacts exact, the detection adding
+/// only what they do not cover (a tangent line an analytic arm is silent
+/// on, until construction traces tangent curves); the pieces as they are
+/// when it found none (the glue then detects, [`glue_result`]).
 ///
 /// # Errors
 ///
@@ -73,7 +75,7 @@ pub(crate) fn glue_at_touches(
         return Ok(pieces);
     }
     let mut body = pieces;
-    let reason = match body.glue_touching_at(&touches.points, &touches.curves) {
+    let reason = match body.glue_touching_with(&touches.points, &touches.curves) {
         Ok(_) => match body.validate_all().first() {
             None => return Ok(body),
             Some(issue) => format!("glued body invalid: {issue}"),

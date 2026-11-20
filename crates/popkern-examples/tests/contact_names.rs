@@ -189,3 +189,61 @@ fn a_contact_on_an_edge_names_the_edge_pieces_too() {
         assert_eq!(unnamed(&bodies[0]), want, "scheme {scheme}");
     }
 }
+
+/// A rod lying along the cube's top, united under the general policy:
+/// the glued body holds the contact curve as an edge every piece uses (a
+/// ring of four fins). Scheme 7 names it a contact, by the faces it lies
+/// on; a tree recorded under scheme 6 names it as it did, an
+/// intersection of those faces (tangency design §4.8, W3.7). Turned
+/// about its axis, the rod's seam is off the line, so no construction
+/// record carries it: the general glue completes construction's touches
+/// by detection (`glue_touching_with`), and glued only at the rims
+/// before.
+#[test]
+fn a_contact_curve_is_named_a_contact_under_scheme_seven() {
+    let tol = Tolerance::default();
+    for (scheme, want) in [(7, RoleCategory::Contact), (6, RoleCategory::Intersection)] {
+        let cube = named(BRep::unit_cube(tol).expect("cube"), 1);
+        // Turned about its axis so its seam is off the contact line (an
+        // edge on the line descends from the seam, `Modified`).
+        let rod = BRep::cylinder(0.25, 0.6, tol)
+            .and_then(|c| c.transform(&Transform3::rotation_z(0.7)))
+            .and_then(|c| c.transform(&Transform3::rotation_y(std::f64::consts::FRAC_PI_2)))
+            .and_then(|c| c.transform(&Transform3::translation(0.2, 0.5, 1.25)))
+            .expect("rod");
+        let mut ctx = TrackingContext::new(OperationId(7)).with_naming_scheme(scheme);
+        let body = boolean_with_options(
+            BoolOperation::Union,
+            cube,
+            named(rod, 2),
+            tol,
+            Some(&mut ctx),
+            &GENERAL,
+        )
+        .expect("general union");
+        let ring: Vec<_> = body
+            .edges
+            .keys()
+            .filter(|&e| body.radial_fins(e).len() > 2)
+            .collect();
+        assert_eq!(ring.len(), 1, "scheme {scheme}: one contact edge");
+        let name = body.edges[ring[0]]
+            .name
+            .and_then(|id| body.name_pool.get(id).cloned())
+            .expect("named");
+        assert_eq!(name.role.category, want, "scheme {scheme}");
+        // Its ancestors are the names of the faces holding it (the top,
+        // and the rod's face, split along the line from rim to rim).
+        let mut holding: Vec<_> = body
+            .radial_fins(ring[0])
+            .into_iter()
+            .filter_map(|h| body.fin_face(h))
+            .filter_map(|f| body.faces[f].name)
+            .collect();
+        holding.sort_by_key(|n| n.0);
+        holding.dedup_by_key(|n| n.0);
+        let mut got = name.ancestors.clone();
+        got.sort_by_key(|n| n.0);
+        assert_eq!(got, holding, "scheme {scheme}: the faces it lies on");
+    }
+}

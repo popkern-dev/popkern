@@ -57,7 +57,12 @@ use crate::naming_store::ChunkedVec;
 ///   partition's operations do, so the entities the glue makes (a
 ///   contact vertex, the pieces of an edge split there, a contact
 ///   curve imprinted on a face) are named with the rest.
-pub const NAMING_SCHEME_VERSION: u32 = 6;
+/// - **7** (tangency design §4.8, W3.7): an edge where pieces touch
+///   along a curve (its ring holds more than two fins) with no edge of
+///   its own to descend from, a tangent contact curve imprinted on both
+///   faces, is [`RoleCategory::Contact`], named by the faces it lies on;
+///   scheme 6 named it an `Intersection` of those faces.
+pub const NAMING_SCHEME_VERSION: u32 = 7;
 
 /// The oldest naming scheme this kernel still replays.
 pub const OLDEST_NAMING_SCHEME: u32 = 1;

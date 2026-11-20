@@ -170,9 +170,18 @@ pub(crate) fn assign_topological_names(
         // telling its siblings apart: an upstream edit that renames a
         // face it lies on leaves its ancestry whole. An intersection
         // edge has only its faces to be named by.
+        let contact = ctx.naming_scheme >= 7 && result.radial_fins(e).len() > 2;
         let (category, signature) = if ancestors.is_empty() {
             ancestors.extend(faces.into_iter().map(NameId));
-            (RoleCategory::Intersection, Vec::new())
+            // Naming scheme 7: where pieces touch along it, a contact
+            // curve, named by the faces it lies on as an edgeless contact
+            // is (scheme 6).
+            let category = if contact {
+                RoleCategory::Contact
+            } else {
+                RoleCategory::Intersection
+            };
+            (category, Vec::new())
         } else {
             (RoleCategory::Modified, faces.into_iter().collect())
         };
