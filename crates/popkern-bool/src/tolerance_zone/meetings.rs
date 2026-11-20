@@ -398,28 +398,25 @@ pub(super) fn meeting_candidates(
     let widest = records.iter().map(radius_of).fold(2.0 * linear, f64::max);
     let found = record_meetings(records, widest);
     if popkern_core::trace::trace_enabled("arrangement") {
-        for (i, r) in records.iter().enumerate() {
-            let c = &r.curve.curve_3d;
-            let (lo, hi) = c.parameter_range();
-            eprintln!(
-                "  [arrangement] record {i}: degree {}, {} control points, closed {}, from {:?} to {:?}",
-                c.degree,
-                c.control_points.len(),
-                r.curve.is_closed,
-                c.point_at(lo),
-                c.point_at(hi)
-            );
-        }
-        for m in &found {
-            eprintln!(
-                "  [arrangement] records {:?} at {:?}: gap {:.2e}, zone {:.2e}, sin {:.2e}",
-                m.records, m.point, m.gap, m.zone, m.sin_angle
-            );
-        }
+        super::meetings_tangent::trace_meetings(records, &found);
     }
-    out.extend(found.into_iter().filter_map(|m| {
+    let mut crossings: Vec<Point3> = Vec::new();
+    out.extend(found.into_iter().filter_map(|mut m| {
         let [i, j] = m.records;
-        let radius = radius_of(&records[i]).max(radius_of(&records[j]));
+        let mut radius = radius_of(&records[i]).max(radius_of(&records[j]));
+        // A meeting of one face pair's records is a tangent crossing:
+        // it stands at the exact contact (`meetings_tangent`).
+        if let Some((point, params, pass)) = super::meetings_tangent::tangent_crossing(
+            (a, b),
+            records,
+            (i, j),
+            (m.point, m.params),
+            linear,
+        ) {
+            (m.point, m.params, m.gap) = (point, params, 0.0);
+            radius = radius.max(pass * (1.0 + 1e-9));
+            crossings.push(point);
+        }
         // Two records meet where they are one place: within the linear
         // reach of each other, plus each record's own fit deviation
         // there (its point off its two surfaces), as an edge meets a
@@ -488,7 +485,7 @@ pub(super) fn meeting_candidates(
             ),
         })
     }));
-    out
+    super::meetings_tangent::merge_at_crossings(out, &crossings, linear)
 }
 
 #[cfg(test)]

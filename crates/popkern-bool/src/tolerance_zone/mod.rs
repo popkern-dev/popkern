@@ -34,6 +34,7 @@ pub(crate) mod incidence;
 pub(crate) mod meetings;
 pub(crate) mod meetings_foot;
 mod meetings_line;
+mod meetings_tangent;
 pub(crate) mod partition;
 pub(crate) mod pave_blocks;
 pub(crate) mod record_order;

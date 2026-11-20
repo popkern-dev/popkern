@@ -296,6 +296,36 @@ fn one_sided(
     out
 }
 
+/// The contact Newton reaches on the gap's gradient from `seed` on `s1`
+/// (derivatives by central differences of `step`, parameter units, kept
+/// inside `w1`), classified, when its gap is within `scale.linear`: a
+/// known meeting place refined to the tangency it stands for (two
+/// records of one face pair crossing meet only at a tangent crossing,
+/// tangency design §4.8). `None` when Newton leaves the windows or the
+/// gap there is past the tolerance.
+pub fn contact_from(
+    (s1, w1): (&SurfaceGeometry, ParamWindow),
+    (s2, w2): (&SurfaceGeometry, ParamWindow),
+    seed: (f64, f64),
+    step: f64,
+    scale: ContactScale,
+) -> Option<SurfaceContact> {
+    let gap = Gap { s2, w2 };
+    let (uv1, g0) = newton_critical(s1, &gap, seed, step, w1)?;
+    if g0.abs() > scale.linear {
+        return None;
+    }
+    let (_, uv2) = gap.at(s1, uv1)?;
+    let classification = classify_contact(s1, uv1, s2, uv2, scale).ok()?;
+    Some(SurfaceContact {
+        point: s1.point_at(uv1.0, uv1.1),
+        uv1,
+        uv2,
+        gap: g0,
+        classification,
+    })
+}
+
 /// Whether the window spans the whole period of `s`'s u and v.
 fn full_periods(s: &SurfaceGeometry, w: ParamWindow) -> (bool, bool) {
     let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(s);
