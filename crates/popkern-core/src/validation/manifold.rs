@@ -113,6 +113,27 @@ impl BRep {
                 if edges.len() >= 2 && edges.iter().any(|&e| self.radial_fins(e).len() > 2) {
                     continue;
                 }
+                // One edge in a ring whose every face holds two of its
+                // fins: each face wraps the vertex (a cone's seam into its
+                // apex glued to a slit's tip on a plane the cone lies
+                // on), the general body's form of the seam apex below.
+                if let [e] = edges.iter().copied().collect::<Vec<_>>()[..] {
+                    let fins = self.radial_fins(e);
+                    let mut by_face: std::collections::BTreeMap<_, usize> =
+                        std::collections::BTreeMap::new();
+                    for h in &fins {
+                        if let Some(l) = self
+                            .half_edges
+                            .get(*h)
+                            .and_then(|d| self.loops.get(d.loop_))
+                        {
+                            *by_face.entry(l.face).or_default() += 1;
+                        }
+                    }
+                    if fins.len() > 2 && by_face.values().all(|&n| n == 2) {
+                        continue;
+                    }
+                }
             }
             if count < 2 {
                 // Allow valence-1 degenerate vertices (e.g. cone apex, sphere
