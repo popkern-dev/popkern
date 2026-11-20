@@ -192,6 +192,7 @@ pub(crate) fn process_pairs(
 
     ff_parallel_contacts::shadow_discover(
         &unique,
+        &ssi,
         tolerance,
         solve_clock.elapsed_ms().unwrap_or(0.0),
     );
