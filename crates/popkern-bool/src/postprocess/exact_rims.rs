@@ -27,7 +27,9 @@
 //! NURBS rim only escaped by ULP luck).
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::circle_recognition::{arc_between, arc_on_edge, recognize_circular};
+use popkern_core::geometry::circle_recognition::{
+    CircleFit, arc_between, arc_on_edge, recognize_circular,
+};
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::curve::{CurveEval as _, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
@@ -79,6 +81,43 @@ pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimRep
         let range = (curve.t_start, curve.t_end);
         let Some(fit) = recognize_circular(&curve.geometry, range, gate) else {
             continue;
+        };
+        // Where the two faces meet in an exact circle (sphere × sphere,
+        // plane × sphere), the arc is that circle when the fit is it: the
+        // fit inherits its samples' error (a ball-ball arc whose clipped
+        // end was exact came out 1.6e-7 off both spheres).
+        // Only where the edge's own ends lie on that circle (well inside
+        // the tolerance): a vertex glued a tolerance off it (two rims a
+        // tolerance apart) keeps the fit, which passes through it, or the
+        // arc would open its loop by that much.
+        let ends_on = |center: Point3, normal: popkern_core::geometry::Vec3, radius: f64| {
+            [curve.t_start, curve.t_end].iter().all(|&t| {
+                let p = curve.geometry.point_at(t);
+                let off = p - center;
+                let height = off.dot(&normal);
+                let radial = (off - normal * height).length();
+                height.abs().max((radial - radius).abs()) <= 1e-3 * gate
+            })
+        };
+        let fit = match surfaces_circle(brep, edge) {
+            Some((center, normal, radius))
+                if center.distance_to(&fit.center) <= 10.0 * gate
+                    && (radius - fit.radius).abs() <= 10.0 * gate
+                    && normal.cross(&fit.normal).length() <= 1e-6
+                    && ends_on(center, normal, radius) =>
+            {
+                CircleFit {
+                    center,
+                    normal: if normal.dot(&fit.normal) >= 0.0 {
+                        normal
+                    } else {
+                        -normal
+                    },
+                    radius,
+                    ..fit
+                }
+            }
+            _ => fit,
         };
         // The arc runs the old curve's way, from the vertex at its
         // start to the vertex at its end: each half-edge keeps the
@@ -196,4 +235,59 @@ fn rim_between_analytic_faces(brep: &BRep, edge: EdgeHandle) -> bool {
                 | Some(SurfaceGeometry::Torus { .. })
         )
     })
+}
+
+/// The exact circle in which the edge's two faces meet, when they are two
+/// spheres or a plane and a sphere (the pairs whose intersection is a
+/// circle in closed form).
+fn surfaces_circle(
+    brep: &BRep,
+    edge: EdgeHandle,
+) -> Option<(Point3, popkern_core::geometry::Vec3, f64)> {
+    let e = brep.edges.get(edge)?;
+    let forward = brep.half_edges.get(e.half_edge)?;
+    let backward = brep.half_edges.get(forward.mate()?)?;
+    let surface_of = |l| {
+        let face = brep.loops.get(l)?.face;
+        brep.faces.get(face)?.surface.as_ref().map(|s| &s.geometry)
+    };
+    let (a, b) = (surface_of(forward.loop_)?, surface_of(backward.loop_)?);
+    let sphere_plane = |c: Point3, r: f64, o: Point3, n: popkern_core::geometry::Vec3| {
+        let dist = (c - o).dot(&n);
+        let r2 = r * r - dist * dist;
+        (r2 > 0.0).then(|| (c - n * dist, n, r2.sqrt()))
+    };
+    match (a, b) {
+        (
+            SurfaceGeometry::Sphere {
+                center: c1,
+                radius: r1,
+                ..
+            },
+            SurfaceGeometry::Sphere {
+                center: c2,
+                radius: r2,
+                ..
+            },
+        ) => {
+            let axis = *c2 - *c1;
+            let d = axis.length();
+            if d <= 0.0 {
+                return None;
+            }
+            let n = axis * (1.0 / d);
+            let along = (r1 * r1 - r2 * r2 + d * d) / (2.0 * d);
+            let rr = r1 * r1 - along * along;
+            (rr > 0.0).then(|| (*c1 + n * along, n, rr.sqrt()))
+        }
+        (
+            SurfaceGeometry::Sphere { center, radius, .. },
+            SurfaceGeometry::Plane { origin, normal, .. },
+        )
+        | (
+            SurfaceGeometry::Plane { origin, normal, .. },
+            SurfaceGeometry::Sphere { center, radius, .. },
+        ) => sphere_plane(*center, *radius, *origin, *normal),
+        _ => None,
+    }
 }

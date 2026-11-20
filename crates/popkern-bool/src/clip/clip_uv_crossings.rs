@@ -482,10 +482,18 @@ pub(crate) fn find_uv_crossings(
     ) {
         crossings.insert(0, c);
     }
+    // On a rotational chart the window's crossings decide (W2c,
+    // chart-service.md §6b step 3): every whole-period lift of the record
+    // against the boundary as its edges lie, one crossing per place and
+    // pass. The finder above runs in shadow until it is deleted; with the
+    // shadow log set its disagreements are logged.
     if surface_is_periodic {
         let on = (face_surface, &boundary_nurbs[..]);
         let query = (query_authored, period_of());
         super::clip_window_crossings::shadow(brep, face, on, query, &crossings, tolerance);
+        return Some(super::clip_window_crossings::window_crossings(
+            brep, face, on, query.0, query.1, tolerance,
+        ));
     }
     Some(crossings)
 }
