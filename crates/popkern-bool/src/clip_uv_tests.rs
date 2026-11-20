@@ -4,7 +4,7 @@ use popkern_core::{
     tolerance::Tolerance,
     topology::BRep,
 };
-use std::f64::consts::{FRAC_1_SQRT_2, PI, TAU};
+use std::f64::consts::FRAC_1_SQRT_2;
 
 fn tol() -> Tolerance {
     Tolerance::default()
@@ -234,85 +234,6 @@ fn uv_range_from_crossings_open_no_crossings_returns_none() {
         result.is_none(),
         "open curve with 0 crossings should return None"
     );
-}
-
-// ── is_near_seam tests ──────────────────────────────────────────────────
-
-#[test]
-fn is_near_seam_returns_true_for_small_u() {
-    let curve = NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(0.1, 0.5, 0.0), Point3::new(0.5, 0.5, 0.0)],
-        weights: vec![1.0, 1.0],
-    };
-    assert!(super::is_near_seam(&curve), "u=0.1 is below pi/4");
-}
-
-#[test]
-fn is_near_seam_returns_true_for_large_u() {
-    let curve = NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(6.0, 0.5, 0.0), Point3::new(PI, 0.5, 0.0)],
-        weights: vec![1.0, 1.0],
-    };
-    assert!(super::is_near_seam(&curve), "u=6.0 is above 7*pi/4");
-}
-
-#[test]
-fn is_near_seam_returns_false_for_mid_range() {
-    let curve = NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(PI, 0.5, 0.0), Point3::new(PI + 0.5, 0.5, 0.0)],
-        weights: vec![1.0, 1.0],
-    };
-    assert!(!super::is_near_seam(&curve), "u around pi is far from seam");
-}
-
-// ── shift_curve_u tests ─────────────────────────────────────────────────
-
-#[test]
-fn shift_curve_u_wraps_to_period() {
-    let curve = NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(0.1, 0.5, 0.0), Point3::new(6.0, 0.5, 0.0)],
-        weights: vec![1.0, 1.0],
-    };
-    let shifted = super::shift_curve_u(&curve, PI);
-    // 0.1 + pi should stay as-is (< 2pi).
-    assert!(
-        (shifted.control_points[0].x - (0.1 + PI)).abs() < 1e-12,
-        "0.1 + pi should not wrap"
-    );
-    // 6.0 + pi wraps: (6.0 + pi) mod 2pi
-    let expected = (6.0 + PI).rem_euclid(TAU);
-    assert!(
-        (shifted.control_points[1].x - expected).abs() < 1e-12,
-        "6.0 + pi should wrap"
-    );
-    // Y coordinates unchanged.
-    assert!((shifted.control_points[0].y - 0.5).abs() < 1e-12);
-}
-
-#[test]
-fn shift_curve_u_preserves_degree_and_knots() {
-    let curve = NurbsCurve {
-        degree: 2,
-        knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
-        control_points: vec![
-            Point3::new(1.0, 0.0, 0.0),
-            Point3::new(2.0, 1.0, 0.0),
-            Point3::new(3.0, 0.0, 0.0),
-        ],
-        weights: vec![1.0, 1.0, 1.0],
-    };
-    let shifted = super::shift_curve_u(&curve, 0.5);
-    assert_eq!(shifted.degree, 2);
-    assert_eq!(shifted.knots, curve.knots);
-    assert_eq!(shifted.weights, curve.weights);
 }
 
 // find_uv_crossings with a seam-crossing boundary: clip_uv_seam_tests.rs.

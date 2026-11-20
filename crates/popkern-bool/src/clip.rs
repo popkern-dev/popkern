@@ -15,7 +15,6 @@ mod clip_branch_normalize;
 mod clip_crossing_gap;
 mod clip_crossing_graze;
 mod clip_crossing_reports;
-mod clip_crossings_rescue;
 mod clip_dispatch;
 mod clip_edge_box;
 mod clip_inner_crossing;
@@ -29,7 +28,6 @@ mod clip_overlap_ends;
 mod clip_pierce_windows;
 mod clip_rim_reach;
 mod clip_seam_inside;
-mod clip_seam_shift;
 mod clip_sphere_region;
 mod clip_uv;
 mod clip_uv_banded;
@@ -51,7 +49,6 @@ pub(crate) use clip_dispatch::{clip_curve_to_faces, clip_curve_to_faces_cached};
 pub(crate) use clip_line::{clip_curve_to_single_face, clip_line_to_face};
 pub(crate) use clip_pierce_windows::PierceInventoryCache;
 #[cfg(test)]
-use clip_seam_shift::{is_near_seam, shift_curve_u};
 #[cfg(test)]
 use clip_uv::uv_range_from_crossings;
 pub(crate) use clip_uv::{UvCrossing, clip_curve_to_crossings, clip_curve_wrapped};

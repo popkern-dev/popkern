@@ -9,13 +9,10 @@ use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::clip_branch_normalize;
 use super::clip_crossing_graze::drop_grazes;
 use super::clip_crossing_reports::{collapse_crossing_reports, resolve_contact_runs};
-use super::clip_crossings_rescue::sampled_uv_crossings;
 use super::clip_lift_crossings::extend_with_lifted_loop_crossings;
-use super::clip_seam_shift::{is_near_seam, shift_curve_u};
-use super::clip_uv::{TWO_PI, UvCrossing};
+use super::clip_uv::UvCrossing;
 use super::face_uv_boundary;
 
 /// Fraction of the linear tolerance an analytic boundary pcurve's
@@ -78,12 +75,6 @@ pub(crate) fn find_uv_crossings(
         return Some(crossings);
     }
 
-    let in_periodic_range = |curve: &NurbsCurve| -> bool {
-        curve
-            .control_points
-            .iter()
-            .any(|p| p.x > std::f64::consts::PI)
-    };
     // Boundary pcurves converted within BOUNDARY_CONVERSION_FRACTION of
     // the linear tolerance in model space (PK-553): the former coarse
     // 17-sample cubic displaced analytic trims by up to 1.3e-2 on
@@ -105,37 +96,25 @@ pub(crate) fn find_uv_crossings(
             (*h, nurbs)
         })
         .collect();
-    // The seam-shift dance is ONLY meaningful on periodic surfaces:
-    // its "near seam" / "in periodic range" tests are raw u-value
-    // thresholds (π/4, π) and fire spuriously on PLANAR faces whose
-    // UV coordinates are plain lengths (measured: a 20mm-wide tool
-    // wall got its intersection segment shifted by π and clipped to
-    // ±5.78 instead of ±10, so the pocket never met the wall
-    // corners and the boolean output carried degenerate stubs).
-    let surface_is_periodic = super::clip_window_crossings::rotational_chart(brep, face);
-    // The query as the record authored it — continuous in the chart.
-    // Both crossing passes judge tears against it (see TEAR
-    // CONSISTENCY below).
-    let query_authored = curve_uv;
-    let curve_uv = &clip_branch_normalize::normalize_query_branch(
-        brep,
-        face,
-        &boundary_nurbs,
-        curve_uv,
-        surface_is_periodic,
-    );
-    let needs_shift = surface_is_periodic
-        && (is_near_seam(curve_uv) || boundary_nurbs.iter().any(|(_, pc)| is_near_seam(pc)))
-        && (in_periodic_range(curve_uv)
-            || boundary_nurbs.iter().any(|(_, pc)| in_periodic_range(pc)));
-    let shift = std::f64::consts::PI;
-
-    let collect_crossings = |shifted: bool| -> Vec<UvCrossing> {
-        let working_curve = if shifted {
-            shift_curve_u(curve_uv, shift)
-        } else {
-            curve_uv.clone()
-        };
+    // On a rotational chart the window's crossings decide (W2c,
+    // chart-service.md §6b): every whole-period lift of the record
+    // against the boundary as its edges lie, one crossing per place and
+    // per pass. The finder below serves the other charts.
+    if super::clip_window_crossings::rotational_chart(brep, face) {
+        let period = face_surface
+            .and_then(|s| ChartDescriptor::evaluation_periods_of(s).0)
+            .unwrap_or(std::f64::consts::TAU);
+        return Some(super::clip_window_crossings::window_crossings(
+            brep,
+            face,
+            (face_surface, &boundary_nurbs),
+            curve_uv,
+            period,
+            tolerance,
+        ));
+    }
+    let collect_crossings = || -> Vec<UvCrossing> {
+        let working_curve = curve_uv.clone();
         let mut found = Vec::new();
         for (he_handle, boundary_pcurve) in &boundary_nurbs {
             let boundary_range = boundary_pcurve.parameter_range();
@@ -151,38 +130,7 @@ pub(crate) fn find_uv_crossings(
                 continue;
             }
 
-            let working_boundary = if shifted {
-                shift_curve_u(boundary_pcurve, shift)
-            } else {
-                boundary_pcurve.clone()
-            };
-            // TORN-BOUNDARY guard (PK-304): the ±π dance's per-point
-            // wrap legitimately HEALS a boundary stored the long way
-            // (span shrinks), but on a short-literal boundary it
-            // fabricates a bridge sweeping most of the chart (span
-            // GROWS — measured: a torus quadrant pcurve u 3.142→1.571
-            // became 0.000→4.712 and its phantom "crossings" claimed
-            // intersection arcs for patches on the far side of the
-            // surface). A shifted image that widened its u-span is a
-            // tear, never a heal — skip it; the unshifted pass judges
-            // that boundary honestly.
-            if shifted {
-                let uspan = |c: &NurbsCurve| {
-                    let (lo, hi) = c
-                        .control_points
-                        .iter()
-                        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), p| {
-                            (lo.min(p.x), hi.max(p.x))
-                        });
-                    hi - lo
-                };
-                if uspan(&working_boundary) > uspan(boundary_pcurve) + 1e-9 {
-                    if popkern_core::trace::trace_enabled("ring-crossing") {
-                        eprintln!("      [xing-torn-bnd] he {he_handle:?} skipped (span grew)");
-                    }
-                    continue;
-                }
-            }
+            let working_boundary = boundary_pcurve.clone();
 
             if popkern_core::trace::trace_enabled("ring-crossing") {
                 use popkern_core::geometry::curve::CurveEval;
@@ -230,54 +178,22 @@ pub(crate) fn find_uv_crossings(
                 }
             }
 
-            // TEAR CONSISTENCY: a per-control-point rem_euclid fold
-            // TEARS a query spanning the wrap — its evaluation then
-            // sweeps spurious bridge paths, and a hit on a bridge has
-            // a t-parameter pointing at unrelated geometry (measured:
-            // the gusset-web ellipse's dance crossings landed on the
-            // extended cylinder's phantom re-crossing). A hit is
-            // honest only where the working query evaluates to a
-            // whole-period translate of the AUTHORED query (continuous
-            // from the marcher; a rigid translate always passes). The
-            // check is query-only: BOUNDARY pcurves may encode a
-            // seam-spanning edge "the long way", and tearing them is
-            // the healing the dance exists for. It judges BOTH passes:
-            // branch normalization folds sub-period queries too
-            // (measured: a cap circle's cylinder pcurve u ∈ [5.24,
-            // 7.33] folded onto the [0, 1.05] strip claimed the strip's
-            // u = 1.05 edge at the u = 6.28 seam parameter).
             // COINCIDENCE: a hit puts query and boundary at ONE chart
-            // point (to a period), in the frame it was found in —
-            // collinear pieces on one iso-line made the intersector
-            // report points 2 rad apart (a B-side cap circle claimed a
-            // strip's rim edge at u = 3.11 against the edge's u = 1.07).
-            let applied = if shifted { shift } else { 0.0 };
+            // point, in the frame it was found in — collinear pieces on
+            // one iso-line made the intersector report points 2 rad apart
+            // (a B-side cap circle claimed a strip's rim edge at u = 3.11
+            // against the edge's u = 1.07).
             let dishonest = |t1: f64, t2: f64| -> Option<&'static str> {
                 use popkern_core::geometry::curve::CurveEval;
-                let wrap = |du: f64| {
-                    if surface_is_periodic {
-                        du - TWO_PI * (du / TWO_PI).round()
-                    } else {
-                        du
-                    }
-                };
                 let w = working_curve.point_at(t2);
-                if surface_is_periodic {
-                    let o = query_authored.point_at(t2);
-                    if wrap(w.x - (o.x + applied)).abs() >= 1e-6
-                        || (w.y - o.y).abs() >= 1e-6 * (1.0 + o.y.abs())
-                    {
-                        return Some("torn");
-                    }
-                }
                 let b = working_boundary.point_at(t1);
-                let gap = (wrap(w.x - b.x).powi(2) + (w.y - b.y).powi(2)).sqrt();
+                let gap = ((w.x - b.x).powi(2) + (w.y - b.y).powi(2)).sqrt();
                 if gap > COINCIDENCE_BAND * tolerance.linear() {
                     return Some("apart");
                 }
-                // Within the linear reach in space (the shift moves both).
+                // Within the linear reach in space.
                 let curves = (&working_boundary, &working_curve);
-                super::clip_crossing_gap::afar(face_surface, curves, (t1, t2), applied, tolerance)
+                super::clip_crossing_gap::afar(face_surface, curves, (t1, t2), 0.0, tolerance)
                     .then_some("afar")
             };
             if let Ok(result) = result {
@@ -351,33 +267,7 @@ pub(crate) fn find_uv_crossings(
             .unwrap_or(std::f64::consts::TAU)
     };
 
-    // The plain (unshifted) pass ALWAYS runs: its crossings are honest
-    // by construction (branch normalization above put the query on the
-    // boundary's period branch). The π-shifted seam dance AUGMENTS it
-    // for crossings the plain pass loses near the seam — it must never
-    // REPLACE it, because the shift's per-control-point rem_euclid
-    // fold TEARS any single-span boundary pcurve spanning the full
-    // period (a cylinder rim stored as one degree-1 span [2π → 0]
-    // folds to the degenerate [π → π] and its crossing vanishes).
-    // Measured (PK-295, rim-filleted cylinder minus cuboid): every
-    // wall×cylinder line record lost its bottom-rim crossing in the
-    // shifted-only pass, the odd crossing count read as Outside, all
-    // eight records dropped, no face was ever split, and the
-    // subtraction served a five-face open box as a clean result.
-    crossings.extend(collect_crossings(false));
-    if needs_shift {
-        let span = (curve_range.1 - curve_range.0).abs().max(1e-12);
-        let dedup_eps = span * 1e-6;
-        let extra: Vec<UvCrossing> = collect_crossings(true)
-            .into_iter()
-            .filter(|c| {
-                !crossings.iter().any(|p| {
-                    p.boundary_he == c.boundary_he && (p.t_curve - c.t_curve).abs() < dedup_eps
-                })
-            })
-            .collect();
-        crossings.extend(extra);
-    }
+    crossings.extend(collect_crossings());
     // Loops on multi-turn charts: crossings on every lift (PK-673),
     // each one place in space (the passes above judge their own).
     let direct = crossings.len();
@@ -398,63 +288,6 @@ pub(crate) fn find_uv_crossings(
         direct,
         tolerance,
     );
-    if crossings.is_empty() && surface_is_periodic {
-        // The precise curve×curve intersector can miss real
-        // crossings when the query's UV extent dwarfs the trim (a
-        // near-axis-parallel plane×cylinder ellipse spans ±1000 in v
-        // while the face is 40 wide — measured: the gusset-web weld
-        // line found no crossings here, fell through to the seam
-        // dance, and the torn-polygon crossings clipped the record
-        // to the phantom re-crossing). Rescue with an in/out
-        // TRANSITION SCAN against the face containment predicate —
-        // honest regardless of pcurve period branches. Scoped to
-        // queries whose UV extent dwarfs the trim (the starvation
-        // signature): firing it on comparable-scale pairs changed
-        // zero-crossing containment verdicts the cone suites are
-        // tuned to.
-        let bbox_diag = |pts: &mut dyn Iterator<Item = (f64, f64)>| -> f64 {
-            let (mut lu, mut hu, mut lv, mut hv) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
-            for (u, v) in pts {
-                lu = lu.min(u);
-                hu = hu.max(u);
-                lv = lv.min(v);
-                hv = hv.max(v);
-            }
-            if lu > hu {
-                return 0.0;
-            }
-            ((hu - lu).powi(2) + (hv - lv).powi(2)).sqrt()
-        };
-        let q_diag = bbox_diag(&mut curve_uv.control_points.iter().map(|p| (p.x, p.y)));
-        let b_diag = bbox_diag(
-            &mut boundary_nurbs
-                .iter()
-                .flat_map(|(_, pc)| pc.control_points.iter().map(|p| (p.x, p.y))),
-        );
-        if q_diag.is_finite() && b_diag > 0.0 && q_diag > 8.0 * b_diag {
-            crossings.extend(sampled_uv_crossings(
-                brep,
-                face,
-                curve_uv,
-                &boundary_nurbs,
-                period_of(),
-                tolerance,
-            ));
-        }
-    }
-    if crossings.is_empty() && surface_is_periodic {
-        // The branch heuristic is a guess; when the chosen branch
-        // finds NO crossings, a curve genuinely crossing the boundary
-        // in the other branch would be misjudged by the containment
-        // probe and clipped away whole (measured: two of the four
-        // fillet-cylinder ellipses of a rotated lip union sat one
-        // period from their quarter-arc charts and were discarded, so
-        // the island ring never closed). Retry the other branch and
-        // trust whichever finds real crossings — verified like the
-        // first pass.
-        crossings.extend(collect_crossings(!needs_shift));
-    }
-
     crossings.sort_by(|a, b| {
         a.t_curve
             .partial_cmp(&b.t_curve)
@@ -466,7 +299,7 @@ pub(crate) fn find_uv_crossings(
     let on = (face_surface, &boundary_nurbs[..]);
     let mut crossings = drop_grazes(on, curve_uv, crossings, tolerance);
     // A closed query on the boundary at its closure point (PK-775).
-    let period = surface_is_periodic.then(period_of);
+    let period = None;
     let period_v = {
         brep.faces
             .get(face)
@@ -487,13 +320,5 @@ pub(crate) fn find_uv_crossings(
     // against the boundary as its edges lie, one crossing per place and
     // pass. The finder above runs in shadow until it is deleted; with the
     // shadow log set its disagreements are logged.
-    if surface_is_periodic {
-        let on = (face_surface, &boundary_nurbs[..]);
-        let query = (query_authored, period_of());
-        super::clip_window_crossings::shadow(brep, face, on, query, &crossings, tolerance);
-        return Some(super::clip_window_crossings::window_crossings(
-            brep, face, on, query.0, query.1, tolerance,
-        ));
-    }
     Some(crossings)
 }

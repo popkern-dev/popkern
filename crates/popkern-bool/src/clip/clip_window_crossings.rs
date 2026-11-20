@@ -124,47 +124,6 @@ pub(super) fn window_crossings(
     crossings
 }
 
-/// Log a disagreement between the production crossings and the window's
-/// (parameters compared within a millionth of the record's span).
-pub(super) fn shadow_compare(
-    face: FaceHandle,
-    query: &NurbsCurve,
-    (production, window): (&[UvCrossing], &[UvCrossing]),
-    gap: &dyn Fn(&UvCrossing) -> f64,
-) {
-    let (t0, t1) = query.parameter_range();
-    let eps = 1e-6 * (t1 - t0).abs().max(1e-12);
-    // A crossing at the record's own end bounds nothing new (either
-    // finder may report or omit it): compared off the ends.
-    let ts = |c: &[UvCrossing]| {
-        let mut v: Vec<f64> = c
-            .iter()
-            .map(|x| x.t_curve)
-            .filter(|&t| t > t0 + eps && t < t1 - eps)
-            .collect();
-        v.sort_by(f64::total_cmp);
-        v.dedup_by(|a, b| (*a - *b).abs() < eps);
-        v
-    };
-    let (p, w) = (ts(production), ts(window));
-    let same = p.len() == w.len() && p.iter().zip(&w).all(|(a, b)| (a - b).abs() < eps);
-    if !same {
-        let a = query.point_at(t0);
-        let gaps = |c: &[UvCrossing]| -> Vec<String> {
-            c.iter()
-                .map(|x| format!("{:.6}@{:.1e}", x.t_curve, gap(x)))
-                .collect()
-        };
-        crate::complex_shadow::append_log_line(&format!(
-            "ClipWindowShadow face {face:?} query_start ({:.4},{:.4}) production {p:?} window {w:?} gaps production {:?} window {:?}",
-            a.x,
-            a.y,
-            gaps(production),
-            gaps(window)
-        ));
-    }
-}
-
 /// Whether `face` lies on a rotational analytic chart (cylinder, sphere,
 /// torus, cone: the ones the half-period dance serves).
 pub(super) fn rotational_chart(brep: &BRep, face: FaceHandle) -> bool {
@@ -180,34 +139,6 @@ pub(super) fn rotational_chart(brep: &BRep, face: FaceHandle) -> bool {
                     | SurfaceGeometry::Cone { .. }
             )
         })
-}
-
-/// With the shadow log set, compare the window crossings with the
-/// production ones for this record.
-pub(super) fn shadow(
-    brep: &BRep,
-    face: FaceHandle,
-    on: (Option<&SurfaceGeometry>, &[(HalfEdgeHandle, NurbsCurve)]),
-    (query, period): (&NurbsCurve, f64),
-    production: &[UvCrossing],
-    tolerance: &Tolerance,
-) {
-    if std::env::var_os("POPKERN_COMPLEX_SHADOW_LOG").is_none() {
-        return;
-    }
-    let window = window_crossings(brep, face, on, query, period, tolerance);
-    // Each crossing's gap in space between the record's point and the
-    // boundary's: a crossing far past the reach is a phantom.
-    let gap = |c: &UvCrossing| -> f64 {
-        use popkern_core::geometry::surface::SurfaceEval as _;
-        let (Some(s), Some((_, pc))) = (on.0, on.1.iter().find(|(h, _)| *h == c.boundary_he))
-        else {
-            return f64::NAN;
-        };
-        let (qa, qb) = (query.point_at(c.t_curve), pc.point_at(c.t_boundary));
-        s.point_at(qa.x, qa.y).distance_to(&s.point_at(qb.x, qb.y))
-    };
-    shadow_compare(face, query, (production, &window), &gap);
 }
 
 /// The closure pair of a closed record whose closure point lies on the

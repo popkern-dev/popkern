@@ -3,8 +3,6 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::topology::{BRep, FaceHandle};
 
-pub(super) const TWO_PI: f64 = std::f64::consts::TAU;
-
 /// A crossing between a UV intersection curve and a face's UV boundary.
 #[derive(Clone)]
 pub(crate) struct UvCrossing {
