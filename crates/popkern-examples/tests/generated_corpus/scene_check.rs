@@ -60,6 +60,20 @@ pub(super) fn check(scene: &Scene) -> Result<(), Reject> {
             if near.is_none() {
                 return Err(Reject::NoApproach(scene.offset));
             }
+            // B lies on its configuration's side of A away from the
+            // contact: inside for an internal touch, outside for an
+            // external one (a steered contact's normal once came out
+            // reversed and placed an internal touch outside A).
+            if scene.cell.config != Config::V {
+                let away: Vec<Point3> = probes(&placed.b_mesh, 400)
+                    .into_iter()
+                    .filter(|p| p.distance_to(&c) > ball)
+                    .collect();
+                let want = scene.cell.config == Config::I;
+                if away.iter().any(|&p| inside(&placed.a_mesh, p) != want) {
+                    return Err(Reject::WrongSide);
+                }
+            }
         }
         Config::D => {
             if closest_approach(&placed.a_mesh, &placed.b_mesh, margin, None).is_some() {

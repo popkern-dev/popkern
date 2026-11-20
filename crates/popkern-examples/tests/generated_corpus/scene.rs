@@ -198,6 +198,9 @@ pub enum Reject {
     NotOverlapping,
     NotContained,
     NotDisjoint,
+    /// A touch whose B lies on the wrong side of A away from the contact
+    /// (an external touch inside A, an internal one outside it).
+    WrongSide,
 }
 
 /// Draw scene `index` of `cell` under `seed`: `Err` when the draw is

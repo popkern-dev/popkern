@@ -369,8 +369,28 @@ fn steered_point_weighted(
             }
             Steer::Free => unreachable!(),
         };
+        // The outward sense from the face's triangle nearest the steered
+        // point: the drawn triangle can lie across the face from it (a
+        // ball's far side), and its normal then turned the point's
+        // normal inward (an internal touch placed outside A).
+        let q = surface.point_at(u, v);
+        let near = mesh
+            .face_map
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| **f == mesh.face_map[ti])
+            .map(|(k, _)| {
+                let t = mesh.triangles[k];
+                let w = |i: usize| mesh.vertices[t[i]].position;
+                (
+                    super::distance::point_triangle_distance(q, w(0), w(1), w(2)),
+                    k,
+                )
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map_or(ti, |(_, k)| k);
         let hint = {
-            let t = mesh.triangles[ti];
+            let t = mesh.triangles[near];
             let (p0, p1, p2) = (
                 mesh.vertices[t[0]].position,
                 mesh.vertices[t[1]].position,
