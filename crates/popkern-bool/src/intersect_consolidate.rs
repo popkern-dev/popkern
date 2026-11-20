@@ -136,7 +136,8 @@ pub(super) fn consolidate_records(
                 (c.point_at(t0), c.point_at(t1))
             };
             let mut used = vec![false; alive.len()];
-            let mut kept_loops: Vec<Vec<popkern_core::geometry::Point3>> = Vec::new();
+            // Each kept loop's samples and records.
+            let mut kept_loops: Vec<(Vec<popkern_core::geometry::Point3>, Vec<usize>)> = Vec::new();
             for seed in 0..alive.len() {
                 if used[seed] {
                     continue;
@@ -233,9 +234,16 @@ pub(super) fn consolidate_records(
                         }
                         best
                     };
-                let duplicate = kept_loops
-                    .iter()
-                    .any(|kl| samples.iter().all(|p| dist_to_polyline(p, kl) < gate));
+                // On the kept loop's polyline within the slop gate, and
+                // on its curves within the lateral band, as open
+                // duplicates are (PK-780): two exact circles of a sphere
+                // 1e-5 wider than a coaxial cylinder, 8e-3 apart, sat
+                // inside the gate of the polyline's 6e-2 chord sag and the
+                // second was dropped (one crossing circle served).
+                let duplicate = kept_loops.iter().any(|(kl, recs)| {
+                    samples.iter().all(|p| dist_to_polyline(p, kl) < gate)
+                        && samples.iter().all(|p| recs.iter().any(|&r| on_curve(r, p)))
+                });
                 if popkern_core::trace::trace_enabled("boolean") {
                     let n = samples.len() as f64;
                     let cx = samples.iter().map(|p| p.x).sum::<f64>() / n;
@@ -260,7 +268,8 @@ pub(super) fn consolidate_records(
                         drop[alive[k]] = true;
                     }
                 } else {
-                    kept_loops.push(samples);
+                    let recs: Vec<usize> = chain.iter().map(|&(k, _)| alive[k]).collect();
+                    kept_loops.push((samples, recs));
                 }
             }
         }
@@ -429,3 +438,7 @@ pub(super) fn consolidate_records(
     let mut keep_iter = drop.into_iter();
     records.retain(|_| !keep_iter.next().unwrap_or(false));
 }
+
+#[cfg(test)]
+#[path = "intersect_consolidate_tests.rs"]
+mod tests;

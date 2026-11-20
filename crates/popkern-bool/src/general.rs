@@ -38,11 +38,42 @@ pub(crate) fn operand_pieces(mut body: BRep, operand: usize) -> Result<BRep, Boo
 /// glued body's first validation issue (a `GeneralDeclined` shadow
 /// line too).
 pub(crate) fn glue_result(pieces: BRep, tolerance: &Tolerance) -> Result<BRep, BoolError> {
+    // Glued already at construction's touches (`glue_at_touches`).
+    if pieces.body_kind() == popkern_core::topology::BodyKind::General {
+        return Ok(pieces);
+    }
     if crate::postprocess::split_pieces::touch_contacts(&pieces, tolerance).is_empty() {
         return Ok(pieces);
     }
     let mut body = pieces;
     let reason = match body.glue_touching() {
+        Ok(_) => match body.validate_all().first() {
+            None => return Ok(body),
+            Some(issue) => format!("glued body invalid: {issue}"),
+        },
+        Err(e) => e.to_string(),
+    };
+    crate::complex_shadow::append_log_line(&format!("GeneralDeclined: {reason}"));
+    Err(BoolError::GeneralBodyDeclined { reason })
+}
+
+/// The pieces glued at construction's touches (tangency design §4.8):
+/// the general policy's glue where the boolean's construction found
+/// where its operands touch, nothing detected again; the pieces as they
+/// are when it found none (the glue then detects, [`glue_result`]).
+///
+/// # Errors
+///
+/// As [`glue_result`].
+pub(crate) fn glue_at_touches(
+    pieces: BRep,
+    touches: &crate::contact_curves::Touches,
+) -> Result<BRep, BoolError> {
+    if touches.points.is_empty() && touches.curves.is_empty() {
+        return Ok(pieces);
+    }
+    let mut body = pieces;
+    let reason = match body.glue_touching_at(&touches.points, &touches.curves) {
         Ok(_) => match body.validate_all().first() {
             None => return Ok(body),
             Some(issue) => format!("glued body invalid: {issue}"),

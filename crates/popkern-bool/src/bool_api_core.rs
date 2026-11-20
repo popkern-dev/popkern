@@ -77,7 +77,7 @@ pub(crate) fn boolean_under(
     // No perturbation retry: plan Stage 7d retired it after it fired on
     // no boolean over three whole-suite runs (`boolean_with_perturbation`
     // remains an explicit opt-in).
-    let mut result = operation::execute_boolean_with_boxes(
+    let (mut result, touches) = operation::execute_boolean_with_touches(
         op,
         &a,
         &b,
@@ -85,6 +85,12 @@ pub(crate) fn boolean_under(
         policy,
         Some([&boxes[0], &boxes[1]]),
     )?;
+    // The general policy's glue at construction's touches, where no
+    // naming runs before it (naming scheme 5 names the pieces here, and
+    // the glue then detects as it did: `split_serve::serve_one`).
+    if policy == options::NonManifoldPolicy::General && tracking.is_none() {
+        result = crate::general::glue_at_touches(result, &touches)?;
+    }
     // A result thinner than the tolerance everywhere has no inside
     // either (a lens a tolerance deep): it is empty, and reported. A
     // union holds both operands, each found above to have an inside, so

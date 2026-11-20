@@ -151,6 +151,29 @@ pub(crate) fn execute_boolean_with_boxes(
     )
 }
 
+/// [`execute_boolean_with_boxes`] with construction's touches beside
+/// the body (`execute_boolean_touches`).
+pub(crate) fn execute_boolean_with_touches(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+    policy: crate::options::NonManifoldPolicy,
+    boxes: Option<OperandBoxes<'_>>,
+) -> Result<(BRep, crate::contact_curves::Touches), BoolError> {
+    sense_rescue::execute_boolean_touches(
+        op,
+        a,
+        b,
+        tolerance,
+        &mut Vec::new(),
+        None,
+        None,
+        policy,
+        boxes,
+    )
+}
+
 /// Each operand's face boxes, as `compute_face_aabbs` builds them.
 pub(crate) type OperandBoxes<'a> = [&'a [(
     popkern_core::topology::FaceHandle,

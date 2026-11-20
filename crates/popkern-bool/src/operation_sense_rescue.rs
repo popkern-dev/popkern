@@ -35,6 +35,27 @@ pub(crate) fn execute_boolean_full(
     policy: NonManifoldPolicy,
     boxes: Option<super::OperandBoxes<'_>>,
 ) -> Result<BRep, BoolError> {
+    execute_boolean_touches(
+        op, a, b, tolerance, metrics, cancel, progress, policy, boxes,
+    )
+    .map(|(body, _)| body)
+}
+
+/// [`execute_boolean_full`] with construction's touches beside the
+/// body: where the operands touch, for the general policy's glue
+/// (`general::glue_at_touches`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_boolean_touches(
+    op: BoolOperation,
+    a: &BRep,
+    b: &BRep,
+    tolerance: &Tolerance,
+    metrics: &mut Vec<PhaseMetric>,
+    cancel: Option<&CancellationToken>,
+    progress: Option<&mut dyn ProgressReporter>,
+    policy: NonManifoldPolicy,
+    boxes: Option<super::OperandBoxes<'_>>,
+) -> Result<(BRep, crate::contact_curves::Touches), BoolError> {
     let routes = execute_boolean_routes(
         op, a, b, tolerance, metrics, cancel, progress, policy, boxes,
     );
@@ -60,12 +81,13 @@ pub(crate) fn execute_boolean_full(
                 NonManifoldPolicy::SplitToManifold | NonManifoldPolicy::General => {
                     let side_by_side = super::helpers::combine_breps(a.clone(), b.clone())?;
                     crate::postprocess::split_pieces::accept_split(side_by_side, tolerance, policy)
+                        .map(|body| (body, Default::default()))
                 }
             };
         }
         Err(e) => return Err(e),
     };
-    answer_contacts(served, &touches, tolerance, policy)
+    answer_contacts(served, &touches, tolerance, policy).map(|body| (body, touches))
 }
 
 /// A served result as it is when it touches itself nowhere; else,
