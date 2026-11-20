@@ -33,6 +33,7 @@ use slotmap::Key;
 use super::region::Bounds;
 use crate::intersect::{IntersectionRecord, IntersectionResult};
 use crate::intersect_edge_face::EdgeFaceHit;
+use crate::parallel::ff_parallel::ff_parallel_contacts::FaceContact;
 
 /// One entity a candidate lies on.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -90,6 +91,10 @@ pub(crate) enum SourceKind {
     /// Two records meeting inside at least one of them, or a record
     /// meeting itself (`meetings`).
     RecordMeeting,
+    /// Two faces touching at an isolated point where they meet in no
+    /// curve (the face-pair pass's contact discovery, tangency design
+    /// §4.8).
+    Contact,
 }
 
 /// A point some interference produced, before any vertex is committed.
@@ -162,7 +167,7 @@ pub(super) fn handle_bits(k: impl Key) -> u64 {
 pub(crate) fn collect_candidates(
     a: &BRep,
     b: &BRep,
-    hits: &[EdgeFaceHit],
+    (hits, contacts): (&[EdgeFaceHit], &[FaceContact]),
     records: &[IntersectionRecord],
     linear: f64,
     cap: f64,
@@ -170,6 +175,11 @@ pub(crate) fn collect_candidates(
     let operands = [a, b];
     let mut out = Vec::new();
     collect_sites(a, b, hits, records, linear, &mut out);
+    out.extend(super::contact_candidates::contact_candidates(
+        (a, b),
+        contacts,
+        linear,
+    ));
     let site_radius = out.iter().map(|c| c.radius).fold(0.0_f64, f64::max);
     let vertex_tol = operands
         .iter()

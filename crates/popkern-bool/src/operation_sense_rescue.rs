@@ -38,7 +38,7 @@ pub(crate) fn execute_boolean_full(
     let routes = execute_boolean_routes(
         op, a, b, tolerance, metrics, cancel, progress, policy, boxes,
     );
-    let served = match routes {
+    let (served, touches) = match routes {
         Ok(served) => served,
         // A union of operands that only touch fails inside the pipeline
         // as often as not (the contact is a tangency or an edge lying
@@ -65,7 +65,7 @@ pub(crate) fn execute_boolean_full(
         }
         Err(e) => return Err(e),
     };
-    answer_contacts(served, tolerance, policy)
+    answer_contacts(served, &touches, tolerance, policy)
 }
 
 /// A served result as it is when it touches itself nowhere; else,
@@ -77,6 +77,7 @@ pub(crate) fn execute_boolean_full(
 /// (PK-1181).
 pub(crate) fn answer_contacts(
     served: BRep,
+    touches: &[popkern_core::geometry::Point3],
     tolerance: &Tolerance,
     policy: NonManifoldPolicy,
 ) -> Result<BRep, BoolError> {
@@ -90,15 +91,22 @@ pub(crate) fn answer_contacts(
     if popkern_core::trace::trace_enabled("contacts") {
         crate::postprocess::zero_thickness::trace_findings(&served, tolerance);
     }
+    // Construction's touches on no record, each a vertex on every face
+    // and edge holding it in a reading copy, two in one place: the
+    // contact is read from the topology (tangency design §4.8, W3b);
+    // the served body stays as built.
+    let marked = marked_with(&served, touches)?;
     let mut contacts =
-        crate::postprocess::zero_thickness::zero_thickness_contacts(&served, tolerance);
+        crate::postprocess::zero_thickness::zero_thickness_contacts(&marked, tolerance);
     if contacts.is_empty() {
         contacts = crate::postprocess::shell_contact::shell_contacts(&served, tolerance);
+        missed_contact("shell", &contacts);
     }
     if contacts.is_empty() {
         // One shell touching itself where none of its topology stands
         // (PK-1155).
         contacts = crate::postprocess::self_contact::self_contacts(&served, tolerance);
+        missed_contact("self", &contacts);
     }
     if contacts.is_empty() {
         return Ok(served);
@@ -106,8 +114,43 @@ pub(crate) fn answer_contacts(
     match policy {
         NonManifoldPolicy::Decline => Err(BoolError::NonManifoldResult { contacts }),
         NonManifoldPolicy::SplitToManifold | NonManifoldPolicy::General => {
+            // The contact's vertex loops were the reading's: a split
+            // piece keeps none (no stray vertex where it touched the
+            // other), and the general glue makes the contact's vertex
+            // itself, as it did before construction marked it (naming
+            // scheme 5 named the pieces before the glue).
             crate::postprocess::split_pieces::accept_split(served, tolerance, policy)
         }
+    }
+}
+
+/// `body` with a vertex at each of `touches` on every face and edge of
+/// it holding the touch (`BRep::mark_contact_point`): two in one place
+/// where both touching faces survive; one alone (the result kept one of
+/// the touching faces) is no touch and makes nothing.
+fn marked_with(body: &BRep, touches: &[popkern_core::geometry::Point3]) -> Result<BRep, BoolError> {
+    let mut marked = body.clone();
+    for &p in touches {
+        marked
+            .mark_contact_point(p)
+            .map_err(|e| BoolError::MergeFailed {
+                stage: "contact vertex".into(),
+                reason: format!("the touch at {p:?}: {e}"),
+            })?;
+    }
+    Ok(marked)
+}
+
+/// A `MissedContact` shadow line for contacts a search found where the
+/// result's topology holds none (tangency design §4.8, W3e): what
+/// construction has yet to carry before the searches become validators.
+fn missed_contact(search: &str, contacts: &[crate::error::NonManifoldContact]) {
+    if let Some(c) = contacts.first() {
+        crate::complex_shadow::append_log_line(&format!(
+            "MissedContact {search} {} at {:?}",
+            contacts.len(),
+            c.location
+        ));
     }
 }
 
@@ -123,7 +166,7 @@ fn execute_boolean_routes(
     progress: Option<&mut dyn ProgressReporter>,
     policy: NonManifoldPolicy,
     boxes: Option<super::OperandBoxes<'_>>,
-) -> Result<BRep, BoolError> {
+) -> Result<(BRep, Vec<popkern_core::geometry::Point3>), BoolError> {
     // PK-478 stage 4: MIXED-sense rescue retry. A mixed operand pair
     // (one majority-inward — every blend-rebuilt body; one
     // majority-outward — sweep/extrude output) has walks that
@@ -205,7 +248,7 @@ fn execute_boolean_routes(
         policy,
         None,
     ) {
-        Ok(rescued) => {
+        Ok((rescued, touches)) => {
             // Tear bar: a divergence at 1% of the body extent is a
             // feature-scale hole, not an approximation band
             // (measured: the coarse torus-box lie reads 2.7% of its
@@ -236,7 +279,7 @@ fn execute_boolean_routes(
                 if popkern_core::trace::trace_enabled("boolean") {
                     eprintln!("  [exec] mixed-sense rescue serves (tear check clean)");
                 }
-                Ok(rescued)
+                Ok((rescued, touches))
             } else {
                 if popkern_core::trace::trace_enabled("boolean") {
                     let worst = tears

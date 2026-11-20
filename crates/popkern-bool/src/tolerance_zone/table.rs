@@ -13,6 +13,7 @@ use super::resolve::{
 };
 use crate::intersect::IntersectionRecord;
 use crate::intersect_edge_face::EdgeFaceHit;
+use crate::parallel::ff_parallel::ff_parallel_contacts::FaceContact;
 
 /// Multiple of the linear tolerance a vertex may grow to without a
 /// crossing angle explaining it: the graph's own record-end adoption
@@ -77,15 +78,16 @@ pub(crate) fn table_enabled() -> bool {
 
 /// Build the table of a boolean between `a` and `b` whose graph inserts
 /// `records`, with `hits` its interfering edge-face hits
-/// (`candidates::interfering_hits`).
+/// (`candidates::interfering_hits`) and `contacts` the faces touching at
+/// isolated points.
 pub(crate) fn build(
     (a, b): (&BRep, &BRep),
-    hits: &[EdgeFaceHit],
+    (hits, contacts): (&[EdgeFaceHit], &[FaceContact]),
     records: &[IntersectionRecord],
     linear: f64,
 ) -> VertexTable {
     let cap = GROWTH_CAP_FACTOR * linear;
-    let mut cands = collect_candidates(a, b, hits, records, linear, cap);
+    let mut cands = collect_candidates(a, b, (hits, contacts), records, linear, cap);
     super::incidence::add_interior_incidences(&mut cands, [a, b], records, linear);
     super::incidence::add_crossing_zones(&mut cands, [a, b], cap);
     let ctx = ResolutionContext {
@@ -172,6 +174,55 @@ fn emit_decline_artifact(
 }
 
 impl VertexTable {
+    /// The touches the result must show: each group holding a surface
+    /// contact candidate, or an edge-face hit of an edge resting on its
+    /// face (on one side of it either way, `hit_rests_on_face`) with no
+    /// record incidence, as its touch. The contact reading gives a copy
+    /// of the result a vertex there on every face and edge holding it
+    /// (tangency design §4.8, W3b); a hit on a record is that record's
+    /// end or pave. Empty when the resolution declined.
+    pub(crate) fn isolated_contacts(&self, operands: (&BRep, &BRep), linear: f64) -> Vec<Point3> {
+        let Ok(res) = self.resolution.as_ref() else {
+            return Vec::new();
+        };
+        let mut out: Vec<Point3> = Vec::new();
+        for g in &res.groups {
+            let members = || g.members.iter().map(|&m| &self.cands[m]);
+            let touch = |c: &CandidateVertex| match c.source {
+                SourceKind::Contact => true,
+                SourceKind::EdgeFaceHit => {
+                    super::contact_candidates::hit_rests_on_face(operands, c, linear)
+                }
+                _ => false,
+            };
+            // A surface contact is the touch whatever records its group
+            // holds: a marcher's degenerate record ending at a tangent
+            // touch (later dropped as a seam's duplicate) left the face it
+            // rested on without a vertex there. The reading copy's marking
+            // adds a vertex only where two entities hold the point without
+            // sharing one, so a record's own vertex there makes nothing.
+            // A hit on a record is that record's end or pave.
+            let contact = members().any(|c| c.source == SourceKind::Contact);
+            let on_record = members()
+                .flat_map(|c| &c.incidence)
+                .any(|i| matches!(i, Incidence::Record { .. }));
+            if !(contact || (!on_record && members().any(touch))) {
+                continue;
+            }
+            // At the group's surface contact when it has one: found by
+            // Newton on the gap's gradient, it is the touch, where an
+            // edge's tangent touch hit is placed only within its zone
+            // along the edge (a cylinder's seam 1e-5 from a touch rests
+            // on the other face within the tolerance, and anchored the
+            // group 1e-5 off the touch).
+            let at = members()
+                .find(|c| c.source == SourceKind::Contact)
+                .map_or(self.cands[g.anchor].position, |c| c.position);
+            out.push(at);
+        }
+        out
+    }
+
     /// Each record's end vertices: the anchors of the groups its ends
     /// resolved into. `None` when the resolution declined or a record
     /// end has no candidate.

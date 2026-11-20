@@ -26,11 +26,47 @@ pub struct VertexLoopResult {
 }
 
 impl BRep {
+    /// Whether a vertex loop of `face` may stand at `position`, the one
+    /// rule [`Self::make_vertex_loop`] and the validator read: on the
+    /// face's surface within `tolerance`, inside its trim by even-odd
+    /// parity, and farther than `tolerance` from its edges in space (the
+    /// trim classifier's parametric band of ten tolerances is no
+    /// boundary: a touch beside a cylinder's seam fell in it). The
+    /// reason with its measurement when not.
+    pub(crate) fn vertex_loop_site(
+        &self,
+        face: FaceHandle,
+        position: &Point3,
+        tolerance: f64,
+    ) -> Result<(), String> {
+        let Some(place) = self.face_point_trim_containment_within(face, position, 1e-12) else {
+            return Err("the face's surface or trim cannot be read there".into());
+        };
+        if place.distance > tolerance {
+            return Err(format!(
+                "the point lies {:.3e} off the surface (tolerance {tolerance:.3e})",
+                place.distance
+            ));
+        }
+        if place.containment != FaceUvContainment::Interior {
+            return Err(format!(
+                "the point is {:?} the face's trim, not inside it",
+                place.containment
+            ));
+        }
+        if self.point_near_face_boundary(face, position, tolerance) {
+            return Err("the point lies on the face's boundary within the tolerance".into());
+        }
+        Ok(())
+    }
+
     /// Make a vertex at `position` on `face`'s interior, held by a new
     /// vertex loop of the face (a loop of no fins). The point must lie on the face's surface
-    /// within the linear tolerance, strictly inside its trim (off its
-    /// edges by the trim classifier's band), and off the face's other
-    /// vertex loops. Counts: vertices +1, loops +1.
+    /// within the linear tolerance, inside its trim by even-odd parity
+    /// and farther than the tolerance from its edges in space (the trim
+    /// classifier's parametric band of ten tolerances is no boundary: a
+    /// touch beside a cylinder's seam fell in it), and off the face's
+    /// other vertex loops. Counts: vertices +1, loops +1.
     ///
     /// # Errors
     ///
@@ -45,21 +81,9 @@ impl BRep {
         let Some(data) = self.faces.get(face) else {
             return decline("unknown face".into());
         };
-        let Some(place) = self.face_point_trim_containment(face, &position) else {
-            return decline("the face's surface or trim cannot be read there".into());
-        };
         let tolerance = self.tolerance.linear().max(data.tolerance.unwrap_or(0.0));
-        if place.distance > tolerance {
-            return decline(format!(
-                "the point lies {:.3e} off the surface (tolerance {tolerance:.3e})",
-                place.distance
-            ));
-        }
-        if place.containment != FaceUvContainment::Interior {
-            return decline(format!(
-                "the point is {:?} the face's trim, not inside it",
-                place.containment
-            ));
+        if let Err(reason) = self.vertex_loop_site(face, &position, tolerance) {
+            return decline(reason);
         }
         for l in self.face_vertex_loops(face) {
             if let Some(v) = self.loops.get(l).and_then(|l| l.vertex)

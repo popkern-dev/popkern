@@ -134,6 +134,14 @@ fn a_corner_glued_to_a_vertex_loop_makes_a_general_body() {
         "{uses:?}"
     );
     assert_eq!(body.body_kind(), BodyKind::General);
+    // The manifoldness authority reads the loop as one more fan: two
+    // pieces meet at the point (it read the corner's one disc, and a
+    // boolean's identity repair glued a ball's pole to a face's touch as
+    // a manifold, W3b).
+    assert_eq!(
+        body.vertex_neighbourhood(shared),
+        crate::topology::VertexNeighbourhood::Fans { count: 2 }
+    );
     assert_valid(&body, "corner on a face");
     let apart = body.unglue_vertex(shared).expect("unglue");
     assert_eq!(apart.len(), 1);
@@ -178,4 +186,50 @@ fn vertex_loops_survive_a_save_and_load() {
         !plain.contains("\"vertex\":"),
         "loops of fins write no vertex"
     );
+}
+
+/// A vertex loop 1e-5 beside a cylinder's seam stands: the seam is an
+/// edge of the face but no boundary of its material, and the point lies
+/// ten tolerances from it, inside the trim classifier's parametric band.
+/// It read `Boundary` there and the loop declined (a touch of another
+/// cylinder steered beside the seam got no vertex, W3b). On the seam
+/// within the tolerance it still declines: that point is on an edge.
+#[test]
+fn a_vertex_loop_stands_beside_a_seam_but_not_on_it() {
+    let (r, mut body) = (1.2, BRep::cylinder(1.2, 2.0, tol()).expect("cylinder"));
+    let lateral = body
+        .faces
+        .keys()
+        .find(|&f| {
+            matches!(
+                body.faces[f].surface.as_ref().map(|s| &s.geometry),
+                Some(crate::geometry::surface::SurfaceGeometry::Cylinder { .. })
+            )
+        })
+        .expect("lateral face");
+    let at = |d: f64| {
+        let t = d / r;
+        Point3::new(r * t.cos(), r * t.sin(), 1.0)
+    };
+    let seam = body.faces[lateral].surface.as_ref().map(|s| {
+        use crate::geometry::surface::SurfaceEval;
+        s.geometry.point_at(0.0, 1.0)
+    });
+    // The seam sits at u = 0 of the chart; place the points beside it.
+    let seam = seam.expect("surface");
+    let beside = {
+        let p = at(1e-5);
+        // Rotate into the seam's own angle about z.
+        let phi = seam.y.atan2(seam.x);
+        Point3::new(
+            p.x * phi.cos() - p.y * phi.sin(),
+            p.x * phi.sin() + p.y * phi.cos(),
+            seam.z,
+        )
+    };
+    let on_seam = Point3::new(seam.x, seam.y, seam.z);
+    assert!(body.make_vertex_loop(lateral, on_seam).is_err());
+    body.make_vertex_loop(lateral, beside)
+        .expect("a vertex loop beside the seam");
+    assert_valid(&body, "a vertex loop beside the seam");
 }

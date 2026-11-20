@@ -212,7 +212,7 @@ pub(super) fn execute_boolean_pipeline(
     mut progress: Option<&mut dyn ProgressReporter>,
     policy: crate::options::NonManifoldPolicy,
     boxes: Option<OperandBoxes<'_>>,
-) -> Result<BRep, BoolError> {
+) -> Result<(BRep, Vec<popkern_core::geometry::Point3>), BoolError> {
     check_cancel(cancel)?;
     if popkern_core::trace::trace_enabled("boolean") {
         eprintln!(
@@ -254,7 +254,12 @@ pub(super) fn execute_boolean_pipeline(
         if popkern_core::trace::trace_enabled("boolean") {
             eprintln!("  [exec] -> no-records containment path");
         }
-        return handle_no_intersection(
+        let touches = crate::tolerance_zone::contact_candidates::touches_without_records(
+            (a, b),
+            &intersection_result,
+            tolerance.linear(),
+        );
+        let result = handle_no_intersection(
             op,
             a.clone(),
             b.clone(),
@@ -262,6 +267,7 @@ pub(super) fn execute_boolean_pipeline(
             &intersection_result.aabbs_b,
             tolerance,
         );
+        return result.map(|body| (body, touches));
     }
 
     // §6.4: deferred ON audit. When the coincidence map contains
@@ -299,7 +305,7 @@ pub(super) fn execute_boolean_pipeline(
             let ix = &intersection_result;
             shortcut_oracle::compare("containment", op, (a, b), ix, tolerance, policy, &result);
         }
-        return result;
+        return result.map(|body| (body, Vec::new()));
     }
 
     // Bodies that only touch (opposite contact faces, point records).
@@ -310,7 +316,7 @@ pub(super) fn execute_boolean_pipeline(
             let ix = &intersection_result;
             shortcut_oracle::compare("touching", op, (a, b), ix, tolerance, policy, &result);
         }
-        return result;
+        return result.map(|body| (body, Vec::new()));
     }
 
     // The cellular stage serves from the operands and the
@@ -320,6 +326,7 @@ pub(super) fn execute_boolean_pipeline(
     // them skipped the workspace suite (10101 tests) passed unchanged,
     // and a 64-slot disc's late cut took 8.0 ms instead of 10.2 (the
     // first 3.9 instead of 5.0; PK-814).
+    let mut touches = Vec::new();
     serve::select_and_serve(
         a,
         b,
@@ -329,7 +336,9 @@ pub(super) fn execute_boolean_pipeline(
         metrics,
         &mut progress,
         policy,
+        &mut touches,
     )
+    .map(|body| (body, touches))
 }
 
 impl BoolDiagnostics {

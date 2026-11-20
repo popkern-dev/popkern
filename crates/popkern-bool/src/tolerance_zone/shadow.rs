@@ -331,7 +331,7 @@ pub(crate) fn run(
 ) {
     let linear = tolerance.linear();
     let hits = super::candidates::interfering_hits(operands, ix, records, linear);
-    let table = super::table::build(operands, &hits, records, linear);
+    let table = super::table::build(operands, (&hits, &ix.contacts), records, linear);
     let mut shadow = compare(
         graph,
         &table.cands,

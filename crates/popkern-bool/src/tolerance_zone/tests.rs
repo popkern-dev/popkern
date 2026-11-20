@@ -236,7 +236,7 @@ fn resolution_is_independent_of_candidate_order() {
     let cands = collect_candidates(
         &a,
         &b,
-        &hits,
+        (&hits, &ix.contacts),
         &ix.records,
         tol.linear(),
         20.0 * tol.linear(),

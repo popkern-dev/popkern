@@ -32,6 +32,9 @@ pub(super) struct VertexIdentity {
     pub common_blocks: Vec<RecordEdgeBlock>,
     /// Each decided vertex's anchor and grown tolerance.
     pub reaches: Vec<(Point3, f64)>,
+    /// The touches on no record (`VertexTable::isolated_contacts`): the
+    /// result gets a vertex there on each face holding it.
+    pub contacts: Vec<Point3>,
 }
 
 impl VertexIdentity {
@@ -68,7 +71,7 @@ pub(super) fn decide(
     // The operand edges split only at the hits that are interferences
     // (on their face), the table's own candidates.
     let mut hits = candidates::interfering_hits((a, b), ix, &records, linear);
-    let mut table = table::build((a, b), &hits, &records, linear);
+    let mut table = table::build((a, b), (&hits, &ix.contacts), &records, linear);
     let moves = table.closure_moves(&records);
     if moves.iter().any(Option::is_some) {
         for (record, mv) in records.iter_mut().zip(&moves) {
@@ -84,7 +87,7 @@ pub(super) fn decide(
             0.0,
         );
         hits = candidates::interfering_hits((a, b), ix, &records, linear);
-        table = table::build((a, b), &hits, &records, linear);
+        table = table::build((a, b), (&hits, &ix.contacts), &records, linear);
     }
     let Some(ends) = table.record_ends(records.len()) else {
         crate::complex_shadow::append_log_line(&format!(
@@ -101,8 +104,17 @@ pub(super) fn decide(
                 )
             })
             .collect();
+        // The touches unresolved: each surface contact once by place
+        // (within the tolerance), for the contact reading (W3b).
+        let mut contacts: Vec<Point3> = Vec::new();
+        for c in &ix.contacts {
+            if contacts.iter().all(|p| p.distance_to(&c.point) > linear) {
+                contacts.push(c.point);
+            }
+        }
         let identity = VertexIdentity {
             hits,
+            contacts,
             ..VertexIdentity::default()
         };
         return (records, identity);
@@ -117,6 +129,7 @@ pub(super) fn decide(
         },
         ends: Some(ends),
         reaches: table.vertex_reaches(&records),
+        contacts: table.isolated_contacts((a, b), linear),
         hits,
     };
     (records, identity)

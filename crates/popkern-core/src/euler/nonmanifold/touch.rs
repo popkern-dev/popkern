@@ -105,6 +105,48 @@ impl BRep {
         Ok(out)
     }
 
+    /// Give the body a vertex at the contact point `p` on every face and
+    /// edge holding it where it has none: each edge holding `p` inside
+    /// split there, each face holding it inside a vertex loop. The
+    /// boolean's construction calls it for a touch its vertex table
+    /// decided lies on no record (tangency design §4.8), so the touch
+    /// is in the result's topology, two vertices in one place, before
+    /// its manifoldness is read. A point only one entity holds (a
+    /// vertex, an edge or a face: the result kept one of the touching
+    /// faces) is no touch of the body, and nothing is made. Returns how
+    /// many vertices it made. All or nothing: on an error the body is
+    /// unchanged.
+    ///
+    /// # Errors
+    ///
+    /// An edge split's or a vertex loop's decline.
+    pub fn mark_contact_point(&mut self, p: Point3) -> Result<usize, EulerError> {
+        let tol = self.tolerance.linear_reach();
+        let near = |v: VertexHandle| self.vertices[v].position.distance_to(&p) <= tol;
+        let vertices = self.vertices.keys().filter(|&v| near(v)).count();
+        let edges = self
+            .edges
+            .keys()
+            .filter(|&e| self.edge_interior_holds(e, &p, tol))
+            .count();
+        let faces_inside = self
+            .faces
+            .keys()
+            .filter(|&f| {
+                self.face_interior_holds(f, &p, tol) && !self.face_vertices(f).into_iter().any(near)
+            })
+            .count();
+        if vertices + edges + faces_inside < 2 {
+            return Ok(0);
+        }
+        let mut work = self.clone();
+        let faces: Vec<FaceHandle> = work.faces.keys().collect();
+        let mut out = TouchGlue::default();
+        work.vertex_for(&faces, p, tol, &mut out)?;
+        *self = work;
+        Ok(out.edges_split + out.vertex_loops)
+    }
+
     /// The vertex of face `f` at a contact curve's end `p`: one within
     /// `tol`, else the nearest boundary edge of `f` split at `p` when
     /// that edge lies within two tolerances of it. The curve lies on the

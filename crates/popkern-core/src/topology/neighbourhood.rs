@@ -8,8 +8,12 @@
 //! than once in that one cycle (a face touching itself at the vertex, a
 //! pinch use: the top face of a plate a spherical dimple touches at its
 //! edge), which is still a manifold. An open cycle is the vertex on a
-//! sheet's free boundary. Whether two of a body's vertices happen to
-//! coincide says nothing here: that is identity, not manifoldness.
+//! sheet's free boundary. A vertex loop naming the vertex is its face
+//! meeting the vertex inside, one more disc: with any other use (a
+//! fan, another vertex loop) the point is where pieces touch, as two
+//! balls glued at one point or a ball's pole on a face (tangency
+//! design §4.8). Whether two of a body's vertices happen to coincide
+//! says nothing here: that is identity, not manifoldness.
 //!
 //! At an edge: a free edge has one fin, a manifold edge two, an edge of
 //! a general body's non-manifold ring more.
@@ -29,12 +33,14 @@ pub enum VertexNeighbourhood {
         /// Faces met more than once.
         pinch_uses: Vec<FaceHandle>,
     },
-    /// Several fans: cones of material meeting at the point.
+    /// Several fans: cones of material meeting at the point (a vertex
+    /// loop counts as one, its face's disc).
     Fans {
         /// How many.
         count: usize,
     },
-    /// No face uses the vertex (an acorn, a wire's end, a vertex loop).
+    /// No face uses the vertex round a fan, and at most one vertex
+    /// loop names it (an acorn, a wire's end, a lone vertex loop).
     Lower,
 }
 
@@ -99,7 +105,21 @@ impl BRep {
             .map(|(k, _)| k)
             .collect();
         leaving.sort();
-        self.neighbourhood_of(v, &leaving)
+        let loops = self.vertex_loop_uses().get(&v).copied().unwrap_or(0);
+        self.neighbourhood_of(v, &leaving, loops)
+    }
+
+    /// How many vertex loops name each vertex.
+    fn vertex_loop_uses(&self) -> std::collections::BTreeMap<VertexHandle, usize> {
+        let mut out = std::collections::BTreeMap::new();
+        for l in self.loops.values() {
+            if let Some(v) = l.vertex
+                && !self.half_edges.contains_key(l.half_edge)
+            {
+                *out.entry(v).or_insert(0) += 1;
+            }
+        }
+        out
     }
 
     /// The body around every vertex, in vertex order: one pass over the
@@ -111,6 +131,7 @@ impl BRep {
             .map(|(h, he)| (he.origin, h))
             .collect();
         leaving.sort();
+        let loop_uses = self.vertex_loop_uses();
         let mut out = Vec::with_capacity(self.vertices.len());
         let mut runs = leaving.chunk_by(|a, b| a.0 == b.0).peekable();
         for v in self.vertices.keys() {
@@ -125,16 +146,25 @@ impl BRep {
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
-            out.push((v, self.neighbourhood_of(v, &hs)));
+            let loops = loop_uses.get(&v).copied().unwrap_or(0);
+            out.push((v, self.neighbourhood_of(v, &hs, loops)));
         }
         out
     }
 
     /// The neighbourhood of `v` from `leaving`, its leaving half-edges
-    /// in handle order.
-    fn neighbourhood_of(&self, v: VertexHandle, leaving: &[HalfEdgeHandle]) -> VertexNeighbourhood {
+    /// in handle order, and `loops`, the vertex loops naming it.
+    fn neighbourhood_of(
+        &self,
+        v: VertexHandle,
+        leaving: &[HalfEdgeHandle],
+        loops: usize,
+    ) -> VertexNeighbourhood {
         if leaving.is_empty() {
-            return VertexNeighbourhood::Lower;
+            return match loops {
+                0 | 1 => VertexNeighbourhood::Lower,
+                count => VertexNeighbourhood::Fans { count },
+            };
         }
         let mut seen: Vec<HalfEdgeHandle> = Vec::with_capacity(leaving.len());
         let mut fans: Vec<(Vec<FaceHandle>, bool)> = Vec::new();
@@ -193,8 +223,10 @@ impl BRep {
             }
             fans.push((faces, open));
         }
-        if fans.len() > 1 {
-            return VertexNeighbourhood::Fans { count: fans.len() };
+        if fans.len() + loops > 1 {
+            return VertexNeighbourhood::Fans {
+                count: fans.len() + loops,
+            };
         }
         let (faces, open) = fans.swap_remove(0);
         let pinch_uses = pinch_uses_of(&faces, open);

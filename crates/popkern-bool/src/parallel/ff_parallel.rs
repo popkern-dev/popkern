@@ -24,7 +24,7 @@ mod ff_parallel_anchor;
 #[path = "ff_parallel_clip.rs"]
 mod ff_parallel_clip;
 #[path = "ff_parallel_contacts.rs"]
-mod ff_parallel_contacts;
+pub(crate) mod ff_parallel_contacts;
 #[path = "ff_parallel_reach.rs"]
 pub(crate) mod ff_parallel_reach;
 #[path = "ff_parallel_residue.rs"]
@@ -124,7 +124,10 @@ pub(crate) fn process_pairs(
     b: &BRep,
     tolerance: &Tolerance,
     trace: TraceFlags,
-) -> Vec<Result<Vec<IntersectionRecord>, PairFailure>> {
+) -> (
+    Vec<Result<Vec<IntersectionRecord>, PairFailure>>,
+    Vec<ff_parallel_contacts::FaceContact>,
+) {
     // Phase 1 (sequential, cheap): resolve each pair's surfaces and
     // bounded UV windows.
     // A pair whose faces provably lie apart is not solved (PK-1166,
@@ -190,11 +193,12 @@ pub(crate) fn process_pairs(
         }
     };
 
-    ff_parallel_contacts::shadow_discover(
+    let contacts = ff_parallel_contacts::discover(
+        (tasks, &unique_of_task),
         &unique,
         &ssi,
-        tolerance,
-        solve_clock.elapsed_ms().unwrap_or(0.0),
+        (a, b),
+        (tolerance, solve_clock.elapsed_ms().unwrap_or(0.0)),
     );
     // Per-task clip + classify from the shared solve, in task
     // order (rayon's ordered collect keeps the output positionally
@@ -229,10 +233,13 @@ pub(crate) fn process_pairs(
     {
         if !trace.any() {
             use rayon::prelude::*;
-            return (0..tasks.len()).into_par_iter().map(one_task).collect();
+            return (
+                (0..tasks.len()).into_par_iter().map(one_task).collect(),
+                contacts,
+            );
         }
     }
-    (0..tasks.len()).map(one_task).collect()
+    ((0..tasks.len()).map(one_task).collect(), contacts)
 }
 
 /// Resolved SSI solver inputs for one pair: surface references plus

@@ -443,6 +443,8 @@ mod torus;
 use torus::plane_torus_clear;
 #[path = "self_contact_patches.rs"]
 mod patches;
+#[path = "self_contact_patches_clear.rs"]
+pub(crate) mod patches_clear;
 #[path = "self_contact_polygon.rs"]
 mod polygon;
 #[path = "self_contact_same_surface.rs"]

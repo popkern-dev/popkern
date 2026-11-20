@@ -450,11 +450,13 @@ pub(crate) fn cellular_graph_merge(
     })?;
     let mut result = result;
     super::vertex_reach::record_vertex_reaches(&mut result, &identity.reaches);
-
     // Build provenance map (available via boolean_with_provenance).
     let _provenance =
         super::assemble_cleanup::build_face_provenance(&result, &kept, &fragments, &selections);
 
+    // The touches on no record ride to the serve, which gives the
+    // result a vertex there once its trims are final (W3b).
+    carried.contacts = identity.contacts.clone();
     Ok((result, carried))
 }
 

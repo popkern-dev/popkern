@@ -8,7 +8,6 @@
 
 use crate::error::ValidationError;
 use crate::topology::BRep;
-use crate::validation::FaceUvContainment;
 
 impl BRep {
     /// Every loop of no fins that names no live vertex, and every vertex
@@ -36,27 +35,13 @@ impl BRep {
             if face.outer_loop == l || face.surface.is_none() {
                 continue;
             }
-            let Some(place) = self.face_point_trim_containment(data.face, &vertex.position) else {
-                errors.push(finding(
-                    "the face's surface or trim cannot be read there".into(),
-                ));
-                continue;
-            };
             let tolerance = self
                 .tolerance
                 .linear()
                 .max(face.tolerance.unwrap_or(0.0))
                 .max(vertex.tolerance.unwrap_or(0.0));
-            if place.distance > tolerance {
-                errors.push(finding(format!(
-                    "its vertex lies {:.3e} off the surface (tolerance {tolerance:.3e})",
-                    place.distance
-                )));
-            } else if place.containment != FaceUvContainment::Interior {
-                errors.push(finding(format!(
-                    "its vertex is {:?} the trim, not inside it",
-                    place.containment
-                )));
+            if let Err(reason) = self.vertex_loop_site(data.face, &vertex.position, tolerance) {
+                errors.push(finding(reason));
             }
         }
         errors

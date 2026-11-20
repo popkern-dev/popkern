@@ -82,7 +82,7 @@ impl Patch {
     }
 
     /// The patch's control polygon's longest extent along u and along v.
-    fn extents(&self) -> (f64, f64) {
+    pub(super) fn extents(&self) -> (f64, f64) {
         let at = |a: usize, b: usize| self.points[a * self.nv + b];
         let along_u = (0..self.nv)
             .map(|b| at(0, b).distance_to(&at(self.nu - 1, b)))
@@ -94,7 +94,7 @@ impl Patch {
     }
 
     /// The two halves at the parameter middle, along u when `in_u`.
-    fn halves(&self, in_u: bool) -> Option<(Patch, Patch)> {
+    pub(super) fn halves(&self, in_u: bool) -> Option<(Patch, Patch)> {
         self.split(in_u, 0.5)
     }
 
@@ -144,7 +144,10 @@ pub(super) fn face_patches(brep: &BRep, face: FaceHandle, s: &NurbsSurface) -> O
 
 /// The Bézier patches of the knot spans of `s` meeting the parameter
 /// window `((u0, u1), (v0, v1))`, u-major in span order.
-fn window_patches(s: &NurbsSurface, window: &((f64, f64), (f64, f64))) -> Option<Vec<Patch>> {
+pub(super) fn window_patches(
+    s: &NurbsSurface,
+    window: &((f64, f64), (f64, f64)),
+) -> Option<Vec<Patch>> {
     let (p, q) = (s.degree_u, s.degree_v);
     if p == 0
         || q == 0

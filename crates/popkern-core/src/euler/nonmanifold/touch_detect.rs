@@ -263,10 +263,10 @@ impl BRep {
         ))
     }
 
-    /// Whether `p` lies on `face`'s interior within `tol`.
-    pub(super) fn face_interior_holds(&self, face: FaceHandle, p: &Point3, tol: f64) -> bool {
-        self.face_point_trim_containment(face, p)
-            .is_some_and(|c| c.distance <= tol && c.containment == FaceUvContainment::Interior)
+    /// Whether `p` lies on `face`'s interior within `tol`: where a vertex
+    /// loop of the face may stand (`vertex_loop_site`, the one rule).
+    pub fn face_interior_holds(&self, face: FaceHandle, p: &Point3, tol: f64) -> bool {
+        self.vertex_loop_site(face, p, tol).is_ok()
     }
 
     /// Whether `p` lies within `tol` of `edge`'s interior, its ends

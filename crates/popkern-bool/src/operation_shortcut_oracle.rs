@@ -40,8 +40,17 @@ pub(super) fn compare(
     shortcut: &Result<BRep, BoolError>,
 ) {
     let mut metrics = Vec::new();
-    let general =
-        super::serve::select_and_serve(a, b, ix, op, tolerance, &mut metrics, &mut None, policy);
+    let general = super::serve::select_and_serve(
+        a,
+        b,
+        ix,
+        op,
+        tolerance,
+        &mut metrics,
+        &mut None,
+        policy,
+        &mut Vec::new(),
+    );
     let verdict = match (shortcut, &general) {
         (Ok(s), Ok(g)) => {
             let probes = lattice(ix);

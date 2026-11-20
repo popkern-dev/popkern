@@ -112,7 +112,7 @@ pub(crate) fn box_clear_of_face(
 /// Whether box `b` lies farther than `pad` from the whole of `surface`:
 /// true only when proved (closed form for a plane, sphere, cylinder,
 /// cone or torus).
-fn box_clear_of_surface(b: &Aabb, surface: &SurfaceGeometry, pad: f64) -> bool {
+pub(crate) fn box_clear_of_surface(b: &Aabb, surface: &SurfaceGeometry, pad: f64) -> bool {
     use popkern_core::geometry::Point3;
     let corners: [Point3; 8] = std::array::from_fn(|i| {
         Point3::new(

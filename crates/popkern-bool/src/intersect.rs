@@ -96,6 +96,9 @@ pub(crate) struct IntersectionResult {
     /// Edge-face intersection hits (diagnostic only, not yet used by split).
     #[allow(dead_code)]
     pub edge_face_hits: Vec<EdgeFaceHit>,
+    /// Faces touching at isolated points where they meet in no curve
+    /// (the vertex table's contact candidates, tangency design §4.8).
+    pub contacts: Vec<crate::parallel::ff_parallel::ff_parallel_contacts::FaceContact>,
     /// Coincidence map: vertex merges, edge overlaps, and face overlaps.
     #[allow(dead_code)]
     pub coincidence: crate::coincidence::CoincidenceMap,
@@ -322,7 +325,9 @@ pub(crate) fn find_intersections_with_aabbs(
     // First-failure fold in task order: records from pairs before the
     // failing pair are preserved in the diagnostics, exactly as the
     // sequential loop reported them.
-    for outcome in crate::parallel::ff_parallel::process_pairs(&tasks, a, b, tolerance, trace) {
+    let (outcomes, contacts) =
+        crate::parallel::ff_parallel::process_pairs(&tasks, a, b, tolerance, trace);
+    for outcome in outcomes {
         match outcome {
             Ok(mut recs) => records.append(&mut recs),
             Err(failure) => return Err(failure.into_diagnostics(records)),
@@ -379,6 +384,7 @@ pub(crate) fn find_intersections_with_aabbs(
         aabbs_a: aabbs_a.to_vec(),
         aabbs_b: aabbs_b.to_vec(),
         edge_face_hits,
+        contacts,
         coincidence,
     })
 }

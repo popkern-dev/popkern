@@ -36,6 +36,11 @@ pub(crate) struct Carried {
     /// under the same condition, when they stand as in `b` (unflipped,
     /// or all reversed together to agree with `a`, PK-916).
     pub(crate) b_faces: SecondaryMap<FaceHandle, ()>,
+    /// The touches the vertex table resolved on no record
+    /// (`VertexTable::isolated_contacts`): the served result gets a
+    /// vertex there on every face and edge holding it (tangency design
+    /// §4.8, W3b).
+    pub(crate) contacts: Vec<popkern_core::geometry::Point3>,
 }
 
 impl Carried {

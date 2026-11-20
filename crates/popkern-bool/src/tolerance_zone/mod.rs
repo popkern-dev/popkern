@@ -26,6 +26,7 @@ pub(crate) mod candidates;
 pub(crate) mod closure;
 pub(crate) mod common_blocks;
 pub(crate) mod consequences;
+pub(crate) mod contact_candidates;
 pub(crate) mod face_info;
 pub(crate) mod face_path;
 pub(crate) mod face_side;

@@ -59,6 +59,11 @@ fn every_closed_rim_closes_at_a_hit_on_it() {
         &records,
         tol.linear(),
     );
-    let table = crate::tolerance_zone::table::build((&ball, &bore), &hits, &records, tol.linear());
+    let table = crate::tolerance_zone::table::build(
+        (&ball, &bore),
+        (&hits, &ix.contacts),
+        &records,
+        tol.linear(),
+    );
     assert!(table.closure_moves(&records).iter().all(Option::is_none));
 }
