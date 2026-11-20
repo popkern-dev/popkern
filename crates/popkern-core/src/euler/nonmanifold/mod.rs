@@ -32,6 +32,7 @@ mod pinch_loop;
 mod shells;
 mod touch;
 mod touch_detect;
+mod touch_given;
 mod vertex_loop;
 mod wire_edge;
 mod wire_face;

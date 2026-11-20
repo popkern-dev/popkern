@@ -302,7 +302,10 @@ pub(super) fn execute_boolean_pipeline(
                 &intersection_result,
                 tolerance.linear(),
             ),
-            curves: contact_curves,
+            curves: contact_curves
+                .into_iter()
+                .chain(intersection_result.contact_curves.iter().cloned())
+                .collect(),
         };
         let result = handle_no_intersection(
             op,

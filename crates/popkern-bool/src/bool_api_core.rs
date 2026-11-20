@@ -89,7 +89,7 @@ pub(crate) fn boolean_under(
     // naming runs before it (naming scheme 5 names the pieces here, and
     // the glue then detects as it did: `split_serve::serve_one`).
     if policy == options::NonManifoldPolicy::General && tracking.is_none() {
-        result = crate::general::glue_at_touches(result, &touches)?;
+        result = crate::general::glue_at_touches(result, &touches, &tol)?;
     }
     // A result thinner than the tolerance everywhere has no inside
     // either (a lens a tolerance deep): it is empty, and reported. A

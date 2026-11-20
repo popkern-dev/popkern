@@ -153,15 +153,16 @@ pub(crate) fn answer_contacts(
 fn marked_with(body: &BRep, touches: &crate::contact_curves::Touches) -> Result<BRep, BoolError> {
     let mut marked = body.clone();
     for c in &touches.curves {
-        marked
-            .mark_contact_curve(c)
-            .map_err(|e| BoolError::MergeFailed {
-                stage: "contact curve".into(),
-                reason: format!("the tangent curve from {:?}: {e}", {
-                    use popkern_core::geometry::curve::CurveEval;
-                    c.geometry.point_at(c.t_start)
-                }),
-            })?;
+        // A curve core cannot imprint yet (a closed one cutting a
+        // sphere's face into a cap round its pole: "singular-encircling-
+        // loop") is left unmarked, recorded: the search still reads that
+        // contact (temporary containment until the imprint handles a loop
+        // round a chart singularity).
+        let mut trial = marked.clone();
+        match trial.mark_contact_curve(c) {
+            Ok(_) => marked = trial,
+            Err(e) => crate::complex_shadow::append_log_line(&format!("ContactCurveUnmarked {e}")),
+        }
     }
     for &p in &touches.points {
         marked

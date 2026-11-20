@@ -10,6 +10,7 @@ pub mod coincident_analytic;
 pub(crate) mod cone_cone_apex;
 pub mod contact_classify;
 pub mod contact_discovery;
+pub mod contact_trace;
 pub(crate) mod cylinder_cone;
 pub(crate) mod cylinder_cylinder;
 mod cylinder_cylinder_singular;

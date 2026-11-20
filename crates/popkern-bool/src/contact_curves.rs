@@ -88,6 +88,27 @@ pub(crate) fn as_contact_curve(record: &IntersectionRecord) -> CurveOnEdge {
     }
 }
 
+/// `curves` less those whose middle lies on one of `records` within the
+/// linear reach: a record there carries the contact.
+pub(crate) fn not_on_records(
+    curves: Vec<CurveOnEdge>,
+    records: &[IntersectionRecord],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> Vec<CurveOnEdge> {
+    let reach = tolerance.linear_reach();
+    curves
+        .into_iter()
+        .filter(|c| {
+            let mid = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+            !records.iter().any(|r| {
+                let curve = &r.curve.curve_3d;
+                crate::curve_projection::project_onto_curve_dense(curve, &mid)
+                    .is_some_and(|t| curve.point_at(t).distance_to(&mid) <= reach)
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 #[path = "contact_curves_tests.rs"]
 mod tests;

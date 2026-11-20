@@ -99,6 +99,10 @@ pub(crate) struct IntersectionResult {
     /// Faces touching at isolated points where they meet in no curve
     /// (the vertex table's contact candidates, tangency design §4.8).
     pub contacts: Vec<crate::parallel::ff_parallel::ff_parallel_contacts::FaceContact>,
+    /// Curves faces are tangent along where they meet in no curve
+    /// (traced from the contacts, `ff_parallel_contact_curves`): the
+    /// contact reading's and the general glue's (W3c).
+    pub contact_curves: Vec<popkern_core::geometry::curve::CurveOnEdge>,
     /// Coincidence map: vertex merges, edge overlaps, and face overlaps.
     #[allow(dead_code)]
     pub coincidence: crate::coincidence::CoincidenceMap,
@@ -325,7 +329,7 @@ pub(crate) fn find_intersections_with_aabbs(
     // First-failure fold in task order: records from pairs before the
     // failing pair are preserved in the diagnostics, exactly as the
     // sequential loop reported them.
-    let (outcomes, contacts) =
+    let (outcomes, (contacts, contact_curves)) =
         crate::parallel::ff_parallel::process_pairs(&tasks, a, b, tolerance, trace);
     for outcome in outcomes {
         match outcome {
@@ -374,6 +378,11 @@ pub(crate) fn find_intersections_with_aabbs(
     // evaluate the uv curves at 3D parameters.
     crate::record_coparam::coparameterize_records(&mut records, a, b, tolerance);
 
+    // A traced contact curve lying on a record (an edge lying along the
+    // contact, recovered after the face-pair pass traced it) is that
+    // record's: the record carries the contact.
+    let contact_curves = crate::contact_curves::not_on_records(contact_curves, &records, tolerance);
+
     // Build the coincidence map from dedicated coincidence detection.
     let bool_tol2 = crate::tolerance::BoolTolerance::from(*tolerance);
     let coincidence =
@@ -385,6 +394,7 @@ pub(crate) fn find_intersections_with_aabbs(
         aabbs_b: aabbs_b.to_vec(),
         edge_face_hits,
         contacts,
+        contact_curves,
         coincidence,
     })
 }

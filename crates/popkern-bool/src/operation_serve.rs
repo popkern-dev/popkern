@@ -215,6 +215,9 @@ pub(super) fn select_and_serve(
     // The touches the vertex table resolved on no record go to the
     // contact reading with the body (`answer_contacts`, W3b).
     touches.points.clone_from(&carried.contacts);
+    touches
+        .curves
+        .clone_from(&intersection_result.contact_curves);
     // A cellular result arrives validated in full (its acceptance).
     let merged = (result, t_merge.elapsed());
     let served = serve(

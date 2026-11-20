@@ -37,6 +37,13 @@ pub(crate) struct FaceContact {
     pub gap: f64,
 }
 
+/// What the pass found its faces touch at where they meet in no curve:
+/// isolated touches and tangent curves.
+pub(crate) type PassContacts = (
+    Vec<FaceContact>,
+    Vec<popkern_core::geometry::curve::CurveOnEdge>,
+);
+
 /// The faces' size: the larger window's diagonal in space.
 fn extent(inp: &PairInputs<'_>, tolerance: &Tolerance) -> f64 {
     let diagonal = |s: &SurfaceGeometry, ((u0, u1), (v0, v1)): ((f64, f64), (f64, f64))| {
@@ -126,7 +133,7 @@ pub(super) fn discover(
     >],
     (a, b): (&BRep, &BRep),
     (tolerance, solve_ms): (&Tolerance, f64),
-) -> Vec<FaceContact> {
+) -> PassContacts {
     let clock = popkern_core::time::Stopwatch::start();
     let curveless = |ui: usize| {
         solved[ui]
@@ -150,6 +157,7 @@ pub(super) fn discover(
     };
     let reach = tolerance.linear_reach();
     let mut out = Vec::new();
+    let mut curves = Vec::new();
     for (task, ui) in tasks.iter().zip(unique_of_task) {
         let Some(Some(found)) = ui.map(|ui| &searches[ui]) else {
             continue;
@@ -157,6 +165,18 @@ pub(super) fn discover(
         let (Some(sa), Some(sb)) = (surface(a, task.face_a), surface(b, task.face_b)) else {
             continue;
         };
+        if let Some(inp) = ui.map(|ui| unique[ui]) {
+            curves.extend(super::ff_parallel_contact_curves::contact_curves(
+                &found.contacts,
+                (sa, inp.r1, a, task.face_a),
+                (sb, inp.r2, b, task.face_b),
+                ContactScale {
+                    linear: tolerance.linear(),
+                    extent: extent(inp, tolerance),
+                },
+                reach,
+            ));
+        }
         for c in &found.contacts {
             let on = |brep: &BRep, face: FaceHandle, s: &SurfaceGeometry, uv: (f64, f64)| {
                 use popkern_core::geometry::surface::SurfaceEval as _;
@@ -194,7 +214,7 @@ pub(super) fn discover(
             clock.elapsed_ms().unwrap_or(0.0)
         ));
     }
-    out
+    (out, curves)
 }
 
 fn surface(brep: &BRep, face: FaceHandle) -> Option<&SurfaceGeometry> {

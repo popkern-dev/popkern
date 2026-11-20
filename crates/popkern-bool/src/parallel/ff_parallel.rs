@@ -23,6 +23,8 @@ use crate::intersect::{IntersectionRecord, bounded_parameter_range};
 mod ff_parallel_anchor;
 #[path = "ff_parallel_clip.rs"]
 mod ff_parallel_clip;
+#[path = "ff_parallel_contact_curves.rs"]
+mod ff_parallel_contact_curves;
 #[path = "ff_parallel_contacts.rs"]
 pub(crate) mod ff_parallel_contacts;
 #[path = "ff_parallel_reach.rs"]
@@ -126,7 +128,7 @@ pub(crate) fn process_pairs(
     trace: TraceFlags,
 ) -> (
     Vec<Result<Vec<IntersectionRecord>, PairFailure>>,
-    Vec<ff_parallel_contacts::FaceContact>,
+    ff_parallel_contacts::PassContacts,
 ) {
     // Phase 1 (sequential, cheap): resolve each pair's surfaces and
     // bounded UV windows.

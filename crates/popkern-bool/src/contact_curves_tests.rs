@@ -66,3 +66,46 @@ fn a_rod_lying_along_a_top_touches_along_a_contact_curve() {
         assert_eq!(body.solid_regions().len(), 2, "gap {gap}");
     }
 }
+
+/// The rod turned about its axis, its seam off the contact line: the
+/// analytic arm is tangency-silent and no edge lies on the line, so the
+/// operands meet in no record. The face-pair pass traces the
+/// tangent-curve contact into one exact line along the top
+/// (`ff_parallel_contact_curves`), and the union declines on it, read from
+/// the topology. Before, construction found no curve: the general glue
+/// had only the rims' touches.
+#[test]
+fn a_turned_rod_on_a_top_is_traced_into_a_contact_line() {
+    let tol = Tolerance::default();
+    let rect: Vec<Point3> = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]
+        .iter()
+        .map(|&(x, y)| Point3::new(x, y, 0.0))
+        .collect();
+    let block = BRep::prism(&rect, Vec3::new(0.0, 0.0, 1.0), 2.0, tol).expect("block");
+    let rod = BRep::cylinder(0.5, 3.0, tol)
+        .and_then(|c| c.transform(&Transform3::rotation_z(0.7)))
+        .and_then(|c| c.transform(&Transform3::rotation_y(std::f64::consts::FRAC_PI_2)))
+        .and_then(|c| c.transform(&Transform3::translation(0.5, 2.0, 2.5)))
+        .expect("rod");
+    let ix = crate::intersect::find_intersections(&block, &rod, &tol).expect("intersect");
+    assert!(ix.records.is_empty(), "{} records", ix.records.len());
+    assert_eq!(ix.contact_curves.len(), 1, "{:?}", ix.contact_curves);
+    let c = &ix.contact_curves[0];
+    use popkern_core::geometry::curve::CurveEval;
+    for t in [c.t_start, 0.5 * (c.t_start + c.t_end), c.t_end] {
+        let p = c.geometry.point_at(t);
+        assert!(
+            (p.y - 2.0).abs() < 1e-6 && (p.z - 2.0).abs() < 1e-9,
+            "{p:?}"
+        );
+    }
+    match crate::boolean(BoolOperation::Union, block, rod, tol, None) {
+        Err(BoolError::NonManifoldResult { contacts }) => {
+            assert!(
+                contacts.iter().any(|k| (k.location.z - 2.0).abs() < 1e-6),
+                "{contacts:?}"
+            );
+        }
+        other => panic!("{:?}", other.map(|b| b.faces.len())),
+    }
+}

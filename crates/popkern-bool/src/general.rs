@@ -70,20 +70,24 @@ pub(crate) fn glue_result(pieces: BRep, tolerance: &Tolerance) -> Result<BRep, B
 pub(crate) fn glue_at_touches(
     pieces: BRep,
     touches: &crate::contact_curves::Touches,
+    tolerance: &Tolerance,
 ) -> Result<BRep, BoolError> {
     if touches.points.is_empty() && touches.curves.is_empty() {
         return Ok(pieces);
     }
-    let mut body = pieces;
-    let reason = match body.glue_touching_with(&touches.points, &touches.curves) {
-        Ok(_) => match body.validate_all().first() {
-            None => return Ok(body),
-            Some(issue) => format!("glued body invalid: {issue}"),
-        },
-        Err(e) => e.to_string(),
-    };
-    crate::complex_shadow::append_log_line(&format!("GeneralDeclined: {reason}"));
-    Err(BoolError::GeneralBodyDeclined { reason })
+    let mut body = pieces.clone();
+    match body.glue_touching_with(&touches.points, &touches.curves) {
+        Ok(_) if body.validate_all().is_empty() => Ok(body),
+        // The given contacts declined (a curve core cannot imprint yet):
+        // the detecting glue, recorded (temporary containment).
+        outcome => {
+            crate::complex_shadow::append_log_line(&format!(
+                "GlueAtTouchesFallback {:?}",
+                outcome.err().map(|e| e.to_string())
+            ));
+            glue_result(pieces, tolerance)
+        }
+    }
 }
 
 #[cfg(test)]
