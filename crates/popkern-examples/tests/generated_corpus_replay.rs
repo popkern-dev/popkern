@@ -16,6 +16,12 @@ fn replay() {
         return;
     };
     let scene: Scene = serde_json::from_str(&text).expect("a scene descriptor");
+    // A stored scene the generator drew before a fix may no longer meet
+    // its independent check: its expectations are void, not the kernel's.
+    if let Err(reject) = generated_corpus::scene_check::check(&scene) {
+        eprintln!("scene {reject:?}: the descriptor fails its independent check");
+        panic!("an invalid scene");
+    }
     let verdict = judge(&scene);
     for f in &verdict.failures {
         eprintln!("{} {:?}: {}", f.oracle, f.op, f.detail);

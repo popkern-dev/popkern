@@ -132,3 +132,41 @@ fn a_panicking_scene_is_recorded_as_a_panic_failure() {
     assert_eq!(v.failures[0].oracle, "panic");
     assert!(v.failures[0].detail.contains("index out of bounds"));
 }
+
+/// A tangent crossing's alignment flag is checked against the placed
+/// geometry (negative control): the stored full tier held a cylinder pair
+/// flagged opposed over an internal touch, drawn before a generator fix,
+/// and the judge expected the union to pinch where the differences do.
+/// Flipped, every drawn V scene fails its independent check.
+#[test]
+fn a_tangent_crossing_with_its_alignment_flipped_fails_its_check() {
+    let mut checked = 0;
+    for (a, b) in [(Kind::Y, Kind::Y), (Kind::S, Kind::Y), (Kind::Y, Kind::C)] {
+        let cell = Cell {
+            a,
+            b,
+            config: Config::V,
+        };
+        for index in 0..40 {
+            let Ok(scene) = draw(cell, 7, index, Rung::FREE) else {
+                continue;
+            };
+            assert!(
+                generated_corpus::scene_check::check(&scene).is_ok(),
+                "{a:?}{b:?}/{index}: a drawn scene meets its check"
+            );
+            let mut flipped = scene.clone();
+            flipped.aligned = !flipped.aligned;
+            assert!(
+                generated_corpus::scene_check::check(&flipped).is_err(),
+                "{a:?}{b:?}/{index}: aligned {} flipped still passes",
+                scene.aligned
+            );
+            checked += 1;
+            if checked % 3 == 0 {
+                break;
+            }
+        }
+    }
+    assert!(checked >= 6, "only {checked} V scenes drawn");
+}

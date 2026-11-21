@@ -28,8 +28,32 @@ fn probes(mesh: &popkern_mesh::TriMesh, cap: usize) -> Vec<Point3> {
     all.into_iter().step_by(step).collect()
 }
 
+/// The outward normal of `mesh` at its triangle nearest `p` (by centroid;
+/// the meshes wind outward, `generated_corpus_selftest`).
+fn outward_normal_near(
+    mesh: &popkern_mesh::TriMesh,
+    p: Point3,
+) -> Option<popkern_core::geometry::Vec3> {
+    let corner = |t: &[usize; 3], k: usize| mesh.vertices[t[k]].position;
+    let t = mesh.triangles.iter().min_by(|x, y| {
+        let d = |t: &[usize; 3]| {
+            let (a, b, c) = (corner(t, 0), corner(t, 1), corner(t, 2));
+            Point3::new(
+                (a.x + b.x + c.x) / 3.0,
+                (a.y + b.y + c.y) / 3.0,
+                (a.z + b.z + c.z) / 3.0,
+            )
+            .distance_to(&p)
+        };
+        d(x).total_cmp(&d(y))
+    })?;
+    (corner(t, 1) - corner(t, 0))
+        .cross(&(corner(t, 2) - corner(t, 0)))
+        .normalized()
+}
+
 /// The scene's independent check (design §6.1), on the placed meshes.
-pub(super) fn check(scene: &Scene) -> Result<(), Reject> {
+pub(crate) fn check(scene: &Scene) -> Result<(), Reject> {
     let tol = Tolerance::default().linear();
     let placed = place(scene);
     let chord = (placed.a_op.chord + placed.b_op.chord * scene.b_scale) * scene.scale;
@@ -64,6 +88,27 @@ pub(super) fn check(scene: &Scene) -> Result<(), Reject> {
             // contact: inside for an internal touch, outside for an
             // external one (a steered contact's normal once came out
             // reversed and placed an internal touch outside A).
+            // A tangent crossing's flag: along A's outward normal at the
+            // contact, B's material lies inward (normals aligned, B inside
+            // A there) or outward (opposed). Unchecked, a scene drawn by a
+            // generator whose sampled normal came out reversed kept
+            // "opposed" over an internal touch of two cylinders, and its
+            // judge expected the union to pinch where the differences do.
+            if scene.cell.config == Config::V {
+                // Shorter probes where both read alike (the contact by B's
+                // rim, a probe leaving it through a cap); none deciding
+                // leaves the flag unchecked.
+                let n = outward_normal_near(&placed.a_mesh, c).ok_or(Reject::WrongSide)?;
+                let floor = 10.0 * scene.offset.abs() * tol;
+                let side = [20.0, 10.0, 5.0].into_iter().find_map(|k| {
+                    let s = (k * chord + floor).min(0.2 * ball);
+                    let below = inside(&placed.b_mesh, c - n * s);
+                    (below != inside(&placed.b_mesh, c + n * s)).then_some(below)
+                });
+                if side.is_some_and(|below| below != scene.aligned) {
+                    return Err(Reject::WrongSide);
+                }
+            }
             if scene.cell.config != Config::V {
                 let away: Vec<Point3> = probes(&placed.b_mesh, 400)
                     .into_iter()
