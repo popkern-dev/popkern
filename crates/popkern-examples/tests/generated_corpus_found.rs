@@ -116,3 +116,19 @@ fn a_cone_lying_on_its_seam_glues_into_its_apex() {
         r#"{"cell":{"a":"P","b":"C","config":"K"},"seed":1,"index":0,"variant_a":0,"variant_b":0,"b_scale":0.25660011963983365,"place_b":[[-0.4472135954999579,0.0,0.8944271909999159,0.0],[0.0,1.0,0.0,0.04798145298945416],[-0.8944271909999159,0.0,-0.4472135954999579,0.7032795558988644],[0.0,0.0,0.0,1.0]],"scene":[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-0.0516397779494322,0.04798145298945433,0.6000000000000003],"curve":[[-0.3098386676965932,0.04798145298945433,0.6000000000000001],[-0.24528894525980283,0.04798145298945433,0.6000000000000001],[-0.1807392228230127,0.04798145298945411,0.6000000000000001],[-0.11618950038622256,0.04798145298945411,0.5999999999999999],[-0.0516397779494322,0.04798145298945433,0.6000000000000003],[0.012909944487357938,0.04798145298945411,0.5999999999999999],[0.07745966692414852,0.04798145298945422,0.6000000000000001],[0.14200938936093865,0.04798145298945422,0.5999999999999999],[0.2065591117977288,0.04798145298945411,0.5999999999999999]],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 12320388 (W3c V cells, tangency design §4.8): a cylinder and a frustum crossing at their tangency: the marcher ran through the crossing and a second branch's march ran back over the first's approach (records parallel within 1e-9); the crossing is now a node every trace ends at, its branch halves seeded from it (`marching_crossing`).
+#[test]
+fn a_cylinder_and_a_frustum_crossing_at_their_tangency_meet_at_one_node() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"F","config":"V"},"seed":1,"index":6,"variant_a":2,"variant_b":2,"b_scale":1.0,"place_b":[[0.5205114357408136,-0.850657137908059,-0.07382600482964147,-0.12885194712033887],[0.7553081240407371,0.4183891207174323,0.5044404637054373,0.18183621371549663],[-0.3982178838539269,-0.31832841122237787,0.8602845689581657,0.3003591690226709],[0.0,0.0,0.0,1.0]],"scene":[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-1.0578866653597736,0.5664590040364603,0.09155463912512185],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 12320388 (W3c V cells, tangency design §4.8): a cylinder and a NURBS solid crossing at their tangency, the marcher's Newton stalling at the crossing (`newton-exhausted`); the trace ends there and the branch halves leave it from solved departure seeds.
+#[test]
+fn a_cylinder_and_a_nurbs_solid_crossing_at_their_tangency_meet_at_one_node() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"W","config":"V"},"seed":1,"index":10104127,"variant_a":0,"variant_b":2,"b_scale":1.0,"place_b":[[0.7716510519710897,0.07095019362458457,-0.6320765175329206,-0.1771487009536603],[-0.5986036157509438,-0.254918766219136,-0.7594011679206255,0.6539177212648126],[-0.2150078259082842,0.9643559989204958,-0.15423729167826278,-1.1946969286554787],[0.0,0.0,0.0,1.0]],"scene":[[0.22542527453606853,0.9529585138918373,0.20261667355230029,-0.24964997898114216],[0.9722726875680243,-0.20676832959685942,-0.10923680188002415,-0.8936620824994708],[-0.062203429243003525,0.22162339379403456,-0.9731463429071832,2.2456264058280215],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-1.2063810563367723,-0.9212212600247144,2.9646557587978015],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

@@ -20,7 +20,7 @@ use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::intersection::coincident::detect_coincident_regions;
 use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegeneracyHandler};
-use crate::geometry::intersection::marching::{MarchSample, march};
+use crate::geometry::intersection::marching::{MarchSample, departures_at_ends, march};
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
 use crate::geometry::intersection::surface_surface_consumed::{
     ConsumedTrace, point_near_polylines,
@@ -279,15 +279,11 @@ fn intersect_surfaces_inner(
     //    Branch detection may add extra seeds; we process them all via a queue.
     const MAX_CURVES: usize = 20;
 
-    // Traced polylines. Seed consumption tests distance to the polyline
-    // SEGMENTS, not to the discrete sample points: the adaptive march
-    // steps up to 1000× linear tolerance between samples while its
-    // curvature-based cap keeps each chord within ~linear tolerance of
-    // the true curve, so a converged seed landing mid-segment lies on
-    // the traced curve but far from every sample point. The former
-    // point-proximity check re-marched the identical curve once per
-    // such seed (measured: 18–20 copies of one cylinder×NURBS arc,
-    // count varying with operand order).
+    // Traced polylines. Seed consumption tests distance to polyline
+    // SEGMENTS, not samples: the march steps up to 1000x the tolerance
+    // with chords within it, so a seed landing mid-segment is on the
+    // curve but far from every sample (point proximity re-marched one
+    // cylinder x NURBS arc 18-20 times).
     let mut consumed: Vec<ConsumedTrace> = Vec::new();
     let consumed_radius = tolerance.linear() * 10.0;
 
@@ -323,16 +319,12 @@ fn intersect_surfaces_inner(
         })
         .collect();
 
-    // March windows: pad non-periodic ranges by 1% of extent. A seed
-    // converges from a patch midpoint and may land slightly OUTSIDE
-    // the query window; in a periodic direction the march wraps and
-    // recovers, but in a non-periodic direction the domain-exit check
-    // killed the trace at step one and the curve vanished (measured on
-    // the served pyramid4 strip×cap pair: the free-form-first seed sat
-    // 2.5e-3 outside the cap's knot window). The pad only widens march
-    // termination; seeding, coincidence detection, and reported ranges
-    // keep the caller's windows, and trim classification downstream
-    // clips curve extent.
+    // March windows: non-periodic ranges padded by 1% of extent. A seed
+    // may converge just outside the window, and the domain-exit check
+    // killed its trace at step one (a pyramid4 strip x cap seed 2.5e-3
+    // outside the cap's knot window). The pad widens march termination
+    // only; seeding, coincidence and reported ranges keep the caller's
+    // windows, and trim classification clips curve extent.
     let pad_window = |range: (f64, f64), periodic: bool| {
         if periodic {
             range
@@ -454,13 +446,20 @@ fn intersect_surfaces_inner(
                 &mut results,
             );
 
-            // 5. Branch detection: look for additional intersection
-            //    branches near this seed.
+            // 5. Branches near this seed, and those leaving a tangent
+            //    crossing the trace ends at.
             if results.len() < MAX_CURVES {
-                let new_branches = find_branch_points(
+                let mut new_branches = find_branch_points(
                     surface1, u1_range, v1_range, surface2, u2_range, v2_range, &samples, &seed,
                     tolerance,
                 );
+                let windows = (
+                    (surface1, (march_u1, march_v1)),
+                    (surface2, (march_u2, march_v2)),
+                );
+                new_branches.extend(departures_at_ends(
+                    &samples, windows.0, windows.1, tolerance,
+                ));
                 for branch in new_branches {
                     if !point_near_polylines(&branch.point, &consumed, consumed_radius) {
                         branch_queue.push((branch, demoted));

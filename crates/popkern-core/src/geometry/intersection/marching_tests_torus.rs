@@ -2,6 +2,7 @@
 //! to keep both files under the 500-line structural cap.
 #[cfg(test)]
 use super::*;
+use crate::geometry::Vec3;
 use crate::geometry::intersection::degeneracy::DefaultDegeneracyHandler;
 use crate::geometry::surface::SurfaceEval;
 use std::f64::consts::TAU;

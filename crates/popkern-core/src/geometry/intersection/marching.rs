@@ -18,12 +18,12 @@ pub(crate) use marching_newton::march_project;
 use marching_newton::march_project_with_iters;
 pub use marching_newton::{BoundaryPin, refine_boundary_crossing};
 
+use crate::geometry::Point3;
 use crate::geometry::intersection::adaptive_step::{
     curvature_based_step, estimate_intersection_curvature,
 };
 use crate::geometry::intersection::degeneracy::DegeneracyHandler;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 
 #[path = "marching_types.rs"]
@@ -32,6 +32,7 @@ pub use marching_types::{BranchPoint, MarchSample};
 
 #[path = "marching_crossing.rs"]
 mod marching_crossing;
+pub(crate) use marching_crossing::departures_at_ends;
 #[path = "marching_rebranch.rs"]
 mod marching_rebranch;
 use marching_rebranch::rebranch_out_of_window;
@@ -91,15 +92,14 @@ pub(crate) fn march_one_direction(
     let mut last_near_arc = f64::NEG_INFINITY;
     let mut near_returns = 0u32;
     let mut stalls = 0u32; // STALL GUARD run length
-    // The direction to leave a tangent crossing by (`marching_crossing`).
-    let mut forced: Option<Vec3> = None;
-    let mut crossing = marching_crossing::Crossing::new(
+    // A tangent crossing ends the trace (`marching_crossing`).
+    let crossing = marching_crossing::Crossing::new(
         (surface1, (u1_range, v1_range)),
         (surface2, (u2_range, v2_range)),
         tolerance,
     );
 
-    for _ in 0..max_steps {
+    'march: for _ in 0..max_steps {
         let current = &samples[samples.len() - 1];
 
         // Compute surface normals at current parameters.
@@ -149,9 +149,7 @@ pub(crate) fn march_one_direction(
         let t_len = t_raw.length();
 
         // Check tangency: surfaces are tangent when cross product is near zero.
-        let t_normalized = if let Some(d) = forced.take() {
-            d
-        } else if t_len < epsilon {
+        let t_normalized = if t_len < epsilon {
             let angle = n1.angle_to(&n2);
             if handler.on_tangent_during_march(&current.point, angle) {
                 termination = "tangency";
@@ -321,12 +319,9 @@ pub(crate) fn march_one_direction(
                         }
                     }
 
-                    // Wrap parameters for periodic surfaces before the
-                    // domain check — including geometrically-closed
-                    // NURBS charts, whose seam is not a boundary of
-                    // the surface, only of the chart (the wrap keeps
-                    // evaluation inside the chart; see
-                    // `geometry::chart_periods`).
+                    // Wrap periodic parameters before the domain check,
+                    // closed NURBS charts too (their seam bounds only the
+                    // chart; `geometry::chart_periods`).
                     let (period_u1, period_v1) =
                         crate::geometry::chart::ChartDescriptor::periods_of(surface1);
                     let (period_u2, period_v2) =
@@ -375,10 +370,8 @@ pub(crate) fn march_one_direction(
                         return samples;
                     }
 
-                    // Check for closure: use step_size as the tolerance since
-                    // the march can only land within one step of the start.
-                    // Require enough steps to have traversed a meaningful
-                    // distance (avoid false closure on first few steps).
+                    // Closure within a step of the start, after enough steps
+                    // to have travelled (no false closure at the outset).
                     let min_steps_before_closure_check = 20;
                     let closure_tol = step_size * 1.5;
                     let dist_to_start = sample.point.distance_to(&start.point);
@@ -452,10 +445,9 @@ pub(crate) fn march_one_direction(
                         trace_march_termination("stalled", &samples);
                         return samples;
                     }
-                    if let Some((leave, out)) =
-                        crossing.push(&mut samples, sample, prev_point, t_normalized, step_size)
-                    {
-                        (forced, step_size) = (Some(leave), out);
+                    if crossing.push(&mut samples, sample, prev_point, t_normalized, step_size) {
+                        termination = "tangent-crossing";
+                        break 'march;
                     }
                     succeeded = true;
                     break;
@@ -471,8 +463,14 @@ pub(crate) fn march_one_direction(
         }
 
         if !succeeded {
-            termination = "newton-exhausted";
-            trace_march_exhaustion(surface1, surface2, samples.last());
+            // Newton gives out at a tangent crossing: the trace ends there.
+            termination = match crossing.rescue(&mut samples, t_normalized, step_size) {
+                true => "tangent-crossing",
+                false => "newton-exhausted",
+            };
+            if termination == "newton-exhausted" {
+                trace_march_exhaustion(surface1, surface2, samples.last());
+            }
             break;
         }
     }

@@ -42,9 +42,12 @@ impl BRep {
         let Some(place) = self.face_point_trim_containment_within(face, position, 1e-12) else {
             return Err("the face's surface or trim cannot be read there".into());
         };
-        if place.distance > tolerance {
+        // Within the tolerance is inclusive with its rounding allowance
+        // (`Tolerance::within_linear`): a contact placed a tolerance off
+        // read 1.000e-6 over 1.000e-6.
+        if place.distance > tolerance * (1.0 + crate::tolerance::LINEAR_ROUNDING) {
             return Err(format!(
-                "the point lies {:.3e} off the surface (tolerance {tolerance:.3e})",
+                "the point lies {:.9e} off the surface (tolerance {tolerance:.3e})",
                 place.distance
             ));
         }
