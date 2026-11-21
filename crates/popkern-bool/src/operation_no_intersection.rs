@@ -95,7 +95,7 @@ fn handle_disjoint(
 }
 
 /// Handle containment (A is entirely inside B) with no intersections.
-fn handle_containment(
+pub(super) fn handle_containment(
     op: BoolOperation,
     a: BRep,
     b: BRep,
@@ -118,7 +118,7 @@ fn handle_containment(
 }
 
 /// Handle reverse containment (B is entirely inside A) with no intersections.
-fn handle_reverse_containment(
+pub(super) fn handle_reverse_containment(
     op: BoolOperation,
     a: BRep,
     b: BRep,

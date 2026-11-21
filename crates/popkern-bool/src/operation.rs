@@ -292,6 +292,31 @@ pub(super) fn execute_boolean_pipeline(
             .map(|r| crate::contact_curves::as_contact_curve(&r))
             .collect();
     }
+    // Coincident-body containment shortcut — verified geometrically
+    // (see `operation_containment.rs`), with or without records: two
+    // identical cones a thousandth the size met in no record, and the
+    // no-records path read every probe of their coincident boundaries
+    // On and declined.
+    if let Some(contained) =
+        containment::coincident_containment(op, a, b, &intersection_result, tolerance)
+    {
+        crate::complex_shadow::subsumed_pass_fired("containment_shortcut", 1, 0.0);
+        let (x, y) = (a.clone(), b.clone());
+        let result = match contained {
+            containment::Contained::AInB => {
+                no_intersection::handle_containment(op, x, y, tolerance)
+            }
+            containment::Contained::BInA => {
+                no_intersection::handle_reverse_containment(op, x, y, tolerance)
+            }
+        };
+        if shortcut_oracle::oracle_enabled() {
+            let ix = &intersection_result;
+            shortcut_oracle::compare("containment", op, (a, b), ix, tolerance, policy, &result);
+        }
+        return result.map(|body| (body, Default::default()));
+    }
+
     if intersection_result.records.is_empty() {
         if popkern_core::trace::trace_enabled("boolean") {
             eprintln!("  [exec] -> no-records containment path");
@@ -335,25 +360,6 @@ pub(super) fn execute_boolean_pipeline(
                 ambiguous.len()
             );
         }
-    }
-
-    // Coincident-body containment shortcut — verified geometrically
-    // (see `operation_containment.rs`).
-    if containment::coincident_containment_applies(op, a, b, &intersection_result, tolerance) {
-        crate::complex_shadow::subsumed_pass_fired("containment_shortcut", 1, 0.0);
-        let result = handle_no_intersection(
-            op,
-            a.clone(),
-            b.clone(),
-            &intersection_result.aabbs_a,
-            &intersection_result.aabbs_b,
-            tolerance,
-        );
-        if shortcut_oracle::oracle_enabled() {
-            let ix = &intersection_result;
-            shortcut_oracle::compare("containment", op, (a, b), ix, tolerance, policy, &result);
-        }
-        return result.map(|body| (body, Default::default()));
     }
 
     // Bodies that only touch (opposite contact faces, point records).

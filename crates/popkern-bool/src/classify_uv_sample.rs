@@ -85,6 +85,53 @@ pub(super) fn uv_centroid_sample(brep: &BRep, face_handle: FaceHandle) -> Option
     Some(sample_3d)
 }
 
+/// Parameters of a `k`×`k` grid over the box of the face's boundary
+/// pcurves, kept where they lie on the face (inside its outer loop, in no
+/// hole): samples spread over the whole face, where one sample decides
+/// only near itself (a flush cylinder's lateral face sampled once inside
+/// the other cylinder read the pair as one inside the other).
+pub(crate) fn face_grid_samples(brep: &BRep, face_handle: FaceHandle, k: usize) -> Vec<(f64, f64)> {
+    let face = &brep.faces[face_handle];
+    let Some(boundary) = crate::clip::face_uv_boundary(brep, face_handle) else {
+        return Vec::new();
+    };
+    let (mut lo, mut hi) = (
+        (f64::INFINITY, f64::INFINITY),
+        (f64::NEG_INFINITY, f64::NEG_INFINITY),
+    );
+    for (_, pcurve) in &boundary {
+        let (t0, t1) = pcurve.parameter_range();
+        for i in 0..=8 {
+            let p = pcurve.point_at(t0 + (t1 - t0) * i as f64 / 8.0);
+            lo = (lo.0.min(p.x), lo.1.min(p.y));
+            hi = (hi.0.max(p.x), hi.1.max(p.y));
+        }
+    }
+    if !(lo.0.is_finite() && hi.0.is_finite()) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for i in 0..k {
+        for j in 0..k {
+            let u = lo.0 + (hi.0 - lo.0) * (i as f64 + 0.5) / k as f64;
+            let v = lo.1 + (hi.1 - lo.1) * (j as f64 + 0.5) / k as f64;
+            let on_face = crate::split_inner_loop::point_inside_face_uv(
+                brep,
+                face_handle,
+                Point3::new(u, v, 0.0),
+                &brep.tolerance,
+            ) && !face
+                .inner_loops
+                .iter()
+                .any(|&h| inner_loop_uv_contains(brep, h, u, v));
+            if on_face {
+                out.push((u, v));
+            }
+        }
+    }
+    out
+}
+
 /// Check whether a UV point lies inside an inner loop polygon.
 ///
 /// Samples the inner loop's pcurves to build a UV polygon and uses

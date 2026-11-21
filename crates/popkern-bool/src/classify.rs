@@ -476,6 +476,7 @@ pub(crate) fn pick_sample_point(brep: &BRep, face_handle: FaceHandle) -> Point3 
 
 #[path = "classify_uv_sample.rs"]
 mod uv_sample;
+pub(crate) use uv_sample::face_grid_samples;
 use uv_sample::uv_centroid_sample;
 
 #[cfg(test)]
