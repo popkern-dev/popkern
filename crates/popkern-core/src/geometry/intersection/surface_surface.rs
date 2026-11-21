@@ -9,6 +9,9 @@ mod surface_surface_fitting;
 pub(crate) use surface_surface_fitting::{fit_march_samples, fit_marched_trace};
 #[path = "surface_surface_implicit_seed.rs"]
 mod surface_surface_implicit_seed;
+#[path = "surface_surface_overlap_seed.rs"]
+mod surface_surface_overlap_seed;
+use surface_surface_overlap_seed::push_rescue_seeds;
 #[path = "surface_surface_torus_seed.rs"]
 mod surface_surface_torus_seed;
 
@@ -340,14 +343,11 @@ fn intersect_surfaces_inner(
     let march_u2 = pad_window(u2_range, periodic_u2);
     let march_v2 = pad_window(v2_range, periodic_v2);
 
-    // RESCUE loop: when ordinary seeding-and-marching emits nothing
-    // (an extrapolation-phantom basin can swallow every
-    // patch-midpoint solve — or leave only phantom seeds that
-    // domain-kill at step one), seed once more from exact
-    // implicit-distance sign changes on a knot-span grid — a
-    // crossing certificate, not a guess (see
-    // surface_surface_implicit_seed) — and march those.
-    let mut rescue_tried = false;
+    // RESCUE rungs when seeding-and-marching emits nothing: exact
+    // implicit-distance sign changes on a knot-span grid (a phantom basin
+    // can swallow every midpoint solve, surface_surface_implicit_seed),
+    // then the loops round overlaps (surface_surface_overlap_seed).
+    let mut rescues = 0;
     'rescue: loop {
         while let Some((seed, demoted)) = branch_queue.pop() {
             // Cap total curves to avoid runaway branching.
@@ -467,21 +467,12 @@ fn intersect_surfaces_inner(
                 }
             }
         }
-        if results.is_empty() && !rescue_tried {
-            rescue_tried = true;
-            surface_surface_implicit_seed::push_implicit_grid_seeds(
-                &mut branch_queue,
-                surface1,
-                u1_range,
-                v1_range,
-                surface2,
-                u2_range,
-                v2_range,
-                tolerance,
-            );
-            if !branch_queue.is_empty() {
-                continue 'rescue;
-            }
+        let windows = ((u1_range, v1_range), (u2_range, v2_range));
+        let pairs = ((surface1, windows.0), (surface2, windows.1));
+        if results.is_empty()
+            && push_rescue_seeds(&mut rescues, &mut branch_queue, pairs, tolerance)
+        {
+            continue 'rescue;
         }
         break;
     }
