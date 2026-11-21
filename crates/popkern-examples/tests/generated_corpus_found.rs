@@ -172,3 +172,19 @@ fn a_cylinder_overlapping_a_torus_by_two_tolerances_traces_its_loop_once() {
         r#"{"cell":{"a":"Y","b":"W","config":"I"},"seed":1,"index":10101099,"variant_a":2,"variant_b":2,"b_scale":0.3159427994716938,"place_b":[[-0.09453316723024041,0.7250784197763441,0.6821471728799139,0.23209139101241943],[0.029641106296108055,0.6869620097519152,-0.7260885634515616,-0.7785163680334312],[-0.9950803410333069,-0.048419854731808355,-0.08643282106230454,1.068867147291821],[0.0,0.0,0.0,1.0]],"scene":[[0.8960142112281784,-0.4367778277786548,0.07989782498982734,-1.4782381600317276],[0.438400165884543,0.8416716900423935,-0.3152682361634076,-2.388092460666869],[0.07045443796916176,0.31751203968060926,0.9456332676192758,0.5748002249590707],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-0.6602706139323506,-3.6320235271763677,1.2932892139309258],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 9fae7006 (W3 V cells, tangency design §4.8): two cylinders crossing tangentially with the pinch closed half a tolerance read as two loops (the ruling scan's crossing band was the roots' separation, `(a·tol)²`, a gap of `tol² / 8R`), and both differences were served where the pinch declines. A minimum of the discriminant is a crossing where its double root lies within the reach of the other cylinder.
+#[test]
+fn two_cylinders_crossing_within_half_a_tolerance_pinch_their_differences() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"Y","config":"V"},"seed":1,"index":10091009,"variant_a":1,"variant_b":2,"b_scale":1.0,"place_b":[[-0.43852979780804974,-0.8985904469756895,0.015060711751501442,0.18190890973339247],[0.8842535671457894,-0.43440627958195677,-0.1714258243372616,0.2146815140078116],[0.16058407587422194,-0.061857843995677925,0.9850819060930053,-0.528683837681446],[0.0,0.0,0.0,1.0]],"scene":[[0.8630998770542098,0.3365278211711584,-0.3765735357228397,-1.7468327019589616],[-0.4522808092211521,0.8468372362827001,-0.27983703267319354,-1.6517694895800408],[0.2247235453602221,0.4118442919634446,0.883110189805248,1.0686814413185584],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-0.5,"rung":{"offset":-0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-2.86366656888624,-1.4444658293734944,1.3425100758115223],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 9fae7006 (W3 V cells, tangency design §4.8): two cylinders crossing tangentially with the pinch opened half a tolerance read as two loops turning apart near it, and an edge's curve and trims disagreed by 6.1e-4 there; the crossing within the reach is one node.
+#[test]
+fn two_cylinders_opened_within_half_a_tolerance_meet_at_one_crossing() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"Y","config":"V"},"seed":1,"index":10119261,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[0.3298781954401002,0.8625256602204462,0.38370543602412843,-0.5583271378744863],[-0.8329115150465449,0.07461002589598204,0.5483536743185642,-0.10021564316988363],[0.44434084245773775,-0.5004825965976083,0.7430197751250389,-0.23821094599030124],[0.0,0.0,0.0,1.0]],"scene":[[0.7868476372984512,0.010415507712960986,-0.6170594078992125,2.7739678057374153],[0.3255857364918281,-0.8563990719473314,0.40071755359707323,-2.647483226673994],[-0.5242754274910463,-0.5162094020519489,-0.6772467270960045,-1.7763399432279208],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.5,"rung":{"offset":0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.8789603298424291,-3.4733094428522207,-1.7571014614401688],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

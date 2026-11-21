@@ -207,10 +207,8 @@ pub(super) fn sub_sample_peaks(quad: Quad<'_>, discs: &[f64], band: f64) -> Vec<
 /// The dips of `D` the scan `discs` sampled only above zero, mirroring
 /// `sub_sample_peaks`: each local minimum of the positive samples refined
 /// to the root of `D′`, kept where `D` falls to `−miss`: the ruling there
-/// passes the other surface by more than the tolerance. Its least
-/// `q = a·t² + b·t + c = ρ² − R²` (`ρ` its distance from the other's axis
-/// or centre) is `−D / 4a`, past the tolerance where `ρ − R` is, so
-/// `miss = 4a·(2R + ε)·ε`. Two equal cylinders with crossing axes shifted
+/// passes the other surface by more than the tolerance
+/// (`cylinder_cylinder_singular::reach_band`). Two equal cylinders with crossing axes shifted
 /// 2e-6 apart have no roots over a dip 4e-3 rad wide, and the scan read a
 /// full pierce: two root loops touching at the dip. A dip within the
 /// tolerance is no split: a cylinder and a sphere crossing tangentially

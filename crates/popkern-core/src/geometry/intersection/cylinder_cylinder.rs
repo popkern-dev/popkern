@@ -85,8 +85,21 @@ pub(crate) fn try_cylinder_cylinder(
         );
     }
     // Parameterize on the SMALLER cylinder (its rulings cross the
-    // larger transversally over the whole pierce).
-    let (so, sa, sr, to, ta, tr) = if r2 < r1 {
+    // larger transversally over the whole pierce); equal radii by their
+    // axes and origins, never by argument order: near a tangency each
+    // ruling places a crossing's double root within the tolerance of
+    // the other surface but up to 2e-3 from the other ruling's, and the
+    // two orders' records of one face pair met in slivers (YY-V).
+    let key = |o: &Point3, a: &Vec3| [a.x, a.y, a.z, o.x, o.y, o.z];
+    let second_first = r2.total_cmp(r1).then_with(|| {
+        let (k1, k2) = (key(o1, &a1n), key(o2, &a2n));
+        k2.iter()
+            .zip(k1.iter())
+            .map(|(x, y)| x.total_cmp(y))
+            .find(|c| c.is_ne())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let (so, sa, sr, to, ta, tr) = if second_first.is_lt() {
         (*o2, a2n, *r2, *o1, a1n, *r1)
     } else {
         (*o1, a1n, *r1, *o2, a2n, *r2)
@@ -121,7 +134,7 @@ pub(crate) fn try_cylinder_cylinder(
     let discs: Vec<f64> = (0..n).map(|i| quad(i as f64 / n as f64 * TAU).0).collect();
     let all_negative = discs.iter().all(|&d| d <= 0.0);
     let band = (a_coef * tolerance.linear()).powi(2);
-    let miss = 4.0 * a_coef * (2.0 * tr + tolerance.linear()) * tolerance.linear();
+    let miss = super::cylinder_cylinder_singular::reach_band(a_coef, tr, tolerance.linear());
     if all_negative && super::ruling_pierce::sub_sample_peaks(&quad, &discs, band).is_empty() {
         return Some(Vec::new()); // no intersection (or grazing below resolution)
     }
@@ -133,7 +146,7 @@ pub(crate) fn try_cylinder_cylinder(
     // there and the face's chart walk tore (PK-728). Densify until the
     // fitted curves lie on BOTH cylinders within `FIT_BUDGET` of the
     // linear tolerance, measured against the implicit surfaces.
-    let crossings = singular_crossings(&quad, &discs, a_coef, tolerance.linear());
+    let crossings = singular_crossings(&quad, &discs, a_coef, miss);
     let mut density = n;
     loop {
         let mut worst = 0.0_f64;

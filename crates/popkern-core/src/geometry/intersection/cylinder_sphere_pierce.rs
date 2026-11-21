@@ -17,7 +17,7 @@
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
-use super::cylinder_cylinder_singular::singular_crossings;
+use super::cylinder_cylinder_singular::{reach_band, singular_crossings};
 use crate::error::CoreError;
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::intersection::marching::MarchSample;
@@ -97,13 +97,13 @@ pub(super) fn pierce(
         .map(|i| quad(i as f64 / LOOP_SAMPLES as f64 * TAU).0)
         .collect();
     let lin = tolerance.linear();
-    let bands = (lin * lin, 4.0 * (2.0 * rs + lin) * lin);
+    let bands = (lin * lin, reach_band(1.0, rs, lin));
     if discs.iter().all(|&d| d <= 0.0)
         && super::ruling_pierce::sub_sample_peaks(&quad, &discs, bands.0).is_empty()
     {
         return Some(Vec::new());
     }
-    let crossings = singular_crossings(&quad, &discs, 1.0, tolerance.linear());
+    let crossings = singular_crossings(&quad, &discs, 1.0, bands.1);
     // The axial position `t` of a ruling point is the cylinder's chart
     // v up to the origin's own offset (v = (p − origin)·axis / |axis|²).
     let cyl_chart = |p: Point3, prev: Option<f64>| -> (f64, f64) {

@@ -19,17 +19,30 @@
 //! arc of θ — all meeting at the crossing points, which become
 //! valence-4 vertices of the intersection graph.
 //!
-//! A minimum counts as a crossing when the two roots there are closer
-//! than the linear tolerance (`|D| < (a·tol)²`, since the root
-//! separation is `√D / a`), or `D` is within its own rounding floor
-//! at the minimum: a near-miss within tolerance is the same
-//! point to every downstream consumer, and splitting there is the
-//! only spelling that stays manifold.
+//! A minimum counts as a crossing when its double root `t = −b / 2a`
+//! lies within the linear tolerance of the other surface (`|D|` under
+//! `reach_band`), or `D` is within its own rounding floor at the
+//! minimum: a near-miss within tolerance is the same point to every
+//! downstream consumer, and splitting there is the only spelling that
+//! stays manifold. The band was once the roots' separation, `(a·tol)²`:
+//! a pinch opened by half a tolerance has `|D| ≈ 4aR·tol`, read as two
+//! loops turning 2e-3 apart, and every assembly declined a loop
+//! successor (corpus YY-V scenes).
 
 use std::f64::consts::TAU;
 
 /// The ruling-scan quadratic at θ: `(D, b, c)`.
 pub(super) type Quad<'a> = &'a dyn Fn(f64) -> (f64, f64, f64);
+
+/// The `|D|` within which a ruling's least `q = a·t² + b·t + c = ρ² − R²`
+/// (`ρ` its distance from the other surface's axis or centre, radius
+/// `radius`), which is `−D / 4a`, keeps `|ρ − R|` within `linear`:
+/// `4a·(2R + ε)·ε`. A minimum under it is a crossing
+/// (`singular_crossings`); a dip past it splits a loop
+/// (`ruling_pierce::sub_sample_dips`).
+pub(super) fn reach_band(a_coef: f64, radius: f64, linear: f64) -> f64 {
+    4.0 * a_coef * (2.0 * radius + linear) * linear
+}
 
 /// Golden-section refinement of a minimum of `D` within `[lo, hi]`.
 fn refine_minimum(quad: Quad<'_>, mut lo: f64, mut hi: f64) -> f64 {
@@ -83,17 +96,16 @@ pub(super) fn stationary_point(quad: Quad<'_>, (a, b): (f64, f64), seed: f64) ->
 }
 
 /// The crossing angles in `[0, 2π)`, ascending: local minima of the
-/// sampled discriminant whose refined value lies within the
-/// root-separation band.
+/// sampled discriminant whose refined value lies within `band`
+/// (`reach_band`).
 pub(super) fn singular_crossings(
     quad: Quad<'_>,
     discs: &[f64],
     a_coef: f64,
-    linear: f64,
+    band: f64,
 ) -> Vec<f64> {
     let n = discs.len();
     let step = TAU / n as f64;
-    let band = (a_coef * linear) * (a_coef * linear);
     let mut out: Vec<f64> = Vec::new();
     for i in 0..n {
         let prev = discs[(i + n - 1) % n];
