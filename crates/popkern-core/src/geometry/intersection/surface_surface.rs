@@ -23,7 +23,7 @@ use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegener
 use crate::geometry::intersection::marching::{MarchSample, departures_at_ends, march};
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
 use crate::geometry::intersection::surface_surface_consumed::{
-    ConsumedTrace, point_near_polylines,
+    ConsumedTrace, consumed_reach, point_near_polylines,
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
@@ -279,11 +279,8 @@ fn intersect_surfaces_inner(
     //    Branch detection may add extra seeds; we process them all via a queue.
     const MAX_CURVES: usize = 20;
 
-    // Traced polylines. Seed consumption tests distance to polyline
-    // SEGMENTS, not samples: the march steps up to 1000x the tolerance
-    // with chords within it, so a seed landing mid-segment is on the
-    // curve but far from every sample (point proximity re-marched one
-    // cylinder x NURBS arc 18-20 times).
+    // Traced polylines, tested by SEGMENT (point proximity re-marched one
+    // cylinder x NURBS arc 18-20 times), each seed at `consumed_reach`.
     let mut consumed: Vec<ConsumedTrace> = Vec::new();
     let consumed_radius = tolerance.linear() * 10.0;
 
@@ -359,11 +356,12 @@ fn intersect_surfaces_inner(
             }
 
             // Skip if already traced through this region.
-            if point_near_polylines(&seed.point, &consumed, consumed_radius) {
-                trace_ssi_seed(true, &seed.point, demoted, consumed_radius, consumed.len());
+            let reach = consumed_reach(consumed_radius, (surface1, surface2), &seed, tolerance);
+            if point_near_polylines(&seed.point, &consumed, reach) {
+                trace_ssi_seed(true, &seed.point, demoted, reach, consumed.len());
                 continue;
             }
-            trace_ssi_seed(false, &seed.point, demoted, consumed_radius, consumed.len());
+            trace_ssi_seed(false, &seed.point, demoted, reach, consumed.len());
 
             let (samples, is_closed) = march(
                 surface1, march_u1, march_v1, surface2, march_u2, march_v2, &seed, tolerance,
@@ -461,7 +459,9 @@ fn intersect_surfaces_inner(
                     &samples, windows.0, windows.1, tolerance,
                 ));
                 for branch in new_branches {
-                    if !point_near_polylines(&branch.point, &consumed, consumed_radius) {
+                    let reach =
+                        consumed_reach(consumed_radius, (surface1, surface2), &branch, tolerance);
+                    if !point_near_polylines(&branch.point, &consumed, reach) {
                         branch_queue.push((branch, demoted));
                     }
                 }

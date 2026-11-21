@@ -10,20 +10,22 @@
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
-use super::cylinder_cylinder_singular::{Quad, crossing_branches};
+use super::cylinder_cylinder_singular::{Quad, crossing_branches, stationary_point};
 use crate::geometry::Point3;
 use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::surface::SurfaceGeometry;
 
 /// The `(θ, t)` sample sequences of every branch at `density` samples
 /// per turn, and whether they are open branches (between crossings)
-/// rather than closed loops. `discs` is `D` sampled over one turn.
+/// rather than closed loops. `discs` is `D` sampled over one turn;
+/// `band` the least peak `D` of a loop (`sub_sample_peaks`).
 pub(super) fn ruling_loops(
     quad: Quad<'_>,
     discs: &[f64],
     a_coef: f64,
     crossings: &[f64],
     density: usize,
+    band: f64,
 ) -> (Vec<Vec<(f64, f64)>>, bool) {
     let n = discs.len();
     let all_positive = discs.iter().all(|&d| d > 0.0);
@@ -78,7 +80,12 @@ pub(super) fn ruling_loops(
             let j = (i + 1) % n;
             if discs[i] <= 0.0 && discs[j] > 0.0 {
                 // entering positive: find matching exit
-                let theta_in = refine(i as f64 / n as f64 * TAU, j as f64 / n as f64 * TAU);
+                // The entry bracket's upper end is the NEXT sample's angle,
+                // past 2π when it wraps: bracketed [θ_511, 0], the bisection
+                // ran across the whole turn and a loop through θ = 0 swept
+                // nearly a full turn of negative discriminants (two cylinders
+                // overlapping 1e-5 at a touch on θ = 0, fitted 160 long).
+                let theta_in = refine(i as f64 / n as f64 * TAU, (i + 1) as f64 / n as f64 * TAU);
                 let mut k = j;
                 while discs[(k + 1) % n] > 0.0 {
                     k = (k + 1) % n;
@@ -105,9 +112,20 @@ pub(super) fn ruling_loops(
                 intervals.push((theta_in, theta_out));
             }
         }
+        // A positive interval narrower than the scan step leaves no
+        // positive sample: its peak, refined, brackets it.
+        let step = TAU / n as f64;
+        for peak in sub_sample_peaks(quad, discs, band) {
+            intervals.push((refine(peak - step, peak), refine(peak + step, peak)));
+        }
         for (theta_in, theta_out) in intervals {
             let span = theta_out - theta_in;
-            let m = ((span / TAU * density as f64).ceil() as usize).max(16);
+            // At least 16 per side at the base density, doubling with it:
+            // a thin loop (two cylinders overlapping 1e-5 at a touch,
+            // 4e-3 rad of θ) kept 16 at every density, and the fit
+            // never converged.
+            let floor = 16 * (density / n.max(1)).max(1);
+            let m = ((span / TAU * density as f64).ceil() as usize).max(floor);
             // Cosine spacing: at the tangency ends the roots move as
             // √(θ − θ_end), which no uniform θ sampling fits — a
             // 50° loop of two r5 cylinders densified to the cap,
@@ -122,7 +140,11 @@ pub(super) fn ruling_loops(
                 let theta = at(i);
                 pts.push((theta, root(theta, true)));
             }
-            for i in (0..=m).rev() {
+            // Back along the high root from before the far tangency
+            // point (the low root's last sample already stands there: a
+            // repeated sample is a zero chord, and the fit through it rang
+            // out to 2 units round a loop 0.1 long).
+            for i in (0..m).rev() {
                 let theta = at(i);
                 pts.push((theta, root(theta, false)));
             }
@@ -131,6 +153,55 @@ pub(super) fn ruling_loops(
         }
     }
     (loops, open_branches)
+}
+
+/// The peaks of `D` the scan `discs` sampled only below zero: each local
+/// maximum of the samples at or under zero refined to the root of `D′`
+/// (`stationary_point`), kept where `D` reaches `band`, the roots there
+/// more than the tolerance apart (`(a·tol)²`, as for a crossing): a
+/// loop narrower is a touch (an exact internal touch of a ball and a
+/// cylinder peaked at a rounding-sized positive `D`). Two cylinders
+/// overlapping by 1e-5 at a touch meet in a loop 9e-3 rad wide in θ,
+/// narrower than the 512-sample scan's step, and the arm answered "no
+/// intersection" (W3 near-miss cells).
+pub(super) fn sub_sample_peaks(quad: Quad<'_>, discs: &[f64], band: f64) -> Vec<f64> {
+    let n = discs.len();
+    let step = TAU / n as f64;
+    (0..n)
+        .filter(|&i| {
+            let (prev, next) = (discs[(i + n - 1) % n], discs[(i + 1) % n]);
+            discs[i] <= 0.0 && discs[i] >= prev && discs[i] > next
+        })
+        .filter_map(|i| {
+            let peak = refine_peak(quad, i as f64 * step, step);
+            (quad(peak).0 >= band.max(f64::MIN_POSITIVE)).then_some(peak)
+        })
+        .collect()
+}
+
+/// The maximum of `D` within a step of `theta`: golden section on its
+/// values, then the root of `D′` beside it (`stationary_point`: a flat
+/// peak located by its values alone is off by `√(δ / D″)`).
+fn refine_peak(quad: Quad<'_>, theta: f64, step: f64) -> f64 {
+    let g = 0.5 * (5.0_f64.sqrt() - 1.0);
+    let (a, b) = (theta - step, theta + step);
+    let (mut lo, mut hi) = (a, b);
+    let (mut x1, mut x2) = (hi - g * (hi - lo), lo + g * (hi - lo));
+    let (mut f1, mut f2) = (quad(x1).0, quad(x2).0);
+    for _ in 0..80 {
+        if f1 >= f2 {
+            hi = x2;
+            (x2, f2) = (x1, f1);
+            x1 = hi - g * (hi - lo);
+            f1 = quad(x1).0;
+        } else {
+            lo = x1;
+            (x1, f1) = (x2, f2);
+            x2 = lo + g * (hi - lo);
+            f2 = quad(x2).0;
+        }
+    }
+    stationary_point(quad, (a, b), 0.5 * (lo + hi))
 }
 
 /// The largest distance from `curve` (sampled at four points per fit

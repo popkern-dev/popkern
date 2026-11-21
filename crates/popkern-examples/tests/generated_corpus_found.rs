@@ -132,3 +132,19 @@ fn a_cylinder_and_a_nurbs_solid_crossing_at_their_tangency_meet_at_one_node() {
         r#"{"cell":{"a":"Y","b":"W","config":"V"},"seed":1,"index":10104127,"variant_a":0,"variant_b":2,"b_scale":1.0,"place_b":[[0.7716510519710897,0.07095019362458457,-0.6320765175329206,-0.1771487009536603],[-0.5986036157509438,-0.254918766219136,-0.7594011679206255,0.6539177212648126],[-0.2150078259082842,0.9643559989204958,-0.15423729167826278,-1.1946969286554787],[0.0,0.0,0.0,1.0]],"scene":[[0.22542527453606853,0.9529585138918373,0.20261667355230029,-0.24964997898114216],[0.9722726875680243,-0.20676832959685942,-0.10923680188002415,-0.8936620824994708],[-0.062203429243003525,0.22162339379403456,-0.9731463429071832,2.2456264058280215],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-1.2063810563367723,-0.9212212600247144,2.9646557587978015],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 2f33ba3d (W3c V cells, tangency design §4.8): a cylinder and a cone crossing at their tangency, a branch leaving the crossing and returning to it: marched as a closed loop, its seam split moved the node off the record's ends (the loop-successor class); one branch half re-traced eight times, each copy within its band `tol / sin θ` of the others.
+#[test]
+fn a_cylinder_and_a_cone_crossing_at_their_tangency_end_their_loop_at_the_node() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"C","config":"V"},"seed":1,"index":11100,"variant_a":1,"variant_b":2,"b_scale":1.0,"place_b":[[-0.6774916914684359,0.5839565779837337,0.4472132858276518,0.41862172380809504],[-0.23647018818503854,-0.7486614474091546,0.6193447240939098,1.2040840244241662],[0.6964817715424935,0.3138482948699207,0.6453002322301404,1.515499548803094],[0.0,0.0,0.0,1.0]],"scene":[[-0.062116520136444156,-0.7217111713421056,-0.6894015688161323,-2.229024918479282],[0.2340589063829086,0.6609395513598968,-0.7130044444398753,1.9339504045796758],[0.9702360363689733,-0.20564993218618915,0.12786766253764179,-2.02505401404937],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":{"Seam":5e-7},"steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-2.471044253485961,1.9819479103887485,-1.0214504362758043],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 2f33ba3d (W3 near-miss cells, tangency design §4.8): two cylinders overlapping by ten tolerances at an external touch, a thin loop through θ = 0 of the scan: its entry bracket ran across the whole turn and the fitted loop strayed 2 units off both cylinders; the boolean kept nothing and their common was served empty.
+#[test]
+fn two_cylinders_overlapping_by_ten_tolerances_have_a_common() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"Y","config":"E"},"seed":1,"index":6065,"variant_a":1,"variant_b":0,"b_scale":1.0,"place_b":[[-0.6029876864903324,-0.6076457476229745,0.5168873139638396,-1.653862486644372],[-0.7923039519824704,0.3805756388297473,-0.4768821980345765,-0.9231837016683294],[0.09306072003802729,-0.6970859549044479,-0.7109225512395551,0.7590800521170626],[0.0,0.0,0.0,1.0]],"scene":[[0.6992644599753052,-0.34510889250743326,0.6260423846096506,2.2859129708763524],[0.13307368087064597,0.9232851934599682,0.36032741638283183,2.0264513398141304],[-0.7023678597964049,-0.16865439173019492,0.691545432835136,2.692388266086395],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-10.0,"rung":{"offset":-10.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[2.1675132484196844,1.3163980527123966,3.405419472128168],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

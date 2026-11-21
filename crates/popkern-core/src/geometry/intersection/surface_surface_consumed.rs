@@ -2,6 +2,9 @@
 //! distance from a candidate seed to the polylines already traced.
 
 use crate::geometry::Point3;
+use crate::geometry::intersection::marching::MarchSample;
+use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::tolerance::Tolerance;
 
 /// A traced polyline registered for seed consumption.
 ///
@@ -83,4 +86,33 @@ pub(super) fn point_near_polylines(p: &Point3, traces: &[ConsumedTrace], radius:
             _ => false,
         }
     })
+}
+
+/// The normals' sine under which a seed's band stops widening: there the
+/// surfaces are tangent to within a thousandth, and tangency is decided by
+/// the contact classification, not by seed consumption.
+const BAND_SINE_FLOOR: f64 = 1e-3;
+
+/// How near a traced polyline `seed` must lie to be on it: `base`
+/// (ten tolerances), widened to the tolerance band about the curve where
+/// the surfaces meet at a shallow angle, `tol / sin θ` with `θ` the angle
+/// between their normals at the seed. Across that band the surfaces lie
+/// within the tolerance of each other, so a march converges anywhere in
+/// it: a cylinder and a cone crossing at their tangency re-traced one
+/// branch half eight times, each copy up to 7e-4 from the others where
+/// its sine stayed near 1e-3 (W3c, V cells).
+pub(super) fn consumed_reach(
+    base: f64,
+    (s1, s2): (&SurfaceGeometry, &SurfaceGeometry),
+    seed: &MarchSample,
+    tolerance: &Tolerance,
+) -> f64 {
+    let sine = match (
+        s1.normal_at(seed.u1, seed.v1).normalized(),
+        s2.normal_at(seed.u2, seed.v2).normalized(),
+    ) {
+        (Some(n1), Some(n2)) => n1.cross(&n2).length(),
+        _ => return base,
+    };
+    base.max(tolerance.linear() / sine.max(BAND_SINE_FLOOR))
 }

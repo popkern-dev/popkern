@@ -61,7 +61,7 @@ fn refine_minimum(quad: Quad<'_>, mut lo: f64, mut hi: f64) -> f64 {
 /// places it only to `√(δ / D″)` for a rounding `δ` in `D` (Viviani's
 /// double point landed 1.6e-7 off the ball's pole), the slope's root to
 /// `δ / (h D″)`. The seed when the slope does not change sign there.
-fn stationary_point(quad: Quad<'_>, (a, b): (f64, f64), seed: f64) -> f64 {
+pub(super) fn stationary_point(quad: Quad<'_>, (a, b): (f64, f64), seed: f64) -> f64 {
     let h = (b - a).abs() * 1e-4;
     let slope = |x: f64| quad(x + h).0 - quad(x - h).0;
     let (mut lo, mut hi) = (seed - 10.0 * h, seed + 10.0 * h);

@@ -96,7 +96,10 @@ pub(super) fn pierce(
     let discs: Vec<f64> = (0..LOOP_SAMPLES)
         .map(|i| quad(i as f64 / LOOP_SAMPLES as f64 * TAU).0)
         .collect();
-    if discs.iter().all(|&d| d <= 0.0) {
+    let band = tolerance.linear() * tolerance.linear();
+    if discs.iter().all(|&d| d <= 0.0)
+        && super::ruling_pierce::sub_sample_peaks(&quad, &discs, band).is_empty()
+    {
         return Some(Vec::new());
     }
     let crossings = singular_crossings(&quad, &discs, 1.0, tolerance.linear());
@@ -127,7 +130,7 @@ pub(super) fn pierce(
     let mut density = LOOP_SAMPLES;
     loop {
         let (loops, open) =
-            super::ruling_pierce::ruling_loops(&quad, &discs, 1.0, &crossings, density);
+            super::ruling_pierce::ruling_loops(&quad, &discs, 1.0, &crossings, density, band);
         let mut worst = 0.0_f64;
         let mut results = Vec::new();
         let (p1, p2) = orthonormal_basis(frame_axis);

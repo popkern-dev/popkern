@@ -32,7 +32,7 @@ pub(crate) fn march(
     let start = &start;
 
     // March in +T direction.
-    let forward = march_one_direction(
+    let (forward, forward_node) = march_one_direction(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, 1.0, tolerance, handler,
     );
 
@@ -41,11 +41,14 @@ pub(crate) fn march(
     // the coil-grind SSI: every closed marched loop carried 2x
     // samples as two duplicate laps that seam-splitting turned into
     // duplicate records and consolidation had to dedupe — PK-450).
-    let forward_closed = marching_helpers::forward_trace_closed(&forward, tolerance);
+    // One ending at a tangent crossing is a path to a node, never a
+    // closure, however near its seed the node lies.
+    let forward_closed =
+        !forward_node && marching_helpers::forward_trace_closed(&forward, tolerance);
 
     // March in -T direction (only when the loop is still open).
-    let mut backward = if forward_closed {
-        Vec::new()
+    let (mut backward, backward_node) = if forward_closed {
+        (Vec::new(), false)
     } else {
         march_one_direction(
             surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, -1.0, tolerance,
@@ -77,7 +80,11 @@ pub(crate) fn march(
         tolerance.linear()
     };
     let closure_tol = (avg_step * 2.0).max(tolerance.linear());
-    let is_closed = if samples.len() > 10 {
+    // A branch leaving a tangent crossing and returning to it is a path
+    // between the node and itself: closed, its seam split would move the
+    // node off the record's ends (a cylinder and a cone crossing at their
+    // tangency, W3c).
+    let is_closed = if samples.len() > 10 && !forward_node && !backward_node {
         let first = &samples[0];
         let last = &samples[samples.len() - 1];
         first.point.distance_to(&last.point) < closure_tol

@@ -38,7 +38,8 @@ mod marching_rebranch;
 use marching_rebranch::rebranch_out_of_window;
 pub(crate) use marching_rebranch::rebranch_sample_pub;
 
-/// March in one direction along the intersection curve.
+/// March in one direction along the intersection curve: its samples,
+/// and whether it ended at a tangent crossing (a node, never a closure).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn march_one_direction(
     surface1: &SurfaceGeometry,
@@ -51,7 +52,7 @@ pub(crate) fn march_one_direction(
     direction_sign: f64,
     tolerance: &Tolerance,
     handler: &dyn DegeneracyHandler,
-) -> Vec<MarchSample> {
+) -> (Vec<MarchSample>, bool) {
     let max_steps = 200_000;
     let epsilon = tolerance.solver();
     let min_step = tolerance.linear();
@@ -367,7 +368,7 @@ pub(crate) fn march_one_direction(
                         // 3.3e-5 off the span surface — PK-443).
                         samples.push(sample);
                         trace_march_termination(termination, &samples);
-                        return samples;
+                        return (samples, false);
                     }
 
                     // Closure within a step of the start, after enough steps
@@ -379,7 +380,7 @@ pub(crate) fn march_one_direction(
                     {
                         samples.push(sample);
                         trace_march_termination("closure", &samples);
-                        return samples;
+                        return (samples, false);
                     }
 
                     // ORBIT GUARD: a trace that keeps returning NEAR
@@ -429,7 +430,7 @@ pub(crate) fn march_one_direction(
                             if near_returns >= 2 {
                                 samples.push(sample);
                                 trace_march_termination("orbit-no-closure", &samples);
-                                return samples;
+                                return (samples, false);
                             }
                         }
                     }
@@ -443,9 +444,9 @@ pub(crate) fn march_one_direction(
                     if stalls >= 64 {
                         samples.push(sample);
                         trace_march_termination("stalled", &samples);
-                        return samples;
+                        return (samples, false);
                     }
-                    if crossing.push(&mut samples, sample, prev_point, t_normalized, step_size) {
+                    if crossing.push(&mut samples, sample, t_normalized, step_size) {
                         termination = "tangent-crossing";
                         break 'march;
                     }
@@ -475,8 +476,7 @@ pub(crate) fn march_one_direction(
         }
     }
     trace_march_termination(termination, &samples);
-
-    samples
+    (samples, termination == "tangent-crossing")
 }
 
 #[path = "marching_bidirectional.rs"]

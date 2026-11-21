@@ -120,7 +120,8 @@ pub(crate) fn try_cylinder_cylinder(
     let n = LOOP_SAMPLES;
     let discs: Vec<f64> = (0..n).map(|i| quad(i as f64 / n as f64 * TAU).0).collect();
     let all_negative = discs.iter().all(|&d| d <= 0.0);
-    if all_negative {
+    let band = (a_coef * tolerance.linear()).powi(2);
+    if all_negative && super::ruling_pierce::sub_sample_peaks(&quad, &discs, band).is_empty() {
         return Some(Vec::new()); // no intersection (or grazing below resolution)
     }
 
@@ -136,7 +137,7 @@ pub(crate) fn try_cylinder_cylinder(
     loop {
         let mut worst = 0.0_f64;
         let (loops, open_branches) =
-            super::ruling_pierce::ruling_loops(&quad, &discs, a_coef, &crossings, density);
+            super::ruling_pierce::ruling_loops(&quad, &discs, a_coef, &crossings, density, band);
         // Chart parameters for a point on each cylinder, continuously
         // unwrapped along the sample sequence.
         let chart = |surface: &SurfaceGeometry, p: Point3, prev_u: Option<f64>| -> (f64, f64) {

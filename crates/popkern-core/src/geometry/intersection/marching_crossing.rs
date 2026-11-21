@@ -18,11 +18,11 @@
 
 use super::MarchSample;
 use super::marching_newton::march_project_with_iters;
+use crate::geometry::Vec3;
 use crate::geometry::intersection::contact_classify::{ContactScale, SurfaceContactKind};
 use crate::geometry::intersection::contact_discovery::{SurfaceContact, contact_from};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::uv_projection::project_point_to_uv_near;
-use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 
 /// One march's surfaces, windows and tolerance.
@@ -44,19 +44,27 @@ impl<'a> Crossing<'a> {
         Self { s1, s2, tolerance }
     }
 
-    /// Push `sample` (reached from `prev`, its step's direction
+    /// Push `sample` (reached from `samples`' last, its step's direction
     /// `fallback` when the two coincide) and, when a crossing lies just
     /// ahead, the sample at it: `true` then, and the trace ends there.
+    /// The crossing is searched only where the normals' sine falls
+    /// toward zero within reach (`approaching`): the search is a Newton
+    /// over closest points, and run at every near-tangent step it held
+    /// a ball and a NURBS sheet past ten minutes.
     pub(super) fn push(
         &self,
         samples: &mut Vec<MarchSample>,
         sample: MarchSample,
-        prev: Point3,
         fallback: Vec3,
         step: f64,
     ) -> bool {
-        let travel = (sample.point - prev).normalized().unwrap_or(fallback);
-        let at = crossing_ahead(self.s1, self.s2, &sample, travel, step, self.tolerance);
+        let at = match samples.last() {
+            Some(prev) if self.approaching(prev, &sample, step) => {
+                let travel = (sample.point - prev.point).normalized().unwrap_or(fallback);
+                crossing_ahead(self.s1, self.s2, &sample, travel, step, self.tolerance)
+            }
+            _ => None,
+        };
         samples.push(sample);
         match at {
             Some(at) => {
@@ -65,6 +73,28 @@ impl<'a> Crossing<'a> {
             }
             None => false,
         }
+    }
+
+    /// Whether a march stepping from `prev` to `sample` may be nearing a
+    /// crossing: the normals near tangent at `sample`, their sine falling,
+    /// and its linear extrapolation reaching zero within four times the
+    /// reach `crossing_ahead` accepts (the zone estimated from the sine's
+    /// slope, the relative curvature along the step).
+    fn approaching(&self, prev: &MarchSample, sample: &MarchSample, step: f64) -> bool {
+        let (Some(now), Some(before)) = (
+            normals_sine(self.s1.0, self.s2.0, sample),
+            normals_sine(self.s1.0, self.s2.0, prev),
+        ) else {
+            return false;
+        };
+        let ds = sample.point.distance_to(&prev.point);
+        let falling = before - now;
+        if now >= NEAR_TANGENT || falling <= 0.0 || ds <= 0.0 {
+            return false;
+        }
+        let slope = falling / ds;
+        let zone = (2.0 * self.tolerance.linear() / slope).sqrt();
+        now / slope <= 4.0 * (4.0 * step).max(2.0 * zone)
     }
 
     /// When Newton gives out (`samples`' last sample, travelling along
@@ -95,6 +125,13 @@ impl<'a> Crossing<'a> {
 /// The normals' sine below which the march looks for a crossing ahead.
 const NEAR_TANGENT: f64 = 0.05;
 
+/// The sine between the surfaces' normals at `sample`.
+fn normals_sine(s1: &SurfaceGeometry, s2: &SurfaceGeometry, sample: &MarchSample) -> Option<f64> {
+    let n1 = s1.normal_at(sample.u1, sample.v1).normalized()?;
+    let n2 = s2.normal_at(sample.u2, sample.v2).normalized()?;
+    Some(n1.cross(&n2).length())
+}
+
 /// The crossing at or near `sample` (`h` the difference step): the
 /// contact, its zone (where the surfaces lie within the tolerance) and
 /// the branch directions. `None` where the surfaces are not near tangent
@@ -106,9 +143,7 @@ fn crossing_near(
     extent: f64,
     tolerance: &Tolerance,
 ) -> Option<(SurfaceContact, f64, Vec<Vec3>)> {
-    let n1 = s1.normal_at(sample.u1, sample.v1).normalized()?;
-    let n2 = s2.normal_at(sample.u2, sample.v2).normalized()?;
-    if n1.cross(&n2).length() >= NEAR_TANGENT {
+    if normals_sine(s1, s2, sample)? >= NEAR_TANGENT {
         return None;
     }
     let width = |w: Window| (w.0.1 - w.0.0).abs().max((w.1.1 - w.1.0).abs());

@@ -235,3 +235,88 @@ fn a_small_near_tangent_loop_fits_in_hundreds_of_points() {
         "off the cylinders by {worst:e}"
     );
 }
+
+/// The curves of `try_cylinder_cylinder` for unit cylinders A (axis z
+/// through the origin) and B (axis `axis` through `origin`): each closed
+/// curve's length and its worst distance off either cylinder, sampled
+/// densely.
+fn unit_pair_loops(origin: Point3, axis: Vec3) -> Vec<(f64, f64)> {
+    let a = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let b = SurfaceGeometry::Cylinder {
+        origin,
+        axis,
+        radius: 1.0,
+    };
+    let tol = Tolerance::default();
+    let curves = try_cylinder_cylinder(&a, (-2.0, 2.0), &b, (-2.0, 2.0), &tol).expect("arm");
+    let an = axis.normalized().expect("axis");
+    curves
+        .iter()
+        .map(|c| {
+            let SurfaceSurfaceIntersection::Curve(cos) = c else {
+                panic!("a curve");
+            };
+            assert!(cos.is_closed, "a closed loop");
+            let (t0, t1) = cos.curve_3d.parameter_range();
+            let (mut len, mut off) = (0.0_f64, 0.0_f64);
+            let mut last = cos.curve_3d.point_at(t0);
+            for k in 0..=4000 {
+                let p = cos.curve_3d.point_at(t0 + (t1 - t0) * k as f64 / 4000.0);
+                len += p.distance_to(&last);
+                last = p;
+                let rel = p - origin;
+                let db = ((rel - an * rel.dot(&an)).length() - 1.0).abs();
+                off = off.max(((p.x * p.x + p.y * p.y).sqrt() - 1.0).abs().max(db));
+            }
+            (len, off)
+        })
+        .collect()
+}
+
+/// Square cylinders overlapping by 1e-5 at an external touch meet in a
+/// loop about 9e-3 rad wide round A: narrower than the discriminant
+/// scan's step, so a touch between two samples answered "no
+/// intersection" (W3 near-miss cells). Turned round A's axis so the
+/// touch falls at every phase of the scan.
+#[test]
+fn square_cylinders_overlapping_by_a_hair_meet_in_one_small_loop() {
+    for k in 0..9 {
+        let phi = 0.0123 * k as f64 / 9.0 + 0.4;
+        let (c, s) = (phi.pcos(), phi.psin());
+        let origin = Point3::new((2.0 - 1e-5) * c, (2.0 - 1e-5) * s, 0.0);
+        let loops = unit_pair_loops(origin, Vec3::new(-s, c, 0.0));
+        assert_eq!(loops.len(), 1, "phase {k}: one loop, got {loops:?}");
+        let (len, off) = loops[0];
+        assert!(len < 0.05, "phase {k}: a small loop, length {len:.3e}");
+        assert!(off < 1e-7, "phase {k}: on both cylinders, off {off:.2e}");
+    }
+}
+
+/// Nearly parallel cylinders overlapping by 1e-5 meet in a long thin loop
+/// (0.25 by 6e-3) through θ = 0 of A's scan: the entry bracket [θ_511, 0]
+/// sent the bisection across the whole turn and the loop swept nearly a
+/// full turn of negative discriminants, fitted 160 long (W3 near-miss
+/// cells).
+#[test]
+fn nearly_parallel_cylinders_overlapping_by_a_hair_meet_in_one_thin_loop() {
+    let alpha: f64 = 0.05;
+    let loops = unit_pair_loops(
+        Point3::new(2.0 - 1e-5, 0.0, 0.0),
+        Vec3::new(0.0, alpha.psin(), alpha.pcos()),
+    );
+    assert_eq!(loops.len(), 1, "one loop, got {loops:?}");
+    let (len, off) = loops[0];
+    // The relative curvature's eigenvalues ≈ 2 and sin²α / 2: a thin
+    // ellipse of semi-axes √(2δ/λ), its perimeter ≈ four long semi-axes.
+    let long = (2.0 * 1e-5 / (alpha.psin() * alpha.psin() / 2.0)).sqrt();
+    assert!(
+        (len - 4.0 * long).abs() < 0.05 * 4.0 * long,
+        "a thin loop, length {len:.4} for {:.4}",
+        4.0 * long
+    );
+    assert!(off < 1e-7, "on both cylinders, off {off:.2e}");
+}

@@ -143,7 +143,7 @@ fn torus_march_stays_on_circle() {
     let tol = Tolerance::default().with_linear(1e-3);
 
     // March forward only
-    let samples = march_one_direction(
+    let (samples, _) = march_one_direction(
         &torus,
         (0.0, TAU),
         (0.0, TAU),
