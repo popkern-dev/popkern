@@ -156,3 +156,19 @@ fn two_cones_overlapping_by_ten_tolerances_have_a_common() {
         r#"{"cell":{"a":"C","b":"C","config":"E"},"seed":1,"index":10097064,"variant_a":1,"variant_b":1,"b_scale":1.0,"place_b":[[-0.8586182736176788,0.45592653857769627,0.23431955025212403,-1.7620309767370106],[0.31211903518213674,0.10237088949307838,0.9445114657119672,1.1031531079760035],[0.4066403424240756,0.8841103960507175,-0.23020086774005494,-0.9180693876928406],[0.0,0.0,0.0,1.0]],"scene":[[0.9067201038272686,0.3244874599408267,-0.2693817767715881,0.6681044108112233],[-0.33871817240709107,0.9408635098093702,-0.006771675597170644,-0.8794986985019548],[0.2512541601579315,0.09738451750839841,0.9630096587018164,-0.30624798324265257],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-10.0,"rung":{"offset":-10.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-0.07604110927878394,-0.673664965922524,-1.6464869897562813],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 62c9d0b0 (W3 V cells, tangency design §4.8): a cylinder and a sphere crossing tangentially, the pinch opened half a tolerance, were split at the ruling scan's dip there by the crossing band, a gap of `ε² / 8R`; the two loops passed within the tolerance and both differences were served where the touch declines. A dip splits only past the tolerance.
+#[test]
+fn a_cylinder_and_sphere_opened_within_the_tolerance_keep_their_crossing() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"S","config":"V"},"seed":1,"index":10119264,"variant_a":1,"variant_b":2,"b_scale":1.0,"place_b":[[-0.7920388210011786,0.053483737753694305,0.6081233393177382,-0.2811922043289632],[-0.445616986255699,-0.7315180123093211,-0.5160493185998876,-0.2844843479435528],[0.4172529299926496,-0.6797211836208388,0.6032239260420922,0.7554964747568667],[0.0,0.0,0.0,1.0]],"scene":[[-0.9560246956801274,0.2431225610310686,0.16403719568260833,0.03340049570317616],[-0.06253135511745594,-0.7154169839151645,0.6958939349878716,-0.816375801926835],[0.28654251146539256,0.6550343192867253,0.6991590875327888,-2.0425493251193556],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.5,"rung":{"offset":0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-0.3418246781010671,-0.843400355681363,-0.8470366042301145],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 62c9d0b0 (W3 near-miss cells, tangency design §4.8): a cylinder overlapping a NURBS torus by two tolerances meets it in a loop 0.018 round, which the overlap rescue seeds; the march took 15 steps a lap, tested closure only after 20, closed on its second lap, and the record covered itself: every assembly declined a loop successor. Closure is a return into the start's ball after leaving it.
+#[test]
+fn a_cylinder_overlapping_a_torus_by_two_tolerances_traces_its_loop_once() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"W","config":"I"},"seed":1,"index":10101099,"variant_a":2,"variant_b":2,"b_scale":0.3159427994716938,"place_b":[[-0.09453316723024041,0.7250784197763441,0.6821471728799139,0.23209139101241943],[0.029641106296108055,0.6869620097519152,-0.7260885634515616,-0.7785163680334312],[-0.9950803410333069,-0.048419854731808355,-0.08643282106230454,1.068867147291821],[0.0,0.0,0.0,1.0]],"scene":[[0.8960142112281784,-0.4367778277786548,0.07989782498982734,-1.4782381600317276],[0.438400165884543,0.8416716900423935,-0.3152682361634076,-2.388092460666869],[0.07045443796916176,0.31751203968060926,0.9456332676192758,0.5748002249590707],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-0.6602706139323506,-3.6320235271763677,1.2932892139309258],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

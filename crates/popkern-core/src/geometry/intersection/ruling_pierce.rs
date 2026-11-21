@@ -18,14 +18,15 @@ use crate::geometry::surface::SurfaceGeometry;
 /// The `(θ, t)` sample sequences of every branch at `density` samples
 /// per turn, and whether they are open branches (between crossings)
 /// rather than closed loops. `discs` is `D` sampled over one turn;
-/// `band` the least peak `D` of a loop (`sub_sample_peaks`).
+/// `band` the least peak `D` of a loop (`sub_sample_peaks`), and `miss`
+/// the least `−D` of a dip splitting one (`sub_sample_dips`).
 pub(super) fn ruling_loops(
     quad: Quad<'_>,
     discs: &[f64],
     a_coef: f64,
     crossings: &[f64],
     density: usize,
-    band: f64,
+    (band, miss): (f64, f64),
 ) -> (Vec<Vec<(f64, f64)>>, bool) {
     let n = discs.len();
     let all_positive = discs.iter().all(|&d| d > 0.0);
@@ -45,7 +46,7 @@ pub(super) fn ruling_loops(
         crossing_branches(&quad, discs, crossings, a_coef, density)
     };
     let open_branches = crossing_split.is_some();
-    let dips = sub_sample_dips(quad, discs, band);
+    let dips = sub_sample_dips(quad, discs, miss);
     if let Some(branches) = crossing_split {
         loops = branches;
     } else if all_positive && dips.is_empty() {
@@ -205,12 +206,18 @@ pub(super) fn sub_sample_peaks(quad: Quad<'_>, discs: &[f64], band: f64) -> Vec<
 
 /// The dips of `D` the scan `discs` sampled only above zero, mirroring
 /// `sub_sample_peaks`: each local minimum of the positive samples refined
-/// to the root of `D′`, kept where `D` falls to `−band` (the roots there
-/// more than the tolerance from real; nearer, the minimum is a crossing,
-/// `singular_crossings`). Two equal cylinders with crossing axes shifted
+/// to the root of `D′`, kept where `D` falls to `−miss`: the ruling there
+/// passes the other surface by more than the tolerance. Its least
+/// `q = a·t² + b·t + c = ρ² − R²` (`ρ` its distance from the other's axis
+/// or centre) is `−D / 4a`, past the tolerance where `ρ − R` is, so
+/// `miss = 4a·(2R + ε)·ε`. Two equal cylinders with crossing axes shifted
 /// 2e-6 apart have no roots over a dip 4e-3 rad wide, and the scan read a
-/// full pierce: two root loops touching at the dip.
-pub(super) fn sub_sample_dips(quad: Quad<'_>, discs: &[f64], band: f64) -> Vec<f64> {
+/// full pierce: two root loops touching at the dip. A dip within the
+/// tolerance is no split: a cylinder and a sphere crossing tangentially
+/// with the pinch opened half a tolerance, split there by the crossing
+/// band (`(a·ε)²`, a gap of `ε² / 8R`), were served two loops passing
+/// within the tolerance and their differences a body.
+pub(super) fn sub_sample_dips(quad: Quad<'_>, discs: &[f64], miss: f64) -> Vec<f64> {
     let n = discs.len();
     let step = TAU / n as f64;
     (0..n)
@@ -220,7 +227,7 @@ pub(super) fn sub_sample_dips(quad: Quad<'_>, discs: &[f64], band: f64) -> Vec<f
         })
         .filter_map(|i| {
             let dip = refine_extremum(&|t| -quad(t).0, quad, i as f64 * step, step);
-            (quad(dip).0 <= -band.max(f64::MIN_POSITIVE)).then_some(dip)
+            (quad(dip).0 <= -miss.max(f64::MIN_POSITIVE)).then_some(dip)
         })
         .collect()
 }

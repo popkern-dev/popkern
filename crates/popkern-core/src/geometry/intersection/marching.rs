@@ -90,6 +90,7 @@ pub(crate) fn march_one_direction(
     // near-return, and how many well-separated near-returns failed
     // strict closure.
     let mut arc_acc = 0.0_f64;
+    let mut reach = 0.0_f64; // farthest from the start so far
     let mut last_near_arc = f64::NEG_INFINITY;
     let mut near_returns = 0u32;
     let mut stalls = 0u32; // STALL GUARD run length
@@ -371,13 +372,14 @@ pub(crate) fn march_one_direction(
                         return (samples, false);
                     }
 
-                    // Closure within a step of the start, after enough steps
-                    // to have travelled (no false closure at the outset).
+                    // Closure within a step of the start once the trace has
+                    // left that ball, not after a count of steps: a loop
+                    // 0.018 round in 15 steps closed on its second lap.
                     let min_steps_before_closure_check = 20;
                     let closure_tol = step_size * 1.5;
                     let dist_to_start = sample.point.distance_to(&start.point);
-                    if samples.len() > min_steps_before_closure_check && dist_to_start < closure_tol
-                    {
+                    reach = reach.max(dist_to_start);
+                    if reach > 2.0 * closure_tol && dist_to_start < closure_tol {
                         samples.push(sample);
                         trace_march_termination("closure", &samples);
                         return (samples, false);

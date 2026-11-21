@@ -212,9 +212,10 @@ pub(super) fn principal_branch_seed(
 }
 
 /// Whether a forward march trace already closed on itself (endpoints
-/// within twice the average step). Traces under the march topic.
+/// within twice the average step, the trace having left that ball, as
+/// the march's own closure test asks). Traces under the march topic.
 pub(super) fn forward_trace_closed(forward: &[super::MarchSample], tolerance: &Tolerance) -> bool {
-    forward.len() > 20
+    forward.len() > 3
         && {
             let total_arc: f64 = forward
                 .windows(2)
@@ -225,14 +226,18 @@ pub(super) fn forward_trace_closed(forward: &[super::MarchSample], tolerance: &T
             let gap = forward[0]
                 .point
                 .distance_to(&forward[forward.len() - 1].point);
+            let reach = forward
+                .iter()
+                .map(|s| s.point.distance_to(&forward[0].point))
+                .fold(0.0, f64::max);
+            let closed = gap < tol && reach > 2.0 * tol;
             if crate::trace::trace_enabled("march") {
                 eprintln!(
-                    "  [march] fwd {} pts arc {total_arc:.4} avg_step {avg_step:.5} tol {tol:.5} gap {gap:.5} -> closed={}",
+                    "  [march] fwd {} pts arc {total_arc:.4} avg_step {avg_step:.5} tol {tol:.5} gap {gap:.5} -> closed={closed}",
                     forward.len(),
-                    gap < tol
                 );
             }
-            gap < tol
+            closed
         }
 }
 
