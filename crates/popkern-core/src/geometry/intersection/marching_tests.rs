@@ -241,7 +241,7 @@ fn estimate_normal_at_sphere_pole() {
         axis: crate::geometry::Vec3::Z,
     };
     // At v=0 (north pole) the exact normal is degenerate; sample slightly off-pole.
-    let n = super::estimate_normal_near_singularity(&sphere, 0.0, 0.01, 0.1);
+    let n = super::marching_helpers::estimate_normal_near_singularity(&sphere, 0.0, 0.01, 0.1);
     assert!(n.is_some(), "should recover a normal near the pole");
     // Near the north pole (v=0), the sphere normal (partial_u × partial_v) points inward
     // (−z for the unit sphere at the north pole). We only require that the z component is

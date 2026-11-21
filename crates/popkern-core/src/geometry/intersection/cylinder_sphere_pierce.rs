@@ -217,7 +217,13 @@ pub(super) fn pierce(
             // volume through every turn to 3e-9, where the fitted ring,
             // cut at the face's seam and joined again, read 2.7e-6 off.
             let sphere_u = |s: &MarchSample| if swapped { s.u1 } else { s.u2 };
+            // Through a tangent crossing (a double root of the rulings,
+            // `crossings`) the scan keeps the loop: the marching path
+            // cannot follow a branch through the singular point, and
+            // left with a cylinder and ball tangent there it emitted
+            // fragments a fraction of a millimetre long round it.
             if !refined
+                && crossings.is_empty()
                 && let (Some(first), Some(last)) = (samples.first(), samples.last())
                 && (sphere_u(last) - sphere_u(first)).abs() > std::f64::consts::PI
             {

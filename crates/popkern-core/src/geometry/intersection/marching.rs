@@ -9,8 +9,6 @@ pub mod marching_newton;
 #[path = "marching_helpers.rs"]
 mod marching_helpers;
 
-#[allow(unused_imports)]
-use marching_helpers::estimate_normal_near_singularity;
 use marching_helpers::{
     exits_window, find_tangent_march_direction, principal_branch_seed, recover_singular_normal,
     wrap_parameter,
@@ -25,7 +23,6 @@ use crate::geometry::intersection::adaptive_step::{
 };
 use crate::geometry::intersection::degeneracy::DegeneracyHandler;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-#[allow(unused_imports)]
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 
@@ -33,6 +30,8 @@ use crate::tolerance::Tolerance;
 mod marching_types;
 pub use marching_types::{BranchPoint, MarchSample};
 
+#[path = "marching_crossing.rs"]
+mod marching_crossing;
 #[path = "marching_rebranch.rs"]
 mod marching_rebranch;
 use marching_rebranch::rebranch_out_of_window;
@@ -92,6 +91,13 @@ pub(crate) fn march_one_direction(
     let mut last_near_arc = f64::NEG_INFINITY;
     let mut near_returns = 0u32;
     let mut stalls = 0u32; // STALL GUARD run length
+    // The direction to leave a tangent crossing by (`marching_crossing`).
+    let mut forced: Option<Vec3> = None;
+    let mut crossing = marching_crossing::Crossing::new(
+        (surface1, (u1_range, v1_range)),
+        (surface2, (u2_range, v2_range)),
+        tolerance,
+    );
 
     for _ in 0..max_steps {
         let current = &samples[samples.len() - 1];
@@ -143,7 +149,9 @@ pub(crate) fn march_one_direction(
         let t_len = t_raw.length();
 
         // Check tangency: surfaces are tangent when cross product is near zero.
-        let t_normalized = if t_len < epsilon {
+        let t_normalized = if let Some(d) = forced.take() {
+            d
+        } else if t_len < epsilon {
             let angle = n1.angle_to(&n2);
             if handler.on_tangent_during_march(&current.point, angle) {
                 termination = "tangency";
@@ -292,17 +300,6 @@ pub(crate) fn march_one_direction(
                             }
                         }
 
-                        // Near-tangent stepping: the |S1-S2| < ε
-                        // convergence band localizes the curve only to
-                        // a width of ~ε/sin across, so steps BELOW that
-                        // width trace residual noise, not the curve —
-                        // the former reduction crushed the step toward
-                        // min_step here and ground 10k-step fragments
-                        // on grazing fillet contact. The band is the
-                        // honest step floor; when it exceeds the
-                        // maximum step, the intersection is not
-                        // resolvable as a curve at this tolerance and
-                        // the trace ends.
                         // Near-tangent stepping: the |S1-S2| < ε
                         // convergence band localizes the curve only to
                         // a width of ~ε/sin across, so steps BELOW the
@@ -455,7 +452,11 @@ pub(crate) fn march_one_direction(
                         trace_march_termination("stalled", &samples);
                         return samples;
                     }
-                    samples.push(sample);
+                    if let Some((leave, out)) =
+                        crossing.push(&mut samples, sample, prev_point, t_normalized, step_size)
+                    {
+                        (forced, step_size) = (Some(leave), out);
+                    }
                     succeeded = true;
                     break;
                 }

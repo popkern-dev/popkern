@@ -34,7 +34,7 @@ fn degenerate_nurbs_surface(origin: Point3) -> SurfaceGeometry {
 #[test]
 fn estimate_normal_near_singularity_all_degenerate_returns_none() {
     let surf = degenerate_nurbs_surface(Point3::new(0.0, 0.0, 0.0));
-    let result = super::estimate_normal_near_singularity(&surf, 0.5, 0.5, 0.1);
+    let result = super::marching_helpers::estimate_normal_near_singularity(&surf, 0.5, 0.5, 0.1);
     assert!(
         result.is_none(),
         "all-degenerate surface should return None from estimate_normal_near_singularity"
