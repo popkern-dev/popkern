@@ -320,3 +320,27 @@ fn nearly_parallel_cylinders_overlapping_by_a_hair_meet_in_one_thin_loop() {
     );
     assert!(off < 1e-7, "on both cylinders, off {off:.2e}");
 }
+
+/// Equal cylinders with crossing axes (two ellipses crossing at two tangent
+/// points) shifted apart by 2e-6 across one axis: at one tangency the
+/// rulings meet B in roots 4e-3 apart, at the other in none over a dip of
+/// the discriminant about 4e-3 rad wide, between two samples of the scan.
+/// Read as a full pierce, the two root loops touched at the dip (clamped to
+/// its double root), the boolean met them in a pinch vertex and declined a
+/// valid difference (scene 1512 of the generated corpus, W3 V cells); the
+/// curve is one loop turning on both sides of the dip.
+#[test]
+fn shifted_crossing_cylinders_meet_in_one_loop_past_a_sub_sample_dip() {
+    for k in 0..7 {
+        let phi = 0.0123 * k as f64 / 7.0 + 0.3;
+        let (c, s) = (phi.pcos(), phi.psin());
+        // B's axis along x turned by φ round z, shifted 2e-6 along y turned.
+        let origin = Point3::new(-2e-6 * s, 2e-6 * c, 0.0);
+        let loops = unit_pair_loops(origin, Vec3::new(c, s, 0.0));
+        assert_eq!(loops.len(), 1, "phase {k}: one loop, got {loops:?}");
+        let (len, off) = loops[0];
+        // Two ellipses of semi-axes 1 and √2: 7.64 each.
+        assert!((len - 15.28).abs() < 0.05, "phase {k}: length {len:.4}");
+        assert!(off < 1e-7, "phase {k}: on both cylinders, off {off:.2e}");
+    }
+}

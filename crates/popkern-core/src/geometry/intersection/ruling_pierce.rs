@@ -45,9 +45,10 @@ pub(super) fn ruling_loops(
         crossing_branches(&quad, discs, crossings, a_coef, density)
     };
     let open_branches = crossing_split.is_some();
+    let dips = sub_sample_dips(quad, discs, band);
     if let Some(branches) = crossing_split {
         loops = branches;
-    } else if all_positive {
+    } else if all_positive && dips.is_empty() {
         // Full pierce: two disjoint closed loops, one per root branch.
         for low in [true, false] {
             let pts: Vec<(f64, f64)> = (0..=density)
@@ -118,6 +119,29 @@ pub(super) fn ruling_loops(
         for peak in sub_sample_peaks(quad, discs, band) {
             intervals.push((refine(peak - step, peak), refine(peak + step, peak)));
         }
+        // A negative dip narrower than the step splits the positive
+        // stretch holding it: each side turns at its own zero.
+        let dip_sides: Vec<(f64, f64)> = dips
+            .iter()
+            .filter_map(|&d| {
+                let side = |dir: f64| {
+                    let mut h = step / 64.0;
+                    while quad(d + dir * h).0 <= 0.0 {
+                        h *= 2.0;
+                        if h > 2.0 * step {
+                            return None;
+                        }
+                    }
+                    Some(refine(d, d + dir * h))
+                };
+                Some((side(-1.0)?, side(1.0)?))
+            })
+            .collect();
+        let intervals = if all_positive {
+            circle_less_dips(&dip_sides)
+        } else {
+            split_at_dips(intervals, &dip_sides)
+        };
         for (theta_in, theta_out) in intervals {
             let span = theta_out - theta_in;
             // At least 16 per side at the base density, doubling with it:
@@ -179,26 +203,95 @@ pub(super) fn sub_sample_peaks(quad: Quad<'_>, discs: &[f64], band: f64) -> Vec<
         .collect()
 }
 
+/// The dips of `D` the scan `discs` sampled only above zero, mirroring
+/// `sub_sample_peaks`: each local minimum of the positive samples refined
+/// to the root of `D′`, kept where `D` falls to `−band` (the roots there
+/// more than the tolerance from real; nearer, the minimum is a crossing,
+/// `singular_crossings`). Two equal cylinders with crossing axes shifted
+/// 2e-6 apart have no roots over a dip 4e-3 rad wide, and the scan read a
+/// full pierce: two root loops touching at the dip.
+pub(super) fn sub_sample_dips(quad: Quad<'_>, discs: &[f64], band: f64) -> Vec<f64> {
+    let n = discs.len();
+    let step = TAU / n as f64;
+    (0..n)
+        .filter(|&i| {
+            let (prev, next) = (discs[(i + n - 1) % n], discs[(i + 1) % n]);
+            discs[i] > 0.0 && discs[i] <= prev && discs[i] < next
+        })
+        .filter_map(|i| {
+            let dip = refine_extremum(&|t| -quad(t).0, quad, i as f64 * step, step);
+            (quad(dip).0 <= -band.max(f64::MIN_POSITIVE)).then_some(dip)
+        })
+        .collect()
+}
+
+/// The positive stretches of a turn whose samples are all positive, less
+/// the dips with zeros `sides` (`(left, right)` each): one from each dip's
+/// right zero to the next dip's left.
+fn circle_less_dips(sides: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut sorted = sides.to_vec();
+    sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+    (0..sorted.len())
+        .map(|k| {
+            let from = sorted[k].1;
+            let mut to = sorted[(k + 1) % sorted.len()].0;
+            while to <= from {
+                to += TAU;
+            }
+            (from, to)
+        })
+        .collect()
+}
+
+/// `intervals` with each split at the dips (zeros `sides`) lying inside it.
+fn split_at_dips(intervals: Vec<(f64, f64)>, sides: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    for (lo, hi) in intervals {
+        let mut inside: Vec<(f64, f64)> = sides
+            .iter()
+            .filter_map(|&(l, r)| {
+                let shift = ((lo - l) / TAU).ceil() * TAU;
+                let (l, r) = (l + shift, r + shift + if r < l { TAU } else { 0.0 });
+                (l > lo && r < hi).then_some((l, r))
+            })
+            .collect();
+        inside.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut from = lo;
+        for (l, r) in inside {
+            out.push((from, l));
+            from = r;
+        }
+        out.push((from, hi));
+    }
+    out
+}
+
 /// The maximum of `D` within a step of `theta`: golden section on its
 /// values, then the root of `D′` beside it (`stationary_point`: a flat
 /// peak located by its values alone is off by `√(δ / D″)`).
 fn refine_peak(quad: Quad<'_>, theta: f64, step: f64) -> f64 {
+    refine_extremum(&|t| quad(t).0, quad, theta, step)
+}
+
+/// The maximum of `f` (`±D`) within a step of `theta`: golden section,
+/// then the root of `D′` beside it.
+fn refine_extremum(f: &dyn Fn(f64) -> f64, quad: Quad<'_>, theta: f64, step: f64) -> f64 {
     let g = 0.5 * (5.0_f64.sqrt() - 1.0);
     let (a, b) = (theta - step, theta + step);
     let (mut lo, mut hi) = (a, b);
     let (mut x1, mut x2) = (hi - g * (hi - lo), lo + g * (hi - lo));
-    let (mut f1, mut f2) = (quad(x1).0, quad(x2).0);
+    let (mut f1, mut f2) = (f(x1), f(x2));
     for _ in 0..80 {
         if f1 >= f2 {
             hi = x2;
             (x2, f2) = (x1, f1);
             x1 = hi - g * (hi - lo);
-            f1 = quad(x1).0;
+            f1 = f(x1);
         } else {
             lo = x1;
             (x1, f1) = (x2, f2);
             x2 = lo + g * (hi - lo);
-            f2 = quad(x2).0;
+            f2 = f(x2);
         }
     }
     stationary_point(quad, (a, b), 0.5 * (lo + hi))
