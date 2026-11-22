@@ -421,11 +421,10 @@ impl crate::topology::BRep {
                 transform_curve_on_edge(curve_on_edge, t, scale);
             }
         }
-        // Chart metric follow-up for uniform scale: cylinder/cone V is
-        // arc length along the (unit) axis and plane UV is length
-        // along unit axes, so both stretch by `scale`; sphere/torus
-        // charts are all-angular and NURBS/Gregory charts live in
-        // knot space, all scale-invariant.
+        // Chart metric follow-up for uniform scale: cylinder/cone V is arc
+        // length along the (unit) axis and plane UV is length along unit
+        // axes, so both stretch by `scale`; sphere/torus charts are
+        // angular and NURBS/Gregory charts knot space, scale-invariant.
         if (scale - 1.0).abs() > 1.0e-12 {
             let face_handles: Vec<crate::topology::FaceHandle> = result.faces.keys().collect();
             for fh in face_handles {
@@ -487,11 +486,15 @@ impl crate::topology::BRep {
         }
         let mut reauthor_faces: Vec<crate::topology::FaceHandle> =
             reauthor.iter().map(|&(f, _)| f).collect();
+        reauthor_faces.sort();
         reauthor_faces.dedup();
         for fh in reauthor_faces {
             result.recompute_face_pcurves(fh)?;
         }
         result.attach_planar_pcurves()?;
+        if scale > 1.0 + 1.0e-12 {
+            result.record_scaled_imprecision(scale);
+        }
         Ok(result)
     }
 }

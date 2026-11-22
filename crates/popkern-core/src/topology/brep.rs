@@ -475,6 +475,8 @@ impl BRep {
 #[cfg(test)]
 #[path = "brep_tests.rs"]
 mod brep_tests;
+#[path = "brep_transform_refit.rs"]
+mod brep_transform_refit;
 #[path = "brep_transforms.rs"]
 mod brep_transforms;
 pub(crate) use brep_transforms::{transform_curve_on_edge, transform_surface};

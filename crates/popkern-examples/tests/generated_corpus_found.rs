@@ -247,3 +247,14 @@ fn two_balls_a_thousand_across_keep_their_circle_pcurves_on_it() {
         r#"{"cell":{"a":"S","b":"S","config":"X"},"seed":1,"index":10109171,"variant_a":0,"variant_b":2,"b_scale":1.0,"place_b":[[0.6270455205369367,0.5347522557868213,0.5664397056222913,0.608112211941213],[0.7775571631809831,-0.38569371614098746,-0.4966338845822922,-0.3198232634796464],[-0.04710385504928405,0.7518513032909244,-0.6576479640196832,0.7906882117273409],[0.0,0.0,0.0,1.0]],"scene":[[620.6267901632712,484.0887167101862,616.8310155022365,2392.279206535422],[-728.2419017258311,64.24731495839767,682.3019969862183,-1954.0848387976412],[290.6649616007753,-872.6570900843709,392.4072925202822,2920.053110608401],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":0.0,"rung":{"offset":0.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":null,"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 1a7f4c16 (W3 scale; tangency design §4.8): a ball and a
+/// NURBS torus scaled a thousandfold apart; the torus's edges, 9e-7 off
+/// its surfaces at unit size, sat 9e-4 off and the union failed
+/// validation. The scale records the imprecision it carries.
+#[test]
+fn a_nurbs_torus_scaled_a_thousandfold_states_its_imprecision() {
+    passes(
+        r#"{"cell":{"a":"S","b":"W","config":"D"},"seed":1,"index":10095045,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[1.0,0.0,0.0,-5.540054093434559],[0.0,1.0,0.0,-10.719288708316363],[0.0,0.0,1.0,2.6408630490731277],[0.0,0.0,0.0,1.0]],"scene":[[889.8115053996416,452.7433613328502,-57.08707058043817,-2467.15527083425],[-415.9657204531726,753.2947118438515,-509.43065918332985,-1315.103245031037],[-187.63796062176957,477.04352618720355,858.6160200325768,2135.69367784366],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":0.0,"rung":{"offset":0.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":null,"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
