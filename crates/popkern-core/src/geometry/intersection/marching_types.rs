@@ -29,3 +29,15 @@ pub struct MarchSample {
     /// The 3D point (equal to surface1.point_at(u1, v1) at convergence).
     pub point: Point3,
 }
+
+/// How one directional march ended: the trace's own reading, the one
+/// authority on whether a forward trace already covers a closed loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MarchEnd {
+    /// Returned into the closure ball after leaving it: a whole loop.
+    Closed,
+    /// Reached a tangent crossing: a path to a node, never a closure.
+    Node,
+    /// Anything else: a window exit, a guard, an exhausted solve.
+    Open,
+}

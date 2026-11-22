@@ -28,6 +28,7 @@ use crate::tolerance::Tolerance;
 
 #[path = "marching_types.rs"]
 mod marching_types;
+pub(crate) use marching_types::MarchEnd;
 pub use marching_types::{BranchPoint, MarchSample};
 
 #[path = "marching_crossing.rs"]
@@ -39,7 +40,7 @@ use marching_rebranch::rebranch_out_of_window;
 pub(crate) use marching_rebranch::rebranch_sample_pub;
 
 /// March in one direction along the intersection curve: its samples,
-/// and whether it ended at a tangent crossing (a node, never a closure).
+/// and how it ended (`MarchEnd`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn march_one_direction(
     surface1: &SurfaceGeometry,
@@ -52,7 +53,7 @@ pub(crate) fn march_one_direction(
     direction_sign: f64,
     tolerance: &Tolerance,
     handler: &dyn DegeneracyHandler,
-) -> (Vec<MarchSample>, bool) {
+) -> (Vec<MarchSample>, MarchEnd) {
     let max_steps = 200_000;
     let epsilon = tolerance.solver();
     let min_step = tolerance.linear();
@@ -69,15 +70,13 @@ pub(crate) fn march_one_direction(
     // features. The ×16 headroom bounds the worst case explicitly.
     let mut step_ceiling = max_step;
     let mut step_size = tolerance.linear() * 50.0;
-    // Branch point candidates detected during march (spec §2.4).
-    // Used by find_branch_points in starting_points.rs to seed
-    // additional curve traces from branch locations.
+    // Branch point candidates detected during march (spec §2.4), seeds
+    // for further traces (find_branch_points in starting_points.rs).
     #[allow(unused_assignments)]
     let mut branch_points: Vec<BranchPoint> = Vec::new();
 
     let mut samples = vec![start.clone()];
-    // Termination cause for the march trace: every break overwrites it.
-    let mut termination = "step-budget";
+    let mut termination = "step-budget"; // the trace's cause; breaks overwrite
     // Wrong-preimage landings allow a few halve-and-retry attempts
     // (a smaller step near the phantom boundary can stay real), but
     // a march that keeps converging into the extrapolated basin must
@@ -85,12 +84,9 @@ pub(crate) fn march_one_direction(
     // ~800k times on one two-start rod cut (5× wall time, measured).
     let mut phantom_retries = 0u32;
     let mut phantom_cache: Vec<Point3> = Vec::new();
-    // ORBIT GUARD state (see the near-return check after the strict
-    // closure test): accumulated arc, arc at the last counted
-    // near-return, and how many well-separated near-returns failed
-    // strict closure.
+    // ORBIT GUARD state (see the near-return check after the strict closure
+    // test): arc so far, at the last near-return, and the near-returns.
     let mut arc_acc = 0.0_f64;
-    let mut reach = 0.0_f64; // farthest from the start so far
     let mut last_near_arc = f64::NEG_INFINITY;
     let mut near_returns = 0u32;
     let mut stalls = 0u32; // STALL GUARD run length
@@ -369,26 +365,31 @@ pub(crate) fn march_one_direction(
                         // 3.3e-5 off the span surface — PK-443).
                         samples.push(sample);
                         trace_march_termination(termination, &samples);
-                        return (samples, false);
+                        return (samples, MarchEnd::Open);
                     }
 
-                    // Closure within a step of the start once the trace has
-                    // left that ball, not after a count of steps: a loop
-                    // 0.018 round in 15 steps closed on its second lap.
+                    // Closure: back within a step of the start, the gap under
+                    // a quarter of the arc so far (a chord falls that short of
+                    // its arc only where the trace turned back) and the arc
+                    // past the ball. A step count closed a loop in 15 on lap
+                    // two (scene 1392); the ball alone, a third of a small
+                    // loop under the near-tangent floor (1043, 935).
                     let min_steps_before_closure_check = 20;
                     let closure_tol = step_size * 1.5;
                     let dist_to_start = sample.point.distance_to(&start.point);
-                    reach = reach.max(dist_to_start);
-                    if reach > 2.0 * closure_tol && dist_to_start < closure_tol {
+                    let prev_point = samples[samples.len() - 1].point;
+                    arc_acc += sample.point.distance_to(&prev_point);
+                    if dist_to_start < closure_tol.min(0.25 * arc_acc)
+                        && arc_acc > 2.0 * closure_tol
+                    {
                         samples.push(sample);
                         trace_march_termination("closure", &samples);
-                        return (samples, false);
+                        return (samples, MarchEnd::Closed);
                     }
 
-                    // ORBIT GUARD: a trace that keeps returning NEAR
-                    // its start without ever strictly closing is
-                    // re-traversing the same near-closed contact ring
-                    // — a numerical orbit, not new geometry. Measured
+                    // ORBIT GUARD: a trace returning NEAR its start without
+                    // strictly closing re-traverses the same near-closed
+                    // ring — a numerical orbit, not new geometry. Measured
                     // (PK-460, conic cube corner): a near-tangent
                     // ring of circumference ~1 returned to within
                     // 3.8e-3..7.6e-3 of its start (strict closure
@@ -397,11 +398,9 @@ pub(crate) fn march_one_direction(
                     // peak RSS, an OOM SIGKILL in the sweep. Two
                     // near-returns separated by a full lap of arc
                     // certify the orbit; terminating there hands
-                    // downstream the same honestly-named truncation
-                    // the step budget produced, at lap ~2 instead of
-                    // lap ~400. Open marches (a thread helix) never
-                    // return near their start; genuinely closed
-                    // loops strictly close on the first lap.
+                    // downstream the step budget's truncation at lap ~2,
+                    // not ~400. Open marches (a thread helix) never return
+                    // near their start; closed loops close on lap one.
                     //
                     // A near-return counts ONLY when the march passes
                     // the start region travelling in the START'S OWN
@@ -414,8 +413,6 @@ pub(crate) fn march_one_direction(
                     // the direction-blind guard truncated it mid-curve
                     // and the boolean failed validation at 6.9e-5).
                     let near_band = closure_tol * 8.0;
-                    let prev_point = samples[samples.len() - 1].point;
-                    arc_acc += sample.point.distance_to(&prev_point);
                     if samples.len() > min_steps_before_closure_check
                         && dist_to_start < near_band
                         && arc_acc - last_near_arc > 50.0 * near_band
@@ -432,7 +429,7 @@ pub(crate) fn march_one_direction(
                             if near_returns >= 2 {
                                 samples.push(sample);
                                 trace_march_termination("orbit-no-closure", &samples);
-                                return (samples, false);
+                                return (samples, MarchEnd::Open);
                             }
                         }
                     }
@@ -446,7 +443,7 @@ pub(crate) fn march_one_direction(
                     if stalls >= 64 {
                         samples.push(sample);
                         trace_march_termination("stalled", &samples);
-                        return (samples, false);
+                        return (samples, MarchEnd::Open);
                     }
                     if crossing.push(&mut samples, sample, t_normalized, step_size) {
                         termination = "tangent-crossing";
@@ -478,7 +475,11 @@ pub(crate) fn march_one_direction(
         }
     }
     trace_march_termination(termination, &samples);
-    (samples, termination == "tangent-crossing")
+    let end = match termination {
+        "tangent-crossing" => MarchEnd::Node,
+        _ => MarchEnd::Open,
+    };
+    (samples, end)
 }
 
 #[path = "marching_bidirectional.rs"]

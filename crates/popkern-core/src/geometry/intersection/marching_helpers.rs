@@ -211,36 +211,6 @@ pub(super) fn principal_branch_seed(
     s
 }
 
-/// Whether a forward march trace already closed on itself (endpoints
-/// within twice the average step, the trace having left that ball, as
-/// the march's own closure test asks). Traces under the march topic.
-pub(super) fn forward_trace_closed(forward: &[super::MarchSample], tolerance: &Tolerance) -> bool {
-    forward.len() > 3
-        && {
-            let total_arc: f64 = forward
-                .windows(2)
-                .map(|w| w[0].point.distance_to(&w[1].point))
-                .sum();
-            let avg_step = total_arc / (forward.len() - 1) as f64;
-            let tol = (avg_step * 2.0).max(tolerance.linear());
-            let gap = forward[0]
-                .point
-                .distance_to(&forward[forward.len() - 1].point);
-            let reach = forward
-                .iter()
-                .map(|s| s.point.distance_to(&forward[0].point))
-                .fold(0.0, f64::max);
-            let closed = gap < tol && reach > 2.0 * tol;
-            if crate::trace::trace_enabled("march") {
-                eprintln!(
-                    "  [march] fwd {} pts arc {total_arc:.4} avg_step {avg_step:.5} tol {tol:.5} gap {gap:.5} -> closed={closed}",
-                    forward.len(),
-                );
-            }
-            closed
-        }
-}
-
 /// Recover a usable surface normal at a singular evaluation during the
 /// march (split from `march_one_direction` under the 500-line file
 /// budget): try direct estimation near the point, then walk `u`

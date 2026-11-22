@@ -1,8 +1,7 @@
 //! The bidirectional march wrapper and its termination trace — split
 //! from `marching.rs` (500-line cap rule).
 
-use super::marching_helpers;
-use super::{MarchSample, march_one_direction, principal_branch_seed};
+use super::{MarchEnd, MarchSample, march_one_direction, principal_branch_seed};
 use crate::geometry::intersection::degeneracy::DegeneracyHandler;
 use crate::geometry::surface::SurfaceGeometry;
 use crate::tolerance::Tolerance;
@@ -32,7 +31,7 @@ pub(crate) fn march(
     let start = &start;
 
     // March in +T direction.
-    let (forward, forward_node) = march_one_direction(
+    let (forward, forward_end) = march_one_direction(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, 1.0, tolerance, handler,
     );
 
@@ -42,13 +41,16 @@ pub(crate) fn march(
     // samples as two duplicate laps that seam-splitting turned into
     // duplicate records and consolidation had to dedupe — PK-450).
     // One ending at a tangent crossing is a path to a node, never a
-    // closure, however near its seed the node lies.
-    let forward_closed =
-        !forward_node && marching_helpers::forward_trace_closed(&forward, tolerance);
+    // closure, however near its seed the node lies. The march's own
+    // closure decides: a second test here (twice the mean step, reached
+    // past twice that) called a loop of 18 steps open that the march had
+    // closed, and the backward march traced it again (scene 1043).
+    let forward_closed = forward_end == MarchEnd::Closed;
+    let forward_node = forward_end == MarchEnd::Node;
 
     // March in -T direction (only when the loop is still open).
-    let (mut backward, backward_node) = if forward_closed {
-        (Vec::new(), false)
+    let (mut backward, backward_end) = if forward_closed {
+        (Vec::new(), MarchEnd::Open)
     } else {
         march_one_direction(
             surface1, u1_range, v1_range, surface2, u2_range, v2_range, start, -1.0, tolerance,
@@ -84,13 +86,15 @@ pub(crate) fn march(
     // between the node and itself: closed, its seam split would move the
     // node off the record's ends (a cylinder and a cone crossing at their
     // tangency, W3c).
-    let is_closed = if samples.len() > 10 && !forward_node && !backward_node {
-        let first = &samples[0];
-        let last = &samples[samples.len() - 1];
-        first.point.distance_to(&last.point) < closure_tol
-    } else {
-        false
-    };
+    let backward_node = backward_end == MarchEnd::Node;
+    let is_closed = forward_closed
+        || if samples.len() > 10 && !forward_node && !backward_node {
+            let first = &samples[0];
+            let last = &samples[samples.len() - 1];
+            first.point.distance_to(&last.point) < closure_tol
+        } else {
+            false
+        };
 
     (samples, is_closed)
 }
