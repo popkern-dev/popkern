@@ -72,8 +72,12 @@ pub(crate) fn touches_at_endpoint(
 /// 3D bounding box projected into a rotated plane's frame is far larger
 /// than the face and re-admits the phantom hits the test exists to
 /// reject (measured: a scene rotated 30° served 1.6e-3 too much
-/// volume). Other charts keep their vertex positions (their u is
-/// periodic and their trim test is tuned around it).
+/// volume). On a curved chart each edge adds points along it: a ball's
+/// cap bounded by a ring carrying three vertices boxed only their arc,
+/// and the hit of a third ball's seam meridian on the cap, inside its
+/// ring, was rejected as off the face (corpus SS-X3: the seam stayed
+/// unsplit, its chart walk declined, and A ∩ B ∩ C was left one record
+/// edge with a valence-1 vertex).
 pub(crate) fn trim_box_positions(
     brep: &popkern_core::topology::BRep,
     face: popkern_core::topology::FaceHandle,
@@ -85,6 +89,7 @@ pub(crate) fn trim_box_positions(
     let Some(SurfaceGeometry::Plane { u_axis, v_axis, .. }) =
         f.surface.as_ref().map(|s| &s.geometry)
     else {
+        edge_samples(brep, f.outer_loop, &mut points);
         return points;
     };
     let Some(l) = brep.loops.get(f.outer_loop) else {
@@ -105,6 +110,35 @@ pub(crate) fn trim_box_positions(
         }
     }
     points
+}
+
+/// Eight points inside each edge of loop `lh` (its curve over its window).
+fn edge_samples(
+    brep: &popkern_core::topology::BRep,
+    lh: popkern_core::topology::LoopHandle,
+    points: &mut Vec<popkern_core::geometry::Point3>,
+) {
+    use popkern_core::geometry::curve::CurveEval as _;
+    let Some(l) = brep.loops.get(lh) else {
+        return;
+    };
+    let start = l.half_edge;
+    let mut he = start;
+    for _ in 0..=brep.half_edges.len() {
+        let Some(h) = brep.half_edges.get(he) else {
+            break;
+        };
+        if let Some(c) = brep.edges.get(h.edge).and_then(|e| e.curve.as_ref()) {
+            points.extend((1..9).map(|k| {
+                c.geometry
+                    .point_at(c.t_start + (c.t_end - c.t_start) * k as f64 / 9.0)
+            }));
+        }
+        he = h.next;
+        if he == start {
+            break;
+        }
+    }
 }
 
 /// The points of `c` extreme along each of `axes` over its window (exact
