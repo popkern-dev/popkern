@@ -307,3 +307,16 @@ fn two_millimetre_cylinders_overlapping_by_an_end_close_their_loop_across_the_ca
         r#"{"cell":{"a":"Y","b":"Y","config":"E"},"seed":1,"index":10115229,"variant_a":0,"variant_b":0,"b_scale":1.0,"place_b":[[-0.29861548299557766,-0.1975279663875598,0.93370846403474,-1.267256637849513],[-0.10614277797987613,-0.9654036940393652,-0.23817938243656372,-1.3176519293883506],[0.9484526893830988,-0.17023046152185342,0.2673183233001886,0.2576552769766601],[0.0,0.0,0.0,1.0]],"scene":[[0.0009054186755778824,-0.00023303350570886484,0.0003548413830598542,0.0007961741928522246],[0.00014976777942099512,-0.0006067765106883986,-0.0007806355605044623,0.002082350788421522],[0.00039722365760626327,0.000759945821288497,-0.0005144858739985522,0.0019071119665181229],[0.0,0.0,0.0,1.0]],"scale":0.001,"offset":-10.0,"rung":{"offset":-10.0,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[0.0009780211216122636,0.0021265705607053658,0.0009781393700735227],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at cf0e39b1 (W3 V cells; tangency design §4.8): a cylinder
+/// crossing a ball tangentially, opened by ten tolerances. The crossing's
+/// branch turns within 3e-3, a twentieth of the sample spacing, and the
+/// projected pcurve's refinement stalled before reaching the turn: the
+/// edge's curve and trims disagreed by 6.5e-4. Refinement now waits
+/// while a straying interval turns sharply.
+#[test]
+fn a_cylinder_crossing_a_ball_tangentially_keeps_curve_and_trims_together() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"S","config":"V"},"seed":1,"index":10094038,"variant_a":1,"variant_b":1,"b_scale":1.0,"place_b":[[0.4289855090521693,0.7895695193048712,0.43880679940940515,-0.027414691982398653],[-0.7195191374577363,0.5923723978409918,-0.36247365850250296,0.1474836762611722],[-0.5461351882595797,-0.16023394291094673,0.8222295541294324,-0.7624063142366733],[0.0,0.0,0.0,1.0]],"scene":[[0.5886599444829197,0.33446426816981223,0.7359436955902251,-2.4530460272721872],[-0.6735579643726737,-0.3004605036439116,0.6753096729502599,1.6199059731679082],[0.44698896898190454,-0.8932284920823332,0.04841200822951974,2.103989529923137],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":10.0,"rung":{"offset":10.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-3.235386656127694,1.2773516975274484,3.0269538286207402],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

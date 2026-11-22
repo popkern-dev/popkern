@@ -34,6 +34,10 @@ use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{NurbsCurve, Point3};
 
+#[path = "pcurve_projection_turns.rs"]
+mod pcurve_projection_turns;
+use pcurve_projection_turns::{turns_past_quarter, turns_sharply};
+
 /// Samples of the historical fixed recompute (the OCCT default); the
 /// initial sampling spreads this many over the segments.
 pub(super) const PROJECTION_SAMPLES: usize = 23;
@@ -60,11 +64,9 @@ const REFINABLE_GAP_FACTOR: f64 = 1.0e4;
 const MISFIT_EXTENT_FRACTION: f64 = 1.0e-2;
 /// Newton steps locating the edge-curve point nearest an image sample.
 const NEAREST_NEWTON_STEPS: usize = 4;
-/// Fraction of the model's linear tolerance the pcurve's image may
-/// stray from the edge curve.
+/// Fraction of the linear tolerance the image may stray from the edge curve.
 const PROJECTION_FIT_FRACTION: f64 = 0.1;
-/// uv distance within which two pieces meet at a breakpoint: both
-/// interpolate the same sample, so they share it to round-off.
+/// uv distance two pieces meet within at a breakpoint (one shared sample).
 const JOIN_TOLERANCE: f64 = 1e-9;
 
 /// Curve fractions of the edge curve's parametric breakpoints inside
@@ -162,7 +164,7 @@ pub(super) fn measured_projection_interpolant(
 ) -> Option<NurbsCurve> {
     let breaks = breakpoint_fractions(curve_on_edge, (t_lo, t_hi));
     let mut spans = initial_spans(&breaks);
-    let points = sample(&segment_fractions(&breaks, &spans));
+    let mut points = sample(&segment_fractions(&breaks, &spans));
     let Some(mut best) = piecewise_interpolant(&points, &breaks, &spans) else {
         // A walk that dropped samples: the historical interpolant over
         // the surviving samples, unrefined.
@@ -181,8 +183,8 @@ pub(super) fn measured_projection_interpolant(
             break;
         }
         spans.iter_mut().for_each(|n| *n *= 2);
-        let points = sample(&segment_fractions(&breaks, &spans));
-        let Some(fit) = piecewise_interpolant(&points, &breaks, &spans) else {
+        let samples = sample(&segment_fractions(&breaks, &spans));
+        let Some(fit) = piecewise_interpolant(&samples, &breaks, &spans) else {
             break;
         };
         let gap = image_gap(&fit, surface, curve_on_edge, (t_lo, t_hi), &breaks, &spans);
@@ -195,6 +197,7 @@ pub(super) fn measured_projection_interpolant(
             break;
         }
         (best, best_gap, best_spans, improved) = (fit, gap, spans.clone(), true);
+        points = samples;
     }
     // Where uniform doubling cannot follow the track (a ring passing a
     // sphere's pole sweeps half a turn of longitude within its distance
@@ -209,7 +212,10 @@ pub(super) fn measured_projection_interpolant(
     // halved at 44, PK-1185).
     let singular =
         crate::geometry::chart::ChartDescriptor::has_singular_row(surface, linear_tolerance);
-    if best_gap > target && (improved || singular) {
+    let periods = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
+    // A misfit-sized gap waits on no turn (an edge 5 off its curve, 1287).
+    let turning = !misfit_sized && points.windows(3).any(|w| turns_sharply(periods, w));
+    if best_gap > target && (improved || singular || turning) {
         let start = segment_fractions(&breaks, &best_spans);
         let range = (t_lo, t_hi);
         if let Some((fit, fractions)) = locally_refined(
@@ -218,7 +224,7 @@ pub(super) fn measured_projection_interpolant(
             range,
             &breaks,
             start,
-            target,
+            (target, !misfit_sized),
             sample,
         ) {
             // Judged with the doubling's fit on one dense set: midpoints
@@ -253,7 +259,7 @@ fn locally_refined(
     range: (f64, f64),
     breaks: &[f64],
     mut fractions: Vec<f64>,
-    target: f64,
+    (target, wait_turns): (f64, bool),
     sample: &dyn Fn(&[f64]) -> Vec<Point3>,
 ) -> Option<(NurbsCurve, Vec<f64>)> {
     let periods = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
@@ -275,9 +281,17 @@ fn locally_refined(
         let sweeping = interval_gap.iter().zip(points.windows(2)).any(|(&g, w)| {
             g > target && turns_past_quarter(periods, (w[0].x, w[0].y), (w[1].x, w[1].y))
         });
+        // So is a sharp turn of the track: a tangent crossing opened by ten
+        // tolerances turns its branch within 3e-3, a twentieth of the spacing;
+        // the overshoot falls unevenly until samples reach it (1269 stalled).
+        let turning = wait_turns
+            && points
+                .windows(3)
+                .zip(interval_gap.windows(2))
+                .any(|(w, g)| (g[0] > target || g[1] > target) && turns_sharply(periods, w));
         let stalled = best.as_ref().is_some_and(|b| worst >= b.1)
             || history.len() >= 2 && worst > 0.5 * history[history.len() - 2];
-        if stalled && !sweeping {
+        if stalled && !sweeping && !turning {
             break;
         }
         history.push(worst);
@@ -303,14 +317,6 @@ fn locally_refined(
         fractions = graded(next);
     }
     best.map(|(fit, _, fractions)| (fit, fractions))
-}
-
-/// Whether the chart step from `a` to `b` turns a periodic coordinate
-/// (periods `periods`) past a quarter period.
-fn turns_past_quarter(periods: (Option<f64>, Option<f64>), a: (f64, f64), b: (f64, f64)) -> bool {
-    [(b.0 - a.0, periods.0), (b.1 - a.1, periods.1)]
-        .iter()
-        .any(|&(d, p)| p.is_some_and(|p| p > 0.0 && d.abs() > 0.25 * p))
 }
 
 /// `fractions` with every interval more than twice a neighbour's
