@@ -271,6 +271,18 @@ fn a_cylinder_through_a_millimetre_ball_keeps_its_loop_beside_the_pole() {
     );
 }
 
+/// Failed at e157a3c5 (W3 X cells; PK-1293): a millimetre ball poking out
+/// through a cylinder's cap, minus the cylinder, is two solids. The
+/// mid-assembly shell partition found no interior point for the nested
+/// cap piece, declined, and served both as one shell; every component is
+/// now its own solid and the post-repair cavity nesting alone nests.
+#[test]
+fn a_ball_through_a_cylinder_cap_less_the_cylinder_is_two_solids() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"S","config":"X"},"seed":1,"index":10090000,"variant_a":1,"variant_b":1,"b_scale":1.0,"place_b":[[-0.3790964582313595,-0.4904949947156083,0.784665875080199,-0.09704597115379465],[0.8962418992036536,-0.4056556258107373,0.17942678551411195,0.05429041130689899],[0.23029618639540506,0.771270493022412,0.5933847766202791,-0.252440629771427],[0.0,0.0,0.0,1.0]],"scene":[[0.0009454821713099151,-0.0000934711357344402,-0.000311972130998271,0.001898227621617509],[0.00013461767319900095,0.0009844297024726083,0.00011303204391755003,-0.0024896809632662677],[0.0002965493985790149,-0.00014886674468868403,0.0009433435993996136,-0.0003353912604804439],[0.0,0.0,0.0,1.0]],"scale":0.001,"offset":0.0,"rung":{"offset":0.0,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":null,"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
 /// Failed at e157a3c5 (W3 K cells; tangency design §4.8): a box face
 /// cuts a cone frustum two tolerances deep along a ruling in a long thin
 /// loop. Its march, rounding the loop's tip, passed its start 8.6e-4 off

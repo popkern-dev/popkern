@@ -1,23 +1,24 @@
-//! Cavities wired as solids of their own, nested once the result is
-//! complete (corpus SS-X3).
+//! Cavities nested once the result is complete: the one nesting authority
+//! (PK-1293; corpus SS-X3).
 //!
-//! The cellular assembly splits its result's faces into shells and nests
-//! each enclosed component as a cavity of the solid holding it
-//! (`cellular::assemble_cleanup::partition_shells`), deciding by ray
-//! parity before the faces' trims and orientation are final. A sphere
-//! piece bounded by one circle takes its side from its loop's winding
-//! against its orientation, so mid-assembly a point in a void cut from two
-//! crossing balls by a third read Outside them: the void was wired as a
-//! second solid, its shell enclosing negative volume. Earlier still that
-//! void was dropped whole and N-ary (A ∪ B) − C served A ∪ B,
-//! validator-clean. Here, after the output repairs, a solid region whose
-//! outer shell encloses negative volume (the sign of the sampled volume,
-//! as the validator reads it) is moved into the smallest other solid whose
-//! outer shell holds a point of its void by the boolean's ray parity, and
-//! its emptied region is removed; one nothing holds stays for the
-//! validator to report. The sampled winding and volume cannot decide it:
-//! they undercount sphere pieces bounded by short arcs (a void of 0.66
-//! read 0.50, its host of 19.9 read 10.8, the host's winding 0.5 inside).
+//! The cellular assembly splits its result's faces into edge-connected
+//! components and makes each its own solid
+//! (`cellular::assemble_cleanup::partition_shells`). It once nested them
+//! there too, by ray parity before the faces' trims and orientation were
+//! final: a sphere piece bounded by one circle takes its side from its
+//! loop's winding, so mid-assembly a void cut from two crossing balls by a
+//! third read Outside them and was wired as a second solid, its shell
+//! enclosing negative volume; and a nested component that offered no
+//! interior point declined the partition, serving two solids as one shell
+//! (a ball through a cylinder's cap, minus the cylinder). Here, after the
+//! output repairs, a solid region whose outer shell encloses negative
+//! volume (the sign of the sampled volume, as the validator reads it) is
+//! moved into the smallest other solid whose outer shell holds a point of
+//! its void by the boolean's ray parity, and its emptied region is
+//! removed; one nothing holds stays for the validator to report. The
+//! sampled winding and volume cannot decide it: they undercount sphere
+//! pieces bounded by short arcs (a void of 0.66 read 0.50, its host of
+//! 19.9 read 10.8, the host's winding 0.5 inside).
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceEval;

@@ -96,25 +96,12 @@ pub(super) fn cleanup_unwired(builder: &mut BRepBuilder) {
 /// the slotted-block corpus part: correct 12-face fragment population
 /// discarded, graph-merge served 48 open edges).
 ///
-/// Mutually exterior components each become their own solid. A
-/// component whose AABB nests inside another's is classified by ray
-/// parity against the CONTAINING component's face subset (PK-217):
-/// an interior point of the nested component's enclosed region that
-/// reads Inside the container is a CAVITY (an inner shell of the
-/// container's solid — a moat's void, a closed hollow); one that
-/// reads Outside is a FLOATING PIECE in a through-opening (its own
-/// solid). Parity runs on `point_in_solid_final` with the face-AABB
-/// slice filtered to the container — the slice IS the face filter.
-/// Any ambiguity (no interior point found, OnBoundary parity, ray
-/// failure, cavity whose encloser is itself a cavity) DECLINES the
-/// partition (returns false, single-shell result stands, the Euler
-/// gate routes it to graph-merge exactly as before) with the reason
-/// observable under the boolean trace topic.
-pub(super) fn partition_shells(
-    builder: &mut BRepBuilder,
-    tolerance: &popkern_core::tolerance::Tolerance,
-) -> bool {
-    let tolerance_linear = tolerance.linear();
+/// Every component becomes its own solid. A cavity (a component whose
+/// faces enclose negative volume) is nested in the solid holding it after
+/// the output repairs, on the finished body (`postprocess::cavity_nesting`,
+/// the one nesting authority, PK-1293); the mid-assembly ray parity this
+/// replaced read unfinished trims (PK-217's rule, retired).
+pub(super) fn partition_shells(builder: &mut BRepBuilder) -> bool {
     let brep = builder.brep_mut();
     let faces: Vec<_> = brep.faces.keys().collect();
     if faces.len() < 2 {
@@ -171,178 +158,20 @@ pub(super) fn partition_shells(
         return true;
     }
 
-    // Component AABBs from wired half-edge origins.
-    let mut aabbs: Vec<([f64; 3], [f64; 3])> = vec![([f64::MAX; 3], [f64::MIN; 3]); roots.len()];
-    // Vertex sums per component (each wired origin once per outgoing
-    // half-edge — a weighting that keeps the mean inside the hull).
-    let mut vertex_sums: Vec<([f64; 3], f64)> = vec![([0.0; 3], 0.0); roots.len()];
-    for (_, he) in brep.half_edges.iter() {
-        let Some(lp) = brep.loops.get(he.loop_) else {
-            continue;
-        };
-        let Some(&fi) = index.get(&lp.face) else {
-            continue;
-        };
-        let r = find(&mut parent, fi);
-        let c = component_of[&r];
-        let p = brep.vertices[he.origin].position;
-        for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
-            aabbs[c].0[k] = aabbs[c].0[k].min(v);
-            aabbs[c].1[k] = aabbs[c].1[k].max(v);
-            vertex_sums[c].0[k] += v;
-        }
-        vertex_sums[c].1 += 1.0;
-    }
-    let tol = tolerance_linear.max(1e-12);
-    let nested = |a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])| -> bool {
-        (0..3).all(|k| a.0[k] > b.0[k] - tol && a.1[k] < b.1[k] + tol)
-    };
     let face_component: Vec<(popkern_core::topology::FaceHandle, usize)> = faces
         .iter()
         .enumerate()
         .map(|(i, &f)| (f, component_of[&find(&mut parent, i)]))
         .collect();
 
-    // Enclosure classification (PK-217), needed only when AABBs nest.
-    // `encloser[c]` = the component whose solid a cavity shell joins.
-    let any_nesting =
-        (0..roots.len()).any(|i| (0..roots.len()).any(|j| i != j && nested(&aabbs[i], &aabbs[j])));
-    let mut encloser: Vec<Option<usize>> = vec![None; roots.len()];
-    if any_nesting {
-        use crate::classify::point_in_solid_final;
-        use crate::error::PointClassification;
-        let all_aabbs = crate::intersect::compute_face_aabbs(brep);
-        let comp_of_face: HashMap<popkern_core::topology::FaceHandle, usize> =
-            face_component.iter().copied().collect();
-        let comp_aabbs = |c: usize| -> Vec<_> {
-            all_aabbs
-                .iter()
-                .filter(|(f, _)| comp_of_face.get(f) == Some(&c))
-                .cloned()
-                .collect()
-        };
-        // Interior point of each nested component's ENCLOSED region:
-        // the AABB center, else the vertex centroid, whichever first
-        // reads Inside against the component's own faces. The centroid
-        // is a convex combination of the vertices, so it is interior
-        // to every convex piece — a corner tetrahedron's box center is
-        // not (PK-705: a yawed slab cut left a corner lump of a plate
-        // nested in the plate's box; the center missed it and the
-        // partition declined). No candidate → decline (a nested
-        // ring-shaped component is out of scope, recorded).
-        let interior_point = |c: usize| -> Option<popkern_core::geometry::Point3> {
-            let (lo, hi) = &aabbs[c];
-            let center = popkern_core::geometry::Point3::new(
-                0.5 * (lo[0] + hi[0]),
-                0.5 * (lo[1] + hi[1]),
-                0.5 * (lo[2] + hi[2]),
-            );
-            let (sum, n) = vertex_sums[c];
-            let centroid = (n > 0.0)
-                .then(|| popkern_core::geometry::Point3::new(sum[0] / n, sum[1] / n, sum[2] / n));
-            let own = comp_aabbs(c);
-            // The centre of the component's FACE boxes: a cavity bounded
-            // by a cylinder and two discs has only seam vertices, so its
-            // vertex box collapses onto the seam line and both vertex
-            // candidates sit on its boundary (PK-745: a plug sealing a
-            // cylindrical cup declined as an Euler violation).
-            let face_center = own
-                .iter()
-                .map(|(_, bb)| (bb.min, bb.max))
-                .reduce(|(a0, a1), (b0, b1)| {
-                    (
-                        popkern_core::geometry::Point3::new(
-                            a0.x.min(b0.x),
-                            a0.y.min(b0.y),
-                            a0.z.min(b0.z),
-                        ),
-                        popkern_core::geometry::Point3::new(
-                            a1.x.max(b1.x),
-                            a1.y.max(b1.y),
-                            a1.z.max(b1.z),
-                        ),
-                    )
-                })
-                .map(|(lo, hi)| {
-                    popkern_core::geometry::Point3::new(
-                        0.5 * (lo.x + hi.x),
-                        0.5 * (lo.y + hi.y),
-                        0.5 * (lo.z + hi.z),
-                    )
-                });
-            std::iter::once(center)
-                .chain(centroid)
-                .chain(face_center)
-                .find(|q| {
-                    matches!(
-                        point_in_solid_final(q, brep, &own, tolerance),
-                        Ok(PointClassification::Inside)
-                    )
-                })
-        };
-        // Enclosure depth by parity against each AABB-containing
-        // component's face subset; immediate encloser = the smallest
-        // containing component by AABB volume.
-        let volume = |c: usize| -> f64 {
-            let (lo, hi) = &aabbs[c];
-            (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2])
-        };
-        let mut depth = vec![0usize; roots.len()];
-        for i in 0..roots.len() {
-            let containers: Vec<usize> = (0..roots.len())
-                .filter(|&j| j != i && nested(&aabbs[i], &aabbs[j]))
-                .collect();
-            if containers.is_empty() {
-                continue;
-            }
-            let Some(q) = interior_point(i) else {
-                if popkern_core::trace::trace_enabled("boolean") {
-                    eprintln!(
-                        "  [assemble] shell partition DECLINED: no interior point for nested component {i}"
-                    );
-                }
-                return false;
-            };
-            let mut inside: Vec<usize> = Vec::new();
-            for j in containers {
-                match point_in_solid_final(&q, brep, &comp_aabbs(j), tolerance) {
-                    Ok(PointClassification::Inside) => inside.push(j),
-                    Ok(PointClassification::Outside) => {}
-                    _ => {
-                        if popkern_core::trace::trace_enabled("boolean") {
-                            eprintln!(
-                                "  [assemble] shell partition DECLINED: ambiguous parity of component {i} vs {j}"
-                            );
-                        }
-                        return false;
-                    }
-                }
-            }
-            depth[i] = inside.len();
-            if depth[i] % 2 == 1 {
-                encloser[i] = inside.into_iter().min_by(|&a, &b| {
-                    volume(a)
-                        .partial_cmp(&volume(b))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-            }
-        }
-        // A cavity's encloser must itself be a solid-owning component
-        // (even depth) — alternation anomalies decline.
-        for (i, enc) in encloser.iter().enumerate() {
-            if let Some(e) = *enc
-                && depth[e] % 2 == 1
-            {
-                if popkern_core::trace::trace_enabled("boolean") {
-                    eprintln!(
-                        "  [assemble] shell partition DECLINED: cavity {i} enclosed by cavity {e}"
-                    );
-                }
-                return false;
-            }
-        }
-    }
-
+    // Every component is its own solid: nesting has one authority, the
+    // post-repair cavity nesting (`postprocess::cavity_nesting`), which
+    // reads the finished body. Mid-assembly parity on unfinished trims
+    // declined whenever a nested component offered no interior point
+    // and served two solids as one shell (a ball poking out through a
+    // cylinder's cap, minus the cylinder: corpus scene 1337), and read a
+    // void cut from two balls by a third Outside them (PK-1293).
+    let encloser: Vec<Option<usize>> = vec![None; roots.len()];
     // Wire shells: every component gets a shell; solid-owning
     // components (even enclosure depth) get their own solid, cavity
     // components join their encloser's solid. The first solid-owning
