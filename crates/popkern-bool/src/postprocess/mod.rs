@@ -1,5 +1,6 @@
 //! Post-processing for boolean results: redundant edge removal and face simplification.
 
+pub(crate) mod cavity_nesting;
 pub mod collinear_vertex;
 pub(crate) mod curveless_edge;
 pub mod exact_rims;

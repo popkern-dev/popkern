@@ -130,7 +130,11 @@ fn dissolve_redundant_chains(
             }
             let step = crate::sub_tolerance::FlattenedSteps::measure(result, chain[0], tolerance);
             let mut staged = result.clone();
-            if dissolve_chain(&mut staged, &chain).is_ok() && staged.validate().is_ok() {
+            let slits = crate::postprocess::redundant_edge::slit_loop_count(result);
+            if dissolve_chain(&mut staged, &chain).is_ok()
+                && staged.validate().is_ok()
+                && crate::postprocess::redundant_edge::slit_loop_count(&staged) <= slits
+            {
                 *result = staged;
                 steps.commit(step);
                 merged += 1;

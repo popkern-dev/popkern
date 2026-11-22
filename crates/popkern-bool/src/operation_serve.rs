@@ -408,6 +408,13 @@ pub(crate) fn finish(
     // Pcurve COHERENCE sweep for doubly-periodic (torus) faces —
     // mechanics and rationale in `operation_pcurve_coherence.rs`.
     super::helpers_pcurve_coherence::recompute_incoherent_periodic_pcurves(&mut result);
+    // A cavity wired as a solid of its own (assembly nests shells before
+    // the trims are final) joins the solid holding it, now decidable.
+    let nested =
+        crate::postprocess::cavity_nesting::nest_inverted_solid_shells(&mut result, tolerance);
+    if nested > 0 && popkern_core::trace::trace_enabled("boolean") {
+        eprintln!("[boolean] post-processing: {nested} inverted shell(s) nested as cavities");
+    }
     // The served body's faces must bound regions of their charts
     // (PK-836, PK-862): coincident cooriented cylinder faces once served
     // with loops winding round the period (validate() passes them, the

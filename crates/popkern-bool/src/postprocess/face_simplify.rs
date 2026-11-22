@@ -356,9 +356,13 @@ pub(crate) fn apply_face_simplification_in(
                     None => pair_shares.push((key, edge.half_edge, 1)),
                 }
             }
+            // Nor when the merged loop would be a pure slit, bounding
+            // nothing (`redundant_edge::merge_leaves_slit`).
             let shared = pair_shares
                 .iter()
-                .find(|(_, _, count)| *count == 1)
+                .find(|(_, he_h, count)| {
+                    *count == 1 && !super::redundant_edge::merge_leaves_slit(brep, *he_h)
+                })
                 .map(|(_, he_h, _)| *he_h);
 
             let Some(he_h) = shared else {

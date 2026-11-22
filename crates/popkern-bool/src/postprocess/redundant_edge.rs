@@ -97,6 +97,10 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
             return Some(false);
         }
 
+        if merge_leaves_slit(brep, edge.half_edge) {
+            return Some(false);
+        }
+
         // KEF on this edge is only sound when it is the ONLY edge the
         // two faces share: dissolving one edge of a multi-edge shared
         // boundary leaves the survivors traversed twice by the merged
@@ -127,6 +131,74 @@ pub(crate) fn edge_redundant_now(brep: &BRep, eh: EdgeHandle, tolerance: &Tolera
         Some(shared_count == 1)
     })()
     .unwrap_or(false)
+}
+
+/// Whether dissolving the edge of half-edge `he` would leave the merged
+/// loop a pure slit: every half-edge left in the two loops it joins has
+/// its twin among them, an out-and-back weave bounding nothing in the
+/// chart. Two caps of one ball sharing their ring merged into one ball
+/// face bounded by one arc out and back, which every trim reader takes
+/// for an empty face: the slit sweep retired it and N-ary (A ∪ B) − C
+/// lost its void (corpus SS-X3).
+pub(crate) fn merge_leaves_slit(brep: &BRep, he: popkern_core::topology::HalfEdgeHandle) -> bool {
+    let Some(twin) = brep.half_edges.get(he).and_then(|h| h.mate()) else {
+        return false;
+    };
+    let mut left = std::collections::BTreeSet::new();
+    for start in [he, twin] {
+        let mut h = start;
+        for _ in 0..brep.half_edges.len().max(1) {
+            let Some(data) = brep.half_edges.get(h) else {
+                return false;
+            };
+            if h != he && h != twin {
+                left.insert(h);
+            }
+            h = data.next;
+            if h == start {
+                break;
+            }
+        }
+    }
+    !left.is_empty()
+        && left.iter().all(|&h| {
+            brep.half_edges
+                .get(h)
+                .and_then(|d| d.mate())
+                .is_some_and(|m| m != h && left.contains(&m))
+        })
+}
+
+/// How many loops of `brep` are pure slits: every half-edge's twin in
+/// the same loop (a staged merge adding one bounds nothing, as
+/// `merge_leaves_slit` predicts for a single edge).
+pub(crate) fn slit_loop_count(brep: &BRep) -> usize {
+    brep.loops
+        .iter()
+        .filter(|&(lh, l)| {
+            let mut h = l.half_edge;
+            let mut any = false;
+            for _ in 0..brep.half_edges.len().max(1) {
+                let Some(data) = brep.half_edges.get(h) else {
+                    return false;
+                };
+                let twin_here = data
+                    .mate()
+                    .filter(|&m| m != h)
+                    .and_then(|m| brep.half_edges.get(m))
+                    .is_some_and(|t| t.loop_ == lh);
+                if !twin_here {
+                    return false;
+                }
+                any = true;
+                h = data.next;
+                if h == l.half_edge {
+                    break;
+                }
+            }
+            any
+        })
+        .count()
 }
 
 /// Same ORIENTED surface: the two faces' outward normals agree at edge
