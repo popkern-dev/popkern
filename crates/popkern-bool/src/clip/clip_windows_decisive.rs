@@ -211,6 +211,9 @@ pub(super) fn decisive_windows(
             )
     };
     let mut verdicts: Vec<Option<bool>> = Vec::with_capacity(intervals.len());
+    // Intervals whose tuned samples agree but the exact trim abstains
+    // within the clearance band: decided by their side of the edge after.
+    let mut abstained: Vec<usize> = Vec::new();
     for &(a, b) in &intervals {
         if b - a < min_len {
             // Endpoint-graze sliver: no room for an honest verdict;
@@ -249,7 +252,10 @@ pub(super) fn decisive_windows(
             })?;
             flags = [exact; 3];
         } else if near_boundary_at(a + (b - a) * 0.5)
-            && let Some(exact) = exact_verdict(a, b)
+            && let Some(exact) = exact_verdict(a, b).or_else(|| {
+                abstained.push(verdicts.len());
+                None
+            })
         {
             // Unanimous is not decisive within the clearance band: a
             // shallow lens between a record and a curved boundary edge
@@ -275,6 +281,41 @@ pub(super) fn decisive_windows(
             return None;
         }
         verdicts.push(Some(flags[0]));
+    }
+    // An abstaining interval leaving and rejoining one edge takes its
+    // side of that edge against a decided neighbour (PK-1054's rule): the
+    // tuned polygon's chord sag reads a lens 7.8 tolerances inside a cap's
+    // rim outside at all three samples, and the loop the cylinder face
+    // clipped there closed through nothing (scene 1494).
+    let n_iv = intervals.len();
+    for &k in &abstained {
+        let mid = |j: usize| {
+            let (a, b) = intervals[j];
+            let t = 0.5 * (a + b);
+            if t > t_max { t - span } else { t }
+        };
+        let neighbours = [
+            (k > 0 || is_closed).then(|| (k + n_iv - 1) % n_iv),
+            (k + 1 < n_iv || is_closed).then(|| (k + 1) % n_iv),
+        ];
+        let side = neighbours
+            .into_iter()
+            .flatten()
+            .filter(|j| *j != k && !abstained.contains(j))
+            .find_map(|j| {
+                super::clip_crossing_reports::same_edge_side_verdict(
+                    brep,
+                    face,
+                    curve_uv,
+                    crossings,
+                    intervals[k],
+                    (mid(j), verdicts[j]?),
+                    &brep.tolerance,
+                )
+            });
+        if let Some(v) = side {
+            verdicts[k] = Some(v);
+        }
     }
     // Slivers inherit the preceding decisive verdict (leading slivers
     // the following one) — at 1e-9 of the span the attribution is
