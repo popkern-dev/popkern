@@ -282,10 +282,12 @@ fn the_pose_presets_are_collision_free_and_a_folded_elbow_is_not(mut asm: Assemb
 fn the_whole_arm_has_no_interfering_pair(mut asm: Assembly) {
     let _ = popkern_bool::chart_walk_fallback::take_chart_walk_fallback_events();
     let watch = std::time::Instant::now();
+    let cpu_before = process_cpu_seconds();
     let report = asm
         .interference(&InterferenceOptions::default())
         .expect("interference");
     let took = watch.elapsed().as_secs_f64();
+    let cpu_took = cpu_before.zip(process_cpu_seconds()).map(|(a, b)| b - a);
     // A link face whose 42.5 rim lies on a coaxial bore wall of the same
     // radius walked the 3D-Newell fallback on every pass: the records on
     // the rim registered in both directions (PK-920). Each interference
@@ -321,7 +323,36 @@ fn the_whole_arm_has_no_interfering_pair(mut asm: Assembly) {
     // before the no-curve relation probes (PK-1124), which found every
     // face's interior points up front and read 49.6 s; made as the
     // verdict asks for them, 36.7 s (PK-1174).
-    assert!(took < 60.0, "whole-arm interference took {took:.1} s");
+    // The gate reads the phase's CPU time (PK-1295): nextest runs each
+    // test in its own process, so it is this work alone, where wall time
+    // read 60.2..62.7 s in-suite against 23 s quiet under the suite's
+    // contention. Wall time stands in where /proc is absent.
+    match cpu_took {
+        Some(cpu) => assert!(
+            cpu < INTERFERENCE_CPU_BUDGET,
+            "whole-arm interference took {cpu:.1} s of CPU ({took:.1} s wall)"
+        ),
+        None => assert!(took < 60.0, "whole-arm interference took {took:.1} s"),
+    }
+}
+
+/// CPU seconds budget of the whole-arm interference phase: 258.9 s
+/// measured quiet (23.0 s wall, 2026-11-22), headroom for rayon's
+/// spinning workers under load.
+const INTERFERENCE_CPU_BUDGET: f64 = 450.0;
+
+/// This process's user plus system CPU time, every thread's, from
+/// `/proc/self/stat` (in USER_HZ ticks, 100 a second on Linux); `None`
+/// off Linux.
+fn process_cpu_seconds() -> Option<f64> {
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    // Fields after the command name's closing parenthesis start at the
+    // third (state); utime and stime are the 14th and 15th.
+    let rest = &stat[stat.rfind(')')? + 1..];
+    let fields: Vec<&str> = rest.split_whitespace().collect();
+    let utime: f64 = fields.get(11)?.parse().ok()?;
+    let stime: f64 = fields.get(12)?.parse().ok()?;
+    Some((utime + stime) / 100.0)
 }
 
 /// Grip at the script's default (the fingers are authored there).
