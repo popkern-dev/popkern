@@ -11,7 +11,7 @@ pub(super) fn banded_inside(
     brep: &BRep,
     face: FaceHandle,
     q: popkern_core::geometry::Point3,
-    band: f64,
+    band: super::clip_uv_band::UvBand,
 ) -> Option<bool> {
     let boundary_ring = crate::clip::face_uv_boundary(brep, face);
     let mut best = f64::INFINITY;
@@ -23,10 +23,10 @@ pub(super) fn banded_inside(
         for i in 0..=64 {
             let t = a + (b - a) * i as f64 / 64.0;
             let s = pc.point_at(t);
-            best = best.min(((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt());
+            best = best.min(band.gap((s.x, s.y), (q.x, q.y)));
         }
     }
-    if best < band {
+    if best < band.length {
         return None;
     }
     Some(

@@ -49,7 +49,7 @@ pub(super) fn wrapped_complement(
     // boundary band: the band itself read the complement of two balls'
     // near-tangent circles 1e-3 into each other as riding, and swapped
     // their correct hull.
-    let band = 1e-3 * super::clip_uv::uv_boundary_band(brep, curve_uv);
+    let band = super::clip_uv_band::UvBand::of(brep, face, curve_uv).scaled(1e-3);
     let inside = |t: f64| {
         let tt = if t > t_max { t - period } else { t };
         let q = curve_uv.point_at(tt);

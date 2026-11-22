@@ -10,7 +10,12 @@ use popkern_core::topology::{BRep, FaceHandle};
 pub(super) type ContourRuns = Vec<Vec<(f64, f64)>>;
 
 /// Sampled face boundary in UV plus the clearance band (2 % of the
-/// trim scale). One sample RUN per contour — the outer loop and each
+/// trim scale), both read in space: the samples are scaled by the
+/// chart's mean speeds `(|S_u|, |S_v|)` over the boundary, returned for
+/// the query to scale alike. A raw uv scale on a millimetre cylinder
+/// was the 2π of u, and its clearance 0.126 swallowed the face's whole
+/// 2.5e-3 height in v: a cap ellipse past the rim hugged it everywhere
+/// and was kept whole (corpus scene 1542). One sample RUN per contour — the outer loop and each
 /// inner loop (hole) separately, so the distance test never sees a
 /// phantom segment connecting unrelated contours; a curve hugging a
 /// HOLE rim is hugging the face boundary exactly like one hugging
@@ -18,8 +23,22 @@ pub(super) type ContourRuns = Vec<Vec<(f64, f64)>>;
 pub(super) fn boundary_clearance_samples(
     brep: &BRep,
     face: FaceHandle,
-) -> Option<(ContourRuns, f64)> {
+) -> Option<(ContourRuns, f64, (f64, f64))> {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
     crate::clip::face_uv_boundary(brep, face).map(|boundary| {
+        let (mut su, mut sv, mut n) = (0.0, 0.0, 0.0);
+        for (_, pcurve) in &boundary {
+            let curve = pcurve.to_nurbs();
+            let (b0, b1) = curve.parameter_range();
+            for k in 0..=8 {
+                let q = curve.point_at(b0 + (b1 - b0) * k as f64 / 8.0);
+                let (du, dv) = surface.first_partials(q.x, q.y);
+                (su, sv, n) = (su + du.length(), sv + dv.length(), n + 1.0);
+            }
+        }
+        let speed = |s: f64| if s.is_finite() && s > 0.0 { s / n } else { 1.0 };
+        let (ku, kv) = (speed(su), speed(sv));
         // OUTER contour only: the hugging guards are tuned against
         // outer-boundary flush classes; adding hole rims here changed
         // near-hole verdicts on tuned socket fixtures.
@@ -32,7 +51,8 @@ pub(super) fn boundary_clearance_samples(
                 let curve = pcurve.to_nurbs();
                 let (b0, b1) = curve.parameter_range();
                 for k in 0..=24 {
-                    let point = curve.point_at(b0 + (b1 - b0) * k as f64 / 24.0);
+                    let q = curve.point_at(b0 + (b1 - b0) * k as f64 / 24.0);
+                    let point = popkern_core::geometry::Point3::new(q.x * ku, q.y * kv, 0.0);
                     lo_u = lo_u.min(point.x);
                     hi_u = hi_u.max(point.x);
                     lo_v = lo_v.min(point.y);
@@ -45,7 +65,7 @@ pub(super) fn boundary_clearance_samples(
         let trim_scale = ((hi_u - lo_u).powi(2) + (hi_v - lo_v).powi(2))
             .sqrt()
             .max(1e-9);
-        (runs, trim_scale * 0.02)
+        (runs, trim_scale * 0.02, (ku, kv))
     })
 }
 
@@ -103,7 +123,7 @@ fn near_boundary_run(
 
 /// Whether `curve_uv` lies along the face's boundary contour for its
 /// whole length: every one of 32 samples within the boundary band
-/// ([`super::clip_uv::uv_boundary_band`]) of a boundary pcurve's
+/// ([`super::clip_uv_band::UvBand`], gaps in space) of a boundary pcurve's
 /// polyline (segments, not sample points: a band finer than the
 /// sample spacing read a record exactly on a rim as off it).
 pub(super) fn rides_face_boundary(
@@ -111,7 +131,7 @@ pub(super) fn rides_face_boundary(
     face: FaceHandle,
     curve_uv: &popkern_core::geometry::nurbs_curve::NurbsCurve,
 ) -> bool {
-    let band = super::clip_uv::uv_boundary_band(brep, curve_uv);
+    let band = super::clip_uv_band::UvBand::of(brep, face, curve_uv);
     let Some(ring) = crate::clip::face_uv_boundary(brep, face) else {
         return false;
     };
@@ -125,7 +145,7 @@ pub(super) fn rides_face_boundary(
             (0..=256)
                 .map(|i| {
                     let p = pc.point_at(a + (b - a) * f64::from(i) / 256.0);
-                    (p.x, p.y)
+                    band.in_space(p.x, p.y)
                 })
                 .collect(),
         );
@@ -145,7 +165,7 @@ pub(super) fn rides_face_boundary(
         let p = curve_uv.point_at(t0 + (t1 - t0) * (f64::from(k) + 0.5) / 32.0);
         runs.iter()
             .flat_map(|run| run.windows(2))
-            .any(|w| to_segment((p.x, p.y), w[0], w[1]) < band)
+            .any(|w| to_segment(band.in_space(p.x, p.y), w[0], w[1]) < band.length)
     })
 }
 

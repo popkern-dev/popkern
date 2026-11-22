@@ -88,7 +88,7 @@ pub(super) fn decisive_windows(
         .unwrap_or((None, None));
     let boundary_clearance = super::clip_windows_clearance::boundary_clearance_samples(brep, face);
     let near_boundary_at = |t: f64| -> bool {
-        let Some((boundary_samples, clearance)) = boundary_clearance.as_ref() else {
+        let Some((boundary_samples, clearance, (ku, kv))) = boundary_clearance.as_ref() else {
             return false;
         };
         let tt = if t > t_max { t - span } else { t };
@@ -96,8 +96,8 @@ pub(super) fn decisive_windows(
         super::clip_windows_clearance::near_boundary(
             boundary_samples,
             *clearance,
-            (p.x, p.y),
-            (period_u, period_v),
+            (p.x * ku, p.y * kv),
+            (period_u.map(|p| p * ku), period_v.map(|p| p * kv)),
         )
     };
 

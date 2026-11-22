@@ -149,30 +149,6 @@ pub(crate) enum UvClipResult {
     Windows(Vec<(f64, f64)>),
 }
 
-/// Abstention band for boundary-riding containment samples: within
-/// this uv distance of the true boundary contour, a sample is not
-/// evidence for either side (record-fit slop puts genuinely
-/// boundary-running curves this far off the contour). Chart-relative
-/// — an absolute multiple of the model tolerance mis-scales across
-/// charts (measured: 100×linear read 1.0 on a sphere chart in
-/// radians and swallowed every sample of a mid-latitude ring).
-pub(super) fn uv_boundary_band(brep: &BRep, curve_uv: &NurbsCurve) -> f64 {
-    let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-        f64::INFINITY,
-        f64::NEG_INFINITY,
-    );
-    for p in &curve_uv.control_points {
-        lo_u = lo_u.min(p.x);
-        hi_u = hi_u.max(p.x);
-        lo_v = lo_v.min(p.y);
-        hi_v = hi_v.max(p.y);
-    }
-    let extent = ((hi_u - lo_u).powi(2) + (hi_v - lo_v).powi(2)).sqrt();
-    (extent * 1.0e-3).max(brep.tolerance.linear() * 10.0)
-}
-
 pub(super) fn uv_clip_one_face(
     brep: &BRep,
     face: FaceHandle,
@@ -257,7 +233,7 @@ pub(super) fn uv_clip_one_face(
             // stance: the boundary already carries that topology);
             // the remaining samples vote against a boundary polygon
             // refined well under the band.
-            let band = uv_boundary_band(brep, curve_uv);
+            let band = super::clip_uv_band::UvBand::of(brep, face, curve_uv);
             // Stations and probe built once for the five samples (PK-814).
             let ring: Vec<popkern_core::geometry::Point3> =
                 crate::clip::face_uv_boundary(brep, face)
@@ -272,7 +248,7 @@ pub(super) fn uv_clip_one_face(
                     .collect();
             let boundary_d = |q: popkern_core::geometry::Point3| -> f64 {
                 ring.iter()
-                    .map(|s| ((s.x - q.x).powi(2) + (s.y - q.y).powi(2)).sqrt())
+                    .map(|s| band.gap((s.x, s.y), (q.x, q.y)))
                     .fold(f64::INFINITY, f64::min)
             };
             let probe =
@@ -282,7 +258,7 @@ pub(super) fn uv_clip_one_face(
             for k in 1..=5 {
                 let t = t_min + (t_max - t_min) * k as f64 / 6.0;
                 let q = curve_uv.point_at(t);
-                if boundary_d(q) < band {
+                if boundary_d(q) < band.length {
                     continue;
                 }
                 counted += 1;
@@ -292,7 +268,8 @@ pub(super) fn uv_clip_one_face(
             }
             if trace {
                 eprintln!(
-                    "    [uvclip-vote] {face:?} counted={counted} inside={inside_votes} band={band:.2e}"
+                    "    [uvclip-vote] {face:?} counted={counted} inside={inside_votes} band={:.2e}",
+                    band.length
                 );
             }
             if counted == 0 {
@@ -353,7 +330,7 @@ pub(super) fn uv_clip_one_face(
             // and was dropped (the generated corpus's cylinder x cylinder
             // crossings). The dense banded verdict decides away from the
             // boundary; a point within the band keeps the coarse one.
-            let band = uv_boundary_band(brep, curve_uv);
+            let band = super::clip_uv_band::UvBand::of(brep, face, curve_uv);
             let end_inside = |q| {
                 super::clip_seam_inside::point_inside_face_uv_seam_aware(
                     brep,
@@ -453,11 +430,11 @@ pub(super) fn uv_clip_one_face(
                 if !is_closed && crossings.len() >= 2 {
                     let t_first = crossings[0].t_curve;
                     let t_last = crossings[crossings.len() - 1].t_curve;
-                    let band = uv_boundary_band(brep, curve_uv);
+                    let band = super::clip_uv_band::UvBand::of(brep, face, curve_uv);
                     let q_first = curve_uv.point_at(t_first);
                     let clustered = crossings.iter().all(|c| {
                         let q = curve_uv.point_at(c.t_curve);
-                        ((q.x - q_first.x).powi(2) + (q.y - q_first.y).powi(2)).sqrt() < band
+                        band.holds((q.x, q.y), (q_first.x, q_first.y))
                     }) && !super::clip_crossing_reports::crossings_part_in_3d(
                         brep,
                         face,
@@ -563,7 +540,7 @@ fn hull_decisively_outside(
     if t_exit - t_enter <= 1e-12 {
         return false;
     }
-    let band = uv_boundary_band(brep, curve_uv);
+    let band = super::clip_uv_band::UvBand::of(brep, face, curve_uv);
     // Only a COMPLETE record — both ends on or inside the face's uv box.
     // A padded trace (a plane×plane line run out past both faces) keeps
     // the tuned hull: on flush fixtures its hull is load-bearing even
@@ -586,7 +563,7 @@ fn hull_decisively_outside(
         }
     }
     use super::clip_branch_normalize::on_periodic_box as on_box; // period-aware (PK-765)
-    let within = |t: f64| on_box(brep, face, curve_uv.point_at(t), lo, hi, band);
+    let within = |t: f64| on_box(brep, face, curve_uv.point_at(t), lo, hi, band.per_axis());
     if !(within(t_min) && within(t_max)) {
         return false;
     }
@@ -610,7 +587,7 @@ fn inside_end_windows(
     t_exit: f64,
 ) -> Vec<(f64, f64)> {
     let (t_min, t_max) = curve_uv.parameter_range();
-    let band = uv_boundary_band(brep, curve_uv);
+    let band = super::clip_uv_band::UvBand::of(brep, face, curve_uv);
     let span = (t_max - t_min).max(1e-12);
     let inside = |a: f64, b: f64| {
         b - a > span * 1e-6

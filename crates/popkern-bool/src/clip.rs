@@ -30,6 +30,7 @@ mod clip_rim_reach;
 mod clip_seam_inside;
 mod clip_sphere_region;
 mod clip_uv;
+mod clip_uv_band;
 mod clip_uv_banded;
 mod clip_uv_crossings;
 mod clip_window_boundary;

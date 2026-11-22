@@ -103,34 +103,30 @@ pub(crate) fn drop_kept_flank_residues(
         // wove the duplicates into the outline loops, breaking a
         // half-edge cycle on a baseline-served boolean). The
         // load-bearing classes (rod over-rim, m6 crest circle, tap
-        // in-hole flap) have NO ordinary record along them.
+        // in-hole flap) have NO ordinary record along them. Covered
+        // means the WHOLE residue lies along one record, within the
+        // boundary band (ten tolerances) and the polyline's sag: a
+        // midpoint within 400 tolerances of any record dropped a real
+        // corner piece 1e-4 long beside a record it only adjoins
+        // (two millimetre cylinders crossing tangentially, the rims'
+        // crossings 70 tolerances apart; corpus scene 1542).
+        // The boundary band: a residue lies along a curve where it lies
+        // within ten tolerances of it end to end.
+        let band = tolerance.linear() * 10.0;
+        let samples: Vec<popkern_core::geometry::Point3> = (0..=4)
+            .map(|k| r.curve.curve_3d.point_at(t0 + (t1 - t0) * k as f64 / 4.0))
+            .collect();
         {
-            let pad = boundary_gate;
             let covered = ordinary.iter().any(|(lo, hi, pts)| {
-                let inside_box = mid.x >= lo.x - pad
-                    && mid.x <= hi.x + pad
-                    && mid.y >= lo.y - pad
-                    && mid.y <= hi.y + pad
-                    && mid.z >= lo.z - pad
-                    && mid.z <= hi.z + pad;
-                inside_box
-                    && pts.windows(2).any(|w| {
-                        let ab = w[1] - w[0];
-                        let len2 = ab.dot(&ab);
-                        let t = if len2 > 0.0 {
-                            ((mid - w[0]).dot(&ab) / len2).clamp(0.0, 1.0)
-                        } else {
-                            0.0
-                        };
-                        let foot = popkern_core::geometry::Point3::new(
-                            w[0].x + ab.x * t,
-                            w[0].y + ab.y * t,
-                            w[0].z + ab.z * t,
-                        );
-                        // Polyline distance, widened by the chord
-                        // sag of 1/16 sampling (sag ≈ seg²·κ/8).
-                        foot.distance_to(&mid) < pad * 4.0 + len2.sqrt() * 0.1
-                    })
+                samples.iter().all(|q| {
+                    let inside_box = q.x >= lo.x - band
+                        && q.x <= hi.x + band
+                        && q.y >= lo.y - band
+                        && q.y <= hi.y + band
+                        && q.z >= lo.z - band
+                        && q.z <= hi.z + band;
+                    inside_box && near_polyline(q, pts, band)
+                })
             });
             if covered {
                 if trace {
@@ -152,7 +148,9 @@ pub(crate) fn drop_kept_flank_residues(
         // positions and the boolean declined with a broken half-edge
         // cycle). The load-bearing classes cross their owner's
         // INTERIOR — a slit tracing the owner's own boundary never
-        // separates regions.
+        // separates regions. Riding means end to end within the band:
+        // a midpoint within 100 tolerances dropped a corner piece
+        // crossing its owner 30 tolerances off its rim (scene 1542).
         {
             let (own_brep, own_face) = if owner_is_a {
                 (brep_a, r.face_a)
@@ -162,8 +160,11 @@ pub(crate) fn drop_kept_flank_residues(
             // An edge whose box is past the gate cannot bring the
             // distance under it (PK-815: a disc face's 61 edges per
             // residue).
-            let min_d = owner_boundary_distance(own_brep, own_face, &mid, boundary_gate);
-            if min_d < boundary_gate {
+            let min_d = samples
+                .iter()
+                .map(|q| owner_boundary_distance(own_brep, own_face, q, band))
+                .fold(0.0_f64, f64::max);
+            if min_d < band {
                 if trace {
                     eprintln!(
                         "  [residue-drop] own-boundary residue at ({:.3},{:.3},{:.3}) removed (d {min_d:.2e})",
@@ -396,3 +397,22 @@ fn dedupe_same_face_residues(
 #[cfg(test)]
 #[path = "intersect_residue_filter_tests.rs"]
 mod tests;
+
+/// Whether `q` lies within `band` of the polyline `pts`, widened by
+/// each segment's chord sag under 1/16 sampling (sag ≈ seg²·κ/8).
+fn near_polyline(
+    q: &popkern_core::geometry::Point3,
+    pts: &[popkern_core::geometry::Point3],
+    band: f64,
+) -> bool {
+    pts.windows(2).any(|w| {
+        let ab = w[1] - w[0];
+        let len2 = ab.dot(&ab);
+        let t = if len2 > 0.0 {
+            ((*q - w[0]).dot(&ab) / len2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        (w[0] + ab * t).distance_to(q) < band + len2.sqrt() * 0.1
+    })
+}

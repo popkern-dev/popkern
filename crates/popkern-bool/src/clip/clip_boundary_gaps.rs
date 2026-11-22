@@ -110,7 +110,7 @@ pub(super) fn cut_boundary_gaps(
     let Some(boundary) = crate::clip::face_uv_boundary(brep, face) else {
         return UvClipResult::Windows(windows);
     };
-    let band = super::clip_uv::uv_boundary_band(brep, curve_uv);
+    let band = super::clip_uv_band::UvBand::of(brep, face, curve_uv);
     // A periodic chart's corners may sit a period off the record's
     // branch: each corner is tried at its translates.
     let corners: Vec<_> = boundary
@@ -124,8 +124,7 @@ pub(super) fn cut_boundary_gaps(
             .filter_map(|q| {
                 let t = curve_uv.closest_point(q)?;
                 let p = curve_uv.point_at(t);
-                let d = ((p.x - q.x).powi(2) + (p.y - q.y).powi(2)).sqrt();
-                (d < band && t > a && t < b).then_some(t)
+                (band.holds((p.x, p.y), (q.x, q.y)) && t > a && t < b).then_some(t)
             })
             .collect();
         if cuts.is_empty() {

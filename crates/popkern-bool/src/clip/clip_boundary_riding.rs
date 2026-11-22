@@ -28,6 +28,8 @@ use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::topology::{BRep, FaceHandle};
 
+use super::clip_uv_band::UvBand;
+
 /// Samples along the record.
 const RECORD_SAMPLES: usize = 32;
 /// Coarse samples per boundary pcurve before the local refinement.
@@ -52,16 +54,16 @@ fn boundary_pcurves(brep: &BRep, face: FaceHandle) -> Option<Vec<Pcurve>> {
     Some(out)
 }
 
-/// Uv distance from `q` to `pc`: the nearest coarse sample, refined by
+/// Gap in space (`band`'s chart reading) from `q` to `pc`: the nearest coarse sample, refined by
 /// a ternary search over its neighbouring parameter span.
-fn distance_to(pc: &Pcurve, q: popkern_core::geometry::Point3) -> f64 {
+fn distance_to(pc: &Pcurve, q: popkern_core::geometry::Point3, band: &UvBand) -> f64 {
     let (a, b) = pc.parameter_range();
     if !(a.is_finite() && b.is_finite()) {
         return f64::INFINITY;
     }
     let d = |t: f64| {
         let p = pc.point_at(t);
-        ((p.x - q.x).powi(2) + (p.y - q.y).powi(2)).sqrt()
+        band.gap((p.x, p.y), (q.x, q.y))
     };
     let step = (b - a) / BOUNDARY_SAMPLES as f64;
     let best = (0..=BOUNDARY_SAMPLES)
@@ -94,7 +96,7 @@ pub(super) fn rides_boundary_everywhere(
     if boundary.is_empty() {
         return false;
     }
-    let band = super::clip_uv::uv_boundary_band(brep, curve_uv);
+    let band = UvBand::of(brep, face, curve_uv);
     let (pu, pv) = brep
         .faces
         .get(face)
@@ -131,7 +133,9 @@ pub(super) fn rides_boundary_everywhere(
         lifts(pu, q.x, u_extent).iter().any(|&du| {
             lifts(pv, q.y, v_extent).iter().any(|&dv| {
                 let q = popkern_core::geometry::Point3::new(q.x + du, q.y + dv, q.z);
-                boundary.iter().any(|pc| distance_to(pc, q) < band)
+                boundary
+                    .iter()
+                    .any(|pc| distance_to(pc, q, &band) < band.length)
             })
         })
     })
@@ -145,7 +149,7 @@ pub(super) fn point_rides_boundary(
     brep: &BRep,
     face: FaceHandle,
     q: popkern_core::geometry::Point3,
-    band: f64,
+    band: UvBand,
 ) -> bool {
     let Some(boundary) = boundary_pcurves(brep, face) else {
         return false;
@@ -163,7 +167,9 @@ pub(super) fn point_rides_boundary(
     shifts(pu).iter().any(|&du| {
         shifts(pv).iter().any(|&dv| {
             let q = popkern_core::geometry::Point3::new(q.x + du, q.y + dv, q.z);
-            boundary.iter().any(|pc| distance_to(pc, q) < band)
+            boundary
+                .iter()
+                .any(|pc| distance_to(pc, q, &band) < band.length)
         })
     })
 }

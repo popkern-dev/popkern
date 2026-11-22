@@ -139,7 +139,7 @@ pub(super) fn on_periodic_box(
     q: popkern_core::geometry::Point3,
     lo: (f64, f64),
     hi: (f64, f64),
-    band: f64,
+    (band_u, band_v): (f64, f64),
 ) -> bool {
     let (u_period, v_period) = brep
         .faces
@@ -148,9 +148,9 @@ pub(super) fn on_periodic_box(
         .map_or((None, None), |s| {
             popkern_core::geometry::surface::SurfaceEval::parameter_periodicity(&s.geometry)
         });
-    let in_span = |x: f64, lo: f64, hi: f64, period: Option<f64>| match period {
+    let in_span = |x: f64, lo: f64, hi: f64, period: Option<f64>, band: f64| match period {
         Some(p) if p > 0.0 => x + ((lo - band - x) / p).ceil() * p <= hi + band,
         _ => x >= lo - band && x <= hi + band,
     };
-    in_span(q.x, lo.0, hi.0, u_period) && in_span(q.y, lo.1, hi.1, v_period)
+    in_span(q.x, lo.0, hi.0, u_period, band_u) && in_span(q.y, lo.1, hi.1, v_period, band_v)
 }
