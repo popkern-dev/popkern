@@ -10,9 +10,8 @@
 //! The samples are exact surface points; the fit through them is
 //! densified until it lies on both surfaces within a tenth of the
 //! linear tolerance. A branch through a pole of the sphere's chart is
-//! cut there, each piece ending at the pole at its own limit longitude
-//! (`split_at_poles`); a loop sweeping the longitude near a pole (a rod
-//! beside the pole axis) declines to the marching path.
+//! cut there (`split_at_poles`); loops sweeping the longitude round a
+//! pole decline to the marching path unless one was refined beside it.
 
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
@@ -32,8 +31,7 @@ use crate::tolerance::Tolerance;
 const LOOP_SAMPLES: usize = 512;
 const MAX_LOOP_SAMPLES: usize = 16_384;
 const FIT_BUDGET: f64 = 0.1;
-/// The largest step in sphere-chart longitude between consecutive
-/// samples the scan fits (radians); a larger one is a pole sweep.
+/// The largest sphere-chart longitude step the scan fits (radians).
 const SINGULAR_SWEEP: f64 = 0.25;
 /// The largest step in sphere-chart longitude the refinement beside a
 /// pole leaves (radians): the fit's cubic through coarser steps
@@ -166,7 +164,11 @@ pub(super) fn pierce(
                 .into_iter()
                 .map(move |(piece, closed)| (piece, closed, refined))
         });
-        for (points, closed, refined) in pieces {
+        // One answer for all loops: one refined beside a pole keeps all (a
+        // decline for the other lost it to a stalled march, scene 1337).
+        let pieces: Vec<_> = pieces.collect();
+        let refined = pieces.iter().any(|p| p.2);
+        for (points, closed, _) in pieces {
             if points.len() < 4 {
                 continue;
             }
