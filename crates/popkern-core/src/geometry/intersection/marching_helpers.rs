@@ -236,3 +236,21 @@ pub(super) fn recover_singular_normal(
     }
     None
 }
+
+/// The cosine between a step's direction and the trace's first step: a
+/// trace closing on its start or orbiting it arrives the start's way
+/// (positive), one passing it on the far branch of a hairpin the other
+/// way (negative). Zero when either step is degenerate.
+pub(super) fn arrival_alignment(samples: &[super::MarchSample], prev: Point3, next: Point3) -> f64 {
+    let (Some(first), Some(second)) = (samples.first(), samples.get(1)) else {
+        return 0.0;
+    };
+    let step = next - prev;
+    let start = second.point - first.point;
+    let lens = step.length() * start.length();
+    if lens > 1e-30 {
+        step.dot(&start) / lens
+    } else {
+        0.0
+    }
+}

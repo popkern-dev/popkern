@@ -10,8 +10,8 @@ pub mod marching_newton;
 mod marching_helpers;
 
 use marching_helpers::{
-    exits_window, find_tangent_march_direction, principal_branch_seed, recover_singular_normal,
-    wrap_parameter,
+    arrival_alignment, exits_window, find_tangent_march_direction, principal_branch_seed,
+    recover_singular_normal, wrap_parameter,
 };
 
 pub(crate) use marching_newton::march_project;
@@ -370,17 +370,20 @@ pub(crate) fn march_one_direction(
 
                     // Closure: back within a step of the start, the gap under
                     // a quarter of the arc so far (a chord falls that short of
-                    // its arc only where the trace turned back) and the arc
-                    // past the ball. A step count closed a loop in 15 on lap
-                    // two (scene 1392); the ball alone, a third of a small
-                    // loop under the near-tangent floor (1043, 935).
+                    // its arc only where the trace turned back), the arc past
+                    // the ball, arriving the start's way. A step count closed a
+                    // loop in 15 on lap two (1392); the ball alone, a third of a
+                    // small loop under the near-tangent floor (1043, 935); a
+                    // thin loop's far branch passed its start 8.6e-4 off (375).
                     let min_steps_before_closure_check = 20;
                     let closure_tol = step_size * 1.5;
                     let dist_to_start = sample.point.distance_to(&start.point);
                     let prev_point = samples[samples.len() - 1].point;
                     arc_acc += sample.point.distance_to(&prev_point);
+                    let alignment = arrival_alignment(&samples, prev_point, sample.point);
                     if dist_to_start < closure_tol.min(0.25 * arc_acc)
                         && arc_acc > 2.0 * closure_tol
+                        && alignment > 0.0
                     {
                         samples.push(sample);
                         trace_march_termination("closure", &samples);
@@ -416,21 +419,14 @@ pub(crate) fn march_one_direction(
                     if samples.len() > min_steps_before_closure_check
                         && dist_to_start < near_band
                         && arc_acc - last_near_arc > 50.0 * near_band
+                        && alignment > 0.9
                     {
-                        let aligned = {
-                            let step_dir = sample.point - prev_point;
-                            let start_dir = samples[1].point - samples[0].point;
-                            let lens = step_dir.length() * start_dir.length();
-                            lens > 1e-30 && step_dir.dot(&start_dir) / lens > 0.9
-                        };
-                        if aligned {
-                            last_near_arc = arc_acc;
-                            near_returns += 1;
-                            if near_returns >= 2 {
-                                samples.push(sample);
-                                trace_march_termination("orbit-no-closure", &samples);
-                                return (samples, MarchEnd::Open);
-                            }
+                        last_near_arc = arc_acc;
+                        near_returns += 1;
+                        if near_returns >= 2 {
+                            samples.push(sample);
+                            trace_march_termination("orbit-no-closure", &samples);
+                            return (samples, MarchEnd::Open);
                         }
                     }
 
