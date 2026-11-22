@@ -42,6 +42,9 @@ pub(super) fn decisive_windows(
     if ts.len() < 2 {
         return None;
     }
+    // A closed record's wrap interval runs past the range end: samples read
+    // a period down (past the end, an arc in a box face read Outside, 507).
+    let wrap = |t: f64| if t > t_max { t - span } else { t };
     let mut intervals: Vec<(f64, f64)> = Vec::new();
     if !is_closed {
         intervals.push((t_min, ts[0]));
@@ -59,7 +62,7 @@ pub(super) fn decisive_windows(
     // `uv_clip_one_face`: the record's own period branch, judged by
     // `point_inside_face_uv`.
     let inside_at = |t: f64| -> bool {
-        let tt = if t > t_max { t - span } else { t };
+        let tt = wrap(t);
         crate::split_inner_loop::point_inside_face_uv(
             brep,
             face,
@@ -91,7 +94,7 @@ pub(super) fn decisive_windows(
         let Some((boundary_samples, clearance, (ku, kv))) = boundary_clearance.as_ref() else {
             return false;
         };
-        let tt = if t > t_max { t - span } else { t };
+        let tt = wrap(t);
         let p = curve_uv.point_at(tt);
         super::clip_windows_clearance::near_boundary(
             boundary_samples,
@@ -177,7 +180,7 @@ pub(super) fn decisive_windows(
         use popkern_core::validation::FaceUvContainment;
         let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
         let at = |s: f64| {
-            let p = curve_uv.point_at(a + (b - a) * s);
+            let p = curve_uv.point_at(wrap(a + (b - a) * s));
             brep.face_uv_trim_containment(face, surface, p.x, p.y)
         };
         match (at(0.25)?, at(0.5)?, at(0.75)?) {
@@ -201,7 +204,7 @@ pub(super) fn decisive_windows(
     // crossings and however close the 2 % clearance puts it.
     let off_band = 10.0 * brep.tolerance.linear();
     let clear_gap = |a: f64, b: f64| -> bool {
-        let p = curve_uv.point_at(a + (b - a) * 0.5);
+        let p = curve_uv.point_at(wrap(a + (b - a) * 0.5));
         exact_verdict(a, b) == Some(false)
             && !super::clip_windows_clearance::on_any_boundary_exact(
                 brep,
@@ -289,11 +292,7 @@ pub(super) fn decisive_windows(
     // clipped there closed through nothing (scene 1494).
     let n_iv = intervals.len();
     for &k in &abstained {
-        let mid = |j: usize| {
-            let (a, b) = intervals[j];
-            let t = 0.5 * (a + b);
-            if t > t_max { t - span } else { t }
-        };
+        let mid = |j: usize| wrap(0.5 * (intervals[j].0 + intervals[j].1));
         let neighbours = [
             (k > 0 || is_closed).then(|| (k + n_iv - 1) % n_iv),
             (k + 1 < n_iv || is_closed).then(|| (k + 1) % n_iv),
@@ -376,7 +375,7 @@ pub(super) fn decisive_windows(
         let tight_hug_at = |a: f64, b: f64| -> bool {
             (1..=5).all(|k| {
                 let t = a + (b - a) * k as f64 / 6.0;
-                let tt = if t > t_max { t - span } else { t };
+                let tt = wrap(t);
                 let p = curve_uv.point_at(tt);
                 super::clip_windows_clearance::on_outer_boundary_exact(
                     brep,

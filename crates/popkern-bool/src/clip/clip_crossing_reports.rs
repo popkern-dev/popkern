@@ -376,20 +376,21 @@ pub(super) fn same_edge_side_verdict(
     tolerance: &Tolerance,
 ) -> Option<bool> {
     use popkern_core::geometry::surface::SurfaceEval as _;
-    let span = {
-        let (t0, t1) = curve_uv.parameter_range();
-        (t1 - t0).abs().max(1e-12)
-    };
+    let (t0, t1) = curve_uv.parameter_range();
+    let span = (t1 - t0).abs().max(1e-12);
+    // A closed record's wrap interval ends past the range: read a period down.
+    let wrap = |t: f64| if t > t1 { t - span } else { t };
+    let near = |c: &UvCrossing, t: f64| (c.t_curve - wrap(t)).abs() < span * 1e-7;
     let at = |t: f64| {
         crossings
             .iter()
-            .find(move |c| (c.t_curve - t).abs() < span * 1e-7)
+            .find(move |c| near(c, t))
             .map(|c| c.boundary_he)
     };
     let edge = at(a)?;
     if crossings
         .iter()
-        .filter(|c| (c.t_curve - b).abs() < span * 1e-7)
+        .filter(|c| near(c, b))
         .all(|c| c.boundary_he != edge)
     {
         return None;
@@ -400,7 +401,7 @@ pub(super) fn same_edge_side_verdict(
     // Signed side of the edge at the record's parameter t, and the 3D
     // distance to the edge there.
     let side = |t: f64| -> Option<(f64, f64)> {
-        let q = curve_uv.point_at(t);
+        let q = curve_uv.point_at(wrap(t));
         let tb = crate::curve_projection::project_onto_curve_dense(&pcurve, &q)?;
         let (p, tan) = (pcurve.point_at(tb), pcurve.tangent_at(tb));
         let s = tan.x * (q.y - p.y) - tan.y * (q.x - p.x);
