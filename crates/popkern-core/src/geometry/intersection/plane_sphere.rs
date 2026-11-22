@@ -283,6 +283,36 @@ pub(super) fn fit_sphere_uv_curve(
                 );
             worst = worst.max(on_sphere.distance_to(&curve_3d.point_at(t_mid)));
         }
+        if worst > gate && n >= 4097 {
+            // The cap reached with the sag past the tolerance (a ball a
+            // thousand across): the cubic chart fit.
+            let surface = |u: f64, v: f64| {
+                sphere_center
+                    + sphere_to_world(
+                        &sphere_axis,
+                        Vec3::new(
+                            sphere_radius * v.psin() * u.pcos(),
+                            sphere_radius * v.psin() * u.psin(),
+                            sphere_radius * v.pcos(),
+                        ),
+                    )
+            };
+            let charted = crate::geometry::chart_pcurve_hermite::ChartedCurve {
+                curve: &|t| curve_3d.point_at(t),
+                chart: &|t, near: Option<(f64, f64)>| {
+                    Some(chart(curve_3d.point_at(t), near.map(|(u, _)| u)))
+                },
+                surface: &surface,
+            };
+            if let Some(fit) = crate::geometry::chart_pcurve_hermite::fit_hermite_chart_pcurve(
+                &charted,
+                (0.0, 1.0),
+                gate,
+                worst,
+            ) {
+                return fit;
+            }
+        }
         if worst <= gate || n >= 4097 {
             // Clamped degree-1 knot vector with knots at the sample
             // parameters: the curve passes through sample i at t_i,

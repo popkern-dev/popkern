@@ -12,6 +12,7 @@ pub mod bernstein_poly;
 pub mod certify;
 pub mod chart;
 pub mod chart_pcurve;
+pub(crate) mod chart_pcurve_hermite;
 pub mod circle_recognition;
 pub mod curve;
 pub mod curve_inversion;

@@ -89,6 +89,27 @@ pub fn fit_chart_pcurve(
             let on_surface = surface.point_at(u, v);
             worst = worst.max(on_surface.distance_to(&curve.point_at(t_mid)));
         }
+        if worst > gate && n >= 4097 {
+            // The cap reached with the sag past the tolerance: the cubic
+            // whose error falls with the fourth power of the step.
+            let chart = |t: f64, near: Option<(f64, f64)>| {
+                let (u, v) = project_point_to_uv(surface, &curve.point_at(t))?;
+                Some((
+                    unwrap(u, near.map(|(u, _)| u), period_u),
+                    unwrap(v, near.map(|(_, v)| v), period_v),
+                ))
+            };
+            let charted = crate::geometry::chart_pcurve_hermite::ChartedCurve {
+                curve: &|t| curve.point_at(t),
+                chart: &chart,
+                surface: &|u, v| surface.point_at(u, v),
+            };
+            if let Some(fit) = crate::geometry::chart_pcurve_hermite::fit_hermite_chart_pcurve(
+                &charted, range, gate, worst,
+            ) {
+                return Some(fit);
+            }
+        }
         if worst <= gate || n >= 4097 {
             let mut knots = Vec::with_capacity(n + 2);
             knots.push(params[0]);
