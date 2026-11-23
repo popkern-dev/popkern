@@ -345,3 +345,16 @@ fn a_cylinder_crossing_a_round_tangentially_refines_its_pcurve_locally() {
         r#"{"cell":{"a":"Y","b":"L","config":"V"},"seed":1,"index":10098072,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[-0.22715615569328007,0.7873532272409386,-0.573127364975648,0.28185326536956234],[0.7580724011919119,0.5123931762972456,0.40345937519798536,0.03833494747932231],[0.6113315920854894,-0.34282375710749563,-0.7132640156918906,-0.7502189020060916],[0.0,0.0,0.0,1.0]],"scene":[[0.9296426731462757,-0.3160617374835453,0.18939239257248244,0.7476014960129445],[0.3289169522034055,0.9435133309888379,-0.0399528822435901,-0.5786155343052997],[-0.16606666980062398,0.09943627278428134,0.9810883185708107,2.7990635241584707],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":10.0,"rung":{"offset":10.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.6009983299743071,0.14690408065063687,2.091441095800158],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed in the baseline (W3 V cells, tangency design §4.8): the cylinder's seam pierced the cone 7.5e-3 rad off tangency, and a record 6.9e-9 off both surfaces passed the seam hit 1.06e-6 away, past its linear deviation but within it read laterally (`tolerance_zone::incidence`, `lateral_deviation`): the record was not split there and every operation's loop broke at the hit. B - A still declines on two triple points of one face triple left apart within the tolerance (PK-1292), so only the other operations are judged here.
+#[test]
+fn a_cylinder_seam_piercing_a_cone_shallowly_splits_the_record_it_passes() {
+    let scene: Scene = serde_json::from_str(r#"{"cell":{"a":"Y","b":"C","config":"V"},"seed":1,"index":4039,"variant_a":0,"variant_b":2,"b_scale":1.0,"place_b":[[-0.8640105997777957,0.2407390928134664,0.4421881643180461,0.2089588974777007],[-0.10927420586284498,-0.9470053825072731,0.3020595196899092,0.5755486504238931],[0.49147210643602,0.21266286627806746,0.8445292617202427,2.2148542596392646],[0.0,0.0,0.0,1.0]],"scene":[[-0.9555387502212048,0.13487484935135885,0.2622107393646307,0.5375410677548222],[0.26170775970303906,-0.021765974764099916,0.9649017000989196,-1.0850906767670334],[0.13584824377559843,0.9906235497680324,-0.014499562340594241,-2.9047898602897186],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-0.07417262089353538,-0.3211550179129533,-2.7911154580885604],"curve":[],"curve_closed":false,"third":null}"#).expect("a scene descriptor");
+    let failures: Vec<String> = judge(&scene)
+        .failures
+        .iter()
+        .filter(|f| f.op != Some(Op::BminusA))
+        .map(|f| format!("{} {:?}: {}", f.oracle, f.op, f.detail))
+        .collect();
+    assert!(failures.is_empty(), "{failures:#?}");
+}

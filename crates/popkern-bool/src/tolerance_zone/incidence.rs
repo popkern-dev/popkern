@@ -32,6 +32,9 @@ pub(crate) fn add_interior_incidences(
     linear: f64,
 ) {
     let r_max = cands.iter().map(|c| c.radius).fold(0.0_f64, f64::max);
+    let linear_reach = popkern_core::tolerance::Tolerance::default()
+        .with_linear(linear)
+        .linear_reach();
     // Candidates by x: each curve scans only its box's x slab.
     let mut by_x: Vec<(f64, usize)> = cands
         .iter()
@@ -85,7 +88,19 @@ pub(crate) fn add_interior_incidences(
                 false,
                 &foot,
             );
-            if foot.distance_to(&c.position) < reach + deviation {
+            let gap = foot.distance_to(&c.position);
+            if gap < reach + deviation
+                || gap < reach + linear_reach
+                    && gap
+                        < reach
+                            + lateral_deviation(
+                                operands,
+                                record,
+                                (&foot, &c.position),
+                                reach,
+                                (deviation, linear_reach),
+                            )
+            {
                 c.incidence.push(Incidence::Record {
                     record: ri,
                     s,
@@ -133,6 +148,50 @@ pub(crate) fn add_interior_incidences(
             }
         }
     }
+}
+
+/// A record's fit deviation at `foot` read across the curve, for a
+/// candidate lying on both its surfaces within `reach`: such a point is
+/// on their intersection, which the record approximates within its
+/// distance to the surfaces over the sine of half their angle (an offset
+/// along the surfaces' bisector leaves each by that sine). Near a tangent
+/// crossing the record runs well off the curve while on both surfaces:
+/// a cylinder's seam pierced a cone 7.5e-3 rad off tangency, exactly,
+/// and the record 6.9e-9 off both surfaces passed it 1.06e-6 away, past
+/// the reach, so its seam crossing was never a pave (scene 976). Capped
+/// at the linear reach, the resolution; `deviation` elsewhere.
+fn lateral_deviation(
+    operands: [&BRep; 2],
+    record: &IntersectionRecord,
+    (foot, candidate): (&Point3, &Point3),
+    reach: f64,
+    (deviation, linear_reach): (f64, f64),
+) -> f64 {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let mut normals = Vec::with_capacity(2);
+    for (brep, face) in [(operands[0], record.face_a), (operands[1], record.face_b)] {
+        let Some(surface) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
+            return deviation;
+        };
+        let g = &surface.geometry;
+        let on = g
+            .closest_point(candidate)
+            .is_some_and(|(u, v)| g.point_at(u, v).distance_to(candidate) < reach);
+        let Some((u, v)) = g.closest_point(foot).filter(|_| on) else {
+            return deviation;
+        };
+        normals.push(g.normal_at(u, v));
+    }
+    let lengths = normals[0].length() * normals[1].length();
+    if lengths.is_nan() || lengths <= 0.0 {
+        return deviation;
+    }
+    let cos = (normals[0].dot(&normals[1]).abs() / lengths).min(1.0);
+    let sin_half = (0.5 * (1.0 - cos)).sqrt();
+    if sin_half * linear_reach <= deviation {
+        return deviation.max(linear_reach);
+    }
+    deviation.max(deviation / sin_half)
 }
 
 /// Deepest halving of a NURBS window in [`clear_of`].
