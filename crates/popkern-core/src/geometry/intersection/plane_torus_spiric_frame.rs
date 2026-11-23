@@ -25,6 +25,9 @@ pub(super) struct SpiricFrame {
     n2: f64,
     na: f64,
     d0: f64,
+    /// Level shifts spelling tangent crossings within the tolerance
+    /// (`crossing::tangent_crossings`); empty for an exact section.
+    bumps: Vec<crossing::LevelBump>,
 }
 
 impl SpiricFrame {
@@ -67,7 +70,15 @@ impl SpiricFrame {
             n2,
             na,
             d0,
+            bumps: Vec::new(),
         })
+    }
+
+    /// The signed distance from the tube centre at `u` to the plane along
+    /// its normal, less the level shifts there: the torus points at tube
+    /// angle `v` lie on the shifted level where `K cos(v - φ) = A`.
+    fn a_at(&self, u: f64) -> f64 {
+        self.d0 - self.big_r * self.m_at(u) - self.shift_at(u)
     }
 
     fn m_at(&self, u: f64) -> f64 {
@@ -76,7 +87,7 @@ impl SpiricFrame {
 
     pub(super) fn f_at(&self, u: f64) -> f64 {
         let m = self.m_at(u);
-        let a = self.d0 - self.big_r * m;
+        let a = self.a_at(u);
         let k_sq = self.r * self.r * (m * m + self.na * self.na);
         a * a - k_sq
     }
@@ -180,7 +191,7 @@ impl SpiricFrame {
     /// against `prev`.
     fn v_branch(&self, u: f64, sign: f64, prev: Option<f64>) -> f64 {
         let m = self.m_at(u);
-        let a = self.d0 - self.big_r * m;
+        let a = self.a_at(u);
         let k = self.r * (m * m + self.na * self.na).sqrt();
         let ratio = if k > 0.0 {
             (a / k).clamp(-1.0, 1.0)
@@ -197,10 +208,13 @@ impl SpiricFrame {
 
     fn sample_at(&self, u: f64, v: f64, swapped: bool) -> MarchSample {
         let rho = self.big_r + self.r * v.pcos();
+        // On a shifted level the torus point lies `shift` off the plane:
+        // the sample stands halfway, within half of it of both.
         let point = self.center
             + self.p1 * (rho * u.pcos())
             + self.p2 * (rho * u.psin())
-            + self.axis_n * (self.r * v.psin());
+            + self.axis_n * (self.r * v.psin())
+            + self.n_hat * (0.5 * self.shift_at(u));
         let d = point - self.plane_origin;
         let ul = self.plane_u.dot(&self.plane_u);
         let vl = self.plane_v.dot(&self.plane_v);
@@ -337,3 +351,6 @@ impl SpiricFrame {
         true
     }
 }
+
+#[path = "plane_torus_spiric_crossing.rs"]
+mod crossing;

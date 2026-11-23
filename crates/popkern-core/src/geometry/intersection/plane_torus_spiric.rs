@@ -76,7 +76,7 @@ pub(super) fn try_spiric_sections(
     };
     let n_hat = normal.normalized()?;
     let axis_n = axis.normalized()?;
-    let frame = SpiricFrame::new(
+    let mut frame = SpiricFrame::new(
         *po,
         n_hat,
         *u_axis,
@@ -88,7 +88,13 @@ pub(super) fn try_spiric_sections(
     )?;
 
     // Locate the F sign structure around the axis circle.
-    let roots = frame.feasibility_roots();
+    let mut roots = frame.feasibility_roots();
+    // Tangent crossings within the tolerance spelled as crossings
+    // (`plane_torus_spiric_crossing.rs`).
+    if let Some(spelled) = frame.spell_tangent_crossings(&roots, tolerance) {
+        roots = spelled;
+    }
+    let gate = 0.5 * tolerance.linear().max(1.0e-9) + 0.5 * frame.largest_shift();
     let arcs = if roots.is_empty() {
         if frame.f_at(0.0) > 0.0 {
             return Some(Vec::new()); // plane misses the torus
@@ -111,7 +117,7 @@ pub(super) fn try_spiric_sections(
             return Some(false);
         }
         let curve = fit_march_samples(&samples, true).ok()?;
-        if !frame.fitted_curve_serves(&curve, swapped, 0.5 * tolerance.linear().max(1.0e-9)) {
+        if !frame.fitted_curve_serves(&curve, swapped, gate) {
             return None;
         }
         curves.push(SurfaceSurfaceIntersection::Curve(curve));

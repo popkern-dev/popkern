@@ -358,3 +358,11 @@ fn a_cylinder_seam_piercing_a_cone_shallowly_splits_the_record_it_passes() {
         .collect();
     assert!(failures.is_empty(), "{failures:#?}");
 }
+
+/// Failed in the baseline (W3 V cells, tangency design §4.8, PK-1292): a box face opened half a tolerance from a tangent crossing on a torus's saddle cut one loop with a waist, the material between its branches thinner than the tolerance, and the union and common served a neck where they pinch (`plane_torus_spiric_crossing`: the waist is spelled as the crossing).
+#[test]
+fn a_box_face_opened_from_a_torus_saddle_within_the_tolerance_pinches() {
+    passes(
+        r#"{"cell":{"a":"P","b":"T","config":"V"},"seed":1,"index":10097063,"variant_a":0,"variant_b":0,"b_scale":1.0,"place_b":[[-0.36588415590292733,0.9016654093657778,0.2304957136530889,0.6741711452802353],[0.9078248712434012,0.29125941045829773,0.3016984570252007,-0.05591542132343574],[0.20489701708688784,0.3196364268551525,-0.9251214877064343,0.4147368288868008],[0.0,0.0,0.0,1.0]],"scene":[[0.3281449489708592,0.898428668516936,-0.2917992804168605,-0.5261848644142586],[-0.7337304677411749,0.4369721470635508,0.5202835221290284,2.9870594154714496],[0.5949457901130395,0.0433736126873924,0.8025946900828682,-2.8276664908851004],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-0.5,"rung":{"offset":-0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-1.013491734975748,2.1116066606273365,-2.358281269013464],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
