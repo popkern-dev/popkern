@@ -66,6 +66,7 @@ pub(super) fn case_oblique(
     apex: Point3,
     ca: Vec3,
     half_angle: f64,
+    cvr: (f64, f64),
     tol: &Tolerance,
     swapped: bool,
 ) -> Option<Vec<SurfaceSurfaceIntersection>> {
@@ -259,7 +260,7 @@ pub(super) fn case_oblique(
         }
     };
 
-    let uv_cone = cone_uv_curve(&curve_3d, apex, ca);
+    let uv_cone = cone_uv_curve(&curve_3d, apex, ca, half_angle, cvr, tol)?;
 
     let (uv1, uv2) = if swapped {
         (uv_cone, uv_plane)

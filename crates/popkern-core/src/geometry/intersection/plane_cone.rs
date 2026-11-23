@@ -17,7 +17,6 @@ use crate::geometry::curve_on_surface::CurveOnSurface;
 use crate::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::SurfaceGeometry;
-use crate::geometry::uv_projection::project_point_to_uv;
 use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 
@@ -138,11 +137,9 @@ fn intersect_impl(
     let station = ((po - apex).dot(&pn) / pn.dot(&ca)).abs();
     let circle_radius = station * half_angle.ptan();
     if cos_alpha > 1.0 - tol.angular() && circle_radius * sin_alpha <= tol.linear() {
-        Some(case_perpendicular(
-            po, pn, pu, pv, apex, ca, half_angle, tol, swapped,
-        ))
+        case_perpendicular(po, pn, pu, pv, apex, ca, half_angle, cvr, tol, swapped)
     } else {
-        case_oblique(po, pn, pu, pv, apex, ca, half_angle, tol, swapped)
+        case_oblique(po, pn, pu, pv, apex, ca, half_angle, cvr, tol, swapped)
     }
 }
 
@@ -154,7 +151,8 @@ use plane_cone_oblique::case_oblique;
 
 // ── Perpendicular (circle) ──────────────────────────────────────────────
 
-/// Plane normal ≈ parallel to cone axis: intersection is a circle.
+/// Plane normal ≈ parallel to cone axis: intersection is a circle;
+/// `None` when its cone pcurve cannot be fitted.
 #[allow(clippy::too_many_arguments)]
 fn case_perpendicular(
     po: Point3,
@@ -164,12 +162,13 @@ fn case_perpendicular(
     apex: Point3,
     ca: Vec3,
     half_angle: f64,
+    cvr: (f64, f64),
     tol: &Tolerance,
     swapped: bool,
-) -> Vec<SurfaceSurfaceIntersection> {
+) -> Option<Vec<SurfaceSurfaceIntersection>> {
     let axis_dot = ca.dot(&pn);
     if axis_dot.abs() < tol.angular() {
-        return vec![];
+        return Some(vec![]);
     }
 
     // v = signed distance along axis from apex to plane intersection.
@@ -177,7 +176,7 @@ fn case_perpendicular(
     if v < tol.linear() {
         // Plane intersects at or before the apex (v <= 0): no intersection
         // on the positive half of the cone.
-        return vec![];
+        return Some(vec![]);
     }
 
     let radius = v * half_angle.ptan();
@@ -186,19 +185,19 @@ fn case_perpendicular(
 
     let curve_3d = nurbs_ellipse(center, p1, p2, radius, radius);
     let uv_plane = plane_uv_conic(center, p1, p2, radius, radius, po, pu, pv);
-    let uv_cone = cone_uv_curve(&curve_3d, apex, ca);
+    let uv_cone = cone_uv_curve(&curve_3d, apex, ca, half_angle, cvr, tol)?;
 
     let (uv1, uv2) = if swapped {
         (uv_cone, uv_plane)
     } else {
         (uv_plane, uv_cone)
     };
-    vec![SurfaceSurfaceIntersection::Curve(CurveOnSurface {
+    Some(vec![SurfaceSurfaceIntersection::Curve(CurveOnSurface {
         curve_3d,
         curve_uv1: uv1,
         curve_uv2: uv2,
         is_closed: true,
-    })]
+    })])
 }
 
 // ── NURBS builders ──────────────────────────────────────────────────────
@@ -285,37 +284,32 @@ fn plane_uv_pt(pt: Point3, o: Point3, pu: Vec3, pv: Vec3) -> Point3 {
     Point3::new(u, v, 0.0)
 }
 
-/// Project a 3D curve's control points to cone UV, unwrapping u.
-fn cone_uv_curve(curve: &NurbsCurve, apex: Point3, ca: Vec3) -> NurbsCurve {
-    let cone = SurfaceGeometry::Cone {
+/// The section's pcurve on the cone, co-parameterized with `curve`
+/// (`surface(uv(t))` within a thousandth of the linear tolerance of
+/// `curve(t)` wherever the curve passes the cone's v window `heights`:
+/// the plane x cylinder sections' Hermite fit on the cone's chart). Its control points projected to the chart with the curve's own
+/// weights were no such curve: the chart is not affine, so the image
+/// strayed off the section between them and its parameter off the
+/// curve's (1.3e-2 on a box face's ellipse on a frustum, where a clip
+/// crossing read on the pcurve landed 7.6e-3 from the junction its
+/// record must reach, and the record was dropped). `None` when the
+/// chart cannot be fitted (the marching fallback serves).
+fn cone_uv_curve(
+    curve: &NurbsCurve,
+    apex: Point3,
+    ca: Vec3,
+    half_angle: f64,
+    heights: (f64, f64),
+    tol: &Tolerance,
+) -> Option<NurbsCurve> {
+    crate::geometry::intersection::plane_cylinder_pcurve::revolved_conic_pcurve(
+        curve,
         apex,
-        axis: ca,
-        half_angle: 0.0, // half_angle not used by project_point_to_uv for cones
-    };
-    let mut cps: Vec<Point3> = curve
-        .control_points
-        .iter()
-        .map(|pt| {
-            let (u, v) = project_point_to_uv(&cone, pt).unwrap_or((0.0, 0.0));
-            Point3::new(u, v, 0.0)
-        })
-        .collect();
-    // Unwrap u so the NURBS curve is continuous across the TAU seam.
-    let tau = std::f64::consts::TAU;
-    for i in 1..cps.len() {
-        let diff = cps[i].x - cps[i - 1].x;
-        if diff > tau * 0.5 {
-            cps[i].x -= tau;
-        } else if diff < -tau * 0.5 {
-            cps[i].x += tau;
-        }
-    }
-    NurbsCurve {
-        degree: curve.degree,
-        knots: curve.knots.clone(),
-        control_points: cps,
-        weights: curve.weights.clone(),
-    }
+        ca,
+        (0.0, half_angle.ptan()),
+        Some(heights),
+        tol,
+    )
 }
 
 #[cfg(test)]

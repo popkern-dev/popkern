@@ -79,3 +79,108 @@ fn a_near_parabolic_section_is_one_simple_loop() {
     }
     assert!((total - TAU).abs() < 1e-2, "tangent turns {total}");
 }
+
+/// The section's pcurve on the cone is the curve's own, at every
+/// parameter where the section passes the cone's window: `cone(uv(t))`
+/// within the linear tolerance of `curve(t)`, for an oblique ellipse, a
+/// perpendicular circle and a near-parabolic ellipse at scale 1000. The
+/// 3D control points projected to the chart with the curve's weights
+/// strayed 1.3e-2 (a box face's ellipse on a frustum, corpus PF-X3 379):
+/// a clip crossing read on the pcurve landed 7.6e-3 from the junction its
+/// record had to reach, the record was dropped, and the union's loop
+/// broke. The shared degree-1 chart fit, tried next, reached its sample
+/// cap on the near-parabolic one (PF-X 411) and returned a pcurve 3.4
+/// off; the Hermite fit, doubling uniformly to its cap, could not reach
+/// the far end of it.
+#[test]
+fn the_cone_pcurve_is_co_parameterized_with_the_section() {
+    use crate::geometry::curve::CurveEval;
+    use crate::geometry::surface::SurfaceEval;
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(1.3070545268287006, -0.11351508012919986, 5.652775099718006),
+        axis: Vec3::new(0.2845865245180198, -0.3432775210217751, -0.8950815904842975),
+        half_angle: 0.30587887140485215,
+    };
+    let oblique = SurfaceGeometry::Plane {
+        origin: Point3::new(1.6808273084955485, -0.5042598616498635, 2.2583413476934675),
+        normal: Vec3::new(-0.0860508000801483, 0.08083691267671221, 0.9930058677341558),
+        u_axis: Vec3::new(
+            0.9784242837598383,
+            -0.18105378305915348,
+            0.09952612013444798,
+        ),
+        v_axis: Vec3::new(
+            0.18780574898797478,
+            0.9803808624227346,
+            -0.05975935018442719,
+        ),
+    };
+    let axis = Vec3::new(0.2845865245180198, -0.3432775210217751, -0.8950815904842975);
+    let (e1, e2) = crate::geometry::analytic_surfaces::orthonormal_basis(axis);
+    let square = SurfaceGeometry::Plane {
+        origin: Point3::new(1.3070545268287006, -0.11351508012919986, 5.652775099718006)
+            + axis * 3.0,
+        normal: axis,
+        u_axis: e1,
+        v_axis: e2,
+    };
+    let frustum = SurfaceGeometry::Cone {
+        apex: Point3::new(1361.850193720257, -108.59607800301, 129.04687950558895),
+        axis: Vec3::new(
+            -0.7185688548503939,
+            0.6900844510627112,
+            -0.08626848347148491,
+        ),
+        half_angle: 0.30805278102377637,
+    };
+    let near_parabolic = SurfaceGeometry::Plane {
+        origin: Point3::new(-3142.871087794154, 3292.286877229266, -40.88422173924586),
+        normal: Vec3::new(-0.8184363057636568, -0.3447470139290311, 0.4596863167367009),
+        u_axis: Vec3::new(0.270826265541727, -0.9370232870111803, -0.22054589883170625),
+        v_axis: Vec3::new(0.5067693235592112, -0.05600764220871479, 0.8602604237750102),
+    };
+    let tol = Tolerance::default();
+    let cases = [
+        (&oblique, &cone, (-10.0, 10.0), 20.0),
+        (&square, &cone, (-10.0, 10.0), 20.0),
+        (&near_parabolic, &frustum, (-1500.0, 9000.0), 20000.0),
+    ];
+    for (plane, cone, heights, reach) in cases {
+        let result = super::super::try_plane_cone(
+            plane,
+            (-reach, reach),
+            (-reach, reach),
+            cone,
+            (0.0, TAU),
+            heights,
+            &tol,
+        )
+        .expect("an exact section");
+        let SurfaceSurfaceIntersection::Curve(c) = &result[0] else {
+            panic!("a curve");
+        };
+        let (t0, t1) = c.curve_3d.parameter_range();
+        let height = |q: Point3| {
+            let SurfaceGeometry::Cone { apex, axis, .. } = cone else {
+                unreachable!()
+            };
+            (q - *apex).dot(axis)
+        };
+        let worst = (0..=20000)
+            .map(|k| t0 + (t1 - t0) * f64::from(k) / 20000.0)
+            .filter(|&t| {
+                let h = height(c.curve_3d.point_at(t));
+                h >= heights.0 && h <= heights.1
+            })
+            .map(|t| {
+                let uv = c.curve_uv2.point_at(t);
+                cone.point_at(uv.x, uv.y)
+                    .distance_to(&c.curve_3d.point_at(t))
+            })
+            .fold(0.0_f64, f64::max);
+        assert!(
+            worst <= tol.linear(),
+            "the cone pcurve strays {worst:.3e} from the section"
+        );
+    }
+}

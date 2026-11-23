@@ -345,9 +345,10 @@ fn swapped_ordering_works() {
     if let SurfaceSurfaceIntersection::Curve(ref cos) = intersections[0] {
         assert!(cos.is_closed);
         // UV1 should be cone UV, UV2 should be plane UV.
-        // Cone UV for perpendicular circle: degree-2 rational (projected).
-        // Plane UV for perpendicular circle: degree-2 rational.
-        assert_eq!(cos.curve_uv1.degree, 2);
+        // Cone UV: the Hermite chart fit co-parameterized with the
+        // circle (degree 3); plane UV: the circle's affine image
+        // (degree-2 rational).
+        assert_eq!(cos.curve_uv1.degree, 3);
         assert_eq!(cos.curve_uv2.degree, 2);
     } else {
         panic!("expected Curve intersection");

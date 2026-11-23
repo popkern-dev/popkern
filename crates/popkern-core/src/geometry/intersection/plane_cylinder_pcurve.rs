@@ -1,4 +1,4 @@
-//! Co-parameterized cylinder pcurves for plane-cylinder conics.
+//! Co-parameterized cylinder and cone pcurves for plane sections.
 //!
 //! The 3D conic is a rational quadratic whose speed varies along each
 //! quarter span, so its azimuth is NOT linear (nor rational) in the
@@ -17,6 +17,12 @@
 //! exact azimuth rate at every sample, doubling the sample count
 //! until every interval's interior check points land back on the 3D
 //! curve within a fraction of the linear tolerance.
+//!
+//! A cone's chart is the cylinder's with the radius growing along the
+//! axis (`radius + taper · v`): its plane sections take the same fit
+//! (`revolved_conic_pcurve`). The shared degree-1 chart fit could not
+//! reach the tolerance on a near-parabolic ellipse at scale 1000 within
+//! its sample cap and returned a pcurve 3.4 off the section.
 
 use crate::geometry::curve::CurveEval;
 use crate::geometry::nurbs_curve::NurbsCurve;
@@ -30,8 +36,8 @@ const FIT_FRACTION: f64 = 1.0e-3;
 /// Interior check points per interval, as fractions of the interval.
 const CHECKS: [f64; 3] = [0.25, 0.5, 0.75];
 
-/// Sample-count cap (intervals); the fit converges at fourth order,
-/// so a smooth conic never approaches it.
+/// Interval-count cap; the fit converges at fourth order and refines
+/// only where it strays, so a smooth conic never approaches it.
 const MAX_INTERVALS: usize = 4096;
 
 /// The cylinder chart pcurve of `curve` (a closed or open conic lying
@@ -47,6 +53,24 @@ pub(super) fn cylinder_conic_pcurve(
     radius: f64,
     tolerance: &Tolerance,
 ) -> Option<NurbsCurve> {
+    revolved_conic_pcurve(curve, origin, axis, (radius, 0.0), None, tolerance)
+}
+
+/// [`cylinder_conic_pcurve`] on the chart of radius `radius + taper · v`
+/// about `axis` from `origin` (a cone: its apex, radius 0 and taper the
+/// tangent of its half angle). With `heights`, the chart's v window, the
+/// fit holds the gate where the curve passes within it (padded by a
+/// tenth) and a millionth of its extent beyond: a near-parabolic
+/// ellipse cut from a frustum at scale 1000 runs 3e5 out, where no face
+/// reaches and the gate is past the arithmetic.
+pub(super) fn revolved_conic_pcurve(
+    curve: &NurbsCurve,
+    origin: Point3,
+    axis: Vec3,
+    (radius, taper): (f64, f64),
+    heights: Option<(f64, f64)>,
+    tolerance: &Tolerance,
+) -> Option<NurbsCurve> {
     let axis_len_sq = axis.dot(&axis);
     if !(axis_len_sq > 0.0 && axis_len_sq.is_finite()) {
         return None;
@@ -57,6 +81,19 @@ pub(super) fn cylinder_conic_pcurve(
         return None;
     }
     let gate = FIT_FRACTION * tolerance.linear();
+    let gate_at = |a: &Sample, b: &Sample| match heights {
+        Some((lo, hi)) => {
+            let (lo, hi) = (lo.min(hi), lo.max(hi));
+            let pad = 0.1 * (hi - lo);
+            let (below, above) = (a.v.min(b.v), a.v.max(b.v));
+            if above < lo - pad || below > hi + pad {
+                gate.max(1.0e-6 * (hi - lo))
+            } else {
+                gate
+            }
+        }
+        None => gate,
+    };
     let chart = Chart {
         origin,
         axis,
@@ -64,14 +101,28 @@ pub(super) fn cylinder_conic_pcurve(
         p,
         q,
         radius,
+        taper,
     };
-    let mut n = 16usize;
-    while n <= MAX_INTERVALS {
-        let samples = chart.samples(curve, t0, t1, n)?;
-        if chart.worst_deviation(curve, &samples) <= gate {
+    // Intervals whose check points stray are halved, the rest kept: a
+    // near-parabolic section's far end turns within a sliver of its
+    // parameter (a box face's ellipse on a frustum at scale 1000), and
+    // uniform doubling spent its whole cap on the flat stretches.
+    let mut samples = chart.samples(curve, t0, t1, 16)?;
+    while samples.len() <= MAX_INTERVALS + 1 {
+        let mut refined = Vec::with_capacity(2 * samples.len());
+        refined.push(samples[0]);
+        let mut split = false;
+        for w in samples.windows(2) {
+            if chart.interval_deviation(curve, &w[0], &w[1]) > gate_at(&w[0], &w[1]) {
+                refined.push(chart.sample_beside(curve, 0.5 * (w[0].t + w[1].t), &w[0])?);
+                split = true;
+            }
+            refined.push(w[1]);
+        }
+        if !split {
             return Some(hermite_nurbs(&samples));
         }
-        n *= 2;
+        samples = refined;
     }
     None
 }
@@ -94,20 +145,22 @@ struct Chart {
     p: Vec3,
     q: Vec3,
     radius: f64,
+    taper: f64,
 }
 
 impl Chart {
-    /// Azimuth (principal), its rate, height and its rate at `t`.
-    fn sample(&self, curve: &NurbsCurve, t: f64) -> Option<(f64, f64, f64, f64)> {
+    /// Azimuth (principal), height, and their rates at `t` along the
+    /// derivative `dt`.
+    fn chart_at(&self, curve: &NurbsCurve, t: f64, dt: Vec3) -> Option<(f64, f64, f64, f64)> {
         use popkern_math::PortableMath;
         let d = curve.point_at(t) - self.origin;
-        let dt = curve.derivative_at(t, 1);
         // Chart conventions of `SurfaceGeometry::Cylinder::point_at`:
         // basis from the raw axis, height in units of the raw axis.
         let v = d.dot(&self.axis) / self.axis_len_sq;
         let radial = d - self.axis * v;
         let r2 = radial.dot(&radial);
-        let off_axis = r2 > 1.0e-24 * self.radius.max(1.0).powi(2);
+        let scale = (self.radius + self.taper * v).abs().max(1.0);
+        let off_axis = r2 > 1.0e-24 * scale * scale;
         if !off_axis {
             return None;
         }
@@ -116,8 +169,29 @@ impl Chart {
         Some((u, du, v, dt.dot(&self.axis) / self.axis_len_sq))
     }
 
-    fn samples(&self, curve: &NurbsCurve, t0: f64, t1: f64, n: usize) -> Option<Vec<Sample>> {
+    /// The sample at `t`, its azimuth on the branch nearest `near` (or
+    /// in `[0, 2π)`).
+    fn sample_near(&self, curve: &NurbsCurve, t: f64, near: Option<f64>) -> Option<Sample> {
         let tau = std::f64::consts::TAU;
+        let (u, du, v, dv) = self.chart_at(curve, t, curve.derivative_at(t, 1))?;
+        let u = match near {
+            Some(n) => u - tau * ((u - n) / tau).round(),
+            None => u.rem_euclid(tau),
+        };
+        [u, du, v, dv]
+            .iter()
+            .all(|x| x.is_finite())
+            .then_some(Sample { t, u, du, v, dv })
+    }
+
+    fn point(&self, u: f64, v: f64) -> Point3 {
+        use popkern_math::PortableMath;
+        let r = self.radius + self.taper * v;
+        self.origin + self.p * (r * u.pcos()) + self.q * (r * u.psin()) + self.axis * v
+    }
+
+    /// Samples at `n` even steps.
+    fn samples(&self, curve: &NurbsCurve, t0: f64, t1: f64, n: usize) -> Option<Vec<Sample>> {
         let mut out: Vec<Sample> = Vec::with_capacity(n + 1);
         for i in 0..=n {
             let t = if i == n {
@@ -125,37 +199,28 @@ impl Chart {
             } else {
                 t0 + (t1 - t0) * i as f64 / n as f64
             };
-            let (mut u, du, v, dv) = self.sample(curve, t)?;
-            match out.last() {
-                Some(prev) => u -= tau * ((u - prev.u) / tau).round(),
-                None => u = u.rem_euclid(tau),
-            }
-            if !(u.is_finite() && du.is_finite() && v.is_finite() && dv.is_finite()) {
-                return None;
-            }
-            out.push(Sample { t, u, du, v, dv });
+            let s = self.sample_near(curve, t, out.last().map(|p| p.u))?;
+            out.push(s);
         }
         Some(out)
     }
 
-    fn point(&self, u: f64, v: f64) -> Point3 {
-        use popkern_math::PortableMath;
-        self.origin
-            + self.p * (self.radius * u.pcos())
-            + self.q * (self.radius * u.psin())
-            + self.axis * v
+    /// The sample at `t`, its azimuth on the branch nearest `near`'s.
+    fn sample_beside(&self, curve: &NurbsCurve, t: f64, near: &Sample) -> Option<Sample> {
+        self.sample_near(curve, t, Some(near.u))
     }
 
-    fn worst_deviation(&self, curve: &NurbsCurve, samples: &[Sample]) -> f64 {
-        let mut worst = 0.0f64;
-        for w in samples.windows(2) {
-            for f in CHECKS {
-                let (u, v) = hermite(&w[0], &w[1], f);
-                let t = w[0].t + (w[1].t - w[0].t) * f;
-                worst = worst.max(self.point(u, v).distance_to(&curve.point_at(t)));
-            }
-        }
-        worst
+    /// How far the Hermite interval from `a` to `b` strays from the
+    /// curve at its check points.
+    fn interval_deviation(&self, curve: &NurbsCurve, a: &Sample, b: &Sample) -> f64 {
+        CHECKS
+            .iter()
+            .map(|&f| {
+                let (u, v) = hermite(a, b, f);
+                let t = a.t + (b.t - a.t) * f;
+                self.point(u, v).distance_to(&curve.point_at(t))
+            })
+            .fold(0.0, f64::max)
     }
 }
 
