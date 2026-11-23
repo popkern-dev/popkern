@@ -96,8 +96,9 @@ fn volume(b: &BRep, tol: &Tolerance) -> Option<f64> {
     popkern_measure::body_volume(b, tol).ok()
 }
 
-/// Judge the N-ary results against their pairwise folds.
-pub fn judge_three(a: &BRep, b: &BRep, c: &BRep, area: f64) -> Verdict {
+/// Judge the N-ary results against their pairwise folds; `full` adds
+/// the N-ary determinism reruns.
+pub fn judge_three(a: &BRep, b: &BRep, c: &BRep, area: f64, full: bool) -> Verdict {
     let tol = Tolerance::default();
     let opts = BoolOptions {
         non_manifold: NonManifoldPolicy::Decline,
@@ -171,6 +172,9 @@ pub fn judge_three(a: &BRep, b: &BRep, c: &BRep, area: f64) -> Verdict {
             }
         }
         // Determinism of the n-ary path.
+        if !full {
+            continue;
+        }
         let again = nary_boolean(
             &[a, b, c],
             &match name {

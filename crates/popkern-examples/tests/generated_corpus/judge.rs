@@ -202,7 +202,15 @@ pub fn judge(scene: &Scene) -> Verdict {
 /// panic anywhere in the kernel is the scene's failure (oracle `panic`,
 /// the message as its detail), so one scene never loses its pair's report.
 pub fn judge_with(scene: &Scene, occ: bool) -> Verdict {
-    caught(|| judge_scene(scene, occ))
+    caught(|| judge_scene(scene, occ, true))
+}
+
+/// [`judge`] for iteration replays: every operation and policy, without
+/// the determinism reruns and the mesh volume (a commit's gate replays
+/// in full).
+#[allow(dead_code)]
+pub fn judge_triage(scene: &Scene) -> Verdict {
+    caught(|| judge_scene(scene, false, false))
 }
 
 /// `judge` under `catch_unwind`: a panic becomes a `panic` failure.
@@ -227,7 +235,7 @@ pub fn caught(judge: impl FnOnce() -> Verdict) -> Verdict {
     }
 }
 
-fn judge_scene(scene: &Scene, occ: bool) -> Verdict {
+fn judge_scene(scene: &Scene, occ: bool, full: bool) -> Verdict {
     let tol = Tolerance::default();
     let placed = place(scene);
     if let Some(third) = &scene.third {
@@ -239,7 +247,7 @@ fn judge_scene(scene: &Scene, occ: bool) -> Verdict {
         let area = (placed.a_op.area * (1.0 + third.scale * third.scale)
             + placed.b_op.area * scene.b_scale * scene.b_scale)
             * s2;
-        return super::three::judge_three(&placed.a, &placed.b, &c, area);
+        return super::three::judge_three(&placed.a, &placed.b, &c, area, full);
     }
     let s3 = scene.scale.powi(3);
     let s2 = scene.scale * scene.scale;
@@ -326,7 +334,10 @@ fn judge_scene(scene: &Scene, occ: bool) -> Verdict {
                         }
                         // Two volumes (design §6.2 oracle 8).
                         // An inscribed tessellation loses up to area × chord.
-                        if let Some((mv, chord)) = super::judge_policies::mesh_volume(body) {
+                        if let Some((mv, chord)) = full
+                            .then(|| super::judge_policies::mesh_volume(body))
+                            .flatten()
+                        {
                             let mb = 1.5 * area * chord + bound(got);
                             if (mv - got).abs() > mb {
                                 fail(
@@ -458,8 +469,8 @@ fn judge_scene(scene: &Scene, occ: bool) -> Verdict {
         );
     }
     // Determinism (oracle 7): the union again, bit for bit.
-    let again = sig(&run(&placed, Op::Union, NonManifoldPolicy::Decline, tol));
-    if let Some(first) = union_sig
+    let again = full.then(|| sig(&run(&placed, Op::Union, NonManifoldPolicy::Decline, tol)));
+    if let (Some(first), Some(again)) = (union_sig, again)
         && again != first
     {
         fail(
