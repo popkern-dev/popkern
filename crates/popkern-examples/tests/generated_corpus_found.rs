@@ -320,3 +320,28 @@ fn a_cylinder_crossing_a_ball_tangentially_keeps_curve_and_trims_together() {
         r#"{"cell":{"a":"Y","b":"S","config":"V"},"seed":1,"index":10094038,"variant_a":1,"variant_b":1,"b_scale":1.0,"place_b":[[0.4289855090521693,0.7895695193048712,0.43880679940940515,-0.027414691982398653],[-0.7195191374577363,0.5923723978409918,-0.36247365850250296,0.1474836762611722],[-0.5461351882595797,-0.16023394291094673,0.8222295541294324,-0.7624063142366733],[0.0,0.0,0.0,1.0]],"scene":[[0.5886599444829197,0.33446426816981223,0.7359436955902251,-2.4530460272721872],[-0.6735579643726737,-0.3004605036439116,0.6753096729502599,1.6199059731679082],[0.44698896898190454,-0.8932284920823332,0.04841200822951974,2.103989529923137],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":10.0,"rung":{"offset":10.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-3.235386656127694,1.2773516975274484,3.0269538286207402],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 877ffe1f (W3 V cells; tangency design §4.8): two cones
+/// crossing tangentially, opened by ten tolerances. The projected
+/// pcurve's local refinement worsened once as it split the crossing's
+/// overshoot (4.34e-3 to 4.45e-3) and the stall rule stopped it there;
+/// it now waits a round and converges to 8e-7.
+#[test]
+fn two_cones_crossing_tangentially_refine_their_pcurve_past_a_worse_round() {
+    passes(
+        r#"{"cell":{"a":"C","b":"F","config":"V"},"seed":1,"index":10113207,"variant_a":1,"variant_b":0,"b_scale":1.0,"place_b":[[0.45650410872202984,0.8770992715893183,0.14933474645035644,0.40517823760558547],[-0.8504698077916277,0.4794778977308226,-0.21633781829005894,-0.06297950899112716],[-0.2613524531256154,-0.028245590188874348,0.9648300792782659,0.30943236481905806],[0.0,0.0,0.0,1.0]],"scene":[[0.8712705624921834,0.47307263285267864,0.1307283097893841,1.8513403634388954],[-0.3835731762923137,0.4901448234576508,0.7827066311631032,-1.8640863881920677],[0.30620128243294487,-0.7320931198170784,0.6085067284368488,2.012415620374168],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-10.0,"rung":{"offset":-10.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.5898510433650412,-1.4259706956654234,2.137672157307713],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 877ffe1f (W3 V cells; tangency design §4.8): a cylinder
+/// crossing a filleted box's round tangentially, opened by ten
+/// tolerances. The round's projected pcurve was served 1.76e-3 off its
+/// edge, the curve itself on both surfaces: local refinement now runs
+/// wherever the gap is interpolation error rather than misfit-sized, and
+/// waits out a round that worsens.
+#[test]
+fn a_cylinder_crossing_a_round_tangentially_refines_its_pcurve_locally() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"L","config":"V"},"seed":1,"index":10098072,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[-0.22715615569328007,0.7873532272409386,-0.573127364975648,0.28185326536956234],[0.7580724011919119,0.5123931762972456,0.40345937519798536,0.03833494747932231],[0.6113315920854894,-0.34282375710749563,-0.7132640156918906,-0.7502189020060916],[0.0,0.0,0.0,1.0]],"scene":[[0.9296426731462757,-0.3160617374835453,0.18939239257248244,0.7476014960129445],[0.3289169522034055,0.9435133309888379,-0.0399528822435901,-0.5786155343052997],[-0.16606666980062398,0.09943627278428134,0.9810883185708107,2.7990635241584707],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":10.0,"rung":{"offset":10.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.6009983299743071,0.14690408065063687,2.091441095800158],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

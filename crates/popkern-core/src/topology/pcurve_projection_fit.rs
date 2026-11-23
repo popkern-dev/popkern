@@ -164,7 +164,7 @@ pub(super) fn measured_projection_interpolant(
 ) -> Option<NurbsCurve> {
     let breaks = breakpoint_fractions(curve_on_edge, (t_lo, t_hi));
     let mut spans = initial_spans(&breaks);
-    let mut points = sample(&segment_fractions(&breaks, &spans));
+    let points = sample(&segment_fractions(&breaks, &spans));
     let Some(mut best) = piecewise_interpolant(&points, &breaks, &spans) else {
         // A walk that dropped samples: the historical interpolant over
         // the surviving samples, unrefined.
@@ -197,25 +197,24 @@ pub(super) fn measured_projection_interpolant(
             break;
         }
         (best, best_gap, best_spans, improved) = (fit, gap, spans.clone(), true);
-        points = samples;
     }
     // Where uniform doubling cannot follow the track (a ring passing a
     // sphere's pole sweeps half a turn of longitude within its distance
     // from the pole, PK-1178), samples go where the image strays.
-    // Only where doubling followed the track some way, or the chart has
-    // a singular row a sweep can turn round: a gap no added samples move
-    // at all on a regular chart is a misfit (a cube fillet's rails on an
-    // intermediate body, 2.8e-2 off a 0.1 edge at every density, its
-    // local rounds only spent five times the allocations), while beside
-    // a pole doubling moves nothing until its spans reach the sweep's
-    // length (a ring 1e-4 round the pole, 0.1 off at 22 spans and not
-    // halved at 44, PK-1185).
+    // Wherever the gap is interpolation error, not misfit-sized: a
+    // tangent crossing's sharp turn leaves a cubic's overshoot that
+    // doubling only moves (a cylinder's pcurve 1.8e-3 off at 23 samples
+    // and no better at 45, scene 618, its turn hidden between samples).
+    // A misfit-sized gap enters only where doubling followed the track
+    // some way, or the chart has a singular row a sweep can turn round:
+    // a gap no added samples move at all on a regular chart is a misfit
+    // (a cube fillet's rails on an intermediate body, 2.8e-2 off a 0.1
+    // edge at every density), while beside a pole doubling moves nothing
+    // until its spans reach the sweep's length (a ring 1e-4 round the
+    // pole, 0.1 off at 22 spans and not halved at 44, PK-1185).
     let singular =
         crate::geometry::chart::ChartDescriptor::has_singular_row(surface, linear_tolerance);
-    let periods = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
-    // A misfit-sized gap waits on no turn (an edge 5 off its curve, 1287).
-    let turning = !misfit_sized && points.windows(3).any(|w| turns_sharply(periods, w));
-    if best_gap > target && (improved || singular || turning) {
+    if best_gap > target && (improved || singular || !misfit_sized) {
         let start = segment_fractions(&breaks, &best_spans);
         let range = (t_lo, t_hi);
         if let Some((fit, fractions)) = locally_refined(
@@ -265,6 +264,7 @@ fn locally_refined(
     let periods = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(surface);
     let mut best: Option<(NurbsCurve, f64, Vec<f64>)> = None;
     let mut history: Vec<f64> = Vec::new();
+    let mut lagging = 0usize;
     for _ in 0..LOCAL_ROUNDS {
         let points = sample(&fractions);
         let fit = interpolant_at(&points, &fractions, breaks)?;
@@ -289,8 +289,14 @@ fn locally_refined(
                 .windows(3)
                 .zip(interval_gap.windows(2))
                 .any(|(w, g)| (g[0] > target || g[1] > target) && turns_sharply(periods, w));
-        let stalled = best.as_ref().is_some_and(|b| worst >= b.1)
-            || history.len() >= 2 && worst > 0.5 * history[history.len() - 2];
+        // Stalled: two rounds running no better than the best, or the
+        // worst not halved in two rounds. One round may worsen: halving an
+        // overshoot's intervals moves it first (4.34e-3 to 4.45e-3, then
+        // 1.4e-3 and on to 8e-7, scene 187).
+        let regressed = best.as_ref().is_some_and(|b| worst >= b.1);
+        lagging = if regressed { lagging + 1 } else { 0 };
+        let stalled =
+            lagging >= 2 || history.len() >= 2 && worst > 0.5 * history[history.len() - 2];
         if stalled && !sweeping && !turning {
             break;
         }
