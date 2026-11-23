@@ -118,6 +118,18 @@ pub(crate) fn check(scene: &Scene) -> Result<(), Reject> {
                 if away.iter().any(|&p| inside(&placed.a_mesh, p) != want) {
                     return Err(Reject::WrongSide);
                 }
+                // An external touch has neither inside the other: B's
+                // points outside A also hold when B holds A touching it
+                // inside (a steered sphere of radius 1.15 about one of
+                // 0.9, centres 0.25 apart, scene 696 of SS-E).
+                if scene.cell.config == Config::E
+                    && probes(&placed.a_mesh, 400)
+                        .into_iter()
+                        .filter(|p| p.distance_to(&c) > ball)
+                        .any(|p| inside(&placed.b_mesh, p))
+                {
+                    return Err(Reject::WrongSide);
+                }
             }
         }
         Config::D => {

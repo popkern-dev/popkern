@@ -170,3 +170,18 @@ fn a_tangent_crossing_with_its_alignment_flipped_fails_its_check() {
     }
     assert!(checked >= 6, "only {checked} V scenes drawn");
 }
+
+/// A sphere steered onto its seam holding the other inside, touching it
+/// (radii 1.15 and 0.9, centres 0.25 apart; the baseline's scene 696 of
+/// SS-E, drawn before the steered normal took its hint from the nearest
+/// triangle) is no external touch: its B lies outside A away from the
+/// contact, but A lies inside B. Passed the check before A's side was read.
+#[test]
+fn an_external_touch_holding_the_other_inside_fails_its_check() {
+    let scene: generated_corpus::scene::Scene =
+        serde_json::from_str(r#"{"cell":{"a":"S","b":"S","config":"E"},"seed":1,"index":11099,"variant_a":0,"variant_b":1,"b_scale":1.0,"place_b":[[-0.8510899893929686,-0.32897063503569396,0.40917496409151033,0.22873863270652106],[0.4968120093744296,-0.2526118894752733,0.8302801097443403,-0.08094072980193162],[-0.16977531415496783,0.9099261258915166,0.3784320125513132,0.06022654038446695],[0.0,0.0,0.0,1.0]],"scene":[[-0.4821250291088469,-0.870957902134397,0.09480395042635947,2.0103910287641273],[0.54474156302414,-0.21326448499848893,0.8110332230878993,2.7348451249351724],[-0.6861574788784354,0.44266306842561354,0.577267114974697,-1.312568888918559],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":{"Seam":0.0}},"aligned":false,"shift":0.0,"contact":[2.133060804763025,2.048285710246563,-0.7437206700070339],"curve":[],"curve_closed":false,"third":null}"#).expect("a scene descriptor");
+    assert!(matches!(
+        generated_corpus::scene_check::check(&scene),
+        Err(generated_corpus::scene::Reject::WrongSide)
+    ));
+}
