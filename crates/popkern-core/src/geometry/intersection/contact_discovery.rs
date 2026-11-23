@@ -96,13 +96,6 @@ pub fn find_surface_contacts(
         // parameters (a closest point onto s2 fails at its pole).
         let (uv1, uv2) = (c.uv2, c.uv1);
         let point = s1.point_at(uv1.0, uv1.1);
-        if out
-            .contacts
-            .iter()
-            .any(|o| o.point.distance_to(&point) <= near)
-        {
-            continue;
-        }
         // Along s2's normal, or s1's where s2's chart has none (a
         // revolved cup's tip): parallel at a contact.
         let Some(n2) = s2
@@ -116,16 +109,27 @@ pub fn find_surface_contacts(
         if g0.abs() > scale.linear {
             continue;
         }
+        let gap = Gap { s2, w2 };
+        let same = |o: &SurfaceContact| {
+            o.point.distance_to(&point) <= near || one_zone(s1, &gap, o.uv1, uv1, scale.linear)
+        };
+        let Some(slot) = slot_for(&out.contacts, g0, same) else {
+            continue;
+        };
         let Ok(classification) = classify_contact(s1, uv1, s2, uv2, scale) else {
             continue;
         };
-        out.contacts.push(SurfaceContact {
-            point,
-            uv1,
-            uv2,
-            gap: g0,
-            classification,
-        });
+        admit(
+            &mut out.contacts,
+            slot,
+            SurfaceContact {
+                point,
+                uv1,
+                uv2,
+                gap: g0,
+                classification,
+            },
+        );
     }
     for m in back.near_misses {
         // On s1, at the foot of the point found on s2.
@@ -269,23 +273,27 @@ fn one_sided(
         let Some((_, uv2)) = gap.at(s1, uv1) else {
             continue;
         };
-        if out
-            .contacts
-            .iter()
-            .any(|c| c.point.distance_to(&point) <= 10.0 * scale.linear)
-        {
+        let same = |c: &SurfaceContact| {
+            c.point.distance_to(&point) <= 10.0 * scale.linear
+                || one_zone(s1, &gap, c.uv1, uv1, scale.linear)
+        };
+        let Some(slot) = slot_for(&out.contacts, g0, same) else {
             continue;
-        }
+        };
         let Ok(classification) = classify_contact(s1, uv1, s2, uv2, scale) else {
             continue;
         };
-        out.contacts.push(SurfaceContact {
-            point,
-            uv1,
-            uv2,
-            gap: g0,
-            classification,
-        });
+        admit(
+            &mut out.contacts,
+            slot,
+            SurfaceContact {
+                point,
+                uv1,
+                uv2,
+                gap: g0,
+                classification,
+            },
+        );
     }
     out.contacts.sort_by(|a, b| {
         a.uv1
@@ -325,6 +333,65 @@ pub fn contact_from(
         classification,
     })
 }
+
+/// Whether two contacts found at `a` and `b` on `s1` are one: the gap
+/// stays within the tolerance all the way between them (the linear
+/// tolerance is the resolution, PK-1131). A flat touch (a paraboloid's
+/// tip in a ball of its curvature, the gap quartic) holds its gap
+/// within the tolerance far past ten tolerances, and Newton from
+/// several seeds stopped at points 2e-5 apart there, each kept as its
+/// own touch. Between them along the chart, the shorter way round a
+/// period.
+fn one_zone(
+    s1: &SurfaceGeometry,
+    gap: &Gap<'_>,
+    a: (f64, f64),
+    b: (f64, f64),
+    linear: f64,
+) -> bool {
+    let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(s1);
+    let toward = |x: f64, y: f64, period: Option<f64>| {
+        let d = y - x;
+        match period.filter(|p| *p > 0.0) {
+            Some(p) => d - p * (d / p).round(),
+            None => d,
+        }
+    };
+    let (du, dv) = (toward(a.0, b.0, pu), toward(a.1, b.1, pv));
+    (1..ZONE_SAMPLES).all(|k| {
+        let t = k as f64 / ZONE_SAMPLES as f64;
+        gap.at(s1, (a.0 + t * du, a.1 + t * dv))
+            .is_some_and(|(x, _)| x.abs() <= linear)
+    })
+}
+
+/// Where a contact of gap `g0` goes among `found`: `None` when one it is
+/// the same as (`same`) already stands at a gap as small, else
+/// `Some(Some(i))` to replace the `i`th, `Some(None)` to add it. Within
+/// one zone the touch is where the gap is extreme (a flat touch's tip,
+/// not a point beside it where Newton stopped).
+fn slot_for(
+    found: &[SurfaceContact],
+    g0: f64,
+    same: impl Fn(&SurfaceContact) -> bool,
+) -> Option<Option<usize>> {
+    match found.iter().position(same) {
+        Some(i) if found[i].gap.abs() <= g0.abs() => None,
+        Some(i) => Some(Some(i)),
+        None => Some(None),
+    }
+}
+
+/// Puts `c` in the slot [`slot_for`] chose.
+fn admit(found: &mut Vec<SurfaceContact>, slot: Option<usize>, c: SurfaceContact) {
+    match slot {
+        Some(i) => found[i] = c,
+        None => found.push(c),
+    }
+}
+
+/// Intervals of the segment [`one_zone`] samples.
+const ZONE_SAMPLES: usize = 8;
 
 /// Whether the window spans the whole period of `s`'s u and v.
 fn full_periods(s: &SurfaceGeometry, w: ParamWindow) -> (bool, bool) {
@@ -376,79 +443,9 @@ fn into_window(s: &SurfaceGeometry, uv: (f64, f64), w: ParamWindow) -> Option<(f
     Some((fit(uv.0, w.0, pu)?, fit(uv.1, w.1, pv)?))
 }
 
-/// Damped Newton on `∇g = 0` from `seed`, derivatives by central
-/// differences of step `h` (parameter units), kept inside `w`.
-fn newton_critical(
-    s1: &SurfaceGeometry,
-    gap: &Gap<'_>,
-    seed: (f64, f64),
-    h: f64,
-    w: ParamWindow,
-) -> Option<((f64, f64), f64)> {
-    let g = |u: f64, v: f64| gap.at(s1, (u, v)).map(|(x, _)| x);
-    // A step leaving the window wraps across a whole period, else
-    // stops at the edge (a contact at a pole lies on it).
-    let (wrap_u, wrap_v) = full_periods(s1, w);
-    let (pu, pv) = crate::geometry::chart::ChartDescriptor::evaluation_periods_of(s1);
-    let settle = |x: f64, (lo, hi): (f64, f64), wrap: bool, period: Option<f64>| {
-        let (lo, hi) = (lo.min(hi), lo.max(hi));
-        match period.filter(|_| wrap) {
-            Some(p) => lo + crate::geometry::chart::ops::wrap_into(x - lo, 0.0, p),
-            None => x.clamp(lo, hi),
-        }
-    };
-    let (mut u, mut v) = seed;
-    let mut mu = 1e-6;
-    for _ in 0..NEWTON_STEPS {
-        let c = g(u, v)?;
-        let (e, wv, n, s) = (g(u + h, v)?, g(u - h, v)?, g(u, v + h)?, g(u, v - h)?);
-        let (ne, nw, se, sw) = (
-            g(u + h, v + h)?,
-            g(u - h, v + h)?,
-            g(u + h, v - h)?,
-            g(u - h, v - h)?,
-        );
-        let gu = (e - wv) / (2.0 * h);
-        let gv = (n - s) / (2.0 * h);
-        let huu = (e - 2.0 * c + wv) / (h * h);
-        let hvv = (n - 2.0 * c + s) / (h * h);
-        let huv = (ne - nw - se + sw) / (4.0 * h * h);
-        // Levenberg–Marquardt on the gradient: (H + μ|H|) Δ = −∇g.
-        let scale = huu.abs().max(hvv.abs()).max(1e-300);
-        let (a, b, d) = (huu + mu * scale, huv, hvv + mu * scale);
-        let det = a * d - b * b;
-        if det.abs() <= 1e-300 {
-            mu *= 10.0;
-            continue;
-        }
-        let du = -(d * gu - b * gv) / det;
-        let dv = -(-b * gu + a * gv) / det;
-        let (nu, nv) = (
-            settle(u + du, w.0, wrap_u, pu),
-            settle(v + dv, w.1, wrap_v, pv),
-        );
-        // Accept a step that does not grow the gradient.
-        let grad_now = (gu * gu + gv * gv).sqrt();
-        let next = (
-            (g(nu + h, nv)? - g(nu - h, nv)?) / (2.0 * h),
-            (g(nu, nv + h)? - g(nu, nv - h)?) / (2.0 * h),
-        );
-        let grad_next = (next.0 * next.0 + next.1 * next.1).sqrt();
-        if grad_next <= grad_now {
-            (u, v) = (nu, nv);
-            mu = (mu * 0.3).max(1e-12);
-            if du.abs().max(dv.abs()) <= 1e-9 * h.max(1e-12) * 1e3 {
-                break;
-            }
-        } else {
-            mu *= 10.0;
-            if mu > 1e8 {
-                break;
-            }
-        }
-    }
-    Some(((u, v), g(u, v)?))
-}
+#[path = "contact_discovery_newton.rs"]
+mod newton;
+use newton::newton_critical;
 
 #[cfg(test)]
 #[path = "contact_discovery_twin_tests.rs"]

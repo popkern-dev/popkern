@@ -366,3 +366,11 @@ fn a_box_face_opened_from_a_torus_saddle_within_the_tolerance_pinches() {
         r#"{"cell":{"a":"P","b":"T","config":"V"},"seed":1,"index":10097063,"variant_a":0,"variant_b":0,"b_scale":1.0,"place_b":[[-0.36588415590292733,0.9016654093657778,0.2304957136530889,0.6741711452802353],[0.9078248712434012,0.29125941045829773,0.3016984570252007,-0.05591542132343574],[0.20489701708688784,0.3196364268551525,-0.9251214877064343,0.4147368288868008],[0.0,0.0,0.0,1.0]],"scene":[[0.3281449489708592,0.898428668516936,-0.2917992804168605,-0.5261848644142586],[-0.7337304677411749,0.4369721470635508,0.5202835221290284,2.9870594154714496],[0.5949457901130395,0.0433736126873924,0.8025946900828682,-2.8276664908851004],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-0.5,"rung":{"offset":-0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-1.013491734975748,2.1116066606273365,-2.358281269013464],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed in the baseline (W3 E cells, tangency design §4.8): a cylinder and a cone touching at scale 1000 read as a near miss, contact discovery's Newton differencing the angle over a sixth of a radian, measuring its gradient in parameter units (the angle's component a thousandfold the length's) and stopping 4e-5 from the touch (`contact_discovery_newton`): the union served where it is non-manifold.
+#[test]
+fn a_cone_touching_a_cylinder_at_scale_1000_is_found() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"C","config":"E"},"seed":1,"index":8077,"variant_a":0,"variant_b":2,"b_scale":1.0,"place_b":[[-0.9899772733113584,-0.13559395155459694,-0.03948770224788997,-1.978310464075825],[0.06701819594068406,-0.2049322762273492,-0.9764790441034223,-0.6886645932508695],[0.1243123474955907,-0.9693384560936842,0.21196555804669875,1.2575226242520232],[0.0,0.0,0.0,1.0]],"scene":[[726.0972228303457,525.812542835446,443.0620642697607,601.7868999586549],[-676.0817276354605,663.3721315268426,320.7037771386307,2546.0185732499563],[-125.2849574191185,-532.408287792795,837.1649147772702,-833.7283970866407],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":0.0,"rung":{"offset":0.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[690.878097843534,3558.358953643982,-225.41403754263445],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

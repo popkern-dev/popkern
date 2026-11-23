@@ -149,3 +149,142 @@ fn ball_in_band_contacts_lie_on_the_equator() {
         );
     }
 }
+
+/// The cone touching a cylinder at scale 1000 (below).
+fn cone_on_cylinder_at_scale_1000() -> (SurfaceGeometry, SurfaceGeometry, Point3) {
+    let cylinder = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, -2000.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1000.0,
+    };
+    // The cone's outward normal at the touch is -x, its generator g
+    // there square to x: the axis is cos α g + sin α x.
+    let (alpha, beta) = (0.3_f64, 0.7_f64);
+    let g = Vec3::new(0.0, beta.sin(), beta.cos());
+    let x = Vec3::new(1.0, 0.0, 0.0);
+    let touch = Point3::new(1000.0, 0.0, 0.0);
+    let cone = SurfaceGeometry::Cone {
+        apex: touch - g * 1500.0,
+        axis: g * alpha.cos() + x * alpha.sin(),
+        half_angle: alpha,
+    };
+    (cylinder, cone, touch)
+}
+
+/// A cylinder of radius 1000 and a cone touching it outside at
+/// (1000, 0, 0), the cone's generator there skew to the cylinder's axis
+/// (scale 1000). Each chart pairs an angle with a length of thousands:
+/// one difference step for both (a sixth of a radian in the angle)
+/// differenced an unsymmetric gap over a wide arc, and Newton stalled
+/// short of the touch, which read as a near miss (corpus YC-E 943).
+#[test]
+fn a_cone_touching_a_cylinder_at_scale_1000_is_found_at_the_exact_point() {
+    let (cylinder, cone, touch) = cone_on_cylinder_at_scale_1000();
+    let tau = std::f64::consts::TAU;
+    let scale = ContactScale {
+        linear: 1e-6,
+        extent: 5000.0,
+    };
+    let found = find_surface_contacts(
+        &cylinder,
+        ((0.0, tau), (0.0, 4000.0)),
+        &cone,
+        ((0.0, tau), (0.0, 4000.0)),
+        scale,
+    );
+    assert_eq!(found.contacts.len(), 1, "{found:?}");
+    let off = found.contacts[0].point.distance_to(&touch);
+    assert!(off < 1e-3, "the touch found {off:.3e} from the exact point");
+}
+
+/// From the cylinder's side alone, seeded a grid cell off the touch
+/// (an angle of 0.13 and 250 along the axis): Newton's steps along the
+/// gap's shallow valley were measured against a gradient in parameter
+/// units, where the angle's component (at radius 1000) outweighs the
+/// length's a thousandfold; each read as worse, the damping crawled,
+/// and the walk stopped with the gap 2.5.
+#[test]
+fn newton_from_the_cylinder_side_reaches_the_cone_touch() {
+    let (cylinder, cone, touch) = cone_on_cylinder_at_scale_1000();
+    let tau = std::f64::consts::TAU;
+    let window = ((0.0, tau), (0.0, 4000.0));
+    let scale = ContactScale {
+        linear: 1e-6,
+        extent: 5000.0,
+    };
+    let found = contact_from(
+        (&cylinder, window),
+        (&cone, window),
+        (0.13, 2250.0),
+        0.17,
+        scale,
+    )
+    .expect("the touch from the cylinder's side");
+    let off = found.point.distance_to(&touch);
+    assert!(off < 1e-3, "the touch found {off:.3e} from the exact point");
+}
+
+/// A cylinder of radius 0.001 and a cone crossing it tangentially at
+/// scale 0.001 (corpus YC-V 966, its faces' surfaces and windows), Newton
+/// seeded on a branch 0.013 rad round the cylinder from the crossing with
+/// a march's difference step (a millionth of the window). Damped in
+/// parameter units, where the cylinder's curvature per radian² and per
+/// length² stand a millionfold apart, a millionth of the larger
+/// cancelled the saddle's curvature along the angle: the step overshot
+/// threefold and then turned the wrong way, Newton stopped on the branch,
+/// and the march crawled on past the crossing for minutes.
+#[test]
+fn newton_reaches_a_tangent_crossing_at_scale_a_thousandth() {
+    let cylinder = SurfaceGeometry::Cylinder {
+        origin: Point3::new(
+            -0.00031317792761719317,
+            0.0018470743392259641,
+            0.0018623162365610452,
+        ),
+        axis: Vec3::new(
+            0.019997835712565692,
+            -0.8020045909915312,
+            0.5969830170074524,
+        ),
+        radius: 0.001,
+    };
+    let cone = SurfaceGeometry::Cone {
+        apex: Point3::new(
+            0.0019066377683225639,
+            0.0009372593284713874,
+            0.000538019358331209,
+        ),
+        axis: Vec3::new(-0.7188112200556341, 0.18635206449919964, 0.6697636433690745),
+        half_angle: 0.4636476090008061,
+    };
+    let tau = std::f64::consts::TAU;
+    let w1 = ((0.0, tau), (-0.00991489975031797, 0.012414899750317971));
+    let w2 = ((0.0, tau), (-0.009428289554577885, 0.012028289554577885));
+    let scale = ContactScale {
+        linear: 1e-6,
+        extent: 0.00499873694343911,
+    };
+    let crossing = Point3::new(
+        -0.0005492838599147503,
+        0.0007184050674709597,
+        0.0014953458170282213,
+    );
+    for seed in [
+        (4.473026747641222, 0.0006618649879867174),
+        (4.4678942441946425, 0.000669348027939345),
+        (4.427747644569971, 0.0007291146903645988),
+    ] {
+        let found = contact_from((&cylinder, w1), (&cone, w2), seed, 1e-6 * tau, scale)
+            .expect("the crossing");
+        assert!(
+            matches!(
+                found.classification.kind,
+                SurfaceContactKind::CrossingPoint { .. }
+            ),
+            "{:?}",
+            found.classification.kind
+        );
+        let off = found.point.distance_to(&crossing);
+        assert!(off < 1e-9, "the crossing found {off:.3e} from it");
+    }
+}
