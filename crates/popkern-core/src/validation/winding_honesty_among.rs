@@ -74,6 +74,55 @@ impl BRep {
         flipped
     }
 
+    /// Whether `face` and `neighbour` meet at `p` on `edge` as a knife
+    /// edge: both faces lie on one side of the edge (each face's
+    /// interior read in space by even-odd trim containment, never by a
+    /// flag), so their folded normals oppose whatever the flags (a
+    /// boolean's sphere band and the cylinder wall it was cut against
+    /// near-tangentially, YS-V 1288: the tangency witness read the
+    /// honest band as flipped). `false` when either side cannot be read.
+    pub(super) fn knife_edge_at(
+        &self,
+        face: FaceHandle,
+        neighbour: FaceHandle,
+        edge: crate::topology::EdgeHandle,
+        p: &crate::geometry::Point3,
+    ) -> bool {
+        use crate::geometry::CurveEval;
+        use crate::geometry::surface::SurfaceEval;
+        let Some(curve) = self.edges.get(edge).and_then(|e| e.curve.as_ref()) else {
+            return false;
+        };
+        let t_mid = 0.5 * (curve.t_start + curve.t_end);
+        let Some(tangent) = curve.geometry.derivative_at(t_mid, 1).normalized() else {
+            return false;
+        };
+        let chord = curve
+            .geometry
+            .point_at(curve.t_start)
+            .distance_to(&curve.geometry.point_at(curve.t_end))
+            .max(curve.geometry.point_at(curve.t_start).distance_to(p));
+        let step = 1.0e-3 * chord.max(1.0e3 * self.tolerance.linear());
+        let interior = |f: FaceHandle| -> Option<crate::geometry::Vec3> {
+            let surface = &self.faces.get(f)?.surface.as_ref()?.geometry;
+            let (u, v) = surface.closest_point(p)?;
+            let across = surface.normal_at(u, v).cross(&tangent).normalized()?;
+            let inside = |d: crate::geometry::Vec3| {
+                self.face_point_trim_containment_within(f, &(*p + d * step), 1e-12)
+                    .is_some_and(|c| c.containment == super::FaceUvContainment::Interior)
+            };
+            match (inside(across), inside(across * -1.0)) {
+                (true, false) => Some(across),
+                (false, true) => Some(across * -1.0),
+                _ => None,
+            }
+        };
+        match (interior(face), interior(neighbour)) {
+            (Some(a), Some(b)) => a.dot(&b) > 0.0,
+            _ => false,
+        }
+    }
+
     /// The faces across `face`'s outer-loop edges (the second tier's
     /// witness candidates), itself excluded.
     fn outer_loop_neighbours(&self, face: FaceHandle) -> Vec<FaceHandle> {

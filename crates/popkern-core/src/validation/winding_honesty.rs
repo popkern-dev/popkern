@@ -193,7 +193,11 @@ impl BRep {
                         )
                     }
                 };
-                if let (Some(nf), Some(nn)) = (folded_at(face, &mid), folded_at(neighbour, &mid)) {
+                // A knife edge (both faces on one side) bears no
+                // witness: its folded normals oppose by geometry.
+                if let (Some(nf), Some(nn)) = (folded_at(face, &mid), folded_at(neighbour, &mid))
+                    && !self.knife_edge_at(face, neighbour, he.edge, &mid)
+                {
                     let dot = nf.dot(&nn);
                     if best.is_none_or(|(d, _)| dot.abs() > d.abs()) {
                         best = Some((dot, neighbour_honest));
