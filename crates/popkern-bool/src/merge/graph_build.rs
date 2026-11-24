@@ -146,6 +146,9 @@ pub(crate) fn insert_operand_topology_scoped(
         let end_node = vertex_map[&twin_he.origin];
 
         let source = EdgeSource::Original(operand, eh);
+        if let Some(t) = edge.tolerance {
+            graph.edge_tolerances.insert((operand, eh), t);
+        }
 
         // CLOSED-EDGE SIDE FIDELITY (audit-first since PK-478 stage
         // 4 — the vote witness below now handles only the edges the

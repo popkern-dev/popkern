@@ -138,6 +138,11 @@ pub(crate) struct IntersectionGraph {
     /// ends, and is kept as a slit of the face rather than dropped as a
     /// graze, so the cells on either side of the face stay apart.
     pub lamina_boundary_nodes: std::collections::BTreeSet<usize>,
+    /// Each operand edge's own tolerance where it carries one: the
+    /// accuracy its curve was built to, which its pieces in the result
+    /// keep (a dome block's rim fitted to 9e-7 and scaled a thousandfold
+    /// carries 9e-4; stamped with the bare linear it failed validation).
+    pub edge_tolerances: BTreeMap<(Operand, popkern_core::topology::EdgeHandle), f64>,
     /// Node indices keyed by their x coordinate (order-preserving bit
     /// key), so `find_node` scans a slab instead of every node: graph
     /// build looked up every operand vertex against every node before
@@ -167,6 +172,7 @@ impl IntersectionGraph {
             seam_substitutes: std::collections::BTreeSet::new(),
             duplicate_of: std::collections::BTreeMap::new(),
             lamina_boundary_nodes: std::collections::BTreeSet::new(),
+            edge_tolerances: BTreeMap::new(),
             node_index: BTreeMap::new(),
         }
     }

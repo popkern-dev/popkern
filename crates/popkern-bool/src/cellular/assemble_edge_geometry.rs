@@ -33,6 +33,23 @@ pub(super) fn attach_edge_curve(
     na: usize,
     nb: usize,
 ) {
+    // An operand edge's pieces keep the accuracy its curve was built to
+    // where that is coarser than the boolean's (`edge_tolerances`), and
+    // the body's imprecision bound admits it as the operand's did.
+    if let crate::merge::graph::EdgeSource::Original(o, e)
+    | crate::merge::graph::EdgeSource::Split {
+        operand: o,
+        original: e,
+    } = graph.half_edges[sample_ghe].source
+        && let Some(&t) = graph.edge_tolerances.get(&(o, e))
+        && t > graph.linear
+    {
+        let body = builder.brep_mut();
+        if let Some(edge) = body.edges.get_mut(edge_h) {
+            edge.tolerance = Some(t);
+            body.max_imprecision = body.max_imprecision.max(t);
+        }
+    }
     let is_shared = matches!(
         graph.half_edges[sample_ghe].source,
         crate::merge::graph::EdgeSource::Shared { .. }

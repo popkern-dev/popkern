@@ -438,3 +438,11 @@ fn a_cylinder_and_a_ball_a_thousand_across_two_tolerances_deep_have_a_common() {
         r#"{"cell":{"a":"Y","b":"S","config":"E"},"seed":1,"index":10090000,"variant_a":2,"variant_b":2,"b_scale":1.0,"place_b":[[-0.3618144363038481,0.18134259905050742,0.914442549016468,-1.2419135846239402],[-0.5186004747548474,-0.8542675706703975,-0.03578358960395531,-2.284217729973769],[0.7746895257238062,-0.48717735935745643,0.40313069749563857,-1.1000790176885944],[0.0,0.0,0.0,1.0]],"scene":[[994.2850882813045,-102.71184738346798,29.110816349142482,114.69499030430441],[101.32211490764006,993.8008081586745,45.75787073071142,2271.007410008876],[-33.63022824902182,-42.54679905986691,998.5283058770432,-1797.5555147054072],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-378.95994765222247,1114.8744109110255,-2831.8838647890984],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 4785b1bc (W3 E cells, tangency design §4.8): the dome block scaled a thousandfold carries its rim edges' fit as their own tolerance, 9e-4; the boolean rebuilt them stamped with the bare linear and the result failed validation on the operand's own geometry (`IntersectionGraph::edge_tolerances`).
+#[test]
+fn a_ball_against_a_dome_block_a_thousand_across_keeps_its_rim_accuracy() {
+    passes(
+        r#"{"cell":{"a":"S","b":"W","config":"E"},"seed":1,"index":10104126,"variant_a":2,"variant_b":1,"b_scale":1.0,"place_b":[[0.49018901305406354,0.6215859108493982,-0.6110202017238113,1.4786311127873837],[-0.3221499539396026,-0.5221781786427062,-0.7896514148192844,0.5350431344862479],[-0.8098976099839996,0.5839185775285024,-0.05572213347759726,2.1208626502343453],[0.0,0.0,0.0,1.0]],"scene":[[578.317700812056,215.7355319024552,-786.7698629219489,-1498.101700437316],[652.4956128214247,456.56624397000013,604.8113260479832,2166.8358895421466],[489.6918543086568,-863.1369793618458,123.27385238507816,-1083.0258999527618],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":-10.0,"rung":{"offset":-10.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-1364.9271170774218,3558.9120514283086,-1016.7802219411988],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
