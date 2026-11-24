@@ -278,13 +278,10 @@ pub(super) fn execute_boolean_pipeline(
     // records go to the contact reading as curves (W3c).
     let mut contact_curves = Vec::new();
     if !intersection_result.records.is_empty()
-        && intersection_result.records.iter().all(|r| {
-            crate::contact_curves::is_contact_curve(
-                r,
-                (a, b),
-                (tolerance.linear(), tolerance.angular()),
-            )
-        })
+        && intersection_result
+            .records
+            .iter()
+            .all(|r| crate::contact_curves::is_contact_curve(r, (a, b), tolerance))
     {
         contact_curves = intersection_result
             .records

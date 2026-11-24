@@ -30,7 +30,7 @@ mod brep_order;
 pub mod ladder;
 
 pub use brep_order::RadialOrderError;
-pub use ladder::{TieEvidence, TieLadder, cross_section_curvature, runs};
+pub use ladder::{TieEvidence, TieLadder, cross_section_curvature, runs, tangent_gap};
 
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::{Point3, Vec3};
@@ -378,12 +378,15 @@ fn order_at(
 }
 
 /// The first-order ties among `keyed` (sorted by angle), each with the
-/// distance its probe must reach. Neighbours within the angular
-/// tolerance are tied; so are neighbours `θ` apart whose cross-section
-/// curvatures, `Δκ` apart, bring them back across each other within the
-/// linear tolerance: the lens between them is at most `θ² / 2Δκ` thick,
-/// and where that is within the tolerance the faces are tangent at the
-/// model's resolution (two cylinders on a ruling overlapping by 5e-7
+/// distance its probe must reach. Neighbours `θ` apart are tied where
+/// the gap they open within the edge's feature length is within the
+/// linear tolerance ([`tangent_gap`]; a bare angular tie ordered two
+/// balls of radius 1000 crossing at 9e-5 rad by curvature, as if they
+/// touched, and their lens two tolerances thick read as in neither,
+/// SS-E 695): where their cross-section curvatures, `Δκ` apart, bring
+/// them back across each other, the lens between them is at most
+/// `θ² / 2Δκ` thick, and where that is within the tolerance the faces
+/// are tangent at the model's resolution (two cylinders on a ruling overlapping by 5e-7
 /// cross at 1.4e-3 rad and recross 1.3e-3 away; ordered by the crossing,
 /// the wedge between them lay in both solids). A tie is probed beyond
 /// the lens its faces can enclose, twice its width with the faces up to
@@ -406,10 +409,13 @@ fn tie_runs(keyed: Vec<Key>, kappa: &[Option<f64>], scale: &EdgeScale) -> Vec<(V
         } else {
             0.0
         };
-        if gap <= scale.tie_angle {
-            return Some(beyond);
-        }
-        (dk > 0.0 && gap * gap <= 2.0 * scale.linear * dk).then_some(beyond)
+        // A tangent touch by distance: inside the open tangency band, so a
+        // lens exactly a tolerance thick (the near-tangent cap casting's
+        // boss 1e-6 off the rim) is a crossing.
+        let band = crate::tolerance::Tolerance::default()
+            .with_linear(scale.linear)
+            .tangency_band(0.0);
+        (tangent_gap(gap, dk, scale.feature) < band).then_some(beyond)
     };
     let mut out: Vec<(Vec<Key>, f64)> = Vec::new();
     for k in keyed {

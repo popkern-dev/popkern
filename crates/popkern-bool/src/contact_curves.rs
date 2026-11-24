@@ -28,20 +28,31 @@ pub(crate) struct Touches {
 const STATIONS: [f64; 5] = [0.1, 0.3, 0.5, 0.7, 0.9];
 
 /// Whether `record`'s faces are tangent along it at the model's
-/// resolution: at every station the normals are parallel within
-/// `angular`, or the angle `θ` between them and their cross-section
-/// curvatures across the record, `Δκ` apart, enclose a lens no thicker
-/// than the linear tolerance (`θ² ≤ 2·linear·Δκ`, the radial order's
-/// rule): two faces overlapping by 5e-7 along a ruling meet in a record
-/// crossing at 1.4e-3 rad, tangent within the tolerance.
+/// resolution: at every station the gap the faces open within the
+/// smaller face's extent, crossing at the angle between their normals
+/// with their cross-section curvatures across the record, is inside the
+/// tangency band (`radial_order::tangent_gap` against
+/// `Tolerance::tangency_band`, the radial order's rule: two faces
+/// overlapping by 5e-7 along a ruling meet in a record crossing at
+/// 1.4e-3 rad, tangent within the tolerance). A length,
+/// never a bare angle: two balls of radius 1000 overlapping by two
+/// tolerances cross at 9e-5 rad, under the angular tolerance, round a
+/// lens two tolerances thick (SS-E 695, its common served empty).
 pub(crate) fn is_contact_curve(
     record: &IntersectionRecord,
     (a, b): (&BRep, &BRep),
-    (linear, angular): (f64, f64),
+    tolerance: &popkern_core::tolerance::Tolerance,
 ) -> bool {
     let (Some(sa), Some(sb)) = (surface_of(a, record.face_a), surface_of(b, record.face_b)) else {
         return false;
     };
+    let diagonal = |brep: &BRep, face| {
+        crate::face_box::face_aabb(brep, face).map(|bx| bx.min.distance_to(&bx.max))
+    };
+    let (Some(la), Some(lb)) = (diagonal(a, record.face_a), diagonal(b, record.face_b)) else {
+        return false;
+    };
+    let extent = la.min(lb);
     let c = &record.curve;
     let (t0, t1) = c.curve_3d.parameter_range();
     STATIONS.iter().all(|&f| {
@@ -55,9 +66,6 @@ pub(crate) fn is_contact_curve(
             return false;
         };
         let theta = n1.cross(&n2).length().min(1.0).pasin();
-        if theta <= angular {
-            return true;
-        }
         let Some(d) = n1.cross(&t).normalized() else {
             return false;
         };
@@ -66,7 +74,8 @@ pub(crate) fn is_contact_curve(
         let (Some(k1), Some(k2)) = (k(sa, (q1.x, q1.y)), k(sb, (q2.x, q2.y))) else {
             return false;
         };
-        theta * theta <= 2.0 * linear * (k1 - k2).abs()
+        let gap = popkern_core::topology::radial_order::tangent_gap(theta, k1 - k2, extent);
+        gap < tolerance.tangency_band(0.0)
     })
 }
 

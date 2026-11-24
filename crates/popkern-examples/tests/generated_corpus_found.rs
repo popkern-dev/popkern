@@ -406,3 +406,35 @@ fn a_face_poking_two_tolerances_out_of_a_cylinder_is_the_difference() {
         r#"{"cell":{"a":"Y","b":"W","config":"I"},"seed":1,"index":10119266,"variant_a":2,"variant_b":0,"b_scale":0.40232397583138585,"place_b":[[-0.8947263483104846,-0.33602021945703553,0.29420260664214304,-0.05217449848457992],[0.39487308807053245,-0.28740937804045164,0.8726231109316569,0.8299853735514711],[-0.20866242104563848,0.896931581298399,0.3898380849954585,0.8417544110160429],[0.0,0.0,0.0,1.0]],"scene":[[0.9574894912257182,-0.22504864431420785,-0.18046324247517087,2.562994337473431],[0.1469387004650064,0.9188458562920356,-0.36623941715851815,2.872193724031005],[0.24823958688728576,0.32415335887091024,0.9128536067928618,-2.670827994749872],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.8835525202391548,3.606880609180644,-1.6281275147283232],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 4785b1bc (W3 E cells, tangency design §4.8): a ball sunk 2e-3 (two thousand tolerances) into the dome block met it in a loop no grid seeded, the overlap rescue taking only gap extrema within the near-miss band: `ContactSearch::deep_extrema`.
+#[test]
+fn a_ball_sunk_two_thousandths_into_a_dome_block_has_a_common() {
+    passes(
+        r#"{"cell":{"a":"S","b":"W","config":"E"},"seed":1,"index":10090000,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[-0.8491561853401277,-0.5213974580218064,0.08413360605014483,0.6047229711531775],[0.2128936387294195,-0.19213779721544821,0.957997581139818,-2.047974690562493],[-0.4833322578590732,0.8314010810972006,0.27415720100565716,0.9518319153768766],[0.0,0.0,0.0,1.0]],"scene":[[1.0,0.0,0.0,0.0],[0.0,1.0,0.0,0.0],[0.0,0.0,1.0,0.0],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-2000.0,"rung":{"offset":-2.0,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[0.22712174753616193,-1.31847915895032,0.4123450244755898],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 4785b1bc (W3 E cells, tangency design §4.8): at a thousandth scale the chart normals' bare cross product fell under the solver tolerance along the loop, and every march step was taken for a tangency and stalled: the march reads the sine of their angle.
+#[test]
+fn a_ball_two_tolerances_into_a_dome_block_a_thousandth_the_size_has_a_common() {
+    passes(
+        r#"{"cell":{"a":"S","b":"W","config":"E"},"seed":1,"index":10103117,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[-0.24003518631147092,-0.5954221841208397,-0.766717374258068,1.3098247789638253],[0.7599893001791891,0.3761393190860052,-0.5300334671043544,0.4357543648518386],[0.6039862357252556,-0.709923682725323,0.3622278174852822,-1.8137577102904214],[0.0,0.0,0.0,1.0]],"scene":[[0.0007105564791905208,-0.0007007353451474319,-0.00006387069704865744,0.00043588338040684294],[-0.0006601929942073561,-0.0006953323186660388,0.00028400383275237,0.0023330453661734715],[-0.00024342288364058456,-0.0001596337767504733,-0.0009566934498785295,-0.0007008676888754381],[0.0,0.0,0.0,1.0]],"scale":0.001,"offset":-10.0,"rung":{"offset":-10.0,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[0.0008019315506891076,0.0012247837269406443,0.0000722848678932585],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 4785b1bc (W3 E cells, tangency design §4.8): balls of radius 1000 two tolerances deep cross at 9e-5 rad, under the angular tolerance: read as a contact curve, then tied in the radial order as at a touch, the common served empty (`radial_order::tangent_gap`).
+#[test]
+fn balls_a_thousand_across_two_tolerances_deep_have_a_common() {
+    passes(
+        r#"{"cell":{"a":"S","b":"S","config":"E"},"seed":1,"index":10109171,"variant_a":1,"variant_b":0,"b_scale":1.0,"place_b":[[-0.4512394650464858,0.3445869256765835,-0.8231906193812719,-0.3341336438972987],[-0.881865737983599,-0.3135165797254866,0.35216498180238637,-2.005550228449547],[-0.13673245904028686,0.8848543410584555,0.4453504572298123,0.2619598842988812],[0.0,0.0,0.0,1.0]],"scene":[[64.45325217480003,190.57836878256606,979.5538084435525,-2306.999290974127],[-851.016778104628,-502.14487374322005,153.69114859946907,-683.8728272998012],[521.1681318619836,-843.5226203994662,129.82051920212,2660.039239350369],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-2389.5449944914862,63.173354730185906,3530.446160706836],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 4785b1bc (W3 E cells, tangency design §4.8): a cylinder and a ball at a scale of a thousand crossing under the angular tolerance round a lens two tolerances thick, the record read as a contact curve and the faces tied in the radial order (`radial_order::tangent_gap`).
+#[test]
+fn a_cylinder_and_a_ball_a_thousand_across_two_tolerances_deep_have_a_common() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"S","config":"E"},"seed":1,"index":10090000,"variant_a":2,"variant_b":2,"b_scale":1.0,"place_b":[[-0.3618144363038481,0.18134259905050742,0.914442549016468,-1.2419135846239402],[-0.5186004747548474,-0.8542675706703975,-0.03578358960395531,-2.284217729973769],[0.7746895257238062,-0.48717735935745643,0.40313069749563857,-1.1000790176885944],[0.0,0.0,0.0,1.0]],"scene":[[994.2850882813045,-102.71184738346798,29.110816349142482,114.69499030430441],[101.32211490764006,993.8008081586745,45.75787073071142,2271.007410008876],[-33.63022824902182,-42.54679905986691,998.5283058770432,-1797.5555147054072],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-378.95994765222247,1114.8744109110255,-2831.8838647890984],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

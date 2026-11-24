@@ -107,6 +107,25 @@ pub fn runs<T>(members: Vec<T>, key: impl Fn(&T) -> f64, tie: f64) -> Vec<Vec<T>
     out
 }
 
+/// The widest gap two faces leaving one line open within `extent` of
+/// it, crossing there at the angle `theta` with cross-section
+/// curvatures `dk` apart: they separate as `θ·r − Δκ·r²/2`, the lens
+/// `θ²/(2Δκ)` where it closes within `extent` (`θ ≤ Δκ·extent`), else
+/// the gap at `extent` (a wedge `θ·extent` between faces of one
+/// curvature). Inside the tangency band the faces are tangent at the
+/// model's resolution; the angle alone never decides it, since two
+/// balls of radius 1000 overlapping by two tolerances cross at 9e-5
+/// rad, under the angular tolerance, round a lens two tolerances thick
+/// (SS-E 695).
+pub fn tangent_gap(theta: f64, dk: f64, extent: f64) -> f64 {
+    let (theta, dk) = (theta.abs(), dk.abs());
+    if dk > 0.0 && theta <= dk * extent {
+        theta * theta / (2.0 * dk)
+    } else {
+        theta * extent - 0.5 * dk * extent * extent
+    }
+}
+
 #[cfg(test)]
 #[path = "ladder_tests.rs"]
 mod tests;

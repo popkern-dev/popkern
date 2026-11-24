@@ -137,3 +137,77 @@ fn a_ball_poking_through_a_cone_from_inside_meets_it_in_a_small_loop() {
     let r = intersect_surfaces(&b, ws.0, ws.1, &a, w.0, w.1, &tol).expect("intersect");
     assert!(r.intersections.is_empty(), "{:?}", r.intersections.len());
 }
+
+/// Overlapping past the near-miss band (three hundred tolerances), the
+/// same cones still meet in a loop no grid holds: the overlap's deepest
+/// point is a critical point of the gap the contact search keeps beside
+/// its near misses (SW-E 759: a ball sunk two thousandths into a dome
+/// block met it in no seed, its common served empty).
+#[test]
+fn cones_overlapping_past_the_near_miss_band_meet_in_a_loop() {
+    let tol = Tolerance::default();
+    for depth in [300.0, 1000.0, 3000.0] {
+        let (a, b) = crossed_cones(depth * tol.linear());
+        let w = ((0.0, std::f64::consts::TAU), (0.0, 4.0));
+        let r = intersect_surfaces(&a, w.0, w.1, &b, w.0, w.1, &tol).expect("intersect");
+        let closed = r
+            .intersections
+            .iter()
+            .filter(|i| matches!(i, SurfaceSurfaceIntersection::Curve(c) if c.is_closed))
+            .count();
+        assert_eq!(
+            closed,
+            1,
+            "one loop at {depth} tolerances: {}",
+            r.intersections.len()
+        );
+    }
+}
+
+/// A ball poking out of a cone, a thousandth the size: the chart
+/// normals carry the charts' speeds (the ball's its radius squared), so
+/// their cross product along the loop fell under the solver tolerance
+/// though the surfaces cross at a tenth of a radian, and every march
+/// step was taken for a tangency and stalled (SW-E 765: a ball against
+/// a dome block at that scale fitted no loop, its common served empty).
+#[test]
+fn a_ball_poking_through_a_cone_a_thousandth_the_size_meets_it_in_a_loop() {
+    let tol = Tolerance::default();
+    let s = 1e-3;
+    let (a, b) = ball_in_cone(10.0 * tol.linear() / s);
+    let (a, b) = match (a, b) {
+        (
+            SurfaceGeometry::Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+            SurfaceGeometry::Sphere {
+                center,
+                radius,
+                axis: sphere_axis,
+            },
+        ) => (
+            SurfaceGeometry::Cone {
+                apex: Point3::new(apex.x * s, apex.y * s, apex.z * s),
+                axis,
+                half_angle,
+            },
+            SurfaceGeometry::Sphere {
+                center: Point3::new(center.x * s, center.y * s, center.z * s),
+                radius: radius * s,
+                axis: sphere_axis,
+            },
+        ),
+        _ => unreachable!("a cone and a ball"),
+    };
+    let w = ((0.0, std::f64::consts::TAU), (0.0, 4.0 * s));
+    let ws = ((0.0, std::f64::consts::TAU), (0.0, std::f64::consts::PI));
+    let r = intersect_surfaces(&b, ws.0, ws.1, &a, w.0, w.1, &tol).expect("intersect");
+    let closed = r
+        .intersections
+        .iter()
+        .filter(|i| matches!(i, SurfaceSurfaceIntersection::Curve(c) if c.is_closed))
+        .count();
+    assert_eq!(closed, 1, "one loop: {}", r.intersections.len());
+}

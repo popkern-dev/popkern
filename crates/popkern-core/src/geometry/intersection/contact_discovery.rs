@@ -66,6 +66,12 @@ pub struct ContactSearch {
     pub contacts: Vec<SurfaceContact>,
     /// Near misses within `NEAR_MISS_FACTOR` tolerances.
     pub near_misses: Vec<NearMiss>,
+    /// Critical points of the signed gap past the near-miss band. Where
+    /// the gap there has the opposite sign to the gap round it the
+    /// surfaces overlap in a loop round it, which can be smaller than a
+    /// curve search's grid (a ball sunk two thousandths into a dome met
+    /// in no seed, SW-E 759).
+    pub deep_extrema: Vec<NearMiss>,
 }
 
 /// Grid stations per direction over the first window.
@@ -131,21 +137,23 @@ pub fn find_surface_contacts(
             },
         );
     }
-    for m in back.near_misses {
-        // On s1, at the foot of the point found on s2.
-        let Some(point) = s1
-            .closest_point(&m.point)
-            .and_then(|c| into_window(s1, c, w1))
-            .map(|c| s1.point_at(c.0, c.1))
-        else {
-            continue;
-        };
-        if !out
-            .near_misses
-            .iter()
-            .any(|o| o.point.distance_to(&point) <= near)
-        {
-            out.near_misses.push(NearMiss { point, gap: m.gap });
+    let lists = [
+        (back.near_misses, &mut out.near_misses),
+        (back.deep_extrema, &mut out.deep_extrema),
+    ];
+    for (found, list) in lists {
+        for m in found {
+            // On s1, at the foot of the point found on s2.
+            let Some(point) = s1
+                .closest_point(&m.point)
+                .and_then(|c| into_window(s1, c, w1))
+                .map(|c| s1.point_at(c.0, c.1))
+            else {
+                continue;
+            };
+            if !list.iter().any(|o| o.point.distance_to(&point) <= near) {
+                list.push(NearMiss { point, gap: m.gap });
+            }
         }
     }
     out.contacts.sort_by(|a, b| {
@@ -260,13 +268,16 @@ fn one_sided(
         };
         let point = s1.point_at(uv1.0, uv1.1);
         if g0.abs() > scale.linear {
-            if g0.abs() <= NEAR_MISS_FACTOR * scale.linear
-                && !out
-                    .near_misses
-                    .iter()
-                    .any(|m| m.point.distance_to(&point) <= 10.0 * scale.linear)
+            let list = if g0.abs() <= NEAR_MISS_FACTOR * scale.linear {
+                &mut out.near_misses
+            } else {
+                &mut out.deep_extrema
+            };
+            if !list
+                .iter()
+                .any(|m| m.point.distance_to(&point) <= 10.0 * scale.linear)
             {
-                out.near_misses.push(NearMiss { point, gap: g0 });
+                list.push(NearMiss { point, gap: g0 });
             }
             continue;
         }

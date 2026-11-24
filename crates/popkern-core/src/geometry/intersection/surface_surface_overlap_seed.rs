@@ -104,11 +104,28 @@ fn push_overlap_seeds(
         if tolerance.within_linear(miss.gap.abs()) {
             continue;
         }
-        for seed in loop_seeds(s1, s2, miss.point, extent, tolerance) {
+        for seed in loop_seeds(s1, s2, miss.point, extent, false, tolerance) {
+            seeds.push((seed, false));
+        }
+    }
+    // Past the near-miss band too: an overlap thousands of tolerances
+    // deep still meets in a loop no grid seeded (SW-E 759). Such an
+    // extremum is an overlap only where the loop encloses it, every ray
+    // crossing, within the contact grid's spacing (a larger loop the
+    // grids hold): a far extremum's rays otherwise ran into crossings
+    // elsewhere in the window, off the faces' trims (a kilometre dimple
+    // served self-intersecting).
+    for miss in search.deep_extrema {
+        let reach = extent / DEEP_LOOP_GRID;
+        for seed in loop_seeds(s1, s2, miss.point, reach, true, tolerance) {
             seeds.push((seed, false));
         }
     }
 }
+
+/// The contact search's grid stations per direction: a deep extremum's
+/// loop is seeded only within its spacing.
+const DEEP_LOOP_GRID: f64 = 24.0;
 
 /// The diagonal of `s` sampled at its window's corners and middle.
 fn window_extent(s: &SurfaceGeometry, ((u0, u1), (v0, v1)): Window) -> f64 {
@@ -138,12 +155,14 @@ fn gap_at(s1: &SurfaceGeometry, s2: &SurfaceGeometry, p: Point3) -> Option<(f64,
     Some(((q - s2.point_at(uv2.0, uv2.1)).dot(&n), uv1, uv2))
 }
 
-/// Seeds where rays from the overlap's deepest point `at` cross the loop.
+/// Seeds where rays from the overlap's deepest point `at` cross the loop
+/// within `extent`; none unless every ray crosses when `enclosed`.
 fn loop_seeds(
     s1: &SurfaceGeometry,
     s2: &SurfaceGeometry,
     at: Point3,
     extent: f64,
+    enclosed: bool,
     tolerance: &Tolerance,
 ) -> Vec<MarchSample> {
     let Some((g0, uv1, _)) = gap_at(s1, s2, at) else {
@@ -157,10 +176,12 @@ fn loop_seeds(
     for k in 0..RAYS {
         let a = std::f64::consts::TAU * k as f64 / RAYS as f64;
         let d = e1 * a.pcos() + e2 * a.psin();
-        if let Some(seed) = ray_crossing(s1, s2, at, d, g0.signum(), extent, tolerance)
+        match ray_crossing(s1, s2, at, d, g0.signum(), extent, tolerance)
             .and_then(|s| solve_seed(s1, s2, at, s, d, n, tolerance))
         {
-            out.push(seed);
+            Some(seed) => out.push(seed),
+            None if enclosed => return Vec::new(),
+            None => {}
         }
     }
     out

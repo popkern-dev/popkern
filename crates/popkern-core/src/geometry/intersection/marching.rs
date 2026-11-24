@@ -146,8 +146,11 @@ pub(crate) fn march_one_direction(
         let t_raw = n1.cross(&n2);
         let t_len = t_raw.length();
 
-        // Check tangency: surfaces are tangent when cross product is near zero.
-        let t_normalized = if t_len < epsilon {
+        // Tangent where the normals' angle has a near-zero sine. Chart
+        // normals carry the charts' speeds: at a thousandth scale the
+        // bare |N1 x N2| read 3e-13 at a 0.17 crossing and the march
+        // stalled at the tolerance step (SW-E 765).
+        let t_normalized = if t_len < epsilon * n1.length() * n2.length() {
             let angle = n1.angle_to(&n2);
             if handler.on_tangent_during_march(&current.point, angle) {
                 termination = "tangency";
