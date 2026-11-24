@@ -342,8 +342,13 @@ pub(super) fn sample_and_classify(
     // `None` = orientation unknown (no planar outward normal);
     // the uncalibrated rules apply.
     let mut cooriented: Option<bool> = None;
+    let side = || {
+        super::near_face_side::clear_side(other_brep, other_aabbs, &sample, probe_eps, tolerance)
+    };
     let class = if !needs_offset_pair {
         classify_against(ctx, &sample, other_brep, other_aabbs, tolerance)
+    } else if let Some(c) = side() {
+        c
     } else {
         use popkern_core::geometry::surface::SurfaceEval;
         let own_brep = match fragment.face.operand {

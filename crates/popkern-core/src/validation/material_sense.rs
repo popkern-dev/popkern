@@ -112,8 +112,20 @@ impl BRep {
     /// band drops a margin of every face from the integral, a tenth of
     /// a unit cube's at a 1e-2 tolerance (measured: a cube less a
     /// sphere read −1.08 where it encloses +0.2).
+    ///
+    /// A shell with a face the grid finds no sample in is not judged:
+    /// its term is missing, and the sum's sign is the rest's (a lens two
+    /// tolerances deep, honestly wound, read negative because its NURBS
+    /// face's window was the whole patch and the grid never landed in
+    /// the lens: YW-I 1396).
     pub fn enclosed_folded_volume(&self, faces: &[FaceHandle]) -> Option<f64> {
-        self.wedge_integral(&unsigned(faces), 12, 1.0e-12)
+        let (wedge, magnitude, unsampled) = self.wedge_parts(&unsigned(faces), 12, 1.0e-12)?;
+        let volume = wedge / 3.0;
+        let linear = self.tolerance.linear();
+        (unsampled == 0
+            && wedge.abs() >= 1e-6 * magnitude
+            && volume.abs() >= linear * linear * linear)
+            .then_some(volume)
     }
 
     /// [`BRep::enclosed_folded_volume`] of face sides: each face counted
@@ -143,6 +155,32 @@ impl BRep {
         grid: usize,
         classify_band: f64,
     ) -> Option<f64> {
+        let (wedge, magnitude, _) = self.wedge_parts(faces, grid, classify_band)?;
+        // Indeterminate when the integral cancels to a sliver of its
+        // own terms (an open sheet, a degenerate body), or encloses
+        // less than a tolerance cube. The floor is relative: an
+        // absolute (100 · linear)³ read a 0.34-volume cone as
+        // indeterminate at a 1e-2 tolerance.
+        // The volume is a third of the wedge integral (the divergence
+        // of p is 3): read whole, every magnitude was three times the
+        // volume (a unit cube 3.0), which the sign checks never saw.
+        let volume = wedge / 3.0;
+        let linear = self.tolerance.linear();
+        if wedge.abs() < 1e-6 * magnitude || volume.abs() < linear * linear * linear {
+            return None;
+        }
+        Some(volume)
+    }
+
+    /// The wedge integral's sum, the sum of its terms' magnitudes, and
+    /// how many of `faces` the grid found no sample in (see
+    /// [`Self::wedge_integral`]); `None` when nothing was sampled.
+    fn wedge_parts(
+        &self,
+        faces: &[(FaceHandle, f64)],
+        grid: usize,
+        classify_band: f64,
+    ) -> Option<(f64, f64, usize)> {
         // The wedge integral of a closed surface is the same about any
         // centre, but the coarse grid leaves a residual ∫n dA ≠ 0 that
         // the centre multiplies: about the world origin, a thin body
@@ -167,30 +205,24 @@ impl BRep {
         };
         let mut wedge = 0.0;
         let mut magnitude = 0.0;
-        let sampled = self.sample_sides(faces, grid, classify_band, &mut |sign, p, n_da| {
-            // p · n dA about the centre (the volume is a third of it).
-            let r = p - crate::geometry::Point3::new(centre.x, centre.y, centre.z);
-            let contribution = sign * r.dot(&n_da);
-            wedge += contribution;
-            magnitude += contribution.abs();
-        });
+        let mut unsampled = 0usize;
+        let sampled = self.sample_sides(
+            faces,
+            grid,
+            classify_band,
+            &mut unsampled,
+            &mut |sign, p, n_da| {
+                // p · n dA about the centre (the volume is a third of it).
+                let r = p - crate::geometry::Point3::new(centre.x, centre.y, centre.z);
+                let contribution = sign * r.dot(&n_da);
+                wedge += contribution;
+                magnitude += contribution.abs();
+            },
+        );
         if sampled == 0 {
             return None;
         }
-        // Indeterminate when the integral cancels to a sliver of its
-        // own terms (an open sheet, a degenerate body), or encloses
-        // less than a tolerance cube. The floor is relative: an
-        // absolute (100 · linear)³ read a 0.34-volume cone as
-        // indeterminate at a 1e-2 tolerance.
-        // The volume is a third of the wedge integral (the divergence
-        // of p is 3): read whole, every magnitude was three times the
-        // volume (a unit cube 3.0), which the sign checks never saw.
-        let volume = wedge / 3.0;
-        let linear = self.tolerance.linear();
-        if wedge.abs() < 1e-6 * magnitude || volume.abs() < linear * linear * linear {
-            return None;
-        }
-        Some(volume)
+        Some((wedge, magnitude, unsampled))
     }
 
     /// Visit every interior sample of `faces` on a `grid` × `grid` grid
@@ -203,11 +235,13 @@ impl BRep {
         faces: &[(FaceHandle, f64)],
         grid: usize,
         classify_band: f64,
+        unsampled: &mut usize,
         integrand: &mut dyn FnMut(f64, crate::geometry::Point3, crate::geometry::Vec3),
     ) -> usize {
         let band = self.sense_parametric_band();
         let mut sampled = 0usize;
-        for &(face, sign) in faces {
+        let mut hit = vec![false; faces.len()];
+        for (k, &(face, sign)) in faces.iter().enumerate() {
             let Some(sof) = self.faces.get(face).and_then(|f| f.surface.as_ref()) else {
                 continue;
             };
@@ -275,9 +309,11 @@ impl BRep {
                     // n dA = folded * du * dv.
                     integrand(sign, p, folded * (du * dv));
                     sampled += 1;
+                    hit[k] = true;
                 }
             }
         }
+        *unsampled += hit.iter().filter(|h| !**h).count();
         sampled
     }
 
@@ -287,7 +323,7 @@ impl BRep {
     /// [`BRep::enclosed_signed_volume`] is; `q` must lie off the faces.
     pub fn winding_about(&self, sides: &[(FaceHandle, f64)], q: crate::geometry::Point3) -> f64 {
         let mut flux = 0.0;
-        self.sample_sides(sides, 12, 1.0e-12, &mut |sign, p, n_da| {
+        self.sample_sides(sides, 12, 1.0e-12, &mut 0, &mut |sign, p, n_da| {
             let r = p - q;
             let d = r.dot(&r).sqrt();
             if d > 1e-12 {
@@ -328,7 +364,9 @@ impl BRep {
     /// grid, the one nearest their mean.
     pub(crate) fn face_interior_sample(&self, face: FaceHandle) -> Option<crate::geometry::Point3> {
         let mut points = Vec::new();
-        self.sample_sides(&[(face, 1.0)], 6, 1.0e-12, &mut |_, p, _| points.push(p));
+        self.sample_sides(&[(face, 1.0)], 6, 1.0e-12, &mut 0, &mut |_, p, _| {
+            points.push(p)
+        });
         let n = points.len() as f64;
         let mean = points
             .iter()

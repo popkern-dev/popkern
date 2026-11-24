@@ -86,3 +86,54 @@ fn cones_apart_by_ten_tolerances_meet_nowhere() {
     let r = intersect_surfaces(&a, w.0, w.1, &b, w.0, w.1, &tol).expect("intersect");
     assert!(r.intersections.is_empty(), "{:?}", r.intersections.len());
 }
+
+/// A ball touching a cone's wall from inside at a point (normals aligned,
+/// the ball's radius under the wall's), pushed `depth` out through it.
+fn ball_in_cone(depth: f64) -> (SurfaceGeometry, SurfaceGeometry) {
+    let half: f64 = 0.3;
+    let a = SurfaceGeometry::Cone {
+        apex: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        half_angle: half,
+    };
+    let z = Vec3::new(0.0, 0.0, 1.0);
+    let p = Point3::new(0.0, 0.0, 0.0)
+        + turn(Vec3::new(2.0 * half.psin(), 0.0, 2.0 * half.pcos()), z, 1.0);
+    let n = turn(Vec3::new(half.pcos(), 0.0, -half.psin()), z, 1.0);
+    let r = 0.3;
+    let b = SurfaceGeometry::Sphere {
+        center: p - n * (r - depth),
+        radius: r,
+        axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    (a, b)
+}
+
+/// Pushed two tolerances out through the cone's wall from inside, a ball
+/// meets it in a loop no starting-point grid holds: the gap's extremum there is a positive
+/// maximum (one surface inside the other), which the rescue once skipped
+/// for want of a negative gap (YW-I 1396: a W face poking out of a
+/// cylinder met in no seed, and B - A served empty). Pulled two
+/// tolerances in, it meets nothing.
+#[test]
+fn a_ball_poking_through_a_cone_from_inside_meets_it_in_a_small_loop() {
+    let tol = Tolerance::default();
+    let w = ((0.0, std::f64::consts::TAU), (0.0, 4.0));
+    let ws = ((0.0, std::f64::consts::TAU), (0.0, std::f64::consts::PI));
+    // The ball first, its gap read against the cone's outward normal
+    // (positive where it pokes out), as the W face came first in 1396.
+    let (a, b) = ball_in_cone(2.0 * tol.linear());
+    let r = intersect_surfaces(&b, ws.0, ws.1, &a, w.0, w.1, &tol).expect("intersect");
+    let closed: Vec<_> = r
+        .intersections
+        .iter()
+        .filter_map(|i| match i {
+            SurfaceSurfaceIntersection::Curve(c) if c.is_closed => Some(c),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(closed.len(), 1, "one loop: {:?}", r.intersections.len());
+    let (a, b) = ball_in_cone(-2.0 * tol.linear());
+    let r = intersect_surfaces(&b, ws.0, ws.1, &a, w.0, w.1, &tol).expect("intersect");
+    assert!(r.intersections.is_empty(), "{:?}", r.intersections.len());
+}

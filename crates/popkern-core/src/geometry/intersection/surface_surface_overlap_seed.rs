@@ -92,8 +92,16 @@ fn push_overlap_seeds(
         extent,
     };
     let search = find_surface_contacts(s1, w1, s2, w2, scale);
+    // Either sign: a loop surrounds a gap extremum whose value has the
+    // opposite sign to the gap round it, a negative minimum where the
+    // faces face each other (an external touch), a positive maximum where
+    // one runs inside the other (an internal touch: a W face poking two
+    // tolerances out of a cylinder it lies in, YW-I 1396, met in no seed
+    // while the negative-only filter skipped it). `loop_seeds` follows
+    // the gap's own sign out along its rays; a separation never changes
+    // sign there and seeds nothing.
     for miss in search.near_misses {
-        if tolerance.within_linear(-miss.gap) || miss.gap > 0.0 {
+        if tolerance.within_linear(miss.gap.abs()) {
             continue;
         }
         for seed in loop_seeds(s1, s2, miss.point, extent, tolerance) {

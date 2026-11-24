@@ -390,3 +390,19 @@ fn a_sphere_band_beside_a_tangent_cylinder_wall_keeps_its_orientation() {
         r#"{"cell":{"a":"Y","b":"S","config":"V"},"seed":1,"index":10114218,"variant_a":0,"variant_b":1,"b_scale":1.0,"place_b":[[0.6852917317265681,-0.2557907515328873,-0.6818697337889712,-0.18415873487767775],[0.0958205770200546,0.9598181775481833,-0.26375648440868327,0.2976309129983866],[0.7219374345791646,0.11541298661036778,0.6822654784429076,-0.19811314180261863],[0.0,0.0,0.0,1.0]],"scene":[[-0.04764093706020853,-0.9284524134689883,0.36838357324891163,-0.3502504889236526],[0.8898866777279665,-0.20696240507823416,-0.4065319958951759,-0.30733975659306356],[0.45368716305214946,0.3084520688986279,0.8360773165645918,1.3124876591175392],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[0.18834313824769267,0.28858266645390884,1.1279824086905004],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed in the baseline (W3 E cells, tangency design §4.8): a cylinder dipping two tolerances into a rounded bracket. The common is a lens two tolerances deep; its fragments, sampled at the contact, were classified by offset-pair probes a thousandth of the model either side, which straddled it, and the common served empty (`cellular/near_face_side.rs`: a sample past the reach but nearer than the probes takes the nearest face's side).
+#[test]
+fn a_lens_two_tolerances_deep_is_the_common() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"L","config":"E"},"seed":1,"index":10114221,"variant_a":1,"variant_b":2,"b_scale":1.0,"place_b":[[0.011718368546242886,0.9563358274219169,0.29203504075342107,-2.1277559809625513],[-0.5154145729174706,-0.2444908693723205,0.8213233424284668,0.17812106174195727],[0.8568608392632469,-0.16014368542906943,0.49004438794284705,-0.5003047559870308],[0.0,0.0,0.0,1.0]],"scene":[[0.7684009247085841,-0.6322680992212875,-0.09898014757562794,1.9320527159675809],[0.6337258340839409,0.7732997587334851,-0.01997624482597424,-2.4750951198152986],[0.08917166658533564,-0.04737651158363271,0.9948888782314131,-1.7039076188272733],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[1.13800880444805,-3.1343500820034143,-1.3877832696939894],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed in the baseline (W3 I cells, tangency design §4.8): a W face poking two tolerances out of the cylinder it lies in. The overlap rescue took only negative gaps, the extremum here is a positive maximum, no curve was found, and B - A served empty (`surface_surface_overlap_seed`: either sign); the lens then served, and the region-sense integral, whose grid never landed in its NURBS face, read it inside out (`BRep::enclosed_folded_volume`: a shell with an unsampled face is not judged).
+#[test]
+fn a_face_poking_two_tolerances_out_of_a_cylinder_is_the_difference() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"W","config":"I"},"seed":1,"index":10119266,"variant_a":2,"variant_b":0,"b_scale":0.40232397583138585,"place_b":[[-0.8947263483104846,-0.33602021945703553,0.29420260664214304,-0.05217449848457992],[0.39487308807053245,-0.28740937804045164,0.8726231109316569,0.8299853735514711],[-0.20866242104563848,0.896931581298399,0.3898380849954585,0.8417544110160429],[0.0,0.0,0.0,1.0]],"scene":[[0.9574894912257182,-0.22504864431420785,-0.18046324247517087,2.562994337473431],[0.1469387004650064,0.9188458562920356,-0.36623941715851815,2.872193724031005],[0.24823958688728576,0.32415335887091024,0.9128536067928618,-2.670827994749872],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-2.0,"rung":{"offset":-2.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.8835525202391548,3.606880609180644,-1.6281275147283232],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
