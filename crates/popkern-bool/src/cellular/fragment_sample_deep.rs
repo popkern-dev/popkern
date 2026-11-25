@@ -33,6 +33,33 @@ pub(super) fn decisive_sample(
     fragment: &Fragment,
     sample: Point3,
 ) -> Point3 {
+    // A point past the linear reach of the other operand reads its side
+    // decisively (one 3.8 tolerances clear decided a sector that its
+    // first sample, 2.8e-7 off, read wrong).
+    match best_clearance(ctx, fragment, sample) {
+        Some((c, p)) if c > ctx.tolerance.linear_reach() => p,
+        _ => sample,
+    }
+}
+
+/// Whether no point of `fragment` clears the other operand past the
+/// linear reach: a lens, every point of it within the tolerance of the
+/// other operand, whose own samples read its side by noise. Unknown
+/// (a fragment with holes, on a coincident overlap, without a chart
+/// polygon or wrapping its chart) is not a lens.
+pub(super) fn is_lens(ctx: &ClassifyCtx<'_>, fragment: &Fragment, sample: Point3) -> bool {
+    best_clearance(ctx, fragment, sample).is_some_and(|(c, _)| c <= ctx.tolerance.linear_reach())
+}
+
+/// The point of `fragment` clearing the other operand farthest, with
+/// its clearance, searched over a chart grid when `sample` lies within
+/// [`DECISIVE`] tolerances of it; `None` when the search does not run
+/// (the sample is clear, or the fragment is not searchable).
+fn best_clearance(
+    ctx: &ClassifyCtx<'_>,
+    fragment: &Fragment,
+    sample: Point3,
+) -> Option<(f64, Point3)> {
     let (own, other, other_aabbs) = match fragment.face.operand {
         Operand::A => (ctx.brep_a, ctx.brep_b, ctx.aabbs_b),
         _ /* B */ => (ctx.brep_b, ctx.brep_a, ctx.aabbs_a),
@@ -68,24 +95,19 @@ pub(super) fn decisive_sample(
     };
     let here = clearance(&sample);
     if here >= band || on_overlap || !fragment.inner_loops.is_empty() {
-        return sample;
+        return None;
     }
-    let Some(surface) = own
+    let surface = own
         .faces
         .get(fragment.face.face)
         .and_then(|f| f.surface.as_ref())
-        .map(|s| &s.geometry)
-    else {
-        return sample;
-    };
-    let Some(chart) = crate::merge::fragment_sample_interior::chart_polygon(
+        .map(|s| &s.geometry)?;
+    let chart = crate::merge::fragment_sample_interior::chart_polygon(
         ctx.graph,
         &fragment.outer_loop,
         &fragment.face,
         surface,
-    ) else {
-        return sample;
-    };
+    )?;
     let poly = &chart.polygon;
     let (mut lo, mut hi) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
     for &(u, v) in poly {
@@ -97,7 +119,7 @@ pub(super) fn decisive_sample(
         period.is_some_and(|p| p.is_finite() && p > 0.0 && span > 0.5 * p * k)
     };
     if wraps(hi.0 - lo.0, pu, chart.ku) || wraps(hi.1 - lo.1, pv, chart.kv) {
-        return sample;
+        return None;
     }
     let mut best = (here, sample);
     for i in 0..GRID {
@@ -114,14 +136,7 @@ pub(super) fn decisive_sample(
             }
         }
     }
-    // A point past the linear reach of the other operand reads its side
-    // decisively (one 3.8 tolerances clear decided a sector that its
-    // first sample, 2.8e-7 off, read wrong).
-    if best.0 > ctx.tolerance.linear_reach() {
-        best.1
-    } else {
-        sample
-    }
+    Some(best)
 }
 
 /// The diagonal of the fragment's outer loop nodes' box.

@@ -151,3 +151,119 @@ pub(crate) fn spans_closed_source(piece: &CurveOnSurface, source: &CurveOnSurfac
     let slack = 1e-9 * (s1 - s0).abs();
     source.is_closed && (p0 - s0).abs() <= slack && (p1 - s1).abs() <= slack
 }
+
+/// Whether `p`, the piece's `end`, is the open `source`'s own end there.
+/// The intersector stopped the curve at it; it is no clip crossing, and
+/// the far re-trim, which corrects a crossing's parameter, has nothing
+/// to correct (measured, CC-V 68: an arm of a tangent crossing, its own
+/// end at the crossing 4.4e-4 inside B's rim, was re-trimmed onto the
+/// rim's junction 6.8e-4 along it, and the arm became a stub along the
+/// rim).
+pub(crate) fn is_open_source_end(
+    source: &CurveOnSurface,
+    end: bool,
+    p: &popkern_core::geometry::Point3,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    let (s0, s1) = source.curve_3d.parameter_range();
+    !source.is_closed
+        && source
+            .curve_3d
+            .point_at(if end { s1 } else { s0 })
+            .distance_to(p)
+            <= tolerance.linear()
+}
+
+/// Whether `p`, the piece's `end`, is the open `source`'s own end at an
+/// exact touch of the two surfaces (their normals parallel within the
+/// angular tolerance): a tangent crossing the intersector refined and
+/// split its branches at. No refinement moves it: its branches pass
+/// within the tolerance of everything near it, a face boundary inside
+/// the touch's patch among them (measured, CC-V 64: an arm's own end at
+/// the crossing was dragged 3.1e-4 onto B's rim junction, and the arm's
+/// piece there closed on itself at the junction).
+pub(crate) fn is_exact_touch_end(
+    source: &CurveOnSurface,
+    end: bool,
+    p: &popkern_core::geometry::Point3,
+    (surf_a, surf_b): (
+        &popkern_core::geometry::surface::SurfaceGeometry,
+        &popkern_core::geometry::surface::SurfaceGeometry,
+    ),
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let normal = |s: &popkern_core::geometry::surface::SurfaceGeometry| {
+        let (u, v) = s.closest_point(p)?;
+        s.normal_at(u, v).normalized()
+    };
+    is_open_source_end(source, end, p, tolerance)
+        && normal(surf_a)
+            .zip(normal(surf_b))
+            .is_some_and(|(na, nb)| na.cross(&nb).length() <= tolerance.angular())
+}
+
+/// Whether `p` lies on a seam of `face` (an edge both of whose sides
+/// bound it) within ten tolerances, away from the seam's end vertices.
+/// An exact touch's end moves onto such a junction only: a seam is no
+/// boundary, and a crossing within the tolerance of its face's seam is
+/// on it, the seam's junction its chart copy (SW-V 836: a crossing
+/// 1e-5 off a sphere's seam joins the seam's vertex there). A pole, a
+/// seam's end, and another face's boundary are other places its arms
+/// reach as themselves (YS-V 1302, CC-V 64).
+pub(crate) fn on_seam_interior(
+    brep: &BRep,
+    face: FaceHandle,
+    p: &popkern_core::geometry::Point3,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    use popkern_core::geometry::curve::closest_point_in_window;
+    let near = 10.0 * tolerance.linear();
+    brep.edges.iter().any(|(_, e)| {
+        let Some(h) = brep.half_edges.get(e.half_edge) else {
+            return false;
+        };
+        let Some(m) = h.mate().and_then(|m| brep.half_edges.get(m)) else {
+            return false;
+        };
+        let face_of = |l| {
+            brep.loops
+                .get(l)
+                .map(|l: &popkern_core::topology::Loop| l.face)
+        };
+        if face_of(h.loop_) != Some(face) || face_of(m.loop_) != Some(face) {
+            return false;
+        }
+        let at_vertex = [h.origin, m.origin].into_iter().any(|v| {
+            brep.vertices
+                .get(v)
+                .is_some_and(|v| v.position.distance_to(p) <= near)
+        });
+        let Some(c) = e.curve.as_ref() else {
+            return false;
+        };
+        let (a, b) = (c.t_start.min(c.t_end), c.t_start.max(c.t_end));
+        let t = closest_point_in_window(&c.geometry, p, a, b);
+        !at_vertex && c.geometry.point_at(t).distance_to(p) <= near
+    })
+}
+
+/// Unit tangent at the piece's endpoint pointing OUTWARD (past the
+/// end), by an inside finite difference. Zero vector on degenerate
+/// spans — the caller's lateral test then reduces to the plain
+/// distance gate.
+pub(crate) fn endpoint_outward_tangent(
+    piece: &CurveOnSurface,
+    end: bool,
+) -> popkern_core::geometry::Vec3 {
+    let (t0, t1) = piece.curve_3d.parameter_range();
+    let span = t1 - t0;
+    let (t_at, t_in) = if end {
+        (t1, t1 - span * 1e-3)
+    } else {
+        (t0, t0 + span * 1e-3)
+    };
+    let d = piece.curve_3d.point_at(t_at) - piece.curve_3d.point_at(t_in);
+    d.normalized()
+        .unwrap_or(popkern_core::geometry::Vec3::zero())
+}

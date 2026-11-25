@@ -117,6 +117,7 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
             continue;
         }
         let p = endpoint(piece, end);
+        let touch = is_exact_touch_end(source, end, &p, (surf_a, surf_b), tolerance);
         // Outward unit tangent of the record at this endpoint: an
         // endpoint move ALONG it is a parameter re-trim of the same
         // curve, not a lateral drag — a shallow record × boundary
@@ -144,6 +145,14 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
         .into_iter()
         .flatten()
         .min_by(|x, y| x.distance_to(&p).total_cmp(&y.distance_to(&p)));
+        let on_seam = |r: &Point3| {
+            [(brep_a, face_a), (brep_b, face_b)]
+                .into_iter()
+                .any(|(b, f)| on_seam_interior(b, f, r, tolerance))
+        };
+        if touch && !refined.as_ref().is_some_and(on_seam) {
+            continue;
+        }
         // An endpoint already ON its exact junction (to tolerance) is
         // done: the far tier below exists for MISLOCATED crossings
         // and, run on an exact end, re-trims it onto the NEXT
@@ -200,6 +209,9 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
         // This endpoint's parameter ON THE SOURCE (the piece's own
         // parameter domain may have been re-fit by an earlier
         // refinement and no longer align with the source).
+        if is_open_source_end(source, end, &p, tolerance) {
+            continue;
+        }
         let Some(t_on_source) = project_onto_curve_dense(&source.curve_3d, &p) else {
             continue;
         };
@@ -243,29 +255,15 @@ pub(crate) fn endpoint(piece: &CurveOnSurface, end: bool) -> Point3 {
     piece.curve_3d.point_at(if end { t1 } else { t0 })
 }
 
-/// Unit tangent at the piece's endpoint pointing OUTWARD (past the
-/// end), by an inside finite difference. Zero vector on degenerate
-/// spans — the caller's lateral test then reduces to the plain
-/// distance gate.
-fn endpoint_outward_tangent(piece: &CurveOnSurface, end: bool) -> popkern_core::geometry::Vec3 {
-    let (t0, t1) = piece.curve_3d.parameter_range();
-    let span = t1 - t0;
-    let (t_at, t_in) = if end {
-        (t1, t1 - span * 1e-3)
-    } else {
-        (t0, t0 + span * 1e-3)
-    };
-    let d = piece.curve_3d.point_at(t_at) - piece.curve_3d.point_at(t_in);
-    d.normalized()
-        .unwrap_or(popkern_core::geometry::Vec3::zero())
-}
-
 /// Exact junction near `p`: the nearest boundary edge of `face`
 /// (within the slop band) intersected with `other_surface`.
 pub(crate) use crate::clip_boundary_edges::{
     boundary_edges, boundary_edges_outer, trim_boundary_edges,
 };
-use crate::clip_boundary_edges::{junction_window, spans_closed_source};
+use crate::clip_boundary_edges::{
+    endpoint_outward_tangent, is_exact_touch_end, is_open_source_end, junction_window,
+    on_seam_interior, spans_closed_source,
+};
 
 #[allow(clippy::too_many_arguments)]
 fn refine_against_face(

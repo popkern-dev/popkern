@@ -329,6 +329,9 @@ pub(super) fn classify_fragments_cellular(
         }
     }
 
+    let flags = (&degenerate[..], &deferred[..]);
+    super::lens_fragments::reclassify_lenses(&ctx, fragments, flags, &mut results);
+
     // Pass 3: selections in fragment order + witness vote collection.
     let mut selections = Vec::with_capacity(n);
     let mut witness_pending: Vec<(

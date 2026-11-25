@@ -67,3 +67,50 @@ fn a_domed_block_crossing_a_sphere_on_its_seam_closes() {
         r#"{"cell":{"a":"S","b":"W","config":"V"},"seed":1,"index":19175,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[-0.03625402174081305,-0.8031159891985973,0.594718718219946,0.44385294582728996],[-0.9972316808840123,-0.00958622204179621,-0.07373655123623157,-0.017837043952706126],[0.06492010897144798,-0.5957455935552726,-0.8005451687510279,-0.332512035544828],[0.0,0.0,0.0,1.0]],"scene":[[-0.04612104176668141,0.8843608290478449,-0.46451993881012754,1.4018083552165033],[-0.9846623354900848,0.038081153840133206,0.1702642381400629,-2.7403356973101625],[0.16826447805038336,0.46524805186912144,0.8690404568594142,2.413656601690593],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.5,"rung":{"offset":0.5,"scale":1.0,"steer_a":{"Seam":0.0},"steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.784765471380901,-3.9301898913705404,1.7831085511377607],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at ffcb5603 (W3 V cells, tangency design §4.8): two cones
+/// crossing at a tangent touch, half a tolerance into each other, with
+/// B's rim 4.4e-4 from the crossing. Two of the crossing's arms leave B's
+/// face across the rim within the touch's tolerance patch; the clip kept
+/// each arm's piece from the crossing to the rim, and the endpoint
+/// refinement's far re-trim then moved the piece's other end, the arm's
+/// own end at the crossing, onto the rim's junction: one arm became a
+/// stub along the rim, dead-ending on A's cone while it split B's, and
+/// every boolean declined (`clip_boundary_edges::is_open_source_end`:
+/// a record's own end is no crossing to re-trim).
+#[test]
+fn a_cone_crossing_a_cone_beside_its_rim_closes() {
+    passes(
+        r#"{"cell":{"a":"C","b":"C","config":"V"},"seed":1,"index":10095045,"variant_a":2,"variant_b":1,"b_scale":1.0,"place_b":[[0.48909022849169576,0.8697944183651308,-0.06517989087751325,-0.26700692395650927],[-0.7930041636351831,0.47453979834844834,0.3820423749280669,0.619322909531233],[0.3632287775647801,-0.1351652675959234,0.921843373672837,-0.24864169190636987],[0.0,0.0,0.0,1.0]],"scene":[[0.6473771445111265,0.522207018653795,-0.5551600331736202,-0.9161053123890781],[-0.26730379638866175,0.8376897416714346,0.4762610388585802,2.3604793648239886],[0.7137587219788133,-0.15992412690760624,0.6818891115364807,-2.428106078625263],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-0.5,"rung":{"offset":-0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-1.0974600930854885,2.0440189707067415,-4.142888228331109],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at ffcb5603 (W3 V cells, tangency design §4.8): a cylinder
+/// crossing a ball at their touch 1e-5 from the ball's pole. The arms of
+/// the crossing end at it, and the endpoint refinement's near tier
+/// dragged their own ends there 1e-5 onto the junction at the pole, as
+/// it corrects a clip crossing's fit slop
+/// (`clip_boundary_edges::is_exact_touch_end`: an end at an exact touch
+/// of the two surfaces is no crossing to refine).
+#[test]
+fn a_cylinder_crossing_a_ball_beside_its_pole_closes() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"S","config":"V"},"seed":1,"index":20183,"variant_a":0,"variant_b":2,"b_scale":1.0,"place_b":[[0.8257437675475344,-0.13022101943485498,0.548807540449064,-0.3292811310233435],[-0.5421083200707377,0.08548851249779363,0.8359487326032603,-0.501571467242693],[-0.1557748364354346,-0.9877925897313979,-2.2916917654570133e-6,0.9612752185995364],[0.0,0.0,0.0,1.0]],"scene":[[0.41006791400245285,0.05853394084970309,0.9101747544698657,-2.1470702197160643],[0.5316841989687351,0.7954898825983172,-0.29070218308552476,-1.2323324991984252],[-0.7410507529667933,0.603133173065716,0.29508330531399035,-1.035982201217023],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":{"Pole":9.999999999999999e-6}},"aligned":true,"shift":0.0,"contact":[-1.0529596754964736,-0.7463525011576977,-0.6743254517633015],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at ffcb5603 (W3 V cells, tangency design §4.8): two cones
+/// crossing at a tangent touch with B's rim 3e-4 from it, touching A's
+/// cone. The arms' own ends at the crossing were dragged onto the rim's
+/// junction (`clip_boundary_edges::is_exact_touch_end`); kept, two arms
+/// of the crossing run to the rim's touch and bound a lens
+/// 1e-7 deep on both cones, whose samples read their side by noise: A's
+/// read Outside beside an Outside neighbour across an arm, and the union
+/// kept both sides of the lens (`lens_fragments`: a lens takes the side
+/// its neighbours across its records agree on).
+#[test]
+fn a_cone_crossing_a_cone_at_its_rims_touch_closes() {
+    passes(
+        r#"{"cell":{"a":"C","b":"C","config":"V"},"seed":1,"index":10090011,"variant_a":2,"variant_b":1,"b_scale":1.0,"place_b":[[-0.10503805547028794,0.9794379949888413,-0.1722446541267949,-0.4798520087985809],[-0.49165643982119356,0.09940964411194615,0.8650963344274935,1.4483270373780548],[0.8644309990307901,0.1755532301889507,0.4711052019293095,-1.0662028081044626],[0.0,0.0,0.0,1.0]],"scene":[[0.1449435143685564,-0.9198997457095992,0.364384186657307,1.0612863103163503],[0.7433686438073941,0.3442877669155191,0.57347100445993,1.6648574699672594],[-0.65298884909809,0.18775087588541425,0.7337269052977491,-2.7515287808416606],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[0.27460465418162716,0.012881397808823802,-2.832513339045187],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
