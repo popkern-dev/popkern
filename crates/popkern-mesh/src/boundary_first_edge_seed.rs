@@ -125,17 +125,14 @@ pub(super) fn knot_seed_and_coarsen(
 }
 
 /// Length of the shorter nonzero knot span touching knot value `k`.
+/// The knot vector is non-decreasing: the neighbours are found by
+/// binary search (a scan per seed was quadratic, and a thousandfold
+/// scene's 90 000-knot record spent 80% of its replay here, 1061).
 fn knot_span_at(knots: &[f64], k: f64) -> f64 {
-    let below = knots
-        .iter()
-        .copied()
-        .filter(|&x| x < k - 1e-12)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let above = knots
-        .iter()
-        .copied()
-        .filter(|&x| x > k + 1e-12)
-        .fold(f64::INFINITY, f64::min);
+    let lo = knots.partition_point(|&x| x < k - 1e-12);
+    let hi = knots.partition_point(|&x| x <= k + 1e-12);
+    let below = lo.checked_sub(1).map_or(f64::NEG_INFINITY, |i| knots[i]);
+    let above = knots.get(hi).copied().unwrap_or(f64::INFINITY);
     (k - below).min(above - k)
 }
 
@@ -179,4 +176,32 @@ pub(super) fn vertex_snap_gate(
             brep.vertex_tolerance(a).max(brep.vertex_tolerance(b))
         })
         .max(1.0e-6)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::knot_span_at;
+
+    /// The binary search reads the same neighbours as a scan of every
+    /// knot, at interior knots, repeated knots and the clamped ends.
+    #[test]
+    fn knot_span_matches_a_scan_of_every_knot() {
+        let knots = [0.0, 0.0, 0.0, 0.1, 0.25, 0.25, 0.5, 0.9, 1.0, 1.0, 1.0];
+        let scan = |k: f64| {
+            let below = knots
+                .iter()
+                .copied()
+                .filter(|&x| x < k - 1e-12)
+                .fold(f64::NEG_INFINITY, f64::max);
+            let above = knots
+                .iter()
+                .copied()
+                .filter(|&x| x > k + 1e-12)
+                .fold(f64::INFINITY, f64::min);
+            (k - below).min(above - k)
+        };
+        for k in [0.0, 0.05, 0.1, 0.25, 0.3, 0.5, 0.9, 0.95, 1.0] {
+            assert_eq!(knot_span_at(&knots, k), scan(k), "at {k}");
+        }
+    }
 }

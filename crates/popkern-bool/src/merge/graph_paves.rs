@@ -21,11 +21,16 @@ use super::graph::{EdgeSource, IntersectionGraph, NodeSource};
 /// Split each inserted record at its paves: `records` holds a record's
 /// forward half-edge and its paves by ascending curve parameter. A
 /// pave's node is the graph node within `tolerance` of the pave's
-/// anchor, minted there when none is. Returns the splits made.
+/// anchor, minted there when none is. With `at_parameter` the record
+/// splits at the pave's own parameter (the vertex table's foot, which
+/// it measured the vertex's reach to); without, at the curve's point
+/// nearest the node (the partition's crossings snap their anchors to a
+/// node up to twenty tolerances off the pass). Returns the splits made.
 pub(crate) fn split_records_at_paves(
     graph: &mut IntersectionGraph,
     records: &[(usize, &[(f64, Point3)])],
     tolerance: f64,
+    at_parameter: bool,
 ) -> usize {
     let mut splits = 0;
     for &(fwd, paves) in records {
@@ -33,7 +38,7 @@ pub(crate) fn split_records_at_paves(
         // the tail on a new pair, so the next pave (further along)
         // lies on the newest tail.
         let mut tail = fwd;
-        for &(_, anchor) in paves {
+        for &(s, anchor) in paves {
             let node = graph
                 .find_node(&anchor, tolerance)
                 .unwrap_or_else(|| graph.add_node(anchor, NodeSource::Intersection));
@@ -42,7 +47,12 @@ pub(crate) fn split_records_at_paves(
                 continue;
             }
             let next = graph.half_edges.len();
-            if super::graph_split_node::split_at_existing_node(graph, tail, node) {
+            let split = if at_parameter {
+                super::graph_split_node::split_at_existing_node_at(graph, tail, node, s)
+            } else {
+                super::graph_split_node::split_at_existing_node(graph, tail, node)
+            };
+            if split {
                 tail = next;
                 splits += 1;
             }

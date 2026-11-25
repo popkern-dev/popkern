@@ -175,7 +175,7 @@ pub(super) fn split_at_record_crossings(
     }
     let records: Vec<(usize, &[(f64, popkern_core::geometry::Point3)])> =
         on_record.iter().map(|(&k, v)| (k, &v[..])).collect();
-    crate::merge::graph_paves::split_records_at_paves(graph, &records, snap)
+    crate::merge::graph_paves::split_records_at_paves(graph, &records, snap, false)
 }
 
 /// The crossings of curves `c1` (over `r1`) and `c2` (over `r2`), as

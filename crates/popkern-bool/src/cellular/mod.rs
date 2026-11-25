@@ -27,6 +27,7 @@ pub(crate) mod fragment_classify_one;
 mod fragment_far;
 pub(crate) mod fragment_interior;
 pub(crate) mod fragment_propagation;
+mod fragment_sample_deep;
 pub(crate) mod fragment_sample_helpers;
 pub(crate) mod fragment_sampling;
 pub(crate) mod fragment_torus_sample;

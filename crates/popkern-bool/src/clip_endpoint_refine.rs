@@ -128,14 +128,22 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
         // lateral component keeps the tuned band; the total move gets
         // 8× headroom.
         let tan_out = endpoint_outward_tangent(piece, end);
-        let refined = refine_against_face(
-            brep_a, face_a, surf_b, windows_b, &p, band, &tan_out, tolerance,
-        )
-        .or_else(|| {
+        // The nearer of the two faces' junctions: an end on one face's
+        // boundary edge is exact there, and the other face's junctions
+        // nearby are other vertices (a rim's pierce 1.9e-5 and 5.4e-5
+        // from the pierces of a seam passing it was dragged onto them
+        // while the first face was asked first, 1069).
+        let refined = [
+            refine_against_face(
+                brep_a, face_a, surf_b, windows_b, &p, band, &tan_out, tolerance,
+            ),
             refine_against_face(
                 brep_b, face_b, surf_a, windows_a, &p, band, &tan_out, tolerance,
-            )
-        });
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .min_by(|x, y| x.distance_to(&p).total_cmp(&y.distance_to(&p)));
         // An endpoint already ON its exact junction (to tolerance) is
         // done: the far tier below exists for MISLOCATED crossings
         // and, run on an exact end, re-trims it onto the NEXT
@@ -230,20 +238,6 @@ pub(crate) fn refine_selected_endpoints_onto_boundaries(
     }
 }
 
-/// Whether `piece` is its closed `source` whole, its ends the source's
-/// parameter closure rather than window ends: no boundary crossing
-/// made them, so there is nothing to refine. The far retrim once moved
-/// such an end onto a junction the loop passes mid-curve and kept a
-/// sliver of the loop (PK-1143: a dimple's rim circle touching the
-/// plate's edge, its closure 0.24 short of the touch, came back as the
-/// 0.24 between them and the cut declined).
-fn spans_closed_source(piece: &CurveOnSurface, source: &CurveOnSurface) -> bool {
-    let (p0, p1) = piece.curve_3d.parameter_range();
-    let (s0, s1) = source.curve_3d.parameter_range();
-    let slack = 1e-9 * (s1 - s0).abs();
-    source.is_closed && (p0 - s0).abs() <= slack && (p1 - s1).abs() <= slack
-}
-
 pub(crate) fn endpoint(piece: &CurveOnSurface, end: bool) -> Point3 {
     let (t0, t1) = piece.curve_3d.parameter_range();
     piece.curve_3d.point_at(if end { t1 } else { t0 })
@@ -266,12 +260,12 @@ fn endpoint_outward_tangent(piece: &CurveOnSurface, end: bool) -> popkern_core::
         .unwrap_or(popkern_core::geometry::Vec3::zero())
 }
 
-use crate::clip_boundary_edges::junction_window;
 /// Exact junction near `p`: the nearest boundary edge of `face`
 /// (within the slop band) intersected with `other_surface`.
 pub(crate) use crate::clip_boundary_edges::{
     boundary_edges, boundary_edges_outer, trim_boundary_edges,
 };
+use crate::clip_boundary_edges::{junction_window, spans_closed_source};
 
 #[allow(clippy::too_many_arguments)]
 fn refine_against_face(

@@ -299,7 +299,7 @@ pub(super) fn sample_and_classify(
         }
     };
 
-    // Classify against the OPPOSITE body only.
+    let sample = super::fragment_sample_deep::decisive_sample(ctx, fragment, sample);
     let own_operand = fragment.face.operand;
     let (other_brep, other_aabbs) = match own_operand {
         Operand::A => (brep_b, &aabbs_b),

@@ -295,7 +295,7 @@ pub(crate) fn insert_pair_curves(
     }
     // Once every record's end nodes exist, a pave finds its node
     // rather than minting a twin of it.
-    super::graph_paves::split_records_at_paves(graph, &paved, tolerance);
+    super::graph_paves::split_records_at_paves(graph, &paved, tolerance, true);
 }
 
 impl IntersectionGraph {

@@ -83,9 +83,16 @@ pub(crate) fn separation_along_face(
             let w = k as f64 / PATH_SAMPLES as f64;
             surface.geometry.point_at(a.0 + du * w, a.1 + dv * w)
         };
+        // The uvs stand for the candidates only within their misses:
+        // the face joins the candidates no farther apart than the path
+        // between the uvs' images less those misses (two record ends
+        // 8.5e-7 apart on a cone at a thousandfold scale, each uv 2e-6
+        // off, read 4.3e-6 apart and became two vertices, 1063).
+        let miss = at(0).distance_to(&p.position) + at(PATH_SAMPLES).distance_to(&q.position);
         let length: f64 = (1..=PATH_SAMPLES)
             .map(|k| at(k - 1).distance_to(&at(k)))
-            .sum();
+            .sum::<f64>()
+            - miss;
         if length > p.zone + q.zone {
             return Some(length);
         }

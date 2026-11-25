@@ -3,6 +3,7 @@
 //! the 500-line file budget).
 
 use popkern_core::geometry::curve::{CurveEval as _, CurveGeometry};
+use popkern_core::geometry::curve_on_surface::CurveOnSurface;
 use popkern_core::topology::{BRep, FaceHandle};
 
 /// The OUTER loop's edge handles only (the refinement's lateral
@@ -135,4 +136,18 @@ pub(crate) fn junction_window(
         return full;
     }
     ((tc - half).max(full.0), (tc + half).min(full.1))
+}
+
+/// Whether `piece` is its closed `source` whole, its ends the source's
+/// parameter closure rather than window ends: no boundary crossing
+/// made them, so there is nothing to refine. The far retrim once moved
+/// such an end onto a junction the loop passes mid-curve and kept a
+/// sliver of the loop (PK-1143: a dimple's rim circle touching the
+/// plate's edge, its closure 0.24 short of the touch, came back as the
+/// 0.24 between them and the cut declined).
+pub(crate) fn spans_closed_source(piece: &CurveOnSurface, source: &CurveOnSurface) -> bool {
+    let (p0, p1) = piece.curve_3d.parameter_range();
+    let (s0, s1) = source.curve_3d.parameter_range();
+    let slack = 1e-9 * (s1 - s0).abs();
+    source.is_closed && (p0 - s0).abs() <= slack && (p1 - s1).abs() <= slack
 }

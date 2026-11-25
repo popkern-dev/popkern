@@ -310,6 +310,12 @@ pub(crate) fn is_t_junction(c: &CandidateVertex) -> bool {
 /// is fixed to the tolerance across the edge but only to tol / sin θ
 /// along it (measured: a thread flank's hit and the record end on the
 /// same crown edge 1.6e-5 apart along it, against a 2e-6 radius).
+/// A point of an edge carrying its own tolerance (an operand edge fitted
+/// to its faces within it) is placed only to that tolerance along the
+/// edge, whatever the crossing angle: at a thousandfold scale a NURBS
+/// edge of tolerance 9.1e-4 pierced a cylinder at one point, a record
+/// ended at its clip's junction with the edge 4.9e-4 along, and the two
+/// stayed two vertices, a record dangling at each (1440).
 pub(crate) fn add_crossing_zones(cands: &mut [CandidateVertex], operands: [&BRep; 2], cap: f64) {
     use popkern_core::geometry::surface::SurfaceEval;
     for c in cands.iter_mut() {
@@ -318,11 +324,13 @@ pub(crate) fn add_crossing_zones(cands: &mut [CandidateVertex], operands: [&BRep
             let Incidence::Edge { operand, edge, t } = *inc else {
                 continue;
             };
-            let Some(curve) = operands[operand]
-                .edges
-                .get(edge)
-                .and_then(|e| e.curve.as_ref())
-            else {
+            let Some(e) = operands[operand].edges.get(edge) else {
+                continue;
+            };
+            let own =
+                super::candidates::own_tolerance(e.tolerance, operands[operand].tolerance.linear());
+            zone = zone.max(own);
+            let Some(curve) = e.curve.as_ref() else {
                 continue;
             };
             let tangent = curve.geometry.tangent_at(t);

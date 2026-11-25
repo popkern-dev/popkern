@@ -64,7 +64,7 @@ pub(crate) fn cellular_graph_merge(
         );
         for hit in &intersection_result.edge_face_hits {
             eprintln!(
-                "    hit at ({:.3},{:.3},{:.3})",
+                "    hit at ({:.9},{:.9},{:.9})",
                 hit.point.x, hit.point.y, hit.point.z
             );
         }

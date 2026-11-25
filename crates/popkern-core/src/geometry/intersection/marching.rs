@@ -1,14 +1,11 @@
 //! Differential marching for surface-surface intersection curves.
 
-#[path = "marching_linalg.rs"]
-mod marching_linalg;
-
-#[path = "marching_newton.rs"]
-pub mod marching_newton;
-
 #[path = "marching_helpers.rs"]
 mod marching_helpers;
-
+#[path = "marching_linalg.rs"]
+mod marching_linalg;
+#[path = "marching_newton.rs"]
+pub mod marching_newton;
 use marching_helpers::{
     arrival_alignment, exits_window, find_tangent_march_direction, principal_branch_seed,
     recover_singular_normal, wrap_parameter,
@@ -20,7 +17,7 @@ pub use marching_newton::{BoundaryPin, refine_boundary_crossing};
 
 use crate::geometry::Point3;
 use crate::geometry::intersection::adaptive_step::{
-    curvature_based_step, estimate_intersection_curvature,
+    curvature_based_step, estimate_intersection_curvature, sag_step_ceiling,
 };
 use crate::geometry::intersection::degeneracy::DegeneracyHandler;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -54,7 +51,7 @@ pub(crate) fn march_one_direction(
     tolerance: &Tolerance,
     handler: &dyn DegeneracyHandler,
 ) -> (Vec<MarchSample>, MarchEnd) {
-    let max_steps = 200_000;
+    let max_steps = 400_000;
     let epsilon = tolerance.solver();
     let min_step = tolerance.linear();
     let max_step = tolerance.linear() * 1000.0;
@@ -67,7 +64,7 @@ pub(crate) fn march_one_direction(
     // arc 10 while the sag bound allowed 3.4× the step. Flat regions
     // (curvature below resolution) keep the tolerance-scaled ceiling
     // — sag imposes no bound there and unbounded growth would jump
-    // features. The ×16 headroom bounds the worst case explicitly.
+    // features. Past the ×16 cap: `sag_step_ceiling`.
     let mut step_ceiling = max_step;
     let mut step_size = tolerance.linear() * 50.0;
     // Branch point candidates detected during march (spec §2.4), seeds
@@ -242,12 +239,15 @@ pub(crate) fn march_one_direction(
                     let curvature = estimate_intersection_curvature(
                         surface1, sample.u1, sample.v1, surface2, sample.u2, sample.v2,
                     );
-                    let curvature_cap = curvature_based_step(
+                    let sag_ceiling = sag_step_ceiling(
+                        (surface1, (sample.u1, sample.v1)),
+                        (surface2, (sample.u2, sample.v2)),
                         curvature,
                         tolerance.linear(),
-                        min_step,
                         max_step * 16.0,
                     );
+                    let curvature_cap =
+                        curvature_based_step(curvature, tolerance.linear(), min_step, sag_ceiling);
                     if curvature_cap < step_size {
                         step_size = step_size * 0.7 + curvature_cap * 0.3;
                     }

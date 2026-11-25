@@ -94,6 +94,34 @@ fn max_normal_curvature(surface: &SurfaceGeometry, u: f64, v: f64) -> f64 {
     k1.abs().max(k2.abs())
 }
 
+/// The march's step ceiling past `cap`: half the chord-sag bound of the
+/// intersection curve, √(tol/κ), its curvature bounded by the surfaces'
+/// `curvature` (k1 + k2) over the sine of their angle (Meusnier: the
+/// curve bends a surface's normal curvature over the sine of the angle
+/// it makes with that surface's normal). `cap` where unmeasured. A fixed
+/// cap of 16 x 1000 tolerances ran a 7331-long branch out of its step
+/// budget at a thousandfold (1063); the whole sag bound let a record
+/// drift 4.8e-7 off a surface met shallowly (1061); k1 + k2 alone read a
+/// sphere x NURBS lens loop 0.3 across as 1/1000 curved (766).
+pub(crate) fn sag_step_ceiling(
+    (s1, uv1): (&SurfaceGeometry, (f64, f64)),
+    (s2, uv2): (&SurfaceGeometry, (f64, f64)),
+    curvature: f64,
+    tolerance: f64,
+    cap: f64,
+) -> f64 {
+    let sin = s1
+        .normal_at(uv1.0, uv1.1)
+        .normalized()
+        .zip(s2.normal_at(uv2.0, uv2.1).normalized())
+        .map_or(0.0, |(a, b)| a.cross(&b).length());
+    if curvature > 1e-12 && sin > 0.0 {
+        cap.max((tolerance * sin / curvature).sqrt())
+    } else {
+        cap
+    }
+}
+
 /// Compute the adaptive step size given the intersection curvature.
 ///
 /// The step is chosen so that the chord deviation (sag) from the true curve
@@ -136,6 +164,36 @@ pub(crate) fn normal_cross_ratio(n1: &Vec3, n2: &Vec3) -> f64 {
 mod tests {
     use super::*;
     use crate::geometry::Point3;
+
+    fn plane_with_normal(n: Vec3) -> SurfaceGeometry {
+        let n = n.normalized().expect("normal");
+        let u = Vec3::new(0.0, 1.0, 0.0).cross(&n).normalized().expect("u");
+        SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: n,
+            u_axis: u,
+            v_axis: n.cross(&u),
+        }
+    }
+
+    /// Past the cap the ceiling is half the sag bound of the curve, its
+    /// curvature the surfaces' over the sine of their angle: surfaces
+    /// crossing square at a thousandfold radius allow √(tol/κ); a
+    /// shallow crossing, the curve bending far more, allows less; and
+    /// the cap holds where that is lower.
+    #[test]
+    fn the_sag_ceiling_reads_the_curve_curvature_over_the_crossing_sine() {
+        let (tol, k, cap) = (1e-6, 1e-3, 0.016);
+        let flat = plane_with_normal(Vec3::new(0.0, 0.0, 1.0));
+        let square = plane_with_normal(Vec3::new(1.0, 0.0, 0.0));
+        let shallow = plane_with_normal(Vec3::new(0.05, 0.0, 1.0));
+        let at = |s| (s, (0.0, 0.0));
+        let c_square = sag_step_ceiling(at(&flat), at(&square), k, tol, cap);
+        assert!((c_square - (tol / k).sqrt()).abs() < 1e-12, "{c_square}");
+        let c_shallow = sag_step_ceiling(at(&flat), at(&shallow), k, tol, cap);
+        assert_eq!(c_shallow, cap, "a shallow crossing keeps the cap");
+        assert_eq!(sag_step_ceiling(at(&flat), at(&square), 0.0, tol, cap), cap);
+    }
 
     #[test]
     fn plane_has_zero_curvature() {

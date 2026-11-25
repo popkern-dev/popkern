@@ -67,7 +67,8 @@ impl<'a> Crossing<'a> {
         };
         samples.push(sample);
         match at {
-            Some(at) => {
+            Some((at, zone)) => {
+                self.approach(samples, &at, zone, step);
                 samples.push(at);
                 true
             }
@@ -110,16 +111,105 @@ impl<'a> Crossing<'a> {
             _ => None,
         }
         .unwrap_or(fallback);
-        let Some(at) = crossing_ahead(self.s1, self.s2, &last, travel, step, self.tolerance) else {
+        let Some((at, zone)) =
+            crossing_ahead(self.s1, self.s2, &last, travel, step, self.tolerance)
+        else {
             return false;
         };
         if at.point.distance_to(&last.point) > self.tolerance.linear() {
+            self.approach(samples, &at, zone, step);
             samples.push(at);
         } else if let Some(end) = samples.last_mut() {
             *end = at;
         }
         true
     }
+}
+
+impl Crossing<'_> {
+    /// Samples on the intersection from `samples`' last to the crossing
+    /// `at` (its zone `zone`), one march step apart: the crossing is
+    /// accepted up to four steps ahead, and pushed straight after the
+    /// last sample its record ran the chord between, off both surfaces
+    /// (a cylinder and a frustum crossing at their touch, the branch
+    /// arriving 0.24 short of it: the record strayed 0.16 off both, its
+    /// end dangled in the walk). Outside the zone each station is
+    /// projected onto the intersection; inside it, where the surfaces lie
+    /// within the tolerance of each other and the intersection's
+    /// projection is singular, onto the first surface, kept where it lies
+    /// on the second within the tolerance. A station that fails is
+    /// skipped.
+    fn approach(&self, samples: &mut Vec<MarchSample>, at: &MarchSample, zone: f64, step: f64) {
+        let Some(start) = samples.last().cloned() else {
+            return;
+        };
+        let chord = at.point - start.point;
+        let length = chord.length();
+        let Some(dir) = chord.normalized() else {
+            return;
+        };
+        let stations = (length / step.max(self.tolerance.linear())).ceil() as usize;
+        let (s1, s2) = (self.s1.0, self.s2.0);
+        let mut prev = start.clone();
+        for k in 1..stations.min(MAX_APPROACH) {
+            let target = start.point + chord * (k as f64 / stations as f64);
+            let station = if target.distance_to(&at.point) > zone {
+                project_pair(s1, s2, &prev, &target, &dir, self.tolerance)
+            } else {
+                None
+            }
+            .or_else(|| project_first(s1, s2, &prev, &target, self.tolerance));
+            if let Some(q) = station
+                .filter(|q| q.point.distance_to(&at.point) < prev.point.distance_to(&at.point))
+            {
+                samples.push(q.clone());
+                prev = q;
+            }
+        }
+    }
+}
+
+/// Most stations an approach to a crossing places.
+const MAX_APPROACH: usize = 256;
+
+/// `target` projected onto the intersection from `prev`'s parameters.
+fn project_pair(
+    s1: &SurfaceGeometry,
+    s2: &SurfaceGeometry,
+    prev: &MarchSample,
+    target: &crate::geometry::Point3,
+    dir: &Vec3,
+    tolerance: &Tolerance,
+) -> Option<MarchSample> {
+    let uv1 = project_point_to_uv_near(s1, target, prev.u1, prev.v1)?;
+    let uv2 = project_point_to_uv_near(s2, target, prev.u2, prev.v2)?;
+    let (q, _) =
+        march_project_with_iters(s1, uv1.0, uv1.1, s2, uv2.0, uv2.1, target, dir, tolerance)?;
+    // A projection that ran off along the other branch is no station.
+    (q.point.distance_to(target) <= target.distance_to(&prev.point)).then_some(q)
+}
+
+/// `target` projected onto the first surface, kept where it lies on the
+/// second within the tolerance.
+fn project_first(
+    s1: &SurfaceGeometry,
+    s2: &SurfaceGeometry,
+    prev: &MarchSample,
+    target: &crate::geometry::Point3,
+    tolerance: &Tolerance,
+) -> Option<MarchSample> {
+    let (u1, v1) = project_point_to_uv_near(s1, target, prev.u1, prev.v1)?;
+    let point = s1.point_at(u1, v1);
+    let (u2, v2) = project_point_to_uv_near(s2, &point, prev.u2, prev.v2)?;
+    tolerance
+        .within_linear(s2.point_at(u2, v2).distance_to(&point))
+        .then_some(MarchSample {
+            u1,
+            v1,
+            u2,
+            v2,
+            point,
+        })
 }
 
 /// The normals' sine below which the march looks for a crossing ahead.
@@ -177,7 +267,7 @@ fn crossing_ahead(
     travel: Vec3,
     step: f64,
     tolerance: &Tolerance,
-) -> Option<MarchSample> {
+) -> Option<(MarchSample, f64)> {
     let (contact, zone, _) = crossing_near(s1, s2, sample, 64.0 * step, tolerance)?;
     let ahead = contact.point - sample.point;
     if ahead.length() > (4.0 * step).max(2.0 * zone)
@@ -185,7 +275,7 @@ fn crossing_ahead(
     {
         return None;
     }
-    Some(sample_at(&contact))
+    Some((sample_at(&contact), zone))
 }
 
 /// The march sample at a contact.

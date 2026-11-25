@@ -18,6 +18,22 @@ pub(super) fn split_at_existing_node(
     split_at_existing_node_with_pcurves(graph, he_idx, node, None)
 }
 
+/// [`split_at_existing_node`] offered the curve parameter `t` the
+/// vertex table decided (the record's foot it measured the vertex's
+/// reach to): it splits there when `t` lies inside the curve's window
+/// and its point is nearer the node than a closest-point search's (a
+/// search from the node landed 6.4e-7 off the foot on a 27051-point
+/// record a thousand units across, 1.25e-6 from the vertex, past the
+/// reach the table recorded, 1063).
+pub(super) fn split_at_existing_node_at(
+    graph: &mut IntersectionGraph,
+    he_idx: usize,
+    node: usize,
+    t: f64,
+) -> bool {
+    split_at_node(graph, he_idx, node, None, Some(t))
+}
+
 /// Closest curve-window parameter to `pos`, or `None` when the
 /// minimizer sits ON the window boundary (relative slop 1e-9) — a
 /// split there would produce a zero-span half.
@@ -76,6 +92,16 @@ pub(super) fn split_at_existing_node_with_pcurves(
     node: usize,
     breps: Option<(&[&popkern_core::topology::BRep], f64)>,
 ) -> bool {
+    split_at_node(graph, he_idx, node, breps, None)
+}
+
+fn split_at_node(
+    graph: &mut IntersectionGraph,
+    he_idx: usize,
+    node: usize,
+    breps: Option<(&[&popkern_core::topology::BRep], f64)>,
+    at: Option<f64>,
+) -> bool {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
     if popkern_core::trace::trace_enabled("face-split") {
@@ -126,7 +152,30 @@ pub(super) fn split_at_existing_node_with_pcurves(
             // junction endpoint; the [0.90,0.90] stub read as a
             // second curve through the node and derailed the flank
             // walk's wedge fan). Refuse such a split.
-            let Some(t_split) = curve_window_interior_split(curve, &graph.nodes[node].position)
+            let (w_lo, w_hi) = (
+                curve.t_start.min(curve.t_end),
+                curve.t_start.max(curve.t_end),
+            );
+            let inside = |t: f64| {
+                let slop = 1.0e-9 * (w_hi - w_lo);
+                t > w_lo + slop && t < w_hi - slop
+            };
+            // The table's foot and the closest-point search each miss
+            // where the other holds (a search 6.4e-7 off the foot on a
+            // 27051-point record, 1063; a foot measured to an anchor
+            // the graph's node lies off, 2.1e-6 from it, 813): the
+            // nearer to the node splits.
+            let np = graph.nodes[node].position;
+            let near = |t: f64| {
+                popkern_core::geometry::curve::CurveEval::point_at(&curve.geometry, t)
+                    .distance_to(&np)
+            };
+            let searched = curve_window_interior_split(curve, &np);
+            let Some(t_split) = at
+                .filter(|&t| inside(t))
+                .into_iter()
+                .chain(searched)
+                .min_by(|&x, &y| near(x).total_cmp(&near(y)))
             else {
                 if popkern_core::trace::trace_enabled("face-split") {
                     let np = graph.nodes[node].position;

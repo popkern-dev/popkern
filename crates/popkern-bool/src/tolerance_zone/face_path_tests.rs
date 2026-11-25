@@ -123,3 +123,34 @@ fn points_of_a_face_folding_back_on_itself_stay_two() {
         [(_, _, Incompatibility::SeparatedAlongFace { length })] if (*length - 2.0).abs() < 1e-6
     ));
 }
+
+/// Two candidates 8.5e-7 apart in space whose uvs each miss them by
+/// 1.9e-6 (within their 2e-6 radius) read 4.65e-6 apart between the
+/// uvs' images, past their zones together; the face joins the
+/// candidates themselves 8.5e-7 apart, and they are one vertex (two
+/// record ends at a tangent crossing on a thousandfold cone, 1063).
+#[test]
+fn uvs_missing_their_candidates_do_not_stretch_the_face_path() {
+    let c = BRep::cylinder(2.0, 3.0, Tolerance::default()).expect("cylinder");
+    let wall = face_with(&c, |g| matches!(g, SurfaceGeometry::Cylinder { .. }));
+    let surface = &c.faces[wall].surface.as_ref().expect("surface").geometry;
+    let (r, miss, apart) = (2e-6, 1.9e-6, 8.5e-7);
+    let at = |u: f64, uv_u: f64, key: u64| CandidateVertex {
+        position: surface.point_at(u, 1.5),
+        radius: r,
+        zone: r,
+        source: SourceKind::RecordEndpoint,
+        incidence: vec![Incidence::Face {
+            operand: 0,
+            face: wall,
+            uv: Some((uv_u, 1.5)),
+        }],
+        key: (SourceKind::RecordEndpoint, 0, key, 0, 0),
+    };
+    // Radius 2: a chart step of x moves 2x along the wall.
+    let (u0, u1) = (1.0, 1.0 + 0.5 * apart);
+    let cands = [at(u0, u0 - 0.5 * miss, 0), at(u1, u1 + 0.5 * miss, 1)];
+    assert!((cands[0].position.distance_to(&cands[1].position) - apart).abs() < 1e-9);
+    let res = groups(&c, &cands);
+    assert_eq!(res.groups.len(), 1, "{:?}", res.separations);
+}

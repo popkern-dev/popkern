@@ -11,6 +11,13 @@ use generated_corpus::judge::judge;
 use generated_corpus::scene::Scene;
 use popkern_bool::NonManifoldPolicy;
 
+#[path = "generated_corpus_found/boundary_junctions.rs"]
+mod boundary_junctions;
+#[path = "generated_corpus_found/thousandfold.rs"]
+mod thousandfold;
+#[path = "generated_corpus_found/touch_crossings.rs"]
+mod touch_crossings;
+
 fn passes(json: &str) {
     let scene: Scene = serde_json::from_str(json).expect("a scene descriptor");
     let verdict = judge(&scene);
