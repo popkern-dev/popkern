@@ -9,6 +9,7 @@ pub mod distance;
 pub mod feasible;
 pub mod geometry;
 pub mod judge;
+pub mod judge_contact;
 pub mod judge_policies;
 pub mod k_templates;
 pub mod known;

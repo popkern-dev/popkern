@@ -82,17 +82,22 @@ pub(crate) fn next_in_chart(
     // is NOT taken by its parallel arrival (the historic strictly-
     // positive-angle rule; the twin's departure is exactly parallel
     // to its arrival's back and ranks last this way).
+    // At a seam copy every ray leaves into the face's side
+    // (`chart_walk_seam_side`).
+    let inward = super::chart_walk_seam_side::seam_side_inward(sub, &bp_key);
+    let side =
+        |d: (f64, f64)| inward.map_or(d, |s| super::chart_walk_seam_side::into_seam_side(d, s));
     let mut slots: Vec<(f64, bool, usize)> = Vec::new();
     for (hh, e) in sub.end_bp.iter() {
         if *e == bp_key
             && let Some(d) = sub.embeddings.get(hh).and_then(|em| em.end_dir())
         {
-            slots.push((psi((-d.0, -d.1)), false, *hh));
+            slots.push((psi(side((-d.0, -d.1))), false, *hh));
         }
     }
     for &c in deps {
         if let Some(d) = sub.embeddings.get(&c).and_then(|em| em.start_dir()) {
-            slots.push((psi(d), true, c));
+            slots.push((psi(side(d)), true, c));
         }
     }
     let _ = twin;

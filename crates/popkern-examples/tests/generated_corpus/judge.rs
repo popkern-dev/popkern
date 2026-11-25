@@ -361,7 +361,14 @@ fn judge_scene(scene: &Scene, occ: bool, full: bool) -> Verdict {
                     .collect();
                 let on_contact = |q: &Point3| {
                     if curve.is_empty() {
-                        contact.is_some_and(|c| q.distance_to(&c) <= reach)
+                        contact.is_some_and(|c| {
+                            super::judge_contact::on_touch(
+                                (&placed.a, &placed.b),
+                                *q,
+                                c,
+                                (reach, tol.linear(), scene.scale),
+                            )
+                        })
                     } else {
                         // A circle's chords sag below it by r(1 − cos(π/16)).
                         let sag = curve[0].distance_to(&curve[1]) * 0.1;

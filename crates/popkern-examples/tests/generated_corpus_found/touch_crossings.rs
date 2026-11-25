@@ -40,3 +40,30 @@ fn a_sphere_crossing_a_round_at_its_touch_reads_departures_past_the_zone() {
         r#"{"cell":{"a":"S","b":"L","config":"V"},"seed":1,"index":1009,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[0.1925428437821122,0.20040734052957243,0.9606061373789785,0.3365448632480087],[0.07897669400561796,0.9725827743755888,-0.21873597964629707,-0.5623630206818578],[-0.97810527813331,0.11798154453026247,0.17143634398228855,-0.3878391730618679],[0.0,0.0,0.0,1.0]],"scene":[[0.824785271569115,-0.0830563959228049,-0.5593128738898966,-0.27999142648171205],[0.5480394931305265,-0.12612023939189929,0.8268895931047662,1.2402065708123775],[-0.13921914297932136,-0.9885319015145866,-0.05850393077442717,2.3281736578741423],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.5,"rung":{"offset":0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[0.6993793531835348,0.24447554097452273,2.2314648570547186],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at ffcb5603 (W3 V cells, tangency design §4.8): a domed block
+/// crossing a sphere at their touch 1e-5 off the sphere's seam. The
+/// crossing joined the seam's vertex, and its branch running along the
+/// seam took an endpoint-refined direction a hair across it; sorted
+/// through the outside half-plane, its arrival paired with its own twin
+/// and the sphere's loops broke (`chart_walk_seam_side`: a ray at a seam
+/// copy is read along the seam, inside); the declined differences name
+/// the seam vertex, inside the touch's tolerance patch
+/// (`judge_contact::on_touch`).
+#[test]
+fn a_domed_block_crossing_a_sphere_at_its_touch_beside_the_seam_closes() {
+    passes(
+        r#"{"cell":{"a":"S","b":"W","config":"V"},"seed":1,"index":15136,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[-0.7660180803144425,0.6421403793274221,-0.02953021958284019,-0.00966712174222828],[0.6351580554567615,0.7631609691814385,0.11899403223033014,-0.02399352692643358],[0.09894718399106472,0.07239522329050453,-0.9924557352471477,-0.5402930007236637],[0.0,0.0,0.0,1.0]],"scene":[[0.9707613213571477,0.11433784292783923,0.2110670856186098,-2.622382300761564],[-0.11734490578307201,0.9930897056790087,0.0017348086758825591,0.9263075631544786],[-0.20941019565361843,-0.026451732438324934,0.9774700383169422,1.0767479235418982],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":{"Seam":9.999999999999999e-6},"steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[-2.6093009661276017,0.8875172283809569,-0.3226534444052507],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at ffcb5603 (W3 V cells, tangency design §4.8): the same pair
+/// half a tolerance apart with the touch on the sphere's seam; the
+/// branch along the seam turned back on itself as in the scene above
+/// (`chart_walk_seam_side`).
+#[test]
+fn a_domed_block_crossing_a_sphere_on_its_seam_closes() {
+    passes(
+        r#"{"cell":{"a":"S","b":"W","config":"V"},"seed":1,"index":19175,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[-0.03625402174081305,-0.8031159891985973,0.594718718219946,0.44385294582728996],[-0.9972316808840123,-0.00958622204179621,-0.07373655123623157,-0.017837043952706126],[0.06492010897144798,-0.5957455935552726,-0.8005451687510279,-0.332512035544828],[0.0,0.0,0.0,1.0]],"scene":[[-0.04612104176668141,0.8843608290478449,-0.46451993881012754,1.4018083552165033],[-0.9846623354900848,0.038081153840133206,0.1702642381400629,-2.7403356973101625],[0.16826447805038336,0.46524805186912144,0.8690404568594142,2.413656601690593],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.5,"rung":{"offset":0.5,"scale":1.0,"steer_a":{"Seam":0.0},"steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.784765471380901,-3.9301898913705404,1.7831085511377607],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

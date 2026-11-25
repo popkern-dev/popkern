@@ -18,6 +18,8 @@ use crate::merge::graph::IntersectionGraph;
 
 #[path = "chart_walk_next.rs"]
 mod chart_walk_next;
+#[path = "chart_walk_seam_side.rs"]
+mod chart_walk_seam_side;
 pub(crate) use chart_walk_next::next_in_chart;
 
 /// Enumerate the permutation's orbits, ascending from the lowest
