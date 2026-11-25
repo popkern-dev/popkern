@@ -146,3 +146,25 @@ fn a_ball_resting_on_an_edge_is_a_contact() {
     );
     assert!(shell_contacts(&at(1e-5), &tol()).is_empty());
 }
+
+/// Two balls hundreds across touching at a point: the chart normal
+/// `∂u × ∂v` is the radius squared long there, and a tangent frame built
+/// on it unnormalized ran its probes along the normal, every one landing
+/// back on the contact, and read the point as an area (generated corpus
+/// SS-I scene 711). The contact direction is oblique: along an axis the
+/// frame's Gram–Schmidt step never meets the normal's length.
+#[test]
+fn a_point_touch_of_large_balls_is_a_point() {
+    use super::{ContactExtent, shell_findings};
+    let d = 880.0;
+    let body = combine_breps(
+        ball(700.0, (0.0, 0.0, 0.0)),
+        ball(180.0, (0.6 * d, 0.48 * d, 0.64 * d)),
+    )
+    .expect("combines");
+    let extents: Vec<ContactExtent> = shell_findings(&body, &tol())
+        .into_iter()
+        .map(|f| f.extent)
+        .collect();
+    assert_eq!(extents, vec![ContactExtent::Point]);
+}

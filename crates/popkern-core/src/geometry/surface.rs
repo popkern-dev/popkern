@@ -18,7 +18,8 @@ pub trait SurfaceEval {
     fn partial_u(&self, u: f64, v: f64) -> Vec3;
     /// Partial derivative with respect to v.
     fn partial_v(&self, u: f64, v: f64) -> Vec3;
-    /// Surface normal at (u, v). May not be unit length for degenerate points.
+    /// The chart normal `∂u × ∂v` at (u, v), not unit (R² sin v on a
+    /// sphere, zero at a pole): normalize it before using it as a direction.
     fn normal_at(&self, u: f64, v: f64) -> Vec3;
     /// Valid parameter range ((u_min, u_max), (v_min, v_max)).
     fn parameter_range(&self) -> ((f64, f64), (f64, f64));

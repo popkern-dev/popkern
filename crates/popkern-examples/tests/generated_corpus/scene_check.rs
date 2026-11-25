@@ -52,6 +52,42 @@ fn outward_normal_near(
         .normalized()
 }
 
+/// The outward normal of `body`'s faces at `c`: the folded chart normal
+/// times the body's material sense, of every face passing within `reach`
+/// of `c` there inside its trim. `None` unless they agree (a contact on
+/// an edge or a pole decides nothing).
+fn exact_outward_normal(
+    body: &popkern_core::topology::BRep,
+    c: Point3,
+    reach: f64,
+) -> Option<popkern_core::geometry::Vec3> {
+    use popkern_core::geometry::surface::SurfaceEval as _;
+    let mut found: Option<popkern_core::geometry::Vec3> = None;
+    for (fh, f) in body.faces.iter() {
+        let Some(s) = f.surface.as_ref() else {
+            continue;
+        };
+        let Some((u, v)) = s.geometry.closest_point(&c) else {
+            continue;
+        };
+        if s.geometry.point_at(u, v).distance_to(&c) > reach
+            || matches!(
+                body.face_uv_trim_containment(fh, &s.geometry, u, v),
+                None | Some(popkern_core::validation::FaceUvContainment::Outside)
+            )
+        {
+            continue;
+        }
+        let sense = body.component_material_sense(fh)?.outward_multiplier();
+        let n = s.folded_normal(u, v)? * sense;
+        match found {
+            Some(m) if m.dot(&n) < 0.99 => return None,
+            _ => found = Some(n),
+        }
+    }
+    found
+}
+
 /// The scene's independent check (design §6.1), on the placed meshes.
 pub(crate) fn check(scene: &Scene) -> Result<(), Reject> {
     let tol = Tolerance::default().linear();
@@ -94,7 +130,19 @@ pub(crate) fn check(scene: &Scene) -> Result<(), Reject> {
             // generator whose sampled normal came out reversed kept
             // "opposed" over an internal touch of two cylinders, and its
             // judge expected the union to pinch where the differences do.
-            if scene.cell.config == Config::V {
+            // The operands' exact outward normals at the contact decide
+            // first: tangent there, B's material lies inward along A's
+            // normal when they agree (the probes below left a cone x cone
+            // crossing unchecked whose normals agree, flagged opposed,
+            // and its judge expected the union to pinch, CC-V 87).
+            let reach = 10.0 * (scene.offset.abs() + 1.0) * tol;
+            let exact = exact_outward_normal(&placed.a, c, reach)
+                .zip(exact_outward_normal(&placed.b, c, reach))
+                .map(|(na, nb)| na.dot(&nb) > 0.0);
+            if scene.cell.config == Config::V && exact.is_some_and(|al| al != scene.aligned) {
+                return Err(Reject::WrongSide);
+            }
+            if scene.cell.config == Config::V && exact.is_none() {
                 // Shorter probes where both read alike (the contact by B's
                 // rim, a probe leaving it through a cap); none deciding
                 // leaves the flag unchecked.

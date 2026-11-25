@@ -141,7 +141,13 @@ fn contact_extent(
     let Some((u, v)) = project_point_to_uv(sf, &at) else {
         return ContactExtent::Point;
     };
-    let normal = sf.normal_at(u, v);
+    // The chart normal is ∂u × ∂v, its length the chart's area scale; the
+    // tangent frame needs it unit (on a sphere 1400 across, 1.8e6 long,
+    // its "tangents" ran along it, every probe fell back on the contact
+    // and a point touch read as an area, SS-I 711).
+    let Some(normal) = sf.normal_at(u, v).normalized() else {
+        return ContactExtent::Point;
+    };
     let (t1, t2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(normal);
     let size = crate::intersect::face_aabb(brep, f).map_or(1.0, |b| b.diagonal());
     // At the face's own scale: an area touch coincides over a
