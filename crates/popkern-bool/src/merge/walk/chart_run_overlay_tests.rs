@@ -8,6 +8,7 @@ fn run(uv: Vec<(f64, f64)>) -> ChartEmbedding {
         seam_like: false,
         refined_first: None,
         refined_last: None,
+        zone_ends: (false, false),
     }
 }
 

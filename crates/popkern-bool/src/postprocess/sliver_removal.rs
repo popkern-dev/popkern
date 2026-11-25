@@ -294,15 +294,25 @@ fn sliver_lies_on_face_surface(
     let mut probes = face_vertex_positions(brep, sliver);
     probes.extend(sampled_boundary_polygon(brep, sliver));
     let contained = probes.iter().all(|p| {
-        match project_point_to_uv(surface, p) {
+        // A construction projection that gives up (a NURBS one whose
+        // starts all end a unit off) proves nothing: the validation
+        // projection measures again, and a point neither places is not
+        // shown on the face, so the sliver stays (read as contained, a
+        // plane face's strip 0.73 wide was absorbed into a NURBS dome a
+        // thousand across, its record keeping the plane's chart, 1440).
+        let uv = project_point_to_uv(surface, p).or_else(|| {
+            popkern_core::geometry::uv_projection::project_point_to_uv_multisheet(surface, p)
+        });
+        match uv {
             Some((u, v)) => {
                 let d = p.distance_to(&surface.point_at(u, v));
                 worst = worst.max(d);
                 d <= distance
             }
-            // Unprojectable surface kinds: keep the historical
-            // behavior rather than blocking absorption blind.
-            None => true,
+            None => {
+                worst = f64::INFINITY;
+                false
+            }
         }
     });
     if !contained && popkern_core::trace::trace_enabled("boolean") {

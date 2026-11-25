@@ -22,6 +22,19 @@ use crate::merge::graph::IntersectionGraph;
 /// chords (a cylinder wall's bottom arc and the wedge ellipse both
 /// flattened; the chord then generated phantom edge-face hits and the
 /// mesher's boundary-first pass bailed on the off-surface curve).
+/// Widen `body`'s imprecision ceiling to its operands': a body scaled a
+/// thousandfold carries a ceiling a thousandfold wider (`refit` scales
+/// it), and the bare default stamped on its boolean declined a piece of
+/// its 9.1e-4 rim edge measured at 9.5e-4 (1440).
+pub(crate) fn carry_imprecision_ceiling(
+    body: &mut popkern_core::topology::BRep,
+    operands: &[&popkern_core::topology::BRep],
+) {
+    for b in operands {
+        body.max_imprecision = body.max_imprecision.max(b.max_imprecision);
+    }
+}
+
 /// Fragments of a SPLIT curved edge whose stored curve spans the whole
 /// original go through subrange + end-heal; otherwise a line from the
 /// endpoints.

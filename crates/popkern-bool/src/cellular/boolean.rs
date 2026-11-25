@@ -163,6 +163,7 @@ pub(crate) fn cellular_graph_merge(
         breps,
     );
     insert_intersection_curves_at(&mut graph, &rotated, snap_tol, identity.ends.as_deref());
+    super::vertex_reach::record_node_zones(&mut graph, &identity.reaches, snap_tol);
     // Split SHARED edges at record×record T-junctions: one record's
     // endpoint frequently lands mid-span of another (a dovetail
     // rail's flank trace ends ON the joint-shoulder trace), and the

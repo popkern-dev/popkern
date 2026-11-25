@@ -1,15 +1,9 @@
-//! Chart embeddings: branch-resolved UV images of registered half-edges.
-//!
-//! PK-104 substrate, stage 1 — see
-//! docs/architecture/fragment-walk-chart-subdivision.md §3.4. Every
-//! half-edge registered on a face gets a UV sample run in that face's
-//! chart, in the half-edge's traversal direction. Sources, in order:
-//! the half-edge's own pcurve (verified against its 3D curve window),
-//! the twin's pcurve reversed (cross-registered directions store their
-//! pcurve in the other face's chart), and mid-out 3D projection with
-//! period-branch continuation (split edges drop pcurves at graph level;
-//! projection is the safety net the fragment sampler already relies
-//! on post-walk).
+//! Chart embeddings: branch-resolved UV images of registered half-edges
+//! (PK-104, docs/architecture/fragment-walk-chart-subdivision.md §3.4):
+//! each half-edge on a face gets a UV run in that face's chart, in its
+//! traversal direction, from its own pcurve (verified against its 3D
+//! curve window), the twin's reversed, or mid-out 3D projection with
+//! period-branch continuation.
 
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
@@ -26,6 +20,8 @@ mod chart_embedding_closed;
 mod chart_embedding_follow;
 #[path = "chart_embedding_unfold.rs"]
 mod chart_embedding_unfold;
+#[path = "chart_embedding_zone.rs"]
+mod chart_embedding_zone;
 
 /// Where a chart embedding's UV run came from (feeds the coverage
 /// census in the subdivision report).
@@ -52,22 +48,19 @@ pub(crate) struct ChartEmbedding {
     /// True when both directions of the pair are registered on this
     /// face with this face as their primary owner — a chart seam pair.
     pub seam_like: bool,
-    /// Endpoint-refined direction sample next to `uv[0]` (δ =
-    /// span/1000 along the source curve): `start_dir`/`end_dir` are
-    /// chords, and a 1/16-run chord on a curved record is up to
-    /// ~0.06 rad off the true tangent — more than the angular
-    /// separation of a thread groove meeting a rim near-tangentially
-    /// (0.013 rad measured, PK-460), so the walk's wedge matching at
-    /// such junctions ordered the slots wrong and fused two adjacent
-    /// regions into one orbit. Kept OUT of `uv`: injecting δ-points
-    /// into the shared polyline perturbed every other run consumer
-    /// (boundary substitutes, orbit polylines, branch measures) and
-    /// tore the propeller hub shell (measured: one closed free-bound
-    /// wire in the OCC oracle).
+    /// Endpoint-refined direction sample next to `uv[0]` (δ = span/1000
+    /// along the source curve): a 1/16-run chord is up to ~0.06 rad off
+    /// the tangent, past a thread groove meeting a rim 0.013 rad off it
+    /// (PK-460, wedges misordered). Kept out of `uv`: δ-points in the
+    /// shared polyline perturbed its other consumers (the propeller hub
+    /// shell tore).
     pub refined_first: Option<(f64, f64)>,
     /// Endpoint-refined direction sample next to the run's last point
     /// (see `refined_first`).
     pub refined_last: Option<(f64, f64)>,
+    /// Which refined samples are zone exits (`chart_embedding_zone`):
+    /// the direction there is the curve's, the run's chord the zone's.
+    pub zone_ends: (bool, bool),
 }
 
 /// A sampled run beside its endpoint-refined δ-samples (see
@@ -80,18 +73,10 @@ pub(crate) type RunWithRefinedEnds = (Vec<(f64, f64)>, Option<(f64, f64)>, Optio
 const REFINED_DIR_AGREEMENT: f64 = 0.95;
 
 impl ChartEmbedding {
-    /// Chart departure direction at the run start (the endpoint-refined
-    /// δ-sample when it AGREES with the coarse chord, else the first
-    /// non-degenerate run segment), or `None` when the run is a single
-    /// point.
-    ///
-    /// The refinement corrects the 1/16-run chord's tangent error
-    /// (≤ ~0.06 rad measured); a δ-sample whose direction leaves that
-    /// cone is a projection artifact — on a closed chart the δ-point
-    /// can project across the seam branch and the "tangent" points
-    /// across the chart (measured, PK-460: the propeller hub's blade
-    /// junction wedges scrambled and the shell tore — one closed
-    /// free-bound wire). Such a sample falls back to the chord.
+    /// Chart departure direction at the run start: the refined sample
+    /// when it agrees with the first run segment (a δ-point projected
+    /// across a closed chart's seam points across it, PK-460) or is a
+    /// zone exit, else that segment; `None` for a single-point run.
     pub fn start_dir(&self) -> Option<(f64, f64)> {
         let chord = first_dir(self.uv.iter());
         if let (Some(&(u0, v0)), Some((ur, vr)), Some((cu, cv))) =
@@ -99,7 +84,8 @@ impl ChartEmbedding {
         {
             let (du, dv) = (ur - u0, vr - v0);
             let len = (du * du + dv * dv).sqrt();
-            if len > 1e-13 && (du * cu + dv * cv) / len > REFINED_DIR_AGREEMENT {
+            let agrees = (du * cu + dv * cv) / len > REFINED_DIR_AGREEMENT;
+            if len > 1e-13 && (agrees || self.zone_ends.0) {
                 return Some((du / len, dv / len));
             }
         }
@@ -116,7 +102,8 @@ impl ChartEmbedding {
         {
             let (du, dv) = (u1 - ur, v1 - vr);
             let len = (du * du + dv * dv).sqrt();
-            if len > 1e-13 && (du * cu + dv * cv) / len > REFINED_DIR_AGREEMENT {
+            let agrees = (du * cu + dv * cv) / len > REFINED_DIR_AGREEMENT;
+            if len > 1e-13 && (agrees || self.zone_ends.1) {
                 return Some((du / len, dv / len));
             }
         }
@@ -299,6 +286,14 @@ pub(crate) fn build_embedding(
         (p_start, p_end),
         (refined_first, refined_last),
     );
+    let zone_of = |he: usize| graph.node_zones.get(&graph.half_edges[he].origin).copied();
+    let zone_ends = chart_embedding_zone::read_past_zones(
+        surface,
+        &uv,
+        (p_start, p_end),
+        (zone_of(raw), zone_of(twin)),
+        (&mut refined_first, &mut refined_last),
+    );
     if popkern_core::trace::trace_enabled("branch-pairing") {
         let (ulo, uhi) = uv.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &(u, _)| {
             (lo.min(u), hi.max(u))
@@ -316,6 +311,7 @@ pub(crate) fn build_embedding(
         seam_like,
         refined_first,
         refined_last,
+        zone_ends,
     })
 }
 

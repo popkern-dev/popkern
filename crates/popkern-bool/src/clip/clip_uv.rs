@@ -321,8 +321,14 @@ pub(super) fn uv_clip_one_face(
             use popkern_core::geometry::curve::CurveEval;
             let t_cross = crossings[0].t_curve;
             let (t_min, t_max) = curve_uv.parameter_range();
-            let span = (t_max - t_min).max(1e-12);
-            let inset = span * 1e-3;
+            // Each side is one verdict throughout (one crossing): read
+            // each midway between its end and the crossing, as far from
+            // the boundary as the side reaches. A sample a thousandth of
+            // the span from the end stood 2.5 inside a disc 1000 across
+            // whose boundary the coarse test reads 76 inside, and a cap
+            // x NURBS record 340 long was dropped (1440).
+            let start_at = 0.5 * (t_min + t_cross);
+            let end_at = 0.5 * (t_cross + t_max);
             // The seam-aware test reads the boundary as a coarse polygon
             // (eight samples a pcurve): inside a disc of radius 1.2 its
             // octagon's sides pass 1.11 from the centre, and a cylinder
@@ -339,12 +345,12 @@ pub(super) fn uv_clip_one_face(
                     &brep.tolerance,
                 ) || super::clip_uv_banded::banded_inside(brep, face, q, band) == Some(true)
             };
-            let start_in = end_inside(curve_uv.point_at(t_min + inset));
-            let end_in = end_inside(curve_uv.point_at(t_max - inset));
+            let start_in = end_inside(curve_uv.point_at(start_at));
+            let end_in = end_inside(curve_uv.point_at(end_at));
             if trace {
                 use popkern_core::geometry::curve::CurveEval as _;
-                let p0 = curve_uv.point_at(t_min + inset);
-                let p1 = curve_uv.point_at(t_max - inset);
+                let p0 = curve_uv.point_at(start_at);
+                let p1 = curve_uv.point_at(end_at);
                 eprintln!(
                     "    [uvclip-1x] {face:?} t_cross={t_cross:.2} start=({:.2},{:.2})in={start_in} end=({:.2},{:.2})in={end_in}",
                     p0.x, p0.y, p1.x, p1.y

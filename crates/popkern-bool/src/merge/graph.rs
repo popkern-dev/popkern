@@ -143,6 +143,10 @@ pub(crate) struct IntersectionGraph {
     /// keep (a dome block's rim fitted to 9e-7 and scaled a thousandfold
     /// carries 9e-4; stamped with the bare linear it failed validation).
     pub edge_tolerances: BTreeMap<(Operand, popkern_core::topology::EdgeHandle), f64>,
+    /// Each node's zone where the vertex table grew it past the linear
+    /// tolerance: the reach its members lie within. Inside it a run's
+    /// direction is the zone's, not the curve's (`chart_embedding_zone`).
+    pub node_zones: BTreeMap<usize, f64>,
     /// Node indices keyed by their x coordinate (order-preserving bit
     /// key), so `find_node` scans a slab instead of every node: graph
     /// build looked up every operand vertex against every node before
@@ -173,6 +177,7 @@ impl IntersectionGraph {
             duplicate_of: std::collections::BTreeMap::new(),
             lamina_boundary_nodes: std::collections::BTreeSet::new(),
             edge_tolerances: BTreeMap::new(),
+            node_zones: BTreeMap::new(),
             node_index: BTreeMap::new(),
         }
     }

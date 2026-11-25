@@ -26,3 +26,17 @@ fn a_cylinder_and_a_cone_crossing_at_their_touch_sample_their_fragments_clear_of
         r#"{"cell":{"a":"Y","b":"C","config":"V"},"seed":1,"index":2020,"variant_a":1,"variant_b":2,"b_scale":1.0,"place_b":[[-0.2345802851432116,-0.9518806455138263,-0.19721898113090164,-0.44949666997381466],[0.8689928773644473,-0.11440943020723415,-0.4814165154723244,-0.4899865502292794],[0.4356873522515754,-0.28431271335597624,0.8540156978136727,1.969735405850133],[0.0,0.0,0.0,1.0]],"scene":[[0.3957520397722035,-0.9178141616396256,-0.031583028827074255,2.2861756534838626],[-0.3197704406372713,-0.1699572913769341,0.9321273434474826,2.9198031555505652],[-0.8608874423005517,-0.3587919784520934,-0.36075078362721114,2.4062792339887267],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":-0.5,"rung":{"offset":-0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[3.242388143820475,3.329840176755608,2.522871516234948],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 97ab1a60 (W3 V cells, tangency design §4.8): a sphere
+/// crossing a filleted box's round at their touch. Two records re-anchored
+/// onto the crossing's vertex from their own ends 1.1e-3 rad along the
+/// fillet's chart departed it the wrong way round inside its zone; the
+/// wedge matching paired them with the wrong neighbours and three regions
+/// of the round walked as one loop (`chart_embedding_zone`: a run's
+/// direction is read where it leaves twice its node's zone).
+#[test]
+fn a_sphere_crossing_a_round_at_its_touch_reads_departures_past_the_zone() {
+    passes(
+        r#"{"cell":{"a":"S","b":"L","config":"V"},"seed":1,"index":1009,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[0.1925428437821122,0.20040734052957243,0.9606061373789785,0.3365448632480087],[0.07897669400561796,0.9725827743755888,-0.21873597964629707,-0.5623630206818578],[-0.97810527813331,0.11798154453026247,0.17143634398228855,-0.3878391730618679],[0.0,0.0,0.0,1.0]],"scene":[[0.824785271569115,-0.0830563959228049,-0.5593128738898966,-0.27999142648171205],[0.5480394931305265,-0.12612023939189929,0.8268895931047662,1.2402065708123775],[-0.13921914297932136,-0.9885319015145866,-0.05850393077442717,2.3281736578741423],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.5,"rung":{"offset":0.5,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[0.6993793531835348,0.24447554097452273,2.2314648570547186],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

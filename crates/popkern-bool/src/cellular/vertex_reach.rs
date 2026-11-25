@@ -89,6 +89,25 @@ pub(super) fn record_vertex_reaches(body: &mut BRep, reaches: &[(Point3, f64)]) 
     }
 }
 
+/// Give each graph node a decided vertex anchors the zone the vertex
+/// grew to, where that passes the linear tolerance (`snap` finds the
+/// node at the anchor): the walk reads run directions past it.
+pub(super) fn record_node_zones(
+    graph: &mut crate::merge::graph::IntersectionGraph,
+    reaches: &[(Point3, f64)],
+    snap: f64,
+) {
+    for &(anchor, zone) in reaches {
+        if zone <= graph.linear {
+            continue;
+        }
+        if let Some(node) = graph.find_node(&anchor, snap) {
+            let z = graph.node_zones.entry(node).or_insert(0.0);
+            *z = z.max(zone);
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "vertex_reach_tests.rs"]
 mod tests;

@@ -6,16 +6,13 @@
 
 // Used by later pipeline stages; not yet called from the main merge path.
 #![allow(dead_code)]
-
-use popkern_math::hash::FastHashMap as HashMap;
-
+use super::fragment_classify::FragmentSelection;
 use popkern_core::{
     constructors::builder::BRepBuilder,
     tolerance::Tolerance,
     topology::{BRep, HalfEdgeHandle, VertexHandle},
 };
-
-use super::fragment_classify::FragmentSelection;
+use popkern_math::hash::FastHashMap as HashMap;
 
 #[path = "assemble_loop_chain.rs"]
 mod loop_chain;
@@ -53,7 +50,10 @@ pub(crate) fn assemble_result(
 ) -> Result<BRep, BoolDiagnostics> {
     super::graph::trace_uv_scramble("assemble", graph, brep_a, brep_b, &tolerance);
     let mut builder = BRepBuilder::new(tolerance);
-
+    crate::cellular::assemble_edge_geometry::carry_imprecision_ceiling(
+        builder.brep_mut(),
+        &[brep_a, brep_b],
+    );
     let solid = builder.add_solid();
     let shell = builder.add_shell(solid);
 

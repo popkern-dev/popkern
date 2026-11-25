@@ -43,6 +43,7 @@ pub(crate) fn cellular_assemble(
 ) -> Result<BRep, BoolDiagnostics> {
     let mut carry = super::assemble_far_carry::Carry::new(far);
     let mut builder = BRepBuilder::new(tolerance);
+    super::assemble_edge_geometry::carry_imprecision_ceiling(builder.brep_mut(), operands);
     let solid = builder.add_solid();
     let shell = builder.add_shell(solid);
 
