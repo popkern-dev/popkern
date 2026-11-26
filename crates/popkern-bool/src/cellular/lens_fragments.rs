@@ -80,7 +80,8 @@ fn transversal(ctx: &ClassifyCtx<'_>, h: usize) -> bool {
 /// records agree on (see the module doc).
 ///
 /// Only fragments sampled on their own (not deferred to a propagation
-/// component), without holes and bounded by records alone are tested:
+/// component), without holes and with a record on their boundary are
+/// tested:
 /// the test projects onto the other operand's faces, which costs the
 /// most on the multi-wrap walls the planner exists to spare.
 pub(super) fn reclassify_lenses(
@@ -90,12 +91,15 @@ pub(super) fn reclassify_lenses(
     results: &mut [Option<Verdict>],
 ) {
     let graph = ctx.graph;
+    // A lens may close along its own face's edges (a cone's seam across
+    // a tangent crossing's sector, 1.4e-3 from it: the triangle the two
+    // arms and the seam bound), but it needs a record to read across.
     let bounded_by_records = |f: &Fragment| {
         f.inner_loops.is_empty()
             && f.outer_loop.len() >= 2
             && f.outer_loop
                 .iter()
-                .all(|&h| matches!(graph.half_edges[h].source, EdgeSource::Shared { .. }))
+                .any(|&h| matches!(graph.half_edges[h].source, EdgeSource::Shared { .. }))
     };
     let lens: Vec<bool> = fragments
         .iter()

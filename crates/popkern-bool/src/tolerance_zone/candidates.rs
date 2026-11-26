@@ -453,7 +453,7 @@ pub(crate) fn edge_parameter(brep: &BRep, edge: EdgeHandle, p: &Point3) -> Optio
 /// record's own fit deviation there. (The 3D curve carries the clipped
 /// parameter window while the pcurves keep their own domains, so the
 /// surfaces, not the pcurve ends, are the reference.)
-pub(super) fn record_fit_deviation(
+pub(crate) fn record_fit_deviation(
     a: &BRep,
     b: &BRep,
     record: &IntersectionRecord,

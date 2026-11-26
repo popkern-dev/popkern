@@ -130,3 +130,31 @@ fn a_cylinder_crossing_a_strip_at_a_tangent_crossing_pairs_its_wedges() {
         r#"{"cell":{"a":"Y","b":"L","config":"V"},"seed":1,"index":10119266,"variant_a":1,"variant_b":1,"b_scale":1.0,"place_b":[[-0.44018462140588,0.6809516375323381,-0.5852711904918857,-0.44395906775431426],[-0.37865456501446326,-0.7318000083372539,-0.5666475696509274,0.24196942947548572],[-0.8141610525390354,-0.027813937866153382,0.5799725557204478,0.6278095684307079],[0.0,0.0,0.0,1.0]],"scene":[[-0.00046125944991050566,-0.0008764654370738455,0.00013801470024316575,0.0010933709766411948],[0.0006857969742043871,-0.00025348830471475203,0.0006822215106143667,0.0024576645586255994],[-0.0005629584620914451,0.00040933118252558555,0.0007180012207314421,0.0020215396754199306],[0.0,0.0,0.0,1.0]],"scale":0.001,"offset":0.5,"rung":{"offset":0.5,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[0.00030297157159889254,0.003500545322639615,0.002639170374922046],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 4cfacba0 (W3 V cells, PK-1292): a cylinder and a cone
+/// crossing at their touch, the cone's seam 1.0e-3 from it. The seam
+/// lies within the tolerance of the cylinder along a stretch, and the
+/// edge-face solver placed its pierce at its own closest approach, 8e-7
+/// off the cylinder, where no record passes; the crossing's arms crossed
+/// the seam unsplit and the cone's walk overwrapped its period. The
+/// pierce is where the arms cross the seam
+/// (`intersect_edge_face_zone`), and the triangle the arms and the seam
+/// bound, within the tolerance of the cylinder everywhere, takes its
+/// side from its neighbours across the arms (`lens_fragments`).
+#[test]
+fn a_cylinder_and_a_cone_crossing_beside_its_seam_split_the_seam_at_the_arms() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"C","config":"V"},"seed":1,"index":18166,"variant_a":2,"variant_b":1,"b_scale":1.0,"place_b":[[0.6303461664810618,-0.3219033067576193,0.7064290279293027,0.7138972905647312],[-0.7140874549815948,-0.5973972915296574,0.364959700118984,-0.16875628013188998],[0.304537053641324,-0.734503054569237,-0.6064342056545967,1.105881917475334],[0.0,0.0,0.0,1.0]],"scene":[[0.247549057808925,-0.9207730254255693,0.30149046357481657,-2.3797441858251656],[-0.5577192581063304,-0.3898737043657451,-0.7327671688752548,2.0118597763344033],[0.7922554468826568,0.01324878457730222,-0.6100457168048852,0.6814764818911634],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":{"Seam":0.001}},"aligned":true,"shift":0.0,"contact":[-1.2053925641631258,0.7063769212337223,0.7272240763057022],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 4cfacba0 (W3 V cells, PK-1292): two cylinders crossing at
+/// their touch, one's seam 8.3e-4 rad from it; the seam's pierce of the
+/// other cylinder is where the crossing's arms cross the seam
+/// (`intersect_edge_face_zone`).
+#[test]
+fn two_cylinders_crossing_beside_a_seam_split_the_seam_at_the_arms() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"Y","config":"V"},"seed":1,"index":17158,"variant_a":2,"variant_b":0,"b_scale":1.0,"place_b":[[0.7293880422698524,-0.6840998655202145,-0.0006766010471870083,0.3996829663852828],[-0.3989543107215397,-0.426168553732875,0.811921068679666,0.3806069162719515],[-0.555723439986522,-0.5919355858574938,-0.583766837397511,-0.29956077401375314],[0.0,0.0,0.0,1.0]],"scene":[[0.9057336996434773,-0.2234976819294158,0.36013226945431753,0.20285220252393055],[0.1836935130154468,-0.5587404008249708,-0.8087433818968752,-1.055136624036749],[0.38197271971461966,0.7986600970739235,-0.4650149360350567,1.728389557959356],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":{"Seam":0.001},"steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[1.280092700550568,-0.8141177126257689,2.1997136651997224],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
