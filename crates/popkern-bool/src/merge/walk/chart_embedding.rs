@@ -294,6 +294,8 @@ pub(crate) fn build_embedding(
         (zone_of(raw), zone_of(twin)),
         (&mut refined_first, &mut refined_last),
     );
+    let refined = (&mut refined_first, &mut refined_last);
+    chart_embedding_zone::drop_refined_off_course(surface, &uv, zone_ends, refined);
     if popkern_core::trace::trace_enabled("branch-pairing") {
         let (ulo, uhi) = uv.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &(u, _)| {
             (lo.min(u), hi.max(u))

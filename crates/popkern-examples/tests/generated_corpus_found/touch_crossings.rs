@@ -114,3 +114,19 @@ fn a_cone_crossing_a_cone_at_its_rims_touch_closes() {
         r#"{"cell":{"a":"C","b":"C","config":"V"},"seed":1,"index":10090011,"variant_a":2,"variant_b":1,"b_scale":1.0,"place_b":[[-0.10503805547028794,0.9794379949888413,-0.1722446541267949,-0.4798520087985809],[-0.49165643982119356,0.09940964411194615,0.8650963344274935,1.4483270373780548],[0.8644309990307901,0.1755532301889507,0.4711052019293095,-1.0662028081044626],[0.0,0.0,0.0,1.0]],"scene":[[0.1449435143685564,-0.9198997457095992,0.364384186657307,1.0612863103163503],[0.7433686438073941,0.3442877669155191,0.57347100445993,1.6648574699672594],[-0.65298884909809,0.18775087588541425,0.7337269052977491,-2.7515287808416606],[0.0,0.0,0.0,1.0]],"scale":1.0,"offset":0.0,"rung":{"offset":0.0,"scale":1.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[0.27460465418162716,0.012881397808823802,-2.832513339045187],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at dfe69276 (W3 V cells, tangency design §4.8): a cylinder a
+/// millimetre across crossing a rounded box's strip at a tangent
+/// crossing, the normals aligned. On the cylinder's chart (u an angle,
+/// v a length) the four records leaving the crossing hook inside its
+/// touch band, and each endpoint-refined direction read 50 degrees off
+/// its chord in space, mirrored across u, while the chart's cosine
+/// passed it: the wedge matching joined the wrong wedges, Common
+/// declined a pinch and B - A served. A refined direction is held to
+/// its chord in space (`chart_embedding_zone::drop_refined_off_course`).
+#[test]
+fn a_cylinder_crossing_a_strip_at_a_tangent_crossing_pairs_its_wedges() {
+    passes(
+        r#"{"cell":{"a":"Y","b":"L","config":"V"},"seed":1,"index":10119266,"variant_a":1,"variant_b":1,"b_scale":1.0,"place_b":[[-0.44018462140588,0.6809516375323381,-0.5852711904918857,-0.44395906775431426],[-0.37865456501446326,-0.7318000083372539,-0.5666475696509274,0.24196942947548572],[-0.8141610525390354,-0.027813937866153382,0.5799725557204478,0.6278095684307079],[0.0,0.0,0.0,1.0]],"scene":[[-0.00046125944991050566,-0.0008764654370738455,0.00013801470024316575,0.0010933709766411948],[0.0006857969742043871,-0.00025348830471475203,0.0006822215106143667,0.0024576645586255994],[-0.0005629584620914451,0.00040933118252558555,0.0007180012207314421,0.0020215396754199306],[0.0,0.0,0.0,1.0]],"scale":0.001,"offset":0.5,"rung":{"offset":0.5,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[0.00030297157159889254,0.003500545322639615,0.002639170374922046],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

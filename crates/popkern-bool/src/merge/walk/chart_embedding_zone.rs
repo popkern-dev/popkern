@@ -67,9 +67,9 @@ pub(super) fn read_past_zones(
         }
         let e = zone_exit(surface, run, node, z)?;
         let (a, b) = ((q.0 - o.0, q.1 - o.1), (e.0 - o.0, e.1 - o.1));
-        let la = (a.0 * a.0 + a.1 * a.1).sqrt();
-        let lb = (b.0 * b.0 + b.1 * b.1).sqrt();
-        (la > 0.0 && lb > 0.0 && (a.0 * b.0 + a.1 * b.1) / (la * lb) < HOOK_COS).then_some(e)
+        space_cos(surface, o, a, b)
+            .is_some_and(|c| c < HOOK_COS)
+            .then_some(e)
     };
     let mut read = (false, false);
     if let Some(e) = hook_exit(uv, *refined.0, ends.0, zones.0) {
@@ -82,6 +82,67 @@ pub(super) fn read_past_zones(
         read.1 = true;
     }
     read
+}
+
+/// The cosine between the chords from `at` by chart steps `a` and `b`,
+/// measured in space between the points they reach (not through the
+/// first partials, which a pole collapses: a run 1e-5 beside a ball's
+/// pole read its refined sample off its chord and lost its wedges);
+/// `None` where either chord is a point.
+fn space_cos(surface: &SurfaceGeometry, at: Uv, a: Uv, b: Uv) -> Option<f64> {
+    let o = surface.point_at(at.0, at.1);
+    let x = surface.point_at(at.0 + a.0, at.1 + a.1) - o;
+    let y = surface.point_at(at.0 + b.0, at.1 + b.1) - o;
+    let l = x.length() * y.length();
+    (l > 0.0).then(|| x.dot(&y) / l)
+}
+
+/// A refined sample this far off its run's first chord in space
+/// (cosine) is an artifact, never the chord error it corrects (≤ ~0.06
+/// rad): the chart test in `ChartEmbedding::start_dir` alone is blind
+/// in a stretched chart.
+const REFINED_COS: f64 = 0.95;
+
+/// Drop each endpoint-refined sample (not a zone exit) whose direction
+/// strays off its run's first chord in space past [`REFINED_COS`], so
+/// the run departs along its chord. A chart stretched along one
+/// parameter folds directions toward it, and the chart's own cosine
+/// passes what space does not (measured, YL-V 1189: on a 1 mm cylinder,
+/// u an angle and v a length, the four records leaving a tangent
+/// crossing hooked inside its touch band 1.6e-7 from the node; each
+/// refined sample read 50 degrees off its chord in space, mirrored
+/// across u, a cosine of 1 - 1e-7 in the chart, and the wedge matching
+/// paired every arm with the wrong neighbour).
+pub(super) fn drop_refined_off_course(
+    surface: &SurfaceGeometry,
+    uv: &[Uv],
+    zone_ends: (bool, bool),
+    refined: (&mut Option<Uv>, &mut Option<Uv>),
+) {
+    let off_course = |mut run: Box<dyn Iterator<Item = &Uv> + '_>, q: Uv| -> bool {
+        let Some(&o) = run.next() else {
+            return false;
+        };
+        let Some(&k) = run.find(|k| (k.0 - o.0).powi(2) + (k.1 - o.1).powi(2) > 1e-26) else {
+            return false;
+        };
+        let (a, b) = ((q.0 - o.0, q.1 - o.1), (k.0 - o.0, k.1 - o.1));
+        space_cos(surface, o, a, b).is_some_and(|c| c < REFINED_COS)
+    };
+    if !zone_ends.0
+        && refined
+            .0
+            .is_some_and(|q| off_course(Box::new(uv.iter()), q))
+    {
+        *refined.0 = None;
+    }
+    if !zone_ends.1
+        && refined
+            .1
+            .is_some_and(|q| off_course(Box::new(uv.iter().rev()), q))
+    {
+        *refined.1 = None;
+    }
 }
 
 #[cfg(test)]
@@ -140,5 +201,34 @@ mod tests {
         );
         assert_eq!(read, (false, false));
         assert_eq!(on_course, Some((-1e-3, -2.5e-4)));
+    }
+
+    /// On a 1 mm cylinder (u an angle, v a length) a refined sample
+    /// mirrored across u from its run's chord is dropped, though the
+    /// chart's own cosine passes it (the negative control); one along
+    /// the chord is kept. The run (YL-V 1189) leaves at -27 degrees in
+    /// space, the refined sample at +27.
+    #[test]
+    fn a_refined_sample_off_its_chord_in_space_is_dropped_in_a_stretched_chart() {
+        let cylinder = SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1e-3,
+        };
+        let run = [(2.8, 2.3e-3), (2.9, 2.25e-3), (3.0, 2.2e-3)];
+        let mirrored = (2.8 + 1e-4, 2.3e-3 + 5e-8);
+        let chart_cos = {
+            let (a, b): ((f64, f64), (f64, f64)) = ((1e-4, 5e-8), (0.1, -5e-5));
+            (a.0 * b.0 + a.1 * b.1) / (a.0.hypot(a.1) * b.0.hypot(b.1))
+        };
+        assert!(chart_cos > REFINED_COS, "the chart passes it: {chart_cos}");
+        let (mut first, mut last) = (Some(mirrored), Some((3.0 - 1e-4, 2.2e-3 + 5e-8)));
+        drop_refined_off_course(&cylinder, &run, (false, false), (&mut first, &mut last));
+        assert_eq!(first, None, "the mirrored sample is dropped");
+        assert!(last.is_some(), "a sample along the chord is kept: {last:?}");
+        // A zone exit is deliberate and kept whatever its bearing.
+        let mut exit = Some(mirrored);
+        drop_refined_off_course(&cylinder, &run, (true, false), (&mut exit, &mut None));
+        assert_eq!(exit, Some(mirrored));
     }
 }
