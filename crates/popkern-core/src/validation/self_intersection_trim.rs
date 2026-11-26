@@ -256,10 +256,12 @@ impl BRep {
     ) -> bool {
         let mut boundary_contacts = Vec::new();
         for (i, point) in points.iter().enumerate() {
-            let trim_a_contains =
-                self.face_trim_classify_point(face_a, surface_a, point, linear_tol);
-            let trim_b_contains =
-                self.face_trim_classify_point(face_b, surface_b, point, linear_tol);
+            let read = |face, surface| {
+                let class = self.face_trim_classify_point(face, surface, point, linear_tol);
+                self.trim_reading_in_space((face, surface), point, class, linear_tol)
+            };
+            let trim_a_contains = read(face_a, surface_a);
+            let trim_b_contains = read(face_b, surface_b);
             trace_trim_overlap_point(
                 face_a,
                 surface_a,

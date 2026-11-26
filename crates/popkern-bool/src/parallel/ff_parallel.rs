@@ -31,6 +31,8 @@ pub(crate) mod ff_parallel_contacts;
 pub(crate) mod ff_parallel_reach;
 #[path = "ff_parallel_residue.rs"]
 mod ff_parallel_residue;
+#[path = "ff_parallel_touch_rings.rs"]
+mod ff_parallel_touch_rings;
 #[path = "ff_parallel_trace.rs"]
 mod ff_parallel_trace;
 pub(crate) use ff_parallel_trace::TraceFlags;
@@ -195,6 +197,12 @@ pub(crate) fn process_pairs(
         }
     };
 
+    // A small closed curve round a touch is the touch.
+    let ssi: Vec<_> = ssi
+        .into_iter()
+        .zip(&unique)
+        .map(|(r, inp)| r.map(|res| ff_parallel_touch_rings::drop_touch_rings(res, inp, tolerance)))
+        .collect();
     let contacts = ff_parallel_contacts::discover(
         (tasks, &unique_of_task),
         &unique,

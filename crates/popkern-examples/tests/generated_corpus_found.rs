@@ -15,6 +15,8 @@ use popkern_bool::NonManifoldPolicy;
 mod boundary_junctions;
 #[path = "generated_corpus_found/thousandfold.rs"]
 mod thousandfold;
+#[path = "generated_corpus_found/touch_bands.rs"]
+mod touch_bands;
 #[path = "generated_corpus_found/touch_crossings.rs"]
 mod touch_crossings;
 

@@ -36,6 +36,8 @@ const SIDE_STEPS: [f64; 4] = [1.0 / 64.0, 1.0 / 32.0, 1.0 / 16.0, 1.0 / 8.0];
 const EDGE_STATIONS: usize = 32;
 /// Ternary-search rounds refining the nearest station.
 const EDGE_ROUNDS: usize = 40;
+/// The parametric band of a sharp trim reading.
+const SHARP_BAND: f64 = 1e-12;
 
 impl BRep {
     /// Whether `point` lies within `reach` of one of `face`'s boundary
@@ -102,6 +104,51 @@ impl BRep {
             }
         }
         false
+    }
+
+    /// `class`, `face`'s trim reading of `point`, confirmed in space: a
+    /// `Boundary` (a uv in the trim test's band, ten tolerances wide,
+    /// more where the chart is stretched) farther than the linear reach
+    /// from every boundary curve is no place on the face's boundary (one
+    /// place within the tolerance, PK-1131: the glue reads the same
+    /// reach), and reads `Outside` where the trim reads it sharply
+    /// outside. A cone's
+    /// face touching a frustum's side 2.4e-5 from its cap's rim met
+    /// the cap's plane 1.7e-6 outside the cap's rim, in the band, and the
+    /// glued body failed as self-intersecting (CF-E 150 at scale 1e-3;
+    /// faces touch only within the tolerance of each boundary, PK-1154).
+    pub(super) fn trim_reading_in_space(
+        &self,
+        (face, surface): (FaceHandle, &SurfaceGeometry),
+        point: &Point3,
+        class: Option<TrimContainment>,
+        linear_tol: f64,
+    ) -> Option<TrimContainment> {
+        if class != Some(TrimContainment::Boundary)
+            || self.point_near_face_boundary(
+                face,
+                point,
+                linear_tol * (1.0 + crate::tolerance::LINEAR_ROUNDING),
+            )
+        {
+            return class;
+        }
+        let (u, v) =
+            crate::geometry::uv_projection::project_point_to_uv_multisheet(surface, point)?;
+        let sharp = self.face_trim_classify_uv_band(
+            face,
+            surface,
+            super::self_intersection_uv_containment::UvPoint { u, v },
+            SHARP_BAND,
+        );
+        // Only off the face: a point sharply inside but past the reach
+        // from the boundary stays on the band, where a curve grazing the
+        // boundary from inside (a dimple's rim touching a plate's edge at
+        // milli scale, 1.2e-6 in) is the touch, not a crossing.
+        match sharp {
+            Some(TrimContainment::Outside) => Some(TrimContainment::Outside),
+            _ => class,
+        }
     }
 
     /// Whether `curve` at fraction `alpha` of its span lies outside

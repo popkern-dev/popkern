@@ -6,6 +6,7 @@
 use crate::geometry::intersection::degeneracy::DefaultDegeneracyHandler;
 use crate::geometry::intersection::intersect_surfaces_with_handler;
 use crate::geometry::intersection::surface_subdivision::Aabb;
+use crate::geometry::intersection::touch_ring::is_touch_ring_of;
 use crate::geometry::surface::SurfaceEval;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, FaceHandle};
@@ -447,6 +448,11 @@ impl BRep {
                 &coarse_tol,
                 &DefaultDegeneracyHandler,
             );
+            // A closed curve round a touch is the touch, no crossing
+            // (asked only of a curve the trims read as crossing: costly).
+            let (wi, wj) = (((u0i, u1i), (v0i, v1i)), ((u0j, u1j), (v0j, v1j)));
+            let (si, sj) = ((&surf_i.geometry, wi), (&surf_j.geometry, wj));
+            let touch = |c: &_| is_touch_ring_of(c, si, sj, &self.tolerance);
             match result {
                 Ok(ref r) => r.intersections.iter().any(|intersection| {
                     self.intersection_overlaps_face_trims(
@@ -456,7 +462,7 @@ impl BRep {
                         &surf_j.geometry,
                         intersection,
                         linear_tol,
-                    )
+                    ) && !touch(intersection)
                 }),
                 _ => false,
             }

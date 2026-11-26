@@ -71,12 +71,27 @@ impl BRep {
             .iter()
             .filter_map(|p| cylinder_pair_crossing_near(surface_a, surface_b, *p, linear_tol))
             .collect();
-        if crossings.is_empty() {
+        if crossings.is_empty()
+            || !self.sampled_points_overlap_faces(
+                face_a, surface_a, face_b, surface_b, &crossings, linear_tol,
+            )
+        {
             return Some(false);
         }
-        Some(self.sampled_points_overlap_faces(
-            face_a, surface_a, face_b, surface_b, &crossings, linear_tol,
-        ))
+        // Meeting points round one definite touch are the touch (asked
+        // only of points the trims read as crossing: costly).
+        Some(
+            !crate::geometry::intersection::touch_ring::points_in_touch_band(
+                &crossings,
+                (surface_a, (u_range_a, v_range_a)),
+                (surface_b, (u_range_b, v_range_b)),
+                (linear_tol, self.tolerance.linear_reach(), {
+                    use crate::geometry::intersection::touch_ring::window_extent;
+                    window_extent(surface_a, (u_range_a, v_range_a))
+                        .max(window_extent(surface_b, (u_range_b, v_range_b)))
+                }),
+            ),
+        )
     }
 }
 

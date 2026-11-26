@@ -59,6 +59,7 @@ mod surface_surface_seam_dip;
 mod surface_surface_seam_split;
 pub mod surface_surface_typed;
 pub(crate) mod torus_coaxial;
+pub mod touch_ring;
 
 pub use marching::marching_newton::project_point_to_surface_pair;
 pub use surface_curve::{

@@ -40,3 +40,16 @@ fn a_sphere_touching_a_sphere_from_inside_a_thousand_across_serves_general() {
         r#"{"cell":{"a":"S","b":"S","config":"I"},"seed":1,"index":10119261,"variant_a":2,"variant_b":0,"b_scale":0.2553629584682804,"place_b":[[0.9601278716391919,-0.10451372949737354,0.2592900893750962,1.0471294784880194],[0.24643879425263204,0.754326561945957,-0.6084894071634289,0.15118705738256255],[-0.1319939043626803,0.6481267764020725,0.7500061939222593,-0.4999679674469745],[0.0,0.0,0.0,1.0]],"scene":[[999.1373855480729,-3.41933332400682,41.38590291126784,1569.8076417749594],[2.8874287192096446,999.9125545306158,12.905272079647368,239.87132568393267],[-41.42641132843919,-12.774640960808995,999.0598885916546,2166.7212737017458],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":0.0,"rung":{"offset":0.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[2796.1427742128517,416.6341774470351,1514.9106898776467],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at ed681fde (W3 I cells, tangency design §4.8): a ball inside
+/// a dome block scaled a thousandfold. The block's curve ends sit 1.2e-9
+/// off two vertices at unit size, 1.2e-6 at a thousand, past the
+/// vertices' tolerance: the placed operand failed closure before the
+/// boolean ran. A scale-up records the miss on the vertex and its edges
+/// (`BRep::transform`).
+#[test]
+fn a_ball_inside_a_thousandfold_dome_block_keeps_its_vertices_closed() {
+    passes(
+        r#"{"cell":{"a":"W","b":"S","config":"I"},"seed":1,"index":8072,"variant_a":2,"variant_b":2,"b_scale":0.20431771865284593,"place_b":[[0.19128276260623717,0.8138752215134837,0.5486510990931336,-0.20586883243319937],[0.08875843022902011,0.5423396927239947,-0.835457718115838,-0.33294288304362274],[-0.9775136038915296,0.2085060706608335,0.031501947631430716,0.8518241345167172],[0.0,0.0,0.0,1.0]],"scene":[[954.4656005686479,-228.70434104702417,191.545664835769,2469.173709038496],[197.3995445715869,965.5968303020634,169.2813667050758,-2770.8680580451796],[-223.67127024734395,-123.7622143339991,966.7750913056692,-2991.975282518056],[0.0,0.0,0.0,1.0]],"scale":1000.0,"offset":0.0,"rung":{"offset":0.0,"scale":1000.0,"steer_a":"Free","steer_b":"Free"},"aligned":true,"shift":0.0,"contact":[2556.5574829030675,-3038.7019374181564,-1803.0911323220757],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}

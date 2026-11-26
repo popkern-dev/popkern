@@ -157,6 +157,7 @@ impl BRep {
             return;
         }
         let Some((origin, direction)) = tangent_line(sf, sg, tol, ang) else {
+            self.discovered_touches(f, g, (sf, sg), boxes, plan);
             return;
         };
         let span = |b: &Box3| {
@@ -186,6 +187,53 @@ impl BRep {
             let m = mid(&run);
             if self.face_interior_holds(f, &m, tol) || self.face_interior_holds(g, &m, tol) {
                 plan.add_curve(run, tol);
+            }
+        }
+    }
+}
+
+impl BRep {
+    /// The points where faces `f` and `g` touch, found by searching
+    /// their trim windows for critical points of the signed gap
+    /// (`contact_discovery`): the closed forms above know only a plane
+    /// or ball against a ball and tangent lines, and a cylinder resting
+    /// on a box's rounded edge, two cones or a torus in a box went
+    /// unglued, the general policy then failing its pieces' faces as
+    /// crossing (CC-E 9's kin at scale 1e-3, YL-E 1134). A definite touch
+    /// (the faces curving apart) within the reach, on both faces.
+    fn discovered_touches(
+        &self,
+        f: FaceHandle,
+        g: FaceHandle,
+        (sf, sg): (&SurfaceGeometry, &SurfaceGeometry),
+        boxes: &BTreeMap<FaceHandle, Box3>,
+        plan: &mut TouchPlan,
+    ) {
+        use crate::geometry::intersection::contact_classify::{ContactScale, SurfaceContactKind};
+        use crate::geometry::intersection::contact_discovery::find_surface_contacts;
+        let reach = self.tolerance.linear_reach();
+        let (Some(wf), Some(wg)) = (self.face_trim_uv_window(f), self.face_trim_uv_window(g))
+        else {
+            return;
+        };
+        let size = |h: FaceHandle| {
+            let [lo, hi] = boxes[&h].corners();
+            lo.distance_to(&hi)
+        };
+        let scale = ContactScale {
+            linear: self.tolerance.linear(),
+            extent: size(f).max(size(g)).max(self.tolerance.linear()),
+        };
+        for c in find_surface_contacts(sf, wf, sg, wg, scale).contacts {
+            if c.gap.abs() <= reach
+                && matches!(
+                    c.classification.kind,
+                    SurfaceContactKind::TangentPoint { .. }
+                )
+                && self.face_holds(f, &c.point, reach)
+                && self.face_holds(g, &c.point, reach)
+            {
+                plan.add_point(c.point, reach);
             }
         }
     }
