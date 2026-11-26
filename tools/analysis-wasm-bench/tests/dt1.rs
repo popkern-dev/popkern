@@ -96,10 +96,14 @@ const DT1_CELLS: usize = 4000;
 /// re-pinned 2026-11-06 when solids came to face out of their material
 /// and their regenerated fixtures wrote their faces the other way (the
 /// same cells, dofs and iterations: 3,165 / 11,808 / 11 and 3,333 /
-/// 12,132 / 8; wasm reproduced both).
+/// 12,132 / 8; wasm reproduced both); block_dimple re-pinned 2026-11-25
+/// when its regenerated fixture's rim circle took its sphere's exact
+/// frame (z and x, where the old file's carried 1e-16 off z and started
+/// at y: its pcurve starts 3π/2 earlier) and the import tessellates the
+/// old file a hair differently (3,333 cells, 12,132 dofs, 8 iterations).
 const PINNED: [(&str, u64); 3] = [
     ("block_two_bores", 0x2e4d_9956_b624_1f85),
-    ("block_dimple", 0x36f1_62e9_69bf_519b),
+    ("block_dimple", 0xc35a_b48b_c199_02c2),
     ("l_bracket", 0xb952_afcf_f3d8_f6a5),
 ];
 
