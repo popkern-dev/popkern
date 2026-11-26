@@ -201,6 +201,96 @@ impl BRep {
     }
 }
 
+impl BRep {
+    /// Whether `point`, where `other` meets `face` inside its trim's
+    /// boundary band, is a point of `other` touching a face across
+    /// `face`'s boundary there: within the linear reach of that face's
+    /// surface and in the band of a definite touch of the two
+    /// (`points_in_touch_band`, the one rule for a touch decided by
+    /// distance). An edge resting on a face inside a touch's patch
+    /// (CC-E 17 and 9 at scale 1e-3: B's rim 5e-7 off A's cone, B's
+    /// cone touching A's cone 1e-5 away) has the surfaces of three
+    /// faces meeting within the tolerance across the patch, and the
+    /// curve of A's cone and B's base plane runs along B's rim there,
+    /// reading `Interior` on A's cone and `Boundary` on B's base plane
+    /// up to 2.6e-6 inside its rim: it is the touch of the cones, not a
+    /// crossing.
+    pub(super) fn meets_across_boundary_in_touch_band(
+        &self,
+        face: FaceHandle,
+        (other, other_surface): (FaceHandle, &SurfaceGeometry),
+        point: &Point3,
+        linear_tol: f64,
+    ) -> bool {
+        use crate::geometry::intersection::touch_ring::{points_in_touch_band, window_extent};
+        let reach = self.tolerance.linear_reach().max(linear_tol);
+        let band = 10.0 * linear_tol;
+        let Some(face_data) = self.faces.get(face) else {
+            return false;
+        };
+        let other_window =
+            crate::validation::face_uv_window::face_trim_uv_window(self, other, other_surface);
+        let mut across = Vec::new();
+        for l in std::iter::once(face_data.outer_loop).chain(face_data.inner_loops.iter().copied())
+        {
+            let Some(start) = self.loops.get(l).map(|l| l.half_edge) else {
+                continue;
+            };
+            let mut cursor = start;
+            for _ in 0..=self.half_edges.len() {
+                let Some(he) = self.half_edges.get(cursor) else {
+                    break;
+                };
+                let near = self
+                    .edges
+                    .get(he.edge)
+                    .and_then(|e| e.curve.as_ref())
+                    .is_some_and(|c| {
+                        let (lo, hi) = (c.t_start.min(c.t_end), c.t_start.max(c.t_end));
+                        (&c.geometry as &dyn CurveEval)
+                            .closest_point(point)
+                            .is_some_and(|t| {
+                                c.geometry.point_at(t.clamp(lo, hi)).distance_to(point) <= band
+                            })
+                    });
+                if near {
+                    for fin in self.radial_fins(he.edge) {
+                        let h = self
+                            .half_edges
+                            .get(fin)
+                            .and_then(|f| self.loops.get(f.loop_));
+                        if let Some(h) = h.map(|l| l.face)
+                            && h != face
+                            && h != other
+                            && !across.contains(&h)
+                        {
+                            across.push(h);
+                        }
+                    }
+                }
+                cursor = he.next;
+                if cursor == start {
+                    break;
+                }
+            }
+        }
+        across.into_iter().any(|h| {
+            let Some(surface) = self.faces.get(h).and_then(|f| f.surface.as_ref()) else {
+                return false;
+            };
+            let s = &surface.geometry;
+            let window = crate::validation::face_uv_window::face_trim_uv_window(self, h, s);
+            let extent = window_extent(s, window).max(window_extent(other_surface, other_window));
+            points_in_touch_band(
+                std::slice::from_ref(point),
+                (other_surface, other_window),
+                (s, window),
+                (linear_tol, reach, extent),
+            )
+        })
+    }
+}
+
 /// The samples of a coincidence region that lie within `reach` of
 /// `other`. The pair scan finds coincidence at twice the tolerance, so
 /// a region it reports may be two faces up to that far apart: faces

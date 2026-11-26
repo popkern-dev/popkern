@@ -41,10 +41,10 @@ impl BRep {
             {
                 let points = intersection_sample_points(surface_a, intersection);
                 let touch = |i: usize, boundary_on_a: bool| {
-                    let (face, surface) = if boundary_on_a {
-                        (face_a, surface_a)
+                    let ((face, surface), other) = if boundary_on_a {
+                        ((face_a, surface_a), (face_b, surface_b))
                     } else {
-                        (face_b, surface_b)
+                        ((face_b, surface_b), (face_a, surface_a))
                     };
                     self.curve_touches_trim_from_outside(
                         face,
@@ -52,7 +52,8 @@ impl BRep {
                         &curve.curve_3d,
                         i as f64 / (points.len().max(2) - 1) as f64,
                         linear_tol,
-                    )
+                    ) || self
+                        .meets_across_boundary_in_touch_band(face, other, &points[i], linear_tol)
                 };
                 return self.sampled_points_overlap_faces_with(
                     (face_a, surface_a),

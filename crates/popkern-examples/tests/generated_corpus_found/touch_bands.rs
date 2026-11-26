@@ -65,3 +65,27 @@ fn a_cone_touching_a_frustum_beside_its_cap_rim_glues_at_a_point() {
         r#"{"cell":{"a":"C","b":"F","config":"E"},"seed":1,"index":10100105,"variant_a":1,"variant_b":1,"b_scale":1.0,"place_b":[[-0.8877543167149187,-0.3126737369449091,0.33782748168101095,-0.958428214580437],[0.321171005359311,0.10501589431070754,0.9411805603913694,-0.6941014907184521],[-0.32975969806893873,0.9440374972250986,0.007193424946040909,1.0985911597803204],[0.0,0.0,0.0,1.0]],"scene":[[-0.0009541998239879095,0.00029900720369030177,9.868538024908116e-6,-0.0019799149118942825],[0.00029510277646663783,0.000935294453386809,0.000195291159005091,-0.001557474744425849],[0.00004916347448181696,0.0001892590225198696,-0.0009806956587910948,-0.0021783319510702216],[0.0,0.0,0.0,1.0]],"scale":0.001,"offset":0.0,"rung":{"offset":0.0,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-0.0018379354265238082,-0.0014392915492012542,-0.0029886176305889195],"curve":[],"curve_closed":false,"third":null}"#,
     );
 }
+
+/// Failed at 97fc89e6 (W3 E cells, tangency design §4.8): two cones a
+/// thousandth across, B half a tolerance into A, the touch 6e-6 from
+/// both rims. B's rim rests on A's cone inside the touch's patch, and
+/// the curve of A's cone and B's base plane runs along it, reading
+/// inside A's cone and in the band of B's rim: the glued body failed as
+/// self-intersecting. A point where a face meets another at its rim,
+/// in the touch band of the face across the rim, is the touch
+/// (`BRep::meets_across_boundary_in_touch_band`).
+#[test]
+fn two_cones_touching_beside_both_rims_glue_at_a_point() {
+    passes(
+        r#"{"cell":{"a":"C","b":"C","config":"E"},"seed":1,"index":10106164,"variant_a":1,"variant_b":2,"b_scale":1.0,"place_b":[[-0.7414219975670058,-0.39084995399244177,0.545462863069391,-1.2898387682741608],[-0.3654714199437632,-0.4465285526495209,-0.8167269389906355,-1.4405276704766483],[0.5627824292993167,-0.804890405665784,0.18822160380553923,-0.00085467219853963],[0.0,0.0,0.0,1.0]],"scene":[[-0.00042143371851566605,-0.0004963401588341464,0.0007589730348481115,-0.00033359407184290293],[0.00012152865999324863,-0.0008602863624425492,-0.0004951142892258436,-0.00005780012337828478],[0.0008986792562968748,-0.00011642088010258806,0.0004228732351164295,0.0022459068265808426],[0.0,0.0,0.0,1.0]],"scale":0.001,"offset":-0.5,"rung":{"offset":-0.5,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-0.0006900849645552551,0.00026046978671402903,0.0008620654471717558],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
+
+/// Failed at 97fc89e6 (W3 E cells, tangency design §4.8): the mirror
+/// of the cones beside both rims, A's rim resting on B's cone.
+#[test]
+fn two_cones_touching_beside_both_rims_mirrored_glue_at_a_point() {
+    passes(
+        r#"{"cell":{"a":"C","b":"C","config":"E"},"seed":1,"index":10092022,"variant_a":2,"variant_b":1,"b_scale":1.0,"place_b":[[-0.3418122057022926,0.020701852205474495,0.9395402329587575,-0.5061101256089366],[0.7348536599781256,-0.6172995794895445,0.28094719713637484,1.7707062722684213],[0.5857939180716092,0.7864557600255047,0.1957876989828997,-0.49193858740476126],[0.0,0.0,0.0,1.0]],"scene":[[-0.00017916158254577797,-0.0008533905750960434,-0.0004895157338400241,-0.0020187190391982323],[0.0002603643476820839,-0.0005209545867298513,0.0008129063445571162,-0.0006851711682559048],[-0.0009487420797012092,0.00001818914243098202,0.0003155275285959217,0.0017076206780945419],[0.0,0.0,0.0,1.0]],"scale":0.001,"offset":0.0,"rung":{"offset":0.0,"scale":0.001,"steer_a":"Free","steer_b":"Free"},"aligned":false,"shift":0.0,"contact":[-0.001844416900160076,-0.002404675724810211,0.0023112453087781766],"curve":[],"curve_closed":false,"third":null}"#,
+    );
+}
