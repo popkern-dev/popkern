@@ -101,13 +101,6 @@ pub(super) fn anchor_periodic(
                 .filter(|n| !true_seam_nodes.contains(n)),
         )
         .collect();
-    if span > period * (1.0 + 1e-6) {
-        sub.report
-            .issues
-            .push(SubdivisionIssue::ChartOverwrap { span, period });
-        return;
-    }
-
     // Seam border assignment is DETERMINISTIC, not searched: the two
     // chart copies of the seam differ only by which travel direction
     // keeps the chart interior on the walk's material side. For
@@ -135,21 +128,19 @@ pub(super) fn anchor_periodic(
     let eps_w = period * 1e-6;
     // A bound set by a run's end where the chart is stretched carries
     // that end's reach as slack (PK-1185, `chart_seam_reach`).
-    let bound_slack = |bound: f64| -> f64 {
-        interior
-            .iter()
-            .filter_map(|h| Some((sub.embeddings.get(h)?, sub.period_reach.get(h)?)))
-            .flat_map(|(emb, &(rs, re))| {
-                let ends = [
-                    emb.uv.first().map(|p| (p.0, rs)),
-                    emb.uv.last().map(|p| (p.0, re)),
-                ];
-                ends.into_iter().flatten()
-            })
-            .filter(|&(u, r)| (u - bound).abs() <= r)
-            .map(|(_, r)| r)
-            .fold(0.0, f64::max)
-    };
+    let bound_slack = |bound: f64| -> f64 { bound_reach(sub, &interior, bound) };
+    // The embedding may span a period by as much as its bounds' reach:
+    // the ends placed there are one place within the tolerance, which a
+    // small part's chart stretches past a relative margin (measured: a
+    // 0.8e-3 cylinder wall's junction read 7e-4 apart in u by two runs,
+    // 5.6e-7 in space, and the wall declined to the 3D walk, whose loops
+    // did not close).
+    if span > period * (1.0 + 1e-6) + bound_slack(lo) + bound_slack(hi) {
+        sub.report
+            .issues
+            .push(SubdivisionIssue::ChartOverwrap { span, period });
+        return;
+    }
     let (window_lo_min, window_lo_max) = if hi > lo {
         (
             hi - period - eps_w - bound_slack(hi),
@@ -370,4 +361,24 @@ pub(super) fn anchor_periodic(
         &wrap_nodes,
         &seam_hes,
     );
+}
+
+/// The reach, in the periodic coordinate, of the interior runs ending
+/// within it of `bound` (PK-1185, `chart_seam_reach`): a bound set by a
+/// run's end where the chart is stretched carries that end's reach as
+/// slack.
+fn bound_reach(sub: &FaceChartSubdivision, interior: &[usize], bound: f64) -> f64 {
+    interior
+        .iter()
+        .filter_map(|h| Some((sub.embeddings.get(h)?, sub.period_reach.get(h)?)))
+        .flat_map(|(emb, &(rs, re))| {
+            let ends = [
+                emb.uv.first().map(|p| (p.0, rs)),
+                emb.uv.last().map(|p| (p.0, re)),
+            ];
+            ends.into_iter().flatten()
+        })
+        .filter(|&(u, r)| (u - bound).abs() <= r)
+        .map(|(_, r)| r)
+        .fold(0.0, f64::max)
 }

@@ -100,7 +100,11 @@ const BAND_SINE_FLOOR: f64 = 1e-3;
 /// within the tolerance of each other, so a march converges anywhere in
 /// it: a cylinder and a cone crossing at their tangency re-traced one
 /// branch half eight times, each copy up to 7e-4 from the others where
-/// its sine stayed near 1e-3 (W3c, V cells).
+/// its sine stayed near 1e-3 (W3c, V cells). The traced polyline and the
+/// seed each lie anywhere across the band, so the reach is its full
+/// width, twice the half-width: a plane along a frustum's ruling re-traced
+/// its thin loop seven times, each seed converged just past the half-width
+/// from the polylines before it (6.39e-5 against 6.35e-5).
 pub(super) fn consumed_reach(
     base: f64,
     (s1, s2): (&SurfaceGeometry, &SurfaceGeometry),
@@ -114,5 +118,5 @@ pub(super) fn consumed_reach(
         (Some(n1), Some(n2)) => n1.cross(&n2).length(),
         _ => return base,
     };
-    base.max(tolerance.linear() / sine.max(BAND_SINE_FLOOR))
+    base.max(2.0 * tolerance.linear() / sine.max(BAND_SINE_FLOOR))
 }

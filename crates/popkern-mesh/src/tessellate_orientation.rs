@@ -5,6 +5,11 @@ use super::{PairWindingVotes, PositionBitKey};
 use popkern_core::geometry::{Point3, SurfaceGeometry};
 use popkern_core::topology::BRep;
 
+/// How far past an edge's polyline length a face's advance along it may
+/// read (its segments' arc-length steps rounding against the polyline)
+/// before the face abstains from that edge's vote.
+const TRAVERSAL_OVERRUN: f64 = 1.01;
+
 pub(super) fn orient_face_meshes_coherently(
     brep: &BRep,
     face_meshes: &mut [crate::mesh::FaceMesh],
@@ -255,6 +260,21 @@ pub(super) fn orient_face_meshes_coherently(
             }
             continue;
         }
+        // A face's boundary traverses the edge once, so its advance is
+        // at most the polyline's length: past that its matched segments
+        // include another stretch of its boundary beside the edge and
+        // the face abstains (a strip round a frustum's ruling, sides
+        // 2e-3 apart along 0.49, read -0.74 and +0.501: the tie turned
+        // its mesh and volume term inside out).
+        if d1.abs().max(d2.abs()) > edge_len * TRAVERSAL_OVERRUN {
+            if popkern_core::trace::trace_enabled("mesh-orientation") {
+                eprintln!(
+                    "  [orient] pair ({f1},{f2}) advance overruns the edge: d1={d1:.6} \
+                     d2={d2:.6} edge_len={edge_len:.4}"
+                );
+            }
+            continue;
+        }
         let weight = d1.abs().min(d2.abs());
         if popkern_core::trace::trace_enabled("mesh-orientation") {
             eprintln!(
@@ -271,64 +291,10 @@ pub(super) fn orient_face_meshes_coherently(
         }
     }
 
-    // Majority-resolved adjacency, sorted for deterministic traversal.
-    let mut adj: Vec<Vec<(usize, bool)>> = vec![Vec::new(); n]; // (other, same_direction)
-    let mut pairs: Vec<_> = votes.iter().collect();
-    pairs.sort_by_key(|(k, _)| **k);
-    for (&(f1, f2), &(same, opposite)) in pairs {
-        if same == opposite {
-            // Tied evidence — no trustworthy constraint. Leave the
-            // pair unlinked rather than guess.
-            if popkern_core::trace::trace_enabled("mesh-orientation") {
-                eprintln!("  [orient] pair ({f1},{f2}) tied votes {same}:{opposite} — unlinked");
-            }
-            continue;
-        }
-        let same_dir = same > opposite;
-        if same.min(opposite) > 0.0 && popkern_core::trace::trace_enabled("mesh-orientation") {
-            eprintln!(
-                "  [orient] pair ({f1},{f2}) conflicted votes same={same:.3} opposite={opposite:.3} — majority {}",
-                if same_dir { "same" } else { "opposite" }
-            );
-        }
-        adj[f1].push((f2, same_dir));
-        adj[f2].push((f1, same_dir));
-    }
-    // BFS parity propagation per component (deterministic: seeds in
-    // index order, adjacency sorted above).
-    let mut flip: Vec<Option<bool>> = vec![None; n];
-    for seed in 0..n {
-        if flip[seed].is_some() {
-            continue;
-        }
-        flip[seed] = Some(false);
-        let mut queue = std::collections::VecDeque::from([seed]);
-        let mut component = vec![seed];
-        while let Some(f) = queue.pop_front() {
-            let f_flip = flip[f].unwrap_or(false);
-            for &(g, same_dir) in &adj[f] {
-                // Opposite traversal (same_dir=false) is CONSISTENT:
-                // g keeps f's parity. Same-direction traversal means
-                // one of the two is inside-out relative to the other.
-                let want = if same_dir { !f_flip } else { f_flip };
-                match flip[g] {
-                    None => {
-                        flip[g] = Some(want);
-                        component.push(g);
-                        queue.push_back(g);
-                    }
-                    Some(assigned) => {
-                        if assigned != want
-                            && popkern_core::trace::trace_enabled("mesh-orientation")
-                        {
-                            eprintln!(
-                                "  [orient] parity cycle conflict at faces ({f},{g}) — keeping first assignment"
-                            );
-                        }
-                    }
-                }
-            }
-        }
+    // One parity per face: the strongest constraints first, a weaker one
+    // contradicting their cycle dropped (`tessellate_orientation_parity`).
+    let (mut flip, components) = super::tessellate_orientation_parity::resolve_parity(n, &votes);
+    for component in components {
         // Component-global side: an OUTER boundary component encloses
         // positive volume (outward facing); a VOID boundary — a
         // component enclosed inside another component of the same body

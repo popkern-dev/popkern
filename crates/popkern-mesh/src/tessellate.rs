@@ -9,6 +9,8 @@ use crate::adaptive::adaptive_subdivide_bounded;
 mod tessellate_diagnostics;
 #[path = "tessellate_orientation.rs"]
 mod tessellate_orientation;
+#[path = "tessellate_orientation_parity.rs"]
+mod tessellate_orientation_parity;
 #[path = "tessellate_pcurve_range.rs"]
 mod tessellate_pcurve_range;
 use crate::mesh::{FaceMesh, TriMesh};

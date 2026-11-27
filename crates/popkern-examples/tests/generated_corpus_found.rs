@@ -13,6 +13,10 @@ use popkern_bool::NonManifoldPolicy;
 
 #[path = "generated_corpus_found/boundary_junctions.rs"]
 mod boundary_junctions;
+#[path = "generated_corpus_found/junction_identity.rs"]
+mod junction_identity;
+#[path = "generated_corpus_found/tangent_curves.rs"]
+mod tangent_curves;
 #[path = "generated_corpus_found/thousandfold.rs"]
 mod thousandfold;
 #[path = "generated_corpus_found/touch_bands.rs"]

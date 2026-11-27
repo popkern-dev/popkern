@@ -7,9 +7,10 @@ use crate::geometry::chart::ChartDescriptor;
 use popkern_math::PortableMath;
 use std::f64::consts::TAU;
 
+use crate::geometry::Point3;
 use crate::geometry::analytic_surfaces::orthonormal_basis;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use crate::geometry::{Point3, uv_projection_padding::scaled_padding_floor};
+use crate::geometry::uv_projection_padding::{padded_within, scaled_padding_floor};
 
 /// Project a 3D point onto a surface's UV parameter space.
 ///
@@ -289,19 +290,18 @@ pub fn bounded_parameter_range(
     let u_pad = ((uv_hi.0 - uv_lo.0) * 0.5).max(scaled_padding_floor(1.0, vertices, surface));
     let v_pad = ((uv_hi.1 - uv_lo.1) * 0.5).max(scaled_padding_floor(1.0, vertices, surface));
 
-    // Only override dimensions that were infinite.
-    let u_range = if u_min.is_finite() && u_max.is_finite() {
-        (u_min, u_max)
-    } else {
-        (uv_lo.0 - u_pad, uv_hi.0 + u_pad)
+    // Only override dimensions that were infinite (`padded_within`).
+    let range = |lo: f64, hi: f64, pad: f64, (a, b): (f64, f64)| {
+        if a.is_finite() && b.is_finite() {
+            (a, b)
+        } else {
+            padded_within(lo, hi, pad, (a, b))
+        }
     };
-    let v_range = if v_min.is_finite() && v_max.is_finite() {
-        (v_min, v_max)
-    } else {
-        (uv_lo.1 - v_pad, uv_hi.1 + v_pad)
-    };
-
-    (u_range, v_range)
+    (
+        range(uv_lo.0, uv_hi.0, u_pad, (u_min, u_max)),
+        range(uv_lo.1, uv_hi.1, v_pad, (v_min, v_max)),
+    )
 }
 
 /// Compute tight bounded parameter ranges for a face's surface.
@@ -392,12 +392,12 @@ fn vertex_bounded_parameter_range(
     let u_range = if u_min.is_finite() && u_max.is_finite() {
         (projected_u.0.max(u_min), projected_u.1.min(u_max))
     } else {
-        projected_u
+        padded_within(uv_lo.0, uv_hi.0, u_pad, (u_min, u_max))
     };
     let v_range = if v_min.is_finite() && v_max.is_finite() {
         (projected_v.0.max(v_min), projected_v.1.min(v_max))
     } else {
-        projected_v
+        padded_within(uv_lo.1, uv_hi.1, v_pad, (v_min, v_max))
     };
 
     (u_range, v_range)

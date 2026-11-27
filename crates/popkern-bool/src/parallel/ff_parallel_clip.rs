@@ -115,6 +115,22 @@ pub(super) fn clip_and_classify(
                     // walk chews into mixed loops (measured: torus ×
                     // cylinder seam-tangent junction; the walk closed
                     // one 10-he loop over both fragments of the face).
+                    // A piece whose ends were placed on one junction
+                    // while its source runs apart between them is the
+                    // same residue however far it runs: its two
+                    // crossings were resolved as one place (a touch),
+                    // so it is the lens round that junction, never a
+                    // record. A source passing one point twice (a
+                    // double point's lobe) keeps its piece, and a closed
+                    // source (a rim touching an edge, cut there) its
+                    // loop. Measured:
+                    // two cones half a tolerance into each other beside
+                    // their rims, A's disc x B's cone dipping 2e-6
+                    // inside A's rim between crossings 1.4e-4 apart,
+                    // both ends at the rim's touch; the midpoint test
+                    // dropped it or kept it as the midpoint fell (5.6e-7
+                    // or 3.0e-6 from the ends) and kept, it closed a
+                    // loop the walk read as a self-contact.
                     {
                         use popkern_core::geometry::curve::CurveEval as _;
                         let (c0, c1) = clipped.curve_3d.parameter_range();
@@ -126,7 +142,17 @@ pub(super) fn clip_and_classify(
                             .curve_3d
                             .point_at(c0)
                             .distance_to(&clipped.curve_3d.point_at(0.5 * (c0 + c1)));
-                        if chord_span.max(mid_span) < tolerance.linear() {
+                        let source_span = curve
+                            .curve_3d
+                            .point_at(c0)
+                            .distance_to(&curve.curve_3d.point_at(c1));
+                        let (s0, s1) = curve.curve_3d.parameter_range();
+                        let on_source = s0 <= c0 && c1 <= s1;
+                        let merged_ends =
+                            !curve.is_closed && on_source && source_span > tolerance.linear();
+                        if chord_span < tolerance.linear()
+                            && (mid_span < tolerance.linear() || merged_ends)
+                        {
                             continue;
                         }
                     }

@@ -126,6 +126,15 @@ pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimRep
             Some((start, end)) => arc_between(&fit, fit.normal, start, end),
             None => arc_on_edge(&curve.geometry, range, &fit),
         };
+        // The arc ends where the circle passes its vertices; a vertex the
+        // circle passes farther than the vertex's tolerance (and than the
+        // old curve's end lay) keeps the fit, which ends on it (measured:
+        // a frustum record's piece split at a cylinder seam's hit 7.8e-7
+        // off the record, the circle 1.5e-6 off the vertex, the loop open).
+        if !arc_ends_within_vertices(brep, edge, &curve, &arc) {
+            report.declined += 1;
+            continue;
+        }
         match coparameterised_pcurves(brep, edge, &arc, gate * 10.0, tolerance) {
             Some(pcurves) => {
                 if popkern_core::trace::trace_enabled("exact-rims") {
@@ -161,6 +170,33 @@ pub fn promote_exact_rims(brep: &mut BRep, tolerance: &Tolerance) -> ExactRimRep
         }
     }
     report
+}
+
+/// Whether each end of `arc` lies on the edge's vertex nearest it within
+/// the vertex's tolerance, or no farther than `curve`'s own end did.
+fn arc_ends_within_vertices(
+    brep: &BRep,
+    edge: EdgeHandle,
+    curve: &CurveOnEdge,
+    arc: &CurveOnEdge,
+) -> bool {
+    let Some((va, vb)) = brep.edge_vertices(edge) else {
+        return true;
+    };
+    let vertices = [va, vb];
+    let ends = |c: &CurveOnEdge| [c.geometry.point_at(c.t_start), c.geometry.point_at(c.t_end)];
+    let (old, new) = (ends(curve), ends(arc));
+    (0..2).all(|k| {
+        let Some((v, d_old)) = vertices
+            .iter()
+            .filter_map(|&v| Some((v, brep.vertices.get(v)?.position.distance_to(&old[k]))))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+        else {
+            return true;
+        };
+        let d_new = brep.vertices[v].position.distance_to(&new[k]);
+        d_new <= brep.vertex_tolerance(v).max(d_old)
+    })
 }
 
 /// The edge's vertex positions at the curve's start and end, when

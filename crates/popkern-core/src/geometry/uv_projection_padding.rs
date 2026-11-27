@@ -54,9 +54,27 @@ pub(crate) fn scaled_padding_floor(
     floor * (2.0 * size).min(1.0)
 }
 
+/// `[lo - pad, hi + pad]`, each padded end stopped at a finite native
+/// end unless the face reaches past it: a cone's chart below its apex row
+/// is the mirrored nappe, where a solver window traced a plane's tangent
+/// lines instead of on the face (generated corpus PC-K 313).
+pub(crate) fn padded_within(lo: f64, hi: f64, pad: f64, (min, max): (f64, f64)) -> (f64, f64) {
+    let a = if lo >= min {
+        (lo - pad).max(min)
+    } else {
+        lo - pad
+    };
+    let b = if hi <= max {
+        (hi + pad).min(max)
+    } else {
+        hi + pad
+    };
+    (a, b)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::scaled_padding_floor;
+    use super::{padded_within, scaled_padding_floor};
     use crate::geometry::surface::SurfaceGeometry;
     use crate::geometry::{Point3, Vec3};
 
@@ -93,5 +111,25 @@ mod tests {
     #[test]
     fn degenerate_faces_keep_the_legacy_floor() {
         assert_eq!(scaled_padding_floor(1.0, &[], &cylinder(0.0)), 1.0);
+    }
+
+    #[test]
+    fn padding_stops_at_a_finite_native_end_the_face_does_not_pass() {
+        // A cone's v from its apex: the window's padding below the apex
+        // row would reach the mirrored nappe.
+        assert_eq!(
+            padded_within(0.2, 1.0, 0.5, (0.0, f64::INFINITY)),
+            (0.0, 1.5)
+        );
+        // An infinite end never stops it.
+        assert_eq!(
+            padded_within(0.2, 1.0, 0.5, (f64::NEG_INFINITY, f64::INFINITY)),
+            (-0.3, 1.5)
+        );
+        // A face already past the end keeps its padding there.
+        assert_eq!(
+            padded_within(-0.1, 1.0, 0.5, (0.0, f64::INFINITY)),
+            (-0.6, 1.5)
+        );
     }
 }

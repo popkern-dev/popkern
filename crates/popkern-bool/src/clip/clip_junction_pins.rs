@@ -89,16 +89,25 @@ pub(super) fn pin_shallow_crossing_ends(
         if tr_len <= 0.0 {
             continue;
         }
-        let mut best: Option<(f64, Point3)> = None;
+        // The end's own junction is the nearest one on a boundary edge:
+        // an end already on it stays, and an end it does not explain stays
+        // too, never pinned past it onto a farther junction (measured: a
+        // cone's disc piece sat on its rim's crossing, the crossing 0.5° off
+        // the rim, and the farther crossing 1.2e-4 along it passed the
+        // angle gate, so both ends of the piece pinned to one point).
+        let mut nearest: Option<(f64, Point3, [f64; 3])> = None;
         for &(pj, fx, x_is_a) in &junctions {
             let d = p_end.distance_to(&pj);
-            if d >= gate || d <= linear || best.as_ref().is_some_and(|(bd, _)| *bd <= d) {
+            if d >= gate || nearest.as_ref().is_some_and(|(bd, _, _)| *bd <= d) {
                 continue;
             }
             let brep = if x_is_a { brep_a } else { brep_b };
             let Some(te) = boundary_tangent_at(brep, fx, &pj) else {
                 continue;
             };
+            nearest = Some((d, pj, te));
+        }
+        let best = nearest.filter(|&(d, _, te)| {
             let (rx, ry, rz) = (tr.x / tr_len, tr.y / tr_len, tr.z / tr_len);
             let cross = (
                 ry * te[2] - rz * te[1],
@@ -106,12 +115,9 @@ pub(super) fn pin_shallow_crossing_ends(
                 rx * te[1] - ry * te[0],
             );
             let sin = (cross.0 * cross.0 + cross.1 * cross.1 + cross.2 * cross.2).sqrt();
-            if sin <= 0.0 || d > 10.0 * linear / sin {
-                continue;
-            }
-            best = Some((d, pj));
-        }
-        if let Some((_, pj)) = best {
+            d > linear && sin > 0.0 && d <= 10.0 * linear / sin
+        });
+        if let Some((_, pj, _)) = best {
             crate::clip_endpoint_refine::set_endpoint_3d_uv(
                 piece,
                 end,
