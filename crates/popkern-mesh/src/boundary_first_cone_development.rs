@@ -36,6 +36,12 @@ use popkern_core::geometry::{Point3, Vec3};
 
 use super::BoundaryRing;
 
+#[path = "boundary_first_cone_development_azimuth.rs"]
+mod azimuth;
+#[path = "boundary_first_cone_development_cut.rs"]
+mod cut;
+pub(super) use azimuth::CurveAt;
+use azimuth::{ring_azimuths, unwrap_azimuths};
 #[path = "boundary_first_cone_development_mesh.rs"]
 mod mesh;
 pub(super) use mesh::mesh_developed;
@@ -170,7 +176,8 @@ impl SurfaceEval for Development<'_> {
 pub(super) fn development_for<'a>(
     surface: &'a SurfaceGeometry,
     rings: &[BoundaryRing],
-) -> Option<(Development<'a>, Vec<Vec<f64>>)> {
+    curve_at: CurveAt<'_>,
+) -> Option<(Development<'a>, Vec<BoundaryRing>, Vec<Vec<f64>>)> {
     let SurfaceGeometry::Cone {
         apex,
         axis,
@@ -230,16 +237,52 @@ pub(super) fn development_for<'a>(
         return None;
     };
     let (e1, e2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+    let frame = (*apex, e1, e2, *axis);
+    let mut rings = rings.to_vec();
+    // An outer ring turning once round the axis off the apex: the face
+    // holds the apex, cut along a ruling to it (`cut`).
+    if let Some((az, turns, false)) = unwrap_azimuths(&rings[0], frame, on_apex, curve_at)
+        && turns.abs() == 1.0
+    {
+        let mut holes = Vec::with_capacity(rings.len() - 1);
+        for h in &rings[1..] {
+            let Some(haz) = ring_azimuths(h, frame, on_apex, curve_at) else {
+                declined("a hole winds round the axis");
+                return None;
+            };
+            holes.push(haz);
+        }
+        let held: Vec<(&BoundaryRing, &[f64])> = rings[1..]
+            .iter()
+            .zip(&holes)
+            .map(|(h, a)| (h, a.as_slice()))
+            .collect();
+        let height = |p: &Point3| (*p - *apex).dot(axis);
+        let Some(cut) = cut::cut_to_apex(&rings[0], &az, turns, &held, (*apex, sin_a, &height))
+        else {
+            declined("every ruling to the apex crosses a ring");
+            return None;
+        };
+        rings[0] = cut;
+    }
     let mut azimuths: Vec<Vec<f64>> = Vec::with_capacity(rings.len());
-    for r in rings {
-        let Some(mut az) = ring_azimuths(r, (*apex, e1, e2, *axis), on_apex) else {
+    for r in &rings {
+        let Some(mut az) = ring_azimuths(r, frame, on_apex, curve_at) else {
             declined("a ring winds round the axis");
             return None;
         };
-        // A hole on the outer ring's sheet.
+        // A hole on the outer ring's sheet: within its span when the
+        // outer ring closes round the axis, else nearest its mean.
         if let Some(outer) = azimuths.first() {
             let mean = |a: &[f64]| a.iter().sum::<f64>() / a.len().max(1) as f64;
-            let shift = tau * ((mean(outer) - mean(&az)) / tau).round();
+            let lo = outer.iter().copied().fold(f64::INFINITY, f64::min);
+            let hi = outer.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let shift = if hi - lo >= tau {
+                let hole_lo = az.iter().copied().fold(f64::INFINITY, f64::min);
+                tau * ((lo - hole_lo) / tau).ceil()
+            } else {
+                tau * ((mean(outer) - mean(&az)) / tau).round()
+            };
             az.iter_mut().for_each(|a| *a += shift);
         }
         azimuths.push(az);
@@ -272,72 +315,9 @@ pub(super) fn development_for<'a>(
             nappe,
             domain: ((u_lo, u_hi), (h_lo, h_hi)),
         },
+        rings,
         azimuths,
     ))
-}
-
-/// A ring's sample azimuths about the axis from their positions,
-/// unwrapped along the ring (a sample on the apex takes its
-/// predecessor's), or `None` when every sample lies on the apex or the
-/// ring winds round the axis other than once through the apex.
-///
-/// A step between two samples turning less than a quarter period is read
-/// from the positions alone (where a ruling's pcurve carries an arbitrary
-/// `u` beside the apex, its positions keep one azimuth). A larger step is
-/// ambiguous from positions (a conic turning round the apex within a few
-/// samples steps past half a period), and takes the whole-period
-/// representative nearest the pcurve's own step, the curve's continuity
-/// (along one edge; across edges, its nearest representative).
-///
-/// The walk starts at the first sample off the apex after one on it, so
-/// a ring closing round the axis through the apex (a face spanning a
-/// whole period between its seam's two uses, which meet there) takes its
-/// period where it passes the apex: there the development is continuous,
-/// the seam's two uses two rays from the origin.
-fn ring_azimuths(
-    ring: &BoundaryRing,
-    (apex, e1, e2, axis): (Point3, Vec3, Vec3, Vec3),
-    on_apex: f64,
-) -> Option<Vec<f64>> {
-    let tau = std::f64::consts::TAU;
-    let n = ring.pos.len();
-    let raw = |p: &Point3| -> Option<f64> {
-        let d = *p - apex;
-        let radial = d - axis * d.dot(&axis);
-        (d.length() > on_apex && radial.length() > 0.0)
-            .then(|| radial.dot(&e2).patan2(radial.dot(&e1)))
-    };
-    let nearest = |x: f64, to: f64| x + tau * ((to - x) / tau).round();
-    let regular: Vec<bool> = ring.pos.iter().map(|p| raw(p).is_some()).collect();
-    let after_apex = (0..n).find(|&i| regular[i] && !regular[(i + n - 1) % n]);
-    let first = after_apex.or_else(|| (0..n).find(|&i| regular[i]))?;
-    let mut az = vec![0.0; n];
-    let start = raw(&ring.pos[first])?;
-    let (mut prev, mut prev_i) = (start, first);
-    for step in 1..=n {
-        let i = (first + step) % n;
-        if let Some(a) = raw(&ring.pos[i]) {
-            let d = nearest(a - prev, 0.0);
-            let d = if d.abs() < 0.25 * tau {
-                d
-            } else {
-                // Along one edge the pcurve's u is continuous; across
-                // edges their branches may differ by whole periods.
-                let du = ring.uv[i].0 - ring.uv[prev_i].0;
-                let one_edge = ring.sources[prev_i].0 == ring.sources[(i + n - 1) % n].0;
-                nearest(d, if one_edge { du } else { nearest(du, 0.0) })
-            };
-            prev += d;
-            prev_i = i;
-        }
-        if step < n {
-            az[i] = prev;
-        }
-    }
-    az[first] = start;
-    // Back round to the first sample: the whole periods the ring turned.
-    let turns = ((prev - start) / tau).round();
-    (turns == 0.0 || (turns.abs() == 1.0 && after_apex.is_some())).then_some(az)
 }
 
 #[cfg(test)]

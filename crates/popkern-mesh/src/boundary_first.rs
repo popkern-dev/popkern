@@ -202,12 +202,18 @@ pub(crate) fn tessellate_face_boundary_first(
     // A cone face sweeping round its apex close beside it meshes in the
     // cone's development (an isometry; the face chart's azimuth is
     // stretched without bound there). A decline keeps the face chart.
-    if let Some((dev, azimuths)) = boundary_first_cone_development::development_for(surface, &built)
+    let curve_at = |e: EdgeHandle, f: f64| {
+        let c = brep.edges.get(e)?.curve.as_ref()?;
+        let eval: &dyn popkern_core::geometry::curve::CurveEval = &c.geometry;
+        Some(eval.point_at(c.t_start + (c.t_end - c.t_start) * f))
+    };
+    if let Some((dev, rings, azimuths)) =
+        boundary_first_cone_development::development_for(surface, &built, &curve_at)
         && let Some(fm) = boundary_first_cone_development::mesh_developed(
             face_handle,
             (surface, orientation),
             (&descriptor, options),
-            (&dev, &built, &azimuths),
+            (&dev, &rings, &azimuths),
             split_requests,
         )
     {

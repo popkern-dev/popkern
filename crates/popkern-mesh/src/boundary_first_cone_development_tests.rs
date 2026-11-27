@@ -6,6 +6,10 @@ use popkern_core::topology::EdgeHandle;
 
 use super::{BoundaryRing, Development, development_for, ring_azimuths};
 
+fn no_curve(_: EdgeHandle, _: f64) -> Option<Point3> {
+    None
+}
+
 fn cone() -> SurfaceGeometry {
     SurfaceGeometry::Cone {
         apex: Point3::new(0.0, 0.0, 0.0),
@@ -39,7 +43,9 @@ fn sweeping_face(surface: &SurfaceGeometry) -> BoundaryRing {
 
 fn development(surface: &SurfaceGeometry) -> Development<'_> {
     let rings = [sweeping_face(surface)];
-    development_for(surface, &rings).map(|(d, _)| d).unwrap()
+    development_for(surface, &rings, &no_curve)
+        .map(|(d, _, _)| d)
+        .unwrap()
 }
 
 #[test]
@@ -74,7 +80,7 @@ fn the_development_is_an_isometry_keeping_the_face_charts_handedness() {
 fn a_ring_sweeping_round_the_apex_beside_it_develops() {
     let s = cone();
     let rings = [sweeping_face(&s)];
-    let (dev, az) = development_for(&s, &rings).unwrap();
+    let (dev, _, az) = development_for(&s, &rings, &no_curve).unwrap();
     // The azimuths are the face chart's, continuous along the ring.
     for (a, &(u, _)) in az[0].iter().zip(&rings[0].uv) {
         assert!((a - u).abs() < 1e-9, "{a} vs {u}");
@@ -89,10 +95,10 @@ fn a_face_without_a_sweep_beside_the_apex_keeps_the_face_chart() {
     let mut uv = vec![(0.2, 1.0), (0.2, 0.3)];
     uv.extend((1..=4).map(|k| (0.2 - 0.55 * k as f64, 0.3)));
     uv.extend([(-2.0, 1.0), (-1.0, 1.0)]);
-    assert!(development_for(&s, &[ring(&s, &uv)]).is_none());
+    assert!(development_for(&s, &[ring(&s, &uv)], &no_curve).is_none());
     // A ruling sliver running onto the apex: no sweep either.
     let sliver = ring(&s, &[(0.0, 1.0), (0.0, 0.0), (0.01, 1.0)]);
-    assert!(development_for(&s, &[sliver]).is_none());
+    assert!(development_for(&s, &[sliver], &no_curve).is_none());
 }
 
 #[test]
@@ -110,7 +116,7 @@ fn one_position_spread_along_the_apex_row_is_a_sweep() {
     r.uv.push((0.3, 1.0));
     r.pos.push(s.point_at(0.3, 1.0));
     r.sources.push((EdgeHandle::default(), 0.0, 1.0));
-    let (_, az) = development_for(&s, &[r]).unwrap();
+    let (_, _, az) = development_for(&s, &[r], &no_curve).unwrap();
     // Read from the position, the spread samples keep one azimuth.
     assert!(az[0][2..12].iter().all(|a| (a - 0.2).abs() < 1e-9));
 }
@@ -129,14 +135,14 @@ fn a_ring_closing_round_the_axis_through_the_apex_turns_there() {
     let mut uv = vec![(0.0, 0.0), (0.0, 1.0)];
     uv.extend((1..8).map(|k| (TAU * k as f64 / 8.0, 1.0)));
     uv.push((TAU, 1.0));
-    let az = ring_azimuths(&ring(&s, &uv), frame(), 1e-9).unwrap();
+    let az = ring_azimuths(&ring(&s, &uv), frame(), 1e-9, &no_curve).unwrap();
     assert!(
         (az[1] - 0.0).abs() < 1e-9 && (az[9] - TAU).abs() < 1e-9,
         "{az:?}"
     );
     // Round the rim alone, never through the apex: it winds.
     let rim: Vec<_> = (0..8).map(|k| (TAU * k as f64 / 8.0, 1.0)).collect();
-    assert!(ring_azimuths(&ring(&s, &rim), frame(), 1e-9).is_none());
+    assert!(ring_azimuths(&ring(&s, &rim), frame(), 1e-9, &no_curve).is_none());
 }
 
 #[test]
@@ -145,7 +151,7 @@ fn a_step_past_half_a_period_takes_the_pcurves_way() {
     // A conic turning 3.7 rad round the apex between two samples: from the
     // positions alone the nearer way is −2.58.
     let uv = [(0.0, 1.0), (0.0, 1e-3), (3.7, 1e-3), (3.7, 1.0), (1.8, 1.0)];
-    let az = ring_azimuths(&ring(&s, &uv), frame(), 1e-9).unwrap();
+    let az = ring_azimuths(&ring(&s, &uv), frame(), 1e-9, &no_curve).unwrap();
     assert!((az[2] - 3.7).abs() < 1e-9, "{az:?}");
     assert!(az[2] - az[1] > PI);
 }
@@ -169,4 +175,72 @@ fn coincident_samples_merge_into_one_with_their_spans() {
     let m = super::mesh::merge_coincident(r);
     assert_eq!(m.pos.len(), 3);
     assert_eq!(m.sources[0], (e, 0.0, 0.5));
+}
+
+#[test]
+fn a_step_whose_chord_passes_the_apex_takes_the_pcurves_way() {
+    let s = cone();
+    // A thin cap round the apex split along the seam (u = π/2): a
+    // hyperbola's arms run up near-rulings either side of the seam and
+    // sweep round the apex within 1e-4 of it, its split vertex T 5e-6
+    // from the apex. From T the next sample turns −4.77 along the curve
+    // but +1.51 between the positions, under a quarter period.
+    let h = std::f64::consts::FRAC_PI_2;
+    let uv = [
+        (h, 0.0),
+        (h, 0.5),
+        (h, 1.0),
+        (1.567, 1.0),
+        (1.556, 0.05),
+        (0.0758, 5e-6),
+        (1.586 - TAU, 0.05),
+        (1.5745 - TAU, 1.0),
+        (h - TAU, 1.0),
+        (h - TAU, 0.5),
+    ];
+    let az = ring_azimuths(&ring(&s, &uv), frame(), 1e-9, &no_curve).unwrap();
+    assert!(
+        (az[6] - az[5] - (1.586 - TAU - 0.0758)).abs() < 1e-9,
+        "{az:?}"
+    );
+}
+
+#[test]
+fn a_step_passing_round_the_apex_reads_the_edges_curve() {
+    let s = cone();
+    // The same cap, its chart `u` the face chart's own unwrap, which read
+    // the short way from T: only the edge's curve tells the turn.
+    let h = std::f64::consts::FRAC_PI_2;
+    let true_uv = [
+        (h, 0.0),
+        (h, 0.5),
+        (h, 1.0),
+        (1.567, 1.0),
+        (1.556, 0.05),
+        (0.0758, 5e-6),
+        (1.586 - TAU, 0.05),
+        (1.5745 - TAU, 1.0),
+        (h - TAU, 1.0),
+        (h - TAU, 0.5),
+    ];
+    let mut r = ring(&s, &true_uv);
+    for k in 6..10 {
+        r.uv[k].0 += TAU;
+    }
+    // Segment k runs over fractions k..k + 1 (`ring`), straight in the
+    // true chart.
+    let curve = |_: EdgeHandle, f: f64| {
+        let k = (f.floor() as usize).min(true_uv.len() - 1);
+        let (a, b) = (true_uv[k], true_uv[(k + 1) % true_uv.len()]);
+        let t = f - k as f64;
+        Some(s.point_at(a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t))
+    };
+    // Without it the step goes the positions' short way.
+    let blind = ring_azimuths(&r, frame(), 1e-9, &no_curve).unwrap();
+    assert!((blind[6] - blind[5] - (1.586 - 0.0758)).abs() < 1e-9);
+    let az = ring_azimuths(&r, frame(), 1e-9, &curve).unwrap();
+    assert!(
+        (az[6] - az[5] - (1.586 - TAU - 0.0758)).abs() < 1e-9,
+        "{az:?}"
+    );
 }
