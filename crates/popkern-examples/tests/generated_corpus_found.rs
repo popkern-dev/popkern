@@ -13,6 +13,8 @@ use popkern_bool::NonManifoldPolicy;
 
 #[path = "generated_corpus_found/boundary_junctions.rs"]
 mod boundary_junctions;
+#[path = "generated_corpus_found/cone_apex_sweep.rs"]
+mod cone_apex_sweep;
 #[path = "generated_corpus_found/junction_identity.rs"]
 mod junction_identity;
 #[path = "generated_corpus_found/tangent_curves.rs"]

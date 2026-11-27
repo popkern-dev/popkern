@@ -32,6 +32,8 @@ mod boundary_first_apex;
 mod boundary_first_apex_sweep;
 #[path = "boundary_first_cdt.rs"]
 mod boundary_first_cdt;
+#[path = "boundary_first_cone_development.rs"]
+mod boundary_first_cone_development;
 #[path = "boundary_first_delaunay.rs"]
 mod boundary_first_delaunay;
 #[path = "boundary_first_deviation.rs"]
@@ -196,9 +198,24 @@ pub(crate) fn tessellate_face_boundary_first(
         }
         return None;
     }
+    let built = built?;
+    // A cone face sweeping round its apex close beside it meshes in the
+    // cone's development (an isometry; the face chart's azimuth is
+    // stretched without bound there). A decline keeps the face chart.
+    if let Some((dev, azimuths)) = boundary_first_cone_development::development_for(surface, &built)
+        && let Some(fm) = boundary_first_cone_development::mesh_developed(
+            face_handle,
+            (surface, orientation),
+            (&descriptor, options),
+            (&dev, &built, &azimuths),
+            split_requests,
+        )
+    {
+        return Some(fm);
+    }
     let rings = match chart_rings(
         (face_handle, surface, orientation),
-        built?,
+        built,
         (periods, None, &descriptor),
         options,
     )? {
